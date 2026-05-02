@@ -321,6 +321,52 @@ public:
   }
 };
 
+// Rewrites stablehlo::GatherOp with a complex-typed operand/result by
+// converting to gather over the unpacked real representation (trailing dim 2).
+// Specifically:
+//   slice_sizes: append 2 for the new trailing real/imag dimension
+//   offset_dims: append old_result_rank (the new trailing dim in result)
+// All other dimension numbers attributes are unchanged.
+class ComplexGatherOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::GatherOp> {
+  using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::GatherOp op,
+                  OpConversionPattern<mlir::stablehlo::GatherOp>::OpAdaptor
+                      adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    int64_t oldResultRank =
+        mlir::cast<RankedTensorType>(op.getResult().getType()).getRank();
+
+    SmallVector<int64_t> newSliceSizes(op.getSliceSizes().begin(),
+                                       op.getSliceSizes().end());
+    newSliceSizes.push_back(2);
+
+    auto oldDimNums = op.getDimensionNumbers();
+    SmallVector<int64_t> newOffsetDims(oldDimNums.getOffsetDims().begin(),
+                                       oldDimNums.getOffsetDims().end());
+    newOffsetDims.push_back(oldResultRank);
+
+    auto newDimNums = mlir::stablehlo::GatherDimensionNumbersAttr::get(
+        rewriter.getContext(), newOffsetDims,
+        oldDimNums.getCollapsedSliceDims(),
+        oldDimNums.getOperandBatchingDims(),
+        oldDimNums.getStartIndicesBatchingDims(),
+        oldDimNums.getStartIndexMap(), oldDimNums.getIndexVectorDim());
+
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::GatherOp>(
+        op, newResultType, adaptor.getOperand(), adaptor.getStartIndices(),
+        newDimNums, rewriter.getDenseI64ArrayAttr(newSliceSizes),
+        op.getIndicesAreSortedAttr());
+    return success();
+  }
+};
+
 } // namespace
 
 namespace {
@@ -344,7 +390,8 @@ struct StableHLOComplexDataTypeConversionPass
     target.addDynamicallyLegalOp<
         mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
         mlir::stablehlo::SliceOp, mlir::stablehlo::ConcatenateOp,
-        mlir::stablehlo::BroadcastInDimOp>(isNotComplexType);
+        mlir::stablehlo::BroadcastInDimOp,
+        mlir::stablehlo::GatherOp>(isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
@@ -371,7 +418,8 @@ struct StableHLOComplexDataTypeConversionPass
     RewritePatternSet patterns(&getContext());
     patterns.add<
         ComplexBroadcastInDimOpConversionPattern,
-        ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
+        ComplexConstantOpConversionPattern, ComplexGatherOpConversionPattern,
+        ComplexSliceOpConversionPattern,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
         StablehloComplexToDecomposedPattern,
