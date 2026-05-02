@@ -5194,6 +5194,24 @@ public:
     starts--;
     ends--;
 
+    // Verify the slice-repeat-concat decomposition will produce the correct
+    // output size.  When start_indices has a batch dimension the gather result
+    // gains an extra leading dim (e.g. [1, 8, D]) while the source operand
+    // does not (e.g. [8, D]).  In that case indexedDim in the source maps to
+    // a different position in the output, so the concat along indexedDim would
+    // be invalid.  Bail out here and let the embedding pattern handle it.
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    int64_t frontPadSize = (starts > 0) ? (starts * sliceSize) : 0;
+    int64_t backPadSize = (ends > 0) ? (ends * sliceSize) : 0;
+    int64_t computedOutputSize =
+        frontPadSize + inputShape[indexedDim] + backPadSize;
+    if (computedOutputSize != outputType.getDimSize(indexedDim)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Concat output size along indexed dim does not match gather "
+                 "result type; batch dim in start_indices shifts output dims");
+    }
+
     SmallVector<Value> slicesToConcat;
 
     slicesToConcat = createSlices(starts, indexedDim, sliceSize, inputShape,
@@ -5203,9 +5221,6 @@ public:
 
     slicesToConcat.append(createSlices(ends, indexedDim, sliceSize, inputShape,
                                        inputType, rewriter, srcOp, input));
-
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     Value result = rewriter.create<ttir::ConcatOp>(
         srcOp.getLoc(), outputType, slicesToConcat,
