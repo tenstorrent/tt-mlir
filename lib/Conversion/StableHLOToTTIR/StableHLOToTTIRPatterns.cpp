@@ -5161,6 +5161,14 @@ public:
     auto sliceSizes = srcOp.getSliceSizes();
     int64_t indexedDim = startIndexMap[0];
     int64_t maxIndex = inputShape[indexedDim] - sliceSizes[indexedDim];
+    // When maxIndex == 0 every index is simultaneously 0 and maxIndex, so the
+    // starts/ends counter double-counts and produces a concat with wrong output
+    // size.  Fall back to StableHLOGatherToEmbeddingPattern (benefit=1) which
+    // handles single-row embedding tables correctly.
+    if (maxIndex == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Cannot apply padding pattern when maxIndex is 0");
+    }
     int64_t sliceSize = sliceSizes[indexedDim];
     int32_t starts = 0, ends = 0, lastIndex = 0;
     // It is expected that the indices are consecutive and in ascending order.
