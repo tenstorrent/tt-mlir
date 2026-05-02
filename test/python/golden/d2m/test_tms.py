@@ -901,6 +901,37 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     )
 
 
+@pytest.mark.parametrize(
+    "shape,repeat_dims",
+    [
+        ((32, 32), [1, 3]),
+        ((32, 32), [3, 5]),
+        ((1, 32, 32), [32, 1, 1]),
+        ((1, 32, 32), [1, 2, 2]),
+        ((1, 32, 64, 128), [1, 2, 3, 4]),
+        ((3, 3, 64, 64), [1, 1, 5, 5]),
+    ],
+)
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32, torch.bfloat16], ids=["f32", "i32", "bf16"]
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def repeat(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.repeat(in0, repeat_dims, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )
+
+
 # Slice tests
 @pytest.mark.parametrize(
     "shape,begins,ends,step",
