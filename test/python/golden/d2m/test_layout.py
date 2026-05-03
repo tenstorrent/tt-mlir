@@ -78,7 +78,7 @@ def test_to_layout(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -145,7 +145,7 @@ def test_view_materialization_on_return(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -237,7 +237,7 @@ def test_chained_view_composition(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -310,7 +310,7 @@ def test_view_with_padding(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -382,7 +382,7 @@ def test_multiple_grid_reblocks(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -476,7 +476,7 @@ def test_tiled_grid_reblocking(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
