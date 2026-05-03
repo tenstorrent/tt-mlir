@@ -131,7 +131,7 @@ def test_complete_tile_masking(
         target=target,
         # d2m-decompose-masking is now part of d2m-be-pipeline
         # ttcore-mark-functions-as-forward is needed for flatbuffer translation
-        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
+        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-insert-scratch-buffers,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
         print_ir="/tmp/ir_dumps",  # DEBUG: dump IR after each pass to this directory
@@ -186,7 +186,7 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
         target=target,
         # d2m-decompose-masking is now part of d2m-be-pipeline
         # ttcore-mark-functions-as-forward is needed for flatbuffer translation
-        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
+        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-insert-scratch-buffers,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -464,7 +464,7 @@ def test_multicore_partial_tile_masking(
         module,
         target=target,
         # Use custom pipeline (skips GridSelection since we set grid explicitly)
-        custom_pipeline="d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-add-scratch-inputs,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
+        custom_pipeline="d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-insert-scratch-buffers,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
