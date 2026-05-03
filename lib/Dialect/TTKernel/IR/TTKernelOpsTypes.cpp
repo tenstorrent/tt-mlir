@@ -97,13 +97,15 @@ static size_t appendArgImpl(func::FuncOp op, ArgAttr arg, bool isCompileTime) {
 }
 
 size_t mlir::tt::ttkernel::ArgSpecAttr::appendCompileTimeArg(func::FuncOp op,
-                                                             ArgAttr arg) {
-  return appendArgImpl(op, arg, /*isCompileTime=*/true);
+                                                             ArgAttr arg,
+                                                             size_t numSlots) {
+  return appendArgImpl(op, arg, /*isCompileTime=*/true, numSlots);
 }
 
 size_t mlir::tt::ttkernel::ArgSpecAttr::appendRuntimeArg(func::FuncOp op,
-                                                         ArgAttr arg) {
-  return appendArgImpl(op, arg, /*isCompileTime=*/false);
+                                                         ArgAttr arg,
+                                                         size_t numSlots) {
+  return appendArgImpl(op, arg, /*isCompileTime=*/false, numSlots);
 }
 
 void TTKernelDialect::registerTypes() {

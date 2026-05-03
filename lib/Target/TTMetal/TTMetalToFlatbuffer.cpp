@@ -457,7 +457,15 @@ createShardedBufferConfigForL1Memref(
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
-  target::Dim2d pageShape(elementShape.y(), shardShape.x());
+  // Calculate ShardSpecBuffer.
+  target::Dim2d pageShape;
+  if (mlir::isa<ttcore::TileType>(memref.getElementType())) {
+    // For tiled tensors, pageShape is tile size.
+    pageShape = target::Dim2d(elementShape.y(), elementShape.x());
+  } else {
+    // For row-major tensors, pageShape is 1xN where N is 1 full row.
+    pageShape = target::Dim2d(elementShape.y(), shardShape.x());
+  }
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);
@@ -894,6 +902,27 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     argType = target::metal::KernelArgType::KernelArgScalar;
     arg = target::metal::CreateKernelArgScalar(*cache.fbb,
                                                kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::TensorAccessor: {
+    argType = target::metal::KernelArgType::KernelArgTensorAccessor;
+    arg = target::metal::CreateKernelArgTensorAccessor(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::TensorStride: {
+    argType = target::metal::KernelArgType::KernelArgTensorStride;
+    arg = target::metal::CreateKernelArgTensorStride(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::Reserved: {
+    argType = target::metal::KernelArgType::KernelArgReserved;
+    arg = target::metal::CreateKernelArgTensorAccessor(
+              *cache.fbb, kernelArg.getOperandIndex())
               .Union();
     break;
   }

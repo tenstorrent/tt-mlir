@@ -86,6 +86,18 @@ table KernelArgScalar {
   operand_idx: uint32;
 }
 
+table KernelArgTensorAccessor {
+  operand_idx: int32;
+}
+
+table KernelArgTensorStride {
+  operand_idx: int32;
+}
+
+table KernelArgReserved {
+  operand_idx: int32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
@@ -93,6 +105,9 @@ union KernelArgType {
   KernelArgNamedArgument,
   KernelArgGlobalSemaphore,
   KernelArgScalar,
+  KernelArgTensorAccessor,
+  KernelArgTensorStride,
+  KernelArgReserved,
 }
 
 table KernelArg {
