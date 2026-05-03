@@ -378,6 +378,8 @@ void registerRuntimeBindings(nb::module_ &m) {
                                               itemsize);
       },
       "Create an empty tensor with the specified layout");
+  m.def("create_scalar_tensor", createScalarTensor,
+        "Create a tensor from single scalar");
   m.def(
       "create_multi_device_host_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
