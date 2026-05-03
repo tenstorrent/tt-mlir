@@ -3444,6 +3444,21 @@ def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TT
     let hasCanonicalizer = 1;
 }
 
+def TTKernel_NocAsyncAtomicBarrierOp : TTKernel_Op<"noc_async_atomic_barrier"> {
+    let summary = "NocAsyncAtomicBarrier";
+    let description = [{
+      Block until all outstanding non-posted atomic operations on the given
+      NOC have flushed. Pairs with `noc_semaphore_inc` and
+      `noc_semaphore_inc_multicast`.
+    }];
+
+    let arguments = (ins Optional<I8>:$noc_id);
+
+    let assemblyFormat = [{
+      `(` ($noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocAsyncWriteBarrierWithTridOp : TTKernel_Op<"noc_async_write_barrier_with_trid", [TTKernel_DeviceZoneOpTrait, TTKernel_TridNocOpTrait]> {
     let summary = "NocAsyncWriteBarrierWithTrid";
     let description = [{

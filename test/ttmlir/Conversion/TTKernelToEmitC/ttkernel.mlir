@@ -1886,6 +1886,22 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @noc_async_atomic_barrier
+    func.func @noc_async_atomic_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.call_opaque "noc_async_atomic_barrier"() :
+      ttkernel.noc_async_atomic_barrier() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_atomic_barrier_with_noc_id
+    func.func @noc_async_atomic_barrier_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
+      %noc_id = arith.constant 1 : i8
+      // CHECK: emitc.call_opaque "noc_async_atomic_barrier"(%[[NOC_ID]]) :
+      ttkernel.noc_async_atomic_barrier(%noc_id) : (i8) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @noc_semaphore_set
     func.func @noc_semaphore_set() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast

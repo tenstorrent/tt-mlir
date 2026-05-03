@@ -200,3 +200,18 @@ func.func @test_noc_semaphore_inc_wrong_addr_type() {
   "ttkernel.noc_semaphore_inc"(%bad_addr, %incr) <{posted = true}> : (!ttkernel.noc_addr, i32) -> ()
   return
 }
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// NocAsyncAtomicBarrierOp type-constraint test.
+//===----------------------------------------------------------------------===//
+
+// Test: optional $noc_id must be i8.
+func.func @test_noc_async_atomic_barrier_wrong_noc_id_type() {
+  // expected-note @+1 {{prior use here}}
+  %bad_noc_id = arith.constant 0 : i32
+  // expected-error @+1 {{use of value '%bad_noc_id' expects different type than prior uses: 'i8' vs 'i32'}}
+  "ttkernel.noc_async_atomic_barrier"(%bad_noc_id) : (i8) -> ()
+  return
+}

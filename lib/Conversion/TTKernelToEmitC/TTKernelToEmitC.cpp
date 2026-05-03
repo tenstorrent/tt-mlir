@@ -1619,6 +1619,10 @@ public:
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
         typeConverter, funcOp.getContext(), "get_noc_addr");
 
+    patterns
+        .add<TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncAtomicBarrierOp>>(
+            typeConverter, funcOp.getContext());
+
     patterns.add<TTKernelInvokeSFPIOpRewriter>(typeConverter,
                                                funcOp.getContext());
 
