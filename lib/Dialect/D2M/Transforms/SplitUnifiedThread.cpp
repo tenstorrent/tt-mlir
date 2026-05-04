@@ -28,12 +28,6 @@ namespace {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// TODO: move into some DMA utils place alongside load/store aliasing logic
-// which should be separated out to separate function after
-// inferOperandAliasing inferOperandAliasing needs to be run prior to
-// assigning memory to actually benefit from reduced mem usage from aliasing
-// TODO: add specific checks for load/store (mcast load, fabric store)
-// can infer aliasing and do the conversion
 static bool needsDMA(Value memref, Value localBuffer) {
   // Check if the local buffer is a streaming CB.
   if (localBuffer) {
@@ -75,40 +69,37 @@ bool isAliasedStore(RemoteStoreOp storeOp) {
 
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
   while (value) {
-    // check if its a cb (hoisted generic arg with cb layout attr),
+    // Check if its a cb (hoisted generic arg with cb layout attr).
     if (auto memrefType = mlir::dyn_cast<MemRefType>(value.getType())) {
-      // TODO: add back later
-      // if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
       if (llvm::find(genericOp.getAdditionalArgs(), value) !=
           genericOp.getAdditionalArgs().end()) {
-        // Skip scratch buffers
-        if (auto scratchBufferAttr =
-                mlir::dyn_cast<Operation *>(value.getDefiningOp())
-                    ->getAttr("d2m.scratch_buffer")) {
+        // Skip scratch buffers.
+        Operation *definingOp = value.getDefiningOp();
+        if (definingOp && definingOp->getAttr("d2m.scratch_buffer")) {
           return nullptr;
         }
         return value;
       }
     }
 
-    // if we are no longer inside the generic or have reached the root, stop
-    // tracing and return nullptr
+    // If we are no longer inside the generic or have reached the root, stop
+    // tracing and return nullptr.
     Operation *definingOp = value.getDefiningOp();
     if (!definingOp || !genericOp->isProperAncestor(definingOp)) {
       return nullptr;
     }
 
     // Otherwise keep tracing up the chain, if we reach an op we don't support,
-    // stop tracing and return nullptr
-    if (auto subviewOp = mlir::dyn_cast<memref::CollapseShapeOp>(definingOp)) {
-      value = subviewOp.getSrc();
+    // stop tracing and return nullptr.
+    if (auto collapseOp = mlir::dyn_cast<memref::CollapseShapeOp>(definingOp)) {
+      value = collapseOp.getSrc();
       continue;
-    } else if (auto subviewOp = mlir::dyn_cast<memref::SubViewOp>(definingOp)) {
+    }
+    if (auto subviewOp = mlir::dyn_cast<memref::SubViewOp>(definingOp)) {
       value = subviewOp.getSource();
       continue;
-    } else {
-      return nullptr;
     }
+    return nullptr;
   }
   return nullptr;
 }
@@ -116,8 +107,8 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
 LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
                                               PatternRewriter &rewriter) {
   // Look for a D2M_GenericRegionComputeOp, and collect the outermost ops that
-  // contain them in the generic op
-  // Skip ops that have the SynchronizableOpInterface::Trait,
+  // contain them in the generic op.
+  // Skip ops that have the SynchronizableOpInterface,
   // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
   // they haven't been lowered yet into non-synchronized ops
   OpBuilder::InsertionGuard guard(rewriter);
@@ -150,8 +141,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     return WalkResult::advance();
   });
 
-  // expand and merge compute regions until we hit a syncrhonizable op on both
-  // ends
+  // Expand and merge compute regions until we hit a syncrhonizable op on both
+  // ends.
   SmallVector<std::pair<Block::iterator, Block::iterator>> computeRegions;
   while (!outermostOps.empty()) {
     Operation *outermostOp = *outermostOps.begin();
@@ -159,7 +150,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     Block::iterator start = outermostOp->getIterator();
     Block::iterator end = outermostOp->getIterator();
 
-    // expand above
+    // Expand above.
     while (start != outermostOp->getBlock()->begin() &&
            !dyn_cast<SynchronizableOpInterface>(std::prev(start))) {
       start--;
@@ -168,7 +159,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       }
     }
 
-    // expand below
+    // Expand below.
     while (std::next(end) != outermostOp->getBlock()->end() &&
            !dyn_cast<SynchronizableOpInterface>(std::next(end))) {
       end++;
@@ -185,11 +176,11 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     DenseSet<Value> loadedCBOperands;
     DenseSet<Value> storedCBOperands;
 
-    // for memref load and stores, trace to cb operand to get producers and
-    // consumers for syncrhonized region
+    // For memref load and stores, trace to cb operand to get producers and
+    // consumers for syncrhonized region.
     for (Operation &op : llvm::make_range(start, end)) {
-      // for load trace src memref up to defining op and check if its a cb (as
-      // opposed to dst)
+      // For load trace src memref up to defining op and check if its a cb (as
+      // opposed to dst).
       op.walk([&](memref::LoadOp loadOp) {
         Value cb = traceComputeMemrefToCB(loadOp.getMemref(), genericOp);
         if (cb) {
@@ -198,7 +189,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
         return WalkResult::advance();
       });
 
-      // for store trace dst memref up to defining op and check if its a cb (as
+      // For store trace dst memref up to defining op and check if its a cb (as
       // opposed to dst)
       op.walk([&](memref::StoreOp storeOp) {
         Value cb = traceComputeMemrefToCB(storeOp.getMemref(), genericOp);
@@ -208,7 +199,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
         return WalkResult::advance();
       });
 
-      // TileMatmulBlockOp uses CBs directly without load/store
+      // TileMatmulBlockOp uses CBs directly without load/store.
       op.walk([&](d2m::TileMatmulBlockOp tileMatmulBlockOp) {
         Value cbA = traceComputeMemrefToCB(tileMatmulBlockOp.getA(), genericOp);
         Value cbB = traceComputeMemrefToCB(tileMatmulBlockOp.getB(), genericOp);
@@ -227,8 +218,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       });
     }
 
-    // remove allocs in load that are in store since this is output cb reuse and
-    // not an actual input
+    // Remove allocs in load that are also in store since this is output cb
+    // reuse and not an actual input.
     for (Value storedCBOperand : storedCBOperands) {
       if (loadedCBOperands.contains(storedCBOperand)) {
         loadedCBOperands.erase(storedCBOperand);
@@ -244,14 +235,14 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   return success();
 }
 
-// from cb usage info, check for load-store pairs and insert aliased cb ops for
-// alias side
+// From cb usage info, check for load-store pairs and insert aliased cb ops for
+// alias side.
 static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    auto producer = usageInfo.producers.front();
-    auto consumer = usageInfo.consumers.front();
+    auto *producer = usageInfo.producers.front();
+    auto *consumer = usageInfo.consumers.front();
 
     // Insert compute-side CB ops for the aliased half of the pair.
     // The streaming half stays as a remote_load/store for DMA.
@@ -295,8 +286,6 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
   SmallVector<RemoteLoadOp> loads;
 
   computeBlock->walk([&](Operation *op) {
-    // TODO: see if removed check for explicit CB form
-    // (loadOp.isExplicitCBForm() || toErase.contains(loadOp)) causes any issues
     if (dyn_cast<SynchronizableOpInterface>(op) &&
         !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
       auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
@@ -311,7 +300,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
 
           // get the associated producer for this operand
           // Assumes only one producer for this local buffer
-          auto associatedProducer = cbUsageInfo[localBuffer].producers.front();
+          auto *associatedProducer = cbUsageInfo[localBuffer].producers.front();
           rewriter.setInsertionPoint(synchronizedOp);
           auto cb = d2m::getOrCreateCB(
               rewriter, synchronizedOp->getParentOfType<GenericOp>(),
@@ -344,7 +333,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
 
           // get the associated consumer for this operand
           // Assumes only one consumer for this local buffer
-          auto associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
+          auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
           rewriter.setInsertionPoint(synchronizedOp);
           auto cb = d2m::getOrCreateCB(
               rewriter, synchronizedOp->getParentOfType<GenericOp>(),
@@ -381,8 +370,8 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    auto producer = usageInfo.producers.front();
-    auto consumer = usageInfo.consumers.front();
+    auto *producer = usageInfo.producers.front();
+    auto *consumer = usageInfo.consumers.front();
 
     if (mlir::isa<RemoteStoreOp>(consumer) &&
         isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
@@ -398,30 +387,19 @@ static LogicalResult eraseAliasedLoadStoreOps(
 // Convert remote_load/store to explicit CB form in the DMA thread.
 // Aliased ops are collected for deferred erasure (no DMA needed). Shared
 // buffer pairs use the output operand's CB for both ops.
-static LogicalResult
-convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
-                           DenseSet<Operation *> &toErase) {
+static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
+                                                PatternRewriter &rewriter) {
   SmallVector<RemoteLoadOp> loads;
   SmallVector<RemoteStoreOp> stores;
   SmallVector<LocalCopyOp> localCopies;
   dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
-  dmBlock->walk([&](LocalCopyOp op) {
-    if (op.isImplicitForm()) {
-      localCopies.push_back(op);
-    }
-  });
+  dmBlock->walk([&](LocalCopyOp op) { localCopies.push_back(op); });
 
   for (RemoteLoadOp loadOp : loads) {
     if (loadOp.isExplicitCBForm()) {
       continue;
     }
-
-    // removed  needsDMA and isL1ToL1Pair checks tocheck for aliased load/store
-    // with just checking aliased load/store
-    // TODO: l1-to-l1 pair is equivalent to checking aliased load + aliased
-    // store, whcih we need to add a case for in allocate where we are currently
-    // converting remote loads and stores to aliased load and store
 
     Value localBuffer = loadOp.getLocalBuffer();
     unsigned cbOperandIdx =
@@ -439,7 +417,8 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
       newLoad->setAttr("preallocated_semaphores", semAttr);
     }
 
-    toErase.insert(loadOp);
+    loadOp->dropAllUses();
+    rewriter.eraseOp(loadOp);
   }
 
   for (RemoteStoreOp storeOp : stores) {
@@ -459,11 +438,16 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
         storeOp.getLoc(), storeOp.getMemref(), storeOp.getIndices(), cb,
         storeOp.getStartDevice(), storeOp.getDeviceMcastShape(),
         storeOp.getSemaphore(), storeOp.getSemaphoreIndices());
-    toErase.insert(storeOp);
+    storeOp->dropAllUses();
+    rewriter.eraseOp(storeOp);
   }
 
   // Convert implicit-form local_copy ops to explicit CB form.
   for (LocalCopyOp copyOp : localCopies) {
+    if (copyOp.isExplicitCBForm()) {
+      continue;
+    }
+
     Location loc = copyOp.getLoc();
 
     unsigned srcCbOperandIdx =
@@ -482,7 +466,8 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     rewriter.create<LocalCopyOp>(loc, TypeRange{}, /*src=*/Value{},
                                  /*dst=*/Value{}, srcCb, dstCb,
                                  copyOp.getIndexingMaps());
-    toErase.insert(copyOp);
+    copyOp->dropAllUses();
+    rewriter.eraseOp(copyOp);
   }
 
   return success();
@@ -646,17 +631,9 @@ public:
     }
 
     // DMA thread: convert datamovement ops to explicit CB form.
-    DenseSet<Operation *> toErase;
-    if (failed(convertDMAToExplicitCBForm(dmBlock, rewriter, toErase))) {
+    if (failed(convertDMAToExplicitCBForm(dmBlock, rewriter))) {
       return failure();
     }
-    // Erase the original implicit-form ops that were converted to explicit CB
-    // form.
-    for (Operation *op : toErase) {
-      op->dropAllUses();
-      rewriter.eraseOp(op);
-    }
-    toErase.clear();
 
     eraseDMAOpsInComputeBlock(rewriter, computeBlock);
     eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);

@@ -324,7 +324,7 @@ createCBDescriptors(Builder &builder, d2m::GenericOp op,
     auto operand = op.getOperands()[operandIndex];
     // Check for hoisted CB buffer
     auto cbMemref = mlir::dyn_cast_if_present<MemRefType>(operand.getType());
-    if (!cbMemref /*|| mlir::isa<ttcore::CBLayoutAttr>(cbMemref.getLayout()) TODO: add back later*/) {
+    if (!cbMemref) {
       continue;
     }
 
@@ -669,9 +669,7 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       ttnnGenericAdditionalArgs.push_back(mapped);
     } else if (isa<d2m::LocalSemaphoreType>(arg.getType())) {
       // Local semaphores are described via createSemaphoreDescriptors; skip.
-    } else if (isa<MemRefType>(arg.getType()) /*&&
-               mlir::isa<ttcore::CBLayoutAttr>(
-                   mlir::cast<MemRefType>(arg.getType()).getLayout()) TODO: add back later*/) {
+    } else if (isa<MemRefType>(arg.getType())) {
       // CBs are described via createCBDescriptors; skip.
     } else {
       return op.emitOpError(

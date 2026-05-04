@@ -195,9 +195,6 @@ public:
       } else if (auto memrefType =
                      mlir::dyn_cast_if_present<MemRefType>(operand.getType());
                  memrefType) {
-        // TODO(sohaibnadeemTT): add back later
-        // assert(mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
-        //       "expected cb layout");
         // Hoisted CB buffer (already converted to CreateBufferOp by
         // MemrefAllocRewriter).
         if (auto aliasOp = mlir::dyn_cast<d2m::OperandAliasOp>(
@@ -206,16 +203,6 @@ public:
           // aliases. It could be a function argument of the parent func or an
           // AllocOp.
           Value aliasedMemref = aliasOp.getMemref();
-          // auto parentFunc = op->getParentOfType<func::FuncOp>();
-          // bool isFuncArg =
-          //     mlir::isa<BlockArgument>(aliasedMemref) &&
-          //     mlir::cast<BlockArgument>(aliasedMemref).getOwner() ==
-          //         &parentFunc.getBody().front();
-          // assert((isFuncArg ||
-          //         mlir::isa<memref::AllocOp>(aliasedMemref.getDefiningOp()))
-          //         &&
-          //        "expected OperandAliasOp input to be a func argument or "
-          //        "memref::AllocOp");
           unsigned cbPort = cbs.size();
           cbs.push_back(getUnderlyingMemref(aliasedMemref));
           cbOperandIndexToPort[operandIndex] = cbPort;
@@ -892,8 +879,6 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ttmetal::D2MCreateLocalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
       ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
-
-  // remove alias op after generic conversion
   patterns.add<ttmetal::D2MOperandAliasRewriter>(ctx);
 }
 
