@@ -11,8 +11,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
 namespace mlir::tt::ttmetal {
-// Options for the TTIR to TTMetal backend pipeline.
-//
+// Options for D2M pipelines.
 struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
