@@ -212,6 +212,11 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
 // Factory method to create a set of workarounds for GatherOp. The GatherOp
 // requires the input and index tensors to be in TILED layout.
 // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451
+//
+// Note: si32 → ui32 cast for the index is handled by
+// GatherSi32ProtectionWorkaround in the decomposition phase, which also
+// emits a NaN-fill mask for negative indices. By the time the operand
+// workaround runs the index dtype is always ui16/ui32.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createGatherOpOperandsWorkarounds() {
   TTNNOperandWorkarounds tiledLayoutWorkaround;

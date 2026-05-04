@@ -9,6 +9,8 @@
 // Tiled layouts for input and index (workaround should be a no-op for these).
 #ttnn_layout_input_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #ttnn_layout_index_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, u32>, #dram>, <interleaved>>
+// Tiled int32 index (workaround should cast it to uint32).
+#ttnn_layout_index_tile_i32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
 
 module attributes {} {
   // Verify that the input and index tensors are converted to tiled layout when
@@ -48,6 +50,26 @@ module attributes {} {
         <{dim = 0 : i32}>
         : (tensor<5x3xf32, #ttnn_layout_input_tile>,
            tensor<2x3xui32, #ttnn_layout_index_tile>)
+        -> tensor<2x3xf32, #ttnn_layout_output>
+    return %0 : tensor<2x3xf32, #ttnn_layout_output>
+  }
+
+  // Verify that an Int32 index tensor is cast to UInt32, since tt-metal's
+  // gather only supports unsigned integer indices.
+  func.func @gather_int32_index(
+      %arg0: tensor<5x3xf32, #ttnn_layout_input_tile>,
+      %arg1: tensor<2x3xi32, #ttnn_layout_index_tile_i32>)
+      -> tensor<2x3xf32, #ttnn_layout_output> {
+    // CHECK-LABEL: func.func @gather_int32_index
+    // CHECK-NOT: "ttnn.to_layout"(%arg0)
+    // CHECK: %[[TO_LAYOUT_INDEX:.*]] = "ttnn.to_layout"(%arg1)
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
+    // CHECK-SAME: -> tensor<2x3xui32,
+    // CHECK-NEXT: "ttnn.gather"(%arg0, %[[TO_LAYOUT_INDEX]])
+    %0 = "ttnn.gather"(%arg0, %arg1)
+        <{dim = 0 : i32}>
+        : (tensor<5x3xf32, #ttnn_layout_input_tile>,
+           tensor<2x3xi32, #ttnn_layout_index_tile_i32>)
         -> tensor<2x3xf32, #ttnn_layout_output>
     return %0 : tensor<2x3xf32, #ttnn_layout_output>
   }
