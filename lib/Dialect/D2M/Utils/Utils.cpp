@@ -387,9 +387,7 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
       return getVirtualGridInverseMapping(toLayoutOp.getOutput());
     }
 
-    // Trace through d2m.to_device to its destination operand. Host transfers
-    // materialize data into the supplied output layout, so the result inherits
-    // that output's virtual-grid mapping.
+    // ToDeviceOp results inherit the destination layout mapping.
     if (auto toDeviceOp = mlir::dyn_cast<ToDeviceOp>(defOp)) {
       return getVirtualGridInverseMapping(toDeviceOp.getOutput());
     }
@@ -445,8 +443,7 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
 }
 
 std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
-  // Mirror of getVirtualGridInverseMapping but returns the forward map
-  // attribute.
+  // Mirror getVirtualGridInverseMapping for forward maps.
   if (auto *defOp = val.getDefiningOp()) {
     if (auto emptyOp = mlir::dyn_cast<EmptyOp>(defOp)) {
       if (auto fwd = emptyOp.getVirtualGridForwardMappingAttr()) {

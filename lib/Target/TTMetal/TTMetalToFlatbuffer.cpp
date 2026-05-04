@@ -204,28 +204,17 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
                                        ttcore::DeviceAttr device,
                                        ttcore::SystemDescAttr systemDesc) {
 
-  // The code below configures the sharded buffer AS-IF it was a Nx1 sharded
-  // DRAM tensor large enough to hold all the shards distributed across all DRAM
-  // banks. However the shapes and size here are **dummy values**, such that
-  // the buffer spec occupies that exact size of the underlying D2M DRAM buffer.
-  // However the shapes in the spec DO NOT actually correspond to the D2M tensor
-  // or shard shape.
-  //
-  // This kludge is due to D2M DRAM shard->bank mapping being _cyclic_, which
-  // cannot be represented by the ShardedBufferConfig. Host<->Device transfers
-  // will have to be properly fixed using BufferDistributionSpec to describe how
-  // sharded D2M DRAM buffers are actually laid out.
-  //
-  // NOTE: For the special case of a single shard mapped to a single DRAM bank,
-  // the shapes and size here are incidentally correct. So host
-  // enqueue_write_buffer and enqeue_read_buffer commands will work correctly.
+  // D2M DRAM shard-to-bank placement is cyclic, while ShardedBufferConfig can
+  // only model a contiguous sharded buffer. Emit placeholder sharding metadata
+  // with the correct byte footprint; it is exact only for the single-shard,
+  // single-bank case.
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(memref.getLayout());
   auto memrefGridShape = shardLayout.getGridShape(memref);
   uint64_t actualShardSize = device.getShardSizeInBytes(memref, 1, true);
   uint64_t gridVolume = ttmlir::utils::volume(memrefGridShape);
 
-  // determine how many DRAM banks are actually used by D2M
+  // Determine how many DRAM banks are actually used by D2M.
   uint64_t numDramBanks =
       systemDesc.getChipDescs().front().getNumDramChannels();
   uint64_t numDRAMBanksUsed = std::min(numDramBanks, gridVolume);
@@ -235,7 +224,7 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
   uint64_t actualShardsPerBank =
       ttmlir::utils::alignUp(gridVolume, numDramBanks) / numDramBanks;
 
-  // Compute dummy shapes that occupy same space as actual D2M memref.
+  // Compute placeholder shapes that occupy the actual D2M memref footprint.
   target::Dim2d dummyShardShape(actualShardsPerBank, actualShardSize);
   target::Dim2d dummyPageShape(actualShardsPerBank, actualShardSize);
   uint64_t dummyShardSize = dummyShardShape.x() * dummyShardShape.y();
@@ -250,9 +239,7 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
       *cache.fbb, dummyTensorSize, dummyShardSize, shardSpecBuffer);
 }
 
-// Virtual-grid metadata is generated and consumed as a pair: the inverse map is
-// used by existing layout and CB paths, while the forward map is needed to emit
-// TT-Metal's virtual-shard to physical-core ordering for host transfers.
+// Virtual-grid serialization requires both inverse and forward maps.
 static bool hasVirtualGridMappingPair(
     const std::optional<AffineMap> &virtualGridInverseMapping,
     const std::optional<AffineMap> &virtualGridForwardMapping) {
@@ -263,9 +250,7 @@ static bool hasVirtualGridMappingPair(
   return virtualGridInverseMapping.has_value();
 }
 
-// Returns the physical grid shape for a memref. If the memref has virtual-grid
-// mappings, compute the 2D physical extent. Otherwise the grid is already
-// physical and returned as-is.
+// Returns the physical core grid used to back a logical memref grid.
 static SmallVector<int64_t>
 getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
                                    ttcore::DeviceAttr device, MemRefType memref,
@@ -282,10 +267,8 @@ getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
                                                           workerGridShape);
 }
 
-// TT-Metal's BufferDistributionSpec is page-indexed because it describes the
-// page mapping used by host/device transfers. Convert the compiler shard shape
-// at the serialization boundary so the layout code remains in logical shape
-// coordinates.
+// Convert logical shard dimensions to TT-Metal's page-domain distribution
+// shape.
 static std::vector<uint32_t>
 computeShardPageShapeForDistributionSpec(ArrayRef<int64_t> memrefShardShape,
                                          target::Dim2d elementShape,
@@ -299,8 +282,7 @@ computeShardPageShapeForDistributionSpec(ArrayRef<int64_t> memrefShardShape,
   for (size_t i = 0; i < memrefShardShape.size(); ++i) {
     int64_t dim = memrefShardShape[i];
     int64_t pageDim = 1;
-    // The innermost 2D plane is divided by the concrete buffer page shape.
-    // Higher dimensions are already page-count dimensions for the ND page map.
+    // Only the innermost 2D plane is divided by the concrete page shape.
     if (i == memrefShardShape.size() - 2) {
       dim *= elementShape.y();
       pageDim = pageShape.y();
@@ -396,21 +378,18 @@ createShardedBufferConfigForL1Memref(
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
 
-  // Calculate ShardSpec.
   assert(stride[stride.size() - 1] % elementSize == 0);
   int32_t shardXElements = stride[stride.size() - 2] / elementSize;
   assert((memrefShardShape[0] * stride[0] / elementSize) % shardXElements == 0);
   int32_t collapsedShardYElements =
       (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
-  // Shard shape is the fully collapsed shard down to 2D, so:
-  //   [d0 * ... * dN-2, dN-1].
+  // ShardSpec uses the fully collapsed 2D shard shape.
   target::Dim2d shardShape(collapsedShardYElements * elementShape.y() *
                                shardLayout.getBuffers(),
                            shardXElements * elementShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
-  // Calculate ShardSpecBuffer.
   target::Dim2d pageShape(elementShape.y(), shardShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
@@ -424,7 +403,6 @@ createShardedBufferConfigForL1Memref(
       cache, shardLayout, memref, elementShape, pageShape,
       hasVirtualGridMapping, virtualGridForwardMapping);
 
-  // Calculate ShardedBufferConfig.
   assert(pageShape.y() % elementShape.y() == 0);
   assert(pageShape.x() % elementShape.x() == 0);
   std::array<int32_t, 2> pageShapeInElements = {
