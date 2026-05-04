@@ -65,6 +65,16 @@ func.func @ttir_eltwise_chain(%arg0: tensor<32xf32>, %arg1: tensor<32xf32>) -> t
 
 
 // =============================================================================
+// External declaration with rank-1 signature — must be promoted so call sites
+// in participating TTIR functions stay in sync.
+// =============================================================================
+
+// CHECK-LABEL: func.func private @cpu_hoisted_decl
+// CHECK-SAME: (tensor<1x32xf32>) -> tensor<1x32xf32>
+func.func private @cpu_hoisted_decl(tensor<32xf32>) -> tensor<32xf32>
+    attributes {tt.function_type = "ForwardCPUDeclaration"}
+
+// =============================================================================
 // Function with rank-2 TTIR ops which should be left untouched.
 // =============================================================================
 
