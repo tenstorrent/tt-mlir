@@ -233,9 +233,9 @@ constantFoldEltwiseUnary(mlir::Operation *op, mlir::Attribute inputAttr,
   return nullptr;
 }
 
-bool fulfillFoldEltwiseBinaryConditions(mlir::Operation *op,
-                                        mlir::DenseElementsAttr lhs,
-                                        mlir::DenseElementsAttr rhs) {
+static bool fulfillFoldEltwiseBinaryConditions(mlir::Operation *op,
+                                               mlir::DenseElementsAttr lhs,
+                                               mlir::DenseElementsAttr rhs) {
   if (!lhs || !rhs) {
     return false;
   }
@@ -263,6 +263,26 @@ bool fulfillFoldEltwiseBinaryConditions(mlir::Operation *op,
   return true;
 }
 
+static mlir::DenseElementsAttr
+addLeadingDimsToMatchShape(mlir::DenseElementsAttr input,
+                           llvm::ArrayRef<int64_t> targetShape) {
+  ShapedType inputType = input.getType();
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  assert(inputShape.size() <= targetShape.size() &&
+         "Input rank must be less than or equal to target rank");
+
+  if (inputShape.size() == targetShape.size()) {
+    return input;
+  }
+
+  llvm::SmallVector<int64_t> newShape(targetShape.size() - inputShape.size(),
+                                      1);
+  newShape.append(inputShape.begin(), inputShape.end());
+  auto newType =
+      mlir::RankedTensorType::get(newShape, inputType.getElementType());
+  return input.reshape(newType);
+}
+
 template <typename ElementType, typename Fun>
 static ::mlir::OpFoldResult
 foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
@@ -281,6 +301,10 @@ foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
   }
 
   auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  // If we have tensors of different shapes, we need to add leading dimensions
+  // of size 1 to the smaller one.
+  lhs = addLeadingDimsToMatchShape(lhs, resultType.getShape());
+  rhs = addLeadingDimsToMatchShape(rhs, resultType.getShape());
 
   // If both inputs are splats, just use the splat values.
   if (lhs.isSplat() && rhs.isSplat()) {

@@ -132,6 +132,18 @@ module {
     return %2 : tensor<3x3xsi32>
   }
 
+  func.func @add_broadcastable_diff_shape_size() -> tensor<1x3x3xsi32> {
+    // CHECK-LABEL: @add_broadcastable_diff_shape_size
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<{{\[\[\[}}5, 6, 7], {{\[}}6, 7, 8], {{\[}}7, 8, 9]]]> : tensor<1x3x3xsi32>
+    // CHECK-NOT: "ttir.constant"
+    // CHECK-NOT: "ttir.add"
+    %0 = "ttir.constant"() {value = dense<[[1], [2], [3]]> : tensor<3x1xsi32>} : () -> tensor<3x1xsi32>
+    %1 = "ttir.constant"() {value = dense<[[[4, 5, 6]]]> : tensor<1x1x3xsi32>} : () -> tensor<1x1x3xsi32>
+    %2 = "ttir.add"(%0, %1) : (tensor<3x1xsi32>, tensor<1x1x3xsi32>) -> tensor<1x3x3xsi32>
+    return %2 : tensor<1x3x3xsi32>
+   }
+
   func.func @atan2() -> tensor<3xf32> {
     // CHECK-LABEL: @atan2
     // CHECK: "ttir.constant"
