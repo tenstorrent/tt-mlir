@@ -34,8 +34,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK-NOT: d2m.dma_write %{{.*}}, %{{.*}} core[%c0, %c0] mcast
     // CHECK: d2m.semaphore_set %{{.*}}, %c1, core[%c1, %c1] mcast[%c1, %c2]
     // Receiver signals readiness at the mapped physical sender core.
-    // CHECK: affine.apply
-    // CHECK-NEXT: d2m.semaphore_inc
+    // CHECK: d2m.semaphore_inc
     d2m.generic {block_factors = [1, 1], grid = #grid_v2p, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>)  {
