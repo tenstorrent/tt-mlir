@@ -636,7 +636,7 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
     }
     exprs.push_back(innerColExpr);
 
-    return {AffineMap::get(dimIdx, 0, exprs, ctx), operands};
+    return std::make_pair(AffineMap::get(dimIdx, 0, exprs, ctx), operands);
   }
 
   // Column cross-step case: consumer batches tile columns in different sizes
