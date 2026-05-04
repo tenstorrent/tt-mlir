@@ -1,9 +1,11 @@
 // =============================================================================
-// GPT-OSS-20B gate-up subgraph -- seeing pcc error at ~0.50
+// GPT-OSS-20B gate-up SwiGLU-style elementwise tail (post matmul / clamp /
+// slice). Fusing this chain into a single d2m.generic via D2M elementwise
+// fusion previously hit a read-after-write hazard and produced pcc ~0.5.
 // =============================================================================
 
 module {
-  func.func @gpt_oss_20b_gate_up_d2m_subgraph_0(
+  func.func @gpt_oss_20b_gate_up_eltwise_tail(
       %value      : tensor<4x544x2880xbf16>,
       %value_bias : tensor<1x1x1xbf16>,
       %gate       : tensor<4x544x2880xbf16>,

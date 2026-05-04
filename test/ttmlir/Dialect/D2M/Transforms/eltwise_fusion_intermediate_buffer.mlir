@@ -1,4 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttmetal-fe-pipeline --d2m-elementwise-fusion %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttmetal-fe-pipeline --d2m-elementwise-fusion %s | FileCheck %s --check-prefix=UNIQUE
 
 // Regression test for the read-after-write hazard in fused eltwise generics
 // when chaining 3+ elementwise ops. Previously, ElementwiseFusion mapped the
@@ -25,11 +26,26 @@ module {
   }
 }
 
+// (1) Structural check: the chain fuses into a single compute d2m.generic,
+//     and the fused region contains exactly three linalg.generic ops in the
+//     original chain order: tile_add -> tile_mul -> tile_sigmoid. Any extra
+//     or missing linalg.generic would trip these checks.
 // CHECK-LABEL: func.func @three_op_chain
-//
-// Inside the fused region, capture the outs SSA value of the first
-// linalg.generic. None of the subsequent linalg.generic ops in the IR may
-// reuse that exact SSA value: each must have its own distinct intermediate
-// (or final) output buffer.
-// CHECK:     linalg.generic{{.*}}outs(%[[FIRST_OUT:[^ ]+]] : tensor
-// CHECK-NOT: linalg.generic{{.*}}outs(%[[FIRST_OUT]] : tensor
+// CHECK:           linalg.generic
+// CHECK:           "d2m.tile_add"
+// CHECK:           linalg.generic
+// CHECK:           "d2m.tile_mul"
+// CHECK:           linalg.generic
+// CHECK:           "d2m.tile_sigmoid"
+// CHECK-NOT:       linalg.generic
+// CHECK-NOT:       "d2m.tile_add"
+// CHECK-NOT:       "d2m.tile_mul"
+// CHECK-NOT:       "d2m.tile_sigmoid"
+
+// (2) Aliasing check (separate FileCheck pass): each linalg.generic in the
+//     fused region must have its OWN outs tensor.empty. Capture the first
+//     linalg.generic's outs SSA value and assert no later linalg.generic
+//     reuses it. Without the fix, all three linalgs share the same outs.
+// UNIQUE-LABEL: func.func @three_op_chain
+// UNIQUE:       linalg.generic{{.*}}outs(%[[FIRST_OUT:[^ ]+]] : tensor
+// UNIQUE-NOT:   linalg.generic{{.*}}outs(%[[FIRST_OUT]] : tensor

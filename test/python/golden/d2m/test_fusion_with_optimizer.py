@@ -22,7 +22,9 @@ MLIR_SNIPPETS_DIR = os.path.join(
     "mlir_snippets/models/gpt_oss_20b",
 )
 GPT_OSS_20B_SNIPPETS = [
-    "gate_up_d2m_subgraph_0",
+    "gate_up",
+    "rope_embedding",
+    "gate_up_eltwise_tail",
 ]
 
 
