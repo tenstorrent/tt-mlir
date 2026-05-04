@@ -901,6 +901,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     )
 
 
+# Skipping sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
 @pytest.mark.parametrize(
     "shape,repeat_dims",
     [
@@ -915,7 +916,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.int32, torch.bfloat16], ids=["f32", "i32", "bf16"]
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
 def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
