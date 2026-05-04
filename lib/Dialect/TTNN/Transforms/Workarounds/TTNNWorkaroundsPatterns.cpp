@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpPadHiddenDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
@@ -615,6 +616,7 @@ public:
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
+          workarounds::decomposition::EmbeddingOpPadHiddenDimRewritePattern,
           workarounds::decomposition::GroupNormAffineReshapeRewritePattern,
           workarounds::decomposition::ArgMaxOpDimRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
