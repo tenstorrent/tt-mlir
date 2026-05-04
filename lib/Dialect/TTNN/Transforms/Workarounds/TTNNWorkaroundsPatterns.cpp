@@ -173,13 +173,17 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       mlir::cast<RankedTensorType>(opResult.getType());
 
   // Create the new output layout attribute with the updated tensor layout,
-  // buffer type, memory layout and data type.
+  // buffer type, memory layout and data type. Trailing .withTensorShape(...)
+  // re-canonicalizes the memref shard shape under the new (bufferType,
+  // memLayout) — see createToLayoutOp in TransformUtils.cpp for the same
+  // pattern and rationale.
   TTNNLayoutAttr newOutputLayoutAttr =
       opResultLayoutAttr.withElementType(elementType, opResultType.getShape())
           .withBufferType(
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
           .withMemoryLayout(
-              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
+              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue)
+          .withTensorShape(opResultType.getShape());
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType = utils::RankedTensorTypeFactory::create(

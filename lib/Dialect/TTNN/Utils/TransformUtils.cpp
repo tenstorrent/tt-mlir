@@ -84,12 +84,21 @@ ToLayoutOp createToLayoutOp(Operation *op,
   // Get the input operand type.
   RankedTensorType inputToLayoutOpType = inputValue.getType();
 
-  // Create the new encoding for the output tensor type.
+  // Create the new encoding for the output tensor type. The trailing
+  // .withTensorShape(...) re-runs TTNNLayoutAttr::get(tensorShape, ...) under
+  // the new (bufferType, memLayout) so the memref shard shape is recomputed
+  // (e.g. L1 + Interleaved + RowMajor flattens to
+  // <1 x tensorVolume / numCores>). Without this re-canonicalization the
+  // bare withBufferType / withMemoryLayout chain preserves the prior
+  // layout's shard shape verbatim and produces a non-canonical encoding,
+  // which later fails verification when downstream passes (e.g.
+  // TTNNDecomposeLayouts) rebuild the type via the canonical path.
   TTNNLayoutAttr toLayoutOpResultEncoding =
       inputLayoutAttr
           .withElementType(elementType, inputToLayoutOpType.getShape())
           .withBufferType(targetTensorBufferType)
-          .withMemoryLayout(targetTensorMemoryLayout);
+          .withMemoryLayout(targetTensorMemoryLayout)
+          .withTensorShape(inputToLayoutOpType.getShape());
 
   // Override the grid when a custom target grid is specified.
   if (targetGrid) {

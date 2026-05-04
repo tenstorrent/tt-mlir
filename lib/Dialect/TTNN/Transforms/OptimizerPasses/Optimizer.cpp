@@ -854,10 +854,16 @@ private:
       TTNNLayoutAttr layoutAttr =
           mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
-      // Create a new tensor type with DRAM layout.
+      // Create a new tensor type with DRAM layout. The trailing
+      // .withTensorShape(...) reruns TTNNLayoutAttr::get(tensorShape, ...)
+      // so the memref shard shape is recomputed under the new (bufferType,
+      // memLayout) rather than carrying over the source layout's shard
+      // shape — see calculateLogicalShardShapeForL1Interleaved /
+      // calculateLogicalShardShapeForSharding (TTNNOpsAttrs.cpp).
       TTNNLayoutAttr dramLayout =
           layoutAttr.withBufferType(BufferType::DRAM)
-              .withMemoryLayout(TensorMemoryLayout::Interleaved);
+              .withMemoryLayout(TensorMemoryLayout::Interleaved)
+              .withTensorShape(tensorShape);
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorShape, tensorType.getElementType(), dramLayout);
 
@@ -970,9 +976,16 @@ private:
       TTNNLayoutAttr layoutAttr =
           mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
+      // .withTensorShape(...) re-canonicalizes the memref shard shape
+      // through TTNNLayoutAttr::get(tensorShape, ...). For L1 + Interleaved
+      // + RowMajor on a 1x1 grid this produces the canonical
+      // <1 x tensorVolume> form, not the source layout's shape
+      // (which withBufferType / withMemoryLayout would otherwise preserve
+      // verbatim and leave non-canonical).
       TTNNLayoutAttr l1InterleavedLayout =
           layoutAttr.withBufferType(BufferType::L1)
-              .withMemoryLayout(TensorMemoryLayout::Interleaved);
+              .withMemoryLayout(TensorMemoryLayout::Interleaved)
+              .withTensorShape(tensorType.getShape());
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorType.getShape(), tensorType.getElementType(),
           l1InterleavedLayout);
