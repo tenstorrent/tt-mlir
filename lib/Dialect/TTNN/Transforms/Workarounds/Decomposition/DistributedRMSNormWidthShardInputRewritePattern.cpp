@@ -11,6 +11,8 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 
+#include <optional>
+
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 // Prepares DistributedRMSNormOp for the tt-metal fused_rms_minimal kernel.
@@ -261,20 +263,34 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   auto scalarShardShape = desiredInputLayout.getScalarShardShape();
   int64_t blockH = scalarShardShape[0] / tileWidth;
   int64_t blockW = scalarShardShape[1] / tileWidth;
-  int64_t gridW = std::min(numCores, physicalGrid[0]);
-  int64_t gridH = (numCores + physicalGrid[0] - 1) / physicalGrid[0];
+
+  // Derive both the kernel's compute grid and the global-semaphore range
+  // from the bounding box of the input's shard cores
+  std::optional<ttnn::ShardSpecAttr> inputShardSpec =
+      inputMemoryConfig.getShardSpec();
+  assert(inputShardSpec.has_value() &&
+         "width-sharded input must have a shard spec");
+  std::optional<ttnn::CoreRangeAttr> semaphoreCoreRange =
+      inputShardSpec->getCoreRangeSet().getBoundingBox();
+  assert(semaphoreCoreRange.has_value() &&
+         "width-sharded input shard spec must have at least one core range");
+  ttnn::CoreCoordAttr boxStart = semaphoreCoreRange->getStartCoord();
+  ttnn::CoreCoordAttr boxEnd = semaphoreCoreRange->getEndCoord();
+
+  // Same as tt-metal GridParams: gs = bbox.end - bbox.start + 1 (inclusive
+  // bounding box of the input shard cores).
+  uint64_t gridW = boxEnd.getX() - boxStart.getX() + 1;
+  uint64_t gridH = boxEnd.getY() - boxStart.getY() + 1;
   auto programConfigAttr =
       ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
           rewriter.getContext(),
           ttnn::CoreCoordAttr::get(rewriter.getContext(), gridW, gridH),
           /*subblock_w=*/1, blockH, blockW, /*inplace=*/false);
 
-  // Global semaphore for the fused kernel's all-gather. The core range
-  // mirrors the input's shard grid.
-  auto semaphoreCoreRangeAttr = ttnn::CoreRangeAttr::get(
-      rewriter.getContext(),
-      ttnn::CoreCoordAttr::get(rewriter.getContext(), 0, 0),
-      ttnn::CoreCoordAttr::get(rewriter.getContext(), gridW - 1, gridH - 1));
+  // Global semaphore for the fused kernel's all-gather. The core range is
+  // the bounding box of the input's actual shard cores so the semaphore is
+  // guaranteed to live on cores that exist on the device.
+  ttnn::CoreRangeAttr semaphoreCoreRangeAttr = *semaphoreCoreRange;
   ttnn::CreateGlobalSemaphoreOp semaphoreOp;
   {
     OpBuilder::InsertionGuard guard(rewriter);

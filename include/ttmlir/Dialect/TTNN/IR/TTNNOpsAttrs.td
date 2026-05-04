@@ -112,6 +112,12 @@ def TTNN_CoreRangeSetAttr: TTNN_Attr<"CoreRangeSet", "core_range_set"> {
   let parameters = (ins OptionalArrayRefParameter<"CoreRangeAttr">:$core_ranges);
   let assemblyFormat = "`<` (`[` qualified($core_ranges)^ `]`)? `>`";
 
+  let extraClassDeclaration = [{
+    // Returns the smallest CoreRange that contains every core in this set.
+    // Returns std::nullopt for an empty set.
+    std::optional<CoreRangeAttr> getBoundingBox() const;
+  }];
+
   let genVerifyDecl = 1;
 }
 
