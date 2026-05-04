@@ -550,9 +550,13 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
   // we return false.
   try {
     auto tensorSpec = conversion::getTensorSpec(tensorShape, layout);
+    // GridAttr.getShape() returns [Y, X] (rows, cols) per createWorkerGrid
+    // convention; CoreCoord(x, y) takes X first.  Pass shape[1]=X to .x and
+    // shape[0]=Y to .y so the validate's worker rectangle has the right
+    // extent on non-square chips (e.g., Blackhole 10x11).
     auto computeGridSize = ::tt::tt_metal::CoreCoord{
-        static_cast<std::size_t>(maxGrid.getShape()[0]),
-        static_cast<std::size_t>(maxGrid.getShape()[1])};
+        static_cast<std::size_t>(maxGrid.getShape()[1]),
+        static_cast<std::size_t>(maxGrid.getShape()[0])};
     return conversion::validateTensorSpec(tensorSpec, computeGridSize);
   } catch (const std::exception &e) {
     return false;

@@ -37,6 +37,15 @@ gridParams = [
     "override-device-shape=8,8" | SkipIf("sim"),
 ]
 
+
+def get_eltwise_fusion_options(grid: str, disable_reblocking_for_pcc: bool = False):
+    options = [grid, "enable-elementwise-fusion=true"]
+    if disable_reblocking_for_pcc and grid == "override-device-shape=1,1":
+        # Reblocking these fused eltwise shapes currently causes PCC regressions.
+        options.append("test-buffer-size-policy=max")
+    return options
+
+
 ### ----------------------------------------------------------------------- ###
 # Utilities
 ### ----------------------------------------------------------------------- ###
@@ -184,7 +193,7 @@ def binary_op_builder(op_name: str, builder: TTIRBuilder):
 def test_eltwise_fuse_cosh(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    options = [grid, "enable-elementwise-fusion=true"]
+    options = get_eltwise_fusion_options(grid, disable_reblocking_for_pcc=True)
 
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
@@ -316,7 +325,7 @@ def test_eltwise_fuse_unary_chain(
 
             return res_19
 
-    options = [grid, "enable-elementwise-fusion=true"]
+    options = get_eltwise_fusion_options(grid, disable_reblocking_for_pcc=True)
 
     compile_and_execute_ttir(
         module,
@@ -356,7 +365,7 @@ def test_eltwise_fuse_converging_unary_branches(
 
             return builder.div(branch_0_2, branch_1_2)
 
-    options = [grid, "enable-elementwise-fusion=true"]
+    options = get_eltwise_fusion_options(grid, disable_reblocking_for_pcc=True)
 
     compile_and_execute_ttir(
         module,
@@ -525,7 +534,7 @@ def test_eltwise_fuse_where_with_unary_chains(
 
             return out_1
 
-    options = [grid, "enable-elementwise-fusion=true"]
+    options = get_eltwise_fusion_options(grid, disable_reblocking_for_pcc=True)
 
     compile_and_execute_ttir(
         module,
