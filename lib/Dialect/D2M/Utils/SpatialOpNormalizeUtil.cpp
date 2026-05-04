@@ -25,31 +25,6 @@ static d2m::GenericOp getSingleGenericOpFromSpatialRegion(Region &region) {
   return genericOps.front();
 }
 
-// Operand used by a nested generic, traced through view_layout chains that stay
-// inside the spatial op until a value defined outside the spatial regions.
-static Value resolveToRegionBorderValue(Value operand,
-                                        d2m::SpatialOp spatialOp) {
-  auto inSpatialRegion = [&](Value val) {
-    Operation *def = val.getDefiningOp();
-    if (!def) {
-      return false;
-    }
-    Region *parent = def->getBlock()->getParent();
-    return llvm::any_of(
-        spatialOp->getRegions(),
-        [parent](Region &spatialRegion) { return &spatialRegion == parent; });
-  };
-  Value current = operand;
-  while (inSpatialRegion(current)) {
-    if (auto viewOp = current.getDefiningOp<d2m::ViewLayoutOp>()) {
-      current = viewOp.getInput();
-    } else {
-      break;
-    }
-  }
-  return current;
-}
-
 // Hoist every op except d2m.generic out of each spatial region: prefix ops
 // move before the spatial (forward moveBefore order), suffix ops (after generic
 // until an optional d2m.spatial_yield or block end) move after the spatial
@@ -144,13 +119,12 @@ static void rebuildSpatialOpInsOutsAndResultTypes(d2m::SpatialOp spatialOp) {
   for (Region &region : spatialOp->getRegions()) {
     d2m::GenericOp genericOp = getSingleGenericOpFromSpatialRegion(region);
     for (Value input : genericOp.getInputs()) {
-      Value borderInput = resolveToRegionBorderValue(input, spatialOp);
-      if (seenInputs.insert(borderInput).second) {
-        inputs.push_back(borderInput);
+      if (seenInputs.insert(input).second) {
+        inputs.push_back(input);
       }
     }
     for (Value output : genericOp.getOutputs()) {
-      outputs.push_back(resolveToRegionBorderValue(output, spatialOp));
+      outputs.push_back(output);
     }
   }
   spatialOp.getInputsMutable().assign(inputs);
