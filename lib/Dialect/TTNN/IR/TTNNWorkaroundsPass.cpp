@@ -320,7 +320,12 @@ TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
     ttnn::SliceDynamicOp op) {
+  // The tt-metal slice with tensor args (dynamic) requires ROW_MAJOR layout
+  // for the input tensor. The device-only TILE path needs slice_dim and
+  // num_devices which are not provided by the TTIR→TTNN lowering.
+  // https://github.com/tenstorrent/tt-metal/issues/42778
   TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   Type inputType = op.getInput().getType().getElementType();
   uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
   if (inputType.isUnsignedInteger() && bitWidth < 32) {
@@ -329,11 +334,17 @@ TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
   TTNNOperandWorkarounds uInt32Workaround;
   uInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
 
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  if (inputType.isUnsignedInteger() && bitWidth < 32) {
+    outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+  }
+
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(inputWorkaround)
       .addInputOperandWorkaround(uInt32Workaround)
       .addInputOperandWorkaround(uInt32Workaround)
-      .addOutputOperandWorkaround(inputWorkaround);
+      .addOutputOperandWorkaround(outputWorkaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
