@@ -1,15 +1,13 @@
 // REQUIRES: opmodel
-// RUN: not ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-fusing-pass=true" --mlir-print-local-scope %s 2>&1 | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-fusing-pass=true" --mlir-print-local-scope -o %t %s
+// RUN: FileCheck %s --input-file=%t
 //
-// Minimal reproducer for the gpt-oss D2M + optimizer issue.
+// Regression test for the D2M + optimizer rank normalization issue (#7735).
 //
 // The add + multiply chain gets fused into a D2M subgraph. The 1D concat
-// stays as a TTNN op in the main function. When the D2M pipeline runs
-// TTIRRankNormalization, it expands 1D tensor types to 2D (prepending a
-// size-1 dimension) on the surviving ttnn.concat without updating its dim
-// attribute, causing the concat verifier to fail.
-
-// THIS TEST FAILS WITHOUT THE CHANGE IN RANKNORMALIZATION.CPP BUT SUCCEEDS WITH THE CHANGE.
+// stays as a TTNN op in the main function. TTIRRankNormalization must NOT
+// touch the main function (which has only TTNN ops after D2M fusing), so
+// the 1D concat survives without its dim attribute being invalidated.
 
 module {
   func.func @concat_with_d2m(
@@ -27,4 +25,14 @@ module {
   }
 }
 
-// CHECK: 'ttnn.concat' op Output tensor dimension 0 must be equal to the sum of input tensor dimensions at the same axis (2), but got 1
+// CHECK: func.func @concat_with_d2m
+
+// D2M subgraph compiled into generic ops (add + multiply).
+// CHECK: "ttnn.generic"
+
+// Concat must survive unchanged.
+// CHECK: "ttnn.concat"
+
+// No stray casts or leftover D2M ops.
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK-NOT: ttnn.d2m_subgraph
