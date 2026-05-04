@@ -18,7 +18,8 @@ from conftest import clear_device_cache, get_request_kwargs
 pytestmark = [pytest.mark.frontend("ttir")]
 
 MLIR_SNIPPETS_DIR = os.path.join(
-    os.path.dirname(__file__), "mlir_snippets/models/gpt_oss_20b"
+    os.path.dirname(os.path.dirname(__file__)),
+    "mlir_snippets/models/gpt_oss_20b",
 )
 GPT_OSS_20B_SNIPPETS = [
     "gate_up_d2m_subgraph_0",
