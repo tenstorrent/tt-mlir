@@ -446,7 +446,6 @@ private:
 
     auto deviceOp =
         utils::getOrInsertDevice(rewriter, runAndCaptureTraceFuncEntryBlock);
-    auto device = ttcore::lookupDevice(deviceOp);
 
     // Create or reuse trace input slots on device.
     // - Device-resident args (constants/parameters/KV cache): use directly
@@ -468,11 +467,8 @@ private:
 
       ttnn::TTNNLayoutAttr ttnnLayoutAttr =
           utils::getLayoutAttrFromTensor(deviceTensorType);
-      ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-          context, ttnnLayoutAttr.getMemLayout(),
-          ttnn::BufferTypeAttr::get(context, ttnnLayoutAttr.getBufferType()),
-          utils::createShardSpecIfNeeded(ttnnLayoutAttr,
-                                         device.getWorkerGrid()));
+      ttnn::MemoryConfigAttr memoryConfigAttr =
+          ttnn::MemoryConfigAttr::get(ttnnLayoutAttr);
 
       // Allocate an empty tensor on the device to serve as the trace input slot
       // for this argument.
