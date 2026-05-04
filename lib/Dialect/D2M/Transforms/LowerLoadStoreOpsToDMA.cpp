@@ -197,12 +197,9 @@ public:
           builder.create<scf::YieldOp>(loc);
         },
         [&](OpBuilder &builder, Location loc) {
-          // Receiver: signal ready and wait for sender to finish.
-          SmallVector<Value> senderCoreIndex;
-
           SmallVector<Value> physicalSenderCoreIndex =
               mapVirtualToPhysicalCoreIndex(builder, loc, genericOp.getGrid(),
-                                            senderCoreIndex);
+                                            mcastStartIndex);
           builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
                                          physicalSenderCoreIndex);
           builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
