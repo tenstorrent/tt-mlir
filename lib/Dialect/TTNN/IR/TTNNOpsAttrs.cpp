@@ -434,13 +434,17 @@ llvm::LogicalResult TTNNLayoutAttr::verify(
 // param layoutAttr The TTNNLayoutAttr to create MemoryConfigAttr from.
 // param deviceGrid Device grid to use for sharding spec.
 // return The constructed MemoryConfigAttr.
-MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
-                                       mlir::tt::ttcore::GridAttr deviceGrid) {
+MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr) {
   BufferTypeAttr bufferTypeAttr =
       mlir::cast<BufferTypeAttr>(layoutAttr.getMemref().getMemorySpace());
-  return MemoryConfigAttr::get(
-      layoutAttr.getContext(), layoutAttr.getMemLayout(), bufferTypeAttr,
-      utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
+  TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
+  std::optional<ShardSpecAttr> shardSpec = std::nullopt;
+  if (tensorMemoryLayout &&
+      isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
+    shardSpec = ShardSpecAttr::get(layoutAttr.getContext(), layoutAttr);
+  }
+  return MemoryConfigAttr::get(layoutAttr.getContext(), tensorMemoryLayout,
+                               bufferTypeAttr, shardSpec);
 }
 
 MemoryConfigAttr MemoryConfigAttr::get(
