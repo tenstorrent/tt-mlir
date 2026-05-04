@@ -1085,6 +1085,7 @@ mlir::tt::ttir::LogicalRightShiftOp::fold(FoldAdaptor adaptor) {
       anyOf<llvm::APInt>(rhs, std::mem_fn(&llvm::APInt::isNegative))) {
     return nullptr;
   }
+
   // If every shift amount is >= the LHS bit width, the result is all zeros
   // regardless of LHS.
   if (allOf<llvm::APInt>(
@@ -1092,15 +1093,13 @@ mlir::tt::ttir::LogicalRightShiftOp::fold(FoldAdaptor adaptor) {
     auto resultType = mlir::cast<ShapedType>(getResult().getType());
     return SplatElementsAttr::get(resultType, llvm::APInt(width, 0));
   }
-  if (anyOf<llvm::APInt>(rhs, [width](const llvm::APInt &val) {
-        return val.getLimitedValue() > width;
-      })) {
-    return nullptr;
-  }
 
   return constantFoldEltwiseBinaryInt(
       *this, adaptor.getLhs(), adaptor.getRhs(),
       [](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        if (rhs.uge(lhs.getBitWidth())) {
+          return llvm::APInt::getZero(lhs.getBitWidth());
+        }
         return lhs.lshr(rhs);
       });
 }
@@ -1144,7 +1143,6 @@ mlir::tt::ttir::LogicalRightShiftOp::fold(FoldAdaptor adaptor) {
 // LogicalLeftShiftOp folder
 ::mlir::OpFoldResult
 mlir::tt::ttir::LogicalLeftShiftOp::fold(FoldAdaptor adaptor) {
-  unsigned width = getLhs().getType().getElementType().getIntOrFloatBitWidth();
   auto rhs = mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getRhs());
   if (!rhs) {
     return nullptr;
@@ -1153,15 +1151,13 @@ mlir::tt::ttir::LogicalLeftShiftOp::fold(FoldAdaptor adaptor) {
       anyOf<llvm::APInt>(rhs, std::mem_fn(&llvm::APInt::isNegative))) {
     return nullptr;
   }
-  if (anyOf<llvm::APInt>(rhs, [width](const llvm::APInt &val) {
-        return val.getLimitedValue() > width;
-      })) {
-    return nullptr;
-  }
 
   return constantFoldEltwiseBinaryInt(
       *this, adaptor.getLhs(), adaptor.getRhs(),
       [](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        if (rhs.uge(lhs.getBitWidth())) {
+          return llvm::APInt::getZero(lhs.getBitWidth());
+        }
         return lhs.shl(rhs);
       });
 }
