@@ -16,6 +16,15 @@
 namespace mlir::tt::d2m {
 namespace detail {
 
+static d2m::GenericOp getSingleGenericOpFromSpatialRegion(Region &region) {
+  TT_assertv(!region.empty(), "each spatial region must not be empty.");
+  Block &regionBlock = region.front();
+  auto genericOps = llvm::to_vector(regionBlock.getOps<d2m::GenericOp>());
+  TT_assertv(genericOps.size() == 1u,
+             "each spatial region must contain exactly one d2m.generic op.");
+  return genericOps.front();
+}
+
 // Operand used by a nested generic, traced through view_layout chains that stay
 // inside the spatial op until a value defined outside the spatial regions.
 static Value resolveToRegionBorderValue(Value operand,
@@ -53,13 +62,9 @@ static void hoistNonGenericOpsAroundSpatial(d2m::SpatialOp spatialOp) {
   unsigned cumulativeGenericResults = 0;
 
   for (Region &spatialRegion : spatialOp->getRegions()) {
-    TT_assertv(!spatialRegion.empty(),
-               "each spatial region must not be empty.");
+    d2m::GenericOp genericOp =
+        getSingleGenericOpFromSpatialRegion(spatialRegion);
     Block &regionBlock = spatialRegion.front();
-    auto genericOps = llvm::to_vector(regionBlock.getOps<d2m::GenericOp>());
-    TT_assertv(genericOps.size() == 1u,
-               "each spatial region must contain exactly one d2m.generic op.");
-    d2m::GenericOp genericOp = genericOps.front();
 
     llvm::SmallVector<Operation *> beforeOps;
     llvm::SmallVector<Operation *> afterOps;
@@ -136,16 +141,12 @@ static void rebuildSpatialOpInsOutsAndResultTypes(d2m::SpatialOp spatialOp) {
   llvm::SmallVector<Value> inputs;
   llvm::SmallVector<Value> outputs;
   for (Region &region : spatialOp->getRegions()) {
-    if (region.empty()) {
-      continue;
+    d2m::GenericOp genericOp = getSingleGenericOpFromSpatialRegion(region);
+    for (Value input : genericOp.getInputs()) {
+      inputs.push_back(resolveToRegionBorderValue(input, spatialOp));
     }
-    for (d2m::GenericOp genericOp : region.front().getOps<d2m::GenericOp>()) {
-      for (Value input : genericOp.getInputs()) {
-        inputs.push_back(resolveToRegionBorderValue(input, spatialOp));
-      }
-      for (Value output : genericOp.getOutputs()) {
-        outputs.push_back(resolveToRegionBorderValue(output, spatialOp));
-      }
+    for (Value output : genericOp.getOutputs()) {
+      outputs.push_back(resolveToRegionBorderValue(output, spatialOp));
     }
   }
   spatialOp.getInputsMutable().assign(inputs);
