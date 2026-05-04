@@ -336,12 +336,26 @@ public:
     ConversionTarget target(*ctx);
     target.addLegalDialect<ttnn::TTNNDialect>();
 
-    // A func participates in rank normalization iff its body contains at least
-    // one TTIR-dialect op. Funcs without any TTIR op (e.g. pure-TTNN
-    // const-eval helpers) are
-    // left entirely untouched.
+    // A func participates in rank normalization iff either:
+    //  - its signature needs rank expansion and it is external (e.g.
+    //    CPU-hoisted forward declarations), or
+    //  - its body contains at least one TTIR-dialect op.
+    //
+    // This keeps pure non-TTIR helper functions (e.g. TTNN const-eval)
+    // untouched while ensuring external declarations that need signature
+    // normalization remain eligible for FuncOpRankNormalizationPattern.
     DenseSet<func::FuncOp> participatingFuncs;
     module.walk([&](func::FuncOp funcOp) {
+      if (funcOp.isExternal()) {
+        bool signatureNeedsRewrite =
+            llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
+        if (signatureNeedsRewrite) {
+          participatingFuncs.insert(funcOp);
+        }
+        return;
+      }
+
       bool hasTTIROp = false;
       funcOp.walk([&](Operation *inner) {
         if (isa<ttir::TTIRDialect>(inner->getDialect())) {
