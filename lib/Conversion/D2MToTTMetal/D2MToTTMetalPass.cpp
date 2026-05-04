@@ -82,6 +82,29 @@ struct ConvertD2MToTTMetal
     // enqueue_program per spatial region); SpatialOpRewriter in the second pass
     // merges those enqueue_program ops and then erases the spatial wrapper.
 
+    // Reject explicit datamovement processor selection up front. TTMetal
+    // currently only models per-thread NoC selection; option-driven new-chip
+    // scheduling (processorIndex >= 0) is intentionally unsupported until
+    // lower-level processor APIs are integrated.
+    WalkResult unsupportedProcessor =
+        getOperation()->walk([&](d2m::GenericOp generic) {
+          for (Attribute threadAttr : generic.getThreads()) {
+            auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+            if (thread.getThreadType() == d2m::ThreadType::Datamovement &&
+                thread.getProcessorIndex() >= 0) {
+              generic.emitError(
+                  "explicit datamovement processor selection is not "
+                  "supported by D2MToTTMetal lowering yet");
+              return WalkResult::interrupt();
+            }
+          }
+          return WalkResult::advance();
+        });
+    if (unsupportedProcessor.wasInterrupted()) {
+      signalPassFailure();
+      return;
+    }
+
     ConversionTarget target(getContext());
     addD2MToTTMetalConversionTargetBase(target);
     target.addLegalOp<d2m::SpatialOp>();

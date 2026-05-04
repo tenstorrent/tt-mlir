@@ -1092,9 +1092,16 @@ def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
     ```
 
     If there are more DMA operands than available threads, operations are grouped
-    to balance work. If there are fewer operands than threads, some threads may
-    be empty (and can be eliminated by later passes).
+    to balance work. If there are fewer operands than threads, only the required
+    number of datamovement regions are emitted.
   }];
+  list<Option> options = [
+    Option<"numDatamovementProcessors", "num-datamovement-processors",
+           "unsigned", "0",
+           "Override the available datamovement processor count. 0 means use the system descriptor.">,
+    Option<"numNocs", "num-nocs", "unsigned", "0",
+           "Override the available NoC count. 0 means use the legacy default.">,
+  ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
