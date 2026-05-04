@@ -446,6 +446,15 @@ static bool anyOf(mlir::ElementsAttr elems, Fun pred) {
   return llvm::any_of(elems.getValues<ElementType>(), pred);
 }
 
+// Helper to check if every element of an ElementsAttr satisfies a predicate.
+// If the attribute is a splat, only checks the splat value.
+template <typename ElementType, typename Fun>
+static bool allOf(mlir::ElementsAttr elems, Fun pred) {
+  if (elems.isSplat()) {
+    return pred(elems.getSplatValue<ElementType>());
+  }
+  return llvm::all_of(elems.getValues<ElementType>(), pred);
+}
 //===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
@@ -1011,6 +1020,13 @@ mlir::tt::ttir::LogicalRightShiftOp::fold(FoldAdaptor adaptor) {
   if (rhs.getElementType().isSignedInteger() &&
       anyOf<llvm::APInt>(rhs, std::mem_fn(&llvm::APInt::isNegative))) {
     return nullptr;
+  }
+  // If every shift amount is >= the LHS bit width, the result is all zeros
+  // regardless of LHS.
+  if (allOf<llvm::APInt>(
+          rhs, [width](const llvm::APInt &val) { return val.uge(width); })) {
+    auto resultType = mlir::cast<ShapedType>(getResult().getType());
+    return SplatElementsAttr::get(resultType, llvm::APInt(width, 0));
   }
   if (anyOf<llvm::APInt>(rhs, [width](const llvm::APInt &val) {
         return val.getLimitedValue() > width;
