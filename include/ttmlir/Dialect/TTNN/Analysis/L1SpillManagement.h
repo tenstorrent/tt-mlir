@@ -38,13 +38,18 @@ struct SumL1MemoryTracker {
   uint64_t getOccupiedL1() const;
   void addTensor(Value result, uint64_t l1SizePerCore);
 
-  /// Add a tensor that aliases an existing tensor's address (e.g. a
-  /// `ttnn.reshape` that tt-metal realizes as a zero-copy view). The new
-  /// tensor takes over the source's `tensorAddresses` entry; no `freeList`
-  /// carve happens. The source's `tensorSizes` / `liveValues` lifecycle is
-  /// unchanged — `removeTensor(src)` later becomes a `freeAddress` no-op
-  /// (since src no longer holds the address entry) but still drops src from
-  /// `tensorSizes` / `currentOccupied`.
+  /// Add `result` as an alias of `srcAtSameAddr`'s buffer (e.g. a
+  /// `ttnn.reshape` that tt-metal realizes as a zero-copy view).
+  ///
+  /// Aliasing model: a buffer (address slot) is allocated once at first
+  /// `addTensor` and reclaimed once when the last alias dies. While
+  /// aliased, both src and result have entries in `tensorAddresses`
+  /// pointing to the same `(start, size)`, and `aliasGroups[start].count`
+  /// counts the live aliases. `currentOccupied` is bumped on first
+  /// allocation only; this method does NOT bump it.
+  ///
+  /// `tensorSizes[result]` IS set so `validate`'s inputOverlap accounting
+  /// works for downstream consumers of the view.
   void addTensorAtAddress(Value result, uint64_t l1SizePerCore,
                           Value srcAtSameAddr);
 
@@ -76,40 +81,51 @@ struct SumL1MemoryTracker {
     uint64_t size() const { return end - start; }
   };
 
-  /// Snapshot of the address simulation state (freeList + tensorAddresses).
-  /// Captured before each allocation event so that eviction can replay from
-  /// any point in the schedule.
+  /// Per-slot alias-group bookkeeping. See `addTensorAtAddress`.
+  struct AliasGroup {
+    unsigned count;
+    uint64_t rawSize;
+  };
+
+  /// Snapshot of the address simulation state (freeList + tensorAddresses
+  /// + aliasGroups + currentOccupied). Captured before each allocation
+  /// event so that eviction can replay from any point in the schedule.
   struct Snapshot {
     llvm::SmallVector<FreeBlock> freeList;
     llvm::DenseMap<Value, std::pair<uint64_t, uint64_t>> tensorAddresses;
+    llvm::DenseMap<uint64_t, AliasGroup> aliasGroups;
+    uint64_t currentOccupied;
   };
 
   /// Take a snapshot of the current address simulation state.
   Snapshot takeSnapshot() const;
 
-  /// Restore the address simulation state from a snapshot (freeList +
-  /// tensorAddresses). Does NOT change tensorSizes or currentOccupied.
+  /// Restore the address-simulation state from a snapshot. Restores
+  /// freeList, tensorAddresses, aliasGroups, and currentOccupied. Does
+  /// NOT touch tensorSizes — it is the original-sweep mirror that
+  /// eviction maintains directly via `removeTensorFromSizes`.
   void restoreSnapshot(const Snapshot &snapshot);
 
-  /// Allocate an address block for a tensor (top-down first-fit, aligned).
-  /// Address-only: does not update tensorSizes/currentOccupied.
+  /// Allocate an address block for a tensor (top-down first-fit, aligned),
+  /// open a fresh alias group at refcount 1, and bump currentOccupied for
+  /// the new slot. Does not touch tensorSizes (callers set it).
   void allocateAddress(Value result, uint64_t l1SizePerCore);
 
-  /// Reuse `srcAtSameAddr`'s address slot for `result` (view-style aliasing).
-  /// Moves the `tensorAddresses` entry from src to result; freeList is
-  /// untouched. Address-only: does not update tensorSizes/currentOccupied.
+  /// Add `result` to `srcAtSameAddr`'s alias group at the same address
+  /// slot. Bumps the group's refcount only — does not carve a new slot,
+  /// bump currentOccupied, or touch tensorSizes. See `addTensorAtAddress`
+  /// for the full aliasing model.
   void allocateAddressAt(Value result, Value srcAtSameAddr);
 
-  /// Free a tensor's address block and merge with adjacent free blocks.
-  /// Address-only: does not update tensorSizes/currentOccupied.
+  /// Drop `result` from its alias group. When the last alias is freed,
+  /// the slot returns to `freeList` (with adjacent-block merge) and
+  /// currentOccupied is reclaimed. Does not touch tensorSizes.
   void freeAddress(Value result);
 
   /// Check whether `result` currently has an entry in `tensorAddresses`
   /// (i.e. occupies a simulated L1 address slot). Distinct from
-  /// `hasTensor`, which checks `tensorSizes`. The two can disagree after
-  /// `addTensorAtAddress` (src is in sizes but no longer in addresses) or
-  /// during replay (sizes is the original-pass state, addresses is being
-  /// rebuilt).
+  /// `hasTensor`, which checks `tensorSizes`. The two can disagree during
+  /// replay (sizes is the original-pass state, addresses is being rebuilt).
   bool hasTensorAddress(Value result) const;
 
 private:
@@ -122,8 +138,13 @@ private:
 
   llvm::SmallVector<FreeBlock> freeList;
 
-  // Allocated tensor addresses: Value -> (start, alignedSize).
+  // Per-Value -> (start, alignedSize). Multiple Values may map to the same
+  // slot when an alias group is active. See `addTensorAtAddress`.
   llvm::DenseMap<Value, std::pair<uint64_t, uint64_t>> tensorAddresses;
+
+  // Per-slot refcount + raw size, keyed by slot start. See
+  // `addTensorAtAddress` for the aliasing model.
+  llvm::DenseMap<uint64_t, AliasGroup> aliasGroups;
 };
 
 /// L1SpillManagement enforces L1 budget constraints using Belady's optimal

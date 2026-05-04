@@ -72,15 +72,18 @@ void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
   freeList.clear();
   freeList.push_back({0, l1Budget});
   tensorAddresses.clear();
+  aliasGroups.clear();
 }
 
 SumL1MemoryTracker::Snapshot SumL1MemoryTracker::takeSnapshot() const {
-  return {freeList, tensorAddresses};
+  return {freeList, tensorAddresses, aliasGroups, currentOccupied};
 }
 
 void SumL1MemoryTracker::restoreSnapshot(const Snapshot &snapshot) {
   freeList = snapshot.freeList;
   tensorAddresses = snapshot.tensorAddresses;
+  aliasGroups = snapshot.aliasGroups;
+  currentOccupied = snapshot.currentOccupied;
 }
 
 void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
@@ -96,6 +99,11 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
       // Allocate from the top of this block.
       uint64_t allocStart = freeList[i].end - alignedSize;
       tensorAddresses[result] = {allocStart, alignedSize};
+      // First allocation in this slot: open the alias group at refcount 1
+      // and account the buffer once. Aliases joining via allocateAddressAt
+      // do not re-bump currentOccupied.
+      aliasGroups[allocStart] = {/*count=*/1, /*rawSize=*/l1SizePerCore};
+      currentOccupied += l1SizePerCore;
 
       // Shrink or remove the free block.
       if (freeList[i].size() == alignedSize) {
@@ -114,36 +122,28 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
 
 void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
   tensorSizes[result] = l1SizePerCore;
-  currentOccupied += l1SizePerCore;
-
-  // Address simulation: top-down allocation with 32-byte alignment.
   allocateAddress(result, l1SizePerCore);
 }
 
-void SumL1MemoryTracker::allocateAddressAt(Value result,
-                                           Value srcAtSameAddr) {
-  // Mimic tt-metal's view semantics: result inherits src's address slot.
-  // Move src's tensorAddresses entry to result; freeList is not carved a
-  // second time.
+void SumL1MemoryTracker::allocateAddressAt(Value result, Value srcAtSameAddr) {
   auto srcIt = tensorAddresses.find(srcAtSameAddr);
   assert(srcIt != tensorAddresses.end() &&
          "allocateAddressAt: src must already be in tensorAddresses");
-  tensorAddresses[result] = srcIt->second;
-  tensorAddresses.erase(srcAtSameAddr);
+  // Snapshot the slot before inserting `result`, since the insert may
+  // rehash and invalidate `srcIt`.
+  auto slot = srcIt->second;
+  tensorAddresses[result] = slot;
+  auto groupIt = aliasGroups.find(slot.first);
+  assert(groupIt != aliasGroups.end() &&
+         "allocateAddressAt: aliasGroups entry missing for src's slot");
+  ++groupIt->second.count;
 }
 
 void SumL1MemoryTracker::addTensorAtAddress(Value result,
                                             uint64_t l1SizePerCore,
                                             Value srcAtSameAddr) {
-  // Forward pass: address-only inheritance + tensorSizes/currentOccupied
-  // updates so that validate's inputOverlap accounting works for downstream
-  // consumers of `result`. src remains in tensorSizes/liveValues so OOM
-  // accounting and processDeadTensors lifecycle stay unchanged — when
-  // removeTensor(src) later runs, freeAddress(src) is a no-op because
-  // tensorAddresses no longer has src.
   allocateAddressAt(result, srcAtSameAddr);
   tensorSizes[result] = l1SizePerCore;
-  currentOccupied += l1SizePerCore;
 }
 
 void SumL1MemoryTracker::freeAddress(Value result) {
@@ -154,6 +154,17 @@ void SumL1MemoryTracker::freeAddress(Value result) {
   auto [freedStart, freedSize] = addrIt->second;
   uint64_t freedEnd = freedStart + freedSize;
   tensorAddresses.erase(addrIt);
+
+  // Last alias of this slot reclaims the buffer; earlier ones just
+  // detach from the alias group.
+  auto groupIt = aliasGroups.find(freedStart);
+  assert(groupIt != aliasGroups.end() &&
+         "freeAddress: aliasGroups entry missing for live slot");
+  if (--groupIt->second.count > 0) {
+    return;
+  }
+  currentOccupied -= groupIt->second.rawSize;
+  aliasGroups.erase(groupIt);
 
   // Find insertion point in sorted freeList (sorted by start address).
   size_t insertIdx = 0;
@@ -195,11 +206,9 @@ void SumL1MemoryTracker::logState() const {
 }
 
 void SumL1MemoryTracker::removeTensorFromSizes(Value result) {
-  auto it = tensorSizes.find(result);
-  if (it != tensorSizes.end()) {
-    currentOccupied -= it->second;
-    tensorSizes.erase(it);
-  }
+  // Size-table-only — used by eviction, which then `restoreSnapshot +
+  // replay` rebuilds currentOccupied. Address-side path is `freeAddress`.
+  tensorSizes.erase(result);
 }
 
 void SumL1MemoryTracker::removeTensor(Value result) {
@@ -671,11 +680,9 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
     }
     if (l1EventLog[i].kind == L1Event::kAlloc) {
       addressSnapshots[i] = memoryTracker.takeSnapshot();
-      // View-eligible reshape: re-derive view-aliasing from the IR. If src
-      // is still address-tracked (i.e. its kAlloc was not skipped earlier
-      // in this replay), inherit src's slot. Otherwise fall back to fresh
-      // top-down allocation — the right counterfactual when src was
-      // evicted to DRAM.
+      // View-eligible reshape: alias if src is still address-tracked in
+      // this replay, otherwise fresh-allocate (the counterfactual when
+      // src was evicted to DRAM).
       Operation *defOp = l1EventLog[i].tensor.getDefiningOp();
       if (defOp && canReshapeBeView(defOp) &&
           memoryTracker.hasTensorAddress(defOp->getOperand(0))) {
@@ -931,10 +938,6 @@ bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
                "effectiveLowest={5}",
                op->getName(), cbPeakUsage, cbFragCushion, speculativeOutputAddr,
                lowestExistingAddr, effectiveLowest);
-  // [DEBUG] Always dump the simulated allocator state at the moment of the
-  // CB FRAG CHECK, so we can compare against the runtime memory state for
-  // the same op (rms_norm CB-vs-L1 collision investigation).
-  memoryTracker.logState();
 
   if (cushionedCBUsage > effectiveLowest) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1062,9 +1065,8 @@ void L1SpillManagement<MemoryTracker>::run() {
         l1EventLog.push_back(
             {L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
 
-        // View-eligible reshape: tt-metal aliases src's buffer (zero-copy
-        // view), so the simulator inherits src's address slot rather than
-        // carving a fresh one. See `addTensorAtAddress` docs.
+        // View-eligible reshape: alias src's buffer instead of carving a
+        // fresh slot. See `addTensorAtAddress`.
         Operation *defOp = val.getDefiningOp();
         if (defOp && canReshapeBeView(defOp) &&
             memoryTracker.hasTensor(defOp->getOperand(0))) {
