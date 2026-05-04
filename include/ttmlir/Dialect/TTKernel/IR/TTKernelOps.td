@@ -47,8 +47,7 @@ def TTKernel_UnpackStallOnPackInitOp
   let summary = "Initialize the PACK_DONE semaphore for unpack_stall_on_pack.";
   let description = [{
     Initializes the hardware semaphore used by unpack_stall_on_pack. This is a
-    one-time compute-kernel setup operation; individual unpack_stall_on_pack
-    calls only post and wait on the semaphore.
+    one-time compute-kernel setup operation.
   }];
   let assemblyFormat = [{ attr-dict }];
 }
