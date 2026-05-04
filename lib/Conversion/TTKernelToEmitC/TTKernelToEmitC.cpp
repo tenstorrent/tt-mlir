@@ -17,7 +17,6 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
@@ -108,16 +107,23 @@ datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
 }
 
 static std::string getCBName(Value cb) {
-  Operation *defOp = cb.getDefiningOp();
+  std::string prefix = "";
+  IntegerAttr cbIdxAttr = nullptr;
 
-  if (auto idxAttr =
-          defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_ctarg_idx")) {
-    return "cb_ctarg_" + std::to_string(idxAttr.getInt());
+  if (auto *defOp = cb.getDefiningOp()) {
+    if (auto attr =
+            defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_ctarg_idx")) {
+      prefix = "cb_ctarg_";
+      cbIdxAttr = attr;
+    } else if (auto attr =
+                   defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx")) {
+      prefix = "cb_arg_";
+      cbIdxAttr = attr;
+    }
   }
 
-  auto idxAttr = defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx");
-  assert(idxAttr && "CB value must have a stable lowering name");
-  return "cb_arg_" + std::to_string(idxAttr.getInt());
+  TT_assertv(cbIdxAttr, "CB value must have a stable lowering name");
+  return prefix + std::to_string(cbIdxAttr.getInt());
 }
 
 // Assign deterministic names to non-compile-time CB arguments before dialect
@@ -147,28 +153,38 @@ static bool isCBDeclaration(emitc::VerbatimOp verbatim,
   return verbatim.getValue().starts_with(prefix);
 }
 
-// Check whether a CB declaration for `cbName` exists & dominates `useOp`, so we
-// can reuse it instead of emitting a duplicate. Dominance (rather than
-// block-local scanning) is needed because the declaration may live in an outer
-// block (e.g. entry block) while the use is inside a loop body.
+// Check whether a CB declaration for `cbName` exists & dominates `useOp`, to
+// avoid duplication.
+//
+// To handle declarations that live in outer enclosing blocks, walk upward
+// through the lexical parent chain and scan ops that appear before the current
+// use at each nesting level. Since the IR is all-SCF at this stage, this
+// strategy is equivalent but faster than full-funcOp level dominance analysis.
 static bool hasDominatingCBDeclaration(Operation *useOp,
                                        llvm::StringRef cbName) {
-  auto funcOp = useOp->getParentOfType<func::FuncOp>();
-  if (!funcOp) {
-    return false;
+  Operation *currentOp = useOp;
+  Block *currentBlock = currentOp->getBlock();
+
+  while (currentBlock) {
+    for (Operation &op : *currentBlock) {
+      if (&op == currentOp) {
+        break;
+      }
+      if (auto verbatimOp = mlir::dyn_cast<emitc::VerbatimOp>(op);
+          verbatimOp && isCBDeclaration(verbatimOp, cbName)) {
+        return true;
+      }
+    }
+
+    if (Operation *parentOp = currentBlock->getParentOp()) {
+      currentOp = parentOp;
+      currentBlock = parentOp->getBlock();
+    } else {
+      break;
+    }
   }
 
-  DominanceInfo domInfo(funcOp);
-  bool found = false;
-  funcOp.walk([&](emitc::VerbatimOp verbatim) {
-    if (isCBDeclaration(verbatim, cbName) &&
-        domInfo.dominates(verbatim.getOperation(), useOp)) {
-      found = true;
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  });
-  return found;
+  return false;
 }
 
 // Lazily emit a CB declaration only when a CB method is actually invoked
