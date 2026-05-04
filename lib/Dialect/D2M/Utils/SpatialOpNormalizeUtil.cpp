@@ -10,7 +10,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
@@ -113,21 +113,18 @@ static void hoistNonGenericOpsAroundSpatial(d2m::SpatialOp spatialOp) {
 // value only when that out is a ranked tensor (spatial results are tensors;
 // outs may be memref).
 static void rebuildSpatialOpInsOutsAndResultTypes(d2m::SpatialOp spatialOp) {
-  llvm::SmallVector<Value> inputs;
-  llvm::SmallDenseSet<Value, 16> seenInputs;
+  llvm::SetVector<Value> inputs;
   llvm::SmallVector<Value> outputs;
   for (Region &region : spatialOp->getRegions()) {
     d2m::GenericOp genericOp = getSingleGenericOpFromSpatialRegion(region);
     for (Value input : genericOp.getInputs()) {
-      if (seenInputs.insert(input).second) {
-        inputs.push_back(input);
-      }
+      inputs.insert(input);
     }
     for (Value output : genericOp.getOutputs()) {
       outputs.push_back(output);
     }
   }
-  spatialOp.getInputsMutable().assign(inputs);
+  spatialOp.getInputsMutable().assign(inputs.getArrayRef());
   spatialOp.getOutputsMutable().assign(outputs);
   if (spatialOp->getNumResults() == outputs.size()) {
     for (auto [result, outVal] : llvm::zip(spatialOp->getResults(), outputs)) {
