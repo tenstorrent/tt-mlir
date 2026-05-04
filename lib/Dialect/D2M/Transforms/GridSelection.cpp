@@ -23,6 +23,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -596,9 +597,11 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
 // op stays consistent with the new operand types and the derived block
 // factors.
 //
-// Returns the generic to use for further work: on success this is the new op
-// (the input handle is erased); on failure or empty grids the original op.
-static d2m::GenericOp
+// Returns the generic to use for further work. Success is either:
+//  - no-op (empty grids): returns original op
+//  - recreated op: returns new op and erases original op
+// Failure is returned when generic recreation fails.
+static FailureOr<d2m::GenericOp>
 recreateGenericOp(d2m::GenericOp genericOp,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
   if (optimalOperandGrids.empty()) {
@@ -615,9 +618,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
   auto ret = genericOp.withParallelization(builder, grid, blockFactors,
                                            /*generateReturnView=*/false);
   if (failed(ret)) {
-    genericOp.emitOpError()
-        << "failed to recreate generic op with withParallelization";
-    return genericOp;
+    return failure();
   }
 
   d2m::GenericOp newGeneric = ret->genericOp;
@@ -630,9 +631,9 @@ recreateGenericOp(d2m::GenericOp genericOp,
 // Apply all grid decisions from a GenericGridAnalysisResult to a GenericOp.
 // ----------------------------------------------------------------------------
 
-static void applyGridDecisions(d2m::GenericOp genericOp,
-                               const GenericGridAnalysisResult &result,
-                               bool ttnnMode) {
+static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
+                                        const GenericGridAnalysisResult &result,
+                                        bool ttnnMode) {
   // effectiveTargetGrid is the generic's target grid (full device grid, or
   // the range scoped by an enclosing d2m.spatial region), used for virtual
   // grid physical mapping. Per-operand target grids (info.targetGrid) are
@@ -705,9 +706,15 @@ static void applyGridDecisions(d2m::GenericOp genericOp,
     }
   }
 
-  d2m::GenericOp newGenericOp =
+  FailureOr<d2m::GenericOp> newGenericOp =
       recreateGenericOp(genericOp, result.normalizedOperandGrids);
-  normalizeSpatialOpContainingGeneric(newGenericOp);
+  if (failed(newGenericOp)) {
+    genericOp.emitOpError() << "grid selection failed to recreate generic op";
+    return failure();
+  }
+
+  normalizeSpatialOpContainingGeneric(*newGenericOp);
+  return success();
 }
 
 // ----------------------------------------------------------------------------
@@ -752,7 +759,10 @@ public:
       if (!result) {
         continue;
       }
-      applyGridDecisions(genericOp, *result, this->ttnnMode);
+      if (failed(applyGridDecisions(genericOp, *result, this->ttnnMode))) {
+        signalPassFailure();
+        return;
+      }
     }
   }
 
