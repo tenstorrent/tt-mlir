@@ -147,11 +147,12 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
     constexpr size_t bitWidth = 32;
     const BufferType bufferType = BufferType::SystemMemory;
 
-    layoutAttr = TTNNLayoutAttr::get(
-        ctx, /*shape=*/{},
-        ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned),
-        bufferType, ttcore::GridAttr::get(ctx), /*memoryLayoutAttr=*/nullptr,
-        /*tensorMeshAttr=*/nullptr);
+    layoutAttr =
+        TTNNLayoutAttr::Builder(
+            ctx, /*tensorShape=*/{},
+            ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned))
+            .setBufferType(bufferType)
+            .build();
   } else if (mlir::isa<ttnn::TTNNNDLayoutAttr>(tensorType.getEncoding())) {
     return getNDTensor(cache, tensorType, deviceAttr);
   } else {

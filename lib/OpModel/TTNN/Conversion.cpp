@@ -689,8 +689,12 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
         context, tensorSpec.memory_config().shard_spec().value().grid);
   }
 
-  return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridShape,
-                             memoryLayoutAttr, coreRangeSet);
+  return TTNNLayoutAttr::Builder(context, shape, elementType)
+      .setBufferType(bufferType)
+      .setMemoryLayout(memoryLayoutAttr)
+      .setGridShape(gridShape)
+      .setCoreRangeSet(coreRangeSet)
+      .build();
 }
 
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
