@@ -1584,7 +1584,7 @@ createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
         static_cast<uint8_t>(op.getSubDeviceId().value()));
   }
 
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 

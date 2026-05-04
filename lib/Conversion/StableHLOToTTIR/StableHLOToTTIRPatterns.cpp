@@ -8384,6 +8384,60 @@ public:
 };
 } // namespace
 
+namespace {
+class StableHLOToTTIROpRoundOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RoundOp> {
+  using OpConversionPattern<mlir::stablehlo::RoundOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RoundOp srcOp,
+                  mlir::stablehlo::RoundOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto input = adaptor.getOperands()[0];
+    auto resultType = dyn_cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Failed to convert result type");
+    }
+
+    auto elementType = resultType.getElementType();
+    if (!mlir::isa<mlir::FloatType>(elementType)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Unsupported element type for RoundOp, expected float type");
+    }
+
+    // Decompose RoundOp (nearest ties to away from zero) into:
+    // round_nearest_afz(x) = sign(x) * floor(abs(x) + 0.5)
+    auto loc = srcOp.getLoc();
+
+    auto halfConst = rewriter.create<ttir::ConstantOp>(
+        loc, resultType,
+        DenseElementsAttr::get(
+            resultType,
+            SmallVector<Attribute>{mlir::FloatAttr::get(elementType, 0.5)}));
+
+    auto absInput = rewriter.create<ttir::AbsOp>(loc, resultType, input);
+
+    auto shiftedInput =
+        rewriter.create<ttir::AddOp>(loc, resultType, absInput, halfConst);
+
+    auto flooredInput =
+        rewriter.create<ttir::FloorOp>(loc, resultType, shiftedInput);
+
+    auto signInput = rewriter.create<ttir::SignOp>(loc, resultType, input);
+
+    auto roundedInput = rewriter.create<ttir::MultiplyOp>(
+        loc, resultType, signInput, flooredInput);
+
+    rewriter.replaceOp(srcOp, roundedInput.getResult());
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -8433,6 +8487,8 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::TanhOp, mlir::tt::ttir::TanhOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
+
+  patterns.add<StableHLOToTTIROpRoundOpConversionPattern>(typeConverter, ctx);
 }
 
 static void

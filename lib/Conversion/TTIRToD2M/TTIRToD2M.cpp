@@ -14,7 +14,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
@@ -2474,7 +2473,6 @@ namespace {
 class D2MConcatRewriter final
     : public mlir::OpConversionPattern<ttir::ConcatOp>,
       D2MNamedRewriterCommon {
-  using ConcreteOp = ttir::ConcatOp;
 
 public:
   D2MConcatRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
@@ -2482,34 +2480,127 @@ public:
                     ttcore::MemorySpace defaultOutputMemSpace,
                     bool /*ttnnMode*/, bool /*collapseTensors*/,
                     bool enableMulticastInference)
-      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+      : OpConversionPattern<ttir::ConcatOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                /*ttnnMode=*/false, /*collapseTensors=*/false,
                                enableMulticastInference) {}
 
   LogicalResult
-  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+  matchAndRewrite(ttir::ConcatOp op, ttir::ConcatOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
-    auto origInputs = adaptor.getOperands();
-    assert(origInputs.size() > 1);
+    auto outType = mlir::cast<RankedTensorType>(op.getResult().getType());
 
-    auto origOutputs =
-        createDpsOutputs(op.getLoc(), rewriter, {op.getResult().getType()});
-
-    auto [inputs, outputs] =
-        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled=*/true, /*noCollapse=*/true);
+    const int64_t rank = outType.getRank();
+    TT_assert(rank >= 2);
 
     int32_t dim = op.getDim();
     if (dim < 0) {
-      dim += mlir::cast<RankedTensorType>(origInputs[0].getType()).getRank();
+      dim += rank;
     }
 
-    auto compositeView = rewriter.create<d2m::CompositeViewOp>(
-        op.getLoc(), outputs[0].getType(), inputs, dim);
+    // Check if we should do sub-tile H/W concat in the row-major layout.
+    bool concatRowMajor = false;
+    bool transposeRowMajor = false;
+    const int32_t alignToElements =
+        d2m::utils::getNocElementAlignmentL1(op, outType);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, compositeView->getResult(0),
-                                          op.getResult().getType()));
+    if (dim >= rank - 2) {
+      const int64_t tileSize =
+          ttcore::TileType::getDefaultShape()[dim - rank + 2];
+      const int nInputs = static_cast<int>(op.getInputs().size());
+      for (int i = 0; i < nInputs; i++) {
+        auto inType = mlir::cast<RankedTensorType>(op.getInputs()[i].getType());
+        const int64_t dimSize = inType.getShape()[dim];
+
+        // If any (other than the last) input has padding on the concat dim, do
+        // row-major concat.
+        if ((i != nInputs - 1) && (dimSize % tileSize != 0)) {
+          concatRowMajor = true;
+        }
+
+        // For a row-major width concat, if at least one (including the last)
+        // row's size violates the NoC constraints, use the
+        // transpose-concat-transpose trick.
+        if (concatRowMajor && (dim == rank - 1) &&
+            (dimSize % alignToElements != 0)) {
+          transposeRowMajor = true;
+          break;
+        }
+      }
+    }
+
+    auto loc = op.getLoc();
+
+    // Logical sizes on the concat dim is required for DMA generation in the
+    // row-major case, record them in the CompositeView before the bufferization
+    // pass discards the logical shapes info.
+    DenseI64ArrayAttr logicalSizesAttr = nullptr;
+    if (concatRowMajor) {
+      SmallVector<int64_t> sizes;
+      for (auto input : op.getInputs()) {
+        auto inType = mlir::cast<RankedTensorType>(input.getType());
+        sizes.push_back(inType.getShape()[dim]);
+      }
+      logicalSizesAttr = rewriter.getDenseI64ArrayAttr(sizes);
+    }
+
+    // Height <-> Width transpose indices.
+    SmallVector<int64_t> hwTransposeIdx(rank);
+    std::iota(hwTransposeIdx.begin(), hwTransposeIdx.end(), 0);
+    std::swap(hwTransposeIdx[rank - 1], hwTransposeIdx[rank - 2]);
+
+    SmallVector<Value> effectiveInputs(adaptor.getOperands().begin(),
+                                       adaptor.getOperands().end());
+    auto effectiveOutputType = outType;
+
+    if (transposeRowMajor) {
+      TT_assert(dim == rank - 1);
+      dim = rank - 2;
+
+      effectiveInputs.clear();
+      for (auto input : adaptor.getOperands()) {
+        auto inType = mlir::cast<RankedTensorType>(input.getType());
+
+        auto transposedInShape =
+            ttmlir::utils::applyPermutation(inType.getShape(), hwTransposeIdx);
+        auto transposedInType = RankedTensorType::get(
+            transposedInShape, inType.getElementType(), inType.getEncoding());
+
+        auto preTranspose = rewriter.create<ttir::PermuteOp>(
+            loc, transposedInType, input, hwTransposeIdx);
+
+        effectiveInputs.push_back(preTranspose.getResult());
+      }
+
+      auto transposedOutShape =
+          ttmlir::utils::applyPermutation(outType.getShape(), hwTransposeIdx);
+      effectiveOutputType = RankedTensorType::get(
+          transposedOutShape, outType.getElementType(), outType.getEncoding());
+    }
+
+    TT_assert(effectiveInputs.size() > 1u);
+
+    auto origOutputs = createDpsOutputs(loc, rewriter, {effectiveOutputType});
+
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {effectiveInputs, origOutputs},
+        /*tiled=*/!concatRowMajor, /*noCollapse=*/true);
+
+    auto compositeView = rewriter.create<d2m::CompositeViewOp>(
+        loc, outputs[0].getType(), inputs, dim, logicalSizesAttr);
+
+    auto result = unLayoutResult(rewriter, compositeView->getResult(0),
+                                 effectiveOutputType)
+                      ->getResult(0);
+
+    if (transposeRowMajor) {
+      auto postTranspose = rewriter.create<ttir::PermuteOp>(
+          loc, outType, result, hwTransposeIdx);
+      result = postTranspose->getResult(0);
+    }
+
+    rewriter.replaceOp(op, result);
+
     return success();
   }
 };
@@ -3832,10 +3923,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SliceStaticOp op, ttir::SliceStaticOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // This is also the minimum NoC transfer size in bytes.
-    const int32_t nocAlignmentL1 =
-        ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes();
-
     auto begins = extractFromIntegerArrayAttr<int32_t>(op.getBegins());
     auto ends = extractFromIntegerArrayAttr<int32_t>(op.getEnds());
     auto step = extractFromIntegerArrayAttr<int32_t>(op.getStep());
@@ -3846,13 +3933,10 @@ public:
     auto outShape = outType.getShape();
 
     const int32_t rank = static_cast<int32_t>(inType.getRank());
-    assert(rank >= 2);
+    TT_assert(rank >= 2);
 
-    const int32_t elementBytes =
-        std::max(1, static_cast<int32_t>(inType.getElementTypeBitWidth()) / 8);
-
-    assert((nocAlignmentL1 != 0) && (nocAlignmentL1 % elementBytes == 0));
-    const int32_t alignToElements = nocAlignmentL1 / elementBytes;
+    const int32_t alignToElements =
+        d2m::utils::getNocElementAlignmentL1(op, inType);
 
     // Assume all shards in L1 already start at aligned addresses.
     const bool isAlignedWidth = begins[rank - 1] % alignToElements == 0;
