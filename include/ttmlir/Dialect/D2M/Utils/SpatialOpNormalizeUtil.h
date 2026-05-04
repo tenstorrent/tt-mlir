@@ -6,10 +6,9 @@
 #define TTMLIR_DIALECT_D2M_UTILS_SPATIALOPNORMALIZEUTIL_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
 namespace mlir::tt::d2m {
-
-class GenericOp;
 
 // Bring each d2m.spatial op to canonical form: hoist non-d2m.generic ops out of
 // its regions, rebuild yields, refresh ins/outs from nested generics, and when
