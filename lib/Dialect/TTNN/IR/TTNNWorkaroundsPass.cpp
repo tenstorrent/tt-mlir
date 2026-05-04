@@ -323,6 +323,7 @@ TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
   // The tt-metal slice with tensor args (dynamic) requires ROW_MAJOR layout
   // for the input tensor. The device-only TILE path needs slice_dim and
   // num_devices which are not provided by the TTIR→TTNN lowering.
+  // https://github.com/tenstorrent/tt-metal/issues/42778
   TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   Type inputType = op.getInput().getType().getElementType();
