@@ -19,6 +19,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <queue>
 
 namespace mlir::tt::ttnn {
@@ -934,6 +935,36 @@ void L1SpillManagement<MemoryTracker>::run() {
     Operation *op = data.schedule[pos];
 
     processDeadTensors(pos, data);
+
+    // ToLayoutOp with L1 output: workaround-inserted and always immediately
+    // consumed by the target op. MemoryLayoutPropagation skips these, so
+    // output_l1_usage is never set and pre-decomposition OpModel is inaccurate.
+    // Use Belady to evict other live tensors if needed to create room, but do
+    // not add the output to liveValues — it is not a long-lived L1 tenant and
+    // will be gone (or dead) before any subsequent eviction decision matters.
+    // Being absent from liveValues also means evictAllFromL1 (e.g. triggered by
+    // DistributedRMSNormOp's isNotImplemented) cannot spill it.
+    if (isa<ToLayoutOp>(op)) {
+      auto resultType =
+          mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+      auto lo =
+          mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
+      assert(lo && "ToLayoutOp result must have TTNNLayoutAttr encoding");
+      if (lo.hasL1BufferType()) {
+        uint64_t derivedL1 =
+            utils::getPerCoreL1Usage(lo, lo.getGrid().getGridVolume());
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "  [pos={0}] L1_TOLAYOUT: {1}, derivedL1={2} bytes, "
+                     "occupied={3}/{4}",
+                     pos, ttmlir::opToString(op), derivedL1,
+                     memoryTracker.getOccupiedL1(), l1BudgetPerCore);
+        // CBPeakUsage fixed to 0 as we have no validation result for ToLayoutOp
+        // itself which is yet to be decomposed.
+        ensureFitsL1(op, pos, data, derivedL1, /*cbPeakUsage=*/0, derivedL1);
+        continue;
+      }
+      // DRAM ToLayoutOp: fall through to standard processing.
+    }
 
     // Ops with L1 output annotation get full processing.
     // DRAM-output ops (no annotation) still need CB overlap checking against
