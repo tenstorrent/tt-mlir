@@ -521,7 +521,7 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
   size_t targetRank = producer.scratchShape.size();
   size_t consumerRank = 1 + consumer.allLoops.size();
   bool needsColCrossStep = prefixLoops.empty() && targetRank == consumerRank &&
-                        consumer.allLoops.size() >= 2 &&
+                           consumer.allLoops.size() >= 2 &&
                            !producer.allLoops.empty() &&
                            producer.allLoops.front().getStepAsInt() !=
                                consumer.allLoops.front().getStepAsInt();
@@ -1334,18 +1334,44 @@ private:
         rewriter.eraseOp(storeOp);
       }
 
-      // Step 6: Rewrite loads in all consumer loops. Loads within the
+      // Rewrite loads in all consumer loops. Loads within the
       // producer's own loop (e.g. a reduction reading its own accumulator) use
       // the producer's map; loads in external loops use the cross-step-aware
-      // consumer map.
+      // consumer map and require an UNPACK/PACK stall guard.
       for (auto &consumerEntry : allocInfo.consumers) {
-        bool isProducerSelfRead = (consumerEntry.loop == allocInfo.producer);
+        AffineMap loadMap;
+        SmallVector<Value> loadOperands;
 
-        auto [loadMap, loadOperands] =
-            isProducerSelfRead
-                ? getScratchAccessMapAndOperands(producer, &getContext())
-                : getConsumerScratchAccessMap(producer, *consumerEntry.loop,
-                                              &getContext());
+        if (consumerEntry.loop == allocInfo.producer) {
+          auto producerSelfMap =
+              getScratchAccessMapAndOperands(producer, &getContext());
+          loadMap = producerSelfMap.first;
+          loadOperands = std::move(producerSelfMap.second);
+        } else {
+          // Skip consumers past the writer-bounded range; their scratch
+          // contents may already be overwritten by a later producer.
+          size_t consumerIdx =
+              static_cast<size_t>(consumerEntry.loop - scratchLoops.data());
+          if (consumerIdx > allocInfo.lastConsumerIndex) {
+            continue;
+          }
+
+          ScratchLoopInfo &consumer = *consumerEntry.loop;
+          ensureUnpackStallBeforeConsumer(producer, consumer, rewriter,
+                                          guardedScratchConsumers);
+
+          // Use the producer-aware map so that consumers with a different
+          // linalgRoot step correctly address the scratch buffer (which is
+          // laid out according to the producer's step).
+          FailureOr<std::pair<AffineMap, SmallVector<Value>>> consumerMapOr =
+              getConsumerScratchAccessMap(producer, consumer, &getContext());
+          if (failed(consumerMapOr)) {
+            return genericOp.emitOpError()
+                   << "cannot build static scratch access map for consumer";
+          }
+          loadMap = consumerMapOr->first;
+          loadOperands = std::move(consumerMapOr->second);
+        }
 
         for (auto loadOp : consumerEntry.loads) {
           rewriter.setInsertionPoint(loadOp);
