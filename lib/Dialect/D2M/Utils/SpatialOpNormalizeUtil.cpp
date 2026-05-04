@@ -10,7 +10,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
@@ -139,11 +139,15 @@ static void hoistNonGenericOpsAroundSpatial(d2m::SpatialOp spatialOp) {
 // outs may be memref).
 static void rebuildSpatialOpInsOutsAndResultTypes(d2m::SpatialOp spatialOp) {
   llvm::SmallVector<Value> inputs;
+  llvm::SmallDenseSet<Value, 16> seenInputs;
   llvm::SmallVector<Value> outputs;
   for (Region &region : spatialOp->getRegions()) {
     d2m::GenericOp genericOp = getSingleGenericOpFromSpatialRegion(region);
     for (Value input : genericOp.getInputs()) {
-      inputs.push_back(resolveToRegionBorderValue(input, spatialOp));
+      Value borderInput = resolveToRegionBorderValue(input, spatialOp);
+      if (seenInputs.insert(borderInput).second) {
+        inputs.push_back(borderInput);
+      }
     }
     for (Value output : genericOp.getOutputs()) {
       outputs.push_back(resolveToRegionBorderValue(output, spatialOp));
