@@ -8,6 +8,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -58,30 +59,18 @@ public:
                                     builder.getF32FloatAttr(cap));
   }
 
-  ttcore::GridAttr getDeviceGrid() {
-    return ttcore::GridAttr::get(&context, {8, 8});
-  }
-
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
                                    BufferType bufferType,
                                    TensorMemoryLayout tensorMemoryLayout,
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
-    ttcore::GridAttr grid;
-    if (isShardedMemoryLayout(tensorMemoryLayout)) {
-      llvm::SmallVector<int64_t, 2> devGrid = {8, 8};
-      auto [v2p, p2v] =
-          optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-              &context, tensorMemoryLayout, devGrid);
-      grid = ttcore::GridAttr::get(&context, gridShape, v2p, p2v);
-    } else {
-      grid = ttcore::GridAttr::get(&context, gridShape);
-    }
-    return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               grid,
-                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-                                   &context, tensorMemoryLayout));
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+    return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(tensorMemoryLayout)
+        .setGridShape(gridShape)
+        .buildWithCanonicalCorePlacement(deviceAttr);
   }
 
   TTNNLayoutAttr
@@ -145,24 +134,13 @@ public:
     size_t tiledIdx = static_cast<size_t>(TensorPageLayout::Tiled);
     size_t shardedIdx = static_cast<size_t>(TensorMemoryLayoutIndex::Sharded);
 
-    // Create affine maps for each memory layout type so grids have valid
-    // virtToPhysicalMap (required by backend validation).
-    llvm::SmallVector<int64_t, 2> deviceGridShape = {8, 8};
-    auto [v2pHeight, p2vHeight] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            &context, TensorMemoryLayout::HeightSharded, deviceGridShape);
-    auto [v2pBlock, p2vBlock] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            &context, TensorMemoryLayout::BlockSharded, deviceGridShape);
-
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     for (const auto &[memLayout, gridShape] : shardSpecs) {
-      auto [v2p, p2v] = (memLayout == TensorMemoryLayout::HeightSharded)
-                            ? std::make_pair(v2pHeight, p2vHeight)
-                            : std::make_pair(v2pBlock, p2vBlock);
-      auto grid = ttcore::GridAttr::get(&context, gridShape, v2p, p2v);
-      auto layout = TTNNLayoutAttr::get(
-          &context, shape, elementType, BufferType::L1, grid,
-          TensorMemoryLayoutAttr::get(&context, memLayout));
+      auto layout = TTNNLayoutAttr::Builder(&context, shape, elementType)
+                        .setBufferType(BufferType::L1)
+                        .setMemoryLayout(memLayout)
+                        .setGridShape(gridShape)
+                        .buildWithCanonicalCorePlacement(deviceAttr);
       pageLayoutArr[tiledIdx][shardedIdx].push_back(layout);
     }
 
@@ -218,8 +196,8 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMapDoesNotCrash) {
   TensorTypeLayoutsMap tensorLayouts =
       buildTensorTypeLayoutsMap(bareType, shape);
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                      &tensorLayouts, /*beamWidth=*/8);
+  MemoryLayoutPropagation propagation(func, legalConfigs, &tensorLayouts,
+                                      /*beamWidth=*/8);
 
   EXPECT_NO_FATAL_FAILURE(propagation.run());
 }
@@ -246,7 +224,7 @@ TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
   legalConfigs[addOp.getOperation()] = createElementwiseLegalConfigs(shape);
   legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/8);
   propagation.run();
@@ -303,8 +281,8 @@ TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayoutsMoreThanWithout) {
     legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
     legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-    MemoryLayoutPropagation propagation(localFunc, getDeviceGrid(),
-                                        legalConfigs, layouts, /*beamWidth=*/8);
+    MemoryLayoutPropagation propagation(localFunc, legalConfigs, layouts,
+                                        /*beamWidth=*/8);
     propagation.run();
 
     size_t totalCandidates = 0;
@@ -367,9 +345,9 @@ TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
     legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
     legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-    MemoryLayoutPropagation propagation(
-        localFunc, getDeviceGrid(), legalConfigs,
-        /*tensorTypePossibleLayouts=*/nullptr, beamWidth);
+    MemoryLayoutPropagation propagation(localFunc, legalConfigs,
+                                        /*tensorTypePossibleLayouts=*/nullptr,
+                                        beamWidth);
     propagation.run();
 
     size_t totalCandidates = 0;
