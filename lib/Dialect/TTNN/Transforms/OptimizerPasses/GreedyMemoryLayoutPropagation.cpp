@@ -184,7 +184,7 @@ public:
       }
 
       MemoryLayoutPropagation propagation(
-          func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
+          func, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
           static_cast<size_t>(maxReshardCandidatesPerType),
