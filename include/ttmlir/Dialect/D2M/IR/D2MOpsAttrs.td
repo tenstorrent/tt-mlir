@@ -21,28 +21,36 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
   let summary = "Thread information for a generic op.";
   let description = [{
     Holds the thread information corresponding to a single generic op region.
-    For datamovement threads, nocIndex indicates the assigned NoC (0 or 1).
+    For datamovement threads, nocIndex indicates the assigned NoC and
+    processorIndex indicates the assigned hardware datamovement processor.
     A value of -1 means unassigned.
   }];
   let parameters = (ins
     "ThreadType":$threadType,
     OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
-    DefaultValuedParameter<"int32_t", "-1">:$nocIndex
+    DefaultValuedParameter<"int32_t", "-1">:$nocIndex,
+    DefaultValuedParameter<"int32_t", "-1">:$processorIndex
   );
 
-  // Format: `<` threadType (`,` kernelSymbol)? (`,` `noc` `=` nocIndex)? `>`.
-  // Both optional groups start with `,`, which the declarative format cannot
-  // disambiguate, so we hand-roll the parser to peek for the `noc` keyword
-  // after a comma and pick the right branch.
+  // Format: `<` threadType (`,` kernelSymbol)?
+  //             (`,` `noc` `=` nocIndex)?
+  //             (`,` `processor` `=` processorIndex)? `>`.
+  // The optional groups all start with `,`, which the declarative format cannot
+  // disambiguate when kernelSymbol is absent, so we hand-roll the parser to
+  // peek for the keyword after a comma and pick the right branch.
   let hasCustomAssemblyFormat = 1;
 
   let extraClassDeclaration = [{
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {
-        return get(context, threadType, nullptr, -1);
+        return get(context, threadType, nullptr, -1, -1);
       }
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
                             SymbolRefAttr kernelSymbol) {
-        return get(context, threadType, kernelSymbol, -1);
+        return get(context, threadType, kernelSymbol, -1, -1);
+      }
+      static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
+                            SymbolRefAttr kernelSymbol, int32_t nocIndex) {
+        return get(context, threadType, kernelSymbol, nocIndex, -1);
       }
   }];
 }

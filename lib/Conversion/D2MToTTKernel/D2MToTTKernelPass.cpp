@@ -57,6 +57,7 @@ struct ConvertD2MToTTKernel
   }
 
   void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<arith::ArithDialect>();
@@ -104,6 +105,23 @@ struct ConvertD2MToTTKernel
 
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
+
+    WalkResult unsupportedProcessor = moduleOp->walk([&](func::FuncOp func) {
+      auto threadAttr =
+          func->getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
+      if (!threadAttr ||
+          threadAttr.getThreadType() != d2m::ThreadType::Datamovement ||
+          threadAttr.getProcessorIndex() < 0) {
+        return WalkResult::advance();
+      }
+      func.emitError("explicit datamovement processor selection is not "
+                     "supported by D2MToTTKernel lowering yet");
+      return WalkResult::interrupt();
+    });
+    if (unsupportedProcessor.wasInterrupted()) {
+      signalPassFailure();
+      return;
+    }
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
@@ -158,7 +176,6 @@ struct ConvertD2MToTTKernel
     // If there is any fabric related writes,
     // insert fabric connection manager ops and setup fabric connections at the
     // start of the function and close at the end.
-    ModuleOp moduleOp = getOperation();
     moduleOp->walk([&](func::FuncOp func) {
       bool fabric_write_present = false;
       func.walk([&](d2m::DMAWriteOp dmaWriteOp) {

@@ -340,6 +340,8 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       break;
     }
     case d2m::ThreadType::Datamovement: {
+      // Explicit processorIndex >= 0 is rejected up front by the pass; legacy
+      // IR reaches here with processorIndex == -1.
       int32_t nocIdx = threadAttr.getNocIndex();
       // For unassigned NOCs, alternate between NOC0 and NOC1.
       if (nocIdx < 0) {

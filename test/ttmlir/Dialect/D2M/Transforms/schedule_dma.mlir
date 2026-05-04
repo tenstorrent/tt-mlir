@@ -1,5 +1,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-schedule-dma -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-schedule-dma="num-datamovement-processors=6 num-nocs=1" -o %t.dm6 %s
+// RUN: FileCheck %s --check-prefix=DM6 --input-file=%t.dm6
+// RUN: not ttmlir-opt --ttcore-register-device --d2m-schedule-dma="num-datamovement-processors=6 num-nocs=2" %s 2>&1 | FileCheck %s --check-prefix=UNSUPPORTED
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -9,12 +12,15 @@
 module {
   // Test 1: Two remote_loads for different CBs - should split into 2 DMA threads
   // CHECK-LABEL: func.func @test_two_remote_loads
+  // DM6-LABEL: func.func @test_two_remote_loads
   func.func @test_two_remote_loads(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>,
                                    %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 0>, #d2m.thread<datamovement, noc = 1>, #d2m.thread<compute>]
+    // DM6: d2m.generic
+    // DM6-SAME: threads = [#d2m.thread<datamovement, noc = 0, processor = 0>, #d2m.thread<datamovement, noc = 0, processor = 1>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -28,6 +34,19 @@ module {
       // CHECK: d2m.remote_load %arg1{{.*}}into %{{.*}}
       // CHECK-NOT: d2m.remote_load %arg0
       // CHECK: }, {
+      // DM6: %[[LHS_CB:.*]] = d2m.get_cb(0)
+      // DM6-NOT: d2m.get_cb(1)
+      // DM6: d2m.remote_load %arg0{{.*}}into %[[LHS_CB]]
+      // DM6-NOT: d2m.remote_load %arg1
+      // DM6: }, {
+      // DM6: %[[RHS_CB:.*]] = d2m.get_cb(1)
+      // DM6-NOT: d2m.get_cb(0)
+      // DM6: d2m.remote_load %arg1{{.*}}into %[[RHS_CB]]
+      // DM6-NOT: d2m.remote_load %arg0
+      // DM6: }, {
+      // DM6: d2m.wait
+      // DM6-NOT: d2m.remote_load
+      // DM6: }
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %c1 {
@@ -134,6 +153,7 @@ module {
 
   // Test 4: Three remote inputs - should balance across 2 HW threads
   // CHECK-LABEL: func.func @test_three_remote_loads
+  // DM6-LABEL: func.func @test_three_remote_loads
   func.func @test_three_remote_loads(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>,
                                     %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>,
                                     %arg2: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
@@ -142,6 +162,8 @@ module {
     // CHECK: d2m.generic
     // Limited to 2 HW datamovement threads even with 3 CBs
     // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 0>, #d2m.thread<datamovement, noc = 1>, #d2m.thread<compute>]
+    // DM6: d2m.generic
+    // DM6-SAME: threads = [#d2m.thread<datamovement, noc = 0, processor = 0>, #d2m.thread<datamovement, noc = 0, processor = 1>, #d2m.thread<datamovement, noc = 0, processor = 2>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0, %arg1, %arg2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
@@ -154,6 +176,30 @@ module {
       // CHECK: }, {
       // CHECK: d2m.remote_load
       // CHECK: }, {
+      // DM6: %[[CB0:.*]] = d2m.get_cb(0)
+      // DM6-NOT: d2m.get_cb(1)
+      // DM6-NOT: d2m.get_cb(2)
+      // DM6: d2m.remote_load %arg0{{.*}}into %[[CB0]]
+      // DM6-NOT: d2m.remote_load %arg1
+      // DM6-NOT: d2m.remote_load %arg2
+      // DM6: }, {
+      // DM6: %[[CB2:.*]] = d2m.get_cb(2)
+      // DM6-NOT: d2m.get_cb(0)
+      // DM6-NOT: d2m.get_cb(1)
+      // DM6: d2m.remote_load %arg2{{.*}}into %[[CB2]]
+      // DM6-NOT: d2m.remote_load %arg0
+      // DM6-NOT: d2m.remote_load %arg1
+      // DM6: }, {
+      // DM6: %[[CB1:.*]] = d2m.get_cb(1)
+      // DM6-NOT: d2m.get_cb(0)
+      // DM6-NOT: d2m.get_cb(2)
+      // DM6: d2m.remote_load %arg1{{.*}}into %[[CB1]]
+      // DM6-NOT: d2m.remote_load %arg0
+      // DM6-NOT: d2m.remote_load %arg2
+      // DM6: }, {
+      // DM6: d2m.wait
+      // DM6-NOT: d2m.remote_load
+      // DM6: }
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg3 = %c0 to %c1 step %c1 {
@@ -555,3 +601,5 @@ module {
     return
   }
 }
+
+// UNSUPPORTED: {{d2m-schedule-dma only supports two NoCs with at most two datamovement processors}}

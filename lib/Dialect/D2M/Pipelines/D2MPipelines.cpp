@@ -245,7 +245,13 @@ void createD2MBackendPipeline(OpPassManager &pm,
   // dma_wait, etc.) implementable by D2MToTTKernel lowering
   // pass.
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
-  pm.addPass(d2m::createD2MScheduleDMA());
+  d2m::D2MScheduleDMAOptions scheduleDMAOptions;
+  {
+    scheduleDMAOptions.numDatamovementProcessors =
+        options.numDatamovementProcessors;
+    scheduleDMAOptions.numNocs = options.numNocs;
+  }
+  pm.addPass(d2m::createD2MScheduleDMA(scheduleDMAOptions));
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MOptimizeDMA());

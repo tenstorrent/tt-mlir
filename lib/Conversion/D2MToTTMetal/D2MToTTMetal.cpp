@@ -130,6 +130,8 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
+        // Explicit processorIndex >= 0 is rejected up front by the pass; legacy
+        // IR reaches here with processorIndex == -1.
         int32_t nocIdx = thread.getNocIndex();
         if (nocIdx < 0) {
           nocIdx = unassignedNocCounter++ % 2;

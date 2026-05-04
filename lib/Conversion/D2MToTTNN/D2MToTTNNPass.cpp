@@ -42,6 +42,30 @@ struct ConvertD2MToTTNNPass final
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
+
+    // Reject explicit datamovement processor selection up front. The TTNN
+    // backend only models the legacy two-NoC RiscV0/RiscV1 mapping today;
+    // option-driven new-chip scheduling (processorIndex >= 0) is intentionally
+    // unsupported until lower-level processor APIs are integrated.
+    WalkResult unsupportedProcessor =
+        moduleOp->walk([&](d2m::GenericOp generic) {
+          for (Attribute threadAttr : generic.getThreads()) {
+            auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+            if (thread.getThreadType() == d2m::ThreadType::Datamovement &&
+                thread.getProcessorIndex() >= 0) {
+              generic.emitError(
+                  "explicit datamovement processor selection is not "
+                  "supported by D2MToTTNN lowering yet");
+              return WalkResult::interrupt();
+            }
+          }
+          return WalkResult::advance();
+        });
+    if (unsupportedProcessor.wasInterrupted()) {
+      signalPassFailure();
+      return;
+    }
+
     auto result = runD2MToTTNNConversion(moduleOp, mathFidelity);
     if (failed(result)) {
       signalPassFailure();
