@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/FunctionTypes.h"
@@ -220,12 +221,15 @@ private:
       return;
     }
 
-    int64_t numDimsToAdd =
-        inputType.getRank() - currentBroadcastDimensions.size();
-    if (numDimsToAdd <= 0) {
-      return;
+    if (static_cast<int64_t>(currentBroadcastDimensions.size()) >
+        inputType.getRank()) {
+      TT_assertv(false,
+                 "broadcast_dimensions rank ({}) exceeds input rank ({})",
+                 currentBroadcastDimensions.size(), inputType.getRank());
     }
 
+    int64_t numDimsToAdd =
+        inputType.getRank() - currentBroadcastDimensions.size();
     SmallVector<int64_t> newBroadcastDimensions(numDimsToAdd, 1);
     newBroadcastDimensions.append(currentBroadcastDimensions.begin(),
                                   currentBroadcastDimensions.end());
