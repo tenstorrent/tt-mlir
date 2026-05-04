@@ -83,9 +83,9 @@ declare_mlir_dialect_python_bindings(
 # _ttnn_ops_gen.py and packages it as part of TTMLIRPythonSources.
 set(_ttnn_op_schema_py "${CMAKE_CURRENT_BINARY_DIR}/dialects/_ttnn_op_schema.py")
 set(_ttnn_ops_json "${CMAKE_BINARY_DIR}/include/ttmlir/Dialect/TTNN/IR/TTNNOps.json")
-set(_op_schema_gen "${CMAKE_SOURCE_DIR}/tools/python_op_schema_gen/gen.py")
+set(_op_schema_gen "${CMAKE_SOURCE_DIR}/tools/scripts/python_op_schema_codegen.py")
 add_custom_command(
-  OUTPUT  "${_ttnn_op_schema_py}"
+  OUTPUT "${_ttnn_op_schema_py}"
   COMMAND ${Python3_EXECUTABLE} "${_op_schema_gen}"
             --json "${_ttnn_ops_json}"
             --out "${_ttnn_op_schema_py}"

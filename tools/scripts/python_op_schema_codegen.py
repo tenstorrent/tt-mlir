@@ -12,13 +12,13 @@ Emits a module exposing OP_SCHEMA[<full-op-name>] = {
 }
 
 Usage:
-  gen.py --json TTNNOps.json --out _ttnn_op_schema.py
+  python_op_schema_codegen.py --json TTNNOps.json --out _ttnn_op_schema.py
 """
-from enum import Enum, auto
-from typing import Literal, Optional
 import argparse
 import json
 import sys
+from enum import Enum, auto
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -62,7 +62,7 @@ class OpDag(BaseModel):
 
 
 class OpRecord(BaseModel):
-    """A def record we've already accepted via is_dialect_op."""
+    """A def record we've already accepted via _is_dialect_op."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -82,10 +82,11 @@ class ArgWrapper(BaseModel):
 
 def _expect_json_v1(records: dict) -> None:
     version = records.get("!tablegen_json_version")
-    assert version == SUPPORTED_JSON_VERSION, (
-        f"unsupported tblgen JSON version {version!r}; this script targets "
-        f"version {SUPPORTED_JSON_VERSION}"
-    )
+    if version != SUPPORTED_JSON_VERSION:
+        raise ValueError(
+            f"unsupported tblgen JSON version {version!r}; this script targets "
+            f"version {SUPPORTED_JSON_VERSION}"
+        )
 
 
 def _get_def_name(arg_def: Optional[dict]) -> Optional[str]:
@@ -124,7 +125,7 @@ def _mangle_name(name: str) -> str:
     return name
 
 
-def classify_arg(name: str, type_set: set, attr_set: set) -> Optional[Kind]:
+def _classify_arg(name: str, type_set: set, attr_set: set) -> Optional[Kind]:
     """Classify a constraint name. Caller must strip Arg<...> wrappers via
     _unwrap_arg first."""
     if name in type_set:
@@ -134,7 +135,7 @@ def classify_arg(name: str, type_set: set, attr_set: set) -> Optional[Kind]:
     return None
 
 
-def is_dialect_op(rec) -> bool:
+def _is_dialect_op(rec) -> bool:
     """Return True if `rec` is an MLIR op record owned by DIALECT_RECORD."""
     if not isinstance(rec, dict):
         return False
@@ -143,24 +144,26 @@ def is_dialect_op(rec) -> bool:
     return _get_def_name(rec.get("opDialect")) == DIALECT_RECORD
 
 
-def collect(records: dict):
+def _collect(records: dict):
     _expect_json_v1(records)
 
     inst = records.get("!instanceof", {})
-    assert isinstance(
-        inst, dict
-    ), f"!instanceof: expected a dictionary, got {type(inst).__name__}"
+    if not isinstance(inst, dict):
+        raise TypeError(
+            f"!instanceof: expected a dictionary, got {type(inst).__name__}"
+        )
     type_set = set(inst.get("TypeConstraint", []))
     attr_set = set(inst.get("AttrConstraint", []))
     overlap = type_set & attr_set
-    assert not overlap, (
-        f"records appear in both TypeConstraint and AttrConstraint: "
-        f"{sorted(overlap)}"
-    )
+    if overlap:
+        raise ValueError(
+            f"records appear in both TypeConstraint and AttrConstraint: "
+            f"{sorted(overlap)}"
+        )
 
     schema = {}
     for rec in records.values():
-        if not is_dialect_op(rec):
+        if not _is_dialect_op(rec):
             continue
 
         op = OpRecord.model_validate(rec)
@@ -169,15 +172,13 @@ def collect(records: dict):
         buckets = {Kind.OPERAND: operands, Kind.ATTRIBUTE: attributes}
         for arg_ref, arg_name in op.arguments.args:
             target = _unwrap_arg(arg_ref.def_name, records)
-            kind = classify_arg(target, type_set, attr_set)
+            kind = _classify_arg(target, type_set, attr_set)
             if kind is None:
-                print(
-                    f"warning: {full!r} arg {arg_name!r} (def "
-                    f"{target!r}) is neither operand nor attribute; "
-                    "skipping",
-                    file=sys.stderr,
+                raise ValueError(
+                    f"{full!r} arg {arg_name!r} (def {target!r}) is neither "
+                    f"operand nor attribute; tblgen JSON does not list it under "
+                    f"TypeConstraint or AttrConstraint"
                 )
-                continue
             buckets[kind].append(arg_name)
 
         results = [_mangle_name(r[1]) for r in op.results.args]
@@ -190,7 +191,7 @@ def collect(records: dict):
     return schema
 
 
-def emit(schema: dict, out_path: str) -> None:
+def _emit(schema: dict, out_path: str) -> None:
     lines = [
         "# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC",
         "#",
@@ -222,10 +223,10 @@ def main():
     with open(args.json) as f:
         records = json.load(f)
 
-    schema = collect(records)
+    schema = _collect(records)
     if not schema:
         print(f"warning: no ops found for dialect '{DIALECT_NAME}'", file=sys.stderr)
-    emit(schema, args.out)
+    _emit(schema, args.out)
 
 
 if __name__ == "__main__":
