@@ -176,23 +176,14 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
 
   let builders =
     [
-      AttrBuilder<(ins "ShapeAttr": $shape, "ttcore::GridAttr": $shardGrid, "ttcore::GridAttr": $deviceGrid),
+      AttrBuilder<(ins "TTNNLayoutAttr": $layout),
       [{
-        CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
-        return Base::get($_ctxt, coreRangeSet, shape, ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor));
-      }]>,
-      AttrBuilder<(ins "TTNNLayoutAttr": $layout, "ttcore::GridAttr": $deviceGrid),
-      [{
-        ttcore::GridAttr shardGrid = layout.getGrid();
-        CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
+        CoreRangeSetAttr coreRangeSet = layout.getCoreRangeSet();
         return Base::get($_ctxt, coreRangeSet, ShapeAttr::get($_ctxt,layout.getScalarShardShape()), ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor));
       }]>
     ];
 
   let assemblyFormat = "`<` params `>`";
-  let extraClassDeclaration = [{
-    static CoreRangeSetAttr getCoreRangeSet(mlir::MLIRContext *context, ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid);
-  }];
 }
 
 def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
@@ -296,7 +287,7 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let extraClassDeclaration = [{
     class Builder;
     static MemoryConfigAttr get(::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec);
-    static MemoryConfigAttr get(ttnn::TTNNLayoutAttr layout, ttcore::GridAttr deviceGrid);
+    static MemoryConfigAttr get(ttnn::TTNNLayoutAttr layout);
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
   }];
 
