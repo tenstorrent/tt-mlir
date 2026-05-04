@@ -37,7 +37,7 @@ public:
   /// When tensorTypePossibleLayouts is provided, reshard candidates are
   /// generated from all possible sharded layouts for each tensor type.
   MemoryLayoutPropagation(
-      func::FuncOp func, ttcore::GridAttr deviceGrid,
+      func::FuncOp func,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
       size_t beamWidth = 8, size_t maxInputCandidatesPerOperand = 64,
@@ -65,7 +65,7 @@ public:
 
 private:
   func::FuncOp func;
-  ttcore::GridAttr deviceGrid;
+  ttcore::DeviceAttr deviceAttr;
   const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs;
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
 
@@ -162,8 +162,8 @@ private:
   void addL1InterleavedFallbacks(
       std::vector<InputCandidate> &candidates, Operation *op,
       const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
-      Operation *producerOp, TTNNLayoutAttr currentLayout, size_t resultIdx,
-      size_t maxCandidates);
+      TTNNLayoutAttr currentLayout, RankedTensorType inputTensorType,
+      size_t resultIdx, size_t maxCandidates);
 
   /// Apply per-op input layout filters, removing candidates that the op
   /// cannot consume efficiently.
