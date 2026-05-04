@@ -83,9 +83,9 @@ static bool shouldFold(mlir::Operation *op) {
 // argument using an index mapping function. The index mapping function takes
 // output coordinates and returns input coordinates.
 template <typename ElementType, typename Fun>
-static mlir::DenseElementsAttr foldNonSplatTM(ShapedType resultType,
-                                              DenseElementsAttr inputAttr,
-                                              Fun indexMap) {
+static ::mlir::OpFoldResult foldNonSplatTM(ShapedType resultType,
+                                           DenseElementsAttr inputAttr,
+                                           Fun indexMap) {
   auto inputValues = inputAttr.getValues<ElementType>();
   llvm::SmallVector<ElementType> outputValues;
   outputValues.reserve(resultType.getNumElements());
