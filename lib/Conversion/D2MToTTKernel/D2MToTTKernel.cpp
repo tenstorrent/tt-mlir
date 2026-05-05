@@ -2744,8 +2744,10 @@ public:
       shardDimVals[d] = index(rewriter, loc, shardShape[d]);
       shardStrideVals[d] = index(rewriter, loc, stride);
 
-      tensorStrideVals[d] = rewriter.create<ttkernel::GetCompileArgValOp>(
-          loc, rewriter.getIndexType(), ctaTensorStrideArgIndex + d);
+      Value strideI32 = rewriter.create<ttkernel::GetCompileArgValOp>(
+          loc, rewriter.getI32Type(), ctaTensorStrideArgIndex + d);
+      tensorStrideVals[d] = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getIndexType(), strideI32);
 
       stride *= shardShape[d];
     }
