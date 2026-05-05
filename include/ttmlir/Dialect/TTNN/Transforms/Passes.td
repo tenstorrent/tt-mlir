@@ -44,10 +44,11 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-enable-decomposition-workaround-pass",
              "bool", /*default=*/"true",
              "TTNN Decompsition Workarounds Pass">,
-      Option<"optimizerEnabled",
-             "ttnn-is-optimizer-enabled",
-             "bool", /*default=*/"false",
-             "flag specifying if optimizer is enabled">,
+      Option<"optimizationLevel",
+             "ttnn-optimization-level",
+             "int", /*default=*/"0",
+             "Optimization level forwarded from the pipeline; controls which "
+             "workarounds are active.">,
   ];
 }
 

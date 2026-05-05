@@ -237,9 +237,7 @@ void createTTNNPipelineWorkaroundPass(
       options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
 
-  if (options.optimizerPassEnabled) {
-    workaroundOptions.optimizerEnabled = true;
-  }
+  workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
