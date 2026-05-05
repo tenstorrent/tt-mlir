@@ -301,32 +301,30 @@ foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
     return mlir::SplatElementsAttr::get(resultType, result);
   }
 
-  // If exactly one input is a splat we resize it to the shape of the other,
-  // to be able to iterate trgough the same number of elements.
-  if (lhs.isSplat() && !rhs.isSplat()) {
-    lhs = lhs.resizeSplat(rhs.getType());
+  llvm::SmallVector<ElementType> resultValues;
+  resultValues.reserve(resultType.getNumElements());
+
+  // If one input is a splat and the other has the same shape as the output,
+  // iterate over the non-splat values and calculate the result.
+  if (lhs.isSplat() && rhs.getType() == resultType) {
+    auto lhsValue = lhs.getSplatValue<ElementType>();
+    for (const auto &rhsValue : rhs.getValues<ElementType>()) {
+      resultValues.push_back(mapFn(lhsValue, rhsValue));
+    }
+    return mlir::DenseElementsAttr::get(resultType, resultValues);
   }
-  if (!lhs.isSplat() && rhs.isSplat()) {
-    rhs = rhs.resizeSplat(lhs.getType());
+  if (rhs.isSplat() && lhs.getType() == resultType) {
+    auto rhsValue = rhs.getSplatValue<ElementType>();
+    for (const auto &lhsValue : lhs.getValues<ElementType>()) {
+      resultValues.push_back(mapFn(lhsValue, rhsValue));
+    }
+    return mlir::DenseElementsAttr::get(resultType, resultValues);
   }
 
   // If we have tensors of different shapes, we need to add leading dimensions
   // of size 1 to the smaller one.
   lhs = addLeadingDimsToMatchShape(lhs, resultType.getShape());
   rhs = addLeadingDimsToMatchShape(rhs, resultType.getShape());
-
-  llvm::SmallVector<ElementType> resultValues;
-  resultValues.reserve(resultType.getNumElements());
-
-  // If no broadcast is needed, just map over the input values.
-  if (lhs.getType() == resultType && rhs.getType() == resultType) {
-    auto lhsBegin = lhs.value_begin<ElementType>();
-    auto lhsEnd = lhs.value_end<ElementType>();
-    auto rhsBegin = rhs.value_begin<ElementType>();
-    std::transform(lhsBegin, lhsEnd, rhsBegin, std::back_inserter(resultValues),
-                   mapFn);
-    return mlir::DenseElementsAttr::get(resultType, resultValues);
-  }
 
   auto lhsValues = lhs.getValues<ElementType>();
   auto rhsValues = rhs.getValues<ElementType>();
@@ -336,27 +334,24 @@ foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
   llvm::SmallVector<int64_t> resultStrides = mlir::computeStrides(resultShape);
   llvm::SmallVector<int64_t> lhsStrides = mlir::computeStrides(lhsShape);
   llvm::SmallVector<int64_t> rhsStrides = mlir::computeStrides(rhsShape);
+  auto mapCoord = [](const llvm::SmallVector<int64_t> &resultCoord,
+                     llvm::ArrayRef<int64_t> operandShape) {
+    llvm::SmallVector<int64_t> operandCoord(resultCoord.size());
+    for (size_t i = 0; i != operandShape.size(); ++i) {
+      operandCoord[i] = operandShape[i] == 1 ? 0 : resultCoord[i];
+    }
+    return operandCoord;
+  };
 
   // Iterate over the result elements and compute the positions of the input
   // elements to which the map function should be applied.
   for (int64_t i = 0; i != resultType.getNumElements(); ++i) {
     llvm::SmallVector<int64_t> resultCoord =
         mlir::delinearize(i, resultStrides);
-
-    llvm::SmallVector<int64_t> lhsCoord = resultCoord;
-    llvm::SmallVector<int64_t> rhsCoord = resultCoord;
-    for (size_t i = 0; i != resultCoord.size(); ++i) {
-      if (lhsShape[i] == 1) {
-        lhsCoord[i] = 0;
-      }
-      if (rhsShape[i] == 1) {
-        rhsCoord[i] = 0;
-      }
-    }
-
-    auto lhsIndex = mlir::linearize(lhsCoord, lhsStrides);
-    auto rhsIndex = mlir::linearize(rhsCoord, rhsStrides);
-
+    int64_t lhsIndex =
+        mlir::linearize(mapCoord(resultCoord, lhsShape), lhsStrides);
+    int64_t rhsIndex =
+        mlir::linearize(mapCoord(resultCoord, rhsShape), rhsStrides);
     resultValues.push_back(mapFn(lhsValues[lhsIndex], rhsValues[rhsIndex]));
   }
   return mlir::DenseElementsAttr::get(resultType, resultValues);
@@ -502,6 +497,7 @@ static bool allOf(mlir::ElementsAttr elems, Fun pred) {
   }
   return llvm::all_of(elems.getValues<ElementType>(), pred);
 }
+
 //===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
