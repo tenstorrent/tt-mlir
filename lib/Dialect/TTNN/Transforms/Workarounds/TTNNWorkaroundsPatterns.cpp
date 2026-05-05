@@ -593,9 +593,10 @@ public:
     Location loc = op.getLoc();
     Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
 
-    RankedTensorType maskType = ttnn::utils::RankedTensorTypeFactory::create(
-        indexType, ttcore::DataType::BFloat16);
     RankedTensorType outputType = op.getResult().getType();
+
+    RankedTensorType maskType = ttnn::utils::RankedTensorTypeFactory::create(
+        indexType, ttcore::elementTypeToDataType(outputType.getElementType()));
     TTNNLayoutAttr indexLayout =
         ttnn::utils::getLayoutAttrFromTensor(indexType);
 
@@ -604,7 +605,7 @@ public:
         ttmlir::utils::appendLocationSuffix(loc, "_zero"), indexType,
         rewriter.getI32IntegerAttr(0), device);
 
-    // %mask = ttnn.lt(idx, zero) -> bool
+    // %mask = ttnn.lt(idx, zero) -> numeric mask tensor
     auto mask = rewriter.create<ttnn::LessThanOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_idx_lt_zero"), maskType,
         op.getIndex(), zero.getResult());
@@ -627,15 +628,29 @@ public:
         op.getInput(), safeIdxU32.getResult(), op.getDimAttr(),
         op.getMemoryConfigAttr());
 
-    // %nan = ttnn.full(NaN : f32, shape = output_shape)
-    auto nanTensor = rewriter.create<ttnn::FullOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_nan"), outputType,
-        rewriter.getF32FloatAttr(std::numeric_limits<float>::quiet_NaN()),
-        device);
+    //   - float => NaN
+    //   - int   => int32_min (for unsigned this makes a large positive number,
+    //   and for signed this makes a large negative number)
+    mlir::Type outputElemType = outputType.getElementType();
+    mlir::Attribute fillValue;
+    if (mlir::isa<mlir::FloatType>(outputElemType)) {
+      fillValue =
+          rewriter.getF32FloatAttr(std::numeric_limits<float>::quiet_NaN());
+    } else if (mlir::isa<mlir::IntegerType>(outputElemType)) {
+      fillValue =
+          rewriter.getI32IntegerAttr(std::numeric_limits<int32_t>::min());
+    } else {
+      return failure();
+    }
 
-    // %result = ttnn.where(mask, NaN, raw)
+    // %fill = ttnn.full(fill_value, shape = output_shape)
+    auto fillTensor = rewriter.create<ttnn::FullOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_fill"), outputType,
+        fillValue, device);
+
+    // %result = ttnn.where(mask, fill_value, raw)
     rewriter.replaceOpWithNewOp<ttnn::WhereOp>(op, outputType, mask.getResult(),
-                                               nanTensor.getResult(),
+                                               fillTensor.getResult(),
                                                rawGather.getResult());
 
     return success();

@@ -67,7 +67,7 @@ module attributes {} {
     // CHECK: %[[ZERO:.*]] = "ttnn.full"(%[[DEVICE]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
     // CHECK-SAME: fill_value = 0 : i32
-    // %mask = ttnn.lt(idx, zero)  -> bool
+    // %mask = ttnn.lt(idx, zero)  -> numeric predicate tensor
     // CHECK: %[[MASK:.*]] = "ttnn.lt"(%arg1, %[[ZERO]])
     // %safe = ttnn.maximum(idx, zero)  -> si32 (negatives clamped to 0)
     // CHECK: %[[CLAMPED:.*]] = "ttnn.maximum"(%arg1, %[[ZERO]])
