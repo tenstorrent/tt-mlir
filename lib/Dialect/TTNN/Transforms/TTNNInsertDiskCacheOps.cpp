@@ -14,6 +14,8 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include "llvm/Support/raw_ostream.h"
+
 #include <cstdlib>
 
 namespace mlir::tt::ttnn {
@@ -29,31 +31,58 @@ public:
       TTNNInsertDiskCacheOps>::TTNNInsertDiskCacheOpsBase;
 
   void runOnOperation() final {
+    llvm::errs() << "[DiskCache] TTNNInsertDiskCacheOps pass starting\n";
+
     // Check env var - if not set, skip this pass
     if (!std::getenv("TTMLIR_ENABLE_DISK_CACHE")) {
+      llvm::errs() << "[DiskCache] TTMLIR_ENABLE_DISK_CACHE not set, "
+                      "skipping pass\n";
       return;
     }
+
+    llvm::errs() << "[DiskCache] TTMLIR_ENABLE_DISK_CACHE is set, "
+                    "processing module\n";
 
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
     moduleOp->walk([&](func::FuncOp func) {
+      llvm::errs() << "[DiskCache] visiting function '" << func.getSymName()
+                   << "'\n";
+
       // Skip private and const-eval functions
-      if (func.isPrivate() || ttmlir::utils::isConstEvalFunc(func)) {
+      if (func.isPrivate()) {
+        llvm::errs() << "[DiskCache] skipping private function '"
+                     << func.getSymName() << "'\n";
+        return;
+      }
+      if (ttmlir::utils::isConstEvalFunc(func)) {
+        llvm::errs() << "[DiskCache] skipping const-eval function '"
+                     << func.getSymName() << "'\n";
         return;
       }
 
       // Skip functions with no body
       if (func.getBody().empty()) {
+        llvm::errs() << "[DiskCache] skipping function with empty body '"
+                     << func.getSymName() << "'\n";
         return;
       }
 
+      llvm::errs() << "[DiskCache] processing function '" << func.getSymName()
+                   << "' with " << func.getNumArguments() << " arguments\n";
+
       // Compute program hash once per function
       std::string programHash = hashFuncOp(func);
+      llvm::errs() << "[DiskCache] computed program hash '" << programHash
+                   << "' for function '" << func.getSymName() << "'\n";
 
       // Process each tensor argument
+      unsigned tensorArgCount = 0;
       for (auto [argIndex, arg] : llvm::enumerate(func.getArguments())) {
         if (!mlir::isa<RankedTensorType>(arg.getType())) {
+          llvm::errs() << "[DiskCache] skipping non-tensor arg " << argIndex
+                       << "\n";
           continue;
         }
 
@@ -62,6 +91,10 @@ public:
           signalPassFailure();
           return;
         }
+
+        llvm::errs() << "[DiskCache] inserting disk cache op for arg "
+                     << argIndex << " (cache path: ./generated/tensorcache/"
+                     << programHash << "/" << argIndex << ".tensorbin)\n";
 
         // Insert op at function entry
         rewriter.setInsertionPointToStart(&func.getBody().front());
@@ -74,8 +107,15 @@ public:
         // Replace all uses of arg with cache op result (except the cache op
         // itself)
         arg.replaceAllUsesExcept(cacheOp.getResult(), cacheOp);
+        tensorArgCount++;
       }
+
+      llvm::errs() << "[DiskCache] inserted " << tensorArgCount
+                   << " disk cache ops for function '" << func.getSymName()
+                   << "'\n";
     });
+
+    llvm::errs() << "[DiskCache] TTNNInsertDiskCacheOps pass completed\n";
   }
 
 private:

@@ -19,36 +19,40 @@ void run(const ::tt::target::ttnn::GetOrInsertIntoDiskCacheOp *op,
          ProgramContext &context) {
   DiskTensorCache &cache = DiskTensorCache::getInstance();
 
+  std::string programHash = op->program_hash()->str();
+  uint32_t argIndex = op->arg_index();
+
+  LOG_INFO("[DiskCache] GetOrInsertIntoDiskCacheOp: arg_index=", argIndex,
+           ", program_hash=", programHash);
+
   // If disk cache is disabled, pass through input unchanged
   if (!DiskTensorCache::isEnabled()) {
+    LOG_INFO("[DiskCache] TTMLIR_ENABLE_DISK_CACHE not set, passing through");
     const ::ttnn::Tensor &input =
         context.getTensorPool().getTTNNTensorAndValidate(op->input());
     context.getTensorPool().insertTTNNTensorAndValidate(op->out(), input);
     return;
   }
 
-  std::string programHash = op->program_hash()->str();
-  uint32_t argIndex = op->arg_index();
   auto cachePath = cache.getCachePath(programHash, argIndex);
-
-  LOG_DEBUG(LogType::LogRuntimeTTNN, "GetOrInsertIntoDiskCacheOp for arg ",
-            argIndex, " with hash: ", programHash);
+  LOG_INFO("[DiskCache] cache path: ", cachePath.string());
 
   // Cache hit: load from disk
   if (cache.exists(programHash, argIndex)) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN, "Disk cache hit for arg ", argIndex,
-              " at path: ", cachePath.string());
+    LOG_INFO("[DiskCache] CACHE HIT - loading tensor from disk: ",
+             cachePath.string());
 
     ::ttnn::MeshDevice *device = context.getMeshDevicePtr().get();
     ::ttnn::Tensor out =
         ::tt::tt_metal::load_tensor_flatbuffer(cachePath.string(), device);
     context.getTensorPool().insertTTNNTensorAndValidate(op->out(), out);
+    LOG_INFO("[DiskCache] successfully loaded tensor from disk");
     return;
   }
 
   // Cache miss: write to disk and pass through
-  LOG_DEBUG(LogType::LogRuntimeTTNN, "Disk cache miss for arg ", argIndex,
-            ", writing to: ", cachePath.string());
+  LOG_INFO("[DiskCache] CACHE MISS - writing tensor to disk: ",
+           cachePath.string());
 
   cache.ensureDirectoryExists(programHash);
 
@@ -56,6 +60,8 @@ void run(const ::tt::target::ttnn::GetOrInsertIntoDiskCacheOp *op,
       context.getTensorPool().getTTNNTensorAndValidate(op->input());
   ::tt::tt_metal::dump_tensor_flatbuffer(cachePath.string(), input);
   cache.markWritten(programHash, argIndex);
+
+  LOG_INFO("[DiskCache] successfully wrote tensor to disk");
 
   // Pass through input as output
   context.getTensorPool().insertTTNNTensorAndValidate(op->out(), input);
