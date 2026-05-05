@@ -30,7 +30,11 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
     DefaultValuedParameter<"int32_t", "-1">:$nocIndex
   );
 
-  let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? (`,` `noc` `=` $nocIndex^)? `>` }];
+  // Format: `<` threadType (`,` kernelSymbol)? (`,` `noc` `=` nocIndex)? `>`.
+  // Both optional groups start with `,`, which the declarative format cannot
+  // disambiguate, so we hand-roll the parser to peek for the `noc` keyword
+  // after a comma and pick the right branch.
+  let hasCustomAssemblyFormat = 1;
 
   let extraClassDeclaration = [{
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {
