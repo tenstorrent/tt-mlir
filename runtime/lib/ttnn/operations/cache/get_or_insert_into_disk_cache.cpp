@@ -37,16 +37,15 @@ void run(const ::tt::target::ttnn::GetOrInsertIntoDiskCacheOp *op,
   auto cachePath = cache.getCachePath(programHash, argIndex);
   LOG_INFO("[DiskCache] cache path: ", cachePath.string());
 
-  // Cache hit: load from disk
+  // Cache hit: load from disk to host memory
+  // Subsequent to_device ops will move to device if needed
   if (cache.exists(programHash, argIndex)) {
-    LOG_INFO("[DiskCache] CACHE HIT - loading tensor from disk: ",
+    LOG_INFO("[DiskCache] CACHE HIT - loading tensor from disk to host: ",
              cachePath.string());
 
-    ::ttnn::MeshDevice *device = context.getMeshDevicePtr().get();
     ::ttnn::Tensor out =
-        ::tt::tt_metal::load_tensor_flatbuffer(cachePath.string(), device);
+        ::tt::tt_metal::load_tensor_flatbuffer(cachePath.string(), nullptr);
     context.getTensorPool().insertTTNNTensorAndValidate(op->out(), out);
-    LOG_INFO("[DiskCache] successfully loaded tensor from disk");
     return;
   }
 
