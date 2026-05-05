@@ -19,6 +19,11 @@ namespace mlir::tt::ttcore {
 
 constexpr inline llvm::StringLiteral g_kvCacheAttrName = "ttcore.kv_cache";
 
+constexpr inline llvm::StringLiteral g_originalActivationNamesAttrName =
+    "ttcore.original_activation_names";
+constexpr inline llvm::StringLiteral g_originalWeightNamesAttrName =
+    "ttcore.original_weight_names";
+
 class DeviceOp;
 class DeviceAttr;
 class SystemDescAttr;

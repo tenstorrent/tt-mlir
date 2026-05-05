@@ -542,8 +542,11 @@ void createTTNNCommonToEmitPyPipeline(
     devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
     devicePm.addPass(createTTNNPrepareModuleForExport());
   } else {
-    // In canonical path, run tuplification + input generation/loading.
+    // In canonical path, split forward functions inputs that have
+    // ttcore.argument_type attribute set on all args into activations and
+    // weights first. Then tuplify everything else.
     //
+    devicePm.addPass(createTTNNSplitForwardFuncArgsByType());
     devicePm.addPass(createTTNNTuplifyTensors());
 
     if (options.loadInputTensorsFromDisk) {
