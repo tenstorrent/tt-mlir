@@ -23,14 +23,16 @@ struct WritebackInfo {
 // Accepts ttir.full (FillValue attr) and ttir.constant (dense splat).
 static std::optional<int64_t> scalarIntKey(Value v) {
   if (auto fullOp = v.getDefiningOp<FullOp>()) {
-    if (auto ia = dyn_cast<IntegerAttr>(fullOp.getFillValue()))
+    if (auto ia = dyn_cast<IntegerAttr>(fullOp.getFillValue())) {
       return ia.getInt();
+    }
     return std::nullopt;
   }
   if (auto constOp = v.getDefiningOp<ConstantOp>()) {
     auto dense = dyn_cast<DenseIntOrFPElementsAttr>(constOp.getValue());
-    if (dense && dense.isSplat() && dense.getElementType().isInteger())
+    if (dense && dense.isSplat() && dense.getElementType().isInteger()) {
       return dense.getSplatValue<APInt>().getSExtValue();
+    }
     return std::nullopt;
   }
   return std::nullopt;
@@ -49,14 +51,16 @@ public:
     ModuleOp moduleOp = getOperation();
 
     moduleOp.walk([&](func::FuncOp funcOp) {
-      if (funcOp.getBody().empty())
+      if (funcOp.getBody().empty()) {
         return;
+      }
 
       Block &lastBlock = funcOp.getBody().back();
       auto returnOp =
           llvm::dyn_cast<func::ReturnOp>(lastBlock.getTerminator());
-      if (!returnOp)
+      if (!returnOp) {
         return;
+      }
 
       // Collect write-back candidates.
       // Pattern (with optional mesh_shard wrapper):
@@ -68,35 +72,42 @@ public:
         // Optionally look through an outer mesh_shard.
         Value addResult = retVal;
         if (auto outerShard = retVal.getDefiningOp<MeshShardOp>()) {
-          if (!retVal.hasOneUse())
+          if (!retVal.hasOneUse()) {
             continue;
+          }
           addResult = outerShard.getInput();
         }
 
         auto addOp = addResult.getDefiningOp<AddOp>();
-        if (!addOp || !addResult.hasOneUse())
+        if (!addOp || !addResult.hasOneUse()) {
           continue;
+        }
 
         auto tryMatch = [&](Value maybeArgSide, Value maybeDelta) -> bool {
           BlockArgument blockArg;
-          if (auto innerShard = maybeArgSide.getDefiningOp<MeshShardOp>())
+          if (auto innerShard = maybeArgSide.getDefiningOp<MeshShardOp>()) {
             blockArg = llvm::dyn_cast<BlockArgument>(innerShard.getInput());
-          else
+          } else {
             blockArg = llvm::dyn_cast<BlockArgument>(maybeArgSide);
-          if (!blockArg || blockArg.getOwner()->getParentOp() != funcOp)
+          }
+          if (!blockArg || blockArg.getOwner()->getParentOp() != funcOp) {
             return false;
-          if (!scalarIntKey(maybeDelta).has_value())
+          }
+          if (!scalarIntKey(maybeDelta).has_value()) {
             return false;
+          }
           // Guard against broadcasting: block arg type must equal add result
           // type so that replacing arg uses preserves the result shape.
-          if (blockArg.getType() != addResult.getType())
+          if (blockArg.getType() != addResult.getType()) {
             return false;
+          }
           candidates.push_back({blockArg, maybeDelta});
           return true;
         };
 
-        if (!tryMatch(addOp.getLhs(), addOp.getRhs()))
+        if (!tryMatch(addOp.getLhs(), addOp.getRhs())) {
           tryMatch(addOp.getRhs(), addOp.getLhs());
+        }
       }
 
       // Group candidates by (delta scalar key, blockArg element type).
@@ -110,8 +121,9 @@ public:
 
       for (auto &wb : candidates) {
         auto keyOpt = scalarIntKey(wb.delta);
-        if (!keyOpt.has_value())
+        if (!keyOpt.has_value()) {
           continue;
+        }
         GroupKey key{*keyOpt, wb.blockArg.getType()};
 
         bool found = false;
@@ -122,8 +134,9 @@ public:
             break;
           }
         }
-        if (!found)
+        if (!found) {
           groups.push_back({key, {wb}});
+        }
       }
 
       // Replace all uses of eliminated block args with the canonical block arg.
@@ -132,14 +145,16 @@ public:
       // is value-preserving. The CSE pass that follows will then deduplicate
       // the now-identical add/repeat/delta ops, collapsing N per-layer ops to 1.
       for (auto &[key, group] : groups) {
-        if (group.size() <= 1)
+        if (group.size() <= 1) {
           continue;
+        }
 
         BlockArgument canonicalArg = group.back().blockArg;
         for (size_t i = 0; i + 1 < group.size(); ++i) {
           BlockArgument eliminatedArg = group[i].blockArg;
-          if (eliminatedArg == canonicalArg)
+          if (eliminatedArg == canonicalArg) {
             continue;
+          }
           eliminatedArg.replaceAllUsesWith(canonicalArg);
         }
       }
