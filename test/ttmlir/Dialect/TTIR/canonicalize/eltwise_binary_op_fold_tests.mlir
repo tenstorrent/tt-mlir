@@ -464,6 +464,16 @@ module {
     return %2 : tensor<4xui8>
   }
 
+  func.func @logical_right_shift_to_zero(%lhs : tensor<4xui8>) -> tensor<4xui8> {
+    // CHECK-LABEL: @logical_right_shift_to_zero
+    // CHECK: "ttir.zeros"
+    // CHECK-NOT: "ttir.full"
+    // CHECK-NOT: "ttir.logical_right_shift"
+    %0 = "ttir.full"() <{fill_value = 8 : i32, shape = array<i32: 4>}> : () -> tensor<4xui8>
+    %1 = "ttir.logical_right_shift"(%lhs, %0) : (tensor<4xui8>, tensor<4xui8>) -> tensor<4xui8>
+    return %1 : tensor<4xui8>
+  }
+
   func.func @maximum_float() -> tensor<3xf32> {
     // CHECK-LABEL: @maximum_float
     // CHECK: "ttir.constant"
