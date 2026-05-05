@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -35,7 +36,7 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
-#define GEN_PASS_DEF_TTNNSPLITACTIVATIONSANDWEIGHTS
+#define GEN_PASS_DEF_TTNNSPLITFORWARDFUNCARGSBYTYPE
 #define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
 #define GEN_PASS_DEF_TTNNPREPAREMODULEFOREXPORT
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
@@ -265,20 +266,24 @@ public:
 };
 
 /// Recovers the original flat argument indices for activations and weights
-/// from the ttcore.original_argument_types attribute. This is needed to
+/// from the ttcore.original_argument_types attribute. This is needed to load
+/// the tensor of the proper index when loadInputTensorsFromDisk is enabled.
 static void recoverOriginalArgIndices(func::FuncOp funcOp,
                                       SmallVector<size_t> &activationIndices,
                                       SmallVector<size_t> &weightIndices) {
   auto origTypesAttr =
       funcOp->getAttrOfType<ArrayAttr>("ttcore.original_argument_types");
   assert(origTypesAttr && "Expected ttcore.original_argument_types on function "
-                          "that has split activation and weight inputs!");
+                          "that has split arguments by type!");
   for (unsigned i = 0; i < origTypesAttr.size(); ++i) {
     auto typeAttr = mlir::cast<ttcore::ArgumentTypeAttr>(origTypesAttr[i]);
     if (typeAttr.getValue() == ttcore::ArgumentType::Input) {
       activationIndices.push_back(i);
-    } else {
+    } else if (typeAttr.getValue() == ttcore::ArgumentType::Parameter ||
+               typeAttr.getValue() == ttcore::ArgumentType::Constant) {
       weightIndices.push_back(i);
+    } else {
+      llvm_unreachable("Unexpected ttcore::ArgumentType value");
     }
   }
 }
@@ -316,8 +321,13 @@ protected:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
+      // Skip non-forward device functions and private forward device functions.
+      // The latter is needed because TTNNRecoverStructure decomposes a forward
+      // function's body into private forward device sub-functions (per model
+      // substructure) that don't need input generators.
+      //
       if (!ttmlir::utils::isForwardDeviceFunc(funcOp) || funcOp.isPrivate()) {
-        return mlir::WalkResult::skip();
+        return mlir::WalkResult::advance();
       }
 
       if (funcOp.getFunctionType().getNumInputs() > 0) {
@@ -335,7 +345,7 @@ protected:
       ForwardFuncInputGeneratorOps entry;
       entry.forwardFuncOp = forwardFuncOp;
 
-      if (ttmlir::utils::isSplitInput(forwardFuncOp)) {
+      if (ttmlir::utils::hasSplitForwardFuncArgsByType(forwardFuncOp)) {
         SmallVector<size_t> activationOrigIndices, weightOrigIndices;
         recoverOriginalArgIndices(forwardFuncOp, activationOrigIndices,
                                   weightOrigIndices);
@@ -469,7 +479,7 @@ protected:
     // Collect tensor names and types from GetKeyValueOp ops in the
     // forward function body. All GetKeyValueOps in the forward function body
     // are relevant since at this point all of them are created by
-    // TTNNSplitActivationsAndWeights pass.
+    // TTNNSplitForwardFuncArgsByType pass.
     //
     SmallVector<std::pair<Attribute, Type>> namesAndTypes;
     forwardFuncOp.walk([&](ttcore::GetKeyValueOp op) {
@@ -918,16 +928,16 @@ private:
   }
 };
 
-// Splits the inputs of the forward functions into activations and
+// Splits the forward functions inputs by type into activations and
 // weights. Only performed on forward functions which inputs have
 // ttcore.argument_type attributes set, so that each input argument can
 // be properly classified as an activation or a weight.
-class TTNNSplitActivationsAndWeights
-    : public impl::TTNNSplitActivationsAndWeightsBase<
-          TTNNSplitActivationsAndWeights> {
+class TTNNSplitForwardFuncArgsByType
+    : public impl::TTNNSplitForwardFuncArgsByTypeBase<
+          TTNNSplitForwardFuncArgsByType> {
 public:
-  using impl::TTNNSplitActivationsAndWeightsBase<
-      TTNNSplitActivationsAndWeights>::TTNNSplitActivationsAndWeightsBase;
+  using impl::TTNNSplitForwardFuncArgsByTypeBase<
+      TTNNSplitForwardFuncArgsByType>::TTNNSplitForwardFuncArgsByTypeBase;
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
@@ -952,7 +962,7 @@ public:
       if (funcOp.getFunctionType().getNumInputs() == 0) {
         return mlir::WalkResult::skip();
       }
-      if (isMissingArgTypes(funcOp)) {
+      if (!containsArgTypes(funcOp)) {
         return mlir::WalkResult::skip();
       }
       forwardFuncOps.push_back(funcOp);
@@ -962,13 +972,20 @@ public:
     for (func::FuncOp funcOp : forwardFuncOps) {
       mlir::FunctionType oldFunctionType = funcOp.getFunctionType();
 
-      // Classify the function arguments into activations and weights.
+      // Classify the function arguments into activations and weights. Collect
+      // the original arg types (preserved as a function-level attribute) and
+      // the original arg names for activations and weights separately
+      // (preserved as per-arg attributes on the new tuple/dict args).
       //
       llvm::SmallDenseSet<unsigned> activationArgIndices, weightArgIndices;
-      SmallVector<Attribute> originalArgTypes;
-      SmallVector<Attribute> originalArgNames;
-      classifyFuncArguments(funcOp, activationArgIndices, weightArgIndices,
-                            originalArgTypes, originalArgNames);
+      classifyArgIndices(funcOp, activationArgIndices, weightArgIndices);
+      SmallVector<Attribute> originalArgTypes = collectOriginalArgTypes(funcOp);
+      SmallVector<Attribute> originalActivationNames =
+          collectOriginalArgNamesForTargetIndices(
+              funcOp, activationArgIndices, /*unnamedPrefix=*/"activation");
+      SmallVector<Attribute> originalWeightNames =
+          collectOriginalArgNamesForTargetIndices(funcOp, weightArgIndices,
+                                                  /*unnamedPrefix=*/"weight");
 
       bool hasActivations = !activationArgIndices.empty();
       bool hasWeights = !weightArgIndices.empty();
@@ -1003,18 +1020,14 @@ public:
         funcOp->removeAttr(funcOp.getArgAttrsAttrName());
       });
 
-      // Save original argument types and names as function-level attributes
-      // before the function signature is modified.
+      // Save original argument types as a function-level attribute.
       //
       assert(!originalArgTypes.empty() && "Expected argument types to be set!");
       funcOp->setAttr("ttcore.original_argument_types",
                       ArrayAttr::get(&ctx, originalArgTypes));
-      if (!originalArgNames.empty()) {
-        funcOp->setAttr("ttcore.original_argument_names",
-                        ArrayAttr::get(&ctx, originalArgNames));
-      }
 
-      // Insert the new block arguments.
+      // Insert the new block arguments and attach the original argument names
+      // as per-arg attributes.
       //
       Block &entryBlock = funcOp.getBody().front();
       BlockArgument activationsTuple, weightsDict;
@@ -1022,11 +1035,16 @@ public:
       if (hasActivations) {
         activationsTuple = entryBlock.insertArgument(
             newArgsCount, newInputType[newArgsCount], funcOp.getLoc());
+        funcOp.setArgAttr(newArgsCount,
+                          ttcore::g_originalActivationNamesAttrName,
+                          ArrayAttr::get(&ctx, originalActivationNames));
         ++newArgsCount;
       }
       if (hasWeights) {
         weightsDict = entryBlock.insertArgument(
             newArgsCount, newInputType[newArgsCount], funcOp.getLoc());
+        funcOp.setArgAttr(newArgsCount, ttcore::g_originalWeightNamesAttrName,
+                          ArrayAttr::get(&ctx, originalWeightNames));
         ++newArgsCount;
       }
 
@@ -1041,17 +1059,22 @@ public:
         Type originalType = oldFunctionType.getInputs()[idx];
         Value getElement;
         if (activationArgIndices.count(idx)) {
-          getElement = rewriter
-                           .create<ttcore::GetTupleElementOp>(
-                               funcOp.getLoc(), originalType, activationsTuple,
-                               activationsTupleIdx++)
-                           ->getResult(0);
+          // Hint the original activation name onto the unpack op so that the
+          // EmitPy codegen can use it as the local variable name in the
+          // generated Python instead of an anonymous `activations_N`.
+          //
+          auto getTupleElementOp = rewriter.create<ttcore::GetTupleElementOp>(
+              funcOp.getLoc(), originalType, activationsTuple,
+              activationsTupleIdx);
+          getTupleElementOp->setAttr(
+              "emitpy.name", originalActivationNames[activationsTupleIdx++]);
+          getElement = getTupleElementOp->getResult(0);
         } else {
           assert(weightArgIndices.count(idx) && "Expected weight argument!");
           getElement = rewriter
                            .create<ttcore::GetKeyValueOp>(
                                funcOp.getLoc(), originalType, weightsDict,
-                               originalArgNames[weightsNameIdx++])
+                               originalWeightNames[weightsNameIdx++])
                            ->getResult(0);
         }
 
@@ -1065,51 +1088,77 @@ public:
 
       // Mark the function input as split.
       //
-      ttmlir::utils::setSplitInput(funcOp);
+      ttmlir::utils::setSplitForwardFuncArgsByType(funcOp);
     }
   }
 
-  bool isMissingArgTypes(func::FuncOp funcOp) {
-    return llvm::any_of(
+  bool containsArgTypes(func::FuncOp funcOp) {
+    return llvm::all_of(
         llvm::seq<unsigned>(0, funcOp.getFunctionType().getNumInputs()),
         [&](unsigned i) {
           return funcOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
-                     i, ttcore::ArgumentTypeAttr::name) == nullptr;
+                     i, ttcore::ArgumentTypeAttr::name) != nullptr;
         });
   }
 
-  void
-  classifyFuncArguments(func::FuncOp funcOp,
-                        llvm::SmallDenseSet<unsigned> &activationArgIndices,
-                        llvm::SmallDenseSet<unsigned> &weightArgIndices,
-                        llvm::SmallVector<Attribute> &originalArgTypes,
-                        llvm::SmallVector<Attribute> &originalArgNames) {
-    mlir::FunctionType functionType = funcOp.getFunctionType();
-    MLIRContext &ctx = getContext();
-
-    unsigned unnamedWeightsCount = 0;
-    for (unsigned i = 0; i < functionType.getNumInputs(); ++i) {
-      if (auto typeAttr = funcOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
-              i, ttcore::ArgumentTypeAttr::name)) {
-        originalArgTypes.push_back(typeAttr);
-        if (typeAttr.getValue() == ttcore::ArgumentType::Input) {
-          activationArgIndices.insert(i);
-        } else if (typeAttr.getValue() == ttcore::ArgumentType::Parameter ||
-                   typeAttr.getValue() == ttcore::ArgumentType::Constant) {
-          weightArgIndices.insert(i);
-          if (auto nameAttr =
-                  funcOp.getArgAttrOfType<StringAttr>(i, "ttir.name")) {
-            originalArgNames.push_back(
-                StringAttr::get(&ctx, nameAttr.getValue()));
-          } else {
-            originalArgNames.push_back(StringAttr::get(
-                &ctx, "weight_" + std::to_string(unnamedWeightsCount++)));
-          }
-        }
+  // Classifies forward function argument indices into activation and weight
+  // indices based on each arg's `ttcore.argument_type` attribute.
+  //
+  void classifyArgIndices(func::FuncOp funcOp,
+                          llvm::SmallDenseSet<unsigned> &activationArgIndices,
+                          llvm::SmallDenseSet<unsigned> &weightArgIndices) {
+    for (unsigned i = 0; i < funcOp.getFunctionType().getNumInputs(); ++i) {
+      auto typeAttr = funcOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+          i, ttcore::ArgumentTypeAttr::name);
+      assert(typeAttr && "Pre-check should have skipped unannotated functions");
+      if (typeAttr.getValue() == ttcore::ArgumentType::Input) {
+        activationArgIndices.insert(i);
+      } else if (typeAttr.getValue() == ttcore::ArgumentType::Parameter ||
+                 typeAttr.getValue() == ttcore::ArgumentType::Constant) {
+        weightArgIndices.insert(i);
       } else {
-        llvm_unreachable("Pre-check should have skipped unannotated functions");
+        llvm_unreachable("Unexpected ttcore::ArgumentType value");
       }
     }
+  }
+
+  // Collects per-arg `ttcore.argument_type` attributes in the original
+  // argument order.
+  //
+  llvm::SmallVector<Attribute> collectOriginalArgTypes(func::FuncOp funcOp) {
+    llvm::SmallVector<Attribute> originalArgTypes;
+    for (unsigned i = 0; i < funcOp.getFunctionType().getNumInputs(); ++i) {
+      auto typeAttr = funcOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+          i, ttcore::ArgumentTypeAttr::name);
+      assert(typeAttr && "Pre-check should have skipped unannotated functions");
+      originalArgTypes.push_back(typeAttr);
+    }
+    return originalArgTypes;
+  }
+
+  // Collects names for the arguments at `targetArgIndices` in the original
+  // argument order. Uses `ttir.name` arg attribute if present, otherwise
+  // auto-generates names in the form of `<unnamedPrefix>_N`.
+  //
+  llvm::SmallVector<Attribute> collectOriginalArgNamesForTargetIndices(
+      func::FuncOp funcOp,
+      const llvm::SmallDenseSet<unsigned> &targetArgIndices,
+      llvm::StringRef unnamedPrefix) {
+    llvm::SmallVector<Attribute> originalArgNames;
+    MLIRContext &ctx = getContext();
+    unsigned unnamedCount = 0;
+    for (unsigned i = 0; i < funcOp.getFunctionType().getNumInputs(); ++i) {
+      if (!targetArgIndices.contains(i)) {
+        continue;
+      }
+      if (auto nameAttr = funcOp.getArgAttrOfType<StringAttr>(i, "ttir.name")) {
+        originalArgNames.push_back(StringAttr::get(&ctx, nameAttr.getValue()));
+      } else {
+        originalArgNames.push_back(StringAttr::get(
+            &ctx, unnamedPrefix.str() + "_" + std::to_string(unnamedCount++)));
+      }
+    }
+    return originalArgNames;
   }
 };
 

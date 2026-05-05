@@ -2677,10 +2677,16 @@ public:
         loc, rewriter.getIndexType(), std::to_string(adaptor.getIndex()));
 
     // Create subscript operation
-    Value subscriptResult = rewriter.create<emitpy::SubscriptOp>(
+    auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
         loc, resultType, adaptor.getOperand(), indexAsVal);
 
-    rewriter.replaceOp(getTupleElementOp, subscriptResult);
+    // Forward the `emitpy.name` codegen hint, if any
+    //
+    if (auto nameAttr = getTupleElementOp->getAttr("emitpy.name")) {
+      subscriptOp->setAttr("emitpy.name", nameAttr);
+    }
+
+    rewriter.replaceOp(getTupleElementOp, subscriptOp.getResult());
 
     return success();
   }
@@ -3016,20 +3022,43 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     rewriter.modifyOpInPlace(funcOp, [&funcOp, &rewriter]() {
-      // Preserve emitpy.name attributes before removing all argument
-      // attributes.
+      // Preserve attributes that downstream passes still need
+      // before removing all argument attributes.
+      //
       SmallVector<Attribute> emitPyNames;
+      unsigned activationNamesAttrIdx = 0, weightNamesAttrIdx = 0;
+      Attribute activationNamesAttr, weightNamesAttr;
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
         emitPyNames.push_back(funcOp.getArgAttr(i, ttnn_to_emitpy::kNameAttr));
+        if (Attribute attr = funcOp.getArgAttr(
+                i, ttcore::g_originalActivationNamesAttrName)) {
+          activationNamesAttr = attr;
+          activationNamesAttrIdx = i;
+        }
+        if (Attribute attr =
+                funcOp.getArgAttr(i, ttcore::g_originalWeightNamesAttrName)) {
+          weightNamesAttr = attr;
+          weightNamesAttrIdx = i;
+        }
       }
 
       funcOp.removeArgAttrsAttr();
 
-      // Restore emitpy.name attributes.
+      // Restore preserved attributes.
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
         if (emitPyNames[i]) {
           funcOp.setArgAttr(i, ttnn_to_emitpy::kNameAttr, emitPyNames[i]);
         }
+      }
+      if (activationNamesAttr) {
+        funcOp.setArgAttr(activationNamesAttrIdx,
+                          ttcore::g_originalActivationNamesAttrName,
+                          activationNamesAttr);
+      }
+      if (weightNamesAttr) {
+        funcOp.setArgAttr(weightNamesAttrIdx,
+                          ttcore::g_originalWeightNamesAttrName,
+                          weightNamesAttr);
       }
 
       if (ttmlir::utils::isConstEvalWrapperFunc(funcOp)) {

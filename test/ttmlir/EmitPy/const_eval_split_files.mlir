@@ -26,7 +26,7 @@
 // CHECK: import ttir_cpu
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}(
 // CHECK:   ttir_cpu.add(
-// CHECK-LABEL: def forward_const_eval_0(input):
+// CHECK-LABEL: def forward_const_eval_0(arg):
 // CHECK:   cpu_hoisted_const_eval_{{.*}}(
 // CHECK: def consteval_forward(ce_cache, weights)
 // CHECK:   if not ce_cache:

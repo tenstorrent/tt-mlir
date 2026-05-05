@@ -178,7 +178,7 @@ def TTNNCreateMainForTest: Pass<"ttnn-create-main-for-test", "::mlir::ModuleOp">
   }];
 }
 
-def TTNNSplitActivationsAndWeights : Pass<"ttnn-split-activations-and-weights", "::mlir::ModuleOp"> {
+def TTNNSplitForwardFuncArgsByType : Pass<"ttnn-split-forward-func-args-by-type", "::mlir::ModuleOp"> {
   let summary = "Split forward function arguments into activations tuple and weights dictionary.";
   let description = [{
     This pass rewrites each forward function of device module by separating its tensor arguments into activations and weights.

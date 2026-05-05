@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/FunctionTypes.h"
 
@@ -30,8 +31,11 @@ namespace mlir::tt::ttnn {
 //   const-eval logic of that forward function into it.
 //   4. Inserts a call to the consteval wrapper function after the dictionary
 //   retrieval in the forward function body. The consteval wrapper function
-//   receives the global cache dictionary and the forward function inputs as
-//   arguments.
+//   receives the global cache dictionary as its first argument. When the
+//   forward function has been split by type (TTNNSplitForwardFuncArgsByType),
+//   only its weights dict is forwarded to the wrapper, since activations
+//   are runtime inputs and never participate in const-eval; otherwise all
+//   forward arguments are passed through.
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,7 +44,36 @@ namespace {
 constexpr const char *kCachePrefix = "ce_cache_";
 constexpr const char *kConstEvalWrapperNamePrefix = "consteval_";
 
-// Collect the sorteddef-use chain of the given ops.
+// Returns the weights-dict from the forward function signature if it exists.
+// Returns an empty BlockArgument otherwise.
+static BlockArgument findWeightsDictArg(func::FuncOp funcOp) {
+  for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
+    if (funcOp.getArgAttr(i, ttcore::g_originalWeightNamesAttrName)) {
+      return funcOp.getArgument(i);
+    }
+  }
+  return {};
+}
+
+// Returns the forward function arguments that should be passed to the
+// consteval wrapper. If the forward function arguments were split by type, only
+// the weights dictionary is passed. Otherwise, every forward function
+// argument is passed.
+//
+static SmallVector<BlockArgument>
+getConstEvalForwardArgs(func::FuncOp forwardFunc) {
+  SmallVector<BlockArgument> result;
+  if (ttmlir::utils::hasSplitForwardFuncArgsByType(forwardFunc)) {
+    if (BlockArgument weights = findWeightsDictArg(forwardFunc)) {
+      result.push_back(weights);
+    }
+  } else {
+    llvm::append_range(result, forwardFunc.getArguments());
+  }
+  return result;
+}
+
+// Collect the sorted def-use chain of the given ops.
 static llvm::SmallVector<Operation *>
 collectSortedDefUseChain(llvm::SmallVector<Operation *> &ops, Block *block) {
   llvm::SetVector<Operation *> result;
@@ -111,17 +144,11 @@ public:
       // Insert a call to the consteval wrapper function after the cache
       // dictionary retrieval in the forward function.
       builder.setInsertionPointAfter(dict);
-      Block &forwardBody = funcOp.getBody().front();
 
       // Collect the arguments to pass to the consteval wrapper function.
+      //
       SmallVector<Value> callArgs = {dict.getResult()};
-      auto activationIdx = getActivationArgIdx(funcOp);
-      for (unsigned i = 0; i < forwardBody.getNumArguments(); ++i) {
-        if (activationIdx && *activationIdx == i) {
-          continue;
-        }
-        callArgs.push_back(forwardBody.getArgument(i));
-      }
+      llvm::append_range(callArgs, getConstEvalForwardArgs(funcOp));
 
       auto cacheDict = builder.create<func::CallOp>(
           funcOp.getLoc(), kConstEvalWrapperNamePrefix + funcOp.getName().str(),
@@ -145,27 +172,13 @@ public:
       llvm::SmallVector<Operation *> loadCachedPtrs(loadCachedOps.begin(),
                                                     loadCachedOps.end());
       llvm::SmallVector<Operation *> defChainOps =
-          collectSortedDefUseChain(loadCachedPtrs, &forwardBody);
+          collectSortedDefUseChain(loadCachedPtrs, &funcOp.getBody().front());
       for (auto *op : llvm::reverse(defChainOps)) {
         if (op->use_empty()) {
           op->erase();
         }
       }
     }
-  }
-
-  /// Return the index of the activations argument if it exists.
-  std::optional<unsigned> getActivationArgIdx(func::FuncOp funcOp) {
-    if (!ttmlir::utils::isSplitInput(funcOp)) {
-      return std::nullopt;
-    }
-
-    for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
-      if (isa<TupleType>(funcOp.getArgument(i).getType())) {
-        return i;
-      }
-    }
-    return std::nullopt;
   }
 
   // Create the consteval wrapper function.
@@ -177,14 +190,15 @@ public:
         kConstEvalWrapperNamePrefix + forwardFunc.getName().str();
     auto dictType = ttcore::DictType::get(&getContext());
 
+    // Build the wrapper signature. Consteval cache dictionary is always the
+    // first argument. After that, some or all of the forward function arguments
+    // are passed.
+    //
+    SmallVector<BlockArgument> argsToForward =
+        getConstEvalForwardArgs(forwardFunc);
+
     llvm::SmallVector<Type> wrapperArgTypes = {dictType};
-    auto activationIdx = getActivationArgIdx(forwardFunc);
-    for (unsigned i = 0; i < forwardFunc.getNumArguments(); ++i) {
-      if (activationIdx && *activationIdx == i) {
-        continue;
-      }
-      wrapperArgTypes.push_back(forwardFunc.getArgument(i).getType());
-    }
+    llvm::append_range(wrapperArgTypes, ValueRange(argsToForward).getTypes());
 
     auto wrapperFuncType = builder.getFunctionType(wrapperArgTypes, {dictType});
 
@@ -203,14 +217,10 @@ public:
     // arguments.
     IRMapping mapping;
     mapping.map(cacheDict, wrapperBody.getArgument(0));
-    unsigned wrapperArgIdx = 1;
-    for (unsigned i = 0; i < forwardFunc.getNumArguments(); ++i) {
-      if (activationIdx && *activationIdx == i) {
-        continue;
-      }
-      mapping.map(forwardBody.getArgument(i),
-                  wrapperBody.getArgument(wrapperArgIdx));
-      wrapperFunc.setArgAttrs(wrapperArgIdx++, forwardFunc.getArgAttrDict(i));
+    for (auto [idx, forwardArg] : llvm::enumerate(argsToForward)) {
+      mapping.map(forwardArg, wrapperBody.getArgument(idx + 1));
+      wrapperFunc.setArgAttrs(
+          idx + 1, forwardFunc.getArgAttrDict(forwardArg.getArgNumber()));
     }
 
     // Collect all ops from the forward function to clone into the wrapper.
