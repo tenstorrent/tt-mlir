@@ -15,6 +15,7 @@ include "ttmlir/Target/TTNN/operations/generic_op.fbs";
 include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
 include "ttmlir/Target/TTNN/operations/layout.fbs";
 include "ttmlir/Target/TTNN/operations/load_cached.fbs";
+include "ttmlir/Target/TTNN/operations/disk_cache.fbs";
 // ANCHOR: adding_an_op_matmul_fbs_include
 include "ttmlir/Target/TTNN/operations/matmul.fbs";
 // ANCHOR_END: adding_an_op_matmul_fbs_include
@@ -88,6 +89,7 @@ union OpType {
   LayerNormPostAllGatherOp,
   LinearOp,
   LoadCachedOp,
+  GetOrInsertIntoDiskCacheOp,
   // ANCHOR: adding_an_op_matmul_fbs_op_type
   MatmulOp,
   // ANCHOR_END: adding_an_op_matmul_fbs_op_type

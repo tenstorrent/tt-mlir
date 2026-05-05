@@ -5,6 +5,7 @@
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
 #include "ttmlir/Dialect/Debug/IR/DebugOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -3066,6 +3067,19 @@ createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
       funcHash.c_str());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::GetOrInsertIntoDiskCacheOp>
+createOp(FlatbufferObjectCache &cache,
+         ttcore::GetOrInsertIntoDiskCacheOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateGetOrInsertIntoDiskCacheOpDirect(
+      *cache.fbb, input, op.getProgramHash().str().c_str(), op.getArgIndex(),
+      output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
 createOp(FlatbufferObjectCache &cache, AssignOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4680,6 +4694,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
         cache,
         createOp(cache, loadCachedOp, programIndexMap, constEvalFuncHashes),
         debugString, locInfo);
+  }
+  if (auto diskCacheOp = dyn_cast<ttcore::GetOrInsertIntoDiskCacheOp>(op);
+      diskCacheOp) {
+    return createOperation(cache, createOp(cache, diskCacheOp), debugString,
+                           locInfo);
   }
   if (auto pointToPointOp = dyn_cast<PointToPointOp>(op); pointToPointOp) {
     return createOperation(cache, createOp(cache, pointToPointOp), debugString,

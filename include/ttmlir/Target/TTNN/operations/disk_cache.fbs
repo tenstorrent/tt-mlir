@@ -1,0 +1,11 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table GetOrInsertIntoDiskCacheOp {
+  input: tt.target.ttnn.TensorRef;
+  program_hash: string;
+  arg_index: uint32;
+  out: tt.target.ttnn.TensorRef;
+}
