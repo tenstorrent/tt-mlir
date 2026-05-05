@@ -73,3 +73,17 @@ module @test_gather_repeat_both_multiple {
     return %2 : tensor<1x768x8x60x106xbf16>
   }
 }
+
+// Constant-uniform indices like [1, 1, ..., 1] are not replicate-padding;
+// must fall through to the embedding lowering instead of slice/repeat/concat.
+// CHECK-LABEL: func.func @uniform_max_indices_falls_through
+module @test_gather_uniform_max_indices {
+  func.func @uniform_max_indices_falls_through(%arg0: tensor<2x768xf32>) -> tensor<193x768xf32> {
+    // CHECK-NOT: "ttir.concat"
+    // CHECK: "ttir.embedding"
+    // CHECK-NOT: stablehlo.gather
+    %1 = "stablehlo.constant"() <{value = dense<1> : tensor<193xui32>}> : () -> tensor<193xui32>
+    %2 = "stablehlo.gather"(%arg0, %1) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 768>}> : (tensor<2x768xf32>, tensor<193xui32>) -> tensor<193x768xf32>
+    return %2 : tensor<193x768xf32>
+  }
+}
