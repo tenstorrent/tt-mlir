@@ -25,18 +25,20 @@ namespace {
 // Fallback scratch buffer size in bytes, used as an upper bound, and when the
 // DST packing analysis does not produce results for a given generic.
 //
-// TODO(sgholami): temporary bump from 128KB to 384KB. The eager-split fix in
-// D2MElementwiseFusion (giving each producer its own intermediate tensor.empty)
-// surfaces real intermediate allocs to D2MInsertSpillAndScratch, which then
-// allocates one scratch slot per producer with no liveness reuse (slotIndex++).
-// Long elementwise chains (e.g. test_eltwise_fuse_unary_chain at 1x1 with
-// test-buffer-size-policy=max needs 144 tiles; 2x2 needs 72) overflow the old
-// 128KB cap. PR #7395 (ckaravasilisTT/d2mScratchAllocsLiveness) implements
-// liveness-based slot reuse in LowerScratchAllocate which collapses the
-// per-producer slots into a few reused offsets; once that lands this cap can
-// drop back. Issue #7796 (subview offsets lost in DMA->CB lowering) is a
-// related latent bug that becomes observable once #7395 lands.
-constexpr size_t kFallbackScratchSizeBytes = 384 * 1024; // 384KB
+// The cap was bumped from 128KB to 192KB so that long fused elementwise chains
+// fit. After the D2MElementwiseFusion fix that gives every producer in a fused
+// d2m.generic its own intermediate tensor.empty (required to avoid a real
+// read-after-write hazard when aliasing producer outputs onto the consumer's
+// output CB), D2MInsertSpillAndScratch allocates one scratch slot per
+// producer with no liveness-based reuse (slotIndex++). For an N-op linear
+// chain that yields N-1 distinct slots; the 20-op test_eltwise_fuse_unary_chain
+// at 1x1 needs 76 tiles (152KB) and at 2x2 needs 72 tiles (144KB), both of
+// which overflow the old 128KB / 64-tile cap. 192KB accommodates these chains
+// with headroom; once liveness-based scratch slot reuse lands in
+// D2MLowerScratchAllocate (PR #7395) the per-producer slots can collapse and
+// this cap can drop back. Issue #7796 (subview offsets lost in DMA->CB
+// lowering) is a related latent bug that becomes observable once #7395 lands.
+constexpr size_t kFallbackScratchSizeBytes = 192 * 1024; // 192KB
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
