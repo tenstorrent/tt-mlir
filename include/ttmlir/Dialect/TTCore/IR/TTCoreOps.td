@@ -170,6 +170,41 @@ def TTCore_LoadCachedOp : TTCore_Op<"load_cached", [Pure]> {
   let hasVerifier = 1;
 }
 
+def TTCore_GetOrInsertIntoDiskCacheOp : TTCore_Op<"get_or_insert_into_disk_cache",
+    [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Get tensor from disk cache or insert if missing";
+  let description = [{
+    On cache hit: loads tensor from disk and returns it.
+    On cache miss: writes input tensor to disk and returns it.
+
+    The cache path is: ./generated/tensorcache/<program_hash>/<arg_index>.tensorbin
+
+    This operation is gated by the TTMLIR_ENABLE_DISK_CACHE environment variable.
+    When disabled, it passes through the input tensor unchanged.
+
+    Example:
+    ```mlir
+    %cached = ttcore.get_or_insert_into_disk_cache %arg0, program_hash = "abc123...", arg_index = 0
+        : tensor<32x32xbf16> -> tensor<32x32xbf16>
+    ```
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$input,
+    StrAttr:$program_hash,
+    UI32Attr:$arg_index
+  );
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let assemblyFormat = [{
+    $input `,` `program_hash` `=` $program_hash `,` `arg_index` `=` $arg_index
+    attr-dict `:` type($input) `->` type($result)
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTCore_OptimizationBarrierOp : TTCore_Op<"optimization_barrier", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "Optimization barrier operation.";
   let description = [{

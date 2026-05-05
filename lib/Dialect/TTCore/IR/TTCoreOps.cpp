@@ -9,6 +9,8 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 
+#include <cctype>
+
 using namespace mlir;
 
 static void printTupleOpType(OpAsmPrinter &p, Operation *, TypeRange,
@@ -190,6 +192,28 @@ LogicalResult GetKeyValueOp::verify() {
   if (getResults().empty()) {
     return emitOpError() << "requires at least one result";
   }
+  return success();
+}
+
+LogicalResult GetOrInsertIntoDiskCacheOp::verify() {
+  // Verify input and result types match
+  if (getInput().getType() != getResult().getType()) {
+    return emitOpError("input and result types must match");
+  }
+
+  // Verify program_hash is a valid 64-character hex string (SHA256)
+  StringRef hash = getProgramHash();
+  if (hash.size() != 64) {
+    return emitOpError("program_hash must be a 64-character hex string, got ")
+           << hash.size() << " characters";
+  }
+  for (char c : hash) {
+    if (!std::isxdigit(static_cast<unsigned char>(c))) {
+      return emitOpError(
+          "program_hash must contain only hexadecimal characters");
+    }
+  }
+
   return success();
 }
 
