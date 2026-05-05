@@ -175,7 +175,8 @@ RankedTensorType createDeviceType(MLIRContext *ctx, RankedTensorType systemType,
   SmallVector<int64_t> tensorGridShape =
       llvm::to_vector(referenceLayout.getGridShape(referenceType));
   ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-      ctx, referenceLayout.getLogicalShape(), referenceLayout.getDimAlignments(),
+      ctx, referenceLayout.getLogicalShape(),
+      referenceLayout.getDimAlignments(),
       referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
       ttcore::MemorySpace::DeviceL1, referenceLayout.getMemoryLayout());
 

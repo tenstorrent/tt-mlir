@@ -105,10 +105,10 @@ struct MaskStep {
 // sequence that transforms a tensor from one `PlanState` to another. Plans are
 // produced by `canonicalize`, simplified by `minimize`, and materialized by the
 // LowerToLayout pass.
-using Step = std::variant<HostToDeviceStep, DeviceToHostStep, L1ToDRAMStep,
-                          DRAMToL1Step, TilizeStep, UntilizeStep,
-                          RebufferStep, ReshardStep, RemapStep,
-                          ReinterpretLayoutStep, MaskStep>;
+using Step =
+    std::variant<HostToDeviceStep, DeviceToHostStep, L1ToDRAMStep, DRAMToL1Step,
+                 TilizeStep, UntilizeStep, RebufferStep, ReshardStep, RemapStep,
+                 ReinterpretLayoutStep, MaskStep>;
 
 using Plan = llvm::SmallVector<Step>;
 
