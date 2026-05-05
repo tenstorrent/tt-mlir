@@ -545,6 +545,9 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
 uint32_t getNumShards(Tensor tensor) {
   return std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) -> uint32_t {
+            LOG_FATAL("Unsupported variant type");
+          },
           [&](const TensorDesc &) -> uint32_t { return 1; },
           [&](const HostBuffer &) -> uint32_t { return 1; },
           [&](const DistributedHostBuffer &buffer) -> uint32_t {
