@@ -78,13 +78,6 @@ def test_all_gather(
         pytest.skip("all_gather_dim is out of range")
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("all_gather across 1 device is meaningless")
-    if fabric_config == tt_runtime.runtime.FabricConfig.FABRIC_1D_RING and tuple(
-        mesh_shape
-    ) == (1, 8):
-        pytest.skip(
-            "Temporarily disabled: hangs on civ2 llmbox-stable runners "
-            "(stale eth-core fabric state)."
-        )
 
     rank_in = len(test_shape)
     rank_mesh = len(mesh_shape)

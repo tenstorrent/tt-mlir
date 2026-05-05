@@ -31,7 +31,7 @@ set(ttmlir_export_targets
 
   # TTMetal dialect
   MLIRTTMetalDialect
-  MLIRTTMetalPipelines
+  MLIRD2MPipelines
 
   # TTKernel dialect
   MLIRTTKernelDialect
@@ -50,6 +50,7 @@ set(ttmlir_export_targets
   MLIRD2MAnalysis
   MLIRD2MTransforms
   MLIRD2MUtils
+  MLIRLinalgSynchronizableOpInterfaceImpl
 
   # Conversions
   TTMLIRTosaToTTIR

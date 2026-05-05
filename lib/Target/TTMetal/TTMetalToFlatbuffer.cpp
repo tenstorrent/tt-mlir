@@ -43,6 +43,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -402,6 +403,7 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
+    ttcore::SystemDescAttr systemDesc,
     std::optional<AffineMap> virtualGridInverseMapping) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
@@ -433,7 +435,21 @@ memrefTypeToCircularBufferConfigFlatbuffer(
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, workerGridShape, extendedMapping);
 
-  uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
+  uint64_t pageSize = 0;
+  bool useScalarCBLayoutSizing =
+      !mlir::isa<ttcore::TileType>(memref.getElementType()) &&
+      shardLayout.getBuffers() > 1;
+  if (!useScalarCBLayoutSizing) {
+    pageSize = device.getMemrefCBPageSizeBytes(memref);
+  } else {
+    ArrayRef<int64_t> stride = shardLayout.getStride();
+    int64_t elementSize = stride.back();
+    pageSize = stride.size() < 2 ? elementSize : stride[stride.size() - 2];
+    // Scalar CBs may be used as packet scratch buffers.  Keep the CB page at
+    // least one NOC-aligned transfer so reserve/push/pop advance correctly.
+    pageSize =
+        std::max<uint64_t>(pageSize, systemDesc.getNocL1AddressAlignBytes());
+  }
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t numBuffers = shardLayout.getBuffers();
@@ -481,7 +497,8 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
           circularBufferConfig =
               isMemrefDeviceL1Memspace(memref)
                   ? memrefTypeToCircularBufferConfigFlatbuffer(
-                        cache, memref, device, virtualGridInverseMapping)
+                        cache, memref, device, systemDesc,
+                        virtualGridInverseMapping)
                   : 0;
 
       bufferDetail = target::metal::CreateMetalBuffer(

@@ -8,10 +8,10 @@
 #include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
-#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
@@ -298,9 +298,22 @@ struct TTIRToTTNNCommonPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
-  Option<bool> enableD2MFusing{*this, "enable-d2m-fusing-pass",
-                               llvm::cl::desc("Enable D2M fusing pass."),
-                               llvm::cl::init(false)};
+  // Enable the TTNNCreateD2MSubgraphs pass. This pass finds maximal chains
+  // of elementwise TTNN ops, outlines each chain into a private function, and
+  // replaces the original ops with a ttnn.d2m_subgraph op. The outlined
+  // subgraphs are later compiled through the D2M pipeline where elementwise
+  // fusion can be performed in D2MElementwiseFusion pass. See the
+  // enable-d2m-elementwise-fusion option.
+  Option<bool> enableCreateD2MSubgraphs{
+      *this, "enable-create-d2m-subgraphs",
+      llvm::cl::desc("Enable TTNN create D2M subgraphs pass."),
+      llvm::cl::init(false)};
+
+  // Enable the d2m elementwise fusion pass when enable-create-d2m-subgraphs is
+  // on. See resolveCreateD2MSubgraphsOptions for more details.
+  mutable Option<bool> enableD2MElementwiseFusion{
+      *this, "enable-d2m-elementwise-fusion",
+      llvm::cl::desc("Enable elementwise fusion pass."), llvm::cl::init(false)};
 
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
@@ -372,16 +385,24 @@ struct TTIRToTTNNCommonPipelineOptions
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
 
-  Option<WeightDtype> experimentalWeightDtype{
+  Option<BFPDtype> experimentalWeightDtype{
       *this, "experimental-weight-dtype",
       llvm::cl::desc("Experimental: Target dtype for weight conversion in "
                      "matrix multiplication and linear operations."),
       llvm::cl::values(
-          clEnumValN(WeightDtype::None, "none", "Disabled"),
-          clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
-          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
-                     "BFP BFloat4 format")),
-      llvm::cl::init(WeightDtype::None)};
+          clEnumValN(BFPDtype::None, "none", "Disabled"),
+          clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
+      llvm::cl::init(BFPDtype::None)};
+
+  Option<BFPDtype> experimentalKVCacheDtype{
+      *this, "experimental-kv-cache-dtype",
+      llvm::cl::desc("Experimental: Target dtype for KV cache conversion."),
+      llvm::cl::values(
+          clEnumValN(BFPDtype::None, "none", "Disabled"),
+          clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
+      llvm::cl::init(BFPDtype::None)};
 
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
@@ -469,6 +490,21 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, "enable-compile-time-stats",
       llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
       llvm::cl::init(false)};
+
+  void resolveCreateD2MSubgraphsOptions() const {
+    // enable-d2m-elementwise-fusion is a sub-option of
+    // enable-create-d2m-subgraphs and should only be enabled if
+    // enable-create-d2m-subgraphs is also enabled.
+    if (enableD2MElementwiseFusion && !enableCreateD2MSubgraphs) {
+      llvm::reportFatalUsageError("enable-d2m-elementwise-fusion=true requires "
+                                  "enable-create-d2m-subgraphs to be enabled.");
+    }
+
+    if (enableCreateD2MSubgraphs &&
+        enableD2MElementwiseFusion.getNumOccurrences() == 0) {
+      enableD2MElementwiseFusion = true;
+    }
+  }
 
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
@@ -669,7 +705,20 @@ struct RecoverStructureXLATorchPipelineOptions
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
-void createTTNNPipelineD2MPass(OpPassManager &pm);
+// TTNN Pipeline D2M pass options.
+struct TTNNPipelineD2MPassOptions
+    : public PassPipelineOptions<TTNNPipelineD2MPassOptions> {
+  // Enable the d2m elementwise fusion pass.
+  // Same downstream pass as TTIRToTTNNCommonPipelineOptions::
+  // enableD2MElementwiseFusion / enable-d2m-elementwise-fusion.
+  Option<bool> enableElementwiseFusion{
+      *this, "enable-elementwise-fusion",
+      llvm::cl::desc("Enable elementwise fusion of d2m.generic ops."),
+      llvm::cl::init(false)};
+};
+
+void createTTNNPipelineD2MPass(OpPassManager &pm,
+                               const TTNNPipelineD2MPassOptions &options);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn

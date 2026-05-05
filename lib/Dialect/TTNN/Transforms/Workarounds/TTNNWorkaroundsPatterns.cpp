@@ -18,15 +18,12 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LayerNormPostAllGatherDecompositionRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LayerNormPreAllGatherZeroPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PointToPointOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ProdOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RMSNormConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
@@ -629,7 +626,6 @@ public:
           workarounds::decomposition::
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::PadHighDimRewritePattern,
-          workarounds::decomposition::ProdOpRewritePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern,
           workarounds::decomposition::NLPConcatHeadsDecodeInputRewritePattern,
           workarounds::decomposition::
@@ -643,10 +639,6 @@ public:
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
-          workarounds::decomposition::
-              LayerNormPostAllGatherDecompositionRewritePattern,
-          workarounds::decomposition::
-              LayerNormPreAllGatherZeroPadRewritePattern,
           workarounds::decomposition::
               DistributedRMSNormWidthShardInputRewritePattern,
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
@@ -712,5 +704,8 @@ const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
         ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
-        ttnn::ScatterOp::getOperationName()};
+        ttnn::ScatterOp::getOperationName(),
+        // TopK's operands workaround forces input bf16 + indices ui16/ui32;
+        // without it, opt_level>=1 dtype propagation picks f32. See #8141.
+        ttnn::TopKOp::getOperationName()};
 } // namespace mlir::tt::ttnn

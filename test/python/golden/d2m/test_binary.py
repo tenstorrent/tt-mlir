@@ -596,6 +596,172 @@ def test_bitwise_binary_ops(
     )
 
 
+# Binary logical shift ops (int only)
+def logical_left_shift(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.logical_left_shift(in0, in1, unit_attrs=unit_attrs)
+
+
+def logical_right_shift(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.logical_right_shift(in0, in1, unit_attrs=unit_attrs)
+
+
+def right_shift(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.right_shift(in0, in1, unit_attrs=unit_attrs)
+
+
+binary_logical_shift_ops = [
+    logical_left_shift,
+    logical_right_shift,
+]
+
+binary_logical_shift_dtypes = [
+    torch.int32 | SkipIf("sim"),
+    torch.uint32 | SkipIf("sim"),
+    torch.uint16 | SkipIf("sim"),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize(
+    "dtype", binary_logical_shift_dtypes, ids=["i32", "u32", "u16"]
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("test_fn", binary_logical_shift_ops)
+def test_logical_shift_binary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    if test_fn == logical_left_shift and dtype == torch.uint16:
+        pytest.xfail("uint16 logical left shift op is not supported yet")
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            return test_fn(in0, in1, builder)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+binary_right_shift_dtypes = [
+    torch.int32 | SkipIf("sim"),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", binary_right_shift_dtypes, ids=["i32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_right_shift_binary_op(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            lhs = torch.randint(-(2**31), 2**31, shape, dtype=dtype)
+            rhs = torch.randint(0, 32, shape, dtype=dtype)
+            result = right_shift(in0, in1, builder)
+            output = torch.bitwise_right_shift(lhs, rhs).to(dtype)
+            builder.set_goldens(inputs={in0: lhs, in1: rhs}, outputs={result: output})
+            return result
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+def _make_shift_edge_case_tensors(shape: Shape) -> Tuple[torch.Tensor, torch.Tensor]:
+    # Include sign-extreme and mixed-sign values in lhs, and boundary shifts in rhs.
+    lhs_pattern = torch.tensor(
+        [-(2**31), -1024, -17, -1, 0, 1, 17, 1024, 2**31 - 1], dtype=torch.int32
+    )
+    rhs_pattern = torch.tensor([0, 1, 2, 7, 15, 16, 30, 31, 0], dtype=torch.int32)
+
+    lhs_flat = lhs_pattern.repeat(
+        (shape[0] * shape[1] + len(lhs_pattern) - 1) // len(lhs_pattern)
+    )[: shape[0] * shape[1]]
+    rhs_flat = rhs_pattern.repeat(
+        (shape[0] * shape[1] + len(rhs_pattern) - 1) // len(rhs_pattern)
+    )[: shape[0] * shape[1]]
+    return lhs_flat.reshape(shape), rhs_flat.reshape(shape)
+
+
+def _logical_left_shift_edge_golden(
+    lhs: torch.Tensor, rhs: torch.Tensor
+) -> torch.Tensor:
+    lhs_i64 = lhs.to(torch.int64)
+    rhs_i64 = rhs.to(torch.int64)
+    lhs_unsigned = torch.bitwise_and(lhs_i64, 0xFFFFFFFF)
+    out = torch.bitwise_left_shift(lhs_unsigned, rhs_i64)
+    return torch.bitwise_and(out, 0xFFFFFFFF).to(torch.int32)
+
+
+def _logical_right_shift_edge_golden(
+    lhs: torch.Tensor, rhs: torch.Tensor
+) -> torch.Tensor:
+    lhs_i64 = lhs.to(torch.int64)
+    rhs_i64 = rhs.to(torch.int64)
+    lhs_unsigned = torch.bitwise_and(lhs_i64, 0xFFFFFFFF)
+    out = torch.bitwise_right_shift(lhs_unsigned, rhs_i64)
+    return torch.bitwise_and(out, 0xFFFFFFFF).to(torch.int32)
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "op_name",
+    ["logical_left_shift", "logical_right_shift", "right_shift"],
+)
+@pytest.mark.skip_config(["sim"])
+def test_shift_binary_ops_edge_cases(
+    shape: Shape, target: str, op_name: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [torch.int32, torch.int32])
+        def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            lhs, rhs = _make_shift_edge_case_tensors(shape)
+
+            if op_name == "logical_left_shift":
+                result = logical_left_shift(in0, in1, builder)
+                output = _logical_left_shift_edge_golden(lhs, rhs)
+            elif op_name == "logical_right_shift":
+                result = logical_right_shift(in0, in1, builder)
+                output = _logical_right_shift_edge_golden(lhs, rhs)
+            else:
+                result = right_shift(in0, in1, builder)
+                output = torch.bitwise_right_shift(lhs, rhs).to(torch.int32)
+
+            builder.set_goldens(inputs={in0: lhs, in1: rhs}, outputs={result: output})
+            return result
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 # Binary comparison ops
 def eq(
     in0: Operand,

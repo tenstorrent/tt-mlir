@@ -51,6 +51,7 @@ def TTKernel_UnpackStallOnPackOp
     is visible. Used between consecutive linalg.generics sharing an
     intermediate L1 buffer in the single-tile shard path.
   }];
+  let hasCanonicalizer = 1;
   let assemblyFormat = [{ attr-dict }];
 }
 
@@ -617,8 +618,14 @@ def TTKernel_ReduceUninitOp : TTKernel_InitOp<"reduce_uninit"> {
        same dimension, this call can be omitted. If this function is not called, the packer will continue to use the edge masks set
        by the latest reduce_init call, which may lead to incorrect packing behavior in subsequent operations.
 
+       The `full_fp32` attribute emits reduce_uninit<true>, which performs the extra cleanup required after some
+       full-fp32 reduce sequences. Without the attribute, lowering emits reduce_uninit(), matching tt-metal's
+       default false behavior.
+
        This function is not in line with our programming mode. To be removed by end of 2025. tt-metal#22904.
     }];
+
+    let arguments = (ins UnitAttr:$full_fp32);
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
@@ -1216,6 +1223,76 @@ def TTKernel_BitwiseXorBinaryTilesOp : TTKernel_SFPUOp<"bitwise_xor_binary_tile"
     let description = [{
       Performs element-wise computation of bitwise XOR operation
       DST[odst_index] <- DST[dst0_index] ^ DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryShiftTileInitOp : TTKernel_InitOp<"binary_shift_tile_init"> {
+    let summary = "Init function for binary shift tile operations (left / right / logical right). Refer to documentation for any init function.";
+    let description = [{
+      Must be run before binary_left_shift_tile, binary_right_shift_tile, or binary_logical_right_shift_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryLeftShiftTileOp : TTKernel_SFPUOp<"binary_left_shift_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise left shift between two tiles";
+    let description = [{
+      Performs element-wise computation of a left shift operation
+      DST[odst_index] <- DST[dst0_index] << DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryRightShiftTileOp : TTKernel_SFPUOp<"binary_right_shift_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise arithmetic right shift between two tiles";
+    let description = [{
+      Performs element-wise computation of an arithmetic right shift
+      operation DST[odst_index] <- DST[dst0_index] >> DST[dst1_index]
+      (sign-preserving) on DST register operands. The DST register buffer must
+      be in acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryLogicalRightShiftTileOp : TTKernel_SFPUOp<"binary_logical_right_shift_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise logical right shift between two tiles";
+    let description = [{
+      Performs element-wise computation of a logical right shift operation
+      DST[odst_index] <- DST[dst0_index] >> DST[dst1_index] (zero-filled)
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
     }];
@@ -3367,6 +3444,21 @@ def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TT
     let hasCanonicalizer = 1;
 }
 
+def TTKernel_NocAsyncAtomicBarrierOp : TTKernel_Op<"noc_async_atomic_barrier"> {
+    let summary = "NocAsyncAtomicBarrier";
+    let description = [{
+      Block until all outstanding non-posted atomic operations on the given
+      NOC have flushed. Pairs with `noc_semaphore_inc` and
+      `noc_semaphore_inc_multicast`.
+    }];
+
+    let arguments = (ins Optional<I8>:$noc_id);
+
+    let assemblyFormat = [{
+      `(` ($noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocAsyncWriteBarrierWithTridOp : TTKernel_Op<"noc_async_write_barrier_with_trid", [TTKernel_DeviceZoneOpTrait, TTKernel_TridNocOpTrait]> {
     let summary = "NocAsyncWriteBarrierWithTrid";
     let description = [{
@@ -3426,13 +3518,34 @@ def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
       (with 32-bit wrap) of a remote Tensix core L1 memory address. This L1 memory
       address is used as a semaphore of size 4 Bytes, as a synchronization
       mechanism.
+
+      The `posted` attribute selects the NOC transaction response mode and
+      maps to the homonymous template parameter of `noc_semaphore_inc` in
+      tt-metal. When unset or false, the transaction is non-posted: the
+      receiver returns an acknowledgement and the sender's outstanding-atomics
+      counter tracks completion. When true, the transaction is posted: no
+      acknowledgement is returned, the sender's counter is not updated, and
+      synchronization must be receiver-driven.
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$addr, IndexLike:$incr, Optional<I8>:$noc_id);
+    let arguments = (ins TTKernel_NocAddr:$addr,
+                         IndexLike:$incr,
+                         Optional<I8>:$noc_id,
+                         OptionalAttr<BoolAttr>:$posted);
 
     let assemblyFormat = [{
-      `(` $addr `,` $incr (`,` $noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $addr `,` $incr (`,` $noc_id^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins "Value":$addr, "Value":$incr), [{
+        build($_builder, $_state, addr, incr, /*noc_id=*/Value{},
+              /*posted=*/BoolAttr{});
+      }]>,
+      OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$noc_id), [{
+        build($_builder, $_state, addr, incr, noc_id, /*posted=*/BoolAttr{});
+      }]>,
+    ];
 }
 
 def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
@@ -3540,6 +3653,49 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
     }];
 }
 
+def TTKernel_NocSemaphoreIncMulticastOp : TTKernel_Op<"noc_semaphore_inc_multicast"> {
+    let summary = "NocSemaphoreIncMulticast";
+    let description = [{
+      Initiates an atomic increment (with 32-bit wrap) of a 4-byte L1 semaphore
+      on every core in a rectangular destination grid. The destinations are
+      encoded in a uint64_t produced by *get_noc_multicast_addr* covering the
+      NOC coordinate range (x_start, y_start, x_end, y_end) and the target L1
+      address. Used for cumulative synchronization across multiple senders
+      sharing receivers, paired with *experimental::semaphore_wait_min*.
+
+      The sender must not be a member of the multicast destination set; for
+      including the sender there is no corresponding loopback variant in
+      tt-metal at this time.
+
+      The `posted` attribute mirrors the semantics of `noc_semaphore_inc`'s
+      `posted` template parameter. Posted multicast is currently restricted
+      on some architectures in the underlying tt-metal (cf. the assertion in
+      the v2 `Noc::async_write_multicast` API); leave unset when in doubt.
+    }];
+
+    let arguments = (ins TTKernel_NocAddr:$addr,
+                         IndexLike:$incr,
+                         I32:$num_dests,
+                         Optional<I8>:$noc_id,
+                         OptionalAttr<BoolAttr>:$posted);
+
+    let assemblyFormat = [{
+      `(` $addr `,` $incr `,` $num_dests (`,` $noc_id^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
+    }];
+
+    let builders = [
+      OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$num_dests), [{
+        build($_builder, $_state, addr, incr, num_dests, /*noc_id=*/Value{},
+              /*posted=*/BoolAttr{});
+      }]>,
+      OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$num_dests,
+                     "Value":$noc_id), [{
+        build($_builder, $_state, addr, incr, num_dests, noc_id,
+              /*posted=*/BoolAttr{});
+      }]>,
+    ];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
@@ -3639,6 +3795,21 @@ def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
 
     let assemblyFormat = [{
       `(` $value `,` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LoadFromL1Op : TTKernel_Op<"load_from_l1"> {
+    let summary = "LoadFromL1";
+    let description = [{
+      Load an i32 value from L1.
+    }];
+
+    let arguments = (ins TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
+
+    let results = (outs I32:$value);
+
+    let assemblyFormat = [{
+      `(` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

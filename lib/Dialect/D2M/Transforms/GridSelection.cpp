@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/GridAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/SpatialOpNormalizeUtil.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -17,12 +18,12 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/IRMapping.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/Pass/Pass.h"
-#include "llvm/ADT/DenseMap.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -333,23 +334,13 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
                                      ArrayRef<int64_t> effectiveTargetGrid,
                                      bool ttnnMode, OpBuilder &builder) {
   auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
-  int32_t concatDim = compositeView.getDim();
-
-  // Compute the output type first — its grid-aware dim alignments determine
-  // what physical shapes the inputs must match on non-concat dimensions.
+  const int32_t concatDim = compositeView.getDim();
   auto outType =
       mlir::cast<RankedTensorType>(compositeView.getResult().getType());
+  const bool isTiled = mlir::isa<ttcore::TileType>(outType.getElementType());
+
   RankedTensorType newOutType = utils::tensorWithOptimalGrid(
       outType, info.targetGrid, ttnnMode, info.selectedGrid);
-  auto outLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(newOutType.getEncoding());
-
-  // Build per-input dim alignments that are coordinated with the output:
-  //  - Non-concat dims use the output's grid-aware alignment (so physical
-  //    sizes match).
-  //  - The concat dim uses tile-only alignment (so each input's contribution
-  //    isn't independently inflated, keeping sum <= output).
-  auto outDimAlignments = outLayout.getDimAlignments();
 
   SmallVector<Value> reblockedInputs;
   for (Value input : compositeView.getInputs()) {
@@ -361,35 +352,52 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
       continue;
     }
 
-    auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
-    auto tileShape = tileType.getShape();
+    RankedTensorType newInputType;
+    if (isTiled) {
+      // Use the grid-aligned output type's dim alignments for the inputs, as
+      // they should mostly match on non-concat dimensions.
+      auto newOutLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(newOutType.getEncoding());
+      auto newOutDimAlignments = newOutLayout.getDimAlignments();
+      SmallVector<int64_t> inputAlignments(newOutDimAlignments.begin(),
+                                           newOutDimAlignments.end());
 
-    // Derive input dim alignments from the output, overriding the concat
-    // dim with tile-only alignment so each input's contribution isn't
-    // independently inflated. concatDim is already normalized to
-    // [0, logicalRank) by TTIRToD2M; the trailing two logical dims map to
-    // the tile's height/width (tileIdx 0/1), earlier dims are batch dims
-    // where tile alignment isn't required (fall back to 1).
-    llvm::SmallVector<int64_t> inputAlignments(outDimAlignments.begin(),
-                                               outDimAlignments.end());
-    int64_t logicalRank = inputLayout.getLogicalShape().size();
-    int64_t tileIdx = concatDim - (logicalRank - 2);
-    inputAlignments[concatDim] = (tileIdx >= 0) ? tileShape[tileIdx] : 1;
+      auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
+      auto tileShape = tileType.getShape();
+      int64_t logicalRank = inputLayout.getLogicalShape().size();
 
-    auto coordLayout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), inputLayout.getLogicalShape(),
-        inputLayout.getOobVal(), inputLayout.getMemorySpace(),
-        inputLayout.getMemoryLayout(), inputLayout.getCollapsedIntervals(),
-        inputAlignments);
+      // For height/width concat: uses tile-only alignment so the input's
+      // contribution isn't inflated, keeping sum <= output extent.
+      // For outer concat: default to 1 since the inputs are "passive" and the
+      // output tensor is already padded correctly.
+      const int64_t tileHWIdx = concatDim - (logicalRank - 2);
+      inputAlignments[concatDim] = (tileHWIdx >= 0) ? tileShape[tileHWIdx] : 1;
 
-    auto inputPhysShape = coordLayout.getPhysicalShape(tileShape);
-    auto inputOptimalGrid =
-        utils::computeOptimalGrid(inputType, inputPhysShape, info.targetGrid);
+      auto newLayout = ttcore::MetalLayoutAttr::get(
+          builder.getContext(), inputLayout.getLogicalShape(),
+          inputLayout.getOobVal(), inputLayout.getMemorySpace(),
+          inputLayout.getMemoryLayout(), inputLayout.getCollapsedIntervals(),
+          inputAlignments);
 
-    llvm::SmallVector<int64_t> deviceShape =
-        coordLayout.getDeviceShape(inputOptimalGrid, tileShape);
-    auto newInputType = RankedTensorType::get(
-        deviceShape, inputType.getElementType(), coordLayout);
+      auto inputPhysShape = newLayout.getPhysicalShape(tileShape);
+      auto inputOptimalGrid =
+          utils::computeOptimalGrid(inputType, inputPhysShape, info.targetGrid);
+
+      auto deviceShape = newLayout.getDeviceShape(inputOptimalGrid, tileShape);
+      newInputType = RankedTensorType::get(
+          deviceShape, inputType.getElementType(), newLayout);
+    } else {
+      // For row-major, compute alignments independently via
+      // tensorWithOptimalGrid. Since non-concat dims share the same logical
+      // size and target grid, they will have identical alignments & grid +
+      // shard shapes.
+      auto inputPhysShape =
+          utils::computePhysicalShape(input, info.targetGrid, ttnnMode);
+      auto inputOptimalGrid =
+          utils::computeOptimalGrid(inputType, inputPhysShape, info.targetGrid);
+      newInputType = utils::tensorWithOptimalGrid(inputType, info.targetGrid,
+                                                  ttnnMode, inputOptimalGrid);
+    }
 
     // When the input comes directly from a to_layout op with a single use,
     // update the to_layout's grid so that data is physically distributed
@@ -426,7 +434,7 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
   builder.setInsertionPoint(compositeView);
   auto newCompositeView = builder.create<d2m::CompositeViewOp>(
       compositeView.getLoc(), newOutType, reblockedInputs,
-      compositeView.getDim());
+      compositeView.getDim(), compositeView.getLogicalSizesAttr());
 
   compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
   compositeView.erase();
@@ -583,15 +591,21 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
 
 // Recreate the d2m.generic with updated operands.
 // After updating ToLayout and ViewLayout ops, the generic's operands have
-// new types with the selected grids. The generic grid is still anchored by the
-// output operand's chosen grid, but we must re-materialize the generic attrs
-// from the selected operand grids after those rewrites so the rebuilt op stays
-// consistent with the new operand types and the derived block factors.
-static void
+// new types with the selected grids. The generic grid is still anchored by
+// the output operand's chosen grid, but we must re-materialize the generic
+// attrs from the selected operand grids after those rewrites so the rebuilt
+// op stays consistent with the new operand types and the derived block
+// factors.
+//
+// Returns the generic to use for further work. Success is either:
+//  - no-op (empty grids): returns original op
+//  - recreated op: returns new op and erases original op
+// Failure is returned when generic recreation fails.
+static FailureOr<d2m::GenericOp>
 recreateGenericOp(d2m::GenericOp genericOp,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
   if (optimalOperandGrids.empty()) {
-    return;
+    return genericOp;
   }
 
   OpBuilder builder(genericOp);
@@ -604,26 +618,26 @@ recreateGenericOp(d2m::GenericOp genericOp,
   auto ret = genericOp.withParallelization(builder, grid, blockFactors,
                                            /*generateReturnView=*/false);
   if (failed(ret)) {
-    genericOp.emitOpError()
-        << "failed to recreate generic op with withParallelization";
-    return;
+    return failure();
   }
 
-  genericOp->replaceAllUsesWith(ret->genericOp);
+  d2m::GenericOp newGeneric = ret->genericOp;
+  genericOp->replaceAllUsesWith(newGeneric);
   genericOp.erase();
+  return newGeneric;
 }
 
 // ----------------------------------------------------------------------------
 // Apply all grid decisions from a GenericGridAnalysisResult to a GenericOp.
 // ----------------------------------------------------------------------------
 
-static void applyGridDecisions(d2m::GenericOp genericOp,
-                               const GenericGridAnalysisResult &result,
-                               bool ttnnMode) {
-  // effectiveTargetGrid is the generic's target grid (full device grid, or the
-  // range scoped by an enclosing d2m.spatial region), used for virtual grid
-  // physical mapping. Per-operand target grids (info.targetGrid) are used
-  // for alignment computation.
+static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
+                                        const GenericGridAnalysisResult &result,
+                                        bool ttnnMode) {
+  // effectiveTargetGrid is the generic's target grid (full device grid, or
+  // the range scoped by an enclosing d2m.spatial region), used for virtual
+  // grid physical mapping. Per-operand target grids (info.targetGrid) are
+  // used for alignment computation.
   ArrayRef<int64_t> effectiveTargetGrid = result.effectiveTargetGrid;
   OpBuilder builder(genericOp->getContext());
 
@@ -692,58 +706,15 @@ static void applyGridDecisions(d2m::GenericOp genericOp,
     }
   }
 
-  recreateGenericOp(genericOp, result.normalizedOperandGrids);
-}
+  FailureOr<d2m::GenericOp> newGenericOp =
+      recreateGenericOp(genericOp, result.normalizedOperandGrids);
+  if (failed(newGenericOp)) {
+    genericOp.emitOpError() << "grid selection failed to recreate generic op";
+    return failure();
+  }
 
-// Resolve to a value that dominates the spatial op by following view_layout
-// chains defined inside the spatial's regions (region-border value).
-static Value resolveToRegionBorderValue(Value operand,
-                                        d2m::SpatialOp spatialOp) {
-  auto inSpatialRegion = [&](Value val) {
-    Operation *def = val.getDefiningOp();
-    if (!def) {
-      return false;
-    }
-    Region *parent = def->getBlock()->getParent();
-    return llvm::any_of(spatialOp->getRegions(),
-                        [parent](Region &r) { return &r == parent; });
-  };
-  Value current = operand;
-  while (inSpatialRegion(current)) {
-    if (auto viewOp = current.getDefiningOp<d2m::ViewLayoutOp>()) {
-      current = viewOp.getInput();
-    } else {
-      break;
-    }
-  }
-  return current;
-}
-
-// Rebuild d2m.spatial's ins and outs from the operands actually used by
-// d2m.generic ops in each region, and set result types from the collected outs.
-static void reconstructSpatialOperands(d2m::SpatialOp spatialOp) {
-  llvm::SmallVector<mlir::Value> inputs;
-  llvm::SmallVector<mlir::Value> outputs;
-  for (Region &region : spatialOp->getRegions()) {
-    if (region.empty()) {
-      continue;
-    }
-    for (d2m::GenericOp genericOp : region.front().getOps<d2m::GenericOp>()) {
-      for (mlir::Value input : genericOp.getInputs()) {
-        inputs.push_back(resolveToRegionBorderValue(input, spatialOp));
-      }
-      for (mlir::Value output : genericOp.getOutputs()) {
-        outputs.push_back(resolveToRegionBorderValue(output, spatialOp));
-      }
-    }
-  }
-  spatialOp.getInputsMutable().assign(inputs);
-  spatialOp.getOutputsMutable().assign(outputs);
-  if (spatialOp->getNumResults() == outputs.size()) {
-    for (auto [result, outVal] : llvm::zip(spatialOp->getResults(), outputs)) {
-      result.setType(outVal.getType());
-    }
-  }
+  normalizeSpatialOpContainingGeneric(*newGenericOp);
+  return success();
 }
 
 // ----------------------------------------------------------------------------
@@ -763,11 +734,11 @@ public:
 
   D2MGridSelectionPass(const D2MGridSelectionOptions &options) : Base() {
     this->overrideDeviceShape = llvm::to_vector(options.overrideDeviceShape);
-    // Setting TTNN mode to true ensures we do not implicitly pad or wrap-around
-    // when sharding. Any grid decisions in this mode are representable
-    // using a TTNNLayoutAttr and can be created with a single ttnn.empty()
-    // call. This can be removed only when we implement support for creating
-    // padded tensors in D2MToTTNN pass.
+    // Setting TTNN mode to true ensures we do not implicitly pad or
+    // wrap-around when sharding. Any grid decisions in this mode are
+    // representable using a TTNNLayoutAttr and can be created with a single
+    // ttnn.empty() call. This can be removed only when we implement support
+    // for creating padded tensors in D2MToTTNN pass.
     this->ttnnMode = options.ttnnMode;
   }
 
@@ -788,14 +759,11 @@ public:
       if (!result) {
         continue;
       }
-      applyGridDecisions(genericOp, *result, this->ttnnMode);
+      if (failed(applyGridDecisions(genericOp, *result, this->ttnnMode))) {
+        signalPassFailure();
+        return;
+      }
     }
-
-    // Phase 3: Rebuild each SpatialOp's ins/outs from the operands actually
-    // used by generics in its regions.
-    module.walk([&](d2m::SpatialOp spatialOp) {
-      reconstructSpatialOperands(spatialOp);
-    });
   }
 
 private:

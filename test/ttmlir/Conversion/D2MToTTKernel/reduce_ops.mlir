@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttir-to-ttmetal-fe-pipeline --ttir-to-ttmetal-me-pipeline --convert-d2m-to-ttkernel %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --d2m-fe-pipeline --d2m-be-pipeline --convert-d2m-to-ttkernel %s | FileCheck %s
 
 // Float reductions lower via the FPU reduce_tile kernel (3-operand form
 // with a scaler tile materialized by tile_fill).

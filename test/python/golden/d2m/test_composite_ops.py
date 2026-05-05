@@ -254,6 +254,63 @@ def test_rms_norm_decomposition(
     )
 
 
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 768),
+        (1, 32, 768),
+        (1, 64, 768),
+        (1, 128, 768),
+    ],
+    ids=["vllm_seq1", "vllm_seq32", "vllm_seq64", "vllm_seq128"],
+)
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+    ],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_layer_norm_decomposition(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test layer norm decomposition on representative vLLM shapes."""
+    normalized_shape = [768]
+    weight_shape = tuple(normalized_shape)
+    shapes = [shape, weight_shape, weight_shape]
+    dtypes = [dtype, dtype, dtype]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def layer_norm(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.layer_norm(
+                in0,
+                normalized_shape=normalized_shape,
+                weight=weight,
+                bias=bias,
+                epsilon=1e-5,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
 # =============================================================================
 # Softmax decomposition tests — exercise dimension
 # =============================================================================
@@ -282,6 +339,71 @@ def test_softmax_decomposition(
                 in0,
                 dimension=dimension,
                 numeric_stable=False,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+# =============================================================================
+# Layer norm decomposition tests — exercise weight, bias, epsilon
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "shape,normalized_shape",
+    [
+        ((1, 32, 128), [128]),
+        ((2, 4, 64), [4, 64]),
+    ],
+)
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+@pytest.mark.parametrize("epsilon", [1e-5, 1e-6])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_layer_norm_decomposition_basic(
+    shape: Shape,
+    normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
+    epsilon: float,
+    target: str,
+    request,
+    device,
+):
+    """Test layer norm decomposition for the TTMetal pipeline."""
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def layer_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+            builder = inputs[-1]
+            in0 = inputs[0]
+            weight = None
+            bias = None
+            input_idx = 1
+
+            if has_weight:
+                weight = inputs[input_idx]
+                input_idx += 1
+            if has_bias:
+                bias = inputs[input_idx]
+
+            return builder.layer_norm(
+                in0,
+                normalized_shape=normalized_shape,
+                weight=weight,
+                bias=bias,
+                epsilon=epsilon,
                 unit_attrs=unit_attrs,
             )
 

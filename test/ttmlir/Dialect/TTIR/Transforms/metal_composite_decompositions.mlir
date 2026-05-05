@@ -1,5 +1,6 @@
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=SDPA
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=RMS
+// RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=LAYERNORM
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=SOFTMAX
 
 // =============================================================================
@@ -11,12 +12,12 @@
 // SDPA-NOT: ttir.softmax
 // SDPA-DAG: "ttir.permute"
 // SDPA-DAG: "ttir.matmul"
+// SDPA: "ttir.multiply"
 // SDPA: "ttir.arange"
 // SDPA: "ttir.arange"
 // SDPA: "ttir.ge"
 // SDPA: "ttir.where"
 // SDPA: "ttir.add"
-// SDPA: "ttir.multiply"
 // SDPA: "ttir.max"
 // SDPA: "ttir.subtract"
 // SDPA: "ttir.exp"
@@ -65,6 +66,7 @@ func.func @sdpa_non_causal(%q: tensor<1x8x64x64xbf16>, %k: tensor<1x8x64x64xbf16
 // SDPA: "ttir.permute"
 // SDPA: "ttir.matmul"
 // SDPA: "ttir.reshape"
+// SDPA: "ttir.multiply"
 // SDPA: "ttir.arange"
 // SDPA: "ttir.arange"
 // SDPA: "ttir.ge"
@@ -96,11 +98,11 @@ func.func @sdpa_gqa_causal(%q: tensor<1x24x128x128xbf16>, %k: tensor<1x8x128x128
 // SDPA: "ttir.permute"
 // SDPA: "ttir.matmul"
 // SDPA: "ttir.reshape"{{.*}}tensor<1x24x128x128xbf16>
+// SDPA: "ttir.multiply"
 // SDPA: "ttir.arange"
 // SDPA: "ttir.ge"
 // SDPA: "ttir.where"
 // SDPA: "ttir.add"
-// SDPA: "ttir.multiply"
 // SDPA: "ttir.max"
 // SDPA: "ttir.subtract"
 // SDPA: "ttir.exp"
@@ -129,8 +131,8 @@ func.func @sdpa_llama_3b_gqa_causal(%q: tensor<1x24x128x128xbf16>, %k: tensor<1x
 // SDPA: "ttir.permute"
 // SDPA: "ttir.matmul"
 // SDPA: "ttir.reshape"{{.*}}tensor<1x32x128x128xbf16>
-// SDPA: "ttir.add"
 // SDPA: "ttir.multiply"
+// SDPA: "ttir.add"
 // SDPA: "ttir.max"
 // SDPA: "ttir.subtract"
 // SDPA: "ttir.exp"
@@ -172,8 +174,8 @@ func.func @sdpa_custom_scale(%q: tensor<1x8x64x64xbf16>, %k: tensor<1x8x64x64xbf
 // SDPA-NOT: ttir.scaled_dot_product_attention
 // SDPA-NOT: ttir.softmax
 // SDPA: "ttir.matmul"
-// SDPA: "ttir.add"
 // SDPA: "ttir.multiply"
+// SDPA: "ttir.add"
 // SDPA: "ttir.max"
 // SDPA: "ttir.subtract"
 // SDPA: "ttir.exp"
@@ -250,6 +252,46 @@ func.func @rms_norm_weight_only(%input: tensor<2x4x64xf32>, %weight: tensor<64xf
 func.func @rms_norm_custom_epsilon(%input: tensor<32x128xf32>) -> tensor<32x128xf32> {
   %0 = "ttir.rms_norm"(%input) <{normalized_shape = array<i64: 128>, epsilon = 1.000000e-06 : f32, operandSegmentSizes = array<i32: 1, 0, 0>}> : (tensor<32x128xf32>) -> tensor<32x128xf32>
   return %0 : tensor<32x128xf32>
+}
+
+// =============================================================================
+// Layer norm decomposition — with weight and bias
+// =============================================================================
+
+// LAYERNORM-LABEL: func.func @layer_norm_weight_bias
+// LAYERNORM-NOT: ttir.layer_norm
+// LAYERNORM: "ttir.mean"
+// LAYERNORM: "ttir.subtract"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: "ttir.mean"
+// LAYERNORM: "ttir.add"
+// LAYERNORM: "ttir.rsqrt"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: "ttir.add"
+// LAYERNORM: return
+func.func @layer_norm_weight_bias(%input: tensor<2x4x64xf32>, %weight: tensor<64xf32>, %bias: tensor<64xf32>) -> tensor<2x4x64xf32> {
+  %0 = "ttir.layer_norm"(%input, %weight, %bias) <{normalized_shape = array<i64: 64>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<2x4x64xf32>, tensor<64xf32>, tensor<64xf32>) -> tensor<2x4x64xf32>
+  return %0 : tensor<2x4x64xf32>
+}
+
+// =============================================================================
+// Layer norm decomposition — no weight, no bias
+// =============================================================================
+
+// LAYERNORM-LABEL: func.func @layer_norm_no_weight_no_bias
+// LAYERNORM-NOT: ttir.layer_norm
+// LAYERNORM: "ttir.mean"
+// LAYERNORM: "ttir.subtract"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: "ttir.mean"
+// LAYERNORM: "ttir.add"
+// LAYERNORM: "ttir.rsqrt"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: return
+func.func @layer_norm_no_weight_no_bias(%input: tensor<2x4x64xf32>) -> tensor<2x4x64xf32> {
+  %0 = "ttir.layer_norm"(%input) <{normalized_shape = array<i64: 4, 64>, epsilon = 1.000000e-06 : f32, operandSegmentSizes = array<i32: 1, 0, 0>}> : (tensor<2x4x64xf32>) -> tensor<2x4x64xf32>
+  return %0 : tensor<2x4x64xf32>
 }
 
 // =============================================================================

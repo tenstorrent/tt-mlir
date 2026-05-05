@@ -1405,44 +1405,41 @@ class GroupNormOpConversionPattern
     : public OpConversionPattern<ttir::GroupNormOp> {
 private:
   // Compute a valid core grid for group_norm.
+  // This is mirror to tt-metal's computeGroupNormCoreGrid.
+  // ttnn/cpp/ttnn/operations/normalization/groupnorm/groupnorm_grid_utils.cpp
+  // metal issue: https://github.com/tenstorrent/tt-metal/issues/40916
   static std::pair<uint64_t, uint64_t>
   computeGroupNormCoreGrid(int64_t deviceGridX, int64_t deviceGridY,
                            int64_t numChannels, int64_t numGroups,
                            int64_t inputNHW) {
-    constexpr int64_t tileSize = 32;
-
+    constexpr int64_t tileSize = ttcore::TileType::getDefaultShape()[0];
     int64_t Ht = llvm::divideCeil(inputNHW, tileSize);
 
-    // Find numVirtualCols: largest value <= min(deviceGridX, numGroups) where
-    // channels per virtual col are tile-aligned and groups divide evenly.
-    // numVirtualCols == 1 always satisfies both conditions (given the
-    // precondition numChannels % 32 == 0), so the loop always terminates.
-    int64_t numVirtualCols = std::min(deviceGridX, numGroups);
-    while (numVirtualCols > 1 &&
-           ((numChannels / numVirtualCols) % tileSize != 0 ||
-            numGroups % numVirtualCols != 0)) {
-      numVirtualCols--;
-    }
+    for (int64_t gx = deviceGridX; gx >= 1; --gx) {
+      int64_t nvc = std::min(gx, numGroups);
+      while (nvc > 0 &&
+             ((numChannels / nvc) % tileSize != 0 || (numGroups % nvc) != 0)) {
+        --nvc;
+      }
+      if (nvc == 0) {
+        continue;
+      }
 
-    // Start with the full device grid, clamped to a multiple of
-    // numVirtualCols, then shrink until numVirtualRows <= Ht.
-    int64_t gridX =
-        llvm::divideCeil(deviceGridX, numVirtualCols) * numVirtualCols;
-    int64_t gridY = deviceGridY;
+      int64_t rowsPerY = gx / nvc;
+      if (rowsPerY == 0) {
+        continue;
+      }
 
-    int64_t rowsMult = gridX / numVirtualCols;
-    if (rowsMult * gridY > Ht) {
-      gridY = Ht / rowsMult;
-      if (gridY == 0) {
-        gridX = numVirtualCols;
-        gridY = std::min(deviceGridY, Ht);
+      int64_t maxGy = std::min(Ht / rowsPerY, deviceGridY);
+      for (int64_t gy = maxGy; gy >= 1; --gy) {
+        int64_t numVirtualRows = rowsPerY * gy;
+        if (Ht % numVirtualRows == 0) {
+          return {static_cast<uint64_t>(gx), static_cast<uint64_t>(gy)};
+        }
       }
     }
 
-    gridX = std::max(gridX, numVirtualCols);
-    gridY = std::max(gridY, static_cast<int64_t>(1));
-
-    return {gridX, gridY};
+    return {1, 1};
   }
 
 public:
@@ -1521,9 +1518,10 @@ public:
     RankedTensorType groupNormInputType =
         mlir::cast<RankedTensorType>(input.getType());
 
-    ArrayRef<int64_t> gnShape = groupNormInputType.getShape();
-    int64_t inputNHW = gnShape[0] * gnShape[1] * gnShape[2];
-    int64_t numChannels = gnShape[3];
+    llvm::SmallVector<int64_t> paddedGnShape =
+        ttnn::utils::getTilePaddedShape(groupNormInputType.getShape());
+    int64_t inputNHW = paddedGnShape[0] * paddedGnShape[1] * paddedGnShape[2];
+    int64_t numChannels = paddedGnShape[3];
     int64_t numGroups = adaptor.getNumGroups();
 
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
@@ -3479,14 +3477,23 @@ public:
   }
 
 private:
-  // SDPA Query, Key, Value tensors have shape [B, H, S, D] (Batch, NumHeads,
-  // SeqLen, HeadDim).
+  // TTIR generic SDPA layout: Q [B, Hq, Sq, D], K/V [B, Hkv, Sk, D],
+  // mask [1|B, 1|Hq, Sq, Sk]. See ScaledDotProductAttentionOp::verify().
   static constexpr int64_t kNumHeadsDim = 1;
   static constexpr int64_t kSeqLenDim = 2;
 
-  // Permutation to convert query from [B, H, S, D] -> [S, B, H, D] for SDPA
-  // decode op.
+  // Generic->decode dispatch fires only when Sq == 1. Permutes query
+  // [B, Hq, 1, D] -> [1, B, Hq, D] to match the decode op layout.
   static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
+
+  // Permutes mask [1|B, 1|Hq, 1, Sk] -> [1|B, 1, 1|Hq, Sk] to match the decode
+  // op mask layout.
+  static constexpr std::array<int64_t, 4> kToDecodeMaskPermutation = {0, 2, 1,
+                                                                      3};
+
+  // Index of the heads dim in the post-permutation decode mask layout
+  // [B, 1, Hq, Sk].
+  static constexpr int64_t kDecodeMaskNumHeadsDim = 2;
 
   // Determine if the decode op should be used based on query sequence length.
   // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
@@ -3495,8 +3502,10 @@ private:
     return queryType.getDimSize(kSeqLenDim) == 1;
   }
 
-  // Broadcast attention mask's head dimension to match the number of heads.
-  // The decode op requires the mask to have explicit head dimension.
+  // Materialize the heads dim of the decode mask. The decode kernel currently
+  // does not support broadcasting the heads dim of the mask (batch broadcast
+  // is supported).
+  // Tracked by https://github.com/tenstorrent/tt-metal/issues/39946.
   Value broadcastMaskForDecode(Value mask, int64_t numHeads,
                                ConversionPatternRewriter &rewriter,
                                Location loc) const {
@@ -3506,7 +3515,7 @@ private:
 
     auto maskType = mlir::cast<RankedTensorType>(mask.getType());
     SmallVector<int64_t> broadcastShape(maskType.getShape());
-    broadcastShape[kSeqLenDim] = numHeads;
+    broadcastShape[kDecodeMaskNumHeadsDim] = numHeads;
 
     auto broadcastType =
         ttnn::utils::RankedTensorTypeFactory::create(maskType, broadcastShape);
@@ -3517,9 +3526,14 @@ private:
     return rewriter.create<ttnn::RepeatOp>(loc, broadcastType, mask, shapeAttr);
   }
 
-  // Lower to SDPA decode op with necessary permutations.
-  // Decode op expects [S, B, H, D] query shape, so we permute from [B, H, S,
-  // D].
+  // Lower to SDPA decode op. Operand layout transitions:
+  //   Q:      [B, Hq, 1, D]      -> [1, B, Hq, D]  (permute {2,0,1,3})
+  //   K, V:   [B, Hkv, Sk, D]    -> unchanged (TTIR generic and TTNN decode
+  //                                share this layout)
+  //   mask:   [1|B, 1|Hq, 1, Sk] -> [1|B, 1, 1|Hq, Sk] (permute {0,2,1,3},
+  //                                heads dim materialized when Hq > 1)
+  //   result: [1, B, Hq, D]      -> [B, Hq, 1, D]  (inverse Q permute) to
+  //                                match the original ttir SDPA result type
   LogicalResult lowerToDecodeOp(ttir::ScaledDotProductAttentionOp op,
                                 OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const {
@@ -3531,9 +3545,14 @@ private:
         mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getQuery()),
         llvm::to_vector(kToDecodePermutation), rewriter, op.getLoc());
 
-    // Broadcast mask head dimension if needed.
-    Value attentionMask = broadcastMaskForDecode(
-        adaptor.getAttentionMask(), numHeads, rewriter, op.getLoc());
+    Value attentionMask = adaptor.getAttentionMask();
+    if (attentionMask) {
+      attentionMask = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<mlir::RankedTensorType>>(attentionMask),
+          llvm::to_vector(kToDecodeMaskPermutation), rewriter, op.getLoc());
+      attentionMask = broadcastMaskForDecode(attentionMask, numHeads, rewriter,
+                                             op.getLoc());
+    }
 
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),

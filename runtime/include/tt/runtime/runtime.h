@@ -102,13 +102,13 @@ Tensor createEmptyTensor(Device device, Layout layout,
                          std::uint32_t itemsize);
 
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
-  return ::tt::runtime::createBorrowedHostTensor(data, desc.shape, desc.stride,
-                                                 desc.itemsize, desc.dataType);
+  return ::tt::runtime::createBorrowedHostTensor(
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
 }
 
 inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
-  return ::tt::runtime::createOwnedHostTensor(data, desc.shape, desc.stride,
-                                              desc.itemsize, desc.dataType);
+  return ::tt::runtime::createOwnedHostTensor(
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
 }
 
 inline Tensor createMultiDeviceHostTensor(
@@ -116,14 +116,14 @@ inline Tensor createMultiDeviceHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
   return ::tt::runtime::createMultiDeviceHostTensor(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy,
-      meshShape);
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType,
+      strategy, meshShape);
 }
 
 inline Tensor createEmptyTensor(Device device, Layout layout,
                                 const TensorDesc &desc) {
   return ::tt::runtime::createEmptyTensor(device, layout, desc.shape,
-                                          desc.stride, desc.itemsize);
+                                          desc.stride, desc.elementSize());
 }
 
 bool isTensorAllocated(Tensor tensor);

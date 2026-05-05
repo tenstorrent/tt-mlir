@@ -32,7 +32,8 @@ def StableHLOComplexDataTypeConversionPass : Pass<"stablehlo-complex-data-type-c
     To add support for elementwise ops with complex types, please register them in `stablehlo-complex-math-expander` pass.
   }];
   let dependentDialects = ["mlir::func::FuncDialect",
-                           "::mlir::stablehlo::StablehloDialect"];
+                           "::mlir::stablehlo::StablehloDialect",
+                           "::mlir::sdy::SdyDialect"];
 }
 
 def RegisterCustomShardingRulePass : Pass<"register-custom-sharding-rule", "::mlir::ModuleOp">

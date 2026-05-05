@@ -256,3 +256,28 @@ module {
     return
   }
 }
+
+// -----
+
+#l1 = #ttcore.memory_space<l1>
+module {
+  // CHECK-LABEL: func.func @indexed_row_copy_captured_operands
+  func.func @indexed_row_copy_captured_operands(
+      %indices: memref<1x1x2x4xi32, #l1>,
+      %weight: memref<1x1x8x16xf32, #l1>,
+      %output: memref<1x1x8x16xf32, #l1>) {
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>]}
+        ins(%indices, %weight : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #l1>)
+        outs(%output : memref<1x1x8x16xf32, #l1>)
+     {
+      %index_scratch = memref.alloc() : memref<1x1024xi32, #l1>
+      %row_scratch = memref.alloc() : memref<1x1024xf32, #l1>
+      // CHECK: %[[INDICES:.*]] = d2m.get_arg(0) resolution_stage =  compile : memref<1x1x2x4xi32, #l1>
+      // CHECK: %[[WEIGHT:.*]] = d2m.get_arg(1) resolution_stage =  compile : memref<1x1x8x16xf32, #l1>
+      // CHECK: %[[OUTPUT:.*]] = d2m.get_arg(2) resolution_stage =  compile : memref<1x1x8x16xf32, #l1>
+      // CHECK: d2m.indexed_row_copy %[[INDICES]], %[[WEIGHT]], %[[OUTPUT]] scratch
+      d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<8, 16> {indicesShape = array<i64: 2, 4>} : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1024xi32, #l1>, memref<1x1024xf32, #l1>
+    }
+    return
+  }
+}

@@ -433,10 +433,9 @@ std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor) {
 
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
   TensorDesc desc;
-  desc.dataType = getTensorDataType(tensor);
-  desc.itemsize = getTensorElementSize(tensor);
-  desc.stride = getTensorStride(tensor);
   desc.shape = getTensorShape(tensor);
+  desc.dataType = getTensorDataType(tensor);
+  desc.stride = getTensorStride(tensor);
   return desc;
 }
 

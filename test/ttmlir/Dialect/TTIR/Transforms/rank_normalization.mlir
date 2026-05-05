@@ -352,3 +352,18 @@ func.func @slice_static_1d(%arg0: tensor<128xf32>) -> tensor<64xf32> {
   %0 = "ttir.slice_static"(%arg0) <{begins = [1 : i32], ends = [128 : i32], step = [2 : i32]}> : (tensor<128xf32>) -> tensor<64xf32>
   return %0 : tensor<64xf32>
 }
+
+// =============================================================================
+// Test 17: Broadcast - 1D input and output
+// =============================================================================
+
+// CHECK-LABEL: func.func @broadcast_1d_promoted
+// CHECK-SAME: (%arg0: tensor<1x1xf32>) -> tensor<1x1200xf32>
+// CHECK: %[[R:.*]] = "ttir.reshape"(%arg0) <{shape = [1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1xf32>
+// CHECK: %[[B:.*]] = "ttir.broadcast"(%[[R]]) <{broadcast_dimensions = array<i64: 1, 1200>}> : (tensor<1x1xf32>) -> tensor<1x1200xf32>
+// CHECK: return %[[B]] : tensor<1x1200xf32>
+func.func @broadcast_1d_promoted(%arg0: tensor<f32>) -> tensor<1200xf32> {
+  %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32]}> : (tensor<f32>) -> tensor<1xf32>
+  %1 = "ttir.broadcast"(%0) <{broadcast_dimensions = array<i64: 1200>}> : (tensor<1xf32>) -> tensor<1200xf32>
+  return %1 : tensor<1200xf32>
+}

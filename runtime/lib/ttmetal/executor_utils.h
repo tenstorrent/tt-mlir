@@ -377,8 +377,7 @@ createTensorDescFromBufferDesc(const target::metal::BufferDesc *bufferDesc) {
   const uint64_t physicalVolume = bufferDesc->host_volume();
   assert(shape.size() == stride.size());
   const auto dataType = bufferDesc->data_type();
-  return TensorDesc(shape, dataType, utils::dataTypeElementSize(dataType),
-                    stride, physicalVolume);
+  return TensorDesc(shape, dataType, stride, physicalVolume);
 }
 
 } // namespace tt::runtime::ttmetal
