@@ -704,5 +704,8 @@ const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
         ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
-        ttnn::ScatterOp::getOperationName()};
+        ttnn::ScatterOp::getOperationName(),
+        // TopK's operands workaround forces input bf16 + indices ui16/ui32;
+        // without it, opt_level>=1 dtype propagation picks f32. See #8141.
+        ttnn::TopKOp::getOperationName()};
 } // namespace mlir::tt::ttnn
