@@ -439,6 +439,36 @@ bool isTensorAllocated(Tensor tensor) {
       });
 }
 
+bool isTensorOnHost(Tensor tensor) {
+  using RetType = bool;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::isTensorOnHost(tensor); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("isTensorOnHost", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("isTensorOnHost", HostRuntime::Distributed);
+      });
+}
+
+Tensor migrateHostTensorToDevice(Tensor tensor, Device device) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::migrateHostTensorToDevice(tensor, device);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("migrateHostTensorToDevice",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("migrateHostTensorToDevice",
+                                    HostRuntime::Distributed);
+      });
+}
+
 ::tt::target::DataType getTensorDataType(Tensor tensor) {
   using RetType = ::tt::target::DataType;
   return DISPATCH_TO_CURRENT_RUNTIME(

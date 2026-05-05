@@ -127,6 +127,29 @@ inline Tensor createEmptyTensor(Device device, Layout layout,
 }
 
 bool isTensorAllocated(Tensor tensor);
+
+// Returns true if the tensor's underlying storage is on host memory.
+// Used by callers that need to decide whether to migrate before further
+// processing. See migrateHostTensorToDevice.
+bool isTensorOnHost(Tensor tensor);
+
+// Migrates a host-resident tensor to device DRAM with TILE layout.
+// If `tensor` is already on device, returns it unchanged.
+// Otherwise wraps a new device-resident `ttnn::Tensor` (created via
+// `ttnn::Tensor::to_device(meshDevice)` with default DRAM/INTERLEAVED
+// memory config, TILE layout) and returns it.
+//
+// Designed for ship-time migration in PJRT plugin's
+// BufferInstance::copyFromHostBuffer: by migrating immediately when a
+// new buffer is created, the host-side `m_pjrt_tensor` is short-lived
+// and the multi-device DistributedHostBuffer never accumulates per-shard
+// host data over the lifetime of the BufferInstance.
+//
+// Caller is responsible for replacing any references to the input
+// tensor with the returned device tensor; once the input goes out of
+// scope its host data is freed via RAII.
+Tensor migrateHostTensorToDevice(Tensor tensor, Device device);
+
 tt::target::DataType getTensorDataType(Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor);
 std::uint32_t getTensorElementSize(Tensor tensor);

@@ -156,6 +156,9 @@ inline ::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
 }
 
 bool isTensorAllocated(::tt::runtime::Tensor tensor);
+bool isTensorOnHost(::tt::runtime::Tensor tensor);
+::tt::runtime::Tensor migrateHostTensorToDevice(::tt::runtime::Tensor tensor,
+                                                ::tt::runtime::Device device);
 tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);

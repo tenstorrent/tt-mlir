@@ -305,6 +305,40 @@ bool isTensorAllocated(::tt::runtime::Tensor tensor) {
   return ttnnTensor.is_allocated();
 }
 
+bool isTensorOnHost(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return utils::isOnHost(ttnnTensor.storage_type());
+}
+
+::tt::runtime::Tensor migrateHostTensorToDevice(::tt::runtime::Tensor tensor,
+                                                ::tt::runtime::Device device) {
+  ::tt::runtime::ttnn::TTNNTensorWrapper &wrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  ::ttnn::Tensor &source = wrapper.getTensor();
+
+  // Already on device — return original; caller can keep it as-is.
+  if (!utils::isOnHost(source.storage_type())) {
+    return tensor;
+  }
+
+  ::ttnn::MeshDevice &meshDevice =
+      device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  // Default memory config: DRAM, INTERLEAVED. The compiled program may
+  // re-layout to whatever it expects via ensure_layout/toLayout, but
+  // the data is already device-resident so any subsequent layout
+  // conversion is host-data-free.
+  ::ttnn::Tensor deviceTensor = source.to_device(&meshDevice);
+
+  // Wrap in a new tt::runtime::Tensor. Caller will reassign and the
+  // OLD tensor's wrapper destructs at its scope end, releasing the
+  // host data via RAII (HostBuffer's MemoryPin shared_ptr drop).
+  return utils::createRuntimeTensorFromTTNN(deviceTensor,
+                                            /*meshEvent=*/std::nullopt,
+                                            /*retain=*/true);
+}
+
 tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       utils::getTTNNTensorFromRuntimeTensor(tensor);
