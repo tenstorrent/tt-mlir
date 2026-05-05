@@ -666,4 +666,21 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
   ];
 }
 
+def TTNNInsertDiskCacheOps : Pass<"ttnn-insert-disk-cache-ops", "::mlir::ModuleOp"> {
+  let summary = "Insert disk cache ops for function arguments.";
+  let description = [{
+    This pass inserts ttcore.get_or_insert_into_disk_cache ops at the beginning
+    of the main function for each tensor argument. The ops are only inserted
+    when the TTMLIR_ENABLE_DISK_CACHE environment variable is set.
+
+    The pass determines the target layout for each argument by using the
+    argument's existing layout. If multiple users have conflicting layouts,
+    the pass will fail with an error.
+
+    Cache path: ./generated/tensorcache/<program_hash>/<arg_index>.tensorbin
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect"];
+}
+
 #endif

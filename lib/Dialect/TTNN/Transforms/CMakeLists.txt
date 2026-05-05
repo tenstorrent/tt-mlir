@@ -22,6 +22,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNCollectPerfMetrics.cpp
         TTNND2MFusing.cpp
         TTNNFileSplit.cpp
+        TTNNInsertDiskCacheOps.cpp
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
         Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
