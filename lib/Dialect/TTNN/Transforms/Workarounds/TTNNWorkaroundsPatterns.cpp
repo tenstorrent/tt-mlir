@@ -610,7 +610,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          PagedSDPADecodeP150CoreGridWorkaround, TTNNAllReduceWorkarounds,
+          PagedSDPADecodeP150CoreGridWorkaround,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
