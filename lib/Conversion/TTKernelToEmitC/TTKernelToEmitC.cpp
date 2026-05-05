@@ -767,18 +767,11 @@ public:
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto operands = adaptor.getOperands();
-    assert(!operands.empty());
+    TT_assert(operands.size() == 2u);
 
     std::string callStr =
         ensureCBDeclaration(operands.front(), op.getOperation(), rewriter) +
-        "." + methodName + "(";
-    for (size_t i = 1; i < operands.size(); ++i) {
-      if (i > 1) {
-        callStr += ", ";
-      }
-      callStr += "{}";
-    }
-    callStr += ");";
+        "." + methodName + "({});";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr,
                                        operands.drop_front());
@@ -1558,7 +1551,6 @@ public:
     populateMemRefToEmitCTypeConversion(typeConverter);
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
-    // clang-format off
     patterns.add<
         TTKernelBitcastOpRewriter,
         TTKernelToEmitCArgValRewriter<ttkernel::GetCompileArgValOp>,
@@ -1576,7 +1568,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SemaphoreWaitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnpackStallOnPackOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
@@ -1598,7 +1591,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalUntilizeBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackUntilizeUninitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalPackUntilizeBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::ExperimentalPackUntilizeBlockOp>,
 
         // Datamovement
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
@@ -1791,24 +1785,31 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOnePacketSetStateOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOnePacketWithStateOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOnePacketWithStateWithTridOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncReadOnePacketSetStateOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncReadOnePacketWithStateOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncReadOnePacketWithStateWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadSetTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteSetTridOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOnePacketWithTridOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncWriteOnePacketWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ResetNocTridBarrierCounterOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalGetNocMulticastAddrOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOnePacketOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::ExperimentalGetNocMulticastAddrOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncWriteMulticastOnePacketOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalXToTranslatedOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalYToTranslatedOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetMyDeviceIdOp>,
@@ -1816,40 +1817,62 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricSemIncOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastSemIncOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::CreateFabricConnectionManagerOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CloseFabricConnectionsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>>(
-                typeConverter, funcOp.getContext());
+        typeConverter, funcOp.getContext());
 
-    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPushBackOp>>(typeConverter, funcOp.getContext(), "push_back");
-    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPopFrontOp>>(typeConverter, funcOp.getContext(), "pop_front");
-    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBReserveBackOp>>(typeConverter, funcOp.getContext(), "reserve_back");
-    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBWaitFrontOp>>(typeConverter, funcOp.getContext(), "wait_front");
-    patterns.add<TTKernelToEmitCCBResultMethodRewriter<ttkernel::GetWritePtrOp>>(typeConverter, funcOp.getContext(), "get_write_ptr");
-    patterns.add<TTKernelToEmitCCBResultMethodRewriter<ttkernel::GetReadPtrOp>>(typeConverter, funcOp.getContext(), "get_read_ptr");
+    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPushBackOp>>(
+        typeConverter, funcOp.getContext(), "push_back");
+    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPopFrontOp>>(
+        typeConverter, funcOp.getContext(), "pop_front");
+    patterns
+        .add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBReserveBackOp>>(
+            typeConverter, funcOp.getContext(), "reserve_back");
+    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBWaitFrontOp>>(
+        typeConverter, funcOp.getContext(), "wait_front");
+    patterns
+        .add<TTKernelToEmitCCBResultMethodRewriter<ttkernel::GetWritePtrOp>>(
+            typeConverter, funcOp.getContext(), "get_write_ptr");
+    patterns.add<TTKernelToEmitCCBResultMethodRewriter<ttkernel::GetReadPtrOp>>(
+        typeConverter, funcOp.getContext(), "get_read_ptr");
 
-    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(typeConverter, funcOp.getContext(), "get_noc_addr");
-    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncAtomicBarrierOp>>(typeConverter, funcOp.getContext());
+    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
+        typeConverter, funcOp.getContext(), "get_noc_addr");
+    patterns
+        .add<TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncAtomicBarrierOp>>(
+            typeConverter, funcOp.getContext());
 
-    patterns.add<TTKernelInvokeSFPIOpRewriter>(typeConverter, funcOp.getContext());
+    patterns.add<TTKernelInvokeSFPIOpRewriter>(typeConverter,
+                                               funcOp.getContext());
 
-    patterns.add<TTKernelConstantRewriter<ttkernel::MyXOp>>(typeConverter, funcOp.getContext(), "my_x[noc_index]");
-    patterns.add<TTKernelConstantRewriter<ttkernel::MyYOp>>(typeConverter, funcOp.getContext(), "my_y[noc_index]");
-    patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalXOp>>(typeConverter, funcOp.getContext(), "get_absolute_logical_x()");
-    patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalYOp>>(typeConverter, funcOp.getContext(), "get_absolute_logical_y()");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyXOp>>(
+        typeConverter, funcOp.getContext(), "my_x[noc_index]");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyYOp>>(
+        typeConverter, funcOp.getContext(), "my_y[noc_index]");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalXOp>>(
+        typeConverter, funcOp.getContext(), "get_absolute_logical_x()");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalYOp>>(
+        typeConverter, funcOp.getContext(), "get_absolute_logical_y()");
 
-    patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter, funcOp.getContext());
-    patterns.add<TTKernelLoadFromL1OpToEmitCOpRewriter>(typeConverter, funcOp.getContext());
+    patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
+                                                       funcOp.getContext());
+    patterns.add<TTKernelLoadFromL1OpToEmitCOpRewriter>(typeConverter,
+                                                        funcOp.getContext());
 
-    patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(typeConverter, funcOp.getContext());
+    patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
+        typeConverter, funcOp.getContext());
 
-    patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter, funcOp.getContext());
+    patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter,
+                                                       funcOp.getContext());
 
-    patterns.add<TTKernelCreateFabricConnectionManagerOpRewriter>(typeConverter, funcOp.getContext());
+    patterns.add<TTKernelCreateFabricConnectionManagerOpRewriter>(
+        typeConverter, funcOp.getContext());
 
     patterns.add<
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorGetNocAddrOp>,
@@ -1859,14 +1882,13 @@ public:
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalAddrOp>,
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalPageOp>,
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalShardOp>,
-        TTKernelClassMethodRewriter<ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(
-                typeConverter, funcOp.getContext());
+        TTKernelClassMethodRewriter<
+            ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
+                                                           funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter,
-                 ArithBitcastRewriter,
-                 ArithMaxUIRewriter,
-                 ArithMinUIRewriter>(typeConverter, funcOp.getContext());
-    // clang-format on
+    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
+                 ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
+                                                         funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }
