@@ -79,6 +79,16 @@ struct OpRuleBook {
   /// Default: prefer more sharded inputs (fewer DRAM/L1-interleaved reads).
   virtual bool preferCandidate(Operation *op, const BeamCandidate &a,
                                const BeamCandidate &b) const;
+
+  /// Adjust a candidate's LayoutScore after the base scorer computed it.
+  /// Receives the output config, all operand input
+  /// layouts, and the reshard flag.
+  virtual LayoutScore adjustScore(Operation *op, LayoutScore base,
+                                  const OpConfig &config,
+                                  llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                                  bool requiresReshard) const {
+    return base;
+  }
 };
 
 /// Direct lookup: maps an op to its RuleBook via OperationName.
