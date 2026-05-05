@@ -3890,6 +3890,44 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
 }
 
 
+def TTNN_GridSampleOp : TTNN_Op<"grid_sample", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Grid sample operation for spatial sampling with bilinear interpolation.";
+  let description = [{
+    Samples the input tensor at grid locations using bilinear interpolation.
+    Grid coordinates are expected to be normalized to [-1, 1] range.
+
+    Args:
+        input (Tensor): Input tensor of shape (N, C, H_in, W_in).
+        grid (Tensor): Sampling grid of shape (N, H_out, W_out, 2) with coordinates in [-1, 1].
+        mode (string): Interpolation mode, currently only "bilinear" is supported.
+        padding_mode (string): How to handle out-of-bounds coordinates,
+            currently only "zeros" is supported.
+        align_corners (bool): Whether to align corners when mapping normalized coordinates
+            to pixel indices. Defaults to `false`.
+        memory_config (MemoryConfigAttr, optional): Memory configuration for the operation.
+
+    Returns:
+        Tensor: Output tensor of shape (N, C, H_out, W_out).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$grid,
+                       DefaultValuedStrAttr<StrAttr, "bilinear">:$mode,
+                       DefaultValuedStrAttr<StrAttr, "zeros">:$padding_mode,
+                       DefaultValuedAttr<BoolAttr, "false">:$align_corners,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createGridSampleOpOperandsWorkarounds();
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
     TTNN_MemoryConfigOpInterface,
     TTNN_DtypeOpInterface

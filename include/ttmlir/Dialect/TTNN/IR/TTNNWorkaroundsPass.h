@@ -247,6 +247,10 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
+  // Create workarounds for grid_sample op operands. ttnn::grid_sample requires
+  // both input and grid in ROW_MAJOR layout (BFloat16).
+  static TTNNOperandsWorkarounds createGridSampleOpOperandsWorkarounds();
+
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);

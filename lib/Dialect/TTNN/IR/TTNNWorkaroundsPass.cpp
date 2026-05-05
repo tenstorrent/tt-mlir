@@ -222,6 +222,21 @@ TTNNOperandsWorkaroundsFactory::createGatherOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(TTNNOperandWorkarounds()); // result
 }
 
+// ttnn::grid_sample requires both input (N,C,H,W) and grid (N,H_out,W_out,2)
+// to be in ROW_MAJOR layout with BFloat16 dtype, and the output is also
+// produced in ROW_MAJOR layout.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createGridSampleOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+}
+
 // Factory method to create a set of workarounds for ScatterOp. The ScatterOp
 // expects the input to be in row-major layout if using f32, bf16, or int32.
 TTNNOperandsWorkarounds

@@ -87,6 +87,7 @@
 #include "operations/normalization/rms_norm.h"
 #include "operations/normalization/rms_norm_pre_all_gather.h"
 #include "operations/normalization/softmax.h"
+#include "operations/pool/grid_sample.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
 #include "operations/rand/rand.h"
@@ -479,6 +480,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     return operations::pool::run(op->type_as_GlobalAvgPool2dOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::GridSampleOp: {
+    return operations::pool::run(op->type_as_GridSampleOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
     return operations::pool::run(op->type_as_MaxPool2dWithIndicesOp(),
