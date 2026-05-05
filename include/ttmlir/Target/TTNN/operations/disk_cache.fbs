@@ -8,4 +8,5 @@ table GetOrInsertIntoDiskCacheOp {
   program_hash: string;
   arg_index: uint32;
   out: tt.target.ttnn.TensorRef;
+  load_to_device: bool;  // true = DRAM/L1, false = system_memory
 }

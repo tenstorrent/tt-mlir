@@ -3075,9 +3075,19 @@ createOp(FlatbufferObjectCache &cache,
   auto output = cache.getOrCreateNoSharding(
       op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
 
+  // Determine if tensor should be loaded to device based on layout encoding
+  bool loadToDevice = false;
+  if (auto tensorType =
+          mlir::dyn_cast<RankedTensorType>(op.getResult().getType())) {
+    if (auto layout =
+            mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding())) {
+      loadToDevice = !layout.isSystemBufferType();
+    }
+  }
+
   return ::tt::target::ttnn::CreateGetOrInsertIntoDiskCacheOpDirect(
       *cache.fbb, input, op.getProgramHash().str().c_str(), op.getArgIndex(),
-      output);
+      output, loadToDevice);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
