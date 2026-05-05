@@ -48,8 +48,8 @@ SNIPPETS = [
             reason="https://github.com/tenstorrent/tt-mlir/issues/8156"
         ),
     ),
-    "ttir/d2m_dual_subgraph/unary_matmul_unary",
-    "ttir/d2m_dual_subgraph/eltwise_matmul_eltwise",
+    "ttir/d2m_optimizer_two_d2m_subgraphs/unary_matmul_unary",
+    "ttir/d2m_optimizer_two_d2m_subgraphs/eltwise_matmul_eltwise",
 ]
 
 

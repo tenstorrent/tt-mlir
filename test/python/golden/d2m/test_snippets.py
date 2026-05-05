@@ -73,6 +73,8 @@ SNIPPETS_TO_SKIP = {
     "gpt_oss_20b/rope_cos_decode",
     "gpt_oss_20b/rope_embedding",
     "gpt_oss_20b/gate_up",
+    "ttir/d2m_optimizer_two_d2m_subgraphs/unary_matmul_unary",
+    "ttir/d2m_optimizer_two_d2m_subgraphs/eltwise_matmul_eltwise",
 }
 
 
