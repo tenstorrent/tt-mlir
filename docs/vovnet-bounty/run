@@ -1,0 +1,21 @@
+#!/bin/sh
+
+set -e
+
+script_dir=$(cd "$(dirname "$0")" && pwd)
+if [ "$(pwd)" != "$script_dir" ]; then
+  echo "Error: must run from $script_dir"
+  exit 1
+fi
+
+# Reuse v3's installed metalium runtime.
+export TT_METAL_RUNTIME_ROOT="$script_dir/../vovnet_standalone_v3/ttnn-install/libexec/tt-metalium"
+
+echo "==================== BUILDING TTNN STANDALONE ==================="
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+cmake --build build -- ttnn-standalone
+echo "================ FINISH BUILDING TTNN STANDALONE ================"
+
+echo "==================== RUNNING TTNN STANDALONE ===================="
+./build/ttnn-standalone
+echo "================= FINISH RUNNING TTNN STANDALONE ================"
