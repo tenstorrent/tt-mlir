@@ -32,6 +32,7 @@
 #include "flatbuffers/buffer.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -248,6 +249,20 @@ static bool hasVirtualGridMappingPair(
              "Expected virtual-grid inverse and forward mappings to be set "
              "together");
   return virtualGridInverseMapping.has_value();
+}
+
+static ArrayAttr createVirtualGridBufferDescCacheKey(
+    MemRefType memref, ttcore::DeviceAttr device,
+    ttcore::SystemDescAttr systemDesc, AffineMap virtualGridInverseMapping,
+    AffineMap virtualGridForwardMapping) {
+  SmallVector<Attribute> keyParts = {
+      TypeAttr::get(memref),
+      device,
+      systemDesc,
+      AffineMapAttr::get(virtualGridInverseMapping),
+      AffineMapAttr::get(virtualGridForwardMapping),
+  };
+  return ArrayAttr::get(memref.getContext(), keyParts);
 }
 
 // Returns the physical core grid used to back a logical memref grid.
@@ -641,6 +656,17 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       (meshName ? meshName.str().data() : nullptr));
 }
 
+static flatbuffers::Offset<target::metal::BufferDesc>
+virtualGridMemrefTypeToFlatbuffer(
+    FlatbufferObjectCache &cache, ArrayAttr /*cacheKey*/, MemRefType memref,
+    ttcore::DeviceAttr device, ttcore::SystemDescAttr systemDesc,
+    std::optional<AffineMap> virtualGridInverseMapping,
+    std::optional<AffineMap> virtualGridForwardMapping) {
+  return memrefTypeToFlatbuffer(cache, memref, device, systemDesc,
+                                virtualGridInverseMapping,
+                                virtualGridForwardMapping);
+}
+
 static flatbuffers::Offset<target::metal::BufferRef>
 scalarValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   Type scalarType = value.getType();
@@ -701,9 +727,12 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   bool hasVirtualGridMapping = hasVirtualGridMappingPair(
       virtualGridInverseMapping, virtualGridForwardMapping);
   if (hasVirtualGridMapping) {
-    bufferDesc = memrefTypeToFlatbuffer(cache, memrefType, device, systemDesc,
-                                        virtualGridInverseMapping,
-                                        virtualGridForwardMapping);
+    ArrayAttr cacheKey = createVirtualGridBufferDescCacheKey(
+        memrefType, device, systemDesc, *virtualGridInverseMapping,
+        *virtualGridForwardMapping);
+    bufferDesc = cache.getOrCreate(
+        cacheKey, virtualGridMemrefTypeToFlatbuffer, memrefType, device,
+        systemDesc, virtualGridInverseMapping, virtualGridForwardMapping);
   } else {
     bufferDesc = cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device,
                                    systemDesc, virtualGridInverseMapping,
