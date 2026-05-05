@@ -938,7 +938,7 @@ LogicalResult ExpressionOp::verify() {
   auto yield = cast<YieldOp>(body.getTerminator());
 
   // Guard against a yield with no operands — getResult() would be OOB.
-  if (yield.getNumOperands() == 0) {
+  if (yield.getOperation()->getNumOperands() == 0) {
     return emitOpError("yielded value not defined within expression");
   }
 
