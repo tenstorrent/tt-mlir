@@ -10,6 +10,7 @@
 #include <tt-metalium/distributed.hpp>
 #endif
 
+#include "operations/cache/get_or_insert_into_disk_cache.h"
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
@@ -552,6 +553,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::GetOrInsertIntoDiskCacheOp: {
+    return operations::cache::run(op->type_as_GetOrInsertIntoDiskCacheOp(),
+                                  getContext());
   }
   case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
     return operations::batch_norm::run(op->type_as_BatchNormInferenceOp(),
