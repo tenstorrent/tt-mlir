@@ -567,24 +567,17 @@ private:
   }
 };
 
-// tt-metal's gather kernel only handles ui16/ui32 indices; an si32 index
-// passed straight through would be silently bit-reinterpreted, turning
-// negative values into huge unsigned numbers and reading out-of-bounds in
-// the kernel (UB on the single-core path, ASSERT on the multi-core path).
-//
 // This pattern wraps an si32-indexed gather in a fill-style mask, modeled
 // on what JAX emits for `jax.lax.gather(..., mode='fill')`:
 //
 //   mask     = idx < 0
-//   safe     = max(idx, 0)                  // clamp negatives to 0
+//   safe     = max(idx, 0)
 //   safe_u32 = to_layout(safe, dtype = ui32)
 //   raw      = ttnn.gather(input, safe_u32, dim)
 //   result   = where(mask, NaN, raw)
 //
 // Lanes whose original index was negative end up as NaN in the output,
-// making the failure visible (NaN propagates) instead of silently UB.
-// Positive out-of-range indices are still UB, matching the existing
-// contract for ui16/ui32 indices.
+// making the failure visible
 class GatherSi32ProtectionWorkaround : public OpRewritePattern<ttnn::GatherOp> {
 public:
   using OpRewritePattern<ttnn::GatherOp>::OpRewritePattern;
@@ -601,7 +594,7 @@ public:
     Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
 
     RankedTensorType maskType = ttnn::utils::RankedTensorTypeFactory::create(
-        indexType, ttcore::DataType::Bool);
+        indexType, ttcore::DataType::BFloat16);
     RankedTensorType outputType = op.getResult().getType();
     TTNNLayoutAttr indexLayout =
         ttnn::utils::getLayoutAttrFromTensor(indexType);
@@ -641,9 +634,9 @@ public:
         device);
 
     // %result = ttnn.where(mask, NaN, raw)
-    rewriter.replaceOpWithNewOp<ttnn::WhereOp>(
-        op, outputType, mask.getResult(), nanTensor.getResult(),
-        rawGather.getResult());
+    rewriter.replaceOpWithNewOp<ttnn::WhereOp>(op, outputType, mask.getResult(),
+                                               nanTensor.getResult(),
+                                               rawGather.getResult());
 
     return success();
   }
@@ -693,8 +686,8 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          GatherSi32ProtectionWorkaround,
-          PagedSDPADecodeP150CoreGridWorkaround, TTNNAllReduceWorkarounds,
+          GatherSi32ProtectionWorkaround, PagedSDPADecodeP150CoreGridWorkaround,
+          TTNNAllReduceWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
