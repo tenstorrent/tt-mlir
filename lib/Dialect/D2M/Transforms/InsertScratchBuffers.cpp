@@ -24,7 +24,19 @@ namespace {
 
 // Fallback scratch buffer size in bytes, used as an upper bound, and when the
 // DST packing analysis does not produce results for a given generic.
-constexpr size_t kFallbackScratchSizeBytes = 128 * 1024; // 128KB
+//
+// TODO(sgholami): temporary bump from 128KB to 384KB. The eager-split fix in
+// D2MElementwiseFusion (giving each producer its own intermediate tensor.empty)
+// surfaces real intermediate allocs to D2MInsertSpillAndScratch, which then
+// allocates one scratch slot per producer with no liveness reuse (slotIndex++).
+// Long elementwise chains (e.g. test_eltwise_fuse_unary_chain at 1x1 with
+// test-buffer-size-policy=max needs 144 tiles; 2x2 needs 72) overflow the old
+// 128KB cap. PR #7395 (ckaravasilisTT/d2mScratchAllocsLiveness) implements
+// liveness-based slot reuse in LowerScratchAllocate which collapses the
+// per-producer slots into a few reused offsets; once that lands this cap can
+// drop back. Issue #7796 (subview offsets lost in DMA->CB lowering) is a
+// related latent bug that becomes observable once #7395 lands.
+constexpr size_t kFallbackScratchSizeBytes = 384 * 1024; // 384KB
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
