@@ -927,6 +927,13 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
       applyCollapsedIntervalsAndAlignments(
           getLogicalShape(), normalizedIntervals, getDimAlignments());
 
+  // Rank-1 logical tensors are represented on device as a single logical row
+  // in a 2D tile plane. This preserves user-visible rank while keeping D2M and
+  // TTKernel tilize/tile compute paths on their native 2D block shape.
+  if (getLogicalShape().size() == 1 && physicalShape.size() == 1) {
+    physicalShape.insert(physicalShape.begin(), TileType::getDefaultShape()[0]);
+  }
+
   if (!tileShape.empty()) {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
@@ -1005,6 +1012,13 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::normalizeAndFlattenIntervals(
     normalized.push_back(++coveredUpTo);
   }
 
+  // Rank-1 logical tensors still use a 2D physical tile plane. The zero-length
+  // leading interval is the synthetic row dimension; the real logical dim maps
+  // to the innermost physical dimension.
+  if (inputRank == 1 && normalized.size() == 2) {
+    normalized.insert(normalized.begin(), {0, 0});
+  }
+
   return normalized;
 }
 
@@ -1034,9 +1048,14 @@ MetalLayoutAttr::computeTileAlignments(ArrayRef<int64_t> logicalShape,
   const int64_t logicalRank = logicalShape.size();
   const int64_t collapsedRank = normalizedIntervals.size() / 2;
 
-  assert(logicalRank >= 2);
+  assert(logicalRank >= 1);
 
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+  if (logicalRank == 1) {
+    alignments[0] = tileShape[1];
+    return alignments;
+  }
+
   // Handle the last two intervals (which will map to tiles).
   for (int64_t idx = -1; idx >= -2; idx--) {
     const int64_t tileIdx = tileShape.size() + idx;
@@ -1091,12 +1110,22 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
   const int64_t deviceGridRank = deviceGridShape.size();
   const int64_t tensorGridRank = normalizedIntervals.size() / 2;
 
-  assert(logicalRank >= 2);
+  assert(logicalRank >= 1);
   assert(deviceGridRank == 2);
   assert(normalizedIntervals.size() % 2 == 0);
   assert(deviceGridRank <= tensorGridRank);
 
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+  if (logicalRank == 1) {
+    const int64_t tileDim = tileShape[1];
+    const int64_t gridDim = deviceGridShape[1];
+    const int64_t gridAlignmentThreshold = gridDim * tileDim;
+    const int64_t alignedSize =
+        ttmlir::utils::alignUp(logicalShape[0], tileDim);
+    alignments[0] =
+        alignedSize > gridAlignmentThreshold ? gridAlignmentThreshold : tileDim;
+    return alignments;
+  }
 
   // Process the last two intervals (which map to the 2D tile shape) and apply
   // grid-aware alignments to saturate the worker grid when possible.
@@ -1266,9 +1295,10 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
 
   int64_t logicalRank = logicalShape.size();
 
-  // Logical shape must have at least 2 dimensions for tiling.
-  if (logicalRank < 2) {
-    return emitError() << "logical_shape must have at least 2 dimensions, got "
+  // Logical shape must have at least 1 dimension. Rank-1 tensors are expanded
+  // to a synthetic 2D physical tile plane by getPhysicalShape().
+  if (logicalRank < 1) {
+    return emitError() << "logical_shape must have at least 1 dimension, got "
                        << logicalRank;
   }
 
@@ -1388,6 +1418,9 @@ MetalLayoutAttr::getHostStrideAndVolume() const {
   }
 
   // At this point, currentStride == 'stride' of the entire tensor, i.e. volume.
+  if (logicalShape.size() == 1) {
+    currentStride *= TileType::getDefaultShape()[0];
+  }
   TT_assertv(currentStride >= ttmlir::utils::volume(logicalShape),
              "Final stride ({}) less than volume ({})", currentStride,
              ttmlir::utils::volume(logicalShape));

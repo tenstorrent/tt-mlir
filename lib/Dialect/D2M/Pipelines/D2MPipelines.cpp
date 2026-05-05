@@ -93,7 +93,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
   pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
   pm.addPass(ttir::createTTIRReductionForceKeepDim());
-  pm.addPass(ttir::createTTIRRankNormalization());
   pm.addPass(ttir::createTTIRDecomposeComplexReshape());
   pm.addPass(ttir::createTTIRImplicitBroadcastFold());
   pm.addPass(createCanonicalizerPassWithOptions(options));
@@ -258,9 +257,9 @@ void createD2MBackendPipeline(OpPassManager &pm,
   // treat all arguments.
   pm.addPass(d2m::createD2MNormalizeThreadArgs());
 
-  createOptimizationPasses(pm, options);
-
+  pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
+  createOptimizationPasses(pm, options);
 }
 
 void createD2MToTTMetalPipeline(OpPassManager &pm,

@@ -148,10 +148,14 @@ protected:
     }
 
     // Divide out the tile shape for the last two dimensions.
-    impliedGrid[impliedGrid.size() - 1] /=
-        ttcore::TileType::getDefaultShape()[0];
-    impliedGrid[impliedGrid.size() - 2] /=
-        ttcore::TileType::getDefaultShape()[1];
+    if (impliedGrid.size() == 1) {
+      impliedGrid[0] /= ttcore::TileType::getDefaultShape()[1];
+    } else {
+      impliedGrid[impliedGrid.size() - 1] /=
+          ttcore::TileType::getDefaultShape()[0];
+      impliedGrid[impliedGrid.size() - 2] /=
+          ttcore::TileType::getDefaultShape()[1];
+    }
 
     return impliedGrid;
   }
@@ -223,10 +227,14 @@ protected:
     auto optimalGrid = getGridForTTNNTensor(tensorType);
 
     llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
-    dimAlignments[dimAlignments.size() - 1] =
-        ttcore::TileType::getDefaultShape()[0];
-    dimAlignments[dimAlignments.size() - 2] =
-        ttcore::TileType::getDefaultShape()[1];
+    if (dimAlignments.size() == 1) {
+      dimAlignments[0] = ttcore::TileType::getDefaultShape()[1];
+    } else {
+      dimAlignments[dimAlignments.size() - 1] =
+          ttcore::TileType::getDefaultShape()[0];
+      dimAlignments[dimAlignments.size() - 2] =
+          ttcore::TileType::getDefaultShape()[1];
+    }
 
     ttcore::MetalLayoutAttr metalLayout;
     if (mlir::isa<ttnn::TTNNNDLayoutAttr>(ttnnLayout)) {
@@ -1004,7 +1012,7 @@ private:
     const auto outType =
         mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
     const int outRank = static_cast<int>(outType.getRank());
-    TT_assert(outRank >= 2);
+    TT_assert(outRank >= 1);
     const auto outShape = outType.getShape();
 
     // Gather input types, ranks, and shapes.
@@ -1079,6 +1087,9 @@ private:
       const size_t rank = exprs.size();
       // Index locked for W -> Col/Scalar tile.
       const bool isColTile = mlir::isa<AffineConstantExpr>(exprs[rank - 1]);
+      if (rank == 1) {
+        return isColTile ? d2m::TileBcastType::Col : d2m::TileBcastType::None;
+      }
       // Index locked for H -> Row/Scalar tile.
       const bool isRowTile = mlir::isa<AffineConstantExpr>(exprs[rank - 2]);
 
@@ -2624,7 +2635,7 @@ public:
     auto outType = mlir::cast<RankedTensorType>(op.getResult().getType());
 
     const int64_t rank = outType.getRank();
-    TT_assert(rank >= 2);
+    TT_assert(rank >= 1);
 
     int32_t dim = op.getDim();
     if (dim < 0) {
@@ -2654,7 +2665,7 @@ public:
         // For a row-major width concat, if at least one (including the last)
         // row's size violates the NoC constraints, use the
         // transpose-concat-transpose trick.
-        if (concatRowMajor && (dim == rank - 1) &&
+        if (rank >= 2 && concatRowMajor && (dim == rank - 1) &&
             (dimSize % alignToElements != 0)) {
           transposeRowMajor = true;
           break;
@@ -2680,7 +2691,9 @@ public:
     // Height <-> Width transpose indices.
     SmallVector<int64_t> hwTransposeIdx(rank);
     std::iota(hwTransposeIdx.begin(), hwTransposeIdx.end(), 0);
-    std::swap(hwTransposeIdx[rank - 1], hwTransposeIdx[rank - 2]);
+    if (rank >= 2) {
+      std::swap(hwTransposeIdx[rank - 1], hwTransposeIdx[rank - 2]);
+    }
 
     SmallVector<Value> effectiveInputs(adaptor.getOperands().begin(),
                                        adaptor.getOperands().end());
@@ -3268,6 +3281,40 @@ public:
   }
 };
 
+class D2MRank1ArangeOpRewriter : public OpConversionPattern<ttir::ArangeOp> {
+public:
+  D2MRank1ArangeOpRewriter(const TypeConverter &typeConverter,
+                           mlir::MLIRContext *ctx)
+      : OpConversionPattern<ttir::ArangeOp>(typeConverter, ctx,
+                                            /*benefit=*/20) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::ArangeOp op, ttir::ArangeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType resultType = op.getResult().getType();
+    if (resultType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(op, "requires rank-1 arange");
+    }
+
+    Location loc = op.getLoc();
+    int32_t outputSize = static_cast<int32_t>(resultType.getShape()[0]);
+    auto reshapedArangeType = RankedTensorType::get(
+        {1, resultType.getShape()[0]}, resultType.getElementType(),
+        resultType.getEncoding());
+    auto arange = rewriter.create<ttir::ArangeOp>(
+        loc, reshapedArangeType, adaptor.getStart(), adaptor.getEnd(),
+        adaptor.getStep(),
+        /*arange_dimension=*/1);
+
+    auto reshapedResult = rewriter.create<ttir::ReshapeOp>(
+        loc, resultType, arange.getResult(),
+        rewriter.getI32ArrayAttr({outputSize}));
+
+    rewriter.replaceOp(op, reshapedResult.getResult());
+    return success();
+  }
+};
+
 class D2MEmbeddingOpRewriter : public OpConversionPattern<ttir::EmbeddingOp>,
                                D2MNamedRewriterCommon {
 public:
@@ -3758,6 +3805,56 @@ struct TensorManipulationInfo {
 };
 
 namespace {
+class D2MScalarReshapeOpRewriter : public OpConversionPattern<ttir::ReshapeOp> {
+public:
+  D2MScalarReshapeOpRewriter(const TypeConverter &typeConverter,
+                             mlir::MLIRContext *ctx)
+      : OpConversionPattern<ttir::ReshapeOp>(typeConverter, ctx,
+                                             /*benefit=*/20) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::ReshapeOp op, ttir::ReshapeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    if (inputType.getRank() != 0 && outputType.getRank() != 0) {
+      return rewriter.notifyMatchFailure(op, "requires scalar input or output");
+    }
+
+    if (!inputType.hasStaticShape() || !outputType.hasStaticShape() ||
+        ttmlir::utils::volume<int64_t>(inputType.getShape()) != 1 ||
+        ttmlir::utils::volume<int64_t>(outputType.getShape()) != 1) {
+      return rewriter.notifyMatchFailure(op, "requires static unit volume");
+    }
+
+    Location loc = op.getLoc();
+    SmallVector<Value> inputIndices;
+    inputIndices.reserve(inputType.getRank());
+    for (int64_t i = 0; i < inputType.getRank(); ++i) {
+      inputIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+    }
+    Value scalar = rewriter.create<tensor::ExtractOp>(loc, adaptor.getInput(),
+                                                      inputIndices);
+
+    if (outputType.getRank() == 0) {
+      rewriter.replaceOpWithNewOp<tensor::FromElementsOp>(op, outputType,
+                                                          scalar);
+      return success();
+    }
+
+    auto empty =
+        rewriter.create<tensor::EmptyOp>(loc, outputType, ValueRange{});
+    SmallVector<Value> outputIndices;
+    outputIndices.reserve(outputType.getRank());
+    for (int64_t i = 0; i < outputType.getRank(); ++i) {
+      outputIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+    }
+    rewriter.replaceOpWithNewOp<tensor::InsertOp>(op, scalar, empty,
+                                                  outputIndices);
+    return success();
+  }
+};
+
 template <typename TensorManipulationOp,
           TensorManipulationInfo (*LogicalInfoFn)(TensorManipulationOp)>
 class D2MTensorManipulationOpRewriter
@@ -3818,43 +3915,59 @@ public:
                                                       AffineMap logicalMap) {
     unsigned outputLogicalRank = logicalMap.getNumDims();
     unsigned inputLogicalRank = logicalMap.getNumResults();
-    unsigned outputDeviceRank = outputLogicalRank * 2;
+    unsigned outputPhysicalRank = std::max(outputLogicalRank, 2u);
+    unsigned inputPhysicalRank = std::max(inputLogicalRank, 2u);
+    unsigned outputSyntheticRank = outputPhysicalRank - outputLogicalRank;
+    unsigned inputSyntheticRank = inputPhysicalRank - inputLogicalRank;
+    unsigned outputDeviceRank = outputPhysicalRank * 2;
 
-    // Shift the logical map's dim references to shard dimensions.
-    // Logical dims d0, d1, d2... become device shard dims
-    // d(outputLogicalRank), d(outputLogicalRank+1), d(outputLogicalRank+2)...
-    SmallVector<AffineExpr> shardExprs;
-    for (auto expr : logicalMap.getResults()) {
-      shardExprs.push_back(
-          expr.shiftDims(outputLogicalRank, outputLogicalRank));
+    // Compose the logical map with the unit-grid device shard coordinates.
+    // Rank-1 logical tensors have a synthetic leading physical row dimension,
+    // so logical dim 0 maps to shard dim 1 instead of shard dim 0.
+    SmallVector<AffineExpr> outputLogicalExprs;
+    outputLogicalExprs.reserve(outputLogicalRank);
+    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+      outputLogicalExprs.push_back(builder.getAffineDimExpr(
+          outputPhysicalRank + outputSyntheticRank + i));
     }
+    AffineMap outputDeviceToLogical = AffineMap::get(
+        outputDeviceRank, 0, outputLogicalExprs, builder.getContext());
+    AffineMap outputDeviceToInputLogical =
+        logicalMap.compose(outputDeviceToLogical);
 
     SmallVector<AffineExpr> deviceExprs;
 
-    // Grid coordinate mapping (first inputLogicalRank results).
-    for (unsigned i = 0; i < inputLogicalRank; ++i) {
-      if (inputLogicalRank == outputLogicalRank) {
-        // Same rank: identity mapping for grid (matches original behavior)
+    // Grid coordinate mapping (first inputPhysicalRank results).
+    for (unsigned i = 0; i < inputPhysicalRank; ++i) {
+      if (inputPhysicalRank == outputPhysicalRank) {
+        // Same physical rank: identity mapping for grid.
         deviceExprs.push_back(builder.getAffineDimExpr(i));
-      } else if (inputLogicalRank < outputLogicalRank) {
-        // Expanding (e.g., 2D -> 3D): map input grid dims to output's last
-        // inputLogicalRank grid dims.
-        unsigned outputGridIdx = outputLogicalRank - inputLogicalRank + i;
+      } else if (inputPhysicalRank < outputPhysicalRank) {
+        // Expanding: map input grid dims to output's last inputPhysicalRank
+        // grid dims.
+        unsigned outputGridIdx = outputPhysicalRank - inputPhysicalRank + i;
         deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
       } else {
-        // Contracting (e.g., 3D -> 2D): map last outputLogicalRank input grid
+        // Contracting: map last outputPhysicalRank input grid
         // dims to output grid, pad the rest with 0.
-        if (i < inputLogicalRank - outputLogicalRank) {
+        if (i < inputPhysicalRank - outputPhysicalRank) {
           deviceExprs.push_back(builder.getAffineConstantExpr(0));
         } else {
-          unsigned outputGridIdx = i - (inputLogicalRank - outputLogicalRank);
+          unsigned outputGridIdx = i - (inputPhysicalRank - outputPhysicalRank);
           deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
         }
       }
     }
 
-    for (auto expr : shardExprs) {
-      deviceExprs.push_back(expr);
+    // Shard coordinate mapping. Synthetic rank-1 row dims are fixed to zero;
+    // real logical dims come from the projected logical map.
+    for (unsigned i = 0; i < inputPhysicalRank; ++i) {
+      if (i < inputSyntheticRank) {
+        deviceExprs.push_back(builder.getAffineConstantExpr(0));
+        continue;
+      }
+      deviceExprs.push_back(
+          outputDeviceToInputLogical.getResult(i - inputSyntheticRank));
     }
 
     return AffineMap::get(outputDeviceRank, 0, deviceExprs,
@@ -4046,6 +4159,58 @@ concatenateHeadsLogicalInfo(ttir::ConcatenateHeadsOp op) {
   return {map, canBeTilized};
 }
 
+class D2MRank1SliceStaticOpRewriter
+    : public OpConversionPattern<ttir::SliceStaticOp> {
+public:
+  D2MRank1SliceStaticOpRewriter(const TypeConverter &typeConverter,
+                                mlir::MLIRContext *ctx)
+      : OpConversionPattern<ttir::SliceStaticOp>(typeConverter, ctx,
+                                                 /*benefit=*/20) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceStaticOp op, ttir::SliceStaticOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    if (inType.getRank() != 1 || outType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(op, "requires rank-1 slice");
+    }
+
+    auto begins = extractFromIntegerArrayAttr<int32_t>(op.getBegins());
+    auto ends = extractFromIntegerArrayAttr<int32_t>(op.getEnds());
+    auto step = extractFromIntegerArrayAttr<int32_t>(op.getStep());
+    TT_assert(begins.size() == 1u);
+    TT_assert(ends.size() == 1u);
+    TT_assert(step.size() == 1u);
+
+    Location loc = op.getLoc();
+    Type elementType = inType.getElementType();
+    int32_t inputSize = static_cast<int32_t>(inType.getShape()[0]);
+    int32_t outputSize = static_cast<int32_t>(outType.getShape()[0]);
+    auto reshapedInType = RankedTensorType::get(
+        {1, inType.getShape()[0]}, elementType, inType.getEncoding());
+    auto reshapedOutType = RankedTensorType::get(
+        {1, outType.getShape()[0]}, elementType, outType.getEncoding());
+
+    auto reshapedInput = rewriter.create<ttir::ReshapeOp>(
+        loc, reshapedInType, adaptor.getInput(),
+        rewriter.getI32ArrayAttr({1, inputSize}));
+
+    auto slice = rewriter.create<ttir::SliceStaticOp>(
+        loc, reshapedOutType, reshapedInput.getResult(),
+        rewriter.getI32ArrayAttr({0, begins[0]}),
+        rewriter.getI32ArrayAttr({1, ends[0]}),
+        rewriter.getI32ArrayAttr({1, step[0]}));
+
+    auto reshapedResult = rewriter.create<ttir::ReshapeOp>(
+        loc, outType, slice.getResult(),
+        rewriter.getI32ArrayAttr({outputSize}));
+
+    rewriter.replaceOp(op, reshapedResult.getResult());
+    return success();
+  }
+};
+
 class D2MSliceStaticOpNoCConstraintsRewriter
     : public OpConversionPattern<ttir::SliceStaticOp> {
 public:
@@ -4067,7 +4232,10 @@ public:
     auto outShape = outType.getShape();
 
     const int32_t rank = static_cast<int32_t>(inType.getRank());
-    TT_assert(rank >= 2);
+    if (rank < 2) {
+      return rewriter.notifyMatchFailure(
+          op, "NoC-constrained slice rewrite requires rank >= 2");
+    }
 
     const int32_t alignToElements =
         d2m::utils::getNocElementAlignmentL1(op, inType);
@@ -4300,8 +4468,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MAllGatherRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
-  // High-priority rewriter for SliceStatic ops that violate NoC constraints.
-  patterns.add<D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
+  // High-priority rewrites that introduce helper TTIR/tensor ops before
+  // generic tensor-manipulation conversion.
+  patterns.add<D2MScalarReshapeOpRewriter, D2MRank1SliceStaticOpRewriter,
+               D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
 
   // Decompose inner-dim min reductions to neg(max(neg)); runs during
   // TTIRToD2M instead of as a separate pre-pass.
@@ -4320,9 +4490,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace,  ttnnMode, collapseTensors, enableMulticastInference);
 
   // Arange.
+  patterns.add<D2MRank1ArangeOpRewriter>(typeConverter, ctx);
   patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
-    defaultOutputMemSpace, ttnnMode,
-    collapseTensors, enableMulticastInference);
+                                    defaultOutputMemSpace, ttnnMode,
+                                    collapseTensors, enableMulticastInference);
 
   // Embedding.
   patterns.add<D2MEmbeddingOpRewriter>(
@@ -4394,9 +4565,11 @@ public:
 
     target.addIllegalOp<mlir::tt::d2m::TileMatmulBlockOp>();
 
-    // Tensor empty is used within GenericOp regions to create local scratch
-    // buffers for remote_load and remote_store ops.
-    target.addLegalOp<::mlir::tensor::EmptyOp>();
+    // Tensor ops are used for local scratch buffers and scalar-only reshapes
+    // that should stay in host tensor space instead of creating rank-0 layouts.
+    target
+        .addLegalOp<::mlir::tensor::EmptyOp, ::mlir::tensor::ExtractOp,
+                    ::mlir::tensor::FromElementsOp, ::mlir::tensor::InsertOp>();
 
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
