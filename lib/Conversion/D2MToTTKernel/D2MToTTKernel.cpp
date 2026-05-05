@@ -2570,7 +2570,8 @@ static size_t getTensorAccessorCTASlots(Value remoteMemref) {
   }
 
   auto shapedType = mlir::cast<ShapedType>(remoteMemref.getType());
-  // Further investigation for sizing numBanks: https://github.com/tenstorrent/tt-mlir/issues/7943
+  // Further investigation for sizing numBanks:
+  // https://github.com/tenstorrent/tt-mlir/issues/7943
   auto chipDesc = ttcore::getOpChipDescAttr(remoteMemref.getDefiningOp());
   ArrayRef<int64_t> gridShape = chipDesc.getGrid();
   ArrayRef<int64_t> shardShape = layout.getShardShape(shapedType);
@@ -2579,7 +2580,8 @@ static size_t getTensorAccessorCTASlots(Value remoteMemref) {
   for (int64_t g : gridShape) {
     numBanks *= static_cast<size_t>(g);
   }
-  numBanks = std::max(numBanks, static_cast<size_t>(chipDesc.getNumDramChannels()));
+  numBanks =
+      std::max(numBanks, static_cast<size_t>(chipDesc.getNumDramChannels()));
 
   // rank + num_banks + tensor_shape[rank] + shard_shape[rank] + packed
   // bank_coords.
@@ -2591,11 +2593,10 @@ static size_t getTensorAccessorCTASlots(Value remoteMemref) {
 /// and return the CT arg index.  Reserves the correct number of CTA slots
 /// so that subsequent arg indices are not shifted.
 static size_t appendTensorAccessorArg(ConversionPatternRewriter &rewriter,
-                                      func::FuncOp entry,
-                                      int64_t operandIndex,
+                                      func::FuncOp entry, int64_t operandIndex,
                                       Value remoteMemref) {
-  ArgAttr arg = rewriter.getAttr<ArgAttr>(ArgType::TensorAccessor,
-                                          operandIndex);
+  ArgAttr arg =
+      rewriter.getAttr<ArgAttr>(ArgType::TensorAccessor, operandIndex);
   size_t numSlots = getTensorAccessorCTASlots(remoteMemref);
   size_t argIndex;
   rewriter.modifyOpInPlace(entry, [&]() {
@@ -2609,17 +2610,17 @@ static size_t getTensorStrideSlots(Value remoteMemref) {
   assert(layout);
   auto shapedType = mlir::cast<ShapedType>(remoteMemref.getType());
   size_t rank = layout.getShardShape(shapedType).size();
-  assert(rank == 2 && "TensorStride kernel argument only supports rank 2 tensors");
+  assert(rank == 2 &&
+         "TensorStride kernel argument only supports rank 2 tensors");
   return rank;
 }
 
-/// Helper: append the tensor stride to be used at runtime for TensorAccessor indexing calculations.
+/// Helper: append the tensor stride to be used at runtime for TensorAccessor
+/// indexing calculations.
 static size_t appendTensorStrideArg(ConversionPatternRewriter &rewriter,
-                                      func::FuncOp entry,
-                                      int64_t operandIndex,
-                                      Value remoteMemref) {
-  ArgAttr arg = rewriter.getAttr<ArgAttr>(ArgType::TensorStride,
-                                          operandIndex);
+                                    func::FuncOp entry, int64_t operandIndex,
+                                    Value remoteMemref) {
+  ArgAttr arg = rewriter.getAttr<ArgAttr>(ArgType::TensorStride, operandIndex);
   size_t numSlots = getTensorStrideSlots(remoteMemref);
   size_t argIndex;
   rewriter.modifyOpInPlace(entry, [&]() {
@@ -2685,18 +2686,18 @@ public:
                         "d2m.get_arg, failing.");
     int64_t operandIndex = getArgOp.getOperandIndex();
 
-    func::FuncOp entry =
-        op->template getParentOfType<func::FuncOp>();
+    func::FuncOp entry = op->template getParentOfType<func::FuncOp>();
 
     // Append a TensorAccessor arg to the ArgSpec, reserving the correct
     // number of CTA slots so subsequent arg indices are not shifted.
     size_t ctaTensorAccessorArgIndex =
         appendTensorAccessorArg(rewriter, entry, operandIndex, remoteMemRef);
-    size_t ctaTensorStrideArgIndex  =
+    size_t ctaTensorStrideArgIndex =
         appendTensorStrideArg(rewriter, entry, operandIndex, remoteMemRef);
 
     // Create TensorAccessorArgs with CTA base offset.
-    Value ctaBase = i32(rewriter, loc, static_cast<int32_t>(ctaTensorAccessorArgIndex));
+    Value ctaBase =
+        i32(rewriter, loc, static_cast<int32_t>(ctaTensorAccessorArgIndex));
     Value crtaBase = i32(rewriter, loc, 0);
     auto argsOp = rewriter.create<ttkernel::TensorAccessorArgsOp>(
         loc, ctaBase, crtaBase, /*prev=*/Value(), /*ctaExpr=*/StringAttr(),
@@ -2704,8 +2705,7 @@ public:
 
     // Get the bank base address from the adapted remote operand.
     Value adaptedRemote = IsRead ? adaptor.getSrc() : adaptor.getDst();
-    Value bankBaseAddress =
-        castCBTypeAsAddress(rewriter, loc, adaptedRemote);
+    Value bankBaseAddress = castCBTypeAsAddress(rewriter, loc, adaptedRemote);
 
     // Create the TensorAccessor.
     Value pageSize = i32(rewriter, loc, static_cast<int32_t>(pageSizeBytes));
@@ -2740,7 +2740,7 @@ public:
     SmallVector<Value> tensorStrideVals(rank);
     SmallVector<Value> shardStrideVals(rank);
     int32_t stride = 1;
-    for (int64_t d = rank-1; d >= 0; --d) {
+    for (int64_t d = rank - 1; d >= 0; --d) {
       shardDimVals[d] = index(rewriter, loc, shardShape[d]);
       shardStrideVals[d] = index(rewriter, loc, stride);
 
@@ -2761,7 +2761,7 @@ public:
     OpBuilder::InsertionGuard guard(rewriter);
     for (int64_t d = 0; d < rank; ++d) {
       auto forOp = rewriter.create<scf::ForOp>(loc, lb, shardDimVals[d], step,
-                                                ValueRange{});
+                                               ValueRange{});
       loops[d] = forOp;
       rewriter.setInsertionPointToStart(forOp.getBody());
     }
@@ -2782,17 +2782,16 @@ public:
         // Absolute coordinate: gridIndices[d] * shardShape[d] + iv.
         Value gridOffset = rewriter.create<arith::MulIOp>(
             innerLoc, gridIndices[d], shardDimVals[d]);
-        Value absDim =
-            rewriter.create<arith::AddIOp>(innerLoc, gridOffset, iv);
+        Value absDim = rewriter.create<arith::AddIOp>(innerLoc, gridOffset, iv);
 
         // Accumulate into pageId with the tensor stride.
-        Value absContrib = rewriter.create<arith::MulIOp>(
-            innerLoc, absDim, tensorStrideVals[d]);
+        Value absContrib = rewriter.create<arith::MulIOp>(innerLoc, absDim,
+                                                          tensorStrideVals[d]);
         pageId = rewriter.create<arith::AddIOp>(innerLoc, pageId, absContrib);
 
         // Accumulate into localIdx with the shard stride.
-        Value localContrib = rewriter.create<arith::MulIOp>(
-            innerLoc, iv, shardStrideVals[d]);
+        Value localContrib =
+            rewriter.create<arith::MulIOp>(innerLoc, iv, shardStrideVals[d]);
         localIdx =
             rewriter.create<arith::AddIOp>(innerLoc, localIdx, localContrib);
       }

@@ -1213,9 +1213,9 @@ public:
 
     // Emit: auto dspec_N = ta.dspec();
     std::string code = "auto " + varName + " = {}.dspec();";
-    rewriter.create<emitc::VerbatimOp>(
-        op.getLoc(), rewriter.getStringAttr(code),
-        ValueRange{adaptor.getTensorAccessor()});
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(),
+                                       rewriter.getStringAttr(code),
+                                       ValueRange{adaptor.getTensorAccessor()});
 
     auto resultType =
         this->getTypeConverter()->convertType(op->getResultTypes()[0]);
@@ -1229,8 +1229,9 @@ public:
 } // namespace
 
 namespace {
-// Rewriter for dspec indexed-access ops (dspec.shard_shape, dspec.tensor_strides,
-// dspec.shard_strides).  Emits: `uint32_t varN = dspec.METHOD()[dim];`
+// Rewriter for dspec indexed-access ops (dspec.shard_shape,
+// dspec.tensor_strides, dspec.shard_strides).  Emits: `uint32_t varN =
+// dspec.METHOD()[dim];`
 template <typename SourceOp>
 class TTKernelDSpecIndexedMethodRewriter
     : public OpConversionPattern<SourceOp> {
@@ -1242,7 +1243,8 @@ public:
   LogicalResult
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Extract method name from op name: "ttkernel.dspec.shard_shape" -> "shard_shape"
+    // Extract method name from op name: "ttkernel.dspec.shard_shape" ->
+    // "shard_shape"
     auto [prefix, methodName] =
         op.getOperation()->getName().getStringRef().rsplit('.');
     if (methodName.empty()) {
@@ -1989,11 +1991,11 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<
-        TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecShardShapeOp>,
-        TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecTensorStridesOp>,
-        TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecShardStridesOp>>(
-        typeConverter, funcOp.getContext());
+    patterns
+        .add<TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecShardShapeOp>,
+             TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecTensorStridesOp>,
+             TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecShardStridesOp>>(
+            typeConverter, funcOp.getContext());
 
     patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
                  ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
