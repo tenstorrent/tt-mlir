@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/types/disk_tensor_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
+#include "tt/runtime/types.h"
 
 #include <ttnn/tensor/tensor.hpp>
 #include <ttnn/tensor/tensor_impl.hpp>
@@ -35,26 +36,41 @@ void run(const ::tt::target::ttnn::GetOrInsertIntoDiskCacheOp *op,
   }
 
   auto cachePath = cache.getCachePath(programHash, argIndex);
-  LOG_INFO("[DiskCache] cache path: ", cachePath.string());
 
-  // Cache hit: load from disk
-  // Load to device or host based on the layout specified in the IR
+  // L1 hit: return runtime tensor directly from in-memory cache
+  if (const auto *cachedTensor =
+          cache.getRuntimeTensor(programHash, argIndex)) {
+    LOG_INFO("[DiskCache] L1 HIT - returning cached runtime tensor");
+    context.getTensorPool().insertRuntimeTensorAndValidate(op->out(),
+                                                           *cachedTensor);
+    return;
+  }
+
+  // L2 hit (disk cache): load from disk, store in L1
   if (cache.exists(programHash, argIndex)) {
     bool loadToDevice = op->load_to_device();
     ::ttnn::MeshDevice *device =
         loadToDevice ? context.getMeshDevicePtr().get() : nullptr;
 
-    LOG_INFO("[DiskCache] CACHE HIT - loading tensor from disk to ",
+    LOG_INFO("[DiskCache] L2 HIT, L1 MISS - loading from disk to ",
              (loadToDevice ? "device" : "host"), ": ", cachePath.string());
 
-    ::ttnn::Tensor out =
+    ::ttnn::Tensor ttnnTensor =
         ::tt::tt_metal::load_tensor_flatbuffer(cachePath.string(), device);
-    context.getTensorPool().insertTTNNTensorAndValidate(op->out(), out);
+
+    // Insert into TensorPool with retain=true to prevent deallocation
+    context.getTensorPool().insertTTNNTensorAndValidate(op->out(), ttnnTensor,
+                                                        /*retain=*/true);
+
+    // Get the runtime tensor and store in L1 cache for future executions
+    ::tt::runtime::Tensor &runtimeTensor =
+        context.getTensorPool().getRuntimeTensorAndValidate(op->out());
+    cache.storeRuntimeTensor(programHash, argIndex, runtimeTensor);
     return;
   }
 
-  // Cache miss: write to disk and pass through
-  LOG_INFO("[DiskCache] CACHE MISS - writing tensor to disk: ",
+  // Both miss: write to disk, store in L1
+  LOG_INFO("[DiskCache] L1 MISS, L2 MISS - writing to disk: ",
            cachePath.string());
 
   cache.ensureDirectoryExists(programHash);
@@ -64,10 +80,16 @@ void run(const ::tt::target::ttnn::GetOrInsertIntoDiskCacheOp *op,
   ::tt::tt_metal::dump_tensor_flatbuffer(cachePath.string(), input);
   cache.markWritten(programHash, argIndex);
 
-  LOG_INFO("[DiskCache] successfully wrote tensor to disk");
+  // Insert output (pass through input), mark as retained
+  context.getTensorPool().insertTTNNTensorAndValidate(op->out(), input,
+                                                      /*retain=*/true);
 
-  // Pass through input as output
-  context.getTensorPool().insertTTNNTensorAndValidate(op->out(), input);
+  // Get the runtime tensor and store in L1 cache for future executions
+  ::tt::runtime::Tensor &runtimeTensor =
+      context.getTensorPool().getRuntimeTensorAndValidate(op->out());
+  cache.storeRuntimeTensor(programHash, argIndex, runtimeTensor);
+
+  LOG_INFO("[DiskCache] successfully wrote tensor to disk and stored in L1");
 }
 
 } // namespace tt::runtime::ttnn::operations::cache

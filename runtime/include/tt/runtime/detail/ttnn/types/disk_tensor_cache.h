@@ -5,11 +5,14 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_TYPES_DISK_TENSOR_CACHE_H
 #define TT_RUNTIME_DETAIL_TTNN_TYPES_DISK_TENSOR_CACHE_H
 
+#include "tt/runtime/types.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 // Forward declaration for friend class
@@ -54,6 +57,22 @@ public:
   // Check if entry has been written this session
   bool hasBeenWritten(const std::string &programHash, uint32_t argIndex) const;
 
+  //
+  // Runtime Tensor Cache (L1) - in-memory cache of device tensors
+  //
+
+  // Get cached runtime tensor, returns nullptr if not cached
+  const ::tt::runtime::Tensor *getRuntimeTensor(const std::string &programHash,
+                                                uint32_t argIndex) const;
+
+  // Store runtime tensor in cache
+  void storeRuntimeTensor(const std::string &programHash, uint32_t argIndex,
+                          const ::tt::runtime::Tensor &tensor);
+
+  // Check if runtime tensor is cached
+  bool hasRuntimeTensor(const std::string &programHash,
+                        uint32_t argIndex) const;
+
 private:
   friend class ttsl::Indestructible<DiskTensorCache>;
 
@@ -68,9 +87,12 @@ private:
   static constexpr const char *kCacheBasePath = "./generated/tensorcache";
   static constexpr const char *kEnvVarName = "TTMLIR_ENABLE_DISK_CACHE";
 
-  // In-memory tracking of entries written this session
+  // In-memory tracking of entries written this session (L2 disk cache)
   mutable std::shared_mutex cacheMutex;
   std::unordered_set<std::string> writtenEntries; // "hash/index" format
+
+  // Runtime tensor cache (L1) - keyed by "programHash/argIndex"
+  std::unordered_map<std::string, ::tt::runtime::Tensor> runtimeTensorCache;
 };
 
 } // namespace tt::runtime

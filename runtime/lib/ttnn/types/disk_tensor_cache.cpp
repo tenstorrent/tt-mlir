@@ -50,4 +50,35 @@ bool DiskTensorCache::hasBeenWritten(const std::string &programHash,
   return writtenEntries.count(programHash + "/" + std::to_string(argIndex)) > 0;
 }
 
+//
+// Runtime Tensor Cache (L1) methods
+//
+
+const ::tt::runtime::Tensor *
+DiskTensorCache::getRuntimeTensor(const std::string &programHash,
+                                  uint32_t argIndex) const {
+  std::shared_lock<std::shared_mutex> lock(cacheMutex);
+  std::string key = programHash + "/" + std::to_string(argIndex);
+  auto it = runtimeTensorCache.find(key);
+  if (it == runtimeTensorCache.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+void DiskTensorCache::storeRuntimeTensor(const std::string &programHash,
+                                         uint32_t argIndex,
+                                         const ::tt::runtime::Tensor &tensor) {
+  std::unique_lock<std::shared_mutex> lock(cacheMutex);
+  std::string key = programHash + "/" + std::to_string(argIndex);
+  runtimeTensorCache[key] = tensor;
+}
+
+bool DiskTensorCache::hasRuntimeTensor(const std::string &programHash,
+                                       uint32_t argIndex) const {
+  std::shared_lock<std::shared_mutex> lock(cacheMutex);
+  std::string key = programHash + "/" + std::to_string(argIndex);
+  return runtimeTensorCache.count(key) > 0;
+}
+
 } // namespace tt::runtime
