@@ -44,26 +44,6 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-static std::vector<::tt::target::Dim2dRange>
-getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
-  RankedTensorType tensorType = mlir::cast<RankedTensorType>(value.getType());
-  ttnn::TTNNLayoutAttr layoutAttr =
-      mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-  ttnn::CoreRangeSetAttr coreRangeSetAttr = layoutAttr.getCoreRangeSet();
-  std::vector<::tt::target::Dim2dRange> coreRangeSet;
-  if (coreRangeSetAttr) {
-    for (const ttnn::CoreRangeAttr &range : coreRangeSetAttr.getCoreRanges()) {
-      coreRangeSet.push_back(::tt::target::Dim2dRange(
-          ::tt::target::Dim2d(range.getStartCoord().getY(),
-                              range.getStartCoord().getX()),
-          ::tt::target::Dim2d(
-              range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
-              range.getEndCoord().getX() - range.getStartCoord().getX() + 1)));
-    }
-  }
-  return coreRangeSet;
-}
-
 static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
 getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
                                       Value tensor) {
@@ -700,7 +680,6 @@ createOp(FlatbufferObjectCache &cache, CumSumOp op) {
 
                                             /*local_shape*/ std::nullopt);
 
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   ::flatbuffers::Optional<::tt::target::DataType> dtype =
       toFlatbuffer(cache, op.getDtype());
@@ -1427,7 +1406,6 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
 
                                   /*local_shape*/ std::nullopt);
 
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   return ::tt::target::ttnn::CreatePermuteOp(*cache.fbb, input, permutation,
                                              memoryConfig, padValue, output);
 }
@@ -1815,7 +1793,6 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
   flatbuffers::Offset<flatbuffers::String> mode =
       toFlatbuffer(cache, op.getMode());
 
-  auto coreRangeSet = getTensorValueCoreRangeSet(cache, op.getResult());
   flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, op.getMemoryConfig().value())
                            : 0;
