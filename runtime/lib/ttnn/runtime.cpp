@@ -1357,6 +1357,7 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
+  case ::tt::target::ttnn::OpType::GetOrInsertIntoDiskCacheOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp:
   case ::tt::target::ttnn::OpType::FuncCallOp:
@@ -1866,6 +1867,10 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_LoadCachedOp()->inputs());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GetOrInsertIntoDiskCacheOp: {
+    tensorRefs = {opContext.type_as_GetOrInsertIntoDiskCacheOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::SortOp: {
