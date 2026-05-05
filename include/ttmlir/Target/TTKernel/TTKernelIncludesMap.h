@@ -56,6 +56,7 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"noc_async_read_one_packet_with_state_with_trid", {"", "api/dataflow/dataflow_api.h"}},
         {"noc_async_read_set_trid",                        {"", "api/dataflow/dataflow_api.h"}},
         {"noc_async_read_tile",                            {"", "api/dataflow/dataflow_api.h"}},
+        {"noc_async_atomic_barrier",                       {"", "api/dataflow/dataflow_api.h"}},
         {"noc_async_write",                                {"", "api/dataflow/dataflow_api.h"}},
         {"noc_async_write_barrier",                        {"", "api/dataflow/dataflow_api.h"}},
         {"noc_async_write_barrier_with_trid",              {"", "api/dataflow/dataflow_api.h"}},
