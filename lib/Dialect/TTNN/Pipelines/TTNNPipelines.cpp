@@ -411,6 +411,9 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineDeallocPass(devicePm, options);
 
+    // Insert disk cache ops for function arguments (gated by env var).
+    devicePm.addPass(createTTNNInsertDiskCacheOps());
+
     if (options.ttnnPerfMetricsEnabled) {
       ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
           options.ttnnPerfMetricsOutputFile,
