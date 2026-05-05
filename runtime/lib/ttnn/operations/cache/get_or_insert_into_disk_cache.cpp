@@ -11,52 +11,9 @@
 #include <ttnn/tensor/tensor.hpp>
 #include <ttnn/tensor/tensor_impl.hpp>
 
-#include <sstream>
-
 namespace tt::runtime::ttnn::operations::cache {
 
 using LogType = ::tt::runtime::logger::LogType;
-
-namespace {
-std::string getTensorLayoutInfo(const ::ttnn::Tensor &tensor) {
-  std::ostringstream ss;
-  ss << "shape=" << tensor.get_shape();
-  ss << ", dtype=" << tensor.get_dtype();
-  ss << ", layout="
-     << (tensor.get_layout() == ::ttnn::Layout::TILE ? "TILE" : "ROW_MAJOR");
-  ss << ", storage_type=";
-  switch (tensor.storage_type()) {
-  case ::ttnn::StorageType::DEVICE:
-    ss << "DEVICE";
-    break;
-  case ::ttnn::StorageType::MULTI_DEVICE:
-    ss << "MULTI_DEVICE";
-    break;
-  case ::ttnn::StorageType::OWNED:
-    ss << "OWNED";
-    break;
-  case ::ttnn::StorageType::BORROWED:
-    ss << "BORROWED";
-    break;
-  case ::ttnn::StorageType::MULTI_DEVICE_HOST:
-    ss << "MULTI_DEVICE_HOST";
-    break;
-  }
-  if (tensor.is_allocated() &&
-      (tensor.storage_type() == ::ttnn::StorageType::DEVICE ||
-       tensor.storage_type() == ::ttnn::StorageType::MULTI_DEVICE)) {
-    auto memConfig = tensor.memory_config();
-    ss << ", memory_type="
-       << (memConfig.memory_layout == ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED
-               ? "INTERLEAVED"
-               : "SHARDED");
-    ss << ", buffer_type="
-       << (memConfig.buffer_type == ::tt::tt_metal::BufferType::DRAM ? "DRAM"
-                                                                      : "L1");
-  }
-  return ss.str();
-}
-} // namespace
 
 void run(const ::tt::target::ttnn::GetOrInsertIntoDiskCacheOp *op,
          ProgramContext &context) {
@@ -88,10 +45,8 @@ void run(const ::tt::target::ttnn::GetOrInsertIntoDiskCacheOp *op,
     ::ttnn::MeshDevice *device = context.getMeshDevicePtr().get();
     ::ttnn::Tensor out =
         ::tt::tt_metal::load_tensor_flatbuffer(cachePath.string(), device);
-
-    LOG_INFO("[DiskCache] loaded tensor layout: ", getTensorLayoutInfo(out));
-
     context.getTensorPool().insertTTNNTensorAndValidate(op->out(), out);
+    LOG_INFO("[DiskCache] successfully loaded tensor from disk");
     return;
   }
 
@@ -103,11 +58,10 @@ void run(const ::tt::target::ttnn::GetOrInsertIntoDiskCacheOp *op,
 
   const ::ttnn::Tensor &input =
       context.getTensorPool().getTTNNTensorAndValidate(op->input());
-
-  LOG_INFO("[DiskCache] dumping tensor layout: ", getTensorLayoutInfo(input));
-
   ::tt::tt_metal::dump_tensor_flatbuffer(cachePath.string(), input);
   cache.markWritten(programHash, argIndex);
+
+  LOG_INFO("[DiskCache] successfully wrote tensor to disk");
 
   // Pass through input as output
   context.getTensorPool().insertTTNNTensorAndValidate(op->out(), input);
