@@ -578,7 +578,7 @@ private:
 //
 // Lanes whose original index was negative end up as NaN in the output,
 // making the failure visible
-class GatherSi32ProtectionWorkaround : public OpRewritePattern<ttnn::GatherOp> {
+class GatherSi32Workaround : public OpRewritePattern<ttnn::GatherOp> {
 public:
   using OpRewritePattern<ttnn::GatherOp>::OpRewritePattern;
 
@@ -686,7 +686,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          GatherSi32ProtectionWorkaround, PagedSDPADecodeP150CoreGridWorkaround,
+          GatherSi32Workaround, PagedSDPADecodeP150CoreGridWorkaround,
           TTNNAllReduceWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
