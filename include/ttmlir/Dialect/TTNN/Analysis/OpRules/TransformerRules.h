@@ -10,7 +10,8 @@
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
-// Transformer ops: SDPA, PagedSDPA, NLPConcatHeadsDecode, ConcatenateHeads
+// Transformer ops: SDPA, PagedSDPA, NLPConcatHeadsDecode, ConcatenateHeads,
+//                  (Paged)UpdateCache, (Paged)FillCache
 //
 // Output hints:
 //   SDPA/PagedSDPA/NLPConcatHeadsDecode: NULL hint only.
@@ -66,6 +67,26 @@ struct SplitQKVRuleBook : OpRuleBook {
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// PagedUpdateCache constraint: the fill-value (operand 1) must be L1
+/// height-sharded.
+struct PagedUpdateCacheRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+};
+
+/// FillCache / PagedFillCache constraint: the cache buffer (operand 0) is
+/// modified in-place and must remain in DRAM interleaved storage. If the
+/// beam search picks an L1 layout, the optimizer inserts a to_memory_config
+/// that copies the cache into a temporary L1 buffer; the in-place fill writes
+/// then go to that scratch copy and are silently discarded, leaving the real
+/// DRAM cache uninitialized.
+struct FillCacheRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+};
+
+struct PagedFillCacheRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
 } // namespace mlir::tt::ttnn

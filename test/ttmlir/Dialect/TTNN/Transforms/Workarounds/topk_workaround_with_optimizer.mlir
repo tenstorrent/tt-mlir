@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttnn-layout --convert-ttir-to-ttnn --ttnn-workaround="ttnn-is-optimizer-enabled=true" --canonicalize -o %t %s
+// RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttnn-layout --convert-ttir-to-ttnn --ttnn-workaround="ttnn-optimization-level=1" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Regression test: TopKOp must remain in the workaround whitelist when the
