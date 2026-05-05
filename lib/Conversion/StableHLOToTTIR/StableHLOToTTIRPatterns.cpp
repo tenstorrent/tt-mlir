@@ -5618,6 +5618,13 @@ public:
           srcOp, "Not all indices are present in the original array");
     }
 
+    // Body [0, 1, ..., maxIndex] must be present, i.e. at least one 0 and one
+    // maxIndex. Rejects constant-uniform indices like [1, 1, ..., 1].
+    if (starts == 0 || ends == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Indices do not contain the body [0, 1, ..., maxIndex]");
+    }
+
     starts--;
     ends--;
 
