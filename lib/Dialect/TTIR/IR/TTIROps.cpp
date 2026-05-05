@@ -233,9 +233,9 @@ constantFoldEltwiseUnary(mlir::Operation *op, mlir::Attribute inputAttr,
   return nullptr;
 }
 
-static bool fulfillFoldEltwiseBinaryConditions(mlir::Operation *op,
-                                               mlir::DenseElementsAttr lhs,
-                                               mlir::DenseElementsAttr rhs) {
+static bool checkFoldEltwiseBinaryConditions(mlir::Operation *op,
+                                             mlir::DenseElementsAttr lhs,
+                                             mlir::DenseElementsAttr rhs) {
   if (!lhs || !rhs) {
     return false;
   }
@@ -287,8 +287,18 @@ template <typename ElementType, typename Fun>
 static ::mlir::OpFoldResult
 foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
                         mlir::DenseElementsAttr rhs, Fun mapFn) {
-  if (!fulfillFoldEltwiseBinaryConditions(op, lhs, rhs)) {
+  if (!checkFoldEltwiseBinaryConditions(op, lhs, rhs)) {
     return nullptr;
+  }
+
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+
+  // If both inputs are splats, just use the splat values.
+  if (lhs.isSplat() && rhs.isSplat()) {
+    auto lhsSplatValue = lhs.getSplatValue<ElementType>();
+    auto rhsSplatValue = rhs.getSplatValue<ElementType>();
+    ElementType result = mapFn(lhsSplatValue, rhsSplatValue);
+    return mlir::SplatElementsAttr::get(resultType, result);
   }
 
   // If exactly one input is a splat we resize it to the shape of the other,
@@ -300,19 +310,10 @@ foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
     rhs = rhs.resizeSplat(lhs.getType());
   }
 
-  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
   // If we have tensors of different shapes, we need to add leading dimensions
   // of size 1 to the smaller one.
   lhs = addLeadingDimsToMatchShape(lhs, resultType.getShape());
   rhs = addLeadingDimsToMatchShape(rhs, resultType.getShape());
-
-  // If both inputs are splats, just use the splat values.
-  if (lhs.isSplat() && rhs.isSplat()) {
-    auto lhsSplatValue = lhs.getSplatValue<ElementType>();
-    auto rhsSplatValue = rhs.getSplatValue<ElementType>();
-    ElementType result = mapFn(lhsSplatValue, rhsSplatValue);
-    return mlir::SplatElementsAttr::get(resultType, result);
-  }
 
   llvm::SmallVector<ElementType> resultValues;
   resultValues.reserve(resultType.getNumElements());
@@ -412,78 +413,38 @@ constantFoldEltwiseBinary(mlir::Operation *op, mlir::Attribute lhsAttr,
   return nullptr;
 }
 
-// Callable that maps a C++ float function over an APFloat by converting it to
+// Callable that maps a C++ float function over `APFloat`s by converting them to
 // f32 and back to the original type. This allows folding with non standard
 // float types like bf16 using functions from C++ standard library.
 template <typename Fun>
 class ApplyToAPFloat {
 public:
   explicit ApplyToAPFloat(Fun fn) : fn{fn} {}
-  llvm::APFloat operator()(const llvm::APFloat &value) const {
-    // If the input is already a float32, apply the function directly.
-    if (&value.getSemantics() == &llvm::APFloat::IEEEsingle()) {
-      float nativeFloat = value.convertToFloat();
-      float result = fn(nativeFloat);
-      return llvm::APFloat(result);
-    }
 
-    // Else, convert to float32, apply the function, and convert back.
-    // Note that we don't support f64, so this won't lower precision.
-    llvm::APFloat floatVal = value;
-    bool losesInfo{};
-    floatVal.convert(llvm::APFloat::IEEEsingle(),
-                     llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+  template <typename... Args>
+  llvm::APFloat operator()(Args... args) const {
 
-    float nativeFloat = floatVal.convertToFloat();
-    float result = fn(nativeFloat);
+    auto convert = [](const llvm::APFloat &value) {
+      if (&value.getSemantics() == &llvm::APFloat::IEEEsingle()) {
+        return value.convertToFloat();
+      }
+      llvm::APFloat floatVal(value);
+      bool losesInfo{};
+      floatVal.convert(llvm::APFloat::IEEEsingle(),
+                       llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+      return floatVal.convertToFloat();
+    };
 
-    llvm::APFloat finalResult(result);
-    finalResult.convert(value.getSemantics(),
-                        llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-    return finalResult;
-  }
-
-private:
-  Fun fn;
-};
-
-// Callable that maps a C++ float binary function over two APFloats by
-// converting them to f32 and converting result to the original type. This
-// allows folding with non standard float types like bf16 using functions from
-// C++ standard library.
-template <typename Fun>
-class ApplyToAPFloats {
-public:
-  explicit ApplyToAPFloats(Fun fn) : fn{fn} {}
-  llvm::APFloat operator()(const llvm::APFloat &lhs,
-                           const llvm::APFloat &rhs) const {
-    assert(&lhs.getSemantics() == &rhs.getSemantics() &&
-           "Input APFloats must have the same semantics");
-
-    // If the inputs are already float32, apply the function directly.
-    if (&lhs.getSemantics() == &llvm::APFloat::IEEEsingle()) {
-      float lhsFloat = lhs.convertToFloat();
-      float rhsFloat = rhs.convertToFloat();
-      float result = fn(lhsFloat, rhsFloat);
-      return llvm::APFloat(result);
-    }
-
-    // Else, convert to float32, apply the function, and convert back.
-    // Note that we don't support f64, so this won't lower precision.
-    llvm::APFloat lhs32 = lhs;
-    llvm::APFloat rhs32 = rhs;
-    bool losesInfo{};
-    lhs32.convert(llvm::APFloat::IEEEsingle(),
-                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-    rhs32.convert(llvm::APFloat::IEEEsingle(),
-                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-    float lhsFloat = lhs32.convertToFloat();
-    float rhsFloat = rhs32.convertToFloat();
-
-    float result = fn(lhsFloat, rhsFloat);
+    float result = fn(convert(args)...);
 
     llvm::APFloat finalResult(result);
-    finalResult.convert(lhs.getSemantics(), llvm::APFloat::rmNearestTiesToEven,
+    auto &semantics =
+        std::get<0>(std::forward_as_tuple(args...)).getSemantics();
+    if (&semantics == &llvm::APFloat::IEEEsingle()) {
+      return finalResult;
+    }
+    bool losesInfo{};
+    finalResult.convert(semantics, llvm::APFloat::rmNearestTiesToEven,
                         &losesInfo);
     return finalResult;
   }
@@ -519,8 +480,6 @@ private:
 // call site.
 template <typename Fun>
 ApplyToAPFloat(Fun) -> ApplyToAPFloat<Fun>;
-template <typename Fun>
-ApplyToAPFloats(Fun) -> ApplyToAPFloats<Fun>;
 template <typename Fun>
 PredicateToNumericAdapter(Fun) -> PredicateToNumericAdapter<Fun>;
 
@@ -8085,7 +8044,7 @@ static bool anyZero(mlir::ElementsAttr elems) {
 
 ::mlir::OpFoldResult mlir::tt::ttir::Atan2Op::fold(FoldAdaptor adaptor) {
   return constantFoldEltwiseBinaryFloat(
-      *this, adaptor.getLhs(), adaptor.getRhs(), ApplyToAPFloats(::atan2f));
+      *this, adaptor.getLhs(), adaptor.getRhs(), ApplyToAPFloat(::atan2f));
 }
 
 //===----------------------------------------------------------------------===//
@@ -8225,7 +8184,7 @@ static bool anyZero(mlir::ElementsAttr elems) {
 
 ::mlir::OpFoldResult mlir::tt::ttir::PowOp::fold(FoldAdaptor adaptor) {
   return constantFoldEltwiseBinaryFloat(
-      *this, adaptor.getLhs(), adaptor.getRhs(), ApplyToAPFloats(::powf));
+      *this, adaptor.getLhs(), adaptor.getRhs(), ApplyToAPFloat(::powf));
 }
 
 //===----------------------------------------------------------------------===//
@@ -8242,7 +8201,7 @@ static bool anyZero(mlir::ElementsAttr elems) {
   auto isUnsigned = intType && intType.isUnsignedInteger();
   return constantFoldEltwiseBinary(
       *this, adaptor.getLhs(), adaptor.getRhs(),
-      ApplyToAPFloats([](float lhs, float rhs) {
+      ApplyToAPFloat([](float lhs, float rhs) {
         auto rem = std::fmod(lhs, rhs);
         if (rhs != 0 && ((rem < 0 && rhs > 0) || (rem > 0 && rhs < 0))) {
           // Adjust result to match TTNN's behavior, which always returns a
