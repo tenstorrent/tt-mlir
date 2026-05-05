@@ -40,7 +40,7 @@ ALWI void untilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
       MATH((llk_math_wait_for_dest_available()));
 
       // Datacopy
-      MATH((llk_math_eltwise_unary_datacopy<A2D, DST_ACCUM_MODE,
+      MATH((llk_math_eltwise_unary_datacopy<DataCopyType::A2D, DST_ACCUM_MODE,
                                             BroadcastType::NONE>(0)));
 
       MATH((llk_math_dest_section_done<DST_ACCUM_MODE>()));

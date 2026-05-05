@@ -59,7 +59,8 @@ bool LayoutScore::operator==(const LayoutScore &other) const {
 LayoutScore
 scoreCandidate(Operation *op, const OpConfig &config,
                const op_constraint_validation::ValidationResult &result,
-               bool requiresReshard) {
+               bool requiresReshard,
+               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) {
   LayoutScore score;
   score.requiresReshard = requiresReshard;
   score.outputL1Usage = result.outputL1Usage;
@@ -67,7 +68,8 @@ scoreCandidate(Operation *op, const OpConfig &config,
   TTNNLayoutAttr layout = result.getFirstActualOutputLayout();
   if (!layout) {
     // No layout returned; treat as DRAM fallback.
-    return score;
+    return getRuleBook(op).adjustScore(op, score, config, inputLayouts,
+                                       requiresReshard);
   }
 
   score.isL1 = layout.hasL1BufferType();
@@ -83,7 +85,8 @@ scoreCandidate(Operation *op, const OpConfig &config,
     }
   }
 
-  return score;
+  return getRuleBook(op).adjustScore(op, score, config, inputLayouts,
+                                     requiresReshard);
 }
 
 bool preferCandidate(Operation *op, const BeamCandidate &a,
