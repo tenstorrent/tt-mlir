@@ -25,7 +25,7 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
       for (auto &operand : op->getOpOperands()) {
         if (synchronizedOp.isProducer(operand) &&
             synchronizedOp.isConsumer(operand)) {
-          llvm_unreachable(
+          llvm::report_fatal_error(
               "A single op operand cannot be both a producer and consumer");
         } else if (synchronizedOp.isProducer(operand)) {
           cbUsageInfo[operand.get()].producers.push_back(op);
@@ -96,13 +96,12 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
           if (!llvm::any_of(opsInRange, [&](Operation *op) {
                 return op->isAncestor(user);
               })) {
-            llvm::errs()
-                << "Found use of non-pure op result outside the range of ops "
-                   "being wrapped: \n"
-                << *user;
-            llvm_unreachable("Results of ops being wrapped in "
-                             "SynchronizedRegionOp cannot be "
-                             "used outside the range.");
+            std::string msg;
+            llvm::raw_string_ostream os(msg);
+            os << "Found use of non-pure op result outside the range of ops "
+                  "being wrapped: "
+               << *user;
+            llvm::report_fatal_error(llvm::StringRef(os.str()));
           }
         }
       }
