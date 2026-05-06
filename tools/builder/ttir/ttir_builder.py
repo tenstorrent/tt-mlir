@@ -1065,6 +1065,144 @@ class TTIRBuilder(Builder):
 
         return mesh_shard_module, mesh_shard_builder
 
+    ############### ttir.MeshPartitionOp ###############
+
+    @tag(ttir.MeshPartitionOp)
+    def mesh_partition(
+        self,
+        input: Operand,
+        dim: int,
+        cluster_axis: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.mesh_partition)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, dim_attr, cluster_axis_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            dim_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.MeshPartitionOp)
+    def mesh_partition_parser(
+        self,
+        old_op: ttir.MeshPartitionOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.mesh_partition_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        dim_attr = old_op.dim
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttir_op(
+            result,
+            in0,
+            dim_attr,
+            cluster_axis_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, dim_attr, cluster_axis_attr, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
+    @split(ttir.MeshPartitionOp)
+    def mesh_partition_split(
+        self,
+        old_op: ttir.MeshPartitionOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.mesh_partition_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            mesh_partition_module = Module.create()
+            mesh_partition_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(mesh_partition_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="mesh_partition_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    dim_attr = old_op.dim
+                    cluster_axis_attr = old_op.cluster_axis
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        dim_attr,
+                        cluster_axis_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    mesh_partition_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    mesh_partition_builder._set_golden_tensor(in0, input0)
+                    mesh_partition_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                mesh_partition_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return mesh_partition_module, mesh_partition_builder
+
     ############### ttir.AllGatherOp ###############
 
     @tag(ttir.AllGatherOp)
@@ -11511,40 +11649,108 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(ttir.ErfcOp, [in0], unit_attrs)
 
-    def gelu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttir.gelu``.
+    @tag(ttir.GeluOp)
+    def gelu(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.gelu)
 
-        *Elementwise GELU operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Computes the GELU (Gaussian Error Linear Unit) of each element in the input tensor.
-        GELU is a smooth, non-monotonic activation function that approximates the cumulative
-        distribution function of a standard normal distribution.
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
-        Mathematical definition: gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        .. code-block:: mlir
+        op = ttir_op(result, in0, loc=loc)
+        op_result = op.result
 
-            // Compute GELU of all elements
-            %result = ttir.gelu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [1.0, -0.5, 2.0, -2.0]
-            // Output tensor:
-            // [0.841, -0.154, 1.954, -0.046]
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        self._set_golden_tensor(op_result, golden_output)
 
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the GELU values of each element in the input tensor
-        """
-        return self._op_proxy(ttir.GeluOp, [in0], unit_attrs)
+        return op_result
+
+    @parse(ttir.GeluOp)
+    def gelu_parser(
+        self,
+        old_op: ttir.GeluOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.gelu_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
+    @split(ttir.GeluOp)
+    def gelu_split(
+        self,
+        old_op: ttir.GeluOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.gelu_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            gelu_module = Module.create()
+            gelu_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(gelu_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="gelu_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    gelu_builder._set_golden_tensor(new_op_result, old_op_result)
+                    gelu_builder._set_golden_tensor(in0, input0)
+                    gelu_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                gelu_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return gelu_module, gelu_builder
 
     def gelu_backward(
         self,
@@ -12874,67 +13080,140 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    @tag(ttir.FillCacheOp)
     def fill_cache(
         self,
         in0: Operand,
         in1: Operand,
         batch_offset: int = 0,
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.fill_cache``.
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.fill_cache)
 
-        *Cache fill operation.*
+        # `in0` is the cache (DPS init) and `in1` is the new values to fill in.
+        # The result type matches the cache type.
+        result = in0.type
+        batch_offset_attr = IntegerAttr.get(IntegerType.get_signless(32), batch_offset)
 
-        Fills a cache tensor with new values starting at a specified batch offset.
-        This operation is typically used in sequence models to initialize or update
-        cached states.
-
-        .. code-block:: mlir
-
-            // Fill cache with new values at batch offset 1
-            %result = ttir.fill_cache(%new_values, %cache, batch_offset = 1) : tensor<2x3xf32>, tensor<4x3xf32> -> tensor<4x3xf32>
-            // New values tensor:
-            // [[1.0, 2.0, 3.0],
-            //  [4.0, 5.0, 6.0]]
-            // Cache tensor before:
-            // [[0.1, 0.2, 0.3],
-            //  [0.4, 0.5, 0.6],
-            //  [0.7, 0.8, 0.9],
-            //  [1.0, 1.1, 1.2]]
-            // Cache tensor after:
-            // [[0.1, 0.2, 0.3],
-            //  [1.0, 2.0, 3.0],
-            //  [4.0, 5.0, 6.0],
-            //  [1.0, 1.1, 1.2]]
-
-        Parameters
-        ----------
-        in0 : Operand
-            New values to fill into cache
-        in1 : Operand
-            Cache tensor to be filled
-        batch_offset : int, optional
-            Starting position in batch dimension (default: 0)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            The updated cache tensor
-        """
-        return self._op_proxy(
-            ttir.FillCacheOp,
-            [in0, in1],
-            ttir_kwargs={"batch_offset": batch_offset},
-            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
-            organize_golden_args=lambda i: (
-                self._get_golden_tensor(i[0]),
-                self._get_golden_tensor(i[1]),
-            ),
-            unit_attrs=unit_attrs,
+        cache_golden = self._get_golden_tensor(in0)
+        input_golden = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            cache_golden, input_golden, batch_offset=batch_offset_attr
         )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            in1,
+            batch_offset_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.FillCacheOp)
+    def fill_cache_parser(
+        self,
+        old_op: ttir.FillCacheOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.fill_cache_parser)
+
+        cache = global_dict[old_op.cache]
+        input = global_dict[old_op.input]
+        result = old_op.result.type
+        batch_offset_attr = old_op.batch_offset
+
+        new_op = ttir_op(
+            result,
+            cache,
+            input,
+            batch_offset_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        cache_golden = self._get_golden_tensor(cache)
+        input_golden = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            cache_golden, input_golden, batch_offset=batch_offset_attr
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
+    @split(ttir.FillCacheOp)
+    def fill_cache_split(
+        self,
+        old_op: ttir.FillCacheOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.fill_cache_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            fill_cache_module = Module.create()
+            fill_cache_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.cache.type, old_op.input.type]
+
+            with InsertionPoint(fill_cache_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="fill_cache_module")
+                def decorated_func(*inputs):
+                    cache = inputs[0]
+                    input = inputs[1]
+                    result = old_op.result.type
+                    batch_offset_attr = old_op.batch_offset
+
+                    new_op = ttir_op(
+                        result,
+                        cache,
+                        input,
+                        batch_offset_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    cache_golden = self._get_golden_tensor(old_op.cache)
+                    input_golden = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    fill_cache_builder._set_golden_tensor(new_op_result, old_op_result)
+                    fill_cache_builder._set_golden_tensor(cache, cache_golden)
+                    fill_cache_builder._set_golden_tensor(input, input_golden)
+                    fill_cache_builder._annotate_presharded_arg(cache)
+                    fill_cache_builder._annotate_presharded_arg(input)
+                    ordered_inputs.extend([cache, input])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                fill_cache_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return fill_cache_module, fill_cache_builder
 
     @tag(ttir.UpdateCacheOp)
     def update_cache(
