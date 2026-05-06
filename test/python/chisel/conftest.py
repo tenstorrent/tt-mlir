@@ -11,6 +11,19 @@ from chisel.ops import IRModule
 from utils import json_string_as_dict
 
 
+@pytest.fixture(scope="session")
+def device():
+    """Open a 1×1 TTNN mesh device for the test session and close it on teardown."""
+    mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+    mesh_options.mesh_shape = (1, 1)
+    tt_runtime.runtime.set_current_device_runtime(
+        tt_runtime.runtime.DeviceRuntime.TTNN
+    )
+    dev = tt_runtime.runtime.open_mesh_device(mesh_options)
+    yield dev
+    tt_runtime.runtime.close_mesh_device(dev)
+
+
 @pytest.fixture
 def binary(binary_path):
     return tt_runtime.binary.load_binary_from_path(binary_path)
@@ -51,14 +64,15 @@ def _collect_binary_paths(config):
 
 
 def pytest_generate_tests(metafunc):
-    if "binary_path" in metafunc.fixturenames:
-        paths = _collect_binary_paths(metafunc.config)
-        if not paths:
-            binary_opt = metafunc.config.getoption("binary", default=None)
-            if binary_opt is None:
-                pytest.fail(
-                    "No binary specified. Use --binary to provide a .ttnn file or directory."
-                )
-            else:
-                pytest.fail(f"No .ttnn flatbuffers found under '{binary_opt}'.")
-        metafunc.parametrize("binary_path", paths)
+    if "binary_path" not in metafunc.fixturenames:
+        return
+    binary_opt = metafunc.config.getoption("binary", default=None)
+    if binary_opt is None:
+        pytest.fail(
+            f"Test '{metafunc.definition.nodeid}' requires --binary=<path> "
+            "(a .ttnn file or directory containing .ttnn files)."
+        )
+    paths = _collect_binary_paths(metafunc.config)
+    if not paths:
+        pytest.fail(f"No .ttnn flatbuffers found under '{binary_opt}'.")
+    metafunc.parametrize("binary_path", paths)
