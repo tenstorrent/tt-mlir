@@ -29,10 +29,15 @@ The first TSan build of `tt-metal` is from-scratch and slow (~30–60 min).
 
 ## Compile a flatbuffer
 
+`optimization-level=2` is required — it enables OpModel constraint queries
+(`executeConstraintQuery`) which are the compile-side half of the race.
+Without it the optimizer never pushes a GraphProcessor and the race does
+not trigger.
+
 ```bash
 ttrt query --save-artifacts
 SD=$(pwd)/ttrt-artifacts/system_desc.ttsys
-ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=$SD" \
+ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=$SD optimization-level=2" \
   -o /tmp/phi.mlir \
   test/ttmlir/models/single_blocks_and_layers/phi_1_decode_layer.mlir
 ttmlir-translate --ttnn-to-flatbuffer -o /tmp/phi.ttnn /tmp/phi.mlir
