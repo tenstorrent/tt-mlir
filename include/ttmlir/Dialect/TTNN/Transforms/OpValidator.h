@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_FUSIONVALIDATOR_H
-#define TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_FUSIONVALIDATOR_H
+#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_OPVALIDATOR_H
+#define TTMLIR_DIALECT_TTNN_TRANSFORMS_OPVALIDATOR_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -19,15 +19,15 @@ namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
 //
-// This file defines a validation wrapper for fusion patterns that:
-// 1. Creates a fused op in an isolated module
+// This file defines an op validation wrapper that:
+// 1. Creates an op in an isolated module
 // 2. Applies workaround and validation/fallback passes
-// 3. Decides whether fusion should proceed wether 2. succeeded or not.
+// 3. Decides whether the op is valid based on whether 2. succeeded or not.
 //
 //===----------------------------------------------------------------------===//
 
-/// Configuration for fusion validation.
-struct FusionValidationConfig {
+/// Configuration for op validation.
+struct OpValidationConfig {
   /// Whether to apply decomposition workarounds.
   bool applyDecompositionWorkarounds = true;
 
@@ -38,10 +38,10 @@ struct FusionValidationConfig {
   uint32_t maxFallbackAttempts = 10000;
 };
 
-/// Result of fusion validation.
-struct FusionValidationResult {
+/// Result of op validation.
+struct OpValidationResult {
   enum Status {
-    Success,           // Fused op validated successfully
+    Success,           // Op validated successfully
     WorkaroundFailed,  // Workaround passes failed
     ValidationFailed,  // Op validation/fallback passes failed
     PreconditionFailed // Missing required context (e.g. system_desc)
@@ -52,51 +52,50 @@ struct FusionValidationResult {
 
   bool isSuccess() const { return status == Success; }
 
-  static FusionValidationResult success() { return {Success, ""}; }
+  static OpValidationResult success() { return {Success, ""}; }
 
-  static FusionValidationResult failure(Status status, const std::string &msg) {
+  static OpValidationResult failure(Status status, const std::string &msg) {
     return {status, msg};
   }
 };
 
-/// Validates a single fused op by creating it in an isolated module,
+/// Validates a single op by creating it in an isolated module,
 /// applying workaround passes, and checking op model constraints.
-class FusionValidator {
+class OpValidator {
 public:
-  FusionValidator(MLIRContext *context,
-                  const FusionValidationConfig &config = {})
+  OpValidator(MLIRContext *context, const OpValidationConfig &config = {})
       : context(context), config(config) {}
 
-  /// Validate a fusion by creating the fused op in an isolated module.
+  /// Validate an op by creating it in an isolated module.
   /// @param srcOp The source operation to get parent module context from.
-  /// @param loc Location for the fused op.
-  /// @param resultTypes Result types of the fused op.
-  /// @param args Arguments forwarded to the fused op constructor.
-  template <typename FusedOpType, typename... Args>
-  FusionValidationResult validateFusion(Operation *srcOp, Location loc,
-                                        llvm::ArrayRef<Type> resultTypes,
-                                        Args &&...args);
+  /// @param loc Location for the op.
+  /// @param resultTypes Result types of the op.
+  /// @param args Arguments forwarded to the op constructor.
+  template <typename OpType, typename... Args>
+  OpValidationResult validateOp(Operation *srcOp, Location loc,
+                                llvm::ArrayRef<Type> resultTypes,
+                                Args &&...args);
 
 private:
-  /// Create a validation function in the module containing the fused op.
+  /// Create a validation function in the module containing the op.
   /// Handles block argument substitution and result pinning.
-  template <typename FusedOpType, typename... Args>
+  template <typename OpType, typename... Args>
   void createValidationFunc(ModuleOp module, Location loc,
                             llvm::ArrayRef<Type> resultTypes, Args &&...args);
 
   /// Run workaround, validation, and fallback passes on the module.
   /// Returns a typed result distinguishing workaround vs validation failure.
-  FusionValidationResult runValidationPipeline(ModuleOp module);
+  OpValidationResult runValidationPipeline(ModuleOp module);
 
   MLIRContext *context;
-  FusionValidationConfig config;
+  OpValidationConfig config;
 };
 
 // Template implementations
-template <typename FusedOpType, typename... Args>
-void FusionValidator::createValidationFunc(ModuleOp module, Location loc,
-                                           llvm::ArrayRef<Type> resultTypes,
-                                           Args &&...args) {
+template <typename OpType, typename... Args>
+void OpValidator::createValidationFunc(ModuleOp module, Location loc,
+                                       llvm::ArrayRef<Type> resultTypes,
+                                       Args &&...args) {
   OpBuilder builder(context);
   builder.setInsertionPointToEnd(module.getBody());
 
@@ -146,8 +145,8 @@ void FusionValidator::createValidationFunc(ModuleOp module, Location loc,
     }
   };
 
-  // Create the fused op.
-  auto op = builder.create<FusedOpType>(loc, resultTypes, sub(args)...);
+  // Create the op.
+  auto op = builder.create<OpType>(loc, resultTypes, sub(args)...);
 
   // Pin results: update return and function type so passes don't DCE the op.
   auto returnOp = cast<mlir::func::ReturnOp>(block->getTerminator());
@@ -163,11 +162,10 @@ void FusionValidator::createValidationFunc(ModuleOp module, Location loc,
   func.setFunctionType(builder.getFunctionType(inputTypes, outTypes));
 }
 
-template <typename FusedOpType, typename... Args>
-FusionValidationResult
-FusionValidator::validateFusion(Operation *srcOp, Location loc,
-                                llvm::ArrayRef<Type> resultTypes,
-                                Args &&...args) {
+template <typename OpType, typename... Args>
+OpValidationResult
+OpValidator::validateOp(Operation *srcOp, Location loc,
+                        llvm::ArrayRef<Type> resultTypes, Args &&...args) {
   // Find the parent module carrying system_desc.
   auto parentModule = srcOp->getParentOfType<ModuleOp>();
   ModuleOp moduleWithSystemDesc = parentModule;
@@ -177,8 +175,8 @@ FusionValidator::validateFusion(Operation *srcOp, Location loc,
   }
 
   if (!moduleWithSystemDesc) {
-    return FusionValidationResult::failure(
-        FusionValidationResult::PreconditionFailed,
+    return OpValidationResult::failure(
+        OpValidationResult::PreconditionFailed,
         "No parent module with ttcore.system_desc found");
   }
 
@@ -198,9 +196,9 @@ FusionValidator::validateFusion(Operation *srcOp, Location loc,
     deviceBuilder.clone(*deviceOp.getOperation());
   }
 
-  // Create validation function containing the fused op.
-  createValidationFunc<FusedOpType>(module, loc, resultTypes,
-                                    std::forward<Args>(args)...);
+  // Create validation function containing the op.
+  createValidationFunc<OpType>(module, loc, resultTypes,
+                               std::forward<Args>(args)...);
 
   // Run workaround and validation passes.
   auto result = runValidationPipeline(module);
@@ -210,4 +208,4 @@ FusionValidator::validateFusion(Operation *srcOp, Location loc,
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_FUSIONVALIDATOR_H
+#endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_OPVALIDATOR_H

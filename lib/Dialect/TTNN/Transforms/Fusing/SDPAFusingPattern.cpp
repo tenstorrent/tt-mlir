@@ -7,7 +7,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
@@ -698,7 +698,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
   auto qShape = qType.getShape();
 
-  FusionValidator validator(rewriter.getContext(), validationConfig);
+  OpValidator validator(rewriter.getContext(), validationConfig);
 
   bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
   if (isDecode) {
@@ -716,7 +716,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     }
 
     auto validationResult =
-        validator.validateFusion<ScaledDotProductAttentionDecodeOp>(
+        validator.validateOp<ScaledDotProductAttentionDecodeOp>(
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
             /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
@@ -725,7 +725,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             /*program_config=*/SDPAProgramConfigAttr());
 
     if (!validationResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+      TTMLIR_DEBUG(ttmlir::LogComponent::OpValidator,
                    "SDPA decode fusion validation failed: {0}",
                    validationResult.errorMessage);
       return failure();
@@ -750,7 +750,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
     auto validationResult =
-        validator.validateFusion<ScaledDotProductAttentionOp>(
+        validator.validateOp<ScaledDotProductAttentionOp>(
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {c.query.getType()}, c.query, c.key, c.value, c.mask,
             /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
@@ -758,7 +758,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             /*memory_config=*/MemoryConfigAttr());
 
     if (!validationResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+      TTMLIR_DEBUG(ttmlir::LogComponent::OpValidator,
                    "SDPA fusion validation failed: {0}",
                    validationResult.errorMessage);
       return failure();

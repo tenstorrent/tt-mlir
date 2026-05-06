@@ -15,10 +15,6 @@ namespace mlir::tt::ttnn::decomposition {
 LogicalResult TopKDecompositionRewritePattern::matchAndRewrite(
     ttnn::TopKOp topkOp, PatternRewriter &rewriter) const {
 
-  // Validate the TopK operation using FusionValidator.
-  // If validation succeeds, keep the op as-is.
-  FusionValidator validator(rewriter.getContext(), validationConfig);
-
   auto inputType =
       mlir::cast<RankedTensorType>(topkOp.getInputTensor().getType());
   auto valuesResultType =
@@ -26,21 +22,27 @@ LogicalResult TopKDecompositionRewritePattern::matchAndRewrite(
   auto indicesResultType =
       mlir::cast<RankedTensorType>(topkOp.getIndices().getType());
 
-  auto validationResult = validator.validateFusion<ttnn::TopKOp>(
-      topkOp.getOperation(), topkOp.getLoc(),
-      {valuesResultType, indicesResultType}, topkOp.getInputTensor(),
-      topkOp.getKAttr(), topkOp.getDimAttr(), topkOp.getLargestAttr(),
-      topkOp.getSortedAttr(),
-      /*memory_config=*/nullptr);
+  // When validation config is provided, validate the TopK operation using
+  // OpValidator. If validation succeeds, keep the op as-is.
+  if (validationConfig.has_value()) {
+    OpValidator validator(rewriter.getContext(), *validationConfig);
 
-  if (validationResult.isSuccess()) {
-    // Op is valid — keep it as-is.
-    return failure();
+    auto validationResult = validator.validateOp<ttnn::TopKOp>(
+        topkOp.getOperation(), topkOp.getLoc(),
+        {valuesResultType, indicesResultType}, topkOp.getInputTensor(),
+        topkOp.getKAttr(), topkOp.getDimAttr(), topkOp.getLargestAttr(),
+        topkOp.getSortedAttr(),
+        /*memory_config=*/nullptr);
+
+    if (validationResult.isSuccess()) {
+      // Op is valid — keep it as-is.
+      return failure();
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidator,
+                 "TopK decomposition triggered (validation failed): {0}",
+                 validationResult.errorMessage);
   }
-
-  TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
-               "TopK decomposition triggered (validation failed): {0}",
-               validationResult.errorMessage);
 
   // Decompose TopK back into Sort + SliceStatic.
   int32_t k = topkOp.getK();

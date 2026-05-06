@@ -6,22 +6,27 @@
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_DECOMPOSITION_TOPKDECOMPOSITIONREWRITEPATTERN_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include <optional>
+
 namespace mlir::tt::ttnn::decomposition {
 
-// Decomposes ttnn::TopKOp back into ttnn::SortOp + ttnn::SliceStaticOp when
-// op-model validation fails. This is the validation-gated fallback for TopK
-// operations that were fused at the TTIR level but cannot be executed as a
-// single TopK op on hardware.
+// Decomposes ttnn::TopKOp back into ttnn::SortOp + ttnn::SliceStaticOp.
+// When validationConfig is provided, decomposition only occurs if op-model
+// validation fails. When validationConfig is std::nullopt, decomposition
+// is unconditional.
 class TopKDecompositionRewritePattern : public OpRewritePattern<ttnn::TopKOp> {
 public:
+  TopKDecompositionRewritePattern(mlir::MLIRContext *context)
+      : OpRewritePattern<ttnn::TopKOp>(context) {}
+
   TopKDecompositionRewritePattern(
       mlir::MLIRContext *context,
-      const FusionValidationConfig &validationConfig = {})
+      const OpValidationConfig &validationConfig)
       : OpRewritePattern<ttnn::TopKOp>(context),
         validationConfig(validationConfig) {}
 
@@ -29,7 +34,7 @@ public:
                                 PatternRewriter &rewriter) const override;
 
 private:
-  FusionValidationConfig validationConfig;
+  std::optional<OpValidationConfig> validationConfig;
 };
 
 } // namespace mlir::tt::ttnn::decomposition

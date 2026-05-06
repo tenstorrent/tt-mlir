@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -12,7 +12,7 @@
 
 namespace mlir::tt::ttnn {
 
-FusionValidationResult FusionValidator::runValidationPipeline(ModuleOp module) {
+OpValidationResult OpValidator::runValidationPipeline(ModuleOp module) {
   // Suppress diagnostics from the validation sub-pipeline. Passes like
   // OperationValidationAndFallback call emitError() on failure, which would
   // propagate through the shared MLIRContext and poison the outer pipeline.
@@ -31,13 +31,14 @@ FusionValidationResult FusionValidator::runValidationPipeline(ModuleOp module) {
     pm.addPass(mlir::tt::ttnn::createTTNNWorkarounds(workaroundOptions));
 
     if (failed(pm.run(module))) {
-      return FusionValidationResult::failure(
-          FusionValidationResult::WorkaroundFailed,
-          "Workaround passes failed on fused operation");
+      return OpValidationResult::failure(
+          OpValidationResult::WorkaroundFailed,
+          "Workaround passes failed on operation");
     }
   }
 
   // Run operation validation and fallback.
+#ifdef TTMLIR_ENABLE_OPMODEL
   {
     PassManager pm(context);
     TTNNOperationValidationAndFallbackOptions validationOptions;
@@ -46,13 +47,18 @@ FusionValidationResult FusionValidator::runValidationPipeline(ModuleOp module) {
         validationOptions));
 
     if (failed(pm.run(module))) {
-      return FusionValidationResult::failure(
-          FusionValidationResult::ValidationFailed,
-          "Op validation/fallback failed on fused operation");
+      return OpValidationResult::failure(
+          OpValidationResult::ValidationFailed,
+          "Op validation/fallback failed on operation");
     }
   }
+#else
+  return OpValidationResult::failure(
+      OpValidationResult::ValidationFailed,
+      "Op model support is not enabled; cannot validate operation");
+#endif // TTMLIR_ENABLE_OPMODEL
 
-  return FusionValidationResult::success();
+  return OpValidationResult::success();
 }
 
 } // namespace mlir::tt::ttnn

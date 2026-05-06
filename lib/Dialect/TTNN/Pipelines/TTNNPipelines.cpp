@@ -324,8 +324,8 @@ void createTTIRToTTNNCommonPipeline(
     createTTNNFusingPass(devicePm, options);
 
     // Create TTNN decomposition pass, optionally with op-model validation.
-    if (options.optimizerPassEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+    if (options.optimizerPassEnabled) {
       DevicePassesWrapperOptions decompWrapperOptions;
       decompWrapperOptions.devicePtr = options.devicePtr;
       decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
@@ -340,10 +340,9 @@ void createTTIRToTTNNCommonPipeline(
                 mlir::tt::ttnn::createTTNNDecomposition(decompOptions));
           },
           decompWrapperOptions));
-#else
-      devicePm.addPass(createTTNNDecomposition());
+    } else
 #endif
-    } else {
+    {
       devicePm.addPass(createTTNNDecomposition());
     }
 

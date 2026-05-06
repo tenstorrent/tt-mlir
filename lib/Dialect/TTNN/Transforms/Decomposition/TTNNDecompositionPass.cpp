@@ -28,14 +28,15 @@ public:
         .add<decomposition::DistributedLayerNormDecompositionRewritePattern>(
             &getContext());
 
-#ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
-      FusionValidationConfig validationConfig;
+      OpValidationConfig validationConfig;
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
       patterns.add<decomposition::TopKDecompositionRewritePattern>(
           &getContext(), validationConfig);
+    } else {
+      patterns.add<decomposition::TopKDecompositionRewritePattern>(
+          &getContext());
     }
-#endif // TTMLIR_ENABLE_OPMODEL
 
     FrozenRewritePatternSet patternSet(std::move(patterns));
     GreedyRewriteConfig config;

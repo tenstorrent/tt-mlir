@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_SPLITQKVFUSINGPATTERNS_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
@@ -32,7 +32,7 @@ class SplitQueryKeyValueAndSplitHeadsFusing
 public:
   SplitQueryKeyValueAndSplitHeadsFusing(
       mlir::MLIRContext *context,
-      const FusionValidationConfig &validationConfig = {})
+      const OpValidationConfig &validationConfig = {})
       : mlir::OpRewritePattern<MatMulOpType>(context),
         validationConfig(validationConfig) {}
 
@@ -41,7 +41,7 @@ public:
                   mlir::PatternRewriter &rewriter) const final;
 
 private:
-  FusionValidationConfig validationConfig;
+  OpValidationConfig validationConfig;
 };
 
 // Fuses a SplitQueryKeyValueAndSplitHeadsOp followed by permute [2,0,1,3]
@@ -63,7 +63,7 @@ class NLPCreateQKVHeadsDecodeFusing
 public:
   NLPCreateQKVHeadsDecodeFusing(
       mlir::MLIRContext *context,
-      const FusionValidationConfig &validationConfig = {})
+      const OpValidationConfig &validationConfig = {})
       : OpRewritePattern<SplitQueryKeyValueAndSplitHeadsOp>(context),
         validationConfig(validationConfig) {}
 
@@ -72,7 +72,7 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 
 private:
-  FusionValidationConfig validationConfig;
+  OpValidationConfig validationConfig;
 };
 
 } // namespace mlir::tt::ttnn::fusing
