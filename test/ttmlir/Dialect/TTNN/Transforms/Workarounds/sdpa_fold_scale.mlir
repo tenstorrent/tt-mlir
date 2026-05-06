@@ -130,4 +130,35 @@ module attributes {} {
         : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>) -> tensor<1x6x256x128xbf16, #l_qkv>
     return %out : tensor<1x6x256x128xbf16, #l_qkv>
   }
+
+  // The scalar constant has been hoisted out of the worker function and
+  // replaced by a `ttcore.argument_type<constant>` block argument. The
+  // workaround must follow the call edge to the caller's `ttnn.full` and
+  // fold its value (0.5) into SDPA's scale.
+  // CHECK-LABEL: @worker_constant_arg
+  // CHECK-NOT: ttnn.multiply
+  // CHECK: ttnn.scaled_dot_product_attention
+  // CHECK-SAME: scale = 5.000000e-01 : f32
+  func.func private @worker_constant_arg(
+      %q: tensor<1x6x256x128xbf16, #l_qkv>,
+      %k: tensor<1x6x256x128xbf16, #l_qkv>,
+      %v: tensor<1x6x256x128xbf16, #l_qkv>,
+      %scalar: tensor<1x1x1x1xf32, #l_scalar> {ttcore.argument_type = #ttcore.argument_type<constant>}
+  ) -> tensor<1x6x256x128xbf16, #l_qkv> {
+    %q_scaled = "ttnn.multiply"(%q, %scalar) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x1x1x1xf32, #l_scalar>) -> tensor<1x6x256x128xbf16, #l_qkv>
+    %out = "ttnn.scaled_dot_product_attention"(%q_scaled, %k, %v)
+        <{is_causal = false, scale = 1.000000e+00 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}>
+        : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>) -> tensor<1x6x256x128xbf16, #l_qkv>
+    return %out : tensor<1x6x256x128xbf16, #l_qkv>
+  }
+
+  func.func @caller_for_constant_arg(
+      %q: tensor<1x6x256x128xbf16, #l_qkv>,
+      %k: tensor<1x6x256x128xbf16, #l_qkv>,
+      %v: tensor<1x6x256x128xbf16, #l_qkv>,
+      %device: !ttnn.device) -> tensor<1x6x256x128xbf16, #l_qkv> {
+    %scalar = "ttnn.full"(%device) <{fill_value = 5.000000e-01 : f32, shape = #ttnn.shape<1x1x1x1>, dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}> : (!ttnn.device) -> tensor<1x1x1x1xf32, #l_scalar>
+    %out = func.call @worker_constant_arg(%q, %k, %v, %scalar) : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x1x1x1xf32, #l_scalar>) -> tensor<1x6x256x128xbf16, #l_qkv>
+    return %out : tensor<1x6x256x128xbf16, #l_qkv>
+  }
 }
