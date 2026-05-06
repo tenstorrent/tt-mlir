@@ -408,8 +408,7 @@ inline bool hasNonTrivialView(Value value) {
            hasNonTrivialView(viewOp.getInput());
   }
   if (auto compositeViewOp = mlir::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
-    return llvm::any_of(compositeViewOp.getCompositeInputs(),
-                        hasNonTrivialView);
+    return true;
   }
   if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
     return hasNonTrivialView(castOp.getInput());
