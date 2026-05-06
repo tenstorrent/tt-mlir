@@ -749,13 +749,12 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
-    auto validationResult =
-        validator.validateOp<ScaledDotProductAttentionOp>(
-            c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
-            {c.query.getType()}, c.query, c.key, c.value, c.mask,
-            /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-            /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
-            /*memory_config=*/MemoryConfigAttr());
+    auto validationResult = validator.validateOp<ScaledDotProductAttentionOp>(
+        c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
+        {c.query.getType()}, c.query, c.key, c.value, c.mask,
+        /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
+        /*memory_config=*/MemoryConfigAttr());
 
     if (!validationResult.isSuccess()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::OpValidator,

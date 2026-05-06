@@ -163,9 +163,9 @@ void OpValidator::createValidationFunc(ModuleOp module, Location loc,
 }
 
 template <typename OpType, typename... Args>
-OpValidationResult
-OpValidator::validateOp(Operation *srcOp, Location loc,
-                        llvm::ArrayRef<Type> resultTypes, Args &&...args) {
+OpValidationResult OpValidator::validateOp(Operation *srcOp, Location loc,
+                                           llvm::ArrayRef<Type> resultTypes,
+                                           Args &&...args) {
   // Find the parent module carrying system_desc.
   auto parentModule = srcOp->getParentOfType<ModuleOp>();
   ModuleOp moduleWithSystemDesc = parentModule;

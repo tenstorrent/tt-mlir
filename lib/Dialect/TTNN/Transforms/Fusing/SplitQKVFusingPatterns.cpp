@@ -578,10 +578,10 @@ bool validateReshapeLayouts(SmallVector<SliceReshapeMatch> &matches) {
 // ============================================================================
 
 template <typename MatMulOpType>
-mlir::LogicalResult
-createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
-              QKVHead &q, QKVHead &k, QKVHead &v,
-              const OpValidationConfig &validationConfig) {
+mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
+                                  MatMulOpType matmulOp, QKVHead &q, QKVHead &k,
+                                  QKVHead &v,
+                                  const OpValidationConfig &validationConfig) {
   auto qFinalShape = q.match.getFinalType().getShape();
   int64_t batchSize = qFinalShape[O_BATCH];
   int64_t seqLen = q.seqLen();

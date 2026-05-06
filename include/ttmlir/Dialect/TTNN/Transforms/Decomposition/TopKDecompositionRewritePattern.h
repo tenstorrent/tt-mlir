@@ -24,9 +24,8 @@ public:
   TopKDecompositionRewritePattern(mlir::MLIRContext *context)
       : OpRewritePattern<ttnn::TopKOp>(context) {}
 
-  TopKDecompositionRewritePattern(
-      mlir::MLIRContext *context,
-      const OpValidationConfig &validationConfig)
+  TopKDecompositionRewritePattern(mlir::MLIRContext *context,
+                                  const OpValidationConfig &validationConfig)
       : OpRewritePattern<ttnn::TopKOp>(context),
         validationConfig(validationConfig) {}
 

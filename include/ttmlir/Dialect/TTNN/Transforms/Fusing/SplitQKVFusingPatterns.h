@@ -61,9 +61,8 @@ private:
 class NLPCreateQKVHeadsDecodeFusing
     : public mlir::OpRewritePattern<SplitQueryKeyValueAndSplitHeadsOp> {
 public:
-  NLPCreateQKVHeadsDecodeFusing(
-      mlir::MLIRContext *context,
-      const OpValidationConfig &validationConfig = {})
+  NLPCreateQKVHeadsDecodeFusing(mlir::MLIRContext *context,
+                                const OpValidationConfig &validationConfig = {})
       : OpRewritePattern<SplitQueryKeyValueAndSplitHeadsOp>(context),
         validationConfig(validationConfig) {}
 

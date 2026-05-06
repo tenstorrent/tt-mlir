@@ -10,10 +10,10 @@
 #include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SplitQKVFusingPatterns.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"

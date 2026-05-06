@@ -21,8 +21,7 @@ namespace mlir::tt::ttnn::fusing {
 // Produces: rotary_embedding(x, cos, sin)
 class RoPERotateHalfFusing : public mlir::OpRewritePattern<AddOp> {
 public:
-  RoPERotateHalfFusing(mlir::MLIRContext *ctx,
-                       const OpValidationConfig &config)
+  RoPERotateHalfFusing(mlir::MLIRContext *ctx, const OpValidationConfig &config)
       : OpRewritePattern<AddOp>(ctx), validationConfig(config) {}
 
   mlir::LogicalResult
@@ -42,8 +41,7 @@ private:
 // Produces: rotary_embedding(x, concat(cos_h, cos_h), concat(sin_h, sin_h))
 class RoPEExpandedFusing : public mlir::OpRewritePattern<ConcatOp> {
 public:
-  RoPEExpandedFusing(mlir::MLIRContext *ctx,
-                     const OpValidationConfig &config)
+  RoPEExpandedFusing(mlir::MLIRContext *ctx, const OpValidationConfig &config)
       : OpRewritePattern<ConcatOp>(ctx), validationConfig(config) {}
 
   mlir::LogicalResult
