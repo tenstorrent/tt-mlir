@@ -132,13 +132,13 @@ inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
 inline Tensor createBorrowedHostTensorOnController(void *data,
                                                    const TensorDesc &desc) {
   return ::tt::runtime::createBorrowedHostTensorOnController(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
 }
 
 inline Tensor createOwnedHostTensorOnController(const void *data,
                                                 const TensorDesc &desc) {
   return ::tt::runtime::createOwnedHostTensorOnController(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
 }
 
 inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
