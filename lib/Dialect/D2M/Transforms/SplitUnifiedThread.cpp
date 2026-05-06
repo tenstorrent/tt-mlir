@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
@@ -113,6 +113,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   // they haven't been lowered yet into non-synchronized ops
   OpBuilder::InsertionGuard guard(rewriter);
   DenseSet<Operation *> outermostOps;
+  bool walkFailed = false;
   genericOp.getRegion(0).walk([&](Operation *op) {
     if (!op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
       return WalkResult::advance();
@@ -129,17 +130,27 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {
-        llvm::errs() << "op " << *outermostOp << "\n";
-        assert(false && "outermost loop op is not a scf.for op");
+        outermostOp->emitOpError(
+            "Parent ops containing compute ops must be scf.for or "
+            "linalg.generic");
+        walkFailed = true;
+        return WalkResult::interrupt();
       }
     }
 
+    // Skip ops that have the SynchronizableOpInterface,
+    // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
+    // they haven't been lowered yet into non-synchronized ops.
     if (!dyn_cast<SynchronizableOpInterface>(outermostOp)) {
       outermostOps.insert(outermostOp);
     }
 
     return WalkResult::advance();
   });
+
+  if (walkFailed) {
+    return failure();
+  }
 
   // Expand and merge compute regions until we hit a syncrhonizable op on both
   // ends.
@@ -252,7 +263,7 @@ static LogicalResult processSharedBufferPairs(
       Location loc = producer->getLoc();
       unsigned cbOperandIdx =
           producer->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
-      // Set insertion point before consumer so GetCBOp dominates WaitOp/PopOp
+      // Set insertion point before consumer so GetCBOp dominates WaitOp/PopOp.
       rewriter.setInsertionPoint(consumer);
       auto cb =
           d2m::getOrCreateCB(rewriter, producer->getParentOfType<GenericOp>(),
@@ -266,7 +277,7 @@ static LogicalResult processSharedBufferPairs(
       unsigned cbOperandIdx =
           consumer->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
       // Set insertion point before producer so GetCBOp dominates
-      // ReserveOp/PushOp
+      // ReserveOp/PushOp.
       rewriter.setInsertionPoint(producer);
       auto cb =
           d2m::getOrCreateCB(rewriter, consumer->getParentOfType<GenericOp>(),
@@ -322,7 +333,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
         }
       }
 
-      // get producers and insert reserve+push
+      // Get producers and insert reserve+push.
       for (auto &operand : synchronizedOp->getOpOperands()) {
         if (synchronizedOp.isProducer(operand)) {
           Location loc = synchronizedOp.getLoc();
@@ -331,7 +342,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
               synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
                   localBuffer);
 
-          // get the associated consumer for this operand
+          // Get the associated consumer for this operand.
           // Assumes only one consumer for this local buffer
           auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
           rewriter.setInsertionPoint(synchronizedOp);

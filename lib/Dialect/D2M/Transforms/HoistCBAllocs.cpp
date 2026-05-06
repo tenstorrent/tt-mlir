@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2026wr Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -82,7 +82,7 @@ private:
       }
     }
 
-    // Hoist aliased CBs
+    // Hoist aliased CBs.
     genericOp->walk([&](memref::AllocOp allocOp) {
       if (auto aliasForOperandAttr =
               allocOp->getAttrOfType<IntegerAttr>("d2m.alias_for_operand")) {

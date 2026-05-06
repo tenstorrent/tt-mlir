@@ -1466,7 +1466,7 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
         : memref<...>, memref<...>
       ```
 
-      Explicit CB form (after LowerLoadStoreOpsToExplicitCBForm):
+      Explicit CB form (after SplitUnifiedThread):
       ```mlir
       d2m.local_copy from %srcCb into %dstCb indexing_maps = [#src_map, #dst_map]
         : from !d2m.cb<memref<...>> into !d2m.cb<memref<...>>

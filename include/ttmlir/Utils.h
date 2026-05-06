@@ -787,6 +787,31 @@ OpTy findOpThrough(mlir::Value value) {
   return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
 }
 
+/// Find the first user of an operation's result within the same block.
+///
+/// Iterates through all results of the given operation and their users,
+/// returning the user that appears earliest in the block. Users in different
+/// blocks are ignored.
+///
+/// @param op The operation whose results' users should be searched.
+/// @return The earliest user operation in the same block, or nullptr if no
+///         users exist in the same block.
+inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
+  mlir::Operation *firstUser = nullptr;
+  mlir::Block *opBlock = op->getBlock();
+  for (mlir::Value result : op->getResults()) {
+    for (mlir::Operation *user : result.getUsers()) {
+      if (user->getBlock() != opBlock) {
+        continue;
+      }
+      if (!firstUser || user->isBeforeInBlock(firstUser)) {
+        firstUser = user;
+      }
+    }
+  }
+  return firstUser;
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

@@ -26,7 +26,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
-#include "mlir/IR/Builders.h"
 #include <cstdint>
 #include <mlir-c/IR.h>
 #include <optional>
@@ -200,8 +199,8 @@ public:
         if (auto aliasOp = mlir::dyn_cast<d2m::OperandAliasOp>(
                 op.getOperands()[operandIndex].getDefiningOp())) {
           // OperandAliasOp's input is the generic's operand that this CB
-          // aliases. It could be a function argument of the parent func or an
-          // AllocOp.
+          // aliases. It could be a function argument of the generic's parent
+          // func or an AllocOp.
           Value aliasedMemref = aliasOp.getMemref();
           unsigned cbPort = cbs.size();
           cbs.push_back(getUnderlyingMemref(aliasedMemref));
@@ -312,9 +311,10 @@ public:
     auto fwd = op->getAttrOfType<AffineMapAttr>(
         d2m::utils::kVirtualGridForwardMappingAttr);
 
-    assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr,
-                      ttcore::CBLayoutAttr>(memrefType.getLayout())) &&
-           "expected physical device layout (shard or interleaved)");
+    TT_assertv(
+        (mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr,
+                   ttcore::CBLayoutAttr>(memrefType.getLayout())),
+        "expected physical device layout (shard or interleaved)");
 
     // Hoisted CB allocs carry CBLayoutAttr (per-core local shape).
     // Keep the original type on CreateBufferOp so the dialect conversion
@@ -857,8 +857,7 @@ public:
   LogicalResult
   matchAndRewrite(d2m::OperandAliasOp op, d2m::OperandAliasOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::OperandAliasOp>(
-        op, op.getResult().getType(), adaptor.getMemref());
+    rewriter.eraseOp(op);
     return success();
   }
 };

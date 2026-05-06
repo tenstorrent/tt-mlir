@@ -677,29 +677,13 @@ public:
     // When there IS an outermost compute loop, the insertion point was already
     // set correctly (inside or before the loop body), so no move is needed.
     if (!outermostInnerComputeLoop) {
-      if (Operation *firstUser = findFirstUserInBlock(acquireDst)) {
+      if (Operation *firstUser =
+              ttmlir::utils::findFirstUserInBlock(acquireDst)) {
         acquireDst->moveBefore(firstUser);
       }
     }
 
     return true;
-  }
-
-  // Find the first user of an operation's result within the same block.
-  static Operation *findFirstUserInBlock(Operation *op) {
-    Operation *firstUser = nullptr;
-    Block *opBlock = op->getBlock();
-    for (Value result : op->getResults()) {
-      for (Operation *user : result.getUsers()) {
-        if (user->getBlock() != opBlock) {
-          continue;
-        }
-        if (!firstUser || user->isBeforeInBlock(firstUser)) {
-          firstUser = user;
-        }
-      }
-    }
-    return firstUser;
   }
 
   static bool hasAcquireDstOp(Region &region) {
