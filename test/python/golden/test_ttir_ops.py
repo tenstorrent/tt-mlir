@@ -1997,6 +1997,88 @@ def test_reduce_scatter(
 @pytest.mark.parametrize(
     "test_shape",
     [
+        (4, 32),
+        (8, 64),
+        (1, 128, 128),
+        (1, 1, 256, 256),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize(
+    "mesh_shape",
+    [(2, 4), (1, 2) | SkipIf("sim"), (1, 8)],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("partition_dim", [0, 1, 2, 3])
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+def test_mesh_partition(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    partition_dim: int,
+    cluster_axis: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("partitioning across 1 device is meaningless")
+    if partition_dim >= len(test_shape):
+        pytest.skip("partition_dim is out of range")
+    if test_shape[partition_dim] % mesh_shape[cluster_axis] != 0:
+        pytest.skip("partition_dim is not divisible by mesh_shape[cluster_axis]")
+
+    # mesh_partition expects its input to be replicated across the cluster axis,
+    # so wrap with identity-shard mesh_shards (matching the lowering exercised
+    # by test/ttmlir/Dialect/TTNN/ccl/mesh_partition.mlir).
+    rank_in = len(test_shape)
+    identity_shard_shape = [1]
+    identity_shard_dims = [-1]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([test_shape], [dtype])
+        def mesh_partition(in0: Operand, builder: TTIRBuilder):
+            replicated = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Identity.value,
+                shard_shape=identity_shard_shape,
+                shard_dims=identity_shard_dims,
+            )
+
+            partitioned = builder.mesh_partition(
+                replicated,
+                dim=partition_dim,
+                cluster_axis=cluster_axis,
+            )
+
+            # ShardToFull along the partition dim across the cluster axis to
+            # rebuild the original tensor.
+            out_shard_dims = [-1] * len(mesh_shape)
+            out_shard_dims[cluster_axis] = partition_dim
+            out_shard_shape = [1] * rank_in
+            out_shard_shape[partition_dim] = mesh_shape[cluster_axis]
+
+            return builder.mesh_shard(
+                partitioned,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Identity.value,
+                shard_shape=out_shard_shape,
+                shard_dims=out_shard_dims,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        **get_request_kwargs(request),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
         (1, 1, 32, 64),
         (1, 32, 64),
         (32, 64),
