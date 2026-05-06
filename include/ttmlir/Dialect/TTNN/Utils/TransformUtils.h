@@ -28,7 +28,7 @@ ToLayoutOp createToLayoutOp(
     BufferType targetTensorBufferType,
     TensorMemoryLayoutAttr targetTensorMemoryLayout,
     ttcore::DataType targetTensorDataType, llvm::StringRef locSuffix = "",
-    std::optional<ttcore::GridAttr> targetGrid = std::nullopt);
+    std::optional<llvm::ArrayRef<int64_t>> targetGridShape = std::nullopt);
 
 } // namespace mlir::tt::ttnn::utils
 

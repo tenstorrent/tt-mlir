@@ -85,7 +85,7 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNMeshShapeAttrGet(MlirContext ctx,
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(
     MlirContext ctx, MlirAffineMap linear, MlirAttribute grid, MlirType memref,
-    unsigned memLayout);
+    unsigned memLayout, MlirAttribute coreRangeSet);
 
 #ifdef __cplusplus
 }

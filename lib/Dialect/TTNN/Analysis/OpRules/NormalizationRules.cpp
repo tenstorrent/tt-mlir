@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -90,8 +91,7 @@ LayoutScore RmsNormRuleBook::adjustScore(
     // grid's volume for ops where output sharding might differ. Also clear
     // `requiresReshard` — the 3x+ kernel speedup over the interleaved variant
     // dominates the few-µs reshard cost on decode-shape tensors.
-    base.coreCount =
-        static_cast<int64_t>(operand0Layout.getGrid().getGridVolume());
+    base.coreCount = ttmlir::utils::volume(operand0Layout.getGridShape());
     base.requiresReshard = false;
   } else {
     // Interleaved-input path: `LayerNormMultiCoreProgramFactory` parallelizes

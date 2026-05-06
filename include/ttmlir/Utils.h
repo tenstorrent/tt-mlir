@@ -99,6 +99,12 @@ T volume(mlir::ArrayRef<T> shape, T stride = 1) {
                          std::multiplies<T>());
 }
 
+template <typename T, unsigned int N>
+T volume(const mlir::SmallVector<T, N> &shape, T stride = 1) {
+  return std::accumulate(shape.begin(), shape.end(), stride,
+                         std::multiplies<T>());
+}
+
 // Returns a string that is the concatenation of the string representations of
 // Range R elements interleaved with separator. Example: join({1, 2, 3}, ", ")
 // -> "1, 2, 3"
