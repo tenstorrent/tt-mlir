@@ -456,8 +456,9 @@ static void applyEmptyOpUpdate(const OperandGridInfo &info,
       emptyType, info.targetGrid, ttnnMode, info.selectedGrid);
   builder.setInsertionPoint(emptyOp);
 
-  // The selected grid may differ from the EmptyOp's previous grid. Recompute
-  // VGM attrs instead of preserving stale mappings from the old layout.
+  // The selected grid may differ from the EmptyOp's previous grid.
+  // TODO (#8301): Avoid creating placeholder EmptyOp VGMs before grid
+  // selection so this rewrite does not need to repair stale mappings.
   auto [virtualGridInverseMapping, virtualGridForwardMapping] =
       deriveVirtualGridAttrs(emptyOp, info.selectedGrid, effectiveTargetGrid,
                              builder);

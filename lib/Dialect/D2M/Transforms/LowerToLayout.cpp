@@ -69,6 +69,9 @@ static bool isVGMCompatibleWithType(RankedTensorType type,
                                     ttcore::MetalLayoutAttr layout,
                                     AffineMap inverseMap,
                                     AffineMap forwardMap) {
+  // TODO (#8303): Rework LowerToLayout VGM propagation so intermediates derive
+  // virtual-grid mappings directly from their destination type instead of
+  // filtering copied maps for compatibility.
   size_t gridRank = layout.getGridShape(type).size();
   return forwardMap.getNumDims() == gridRank * 2 &&
          forwardMap.getNumResults() == gridRank + 2 &&
