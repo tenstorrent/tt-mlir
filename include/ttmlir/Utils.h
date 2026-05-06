@@ -801,11 +801,12 @@ inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
   mlir::Block *opBlock = op->getBlock();
   for (mlir::Value result : op->getResults()) {
     for (mlir::Operation *user : result.getUsers()) {
-      if (user->getBlock() != opBlock) {
+      mlir::Operation *userInBlock = opBlock->findAncestorOpInBlock(*user);
+      if (!userInBlock) {
         continue;
       }
-      if (!firstUser || user->isBeforeInBlock(firstUser)) {
-        firstUser = user;
+      if (!firstUser || userInBlock->isBeforeInBlock(firstUser)) {
+        firstUser = userInBlock;
       }
     }
   }
