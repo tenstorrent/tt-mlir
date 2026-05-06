@@ -421,6 +421,12 @@ void createTTIRToTTNNCommonPipeline(
     // boundary and get treated as pass-through handles.
     devicePm.addPass(createTTNNAllocateDistributedOpSemaphores());
 
+    // CSE folds identical create_global_semaphore ops produced by the
+    // allocator across multiple distributed ops with matching core range
+    // and initial value (kernel design guarantees on-device reset, so
+    // sharing is safe).
+    devicePm.addPass(mlir::createCSEPass());
+
     // Trace hoisting must run before layout decomposition because it adjusts
     // layouts of function arguments (e.g. moving inputs to system_memory). It
     // is much easier to work at the layout abstraction level than on individual
