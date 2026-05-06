@@ -267,7 +267,7 @@ def polygamma_composite(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.skip(
+@pytest.mark.skip(
     reason="Multiple remote loads of the same operand not supported yet. Issue #8289"
 )
 def test_digamma(
