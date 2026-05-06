@@ -252,6 +252,8 @@ static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
+    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
+           "Expected exactly one producer and one consumer for CB");
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 
@@ -311,6 +313,9 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
 
           // get the associated producer for this operand
           // Assumes only one producer for this local buffer
+          assert(cbUsageInfo[localBuffer].producers.size() == 1 &&
+                 cbUsageInfo[localBuffer].consumers.size() == 1 &&
+                 "Expected exactly one producer and one consumer for CB");
           auto *associatedProducer = cbUsageInfo[localBuffer].producers.front();
           rewriter.setInsertionPoint(synchronizedOp);
           auto cb = d2m::getOrCreateCB(
@@ -344,6 +349,9 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
 
           // Get the associated consumer for this operand.
           // Assumes only one consumer for this local buffer
+          assert(cbUsageInfo[localBuffer].consumers.size() == 1 &&
+                 cbUsageInfo[localBuffer].producers.size() == 1 &&
+                 "Expected exactly one producer and one consumer for CB");
           auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
           rewriter.setInsertionPoint(synchronizedOp);
           auto cb = d2m::getOrCreateCB(
@@ -381,6 +389,8 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
+    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
+           "Expected exactly one producer and one consumer for CB");
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 
