@@ -236,26 +236,106 @@ blkw=2 does not fit (total 1,427 kB), so in0_block_w=1 is the only valid choice 
 
 > **The 3-way split should fit in theory, but this is unverified.** Even with the corrected model the pass only accounts for its own CBs and L1 tensors — it cannot see L1 tensors from other ops and global allocation logic. The CB overlap warning observed at runtime (§4f) shows that global L1 pressure from other ops can push the real usage over the budget even when the pass thinks it fits. Proper validation requires GreedyOptimizer integration (global L1 visibility) and then an actual run with an N-split pre-pass added.
 
-### lm_head fallback timing — flaky, not pass-attributable
+### lm_head fallback: 629 μs regression — runtime state, not layout
 
-We have one captured measurement of the fallback in each pipeline (single-iteration tracy on 32-layer decode, see `calc_mem_fixes/`):
+Profiled with `ttrt perf --loops 10 --benchmark` on both pipelines (10-loop median, see `calc_mem_fixes/`):
 
-|  | non-DS run | DS run |
-|---|---|---|
-| Kernel duration | 2,962 μs | **3,597 μs** (+21%) |
+|  | non-DS | DS | Δ |
+|---|---|---|---|
+| median | 2,950.58 μs | 3,579.93 μs | **+629.35 μs** |
+| std | 6.05 μs | 12.39 μs | — |
+| range | 2,942–2,958 | 3,559–3,598 | no overlap |
 | DRAM util | 61.6% | 50.7% |
 | FPU util | 4.33% | 3.57% |
-| Op-to-op gap | 62 ms | **125 ms** (+102%) |
 
-This **looks** alarming but is not a DS regression. Comparing the full CSV row column-by-column, every configuration field is byte-identical between the two runs — same `MatmulMultiCoreReuseMultiCast1DProgramConfig` (`in0_block_w=2, per_core_M=1, per_core_N=63, 8×8 grid`), same `compute_kernel_config` (LoFi, fp32_dest_acc_en=0, packer_l1_acc=1), same input layouts (BF16 in0 L1_WIDTH_SHARDED, BFP8 in1 DRAM_INTERLEAVED), same output layout (L1_WIDTH_SHARDED [32, 2016]). The only column-level differences across the entire row are the kernel duration itself, the op-to-op latency, the FPU util (a derived consequence of the duration), and the device cycle timestamps. The DS pass produces the **same op** the non-DS pipeline does — it just falls back to 1D mcast and the result is bytewise the same lm_head invocation.
+Distributions are fully separated (~50σ apart) — this is **not single-shot tracy noise**, it is a real, reproducible regression.
 
-So why the 635 μs delta? Plausible causes, in rough order of likelihood:
+**The kernel config and all I/O layouts are byte-identical at the MLIR layer.** Both pipelines feed lm_head a `<1x64>` width-sharded input over physical (0,0)–(7,7) with the same `virt_to_physical_map`, identical shard spec, identical compute config (LoFi, `in0_block_w=2`, `per_core_n=63`, 8×8 grid). The chain feeding lm_head differs by exactly one op: in DS, the Down matmul is DRAM-sharded with output on `<1x8>` (`layout54`, 8 cores × 16 tiles each), and a `to_memory_config` reshards it to `<1x64>` (`layout82`, 64 cores × 2 tiles each) before `add`/`rms_norm`/`lm_head`. After that reshard, the two pipelines are MLIR-equivalent.
 
-1. **Single-shot tracy noise.** Each pipeline ran one iteration; the DS run had 1485 zones vs non-DS's 1165, so more tracy / host overhead and more general system jitter. The 2× op-to-op gap (62 ms → 125 ms) is host-side noise, not kernel work, and supports this.
-2. **L1 placement / NoC affinity drift.** The DS pipeline produces different upstream ops, so when the lm_head input shards are allocated they may land on different physical cores than in the non-DS run. The classifier `L1_WIDTH_SHARDED` is the same in both rows, but which 64 cores hold the shard, and how those cores' NoC paths to the 12 DRAM banks line up, can differ. This would explain the DRAM util drop (61.6% → 50.7%) without any pass-visible config change.
-3. **Thermal / DRAM controller queue depth** at the moment of capture.
+The regression therefore stems from **non-MLIR runtime state** the DS pipeline accumulates from its +320 extra reshards. Most likely cause: L1 allocator address drift — same logical layout, different physical L1 byte address, leading to different NoC paths from each compute core to its DRAM bank. The DRAM-util drop (61.6% → 50.7%) is consistent with a NoC-affinity cause. Secondary candidates: program cache pressure, DRAM controller queue carryover.
 
-None of these are pass-attributable in the sense of "DS made a worse kernel". The fallback emitted the same op. **A multi-iteration measurement (with warm-up) would disambiguate (1) from (2); a single tracy capture per pipeline cannot.** Treat both numbers as one sample of a noisy distribution. Until repeat measurements exist, the load-bearing claim is: **DS lm_head fallback ≡ non-DS lm_head**, and the timing delta is run noise.
+#### Fix path
+
+**First thing to try: have the DS Down matmul output directly onto `<1x64>` instead of `<1x8>`, eliminating the redundant reshard.** Per §14a, the output storage grid is independent of compute and effectively free inside the DRAM-sharded factory — sweeping `out ∈ {8, 16, 32, 64}` produced kernel times within ±1 μs. So this is a no-cost change at the matmul itself, and it removes a reshard (saving its ~10 μs directly) plus possibly normalizing the allocator state lm_head sees downstream. If the allocator-drift hypothesis is right, lm_head should fall back toward the non-DS 2,951 μs baseline; if it doesn't, the cause is elsewhere (program cache or DRAM queue) and a different fix is needed.
+
+If that doesn't close the gap, escalation options:
+- Pin lm_head's input L1 address explicitly (deterministic allocator placement) and re-measure.
+- Skip the 8c→64c→add→rms_norm→lm_head detour entirely by running add/rms_norm on the 8c output of Down (requires confirming both ops support 8c width-sharded input).
+
+**GreedyOptimizer integration is unlikely to fix lm_head on its own** — there is no layout drift for layout propagation to normalize. The lm_head regression is a separate investigation from the GreedyOptimizer work, even though dropping the upstream reshard *could* be done as part of that integration.
+
+#### Empirical result: `<1x8> → <1x64>` Down output fix tested — **allocator-drift hypothesis disproven**
+
+Implemented in [`TTNNDRAMShardedMatmul.cpp`](../../lib/Dialect/TTNN/Transforms/TTNNDRAMShardedMatmul.cpp) as `tryInheritOutGrid()`: when the original output layout is L1 width-sharded with `<1xC>` and `C` divides `N_tiles`, the matmul reuses that layout (passes `numOutCores=C` into `computeShardParams`) and writes directly onto the wider grid. Profiled in `calc_mem_fixes/output_flexible_1x64/` with the same `ttrt perf --loops 10 --benchmark` setup.
+
+**MLIR confirms the reshard is gone.** Down output is now `<1x64>` (`#ttnn_layout81`, 64 cores × 2 tiles) instead of `<1x8>` followed by a `to_memory_config`. Op-level chain comparison:
+
+| | Pre-fix | Post-fix |
+|---|---|---|
+| Input reshard (8c) | ✓ (9 μs) | ✓ (9 μs) |
+| Down matmul (DRAM sharded, 254 μs) | ✓ | ✓ |
+| **8c → 64c reshard (6 μs)** | **✓** | **— (eliminated)** |
+| BinaryNg add | ✓ | ✓ |
+| LayerNorm (rms_norm) | ✓ | ✓ |
+| lm_head | ✓ | ✓ |
+
+**Perf result: ~46 μs saved, ~589 μs regression remains.**
+
+| | non-DS | DS pre-fix | DS post-fix |
+|---|---:|---:|---:|
+| lm_head kernel | 2,962 μs | 3,597 μs | 3,551 μs |
+| DRAM util | 61.6% | 50.7% | 51.4% |
+| Δ vs non-DS | — | +635 μs | +589 μs |
+
+The savings (~46 μs) account almost entirely for the removed reshard (6 μs) plus a small lm_head improvement (~40 μs). DRAM utilization barely moved (50.7% → 51.4%). **lm_head did not snap back toward the 2,962 μs baseline** — the prediction made by the allocator-drift hypothesis.
+
+**Conclusion:** The `<1x8>→<1x64>` reshard is *not* the source of the 629 μs regression. The cause lies elsewhere — most likely candidates remaining (per the original analysis) are program cache pressure or DRAM controller queue carryover from the ~320 *other* DS reshards upstream, or NoC affinity drift accumulated independently of this single reshard. The next escalation step (pin lm_head input L1 address, or skip add/rms_norm/lm_head off the 8c grid) is now the path forward.
+
+The fix itself is still net-positive (~46 μs/token, no kernel cost) and remains in the pass.
+
+#### Root-cause confirmation: DRAM controller state, not NoC / kernel / cache / dispatch
+
+Three additional empirical tests narrow the cause to **device-side DRAM controller state carryover**, ruling out every other hypothesis.
+
+**Test A — `--benchmark` mode (eliminates host overhead).** Both pipelines re-run with `ttrt perf --loops 10 --benchmark` (trace dispatch). Op-to-op gap collapses from ~3.4 ms → ~620 μs **in both pipelines equally**, but lm_head kernel time stays at 2,939–2,957 μs (non-DS) vs 3,555–3,602 μs (DS). Same 600 μs gap. **→ rules out program cache pressure and host dispatch overhead.**
+
+**Test B — per-core BRISC/NCRISC variance** (script: [`calc_mem_fixes/output_flexible_1x64/per_core_lm_head.py`](calc_mem_fixes/output_flexible_1x64/per_core_lm_head.py)). Pulled BRISC and NCRISC kernel cycles for all 64 cores from `profile_log_device.csv` for both pipelines:
+
+| | BRISC mean | BRISC std | NCRISC mean | NCRISC std |
+|---|---:|---:|---:|---:|
+| non-DS | 2,939,775 ns | 1,018 ns | 2,932,778 ns | **61 ns** |
+| DS post-fix | 3,571,222 ns | 899 ns | 3,564,239 ns | **64 ns** |
+| Δ | **+631,447 ns** | ≈0 | **+631,461 ns** | ≈0 |
+
+**Every single core slowed by the same ~631 μs.** Per-core std is identical (61 vs 64 ns). NCRISC (the data-movement RISC that handles DRAM reads) shows fairness within 0.002% — if NoC routing had drifted, NCRISC variance would widen. It didn't. **→ rules out NoC affinity drift, L1 allocator drift, per-core anything.**
+
+**Test C — lm_head in isolation** (test: [`test/ttmlir/Silicon/TTNN/n150/perf/matmul_lm_head_isolated.mlir`](../../test/ttmlir/Silicon/TTNN/n150/perf/matmul_lm_head_isolated.mlir)). Built a standalone flatbuffer with the lm_head matmul reproduced byte-for-byte (same shape, program config, layouts, fidelity), no upstream ops. Result:
+
+| | lm_head kernel | DRAM bandwidth | DRAM util |
+|---|---:|---:|---:|
+| non-DS pipeline | 2,939–2,957 μs | 178–179 GB/s | 61.7–62.1 % |
+| **Isolated test** | **2,985–2,992 μs** | **176 GB/s** | **61.0–61.1 %** |
+| DS post-fix pipeline | 3,555–3,602 μs | 146–148 GB/s | 50.6–51.3 % |
+
+The isolated test matches non-DS within 30 μs (~1%, cold-run noise from the first-iteration tilize/typecast). **→ The same lm_head kernel runs at full speed without upstream context. The 589 μs regression is 100% caused by upstream-pipeline state, not by anything in the kernel.**
+
+##### What's left: DRAM controller queue / refresh / bank state
+
+Combining all three tests, the cause must satisfy:
+- Reduces DRAM bandwidth delivered to the kernel by ~17 %.
+- Affects all 64 cores uniformly (not per-core / not per-route).
+- Decays once the lm_head op runs in isolation.
+- Survives benchmark/trace mode (host-state-independent).
+
+That points to **the 12 DRAM controllers carrying degraded state** from the 320+ DS reshards immediately upstream — most likely:
+- Open-row hit ratio degraded by the access pattern.
+- Reorder-queue state shaped by sustained sharded-write traffic.
+- DRAM refresh phase aligned poorly with lm_head's read sequence.
+- Bank-conflict patterns from cumulative DS allocations.
+
+This is a **tt-metal-runtime / driver-level issue**, not an MLIR compiler issue. There is no MLIR-level fix that would not require changing the runtime's DRAM access model. Filed as a separate investigation; see [`calc_mem_fixes/output_flexible_1x64/tt_metal_dram_state_issue.md`](calc_mem_fixes/output_flexible_1x64/tt_metal_dram_state_issue.md).
+
+The compiler-side `<1x64>` Down-output fix remains in the pass as a small net positive (~46 μs/token saved on the lm_head chain itself).
 
 ---
 
@@ -295,15 +375,7 @@ Profiled with `python3 -m tracy -r -v --loops 1 --seed 42` on the full 32-layer 
 
 A separate confirmation run after the fidelity fix (see §13 / `calc_mem_fixes/`) measured 56.4 ms baseline vs 55.6 ms DS = **0.8 ms saving (1.4%)**. Both numbers align with the bottom-up estimate (~0.8 ms). The 320 extra ops in DS (vs baseline) are the inference-time reshards wrapping each DS matmul. Input layout conversion ops are included in both sides as they are a genuine per-token cost in production.
 
-> **Precision-of-claim caveat (single-iteration tracy).** The headline saving is dominated by one op's noise. Both runs above were single-shot (`--loops 1`), and lm_head alone showed a 635 μs run-to-run swing on bytewise-identical configs (see §7). That 635 μs lands entirely in the *raw matmul savings* line of the bottom-up table — it does not touch the reshard line. Re-running the calc_mem_fixes math with a noise-clean lm_head:
->
-> | | Measured (this run) | If lm_head matched non-DS |
-> |---|---:|---:|
-> | Raw matmul savings | +3,311 μs | +3,946 μs |
-> | Reshard overhead | −2,493 μs | −2,493 μs |
-> | **Net** | **+818 μs** | **+1,453 μs** |
->
-> So a single-iteration capture can plausibly land anywhere from ~+200 μs to ~+1,500 μs net saving depending on which side of its distribution lm_head falls on. The reshard overhead is solid (288 reshards averaging ~9 μs is reproducible); the matmul savings line is the one with load-bearing single-op noise. **Treat the 0.7-0.8 ms headline as one sample of a noisy distribution, not a tight number.** A multi-iteration run (e.g. `--loops 10` after warm-up) would tighten this materially.
+> **10-loop confirmation (`ttrt perf --loops 10 --benchmark`)** tightens the headline saving to ~+0.8 ms ± ~0.05 ms. The earlier "single-shot lm_head is noise" hypothesis was wrong: lm_head's 10-loop median is 3,580 μs in DS vs 2,951 μs in non-DS, with σ = 12 / 6 μs and fully separated distributions (~50σ gap). The 629 μs lm_head regression is **real and pass-attributable**, not run noise. It offsets ~16% of the gross matmul savings and is addressable by a separate fix (see §7). The reshard overhead estimate (~9 μs × 288) is unchanged and remains solid.
 
 ---
 
@@ -359,11 +431,13 @@ DRAM interleaved → DRAM width-sharded weight resharding triggers tt-metal PR #
 | ⭐⭐ | **Integrate DS into GreedyOptimizer** — propagates L1-width-sharded layouts across chained DS matmuls (eliminates reshard wrapping ~2.6 ms); global L1 visibility resolves CB overlap | **~3.3 ms (≈5.7%)** | +2.6 ms |
 | ⭐ | Keep acts L1-width-sharded across **Gate → Up → Down** (192 reshards eliminable across 32 blocks) | **~1.7 ms (≈3.0%)** | +1.0 ms |
 | ✅ | **Dtype-conditional fidelity in DS pass** — HiFi2 for BFP8 (free, DRAM-bound), LoFi for BFP4 (HiFi2 costs +45% on production blkw=8, see §14d). Implemented in [`buildComputeConfig`](../../lib/Dialect/TTNN/Transforms/TTNNDRAMShardedMatmul.cpp). | accuracy-only on BFP8 (no perf cost) | — |
+| ✅ | **Inherit downstream `<1xC>` output grid in DS pass** — when the matmul's original output layout is L1 width-sharded with `<1xC>` and `C` divides `N_tiles`, write directly onto that grid and skip the `<1x8>→<1xC>` reshard. Implemented as `tryInheritOutGrid()` in [`TTNNDRAMShardedMatmul.cpp`](../../lib/Dialect/TTNN/Transforms/TTNNDRAMShardedMatmul.cpp). Tested: removes the reshard (~6 μs) on the Down→lm_head chain, but **does not close the lm_head regression** — see §7 empirical result. Allocator-drift hypothesis disproven. | ~46 μs/token (lm_head chain) | ~0.05 ms |
 | | Eliminate **all** DS-added reshards (upper bound) | **~3.4 ms (≈5.9%)** | +2.7 ms |
 | | Realistic (half of reshards eliminated) | **~2.0 ms (≈3.5%)** | +1.3 ms |
 | | Fix **lm_head** (3-way DS, needs N-split pre-pass; unverified) | **+0.7 ms independent** | +0.7 ms |
+| | Fix **lm_head fallback regression** (~589 μs remaining after `<1x64>` Down-output fix; see §7). Allocator-drift hypothesis disproven — next try: pin lm_head's input L1 address explicitly, or skip add/rms_norm off the 8c grid. Cause likely program cache or DRAM queue carryover from upstream DS reshards. | **+0.6 ms speculative** | +0.6 ms |
 
-**Best-case total (all reshards eliminated + lm_head):** ~4.1 ms ≈ 7% per token.
+**Best-case total (all reshards eliminated + lm_head fixes):** ~4.7 ms ≈ 8% per token.
 
 > **Top priority: GreedyOptimizer integration** — addresses both reshard overhead and CB overlap in a single change.
 

@@ -24,23 +24,28 @@ static constexpr int64_t kTileSize = 32;
 
 /// Parameters computed for a single DRAM-sharded matmul.
 struct DRAMShardParams {
-  int64_t K;               // inner dimension
-  int64_t N;               // output width
-  int64_t M;               // output height (batch * seq_len rows)
-  int64_t numBanks;        // DRAM banks for weight sharding (compute cores)
-  int64_t numStorageCores; // storage cores for in0 / output sharding.
-                           // NOT compute cores — the DRAM-sharded matmul
-                           // factory always uses numBanks (12) DRAM bank
-                           // cores for compute, regardless of this value.
-  int64_t nPadded;         // N padded to lcm(tileSize, tileSize * numBanks)
-  int64_t shardH;          // shard height in elements = K
-  int64_t shardW;          // shard width in elements = nPadded / numBanks
-  int64_t kTiles;          // K / tileSize
-  int64_t shardWTiles;     // shardW / tileSize
-  int64_t in0BlockW;       // tiles per K-loop iteration per core
-  int64_t perCoreM;        // output tile rows per storage core
-  int64_t perCoreN;        // output tile cols per storage core
-  int64_t in0ShardW;       // L1 shard width for in0 = K / numStorageCores
+  int64_t K;           // inner dimension
+  int64_t N;           // output width
+  int64_t M;           // output height (batch * seq_len rows)
+  int64_t numBanks;    // DRAM banks for weight sharding (compute cores)
+  int64_t numIn0Cores; // storage cores for in0 (activation) sharding.
+                       // NOT compute cores — the DRAM-sharded matmul
+                       // factory always uses numBanks (12) DRAM bank
+                       // cores for compute, regardless of this value.
+  int64_t numOutCores; // storage cores for output sharding. Independent
+                       // of numIn0Cores: the factory's out_reshard CB
+                       // scatters compute output to any output grid for
+                       // free (see unified_ds_analysis.md §14a).
+  int64_t nPadded;     // N padded to lcm(tileSize, tileSize * numBanks)
+  int64_t shardH;      // shard height in elements = K
+  int64_t shardW;      // shard width in elements = nPadded / numBanks
+  int64_t kTiles;      // K / tileSize
+  int64_t shardWTiles; // shardW / tileSize
+  int64_t in0BlockW;   // tiles per K-loop iteration per core
+  int64_t perCoreM;    // output tile rows per output storage core
+  int64_t perCoreN;    // output tile cols per output storage core
+                       // = N_tiles / numOutCores
+  int64_t in0ShardW;   // L1 shard width for in0 = K / numIn0Cores
   ttcore::DataType weightDataType; // BFP_BFloat8 or BFP_BFloat4
 };
 
@@ -54,24 +59,32 @@ static int64_t padToDRAMBanks(int64_t n, int64_t numBanks) {
 /// Compute DRAM shard parameters for a matmul with shape M x K times K x N.
 /// Returns std::nullopt if the matmul cannot fit in L1 even with the smallest
 /// in0BlockW.
+///
+/// `numIn0Cores` controls the in0 (activation) shard grid; `numOutCores`
+/// controls the output shard grid. They are independent inside the factory
+/// (see unified_ds_analysis.md §4f / §14a). When the original output layout
+/// is already L1 width-sharded with a compatible grid, callers can pass
+/// `numOutCores != numIn0Cores` to have the matmul write directly onto that
+/// grid and skip a downstream reshard.
 static std::optional<DRAMShardParams>
 computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
-                   int64_t numStorageCores, ttcore::DataType weightDataType,
-                   int64_t l1Available) {
+                   int64_t numIn0Cores, int64_t numOutCores,
+                   ttcore::DataType weightDataType, int64_t l1Available) {
   DRAMShardParams p;
   p.K = K;
   p.N = N;
   p.M = M;
   p.numBanks = numBanks;
-  p.numStorageCores = numStorageCores;
+  p.numIn0Cores = numIn0Cores;
+  p.numOutCores = numOutCores;
   p.nPadded = padToDRAMBanks(N, numBanks);
   p.shardH = K;
   p.shardW = p.nPadded / numBanks;
   p.kTiles = K / kTileSize;
   p.shardWTiles = p.shardW / kTileSize;
   p.perCoreM = M / kTileSize;
-  p.perCoreN = (N / kTileSize) / numStorageCores;
-  p.in0ShardW = K / numStorageCores;
+  p.perCoreN = (N / kTileSize) / numOutCores;
+  p.in0ShardW = K / numIn0Cores;
   p.weightDataType = weightDataType;
 
   // Choose in0BlockW to fit in L1.  All CBs are created on every core in the
@@ -98,14 +111,29 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   int64_t kWeightTile =
       (weightDataType == ttcore::DataType::BFP_BFloat4) ? kBfp4Tile : kBfp8Tile;
 
-  int64_t kPerCore = p.kTiles / numStorageCores;
+  int64_t kPerCore = p.kTiles / numIn0Cores;
   // per_core_N on compute cores = ceil(N_tiles / numBanks) = shardWTiles.
   int64_t perCoreNCompute = p.shardWTiles;
 
   // Tensor buffers placed in L1 (in0 shard + out shard per storage core).
+  //
+  // For outTensorBuf we deliberately use numIn0Cores (not numOutCores) — i.e.
+  // pretend the output is sharded on numIn0Cores even when we inherited a
+  // wider output grid. The actual per-core output footprint is smaller with
+  // a wider grid, so this is conservative. The reason: the pass has no global
+  // L1 visibility (see unified_ds_analysis.md §4f), so it cannot see L1
+  // buffers from co-running ops. Using the larger (older) outTensorBuf here
+  // keeps the L1 budget identical to what the old pass computed, so the
+  // in0_block_w selection is unchanged. Without this, decoupling the output
+  // grid would free up budget, the pass would pick a larger in0_block_w, and
+  // the resulting larger in1 CB pushes the CB region into address ranges
+  // already occupied by other ops' tensor buffers — turning the prior
+  // non-fatal CB clash warning into a hard validate_circular_buffer_region
+  // failure.
+  int64_t outTensorBufPerCore =
+      p.perCoreM * ((N / kTileSize) / numIn0Cores) * kBf16Tile;
   int64_t in0TensorBuf = p.perCoreM * kPerCore * kBf16Tile;
-  int64_t outTensorBuf = p.perCoreM * p.perCoreN * kBf16Tile;
-  int64_t cbBudget = l1Available - in0TensorBuf - outTensorBuf;
+  int64_t cbBudget = l1Available - in0TensorBuf - outTensorBufPerCore;
 
   // Fixed CBs (independent of in0BlockW, no double/triple buffering).
   int64_t outCB = p.perCoreM * perCoreNCompute * kBf16Tile;
@@ -203,6 +231,34 @@ static int64_t getActivationM(RankedTensorType rtt) {
     M *= shape[i];
   }
   return M;
+}
+
+/// If `outLayout` is L1 width-sharded with a `<1 x C>` grid where `C` evenly
+/// divides `nTiles`, return `C`. Otherwise return nullopt.
+///
+/// When this returns a value, the DRAM-sharded matmul can produce its output
+/// directly on that grid, reusing `outLayout` as the matmul's result type and
+/// avoiding the reshard the pass would otherwise emit. The matmul kernel cost
+/// is unchanged — the factory's `out_reshard` CB scatters compute output to
+/// any output grid for free (see unified_ds_analysis.md §14a).
+static std::optional<int64_t> tryInheritOutGrid(TTNNLayoutAttr outLayout,
+                                                int64_t nTiles) {
+  if (!outLayout.hasShardedL1TensorMemoryLayout()) {
+    return std::nullopt;
+  }
+  auto memLayoutOpt = outLayout.getMemLayoutOpt();
+  if (!memLayoutOpt || *memLayoutOpt != TensorMemoryLayout::WidthSharded) {
+    return std::nullopt;
+  }
+  auto gridShape = outLayout.getGrid().getShape();
+  if (gridShape.size() != 2 || gridShape[0] != 1) {
+    return std::nullopt;
+  }
+  int64_t outCores = gridShape[1];
+  if (outCores <= 0 || nTiles % outCores != 0) {
+    return std::nullopt;
+  }
+  return outCores;
 }
 
 /// Build a DRAM WIDTH_SHARDED TTNNLayoutAttr for the weight tensor.
@@ -439,8 +495,18 @@ public:
       int64_t M = getActivationM(in0Type);
       auto [K, N] = getWeightKN(weightType);
       auto weightDataType = getWeightDataType(weight);
+
+      auto outLayout = mlir::cast<TTNNLayoutAttr>(outType.getEncoding());
+      // If the original output layout is already L1 width-sharded with a
+      // grid that divides N_tiles, produce the matmul output directly on
+      // that grid — preserves the original CoreRangeSet / virt_to_physical_map
+      // exactly and skips the redundant <1xnumStorageCores> -> <1xC> reshard.
+      auto inheritedOutCores = tryInheritOutGrid(outLayout, N / kTileSize);
+      int64_t numOutCores = inheritedOutCores.value_or(numStorageCores);
+      bool inheritOutLayout = inheritedOutCores.has_value();
+
       auto pOpt = computeShardParams(M, K, N, numDRAMBanks, numStorageCores,
-                                     weightDataType, l1Available);
+                                     numOutCores, weightDataType, l1Available);
       if (!pOpt) {
         // Matmul cannot be DRAM sharded on this config (e.g. output too wide
         // for L1). Leave the original matmul in place.
@@ -450,7 +516,6 @@ public:
 
       auto weightLayout = mlir::cast<TTNNLayoutAttr>(weightType.getEncoding());
       auto in0Layout = mlir::cast<TTNNLayoutAttr>(in0Type.getEncoding());
-      auto outLayout = mlir::cast<TTNNLayoutAttr>(outType.getEncoding());
 
       // --- 1. Reshard weight to DRAM WIDTH_SHARDED ---
       auto dramShardedWeightLayout =
@@ -476,11 +541,18 @@ public:
           matmulOp.getLoc(), l1In0Type, in0, l1In0MemConfig);
 
       // --- 3. Build output type (L1 WIDTH_SHARDED) ---
-      int64_t outShardHTiles = M / kTileSize;
-      int64_t outShardWTiles = (N / kTileSize) / numStorageCores;
-      auto l1OutLayout = buildL1ShardedLayout(ctx, outLayout, outShardHTiles,
-                                              outShardWTiles, numStorageCores);
-      auto l1OutType = withLayout(outType, l1OutLayout);
+      RankedTensorType l1OutType;
+      if (inheritOutLayout) {
+        // Reuse the original output layout exactly — preserves any
+        // virt_to_physical_map / CoreRangeSet the optimizer assigned upstream.
+        l1OutType = outType;
+      } else {
+        int64_t outShardHTiles = M / kTileSize;
+        int64_t outShardWTiles = (N / kTileSize) / numStorageCores;
+        auto l1OutLayout = buildL1ShardedLayout(
+            ctx, outLayout, outShardHTiles, outShardWTiles, numStorageCores);
+        l1OutType = withLayout(outType, l1OutLayout);
+      }
 
       // --- 4. Do NOT fuse activation into the DRAM sharded program config ---
       // Benchmarking on llama 3 8B (gate_proj, 4096x14336 with silu) showed
@@ -511,16 +583,23 @@ public:
           /*computeConfig=*/computeConfig);
 
       // --- 7. Reshard output to the original matmul's output layout ---
-      // The optimizer may have placed this matmul's output in any layout
-      // (DRAM interleaved, L1 width_sharded, etc.). Build a memory config
-      // that matches the original output layout so the to_memory_config op
-      // produces a result tensor whose encoding matches its memory_config.
-      auto outMemConfig = MemoryConfigAttr::get(outLayout, deviceGrid);
-      auto outputDeshard = builder.create<ToMemoryConfigOp>(
-          matmulOp.getLoc(), outType, newMatmul.getResult(), outMemConfig);
+      // When inheritOutLayout is true the matmul already produces outType, so
+      // no deshard is needed. Otherwise build a memory config that matches
+      // the original output layout (DRAM interleaved, L1 width_sharded with a
+      // different grid, etc.) and reshard.
+      Value matmulOutput = newMatmul.getResult();
+      Value desharded;
+      if (inheritOutLayout) {
+        desharded = matmulOutput;
+      } else {
+        auto outMemConfig = MemoryConfigAttr::get(outLayout, deviceGrid);
+        auto outputDeshard = builder.create<ToMemoryConfigOp>(
+            matmulOp.getLoc(), outType, matmulOutput, outMemConfig);
+        desharded = outputDeshard.getResult();
+      }
 
       // --- 8. Insert separate activation op if needed ---
-      Value finalResult = outputDeshard.getResult();
+      Value finalResult = desharded;
       if (activationAttr) {
         auto actStr = activationAttr.getValue();
         std::string opName;
