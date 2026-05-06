@@ -1365,7 +1365,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             return failure();
           }
         } else {
-          // Mark allocs as aliased for HoistCBAllocs pass
+          // Mark allocs as aliased for HoistCBAllocs pass.
           const OperandContext *sharedPeerCtx =
               findSharedPeerOperandContext(genericOp, genericCtx, operandCtx);
           // If alias exists and is on the peer for load/store pair, don't mark
