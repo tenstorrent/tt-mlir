@@ -1370,11 +1370,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               findSharedPeerOperandContext(genericOp, genericCtx, operandCtx);
           // If alias exists and is on the peer for load/store pair, don't mark
           // alias for this operand. Otherwise, mark alias for this operand.
-          if (!sharedPeerCtx ||
-              inferBaseStreamRequirement(
-                  genericOp, *sharedPeerCtx,
-                  ttcore::getMemorySpace(
-                      sharedPeerCtx->operand->get().getType()))) {
+          if (!sharedPeerCtx || !inferBaseStreamRequirement(
+                                    genericOp, operandCtx,
+                                    ttcore::getMemorySpace(
+                                        operandCtx.operand->get().getType()))) {
             auto operandIndex = operandCtx.operand->getOperandNumber();
             Value cbMemref =
                 findLocalBufferForOperandLoadStore(genericOp, operandCtx);
