@@ -101,7 +101,11 @@ ShapedType reblockShapedType(ShapedType oldType,
   TT_assert(newGridShape.size() == oldGridShape.size());
   TT_assert(oldGridShape.size() == oldShardShape.size());
   for (auto [idx, gridDim] : llvm::enumerate(newGridShape)) {
-    TT_assert((oldGridShape[idx] * oldShardShape[idx]) % gridDim == 0);
+    TT_assertv((oldGridShape[idx] * oldShardShape[idx]) % gridDim == 0,
+               "Cannot reblock grid {} with shard {} to grid {} at dim {}",
+               ttmlir::utils::formatIterable(oldGridShape, "x"),
+               ttmlir::utils::formatIterable(oldShardShape, "x"),
+               ttmlir::utils::formatIterable(newGridShape, "x"), idx);
   }
 
   if (oldGridShape == newGridShape) {
@@ -202,27 +206,38 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
     mlir::ArrayRef<int64_t> outputGridShape) {
   TT_assert(!indexingMaps.empty());
   TT_assert(indexingMaps.size() == operandGridShapes.size());
-  SmallVector<mlir::AffineMap> maps(indexingMaps.begin(), indexingMaps.end());
-  auto flatInverseMap =
-      ttmlir::utils::concatInversePermutationMap(maps,
-                                                 /*reverse=*/true);
 
-  SmallVector<int64_t> flattenedOperandGridShapes;
-  for (ArrayRef<int64_t> operandGridShape : llvm::reverse(operandGridShapes)) {
-    flattenedOperandGridShapes.append(operandGridShape.begin(),
-                                      operandGridShape.end());
+  unsigned numLoopDims = indexingMaps.front().getNumDims();
+  SmallVector<int64_t> loopGridFactors(numLoopDims, 1);
+  SmallVector<int64_t> outputLoopGridFactors(numLoopDims, 1);
+
+  auto updateLoopFactors = [](AffineMap indexingMap, ArrayRef<int64_t> grid,
+                              SmallVector<int64_t> &factors) {
+    for (auto [resultIdx, expr] : llvm::enumerate(indexingMap.getResults())) {
+      auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+      if (!dimExpr) {
+        continue;
+      }
+      factors[dimExpr.getPosition()] =
+          std::max(factors[dimExpr.getPosition()], grid[resultIdx]);
+    }
+  };
+
+  for (auto [indexingMap, operandGridShape] :
+       llvm::zip_equal(indexingMaps, operandGridShapes)) {
+    updateLoopFactors(indexingMap, operandGridShape, loopGridFactors);
   }
-  TT_assert(flattenedOperandGridShapes.size() >= outputGridShape.size());
 
-  // Divide out output grid dims first;
-  // concatInversePermutationMap(reverse=true) guarantees output dimensions are
-  // leading in the flattened vector.
-  for (auto [i, dim] : llvm::enumerate(outputGridShape)) {
-    TT_assert(flattenedOperandGridShapes[i] % dim == 0);
-    flattenedOperandGridShapes[i] /= dim;
+  updateLoopFactors(indexingMaps.back(), outputGridShape,
+                    outputLoopGridFactors);
+
+  SmallVector<int64_t> blockFactors(numLoopDims, 1);
+  for (auto [loopIdx, factor] : llvm::enumerate(loopGridFactors)) {
+    int64_t outputFactor = outputLoopGridFactors[loopIdx];
+    TT_assert(factor % outputFactor == 0);
+    blockFactors[loopIdx] = factor / outputFactor;
   }
-
-  return flatInverseMap.compose(flattenedOperandGridShapes);
+  return blockFactors;
 }
 
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,

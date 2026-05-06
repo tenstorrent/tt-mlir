@@ -38,7 +38,7 @@ module {
 
   // CHECK-LABEL: func.func @reduce_min_f32_keep1_block_grid
   // CHECK-NOT: virtualGridForwardMapping
-  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<10x1x64x32xf32, #ttcore.shard<128x4, 1>, #l1>
+  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<8x4x64x32xf32, #ttcore.shard<128x4, 1>, #l1>
   func.func @reduce_min_f32_keep1_block_grid(%arg0: tensor<512x128xf32>) -> tensor<512x1xf32> {
     %0 = "ttir.min"(%arg0) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<512x128xf32>) -> tensor<512x1xf32>
     return %0 : tensor<512x1xf32>

@@ -38,6 +38,25 @@ static ToLayoutOp getSourceToLayoutThroughViews(Value operand) {
   return operand.getDefiningOp<d2m::ToLayoutOp>();
 }
 
+static llvm::SmallVector<int64_t>
+computeTrailingDimLayoutGrid(ArrayRef<int64_t> selectedGrid,
+                             ArrayRef<int64_t> targetGrid) {
+  llvm::SmallVector<int64_t> layoutGrid(targetGrid.size(), 1);
+  unsigned dimOffset =
+      selectedGrid.size() > targetGrid.size()
+          ? static_cast<unsigned>(selectedGrid.size() - targetGrid.size())
+          : 0;
+  for (auto [targetIdx, targetDim] : llvm::enumerate(targetGrid)) {
+    unsigned selectedIdx = dimOffset + targetIdx;
+    if (selectedIdx >= selectedGrid.size()) {
+      continue;
+    }
+    int64_t selectedDim = selectedGrid[selectedIdx];
+    layoutGrid[targetIdx] = selectedDim > targetDim ? targetDim : selectedDim;
+  }
+  return layoutGrid;
+}
+
 static GridDecision makeGridDecision(ArrayRef<int64_t> selectedGrid,
                                      ArrayRef<int64_t> targetGrid) {
   GridDecision decision;
@@ -92,64 +111,6 @@ static bool isMatmulGeneric(GenericOp genericOp) {
       .wasInterrupted();
 }
 
-static bool isOneDimensionalGrid(ArrayRef<int64_t> grid) {
-  unsigned nonUnitDims = 0;
-  for (int64_t dim : grid) {
-    if (dim > 1) {
-      ++nonUnitDims;
-    }
-  }
-  return nonUnitDims <= 1;
-}
-
-static bool isLegalMatmulGrid(ArrayRef<int64_t> grid,
-                              ArrayRef<int64_t> targetGrid) {
-  return !ttmlir::d2m::utils::grids::requiresVirtualGrid(grid, targetGrid) ||
-         isOneDimensionalGrid(grid);
-}
-
-static llvm::SmallVector<int64_t>
-computeOneDimensionalGrid(ArrayRef<int64_t> physicalShape,
-                          ArrayRef<int64_t> targetGrid) {
-  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
-  llvm::SmallVector<int64_t> bestGrid(physicalShape.size(), 1);
-  int64_t bestGridVolume = 1;
-
-  for (auto [dimIdx, physicalDim] : llvm::enumerate(physicalShape)) {
-    for (int64_t factor :
-         llvm::reverse(ttmlir::utils::getFactors(physicalDim))) {
-      if (factor > targetGridVolume || factor <= bestGridVolume) {
-        continue;
-      }
-      if (utils::findLegalPhysicalGridForVolume(factor, targetGrid).empty()) {
-        continue;
-      }
-      bestGrid.assign(physicalShape.size(), 1);
-      bestGrid[dimIdx] = factor;
-      bestGridVolume = factor;
-      break;
-    }
-  }
-
-  return bestGrid;
-}
-
-static llvm::SmallVector<int64_t> applyMatmulVirtualGridConstraints(
-    bool isMatmul, ArrayRef<int64_t> physicalShape,
-    ArrayRef<int64_t> targetGrid, ArrayRef<int64_t> selectedGrid) {
-  llvm::SmallVector<int64_t> grid(selectedGrid);
-  if (!isMatmul || isLegalMatmulGrid(grid, targetGrid)) {
-    return grid;
-  }
-
-  grid = utils::computeOptimalBlockShardedGrid(physicalShape, targetGrid);
-  if (isLegalMatmulGrid(grid, targetGrid)) {
-    return grid;
-  }
-
-  return computeOneDimensionalGrid(physicalShape, targetGrid);
-}
-
 struct GridDecisionAndShape {
   GridDecision decision;
   llvm::SmallVector<int64_t> physicalShape;
@@ -157,32 +118,55 @@ struct GridDecisionAndShape {
 
 static llvm::SmallVector<int64_t>
 computeSelectedGrid(mlir::Value operand, ArrayRef<int64_t> physicalShape,
-                    ArrayRef<int64_t> targetGrid, bool isMatmul) {
+                    ArrayRef<int64_t> targetGrid) {
   auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
-  auto selectedGrid =
-      utils::computeOptimalGrid(operandType, physicalShape, targetGrid);
-  return applyMatmulVirtualGridConstraints(isMatmul, physicalShape, targetGrid,
-                                           selectedGrid);
+  return utils::computeOptimalGrid(operandType, physicalShape, targetGrid);
+}
+
+static llvm::SmallVector<int64_t> computeCurrentPhysicalShape(Value operand) {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  ArrayRef<int64_t> gridShape = layout.getGridShape(tensorType);
+  ArrayRef<int64_t> shardShape = layout.getShardShape(tensorType);
+
+  llvm::SmallVector<int64_t> physicalShape;
+  physicalShape.reserve(gridShape.size());
+  for (auto [gridDim, shardDim] : llvm::zip_equal(gridShape, shardShape)) {
+    physicalShape.push_back(gridDim * shardDim);
+  }
+  return physicalShape;
+}
+
+static bool gridDividesPhysicalShape(ArrayRef<int64_t> grid,
+                                     ArrayRef<int64_t> physicalShape) {
+  if (grid.size() != physicalShape.size()) {
+    return false;
+  }
+  for (auto [gridDim, physicalDim] : llvm::zip_equal(grid, physicalShape)) {
+    if (physicalDim % gridDim != 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static GridDecisionAndShape
-computeBlockShardedDecision(mlir::Value operand, ArrayRef<int64_t> targetGrid,
-                            bool ttnnMode, bool isMatmul) {
+computeCurrentBlockShardedDecision(mlir::Value operand,
+                                   ArrayRef<int64_t> targetGrid) {
   GridDecisionAndShape result;
-  result.physicalShape =
-      utils::computePhysicalShape(operand, targetGrid, ttnnMode);
+  result.physicalShape = computeCurrentPhysicalShape(operand);
   auto selectedGrid =
       utils::computeOptimalBlockShardedGrid(result.physicalShape, targetGrid);
-  selectedGrid = applyMatmulVirtualGridConstraints(
-      isMatmul, result.physicalShape, targetGrid, selectedGrid);
   result.decision = makeGridDecision(selectedGrid, targetGrid);
+  result.decision.layoutGrid =
+      computeTrailingDimLayoutGrid(selectedGrid, targetGrid);
   return result;
 }
 
 static GridDecisionAndShape
 computeGridDecision(mlir::Value operand, ArrayRef<int64_t> initialLayoutGrid,
                     ArrayRef<int64_t> targetGrid, bool ttnnMode,
-                    bool isMatmul) {
+                    bool preserveMatmulGridLogic) {
   constexpr unsigned kMaxGridDecisionIterations = 8;
 
   llvm::SmallVector<int64_t> layoutGrid(initialLayoutGrid);
@@ -191,12 +175,16 @@ computeGridDecision(mlir::Value operand, ArrayRef<int64_t> initialLayoutGrid,
     GridDecisionAndShape result;
     result.physicalShape =
         utils::computePhysicalShape(operand, layoutGrid, ttnnMode);
-    result.decision =
-        makeGridDecision(computeSelectedGrid(operand, result.physicalShape,
-                                             targetGrid, isMatmul),
-                         targetGrid);
+    result.decision = makeGridDecision(
+        computeSelectedGrid(operand, result.physicalShape, targetGrid),
+        targetGrid);
 
     if (result.decision.layoutGrid == layoutGrid) {
+      if (!preserveMatmulGridLogic &&
+          !gridDividesPhysicalShape(result.decision.selectedGrid,
+                                    computeCurrentPhysicalShape(operand))) {
+        return computeCurrentBlockShardedDecision(operand, targetGrid);
+      }
       return result;
     }
 
@@ -206,7 +194,7 @@ computeGridDecision(mlir::Value operand, ArrayRef<int64_t> initialLayoutGrid,
   // Grid-aware padding can change factor availability, so a virtual decision
   // may theoretically oscillate. Prefer a physical block-sharded grid over
   // emitting an inconsistent virtual layout.
-  return computeBlockShardedDecision(operand, targetGrid, ttnnMode, isMatmul);
+  return computeCurrentBlockShardedDecision(operand, targetGrid);
 }
 
 llvm::SmallVector<llvm::SmallVector<int64_t>>
@@ -394,7 +382,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
 
   llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
   llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
-  bool isMatmul = isMatmulGeneric(genericOp);
+  bool preserveMatmulGridLogic = isMatmulGeneric(genericOp);
 
   for (auto [operandIndex, operand] :
        llvm::enumerate(genericOp.getInputsAndOutputs())) {
@@ -407,19 +395,9 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
 
     ArrayRef<int64_t> targetGrid = perOperandTargetGrids[operandIndex];
     GridDecisionAndShape decisionAndShape = computeGridDecision(
-        operand, targetGrid, targetGrid, ttnnMode, isMatmul);
+        operand, targetGrid, targetGrid, ttnnMode, preserveMatmulGridLogic);
     physicalShapes.push_back(decisionAndShape.physicalShape);
     optimalOperandGrids.push_back(decisionAndShape.decision.selectedGrid);
-    llvm::errs() << "GRIDDBG initial operand " << operandIndex << " phys "
-                 << ttmlir::utils::formatIterable(
-                        decisionAndShape.physicalShape, "x")
-                 << " selected "
-                 << ttmlir::utils::formatIterable(
-                        decisionAndShape.decision.selectedGrid, "x")
-                 << " layout "
-                 << ttmlir::utils::formatIterable(
-                        decisionAndShape.decision.layoutGrid, "x")
-                 << "\n";
 
     OperandGridInfo info;
     info.operand = operand;
@@ -432,15 +410,6 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   // Normalize the operand grids for the generic operation.
   result.normalizedOperandGrids = normalizeOperandGridsForGeneric(
       genericOp, optimalOperandGrids, physicalShapes);
-  for (unsigned idx = 0; idx < result.normalizedOperandGrids.size(); ++idx) {
-    result.normalizedOperandGrids[idx] = applyMatmulVirtualGridConstraints(
-        isMatmul, physicalShapes[idx], perOperandTargetGrids[idx],
-        result.normalizedOperandGrids[idx]);
-    llvm::errs() << "GRIDDBG normalized operand " << idx << " grid "
-                 << ttmlir::utils::formatIterable(
-                        result.normalizedOperandGrids[idx], "x")
-                 << "\n";
-  }
 
   // Propagate normalized grids back to non-reinterpret ViewLayout operands
   // only. Other operand kinds use their independently computed optimal
@@ -468,7 +437,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
       }
       info.viewSourceGrid =
           computeGridDecision(toLayoutOp.getResult(0), info.grid.layoutGrid,
-                              info.grid.targetGrid, ttnnMode, isMatmul)
+                              info.grid.targetGrid, ttnnMode,
+                              preserveMatmulGridLogic)
               .decision;
     }
   }
