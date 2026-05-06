@@ -12,7 +12,9 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 
 namespace mlir::tt::ttcore {
@@ -83,10 +85,102 @@ getConstsAndParams(mlir::func::FuncOp funcOp) {
   return constsAndParams;
 }
 
+// Forward-propagation analysis for `valueTracesToConstantArgs`. Caches the
+// answer for every value in a func::FuncOp using an O(num_ops) walk; lookups
+// are O(1). The slow path (recursive use-def walk) is O(num_ops) per call and
+// gets called many times during pattern matching in passes like
+// TTIREraseInverseOps -> O(num_ops^2) overall. For deep models (e.g. 10+
+// layer DeepSeek) the slow path dominates compile time (~55s in
+// TTIREraseInverseOps at 10 layer).
+//
+// The analysis acts as a `RewriterBase::Listener` so it can be installed on
+// `GreedyRewriteConfig::setListener`. Any IR mutation (insert / modify /
+// replace / erase) flips a dirty flag; the next `lookup` rebuilds the cache
+// from scratch. This is correct in the face of MLIR's Value pointer
+// recycling: stale pointers are wiped on every rebuild and never observed.
+//
+// Semantics match `valueTracesToConstantArgs` bug-for-bug: a value traces to
+// constant args iff its use-def chain reaches at least one CONST/PARAM block
+// argument and no non-CONST/PARAM block argument.
+class ConstevalForwardAnalysis : public mlir::RewriterBase::Listener {
+public:
+  // Captures `root` (typically a func::FuncOp). `lookup` lazily builds the
+  // cache on first use and rebuilds whenever a Listener notification has
+  // marked it dirty.
+  explicit ConstevalForwardAnalysis(mlir::Operation *root);
+
+  // Returns std::nullopt if the value is unknown to this analysis (e.g.
+  // created after the most recent rebuild or in an unvisited region).
+  // Callers should fall back to the slow path on nullopt.
+  std::optional<bool> lookup(mlir::Value v);
+
+  size_t size() const { return cache_.size(); }
+
+  // Number of times the cache has been (re)built. Useful for tests that
+  // verify the listener-based invalidation actually keeps the cache live
+  // across pattern rewrites.
+  size_t rebuildCount() const { return rebuildCount_; }
+
+  // RewriterBase::Listener overrides — any IR mutation invalidates the
+  // cache. Insertion alone is also flagged: the new op's results are not in
+  // the cache, but Value pointer recycling means we cannot trust other
+  // entries either.
+  void notifyOperationInserted(mlir::Operation *,
+                               mlir::OpBuilder::InsertPoint) override {
+    dirty_ = true;
+  }
+  void notifyOperationModified(mlir::Operation *) override { dirty_ = true; }
+  void notifyOperationReplaced(mlir::Operation *, mlir::Operation *) override {
+    dirty_ = true;
+  }
+  void notifyOperationReplaced(mlir::Operation *, mlir::ValueRange) override {
+    dirty_ = true;
+  }
+  void notifyOperationErased(mlir::Operation *) override { dirty_ = true; }
+
+private:
+  void rebuild();
+
+  mlir::Operation *root_;
+  bool dirty_ = true;
+  size_t rebuildCount_ = 0;
+  // Per-value: (hasConstOrParamArg, hasNonConstOrParamArg). We need both bits
+  // because the result is `hasConst && !hasNonConst`.
+  llvm::DenseMap<mlir::Value, std::pair<bool, bool>> cache_;
+};
+
+// Thread-local scope guard. While alive, the contained analysis is the
+// "active" one and `valueTracesToConstantArgs` will consult it on lookup.
+// Caller is responsible for installing the analysis as a
+// `RewriterBase::Listener` on any greedy rewrite driver invoked inside the
+// scope (otherwise mutations will not invalidate the cache and answers can
+// go stale).
+class ConstevalAnalysisScope {
+public:
+  explicit ConstevalAnalysisScope(ConstevalForwardAnalysis &analysis);
+  ~ConstevalAnalysisScope();
+  ConstevalAnalysisScope(const ConstevalAnalysisScope &) = delete;
+  ConstevalAnalysisScope &operator=(const ConstevalAnalysisScope &) = delete;
+
+private:
+  ConstevalForwardAnalysis *previous_;
+};
+
+// Internal: returns the active scope's analysis, or nullptr if none.
+ConstevalForwardAnalysis *getActiveConstevalAnalysis();
+
 // This function will return true if a given Value is the result of operations
 // performed only between  block arguments in which have been marked as
 // consteval-able (Parameter or Constant ArgumentType).
 inline bool valueTracesToConstantArgs(const mlir::Value &value) {
+  if (auto *analysis = getActiveConstevalAnalysis()) {
+    if (auto cached = analysis->lookup(value)) {
+      return *cached;
+    }
+    // Cache miss (e.g. value created after the most recent rebuild) — fall
+    // through to the slow recursive path below.
+  }
+
   auto useDefChain = ttmlir::utils::getUseDefChain(value);
   auto subgraphBlockArgs =
       ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
@@ -102,6 +196,14 @@ inline bool valueTracesToConstantArgs(const mlir::Value &value) {
   }
 
   for (auto blockArg : subgraphBlockArgs) {
+    // Require ownership by the same func::FuncOp before consulting its
+    // argument attributes; otherwise an inner-region block argument could
+    // accidentally be classified as CONST/PARAM via funcOp.getArgAttr at
+    // a matching argNumber. Non-function block arguments never carry
+    // ttcore::ArgumentType so the value cannot be const-eval-traceable.
+    if (blockArg.getOwner()->getParentOp() != funcOp.getOperation()) {
+      return false;
+    }
     if (!isConstOrParamArg(blockArg, funcOp)) {
       return false;
     }

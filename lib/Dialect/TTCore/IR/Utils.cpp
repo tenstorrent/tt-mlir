@@ -236,4 +236,111 @@ getBufferType(Type type, bool isView, std::optional<MetalLayoutAttr> hostInfo) {
       getMemRefType(type, isView, hostInfo));
 }
 
+//===----------------------------------------------------------------------===//
+// ConstevalForwardAnalysis
+//===----------------------------------------------------------------------===//
+
+namespace {
+// Thread-local pointer to the currently-active analysis. Set by
+// ConstevalAnalysisScope. Read by valueTracesToConstantArgs. The mutability
+// is intentional: scope guards push/pop the pointer, and the analysis itself
+// is non-const because lookup() may trigger an internal rebuild.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+thread_local ConstevalForwardAnalysis *g_activeAnalysis = nullptr;
+} // namespace
+
+ConstevalForwardAnalysis *getActiveConstevalAnalysis() {
+  return g_activeAnalysis;
+}
+
+ConstevalAnalysisScope::ConstevalAnalysisScope(
+    ConstevalForwardAnalysis &analysis)
+    : previous_(g_activeAnalysis) {
+  g_activeAnalysis = &analysis;
+}
+
+ConstevalAnalysisScope::~ConstevalAnalysisScope() {
+  g_activeAnalysis = previous_;
+}
+
+ConstevalForwardAnalysis::ConstevalForwardAnalysis(mlir::Operation *root)
+    : root_(root) {}
+
+void ConstevalForwardAnalysis::rebuild() {
+  cache_.clear();
+  ++rebuildCount_;
+
+  // Walk every func::FuncOp under root_ and propagate (hasConst, hasNonConst)
+  // forward through SSA. MLIR walks visit ops in pre-order which matches SSA
+  // dominance for operands defined in enclosing scopes.
+  root_->walk([&](mlir::func::FuncOp funcOp) {
+    if (funcOp.isDeclaration()) {
+      return;
+    }
+
+    // 1. Seed function block arguments.
+    for (mlir::BlockArgument arg : funcOp.getArguments()) {
+      bool isConst = isConstOrParamArg(arg, funcOp);
+      cache_[arg] = {isConst, !isConst};
+    }
+
+    // 2. Walk inner ops in pre-order (SSA topological for ops dominated by
+    // their producers in enclosing regions).
+    funcOp.walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *op) {
+      if (op == funcOp.getOperation()) {
+        return;
+      }
+
+      // Block args of nested regions (e.g. scf.for, linalg.generic) are not
+      // function-level CONST/PARAM args. Mark them as non-const so any value
+      // derived from them is treated correctly.
+      for (mlir::Region &region : op->getRegions()) {
+        for (mlir::Block &block : region.getBlocks()) {
+          for (mlir::BlockArgument innerArg : block.getArguments()) {
+            cache_[innerArg] = {false, true};
+          }
+        }
+      }
+
+      bool hasConst = false;
+      bool hasNonConst = false;
+      for (mlir::Value operand : op->getOperands()) {
+        auto it = cache_.find(operand);
+        if (it == cache_.end()) {
+          // Operand defined outside the analysis (cross-region operand we
+          // didn't visit, or a block arg from a region we did not walk).
+          // Treat pessimistically as non-const: the result is cached as a
+          // definite `false`, never as nullopt. This means the slow path
+          // is not consulted for derived values, but the conservative
+          // answer is always semantics-preserving for callers (they will
+          // skip an optimization rather than apply an incorrect one).
+          hasNonConst = true;
+          continue;
+        }
+        hasConst |= it->second.first;
+        hasNonConst |= it->second.second;
+      }
+
+      for (mlir::Value result : op->getResults()) {
+        cache_[result] = {hasConst, hasNonConst};
+      }
+    });
+  });
+
+  dirty_ = false;
+}
+
+std::optional<bool> ConstevalForwardAnalysis::lookup(mlir::Value v) {
+  if (dirty_) {
+    rebuild();
+  }
+  auto it = cache_.find(v);
+  if (it == cache_.end()) {
+    return std::nullopt;
+  }
+  bool hasConst = it->second.first;
+  bool hasNonConst = it->second.second;
+  return hasConst && !hasNonConst;
+}
+
 } // namespace mlir::tt::ttcore
