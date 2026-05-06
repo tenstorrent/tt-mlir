@@ -25,22 +25,25 @@ class ChiselOpConfig:
     """Per-op behavior overrides for chisel preOp/postOp dispatch.
 
     Attributes:
-        skip:     Entirely bypass preOp and postOp for this op type.
-                  No records are written and the tensor pool is not updated.
-                  Use for ops whose IR/FB output counts disagree or whose
-                  tensors are not retrievable (e.g. cache identifiers).
-        skip_pcc: Run isolation golden but skip numerical PCC comparison.
-                  Useful for ops whose device output is intentionally undefined
-                  (e.g. ttnn.empty produces uninitialized memory).
+        skip:           Entirely bypass preOp and postOp for this op type.
+                        No records are written and the tensor pool is not updated.
+                        Use for ops whose IR/FB output counts disagree or whose
+                        tensors are not retrievable (e.g. cache identifiers).
+        skip_pcc:       Run isolation golden but skip numerical PCC comparison.
+                        Useful for ops whose device output is intentionally undefined
+                        (e.g. ttnn.empty produces uninitialized memory).
+        skip_accum_pcc: Same as skip_pcc but for the accumulation golden check.
         pre_op:   Callable replacing the default preOp body after op iterator
                   advance. Signature: (binary, program_context, op_context) -> None.
         post_op:  Callable replacing the entire default postOp body.
                   Signature: (binary, program_context, op_context) -> None.
-                  When set, skip_pcc is ignored (custom fn owns PCC logic).
+                  When set, skip_pcc and skip_accum_pcc are ignored (custom fn
+                  owns PCC logic).
     """
 
     skip: bool = False
     skip_pcc: bool = False
+    skip_accum_pcc: bool = False
     pre_op: Optional[Callable] = None
     post_op: Optional[Callable] = None
 
@@ -70,8 +73,8 @@ def get_skipped_op_names() -> frozenset:
 # ---------------------------------------------------------------------------
 
 # ttnn.empty produces an uninitialized device tensor — PCC comparison is
-# meaningless.
-register_op_config(ttnn.EmptyOp, ChiselOpConfig(skip_pcc=True))
+# meaningless for both isolation and accumulation checks.
+register_op_config(ttnn.EmptyOp, ChiselOpConfig(skip_pcc=True, skip_accum_pcc=True))
 
 # ttnn.generic: IR output count = 0 but FB output count = 1.
 register_op_config(ttnn.GenericOp, ChiselOpConfig(skip=True))

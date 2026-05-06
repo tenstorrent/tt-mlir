@@ -16,7 +16,14 @@ from ttmlir.ir import OpOperandList, Operation, Value
 from golden import get_chisel_golden_function, GoldenMapTensor
 
 from .exceptions import GoldenNotImplementedError
-from .ops import get_inplace_operands, get_op_outputs, is_tensor_value
+from .ops import (
+    IRModule,
+    get_inplace_operands,
+    get_op_inputs,
+    get_op_outputs,
+    is_tensor_value,
+)
+from .tensors import TensorPool
 
 logger = logging.getLogger("chisel")
 
@@ -115,3 +122,43 @@ def get_provided_inplace_vals(
         else:
             vals.append((role, accessor))
     return vals
+
+
+def execute_golden_from_pool(
+    op: Operation,
+    ir_module: IRModule,
+    tensor_pool: TensorPool,
+) -> Optional[Tuple[GoldenMapTensor, ...]]:
+    """
+    Pool-aware golden execution.
+
+    Pulls SSA-keyed inputs from tensor_pool, role-keys them, calls
+    execute_golden, then stores each SSA-result tensor back into the pool
+    under its SSA name. Returns the result tuple, or None if an input is
+    missing from the pool or no golden is registered.
+    """
+    asm_state = ir_module.get_asm_state()
+    op_inputs = get_op_inputs(op)
+    try:
+        ssa_inputs = {
+            inp.get_name(asm_state): tensor_pool[inp.get_name(asm_state)]
+            for inp in op_inputs
+        }
+    except KeyError as e:
+        logger.debug(f"{op.name}: accum_golden skipped (missing input in pool: {e})")
+        return None
+
+    golden_inputs = build_role_keyed_inputs(op, ssa_inputs, asm_state)
+    try:
+        result = execute_golden(op, golden_inputs)
+    except GoldenNotImplementedError:
+        logger.debug(f"{op.name}: accum_golden skipped (no golden registered)")
+        return None
+    if result is None:
+        return None
+
+    ssa_outputs = get_op_outputs(op)
+    for out_val, res_tensor in zip(ssa_outputs, result[: len(ssa_outputs)]):
+        tensor_pool[out_val.get_name(asm_state)] = res_tensor
+
+    return result

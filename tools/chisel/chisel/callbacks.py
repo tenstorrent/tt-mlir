@@ -2,13 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Four DebugHooks callbacks for single-op isolation testing.
+Four DebugHooks callbacks for program-level accumulation testing.
 
 Program-level signature: (binary, program_context)
 Op-level signature:      (binary, program_context, op_context)
 
-Each op output produces one PCC record:
-  - golden_vs_runtime_tensor — isolation golden (device-stashed inputs)
+Each op output produces two PCC records:
+  - golden_vs_runtime_tensor      — isolation golden (device-stashed inputs)
+  - accum_golden_vs_runtime_tensor — accumulation golden (pool inputs)
+
+Either check can be disabled via ctx.isolation_check / ctx.accum_check.
 """
 import logging
 
@@ -16,7 +19,7 @@ from _ttmlir_runtime import runtime as tt_runtime
 
 from .checker import ChiselChecker
 from .context import ChiselContext
-from .executor import execute_golden
+from .executor import execute_golden, execute_golden_from_pool
 from .op_configs import get_op_config
 from .ops import get_op_inputs, get_op_outputs
 from .utils import (
@@ -55,6 +58,7 @@ def _default_pre_op(binary, program_context, op_context) -> None:
     2. Retrieve device input tensors to host
     3. For each input: validate MLIR IR type against retrieved tensor
     4. Stash inputs in program.stashed_inputs for isolation golden in postOp
+    5. Seed golden_tensor_pool for inputs not yet present (program inputs)
     """
     ctx = ChiselContext.get_instance()
     program = ctx.current_program
@@ -81,6 +85,9 @@ def _default_pre_op(binary, program_context, op_context) -> None:
             continue
         checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_input, tensor)
         program.stashed_inputs[name] = tensor
+        # Seed pool for program inputs (never produced by a prior golden op).
+        if name not in program.golden_tensor_pool:
+            program.golden_tensor_pool[name] = tensor
 
 
 def _default_post_op(
@@ -89,18 +96,24 @@ def _default_post_op(
     op_context,
     *,
     skip_pcc: bool = False,
+    skip_accum_pcc: bool = False
 ) -> None:
-    """Default postOp body: isolation-golden validation.
+    """Default postOp body: dual-check validation against isolation and accumulation golden.
 
     For each op output:
     1. check_shape_dtype(mlir_vs_tensor_ref)     — MLIR IR shape/dtype vs flatbuffer TensorRef
     2. Retrieve device tensor
     3. check_shape_dtype(mlir_vs_runtime_tensor) — MLIR IR shape/dtype vs actual tensor
 
-    Then the isolation golden check (gated by ctx.isolation_check):
+    Then two golden checks (each gated by ctx.isolation_check / ctx.accum_check):
+    Isolation golden (device-stashed inputs):
     4. execute_golden with program.stashed_inputs
     5. check_shape_dtype(mlir_vs_golden)         — MLIR IR shape/dtype vs isolation golden
     6. check_golden_vs_runtime_tensor            — PCC/atol/rtol (skip if skip_pcc)
+
+    Accumulation golden (pool inputs):
+    7. execute_golden_from_pool with program.golden_tensor_pool
+    8. check_golden_vs_runtime_tensor(accum=True) — PCC/atol/rtol (skip if skip_accum_pcc)
     """
     ctx = ChiselContext.get_instance()
     program = ctx.current_program
@@ -118,6 +131,8 @@ def _default_post_op(
     output_refs = tt_runtime.get_op_output_refs(op_context)
     asm_state = ir_module.get_asm_state()
 
+    # --- Execute golden functions ONCE per op, before the per-output loop ---
+
     slots = [out.get_name(asm_state) for out in op_outputs]
 
     iso_result = None
@@ -131,10 +146,24 @@ def _default_post_op(
             check="golden",
         )
 
-    iso_outs = iso_result if iso_result is not None else [None] * len(op_outputs)
+    acc_result = None
+    if ctx.accum_check:
+        acc_result = execute_golden_from_pool(
+            op.opview,
+            ir_module,
+            program.golden_tensor_pool,
+            checker=checker,
+            slots=slots,
+            check="accum_golden",
+        )
 
-    for mlir_output, output_ref, iso_out in zip(
-        op_outputs, output_refs, iso_outs, strict=True
+    # --- Per-output validation loop ---
+
+    iso_outs = iso_result if iso_result is not None else [None] * len(op_outputs)
+    acc_outs = acc_result if acc_result is not None else [None] * len(op_outputs)
+
+    for mlir_output, output_ref, iso_out, acc_out in zip(
+        op_outputs, output_refs, iso_outs, acc_outs, strict=True
     ):
         name = mlir_output.get_name(asm_state)
 
@@ -160,6 +189,11 @@ def _default_post_op(
                 checker.record(name, "golden_vs_runtime_tensor", "skipped_pcc")
             else:
                 checker.check_golden_vs_runtime_tensor(name, iso_out, device_tensor)
+
+        if acc_out is not None and not skip_accum_pcc:
+            checker.check_golden_vs_runtime_tensor(
+                name, acc_out, device_tensor, accum=True
+            )
 
     program.stashed_inputs = None
 
@@ -197,8 +231,8 @@ def chisel_post_op_callback(binary, program_context, op_context):
     Post-operation callback: dispatch to per-op or default postOp.
 
     When a custom post_op is registered for the current op type it replaces the
-    default body entirely. Otherwise the default postOp runs with skip_pcc taken
-    from the op's ChiselOpConfig.
+    default body entirely. Otherwise the default postOp runs with skip_pcc and
+    skip_accum_pcc taken from the op's ChiselOpConfig.
     """
     ctx = ChiselContext.get_instance()
     config = get_op_config(ctx.current_program.current_op.opview)
@@ -212,4 +246,5 @@ def chisel_post_op_callback(binary, program_context, op_context):
             program_context,
             op_context,
             skip_pcc=config.skip_pcc,
+            skip_accum_pcc=config.skip_accum_pcc,
         )

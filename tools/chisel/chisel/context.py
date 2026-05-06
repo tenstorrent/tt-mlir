@@ -7,17 +7,19 @@ ChiselContext / BinaryState / ProgramState — three-level state hierarchy.
 ChiselContext is a singleton accessed from all four DebugHooks callbacks.
 BinaryState is created once per unique binary.id and owns the IRModule.
 ProgramState is created once per (binary_id, program_index) and owns
-the op_iter.
+the golden_tensor_pool and op_iter.
 """
 import json
 import logging
 from datetime import datetime
 from typing import Dict, Iterator, Optional, TextIO
 
+from ttmlir.ir import Operation
 from _ttmlir_runtime import runtime as tt_runtime
 
 from .ops import IRModule
 from .report import ChiselRecord, ChiselReport
+from .tensors import TensorPool
 
 logger = logging.getLogger("chisel")
 
@@ -37,6 +39,8 @@ class ChiselContext:
         # Output / behavior flags
         self.strict: bool = False
         self.isolation_check: bool = True
+        self.accum_check: bool = True
+        self.validate: bool = True
         _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.results_path: Optional[str] = f"chisel_results/{_ts}.jsonl"
         self._results_file: Optional[TextIO] = None
@@ -100,6 +104,10 @@ class ChiselContext:
 
         if binary.id not in self.binaries:
             self.binaries[binary.id] = BinaryState(binary)
+            if self.validate:
+                from .validate import validate_binary
+                for rec in validate_binary(binary, self.binaries[binary.id].ir_module):
+                    self.write_record({"type": "preflight_failure", **rec})
         binary_state = self.binaries[binary.id]
         self.current_binary = binary_state
 
@@ -136,13 +144,14 @@ class BinaryState:
 
 
 class ProgramState:
-    """Per-program state: owns op_iter and per-op stashed inputs."""
+    """Per-program state: owns golden_tensor_pool, op_iter, and per-op stashed inputs."""
 
     def __init__(self, program_index: int, program_name: str, ir_module: IRModule):
         self.program_index = program_index
         self.program_name = program_name
+        self.golden_tensor_pool = TensorPool()
         self.ops = ir_module.get_function_ops(program_name)
-        self.current_op: Optional["Operation"] = None
+        self.current_op: Optional[Operation] = None
         self.op_iter: Iterator = iter(self.ops)
         # Per-op transient state (set in preop, consumed in postop). Lives on
         # ProgramState because op execution is scoped to the active program.

@@ -12,6 +12,7 @@ from .callbacks import (
     chisel_pre_op_callback,
     chisel_post_op_callback,
 )
+from .validate import validate_binary
 
 __all__ = [
     "GoldenNotImplementedError",
@@ -26,4 +27,5 @@ __all__ = [
     "chisel_post_program_callback",
     "chisel_pre_op_callback",
     "chisel_post_op_callback",
+    "validate_binary",
 ]
