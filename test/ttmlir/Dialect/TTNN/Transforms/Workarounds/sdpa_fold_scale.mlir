@@ -83,4 +83,51 @@ module attributes {} {
         : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>) -> tensor<1x6x256x128xbf16, #l_qkv>
     return %out : tensor<1x6x256x128xbf16, #l_qkv>
   }
+
+  // CHECK-LABEL: multiply_multi_use
+  // The multiply feeds both SDPA and a second function return; the workaround
+  // must not fire because bypassing would corrupt the second consumer.
+  // CHECK: ttnn.multiply
+  // CHECK: scale = 1.000000e+00 : f32
+  func.func @multiply_multi_use(
+      %q: tensor<1x6x256x128xbf16, #l_qkv>,
+      %k: tensor<1x6x256x128xbf16, #l_qkv>,
+      %v: tensor<1x6x256x128xbf16, #l_qkv>,
+      %device: !ttnn.device)
+      -> (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>) {
+    %scalar = "ttnn.full"(%device) <{fill_value = 5.000000e-01 : f32, shape = #ttnn.shape<1x1x1x1>, dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}> : (!ttnn.device) -> tensor<1x1x1x1xf32, #l_scalar>
+    %q_scaled = "ttnn.multiply"(%q, %scalar) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x1x1x1xf32, #l_scalar>) -> tensor<1x6x256x128xbf16, #l_qkv>
+    %out = "ttnn.scaled_dot_product_attention"(%q_scaled, %k, %v)
+        <{is_causal = false, scale = 1.000000e+00 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}>
+        : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>) -> tensor<1x6x256x128xbf16, #l_qkv>
+    return %out, %q_scaled : tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>
+  }
+
+  // CHECK-LABEL: multiply_non_constant
+  // CHECK: ttnn.multiply
+  // CHECK: scale = 1.000000e+00 : f32
+  func.func @multiply_non_constant(
+      %q: tensor<1x6x256x128xbf16, #l_qkv>,
+      %k: tensor<1x6x256x128xbf16, #l_qkv>,
+      %v: tensor<1x6x256x128xbf16, #l_qkv>,
+      %dyn: tensor<1x1x1x1xf32, #l_scalar>) -> tensor<1x6x256x128xbf16, #l_qkv> {
+    %q_scaled = "ttnn.multiply"(%q, %dyn) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x1x1x1xf32, #l_scalar>) -> tensor<1x6x256x128xbf16, #l_qkv>
+    %out = "ttnn.scaled_dot_product_attention"(%q_scaled, %k, %v)
+        <{is_causal = false, scale = 1.000000e+00 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}>
+        : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>) -> tensor<1x6x256x128xbf16, #l_qkv>
+    return %out : tensor<1x6x256x128xbf16, #l_qkv>
+  }
+
+  // CHECK-LABEL: no_upstream_multiply
+  // CHECK-NOT: ttnn.multiply
+  // CHECK: scale = 1.000000e+00 : f32
+  func.func @no_upstream_multiply(
+      %q: tensor<1x6x256x128xbf16, #l_qkv>,
+      %k: tensor<1x6x256x128xbf16, #l_qkv>,
+      %v: tensor<1x6x256x128xbf16, #l_qkv>) -> tensor<1x6x256x128xbf16, #l_qkv> {
+    %out = "ttnn.scaled_dot_product_attention"(%q, %k, %v)
+        <{is_causal = false, scale = 1.000000e+00 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>}>
+        : (tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>, tensor<1x6x256x128xbf16, #l_qkv>) -> tensor<1x6x256x128xbf16, #l_qkv>
+    return %out : tensor<1x6x256x128xbf16, #l_qkv>
+  }
 }
