@@ -7125,6 +7125,16 @@ def ttnn_to_layout_golden(
     return output_tensor.to(output_dtype)
 
 
+def ttnn_to_memory_config_golden(
+    input_tensor: GoldenMapTensor,
+    memory_config_attr: Attribute,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    output_tensor = input_tensor.clone()
+    return output_tensor.to(output_dtype)
+
+
 def ttnn_to_device_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -7870,6 +7880,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ConstantOp: ttnn_constant_golden,
     # Layout/Device operations
     ttnn.ToLayoutOp: ttnn_to_layout_golden,
+    ttnn.ToMemoryConfigOp: ttnn_to_memory_config_golden,
     ttnn.ToDeviceOp: ttnn_to_device_golden,
     ttnn.FromDeviceOp: ttnn_from_device_golden,
     # CCL (Collective Communication Library) operations

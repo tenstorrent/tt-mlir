@@ -652,3 +652,29 @@ def test_reshape(
         **get_request_kwargs(request),
         device=device,
     )
+
+
+@pytest.mark.parametrize("shape", [(32, 32), (64, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "buffer_type",
+    [ttnn.BufferType.DRAM, ttnn.BufferType.L1],
+    ids=["dram", "l1"],
+)
+def test_to_memory_config(
+    shape: Shape, dtype: torch.dtype, buffer_type, request, device
+):
+    def module(builder: TTNNBuilder):
+        @builder.func([shape], [dtype])
+        def to_memory_config(
+            in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.to_memory_config(
+                in0, buffer_type=buffer_type, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )

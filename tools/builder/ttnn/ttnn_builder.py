@@ -8835,6 +8835,136 @@ class TTNNBuilder(Builder):
 
         return to_layout_module, to_layout_builder
 
+    ############### ttnn.ToMemoryConfigOp ###############
+
+    @tag(ttnn.ToMemoryConfigOp)
+    def to_memory_config(
+        self,
+        input: Operand,
+        buffer_type: Optional[ttnn.ir.BufferTypeAttr] = ttnn.BufferType.DRAM,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.to_memory_config)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        shape = input.type.shape
+
+        memory_config_attr = self._create_memory_config_attr(buffer_type)
+        result = self.create_ttnn_tensor(
+            shape, mlir_output_type, buffer_type=buffer_type
+        )
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input_golden, memory_config_attr, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            input,
+            memory_config=memory_config_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ToMemoryConfigOp)
+    def to_memory_config_parser(
+        self,
+        old_op: ttnn.ToMemoryConfigOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.to_memory_config_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        memory_config_attr = old_op.memory_config
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            memory_config=memory_config_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0, memory_config_attr, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    @split(ttnn.ToMemoryConfigOp)
+    def to_memory_config_split(
+        self,
+        old_op: ttnn.ToMemoryConfigOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.to_memory_config_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            to_memory_config_module = Module.create()
+            to_memory_config_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(to_memory_config_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="to_memory_config_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    memory_config_attr = old_op.memory_config
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        memory_config=memory_config_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    to_memory_config_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    input0 = self._get_golden_tensor(old_op.input)
+                    to_memory_config_builder._set_golden_tensor(in0, input0)
+                    to_memory_config_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                to_memory_config_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return to_memory_config_module, to_memory_config_builder
+
     ############### ttnn.ToDeviceOp ###############
 
     @tag(ttnn.ToDeviceOp)
