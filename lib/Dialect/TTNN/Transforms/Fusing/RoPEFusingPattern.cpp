@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -918,11 +919,11 @@ std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
 
   SmallVector<int64_t> cosFullShape(cosType.getShape());
   cosFullShape[concatDim] *= 2;
-  Attribute cosEncoding = nullptr;
+  TTNNLayoutAttr cosEncoding = nullptr;
   if (auto layout =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(cosType.getEncoding())) {
-    cosEncoding =
-        layout.withElementType(cosType.getElementType(), cosFullShape);
+    cosEncoding = TTNNLayoutAttr::Builder(layout, cosFullShape)
+                      .setElementType(cosType.getElementType());
   }
   auto cosFullType = RankedTensorType::get(
       cosFullShape, cosType.getElementType(), cosEncoding);
@@ -932,8 +933,8 @@ std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
   Attribute sinEncoding = nullptr;
   if (auto layout =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(sinType.getEncoding())) {
-    sinEncoding =
-        layout.withElementType(sinType.getElementType(), sinFullShape);
+    sinEncoding = TTNNLayoutAttr::Builder(layout, sinFullShape)
+                      .setElementType(sinType.getElementType());
   }
   auto sinFullType = RankedTensorType::get(
       sinFullShape, sinType.getElementType(), sinEncoding);

@@ -7,7 +7,6 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/SmallVector.h"
@@ -43,30 +42,6 @@ inline bool isSinkOp(mlir::Operation *op) {
 inline bool isBeamSearchTarget(mlir::Operation *op) {
   return opHasTensorResult(op) || isSinkOp(op);
 }
-
-// Create affine maps that translate a virtual grid layout to a physical
-// grid layout and vice versa for a single device based on the specified tensor
-// memory layout.
-//
-// This function supports three types of tensor memory layouts:
-// - WidthSharded: Maps a width-sharded virtual grid (1xN) to a physical grid
-//   with the specified shape.
-// - HeightSharded: Maps a height-sharded virtual grid (Mx1) to a physical grid
-//   with the specified shape.
-// - BlockSharded: Maps a block-sharded virtual grid (MxN) directly to a
-//   physical grid with the specified shape.
-//
-// \param context The MLIR context.
-// \param tensorMemoryLayout The tensor memory layout type.
-// \param physicalGridShape The shape of the physical grid, defaults to {8, 8}.
-//
-// \return A pair of affine maps that translate the virtual grid layout to the
-// physical grid layout and vice versa based on the specified tensor memory
-// layout.
-std::pair<AffineMap, AffineMap> createSingleDeviceVirtualToPhysicalAffineMaps(
-    MLIRContext *context,
-    const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
-    const llvm::ArrayRef<int64_t> physicalGridShape = {8, 8});
 
 // Returns unique op-specific attributes from a list of OpConfigs.
 // Deduplicates by comparing OpConfig::OpSpecificAttrs values.
