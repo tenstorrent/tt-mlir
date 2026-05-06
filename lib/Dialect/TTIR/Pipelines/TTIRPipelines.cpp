@@ -82,6 +82,7 @@ void createStableHLOToTTIRPipeline(
   passOptions.enablePartialConversion = options.enableCPUFallback;
   pm.addPass(createConvertStableHLOToTTIRPass(passOptions));
   pm.addPass(mlir::createCSEPass());
+  pm.addPass(createTTIRRankNormalization()); 
 
   if (options.enableCPUFallback) {
     // Wrap all ops in DeviceModule.

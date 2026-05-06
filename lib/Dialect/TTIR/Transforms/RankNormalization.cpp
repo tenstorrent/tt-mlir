@@ -56,6 +56,15 @@ static bool needsRankExpansion(Type type) {
   return false;
 }
 
+/// Some ops have operand-rank invariants (e.g. require a 1D tensor) that this
+/// pass would break by promoting to rank 2. Treat those ops as legal so the
+/// rewriter leaves them and their operands/results untouched.
+static bool hasRankStrictOperandInvariants(Operation *op) {
+  return isa<ttir::PagedUpdateCacheOp, ttir::PagedFillCacheOp,
+             ttir::ScaledDotProductAttentionDecodeOp,
+             ttir::PagedScaledDotProductAttentionDecodeOp>(op);
+}
+
 /// TypeConverter that expands tensor types with rank < minRank.
 class RankNormalizationTypeConverter : public TypeConverter {
 public:
@@ -87,6 +96,10 @@ public:
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     if (isa<ModuleOp>(op) || isa<func::FuncOp>(op)) {
+      return failure();
+    }
+
+    if (hasRankStrictOperandInvariants(op)) {
       return failure();
     }
 
@@ -334,6 +347,9 @@ public:
     ConversionTarget target(*ctx);
 
     target.markUnknownOpDynamicallyLegal([&](Operation *op) {
+      if (hasRankStrictOperandInvariants(op)) {
+        return true;
+      }
       if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
           llvm::any_of(op->getResultTypes(), needsRankExpansion)) {
         return false;
