@@ -40,11 +40,6 @@ private:
   static bool isTransposeOnLastTwoDims(ArrayRef<int64_t> perm);
   bool isKeyTransposed(Value key, Value query, Value value) const;
 
-  // Constant Extraction
-  std::optional<float> extractConstant(Value v) const;
-  std::pair<Value, std::optional<float>>
-  extractMultiplyWithConstant(Value v) const;
-
   // Pattern Matching
   bool matchSoftmaxPath(Value v, SDPAComponents &c) const;
   bool matchScoreComputation(Value v, SDPAComponents &c) const;

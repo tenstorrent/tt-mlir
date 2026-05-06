@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Utils/SDPAUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
@@ -120,58 +121,6 @@ bool SDPAFusing::isKeyTransposed(Value key, Value query, Value value) const {
 }
 
 // ============================================================================
-// Constant Extraction
-// ============================================================================
-
-std::optional<float> SDPAFusing::extractConstant(Value v) const {
-  v = ttmlir::utils::lookThrough<TypecastOp>(v);
-
-  if (auto fullOp = v.getDefiningOp<FullOp>()) {
-    if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
-      return attr.getValue().convertToFloat();
-    }
-  }
-
-  if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
-    auto callee = loadCached.getCallee();
-    auto moduleOp = loadCached->getParentOfType<ModuleOp>();
-    if (!moduleOp) {
-      return std::nullopt;
-    }
-
-    auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(callee);
-    if (!funcOp) {
-      return std::nullopt;
-    }
-
-    std::optional<float> result;
-    funcOp.walk([&](FullOp fullOp) {
-      if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
-        result = attr.getValue().convertToFloat();
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
-    return result;
-  }
-
-  return std::nullopt;
-}
-
-std::pair<Value, std::optional<float>>
-SDPAFusing::extractMultiplyWithConstant(Value v) const {
-  if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
-    if (auto s = extractConstant(mulOp.getRhs())) {
-      return {mulOp.getLhs(), s};
-    }
-    if (auto s = extractConstant(mulOp.getLhs())) {
-      return {mulOp.getRhs(), s};
-    }
-  }
-  return {v, std::nullopt};
-}
-
-// ============================================================================
 // Pattern Matching with Backtracking
 // ============================================================================
 
@@ -269,17 +218,20 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
   v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
-    if (auto scale = extractConstant(mulOp.getRhs())) {
+    if (auto scale =
+            mlir::tt::ttnn::utils::extractScalarConstant(mulOp.getRhs())) {
       c.scale = scale;
       v = ttmlir::utils::lookThrough<TypecastOp>(mulOp.getLhs());
-    } else if (auto scale = extractConstant(mulOp.getLhs())) {
+    } else if (auto scale = mlir::tt::ttnn::utils::extractScalarConstant(
+                   mulOp.getLhs())) {
       c.scale = scale;
       v = ttmlir::utils::lookThrough<TypecastOp>(mulOp.getRhs());
     }
   }
 
   else if (auto divOp = v.getDefiningOp<DivideOp>()) {
-    if (auto divisor = extractConstant(divOp.getRhs())) {
+    if (auto divisor =
+            mlir::tt::ttnn::utils::extractScalarConstant(divOp.getRhs())) {
       if (*divisor != 0.0f) {
         c.scale = 1.0f / *divisor;
         v = ttmlir::utils::lookThrough<TypecastOp>(divOp.getLhs());
@@ -306,7 +258,8 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
 std::pair<Value, std::optional<float>> SDPAFusing::analyzeQ(Value v) const {
   // Look through typecast to find multiply-with-constant (pre-scale on Q).
   Value skipped = ttmlir::utils::lookThrough<TypecastOp>(v);
-  auto [inner, scale] = extractMultiplyWithConstant(skipped);
+  auto [inner, scale] =
+      mlir::tt::ttnn::utils::extractMultiplyWithScalarConstant(skipped);
   if (scale) {
     v = inner;
   }
@@ -332,7 +285,8 @@ SDPAFusing::analyzeK(Value v) const {
     // Walk through multiply-with-constant (pre-scale on K).
     // The elementwise commute pass may place this before or after the permute.
     if (!scale) {
-      auto [inner, s] = extractMultiplyWithConstant(v);
+      auto [inner, s] =
+          mlir::tt::ttnn::utils::extractMultiplyWithScalarConstant(v);
       if (s) {
         scale = s;
         v = inner;
