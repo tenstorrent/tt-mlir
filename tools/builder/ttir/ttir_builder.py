@@ -11085,7 +11085,7 @@ class TTIRBuilder(Builder):
     ############### ttir.SliceStaticOp ###############
 
     @tag(ttir.SliceStaticOp)
-    def slice(
+    def slice_static(
         self,
         in0: Operand,
         begins: List[int],
@@ -11095,7 +11095,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: List[str] = None,
     ) -> OpResult:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.slice)
+        ttir_op = self.get_opview_from_method(TTIRBuilder.slice_static)
 
         if step is None:
             step = [1] * len(begins)
@@ -11154,12 +11154,12 @@ class TTIRBuilder(Builder):
         return op_result
 
     @parse(ttir.SliceStaticOp)
-    def slice_parser(
+    def slice_static_parser(
         self,
         old_op: ttir.SliceStaticOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.slice_parser)
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.slice_static_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
         begins_attr = old_op.begins
@@ -11191,52 +11191,12 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
-    @parse(ttir.SliceDynamicOp)
-    def slice_dynamic_parser(
-        self,
-        old_op: ttir.SliceDynamicOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.slice_dynamic_parser)
-        in0 = global_dict[old_op.input]
-        begins = global_dict[old_op.begins]
-        ends = global_dict[old_op.ends]
-        result = old_op.result.type
-        step_attr = old_op.step
-
-        new_op = ttir_op(
-            result,
-            in0,
-            begins,
-            ends,
-            step=step_attr,
-            loc=old_op.location,
-        )
-        new_op_result = new_op.result
-
-        input0 = self._get_golden_tensor(in0)
-        input_begins = self._get_golden_tensor(begins)
-        input_ends = self._get_golden_tensor(ends)
-        op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(
-            input0,
-            input_begins,
-            input_ends,
-            step=step_attr,
-            output_type_mlir=result.element_type,
-        )
-        self._set_golden_tensor(new_op_result, golden_output)
-
-        op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op_result
-        return new_op, op_map_dictionary
-
     @split(ttir.SliceStaticOp)
-    def slice_split(
+    def slice_static_split(
         self,
         old_op: ttir.SliceStaticOp,
     ) -> Tuple[Module, TTIRBuilder]:
-        ttir_op = self.get_opview_from_split(TTIRBuilder.slice_split)
+        ttir_op = self.get_opview_from_split(TTIRBuilder.slice_static_split)
 
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
@@ -11286,6 +11246,175 @@ class TTIRBuilder(Builder):
                 ]
 
         return slice_module, slice_builder
+
+    ############### ttir.SliceDynamicOp ###############
+
+    @tag(ttir.SliceDynamicOp)
+    def slice_dynamic(
+        self,
+        in0: Operand,
+        begins: Operand,
+        ends: Operand,
+        step: List[int] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: List[str] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.slice_dynamic)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        step_attr = None
+        if step is not None:
+            step_int_attrs = [
+                IntegerAttr.get(IntegerType.get_signless(32), s) for s in step
+            ]
+            step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        input_begins = self._get_golden_tensor(begins)
+        input_ends = self._get_golden_tensor(ends)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            input_begins,
+            input_ends,
+            step=step_attr,
+            output_type_mlir=mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            begins,
+            ends,
+            step=step_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.SliceDynamicOp)
+    def slice_dynamic_parser(
+        self,
+        old_op: ttir.SliceDynamicOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.slice_dynamic_parser)
+        in0 = global_dict[old_op.input]
+        begins = global_dict[old_op.begins]
+        ends = global_dict[old_op.ends]
+        result = old_op.result.type
+        step_attr = old_op.step
+
+        new_op = ttir_op(
+            result,
+            in0,
+            begins,
+            ends,
+            step=step_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input_begins = self._get_golden_tensor(begins)
+        input_ends = self._get_golden_tensor(ends)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            input_begins,
+            input_ends,
+            step=step_attr,
+            output_type_mlir=result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.SliceDynamicOp)
+    def slice_dynamic_split(
+        self,
+        old_op: ttir.SliceDynamicOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.slice_dynamic_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            slice_dynamic_module = Module.create()
+            slice_dynamic_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [
+                old_op.input.type,
+                old_op.begins.type,
+                old_op.ends.type,
+            ]
+
+            with InsertionPoint(slice_dynamic_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="slice_dynamic_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    begins = inputs[1]
+                    ends = inputs[2]
+                    result = old_op.result.type
+                    step_attr = old_op.step
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        begins,
+                        ends,
+                        step=step_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    input_begins = self._get_golden_tensor(old_op.begins)
+                    input_ends = self._get_golden_tensor(old_op.ends)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    slice_dynamic_builder._set_golden_tensor(new_op_result, old_op_result)
+                    slice_dynamic_builder._set_golden_tensor(in0, input0)
+                    slice_dynamic_builder._set_golden_tensor(begins, input_begins)
+                    slice_dynamic_builder._set_golden_tensor(ends, input_ends)
+                    slice_dynamic_builder._annotate_presharded_arg(in0)
+                    slice_dynamic_builder._annotate_presharded_arg(begins)
+                    slice_dynamic_builder._annotate_presharded_arg(ends)
+                    ordered_inputs.extend([in0, begins, ends])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                slice_dynamic_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return slice_dynamic_module, slice_dynamic_builder
 
     ############### ttir.EmbeddingBackwardOp ###############
 

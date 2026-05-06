@@ -1046,7 +1046,7 @@ def test_slice_l1_cb_workaround_disabled(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
+            return builder.slice_static(in0, begins, ends, step, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
