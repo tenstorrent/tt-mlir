@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Type
 
-from ttmlir.dialects import func, ttnn
+from ttmlir.dialects import func, ttcore, ttnn
 
 logger = logging.getLogger("chisel")
 
@@ -75,6 +75,10 @@ def get_skipped_op_names() -> frozenset:
 # ttnn.empty produces an uninitialized device tensor — PCC comparison is
 # meaningless for both isolation and accumulation checks.
 register_op_config(ttnn.EmptyOp, ChiselOpConfig(skip_pcc=True, skip_accum_pcc=True))
+
+# ttcore.load_cached: IR output count > 0 but FB output count = 0.
+# Inputs are cache identifiers, not retrievable tensors.
+register_op_config(ttcore.LoadCachedOp, ChiselOpConfig(skip=True))
 
 # ttnn.generic: IR output count = 0 but FB output count = 1.
 register_op_config(ttnn.GenericOp, ChiselOpConfig(skip=True))
