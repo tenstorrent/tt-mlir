@@ -87,6 +87,15 @@ public:
       uint64_t previousAfterCommuteBelowTMCount =
           std::numeric_limits<uint64_t>::max();
 
+      // One ConstevalForwardAnalysis per FuncOp: it lazy-rebuilds whenever
+      // any IR mutation has flipped its dirty flag. We install it as a
+      // RewriterBase::Listener on the greedy driver below so every insert /
+      // modify / replace / erase event marks the cache stale. countTms calls
+      // outside the greedy driver also benefit (no listener needed there
+      // because no mutation happens between calls).
+      ttcore::ConstevalForwardAnalysis analysis(funcOp);
+      ttcore::ConstevalAnalysisScope scope(analysis);
+
       uint64_t iter = 0;
       // The number of TM is expected to converge before maxIterations (default:
       // 100) is reached.
@@ -94,10 +103,10 @@ public:
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
         // once
-        applyCommuteAbovePatterns(funcOp);
+        applyCommuteAbovePatterns(funcOp, analysis);
         uint64_t afterCommuteAboveTMCount = countTms(funcOp);
 
-        applyCommuteBelowPatterns(funcOp);
+        applyCommuteBelowPatterns(funcOp, analysis);
         uint64_t afterCommuteBelowTMCount = countTms(funcOp);
 
         // If the number of TM is the same as in the previous iteration, we have
@@ -108,7 +117,7 @@ public:
           // If the number of TM was smaller before commuting below, commute
           // above one more time.
           if (afterCommuteAboveTMCount < afterCommuteBelowTMCount) {
-            applyCommuteAbovePatterns(funcOp);
+            applyCommuteAbovePatterns(funcOp, analysis);
           }
           break;
         }
@@ -161,17 +170,23 @@ private:
     return patterns;
   }
 
-  void applyCommuteAbovePatterns(Operation *op) {
+  void applyCommuteAbovePatterns(Operation *op,
+                                 ttcore::ConstevalForwardAnalysis &analysis) {
     if (enableCommuteUpwards.getValue()) {
-      if (failed(applyPatternsGreedily(op, commuteAbovePatterns))) {
+      GreedyRewriteConfig config;
+      config.setListener(&analysis);
+      if (failed(applyPatternsGreedily(op, commuteAbovePatterns, config))) {
         signalPassFailure();
       }
     }
   }
 
-  void applyCommuteBelowPatterns(Operation *op) {
+  void applyCommuteBelowPatterns(Operation *op,
+                                 ttcore::ConstevalForwardAnalysis &analysis) {
     if (enableCommuteDownwards.getValue()) {
-      if (failed(applyPatternsGreedily(op, commuteBelowPatterns))) {
+      GreedyRewriteConfig config;
+      config.setListener(&analysis);
+      if (failed(applyPatternsGreedily(op, commuteBelowPatterns, config))) {
         signalPassFailure();
       }
     }

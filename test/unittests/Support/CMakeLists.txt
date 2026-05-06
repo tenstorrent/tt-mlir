@@ -3,6 +3,7 @@ add_mlir_unittest(TTMLIRSupportTests
   TTPrintIRInstrumentationTest.cpp
   TestAsserts.cpp
   TestAssertsElision.cpp
+  TestConstevalForwardAnalysis.cpp
   DeathTestAsserts.cpp
 )
 
@@ -17,5 +18,7 @@ target_link_libraries(TTMLIRSupportTests
     MLIRIR
     MLIRFuncDialect
     MLIRTransforms
+    MLIRParser
     TTMLIRSupport
+    MLIRTTCoreDialect
 )
