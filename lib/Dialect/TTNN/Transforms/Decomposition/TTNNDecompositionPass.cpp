@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedLayerNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/TopKDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -26,6 +27,15 @@ public:
     patterns
         .add<decomposition::DistributedLayerNormDecompositionRewritePattern>(
             &getContext());
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+    if (enableOpConstraints) {
+      FusionValidationConfig validationConfig;
+      validationConfig.maxFallbackAttempts = maxFallbackAttempts;
+      patterns.add<decomposition::TopKDecompositionRewritePattern>(
+          &getContext(), validationConfig);
+    }
+#endif // TTMLIR_ENABLE_OPMODEL
 
     FrozenRewritePatternSet patternSet(std::move(patterns));
     GreedyRewriteConfig config;

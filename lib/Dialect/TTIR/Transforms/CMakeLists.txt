@@ -21,6 +21,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         RankNormalization.cpp
         Transforms.cpp
         TTIRFusing.cpp
+        Fusing/TopKFusingPattern.cpp
         MultiDeviceTensorAnnotation.cpp
 
         ADDITIONAL_HEADER_DIRS

@@ -4,8 +4,8 @@ if (TTMLIR_ENABLE_OPMODEL)
                 Fusing/RoPEFusingPattern.cpp
                 Fusing/SDPAFusingPattern.cpp
                 Fusing/SplitQKVFusingPatterns.cpp
-                Fusing/TopKFusingPattern.cpp
-                Fusing/FusionValidator.cpp)
+                Fusing/FusionValidator.cpp
+                Decomposition/TopKDecompositionRewritePattern.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
