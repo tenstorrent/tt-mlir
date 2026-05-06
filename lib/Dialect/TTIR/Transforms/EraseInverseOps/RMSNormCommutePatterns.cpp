@@ -118,16 +118,20 @@ private:
 
 template <CommuteDirection commuteDirection>
 void populateRMSNormCommutePatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns) {
+                                    RewritePatternSet &patterns,
+                                    ConstevalForwardAnalysis *analysis) {
   patterns
       .add<TTIRCommuteReshapeThroughRMSNormBase<RMSNormOp, commuteDirection>,
            TTIRCommuteReshapeThroughRMSNormBase<DistributedRMSNormOp,
-                                                commuteDirection>>(ctx);
+                                                commuteDirection>>(ctx,
+                                                                   analysis);
 }
 
 template void populateRMSNormCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 template void populateRMSNormCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 
 } // namespace mlir::tt::ttir

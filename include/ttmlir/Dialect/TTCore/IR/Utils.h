@@ -107,6 +107,14 @@ inline bool valueTracesToConstantArgs(const mlir::Value &value) {
   }
 
   for (auto blockArg : subgraphBlockArgs) {
+    // Require ownership by the same func::FuncOp before consulting its
+    // argument attributes; otherwise an inner-region block argument could
+    // accidentally be classified as CONST/PARAM via funcOp.getArgAttr at
+    // a matching argNumber. Non-function block arguments never carry
+    // ttcore::ArgumentType so the value cannot be const-eval-traceable.
+    if (blockArg.getOwner()->getParentOp() != funcOp.getOperation()) {
+      return false;
+    }
     if (!isConstOrParamArg(blockArg, funcOp)) {
       return false;
     }
