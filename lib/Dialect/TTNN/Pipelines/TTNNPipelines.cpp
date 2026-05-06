@@ -324,7 +324,30 @@ void createTTIRToTTNNCommonPipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
-    devicePm.addPass(createTTNNDecomposition());
+
+    // Create TTNN decomposition pass, optionally with op-model validation.
+    if (options.optimizerPassEnabled) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+      DevicePassesWrapperOptions decompWrapperOptions;
+      decompWrapperOptions.devicePtr = options.devicePtr;
+      decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+
+      uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
+      devicePm.addPass(createDevicePassesWrapper(
+          [decompFallbackAttempts](OpPassManager &innerPm) {
+            TTNNDecompositionOptions decompOptions;
+            decompOptions.enableOpConstraints = true;
+            decompOptions.maxFallbackAttempts = decompFallbackAttempts;
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNDecomposition(decompOptions));
+          },
+          decompWrapperOptions));
+#else
+      devicePm.addPass(createTTNNDecomposition());
+#endif
+    } else {
+      devicePm.addPass(createTTNNDecomposition());
+    }
 
     if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());

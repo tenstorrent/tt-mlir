@@ -2,18 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Fusing/TopKFusingPattern.h"
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#include "ttmlir/Support/Logger.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/IR/PatternMatch.h"
 
 #include "llvm/ADT/ArrayRef.h"
 
-namespace mlir::tt::ttnn::fusing {
+namespace mlir::tt::ttir::fusing {
 
 namespace {
 
@@ -33,13 +30,9 @@ struct SliceKResult {
 // step.
 std::optional<SliceKResult> extractKFromSlice(SliceStaticOp sliceOp,
                                               int64_t dim, int64_t dimSize) {
-  auto beginsAttr = sliceOp.getBeginsAttr();
-  auto endsAttr = sliceOp.getEndsAttr();
-  auto stepsAttr = sliceOp.getStepAttr();
-
-  auto begins = llvm::cast<ArrayAttr>(beginsAttr);
-  auto ends = llvm::cast<ArrayAttr>(endsAttr);
-  auto steps = llvm::cast<ArrayAttr>(stepsAttr);
+  auto begins = llvm::cast<ArrayAttr>(sliceOp.getBeginsAttr());
+  auto ends = llvm::cast<ArrayAttr>(sliceOp.getEndsAttr());
+  auto steps = llvm::cast<ArrayAttr>(sliceOp.getStepAttr());
 
   auto beginValue = llvm::cast<IntegerAttr>(begins[dim]).getInt();
   auto endValue = llvm::cast<IntegerAttr>(ends[dim]).getInt();
@@ -64,37 +57,16 @@ std::optional<SliceKResult> extractKFromSlice(SliceStaticOp sliceOp,
   return std::nullopt;
 }
 
-// Check if two slice operations have identical parameters
+// Check if two slice operations have identical parameters.
 bool haveSameSliceParams(SliceStaticOp slice1, SliceStaticOp slice2) {
   return slice1.getBeginsAttr() == slice2.getBeginsAttr() &&
          slice1.getEndsAttr() == slice2.getEndsAttr() &&
          slice1.getStepAttr() == slice2.getStepAttr();
 }
-} // namespace
 
-// Helper to compute the TopK result type for an unused sort result.
-// Derives from the input type with the sorted dimension replaced by k,
-// preserving the TTNNLayoutAttr encoding (adjusted for the new shape).
-RankedTensorType computeTopKResultType(RankedTensorType inputType,
-                                       int64_t sortDim, int32_t k,
-                                       Type elementType) {
-  SmallVector<int64_t> shape(inputType.getShape());
-  shape[sortDim] = k;
-
-  // If the input has a TTNNLayoutAttr encoding, create a new layout with the
-  // updated shape so the validation function has properly typed results.
-  Attribute encoding = nullptr;
-  if (auto inputLayout =
-          mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputType.getEncoding())) {
-    encoding = inputLayout.withElementType(elementType, shape);
-  }
-
-  return RankedTensorType::get(shape, elementType, encoding);
-}
-
-// Helper to validate slice parameters: verifies the slice only operates on the
-// sorted dimension (other dimensions are passed through unchanged) and extracts
-// the k value.
+// Validate slice parameters: verifies the slice only operates on the sorted
+// dimension (other dimensions are passed through unchanged) and extracts the
+// k value.
 std::optional<SliceKResult>
 validateAndExtractK(SliceStaticOp sliceOp, int64_t sortDim,
                     llvm::ArrayRef<int64_t> inputShape, int64_t rank) {
@@ -122,10 +94,12 @@ validateAndExtractK(SliceStaticOp sliceOp, int64_t sortDim,
   return sliceResult;
 }
 
+} // namespace
+
 mlir::LogicalResult
-TopKFusing::matchAndRewrite(SortOp srcOp,
-                            mlir::PatternRewriter &rewriter) const {
-  // Sort operation must have exactly two results: values and indices
+TopKFusingPattern::matchAndRewrite(SortOp srcOp,
+                                   mlir::PatternRewriter &rewriter) const {
+  // Sort operation must have exactly two results: values and indices.
   if (srcOp->getNumResults() != 2) {
     return failure();
   }
@@ -133,7 +107,7 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   Value sortValues = srcOp.getValues();
   Value sortIndices = srcOp.getIndices();
 
-  // Each result must either be unused or have exactly one user
+  // Each result must either be unused or have exactly one user.
   if (!sortValues.hasOneUse() && !sortValues.use_empty()) {
     return failure();
   }
@@ -142,7 +116,6 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   }
 
   // For used results, the single user must be a SliceStaticOp.
-  // At least one result must have a SliceStaticOp user for TopK fusion.
   SliceStaticOp valuesSlice = nullptr;
   SliceStaticOp indicesSlice = nullptr;
 
@@ -160,21 +133,21 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
     }
   }
 
-  // At least one slice must exist for this to be a TopK pattern
+  // At least one slice must exist for this to be a TopK pattern.
   if (!valuesSlice && !indicesSlice) {
     return failure();
   }
 
-  // If both slices exist, they must have identical parameters
+  // If both slices exist, they must have identical parameters.
   if (valuesSlice && indicesSlice &&
       !haveSameSliceParams(valuesSlice, indicesSlice)) {
     return failure();
   }
 
-  // Get the dimension being sorted
+  // Get the dimension being sorted.
   int64_t sortDim = srcOp.getDim();
 
-  // Handle negative dimension
+  // Handle negative dimension.
   auto inputType = mlir::cast<RankedTensorType>(srcOp.getInput().getType());
   int64_t rank = inputType.getRank();
   if (sortDim < 0) {
@@ -183,7 +156,7 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
 
   auto inputShape = inputType.getShape();
 
-  // Use whichever slice exists to extract k and validate
+  // Use whichever slice exists to extract k and validate.
   SliceStaticOp activeSlice = valuesSlice ? valuesSlice : indicesSlice;
   auto sliceResult =
       validateAndExtractK(activeSlice, sortDim, inputShape, rank);
@@ -192,66 +165,38 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   }
 
   // Map sort's descending attribute to topk's largest attribute.
-  // When slicing from the end, the relationship is inverted:
-  //   descending + slice_from_start -> largest=true
-  //   ascending  + slice_from_start -> largest=false
-  //   descending + slice_from_end   -> largest=false (tail of descending =
-  //   smallest) ascending  + slice_from_end   -> largest=true  (tail of
-  //   ascending = largest)
+  // When slicing from the end, the relationship is inverted.
   bool largest =
       sliceResult->fromEnd ? !srcOp.getDescending() : srcOp.getDescending();
 
-  // TopK always produces sorted output when replacing a sort operation
+  // TopK always produces sorted output when replacing a sort operation.
   bool sorted = true;
 
   // Determine result types for TopK.
   // For used results, use the slice output type.
   // For unused results, derive from input shape with sorted dim replaced by k.
+  auto computeResultType = [&](Type elementType) -> RankedTensorType {
+    SmallVector<int64_t> shape(inputType.getShape());
+    shape[sortDim] = sliceResult->k;
+    return RankedTensorType::get(shape, elementType);
+  };
+
   RankedTensorType valuesResultType =
       valuesSlice ? mlir::cast<RankedTensorType>(valuesSlice.getType())
-                  : computeTopKResultType(inputType, sortDim, sliceResult->k,
-                                          inputType.getElementType());
+                  : computeResultType(inputType.getElementType());
   RankedTensorType indicesResultType =
-      indicesSlice
-          ? mlir::cast<RankedTensorType>(indicesSlice.getType())
-          : computeTopKResultType(inputType, sortDim, sliceResult->k,
-                                  IntegerType::get(rewriter.getContext(), 32,
-                                                   IntegerType::Signed));
+      indicesSlice ? mlir::cast<RankedTensorType>(indicesSlice.getType())
+                   : computeResultType(IntegerType::get(
+                         rewriter.getContext(), 32, IntegerType::Signed));
 
-  // Validate the fusion before creating it
-  FusionValidator validator(rewriter.getContext(), validationConfig);
-
-  // Validate the TopK operation that would be created
-  auto validationResult = validator.validateFusion<TopKOp>(
-      srcOp.getOperation(), // Pass source op for context
-      srcOp.getLoc(), {valuesResultType, indicesResultType}, srcOp.getInput(),
+  // Create the fused TopK operation.
+  auto topkOp = rewriter.create<TopKOp>(
+      srcOp.getLoc(), valuesResultType, indicesResultType, srcOp.getInput(),
       rewriter.getI32IntegerAttr(sliceResult->k),
       rewriter.getI32IntegerAttr(sortDim), rewriter.getBoolAttr(largest),
-      rewriter.getBoolAttr(sorted),
-      nullptr // memory_config
-  );
+      rewriter.getBoolAttr(sorted));
 
-  // If validation fails, don't fuse
-  if (!validationResult.isSuccess()) {
-    // Log the validation failure for debugging
-    TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
-                 "TopK fusion validation failed: {0}",
-                 validationResult.errorMessage);
-    return failure();
-  }
-
-  // Create the fused TopK operation (now that we know it's valid)
-  auto topkOp = rewriter.create<TopKOp>(
-      srcOp.getLoc(), valuesResultType, indicesResultType,
-      srcOp.getInput(),                           // input tensor
-      rewriter.getI32IntegerAttr(sliceResult->k), // k value
-      rewriter.getI32IntegerAttr(sortDim),        // dimension
-      rewriter.getBoolAttr(largest),              // largest
-      rewriter.getBoolAttr(sorted),               // sorted
-      nullptr                                     // memory_config (optional)
-  );
-
-  // Replace the slice operations with TopK results (only for used results)
+  // Replace the slice operations with TopK results (only for used results).
   if (valuesSlice) {
     rewriter.replaceOp(valuesSlice, topkOp.getValues());
   }
@@ -259,10 +204,10 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
     rewriter.replaceOp(indicesSlice, topkOp.getIndices());
   }
 
-  // Erase the sort operation (it has no more users after slices are replaced)
+  // Erase the sort operation (it has no more users after slices are replaced).
   rewriter.eraseOp(srcOp);
 
   return success();
 }
 
-} // namespace mlir::tt::ttnn::fusing
+} // namespace mlir::tt::ttir::fusing
