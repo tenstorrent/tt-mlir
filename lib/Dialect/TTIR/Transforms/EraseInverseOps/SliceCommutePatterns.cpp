@@ -422,15 +422,19 @@ private:
 } // namespace
 
 template <CommuteDirection commuteDirection>
-void populateSliceCommutePatterns(MLIRContext *ctx,
-                                  RewritePatternSet &patterns) {
-  patterns.insert<TTIRCommutePermuteThroughSlice<commuteDirection>>(ctx);
-  patterns.insert<TTIRCommuteReshapeThroughSlice<commuteDirection>>(ctx);
+void populateSliceCommutePatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                                  ConstevalForwardAnalysis *analysis) {
+  patterns.insert<TTIRCommutePermuteThroughSlice<commuteDirection>>(ctx,
+                                                                    analysis);
+  patterns.insert<TTIRCommuteReshapeThroughSlice<commuteDirection>>(ctx,
+                                                                    analysis);
 }
 
 template void populateSliceCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 template void populateSliceCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 
 } // namespace mlir::tt::ttir

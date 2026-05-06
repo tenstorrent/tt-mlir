@@ -17,5 +17,7 @@ target_link_libraries(TTMLIRSupportTests
     MLIRIR
     MLIRFuncDialect
     MLIRTransforms
+    MLIRParser
     TTMLIRSupport
+    MLIRTTCoreDialect
 )
