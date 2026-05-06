@@ -210,12 +210,26 @@ void ProgramExecutor::execute() {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
 #endif
+
     runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
-    dumpPerfCountersIfNeeded();
+    readProfilerDataIfNeeded();
   }
+
   runProgramCallback(debug::Hooks::get().getpostProgramCallback(),
                      executableHandle, context.get());
+
+  // Always read the profiler data after program execution. This handles trace
+  // replay case, since the op counting logic (in `readProfilerDataIfNeeded`)
+  // doesn't work there - we execute only one op (trace replay) which will
+  // indirectly execute lots of ops on the device. This will reduce the chance
+  // for overflow on the device buffer which holds profiler data.
+  //
+  // In case we are running a traced graph and an overflow occurs, the only way
+  // to get all of the profiler data is to increase the buffer size (via
+  // `--op-support-count` flag in `tracy` CLI tool).
+  readProfilerDataIfNeeded(/*force=*/true);
+
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }
@@ -655,16 +669,26 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
             "statement");
 }
 
-void ProgramExecutor::dumpPerfCountersIfNeeded() {
+void ProgramExecutor::readProfilerDataIfNeeded(bool force) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   static uint32_t counter = 0;
-  if (++counter >= perf::Env::get().dumpDeviceRate) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
-                                           std::to_string(counter) +
-                                           " operations");
-    ::tt::tt_metal::ReadMeshDeviceProfilerResults(context->getMeshDevice());
-    counter = 0;
+  if (!force && ++counter < perf::Env::get().dumpDeviceRate) {
+    return;
   }
+
+  // We cannot run `ReadMeshDeviceProfilerResults` if there is an active trace
+  // capture - detect this case and skip reading the profiler data.
+  auto &meshDevice = context->getMeshDevice();
+  for (uint8_t cqId = 0; cqId < meshDevice.num_hw_cqs(); ++cqId) {
+    if (meshDevice.mesh_command_queue(cqId).trace_id().has_value()) {
+      return;
+    }
+  }
+  LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
+                                         std::to_string(counter) +
+                                         " operations");
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(meshDevice);
+  counter = 0;
 #endif
 }
 
