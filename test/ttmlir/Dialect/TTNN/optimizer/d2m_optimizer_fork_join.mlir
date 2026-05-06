@@ -21,40 +21,40 @@ module {
   func.func @fork_join(%arg0: tensor<64x64xbf16, #layout>,%arg1: tensor<64x64xbf16, #layout>,%arg2: tensor<64x64xbf16, #layout>) -> (tensor<64x64xbf16, #layout>) {
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x64xbf16, #layout>, tensor<64x64xbf16, #layout>) -> tensor<64x64xbf16, #layout>
     // CHECK: %[[MATMUL_0_OUT:.*]] = "ttnn.matmul"
-    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>>
+    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>{{(, core_ranges = <\[[^]]*\]>)?}}>>
     // CHECK: %[[MATMUL_0_SPILLED:.*]] = "ttnn.to_layout"(%[[MATMUL_0_OUT]])
-    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+    // CHECK-SAME: memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     %1 = "ttnn.add"(%0, %arg2) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x64xbf16, #layout>, tensor<64x64xbf16, #layout>) -> tensor<64x64xbf16, #layout>
     %2 = "ttnn.multiply"(%1, %arg0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x64xbf16, #layout>, tensor<64x64xbf16, #layout>) -> tensor<64x64xbf16, #layout>
     // CHECK: %[[D2M_OUTPUT_BUFFER:.*]] = "ttnn.empty"
-    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>>
+    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>{{(, core_ranges = <\[[^]]*\]>)?}}>>
     // CHECK: %[[D2M_SUBGRAPH_OUT:.*]] = ttnn.d2m_subgraph @d2m_subgraph_0
     // CHECK: ins(%[[MATMUL_0_SPILLED]], %arg2, %arg0 :
-    // CHECK-SAME: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>,
+    // CHECK-SAME: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>,
     // CHECK-SAME: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <interleaved>>>,
     // CHECK-SAME: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <interleaved>>>)
-    // CHECK: outs(%[[D2M_OUTPUT_BUFFER]] : tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>>)
+    // CHECK: outs(%[[D2M_OUTPUT_BUFFER]] : tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>{{(, core_ranges = <\[[^]]*\]>)?}}>>)
     // CHECK: %[[D2M_TO_DRAM:.*]] = "ttnn.to_layout"(%[[D2M_SUBGRAPH_OUT]])
-    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+    // CHECK-SAME: memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     %3 = "ttnn.matmul"(%0, %2) : (tensor<64x64xbf16, #layout>, tensor<64x64xbf16, #layout>) -> tensor<64x64xbf16, #layout>
     // CHECK: %[[MATMUL_1_OUT:.*]] = "ttnn.matmul"(%[[MATMUL_0_SPILLED]], %[[D2M_TO_DRAM]]
-    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>>
+    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>{{(, core_ranges = <\[[^]]*\]>)?}}>>
     // CHECK: %[[MATMUL_1_SPILLED:.*]] = "ttnn.to_layout"(%[[MATMUL_1_OUT]])
-    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+    // CHECK-SAME: memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     return %3 : tensor<64x64xbf16, #layout>
     // CHECK: return %[[MATMUL_1_SPILLED]]
   }
 
   // CHECK: func.func private @d2m_subgraph_0
-  // CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>,
+  // CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>,
   // CHECK-SAME: %arg1: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <interleaved>>>,
   // CHECK-SAME: %arg2: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <interleaved>>>)
-  // CHECK-SAME: -> tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>> {
+  // CHECK-SAME: -> tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>{{(, core_ranges = <\[[^]]*\]>)?}}>> {
   // CHECK: %[[ADD_OUT:.*]] = "ttnn.add"
   // CHECK-SAME: (tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}#ttnn.buffer_type<dram>>, <interleaved>>>, tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}#ttnn.buffer_type<l1>>, <interleaved>>>)
   // CHECK: %[[MULTIPLY_OUT:.*]] = "ttnn.multiply"
   // CHECK-SAME: (%[[ADD_OUT]]
   // CHECK: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%[[MULTIPLY_OUT]])
-  // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>>
+  // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>{{(, core_ranges = <\[[^]]*\]>)?}}>>
   // CHECK: return %[[TO_LAYOUT]]
 }

@@ -23,7 +23,8 @@ module {
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
     // CHECK: %[[NOC:[0-9]+]] = ttkernel.get_noc_addr({{.*}}, {{.*}}, %[[SEM]])
-    // CHECK: ttkernel.noc_semaphore_inc(%[[NOC]], %c1)
+    // CHECK: ttkernel.noc_semaphore_inc(%[[NOC]], %c1) :
+    // CHECK-NOT: posted
     return
   }
 

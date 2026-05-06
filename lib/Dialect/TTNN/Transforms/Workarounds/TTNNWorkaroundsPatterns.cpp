@@ -172,14 +172,18 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   RankedTensorType opResultType =
       mlir::cast<RankedTensorType>(opResult.getType());
 
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+
   // Create the new output layout attribute with the updated tensor layout,
   // buffer type, memory layout and data type.
   TTNNLayoutAttr newOutputLayoutAttr =
-      opResultLayoutAttr.withElementType(elementType, opResultType.getShape())
-          .withBufferType(
+      TTNNLayoutAttr::Builder(opResultLayoutAttr, opResultType.getShape())
+          .setElementType(elementType)
+          .setBufferType(
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-          .withMemoryLayout(
-              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
+          .setMemoryLayout(
+              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue)
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType = utils::RankedTensorTypeFactory::create(
@@ -630,7 +634,8 @@ public:
           workarounds::decomposition::NLPConcatHeadsDecodeInputRewritePattern,
           workarounds::decomposition::
               SplitQueryKeyValueAndSplitHeadsOpRewritePattern,
-          workarounds::decomposition::PagedUpdateCacheOpRewritePattern,
+          // PagedUpdateCacheOpRewritePattern added below — conditionally.
+
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeAttentionSinkRewritePattern,
           workarounds::decomposition::
@@ -653,6 +658,16 @@ public:
           .add<workarounds::decomposition::LinearOpOutputShapeRewritePattern>(
               &getContext(), /*benefit=*/1);
 
+      // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
+      // At level >= 2 the greedy sharding optimizer (PagedUpdateCacheRuleBook
+      // constraint sink) drives the upstream producer to L1 height-sharded
+      // and inserts a proper ToMemoryConfigOp via beam search.
+      if (optimizationLevel < 2) {
+        patterns
+            .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
+                &getContext());
+      }
+
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
     }
@@ -660,7 +675,7 @@ public:
       RewritePatternSet patterns(&getContext());
 
       std::set<mlir::StringRef> enabledOps;
-      if (optimizerEnabled) {
+      if (optimizationLevel >= 1) {
         enabledOps = enabledOpsForWorkaroundWithOptimizer;
       } else {
         enabledOps = utils::getAllTTNNDialectOps(&getContext());
@@ -704,5 +719,8 @@ const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
         ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
-        ttnn::ScatterOp::getOperationName()};
+        ttnn::ScatterOp::getOperationName(),
+        // TopK's operands workaround forces input bf16 + indices ui16/ui32;
+        // without it, opt_level>=1 dtype propagation picks f32. See #8141.
+        ttnn::TopKOp::getOperationName()};
 } // namespace mlir::tt::ttnn

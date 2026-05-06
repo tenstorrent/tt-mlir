@@ -7,7 +7,11 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace mlir::tt::ttnn::layout_filter_utils {
@@ -24,6 +28,45 @@ inline bool rejectWidthSharded(TTNNLayoutAttr layout) {
   return !(ml && ml.getValue() == TensorMemoryLayout::WidthSharded);
 }
 
+/// Whether a sharded layout's core grid forms a full rectangular bounding
+/// box (num_cores == bbox_num_cores). Interleaved layouts return true.
+inline bool isFullBboxSharded(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  if (!isShardedMemoryLayout(ml.getValue())) {
+    return true;
+  }
+
+  ttnn::CoreRangeSetAttr ranges = layout.getCoreRangeSet();
+  assert(ranges && "sharded layout must have a valid core range set");
+
+  if (ranges.getCoreRanges().empty()) {
+    return false;
+  }
+
+  int32_t minX = std::numeric_limits<int32_t>::max();
+  int32_t minY = std::numeric_limits<int32_t>::max();
+  int32_t maxX = std::numeric_limits<int32_t>::min();
+  int32_t maxY = std::numeric_limits<int32_t>::min();
+  int64_t numCores = 0;
+  for (const auto &coreRange : ranges.getCoreRanges()) {
+    auto start = coreRange.getStartCoord();
+    auto end = coreRange.getEndCoord();
+
+    int32_t sizeX = end.getX() - start.getX() + 1;
+    int32_t sizeY = end.getY() - start.getY() + 1;
+
+    numCores += static_cast<int64_t>(sizeX) * static_cast<int64_t>(sizeY);
+
+    minX = std::min(minX, static_cast<int32_t>(start.getX()));
+    minY = std::min(minY, static_cast<int32_t>(start.getY()));
+    maxX = std::max(maxX, static_cast<int32_t>(end.getX()));
+    maxY = std::max(maxY, static_cast<int32_t>(end.getY()));
+  }
+  int64_t bboxCores = static_cast<int64_t>(maxX - minX + 1) *
+                      static_cast<int64_t>(maxY - minY + 1);
+  return numCores == bboxCores;
+}
+
 /// Allow only a specific sharding type (plus interleaved). Returns a filter
 /// function that rejects sharded layouts whose type doesn't match.
 inline LayoutFilterFn
@@ -37,17 +80,14 @@ allowOnlyShardingType(TensorMemoryLayout allowedSharding) {
   };
 }
 
-/// Filter legalConfigs to only include non-sharded (DRAM or L1-interleaved).
+/// Filter legalConfigs by an output-layout predicate. Configs with a NULL
+/// output layout are always kept (NULL hint means "backend picks"). Keeps any
+/// config whose output layout passes `keep`.
 inline std::vector<OpConfig>
-filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
+filterConfigs(const std::vector<OpConfig> &legalConfigs, LayoutFilterFn keep) {
   std::vector<OpConfig> result;
   for (const auto &config : legalConfigs) {
-    if (!config.outputLayout) {
-      result.push_back(config);
-      continue;
-    }
-    auto memLayout = config.outputLayout.getMemLayout();
-    if (!memLayout || !isShardedMemoryLayout(memLayout.getValue())) {
+    if (!config.outputLayout || keep(config.outputLayout)) {
       result.push_back(config);
     }
   }
@@ -57,7 +97,13 @@ filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
 /// Non-sharded output hints (common pattern for many ops).
 inline OutputHints
 nonShardedOutputHints(const std::vector<OpConfig> &legalConfigs) {
-  return OutputHints{filterNonSharded(legalConfigs), {}};
+  return OutputHints{filterConfigs(legalConfigs, rejectAllSharded), {}};
+}
+
+/// All non-width-sharded output hints (interleaved + block/height sharded).
+inline OutputHints
+nonWidthShardedOutputHints(const std::vector<OpConfig> &legalConfigs) {
+  return OutputHints{filterConfigs(legalConfigs, rejectWidthSharded), {}};
 }
 
 /// NULL-hint-only output (backend decides from inputs, no fallbacks).

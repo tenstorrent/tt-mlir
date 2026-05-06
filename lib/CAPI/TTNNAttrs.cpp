@@ -163,20 +163,27 @@ MlirAttribute ttmlirTTNNMeshShapeAttrGet(MlirContext ctx, int64_t y,
 // param grid Grid of cores where tensor is mapped to
 // param memref Memref which holds shard size, shard scalar type and memory
 // param memLayout Memory layout of the tensor
+// param coreRangeSet CoreRangeSetAttr describing physical placement on the
+//   worker grid; must be non-null for sharded `memLayout` and null for
+//   non-sharded layouts.
 MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
                                           MlirAttribute grid, MlirType memref,
-                                          unsigned *memLayout = nullptr) {
+                                          unsigned memLayout,
+                                          MlirAttribute coreRangeSet) {
   mlir::AffineMap affineMap = mlir::AffineMap::getFromOpaquePointer(linear.ptr);
-  TensorMemoryLayoutAttr memLayoutAttr;
-  if (memLayout) {
-    memLayoutAttr = TensorMemoryLayoutAttr::get(
-        unwrap(ctx), static_cast<TensorMemoryLayout>(*memLayout));
-  }
+  TensorMemoryLayoutAttr memLayoutAttr = TensorMemoryLayoutAttr::get(
+      unwrap(ctx), static_cast<TensorMemoryLayout>(memLayout));
 
   mlir::tt::ttcore::TensorMeshAttr tensorMeshAttr;
-  return wrap(
-      TTNNLayoutAttr::get(unwrap(ctx), affineMap,
-                          mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)),
-                          mlir::cast<mlir::MemRefType>(unwrap(memref)),
-                          memLayoutAttr, tensorMeshAttr));
+  llvm::ArrayRef<int64_t> gridShape =
+      mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)).getShape();
+  CoreRangeSetAttr coreRangeSetAttr;
+  if (!mlirAttributeIsNull(coreRangeSet)) {
+    coreRangeSetAttr = mlir::cast<CoreRangeSetAttr>(unwrap(coreRangeSet));
+  }
+  return wrap(TTNNLayoutAttr::get(unwrap(ctx), affineMap, gridShape,
+                                  mlir::cast<mlir::MemRefType>(unwrap(memref)),
+                                  memLayoutAttr, tensorMeshAttr,
+                                  /*ignorePhysicalLayout=*/false,
+                                  coreRangeSetAttr));
 }

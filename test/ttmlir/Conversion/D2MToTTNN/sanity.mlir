@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-to-ttmetal-be-pipeline="ttnn-mode=true" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --d2m-to-ttkernel-pipeline="ttnn-mode=true" --d2m-to-ttnn-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -19,15 +19,15 @@
 // Layout for single tile in L1
 #l1_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
-  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
-  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
+  <1x1>,
+  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = #core_ranges
   >
 
 // BF16 tile layout (dtype must match memref element type for ttnn.full / empty).
 #l1_layout_bf16 = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
-  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
-  memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>
+  <1x1>,
+  memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #core_ranges
   >
 
 module {

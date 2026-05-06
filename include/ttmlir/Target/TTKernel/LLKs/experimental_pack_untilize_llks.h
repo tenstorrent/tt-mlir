@@ -37,8 +37,9 @@ ALWI void pack_untilize_block(uint32_t icb, uint32_t ocb,
         UNPACK((llk_unpack_A<BroadcastType::NONE, false,
                              EltwiseBinaryReuseDestType::NONE, UnpackToDestEn>(
             icb, r * block_col_tiles + b * cols_per_dst_pass + c)));
-        MATH((llk_math_eltwise_unary_datacopy<
-              A2D, DST_ACCUM_MODE, BroadcastType::NONE, UnpackToDestEn>(c)));
+        MATH((llk_math_eltwise_unary_datacopy<DataCopyType::A2D, DST_ACCUM_MODE,
+                                              BroadcastType::NONE,
+                                              UnpackToDestEn>(c)));
       }
 
       MATH((llk_math_dest_section_done<DST_ACCUM_MODE>()));
