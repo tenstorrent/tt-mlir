@@ -260,6 +260,24 @@ func.func @complex_tiled_mapping_preserves_untilize_shape(%arg0: tensor<1x1x1x5x
   return %1 : tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst>
 }
 
+#rank6_vgm_forward = affine_map<(d0, d1, d2, d3, d4, d5) -> (0, 0, d3, d4, d5)>
+#rank6_vgm_inverse = affine_map<(d0, d1) -> (0, 0, 0, 0)>
+#rank8_view = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, d2, d3, (d4 * 524288 + d5 * 4096 + d6 * 128 + d7) floordiv 524288, ((d4 * 524288 + d5 * 4096 + d6 * 128 + d7) mod 524288) floordiv 4096, (d4 * 524288 + d5 * 4096 + d6 * 128 + d7) mod 4096)>
+#rank_incompatible_vgm_src = #ttcore.metal_layout<logical_shape = 1x128x4096, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#rank_incompatible_vgm_view = #ttcore.metal_layout<logical_shape = 1x128x32x128, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#rank_incompatible_vgm_dst = #ttcore.metal_layout<logical_shape = 1x128x32x128, dim_alignments = 256x1x32x32, collapsed_intervals = dense<[[0, 3], [3, 4]]> : tensor<2x2xi64>, undef, l1, sharded>
+
+func.func @tilize_ignores_rank_incompatible_input_vgm() -> tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst> {
+  // CHECK-LABEL: @tilize_ignores_rank_incompatible_input_vgm
+  // CHECK: d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x1x1x1x128x1x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]+}}>
+  // CHECK: d2m.tile_tilize_block
+  %0 = d2m.empty() {virtualGridForwardMapping = #rank6_vgm_forward, virtualGridInverseMapping = #rank6_vgm_inverse} : tensor<1x1x1x1x128x4096xf32, #rank_incompatible_vgm_src>
+  %view = d2m.view_layout %0 remapping = #rank8_view : tensor<1x1x1x1x128x4096xf32, #rank_incompatible_vgm_src> -> tensor<1x1x1x1x1x128x32x128xf32, #rank_incompatible_vgm_view>
+  %1 = d2m.empty() : tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst>
+  %2 = d2m.to_layout %view, %1 : tensor<1x1x1x1x1x128x32x128xf32, #rank_incompatible_vgm_view> into tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst> -> tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst>
+  return %2 : tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst>
+}
+
 
 #layer_tile_with_vgm_dst = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 func.func @tilize_with_vgm(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> {
