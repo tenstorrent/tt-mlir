@@ -65,7 +65,7 @@ func.func @ttir_eltwise_chain(%arg0: tensor<32xf32>, %arg1: tensor<32xf32>) -> t
 
 
 // =============================================================================
-// External declaration with rank-1 signature — must be promoted so call sites
+// External declaration with rank-1 signature which should be promoted so call sites
 // in participating TTIR functions stay in sync.
 // =============================================================================
 

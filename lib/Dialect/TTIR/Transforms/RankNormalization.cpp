@@ -58,32 +58,6 @@ static bool needsRankExpansion(Type type) {
   return false;
 }
 
-/// Returns true if the op is legal (should not be rewritten) for rank
-/// normalization. An op is legal if it doesn't need rank expansion or if it
-/// belongs to a non-participating function.
-static bool isOpLegal(Operation *op,
-                      const DenseSet<func::FuncOp> &participatingFuncs) {
-  bool needsRewrite;
-  if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-    needsRewrite =
-        llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
-        llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
-  } else {
-    needsRewrite = llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
-                   llvm::any_of(op->getResultTypes(), needsRankExpansion);
-  }
-  if (!needsRewrite) {
-    return true;
-  }
-  func::FuncOp parentFunc = isa<func::FuncOp>(op)
-                                ? cast<func::FuncOp>(op)
-                                : op->getParentOfType<func::FuncOp>();
-  if (parentFunc && !participatingFuncs.contains(parentFunc)) {
-    return true;
-  }
-  return false;
-}
-
 /// Collects functions that participate in rank normalization. A function
 /// participates if it is external and its signature needs rank expansion, or
 /// if its body contains at least one TTIR-dialect op.
@@ -393,8 +367,29 @@ public:
 
     auto participatingFuncs = collectParticipatingFuncs(module);
 
-    target.markUnknownOpDynamicallyLegal(
-        [&](Operation *op) { return isOpLegal(op, participatingFuncs); });
+    target.markUnknownOpDynamicallyLegal([&](Operation *op) {
+      bool needsRewrite;
+      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        needsRewrite =
+            llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
+      } else {
+        needsRewrite =
+            llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
+            llvm::any_of(op->getResultTypes(), needsRankExpansion);
+      }
+      if (!needsRewrite) {
+        return true;
+      }
+
+      func::FuncOp parentFunc = isa<func::FuncOp>(op)
+                                    ? cast<func::FuncOp>(op)
+                                    : op->getParentOfType<func::FuncOp>();
+      if (parentFunc && !participatingFuncs.contains(parentFunc)) {
+        return true;
+      }
+      return false;
+    });
 
     RewritePatternSet patterns(ctx);
     patterns.add<GenericRankNormalizationPattern>(typeConverter, ctx);
