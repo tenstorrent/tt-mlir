@@ -1,0 +1,10 @@
+# TSan suppressions for test_graph_tracker_race.
+#
+# This file starts empty. Run the test once with TSAN_OPTIONS pointing at
+# this file, then add a `race:<symbol-substring>` line for every report
+# whose stack does NOT touch tt::tt_metal::GraphTracker::processors. The
+# remaining reports are the actual race we are proving.
+#
+# Format:
+#   race:substring-of-function-name
+# See https://github.com/google/sanitizers/wiki/threadsanitizerflags
