@@ -35,6 +35,30 @@ namespace mlir::tt::d2m {
 // Transform helpers — these modify the IR to apply grid decisions.
 // ----------------------------------------------------------------------------
 
+static std::pair<mlir::AffineMapAttr, mlir::AffineMapAttr>
+deriveVirtualGridAttrs(Operation *anchorOp, ArrayRef<int64_t> selectedGrid,
+                       ArrayRef<int64_t> effectiveTargetGrid,
+                       OpBuilder &builder) {
+  auto device = ttcore::lookupDevice(anchorOp);
+  auto workerGridShape = device.getWorkerGrid().getShape();
+  bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
+      selectedGrid, workerGridShape);
+  if (!isVirtual) {
+    return {mlir::AffineMapAttr(), mlir::AffineMapAttr()};
+  }
+
+  auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
+      ttmlir::utils::volume<int64_t>(selectedGrid), effectiveTargetGrid);
+  TT_assertv(!physicalGridShape.empty(),
+             "Unable to find 2D rect that can fit virtual grid {} within "
+             "device grid {}",
+             ttmlir::utils::formatIterable(selectedGrid, "x"),
+             ttmlir::utils::formatIterable(effectiveTargetGrid, "x"));
+  auto [forwardMap, inverseMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+      builder.getContext(), selectedGrid, physicalGridShape);
+  return {AffineMapAttr::get(inverseMap), AffineMapAttr::get(forwardMap)};
+}
+
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
 // recreating the MetalLayoutAttr with the given grid and proper dimension
 // alignments.
@@ -77,30 +101,12 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
       outputType, targetGrid, ttnnMode, optimalGrid);
   builder.setInsertionPoint(emptyOp);
 
-  // Determine if the chosen grid is virtual (exceeds 2D device bounds or is
-  // ND). Note: VGM is NOT propagated from the to_layout's input here — the
-  // output EmptyOp has its own grid/shard strategy. VGM for DMA addresses
-  // is traced through the stream's input at DMA lowering time.
-  mlir::AffineMapAttr virtualGridInverseMapping;
-  mlir::AffineMapAttr virtualGridForwardMapping;
-  auto device = ttcore::lookupDevice(toLayoutOp);
-  auto workerGridShape = device.getWorkerGrid().getShape();
-  bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
-      optimalGrid, workerGridShape);
-  if (isVirtual) {
-    auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
-        ttmlir::utils::volume<int64_t>(optimalGrid), effectiveTargetGrid);
-    TT_assertv(!physicalGridShape.empty(),
-               "Unable to find 2D rect that can fit virtual grid {} within "
-               "device grid {}",
-               ttmlir::utils::formatIterable(optimalGrid, "x"),
-               ttmlir::utils::formatIterable(effectiveTargetGrid, "x"));
-    auto [forwardMap, inverseMap] =
-        ttmlir::d2m::utils::grids::createCoreVirtMaps(
-            builder.getContext(), optimalGrid, physicalGridShape);
-    virtualGridInverseMapping = AffineMapAttr::get(inverseMap);
-    virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
-  }
+  // VGM is NOT propagated from the to_layout's input here — the output EmptyOp
+  // has its own grid/shard strategy. VGM for DMA addresses is traced through
+  // the stream's input at DMA lowering time.
+  auto [virtualGridInverseMapping, virtualGridForwardMapping] =
+      deriveVirtualGridAttrs(toLayoutOp, optimalGrid, effectiveTargetGrid,
+                             builder);
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
       emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
@@ -450,28 +456,11 @@ static void applyEmptyOpUpdate(const OperandGridInfo &info,
       emptyType, info.targetGrid, ttnnMode, info.selectedGrid);
   builder.setInsertionPoint(emptyOp);
 
-  mlir::AffineMapAttr virtualGridInverseMapping =
-      emptyOp.getVirtualGridInverseMappingAttr();
-  mlir::AffineMapAttr virtualGridForwardMapping =
-      emptyOp.getVirtualGridForwardMappingAttr();
-  if (!virtualGridInverseMapping) {
-    auto device = ttcore::lookupDevice(emptyOp);
-    auto workerGridShape = device.getWorkerGrid().getShape();
-    bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
-        info.selectedGrid, workerGridShape);
-    if (isVirtual) {
-      auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
-          ttmlir::utils::volume<int64_t>(info.selectedGrid),
-          effectiveTargetGrid);
-      TT_assertv(!physicalGridShape.empty(),
-                 "Unable to find 2D rect that can fit virtual grid");
-      auto [forwardMap, inverseMap] =
-          ttmlir::d2m::utils::grids::createCoreVirtMaps(
-              builder.getContext(), info.selectedGrid, physicalGridShape);
-      virtualGridInverseMapping = AffineMapAttr::get(inverseMap);
-      virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
-    }
-  }
+  // The selected grid may differ from the EmptyOp's previous grid. Recompute
+  // VGM attrs instead of preserving stale mappings from the old layout.
+  auto [virtualGridInverseMapping, virtualGridForwardMapping] =
+      deriveVirtualGridAttrs(emptyOp, info.selectedGrid, effectiveTargetGrid,
+                             builder);
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
       emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
