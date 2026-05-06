@@ -52,19 +52,27 @@ static std::optional<FoldHit> findUpstreamScaleMultiply(Value v) {
 LogicalResult ScaledDotProductAttentionFoldScaleRewritePattern::matchAndRewrite(
     ScaledDotProductAttentionOp op, PatternRewriter &rewriter) const {
   auto qHit = findUpstreamScaleMultiply(op.getQuery());
+  auto kHit = findUpstreamScaleMultiply(op.getKey());
 
-  if (!qHit) {
+  if (!qHit && !kHit) {
     return failure();
   }
 
   float currentScale =
       op.getScale().has_value() ? op.getScale()->convertToFloat() : 1.0f;
-  float newScale = currentScale * qHit->scalar;
+  float qScalar = qHit ? qHit->scalar : 1.0f;
+  float kScalar = kHit ? kHit->scalar : 1.0f;
+  float newScale = currentScale * qScalar * kScalar;
 
-  // Bypass the multiply (RAUW its result with its non-scalar input). Safe
+  // Bypass each multiply (RAUW its result with its non-scalar input). Safe
   // because multiply with a 1x1x1x1 broadcast preserves the larger operand's
   // shape, so output type == non-scalar-input type.
-  rewriter.replaceOp(qHit->multiplyOp, qHit->bypassValue);
+  if (qHit) {
+    rewriter.replaceOp(qHit->multiplyOp, qHit->bypassValue);
+  }
+  if (kHit) {
+    rewriter.replaceOp(kHit->multiplyOp, kHit->bypassValue);
+  }
 
   rewriter.modifyOpInPlace(
       op, [&] { op.setScaleAttr(rewriter.getF32FloatAttr(newScale)); });
