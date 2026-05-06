@@ -145,7 +145,7 @@ private:
       mlir::Operation *defOp = operand.getDefiningOp();
       if (checkIdenticalTms(operand.getDefiningOp(), tmOperand) ||
           (defOp && defOp->hasTrait<mlir::OpTrait::ConstantLike>()) ||
-          ttcore::valueTracesToConstantArgs(operand)) {
+          this->tracesToConstantArgs(operand)) {
         continue;
       }
       return false;
@@ -157,21 +157,24 @@ private:
 
 template <CommuteDirection commuteDirection>
 void populateElementwiseCommutePatterns(MLIRContext *ctx,
-                                        RewritePatternSet &patterns) {
-  patterns.add<
-      TTIRCommuteTmsThroughElementwiseRewriter<PermuteOp, ElementwiseUnary,
-                                               commuteDirection>,
-      TTIRCommuteTmsThroughElementwiseRewriter<ReshapeOp, ElementwiseUnary,
-                                               commuteDirection>,
-      TTIRCommuteTmsThroughElementwiseRewriter<PermuteOp, ElementwiseBinary,
-                                               commuteDirection>,
-      TTIRCommuteTmsThroughElementwiseRewriter<ReshapeOp, ElementwiseBinary,
-                                               commuteDirection>>(ctx);
+                                        RewritePatternSet &patterns,
+                                        ConstevalForwardAnalysis *analysis) {
+  patterns
+      .add<TTIRCommuteTmsThroughElementwiseRewriter<PermuteOp, ElementwiseUnary,
+                                                    commuteDirection>,
+           TTIRCommuteTmsThroughElementwiseRewriter<ReshapeOp, ElementwiseUnary,
+                                                    commuteDirection>,
+           TTIRCommuteTmsThroughElementwiseRewriter<
+               PermuteOp, ElementwiseBinary, commuteDirection>,
+           TTIRCommuteTmsThroughElementwiseRewriter<
+               ReshapeOp, ElementwiseBinary, commuteDirection>>(ctx, analysis);
 }
 
 template void populateElementwiseCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 template void populateElementwiseCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 
 } // namespace mlir::tt::ttir

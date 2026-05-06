@@ -5,7 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_ERASEINVERSEOPS_ERASEINVERSEOPS_H
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ConstevalForwardAnalysis.h"
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
@@ -27,6 +29,18 @@ public:
   virtual ~TTIRCommuteRewritePatternBase() noexcept = default;
 
 protected:
+  // `analysis` is optional: EraseInverseOps owns one and passes it in to
+  // avoid the O(N) walk per query; other consumers (e.g. QuantDequant)
+  // leave it null and pay the slow path on each query.
+  explicit TTIRCommuteRewritePatternBase(
+      ConstevalForwardAnalysis *analysis = nullptr)
+      : analysis_(analysis) {}
+
+  bool tracesToConstantArgs(mlir::Value v) const {
+    return analysis_ ? analysis_->valueTracesToConstantArgs(v)
+                     : ttcore::valueTracesToConstantArgs(v);
+  }
+
   LogicalResult matchAndRewriteImpl(CommutableOpOrInterface op,
                                     PatternRewriter &rewriter) const {
     // This operation cannot have a TM below it if it has no users.
@@ -73,7 +87,7 @@ protected:
       for (Value operand : op->getOperands()) {
         // We do not want to commute any tms downwards which are already a part
         // of a consteval-able path
-        if (ttcore::valueTracesToConstantArgs(operand)) {
+        if (tracesToConstantArgs(operand)) {
           continue;
         }
         auto tmOperand = operand.getDefiningOp<TMOpType>();
@@ -180,6 +194,8 @@ private:
                                               PatternRewriter &rewriter) const {
     return;
   }
+
+  ConstevalForwardAnalysis *analysis_ = nullptr;
 };
 
 // Using this class will allow you to match against any operation that
@@ -193,8 +209,11 @@ class TTIRCommuteOpInterfaceRewritePattern
       public TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface,
                                            commuteDirection> {
 public:
-  using OpInterfaceRewritePattern<
-      CommutableOpInterface>::OpInterfaceRewritePattern;
+  TTIRCommuteOpInterfaceRewritePattern(
+      MLIRContext *ctx, ConstevalForwardAnalysis *analysis = nullptr)
+      : OpInterfaceRewritePattern<CommutableOpInterface>(ctx),
+        TTIRCommuteRewritePatternBase<TMOpType, CommutableOpInterface,
+                                      commuteDirection>(analysis) {}
 
   LogicalResult matchAndRewrite(CommutableOpInterface op,
                                 PatternRewriter &rewriter) const override {
@@ -211,7 +230,11 @@ class TTIRCommuteOpRewritePattern
       public TTIRCommuteRewritePatternBase<TMOpType, CommutableOp,
                                            commuteDirection> {
 public:
-  using OpRewritePattern<CommutableOp>::OpRewritePattern;
+  TTIRCommuteOpRewritePattern(MLIRContext *ctx,
+                              ConstevalForwardAnalysis *analysis = nullptr)
+      : OpRewritePattern<CommutableOp>(ctx),
+        TTIRCommuteRewritePatternBase<TMOpType, CommutableOp, commuteDirection>(
+            analysis) {}
 
   LogicalResult matchAndRewrite(CommutableOp op,
                                 PatternRewriter &rewriter) const override {
@@ -283,26 +306,33 @@ inline ReshapeOp getInverseTM(ReshapeOp reshapeOp, Value input,
 }
 
 template <CommuteDirection commuteDirection>
-extern void populateElementwiseCommutePatterns(MLIRContext *ctx,
-                                               RewritePatternSet &patterns);
+extern void populateElementwiseCommutePatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis = nullptr);
 template <CommuteDirection commuteDirection>
-extern void populateBroadcastCommutePatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns);
+extern void
+populateBroadcastCommutePatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                                 ConstevalForwardAnalysis *analysis = nullptr);
 template <CommuteDirection commuteDirection>
-extern void populateConcatCommutePatterns(MLIRContext *ctx,
-                                          RewritePatternSet &patterns);
+extern void
+populateConcatCommutePatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                              ConstevalForwardAnalysis *analysis = nullptr);
 template <CommuteDirection commuteDirection>
-extern void populateSliceCommutePatterns(MLIRContext *ctx,
-                                         RewritePatternSet &patterns);
+extern void
+populateSliceCommutePatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                             ConstevalForwardAnalysis *analysis = nullptr);
 template <CommuteDirection commuteDirection>
-extern void populateReduceCommutePatterns(MLIRContext *ctx,
-                                          RewritePatternSet &patterns);
+extern void
+populateReduceCommutePatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                              ConstevalForwardAnalysis *analysis = nullptr);
 template <CommuteDirection commuteDirection>
-extern void populateRMSNormCommutePatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns);
+extern void
+populateRMSNormCommutePatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                               ConstevalForwardAnalysis *analysis = nullptr);
 template <CommuteDirection commuteDirection>
-extern void populateSoftmaxCommutePatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns);
+extern void
+populateSoftmaxCommutePatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                               ConstevalForwardAnalysis *analysis = nullptr);
 
 } // namespace mlir::tt::ttir
 
