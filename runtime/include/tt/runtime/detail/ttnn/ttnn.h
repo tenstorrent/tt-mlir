@@ -254,15 +254,21 @@ std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle);
 
-// Returns reference to the output tensor of the operation
-// if the operation does not have an output tensor, returns std::nullopt
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
+// Returns references to the output tensor(s) of the operation.
+// Empty vector means no outputs (e.g. DeallocateOp).
+std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle);
 
-// Returns list of references to the input tensors of the operation
-// if the operation does not have any input tensors, returns empty vector
-std::vector<tt::runtime::TensorRef>
-getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+// Returns references to the input tensor(s) of the operation.
+// Empty vector means no inputs.
+std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle);
+
+std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef);
+::tt::target::DataType getTensorRefDataType(tt::runtime::TensorRef tensorRef);
+
+using OpWalkFn = std::function<void(tt::runtime::OpContext)>;
+
+void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
+                 const OpWalkFn &cb);
 
 // Returns tensor to which tensorRef refers
 // In case that that tensor is not in the tensor pool, returns std::nullopt
@@ -276,6 +282,8 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
 // deallocation
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
+
+size_t getProgramIndex(CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,

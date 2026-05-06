@@ -741,23 +741,6 @@ getOpOutputTensor(OpContext opContextHandle,
   return {};
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
-               CallbackContext programContextHandle) {
-  // Not implemented
-  LOG_FATAL("Obtaining op output ref for metal runtime is not implemented");
-  return std::nullopt;
-}
-
-std::vector<tt::runtime::TensorRef>
-getOpInputRefs(OpContext opContextHandle,
-               CallbackContext programContextHandle) {
-  // Not implemented
-  LOG_FATAL(
-      "Obtaining op input references for metal runtime is not implemented");
-  return {};
-}
-
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {
