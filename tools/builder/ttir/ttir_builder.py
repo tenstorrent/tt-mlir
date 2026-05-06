@@ -11396,7 +11396,9 @@ class TTIRBuilder(Builder):
                     input_begins = self._get_golden_tensor(old_op.begins)
                     input_ends = self._get_golden_tensor(old_op.ends)
                     old_op_result = self._get_golden_tensor(old_op.result)
-                    slice_dynamic_builder._set_golden_tensor(new_op_result, old_op_result)
+                    slice_dynamic_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
                     slice_dynamic_builder._set_golden_tensor(in0, input0)
                     slice_dynamic_builder._set_golden_tensor(begins, input_begins)
                     slice_dynamic_builder._set_golden_tensor(ends, input_ends)
