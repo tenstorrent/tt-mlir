@@ -59,6 +59,34 @@ mlir::Value reshapeTo(PatternRewriter &rewriter, Location loc, mlir::Value v,
       .getResult();
 }
 
+// The fused_rms_minimal kernel requires the weight (gamma) tensor to be
+// 2D with width equal to tile_width (32). If the weight is still 1D (N,),
+// reshape it to (N/32, 32). The Tile -> RowMajor layout conversion is
+// handled separately by the layout/sharding workaround pattern.
+//
+// Returns the (possibly new) weight value, or the original value if no
+// reshape is needed.
+constexpr int64_t kTileWidth = 32;
+
+mlir::Value maybeReshapeWeightToTileWidth(PatternRewriter &rewriter,
+                                          Location loc, mlir::Value weight) {
+  if (!weight) {
+    return weight;
+  }
+  auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+  if (weightType.getRank() != 1) {
+    return weight;
+  }
+  int64_t totalElements = weightType.getShape()[0];
+  if (totalElements % kTileWidth != 0) {
+    // Cannot reshape to (N/32, 32) cleanly; leave as-is and let downstream
+    // verification surface the error.
+    return weight;
+  }
+  SmallVector<int64_t> reshapedShape = {totalElements / kTileWidth, kTileWidth};
+  return reshapeTo(rewriter, loc, weight, reshapedShape);
+}
+
 } // namespace
 
 LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
@@ -71,14 +99,35 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   ArrayRef<int64_t> inputShape = inputType.getShape();
 
   if (isEligibleForFusedKernel(op)) {
+    Location loc = op.getLoc();
+
+    // The fused kernel requires the weight in (N/32, 32) form. Reshape
+    // here, alongside the input reshape, so that all kernel-shape prep
+    // happens in one place. The Tile -> RowMajor layout conversion stays
+    // in the workaround pattern (it is a layout change, not a shape one).
+    mlir::Value reshapedWeight =
+        maybeReshapeWeightToTileWidth(rewriter, loc, op.getWeight());
+
     if (isAlreadyCanonicalShape(inputShape)) {
-      // Already (1,1,32,M) - the fused kernel handles this directly.
-      return failure();
+      if (reshapedWeight == op.getWeight()) {
+        // Already (1,1,32,M) and weight already in tile-width form — the
+        // fused kernel handles this directly.
+        return failure();
+      }
+      // Input is canonical but weight needed reshaping: rebuild the op
+      // with the new weight and forward all other operands/attrs through.
+      auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
+          loc, resultType, op.getInput(), reshapedWeight, op.getResidual(),
+          op.getStats(), op.getSemaphore(), op.getDevice(),
+          op.getClusterAxis(), op.getEpsilon(), op.getSubDeviceIdAttr(),
+          op.getMemoryConfigAttr(), op.getNumLinksAttr(), op.getTopologyAttr(),
+          op.getComputeConfigAttr(), op.getProgramConfigAttr());
+      rewriter.replaceOp(op, newOp.getResult());
+      return success();
     }
 
     // Reshape to canonical (1,1,32,M), forward to the fused kernel, then
     // reshape the result back to the original shape.
-    Location loc = op.getLoc();
     SmallVector<int64_t> canonicalShape = {1, 1, 32, inputShape.back()};
 
     mlir::Value reshapedInput =
@@ -94,7 +143,7 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
         utils::RankedTensorTypeFactory::create(resultType, canonicalShape);
 
     auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
-        loc, canonicalResultType, reshapedInput, op.getWeight(),
+        loc, canonicalResultType, reshapedInput, reshapedWeight,
         reshapedResidual, op.getStats(), op.getSemaphore(), op.getDevice(),
         op.getClusterAxis(), op.getEpsilon(), op.getSubDeviceIdAttr(),
         op.getMemoryConfigAttr(), op.getNumLinksAttr(), op.getTopologyAttr(),

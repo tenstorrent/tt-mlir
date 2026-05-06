@@ -661,6 +661,38 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNAllocateDistributedOpBuffers
+    : Pass<"ttnn-allocate-distributed-op-buffers", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit scratch buffers for distributed ops.";
+  let description = [{
+    This pass walks ops implementing `DistributedOpInterface` and asks each
+    of them to materialize any unbound scratch / persistent buffer operands
+    by inserting `ttnn.empty` ops in the function prelude (right after
+    `ttnn.get_device`).
+
+    Runs before the optimizer so that downstream L1 budgeting analyses can
+    account for these allocations. This is the buffer counterpart to
+    `TTNNAllocateDistributedOpSemaphores`, which runs later because
+    semaphore core ranges depend on the finalized shard spec.
+  }];
+}
+
+def TTNNAllocateDistributedOpSemaphores
+    : Pass<"ttnn-allocate-distributed-op-semaphores", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit global semaphores for distributed ops.";
+  let description = [{
+    This pass walks ops implementing `DistributedOpInterface` and asks each
+    of them to materialize any unbound global-semaphore operands by
+    inserting `ttnn.create_global_semaphore` ops in the function prelude
+    (right after `ttnn.get_device`).
+
+    Runs after the optimizer so that semaphore core ranges are derived from
+    the finalized input shard spec. This is the semaphore counterpart to
+    `TTNNAllocateDistributedOpBuffers`, which must run before the optimizer
+    so that buffers contribute to L1 budgeting.
+  }];
+}
+
 def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   let summary = "Memory usage optimization pass.";
   let description = [{
