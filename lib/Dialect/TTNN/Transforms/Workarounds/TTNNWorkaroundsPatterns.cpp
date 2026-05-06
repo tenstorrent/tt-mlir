@@ -33,6 +33,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionFoldScaleRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
@@ -604,6 +605,8 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern,
           workarounds::decomposition::
+              ScaledDotProductAttentionFoldScaleRewritePattern,
+          workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
@@ -675,10 +678,11 @@ const std::set<mlir::StringRef>
         ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
         ttnn::ScatterOp::getOperationName(),
-        // Conv3d's input must be ROW_MAJOR (see conv3d_device_operation.cpp:49).
-        // RowMajorLayoutPropagation gates the layout fix on the OpModel
-        // constraint query succeeding, which can fail when an explicit
-        // conv3d_config is attached and the singleton mock device's grid
-        // doesn't accommodate our block sizes. Force the workaround instead.
+        // Conv3d's input must be ROW_MAJOR (see
+        // conv3d_device_operation.cpp:49). RowMajorLayoutPropagation gates the
+        // layout fix on the OpModel constraint query succeeding, which can fail
+        // when an explicit conv3d_config is attached and the singleton mock
+        // device's grid doesn't accommodate our block sizes. Force the
+        // workaround instead.
         ttnn::Conv3dOp::getOperationName()};
 } // namespace mlir::tt::ttnn
