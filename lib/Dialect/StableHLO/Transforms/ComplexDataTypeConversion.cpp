@@ -423,18 +423,16 @@ public:
 };
 
 // Rewrites `sdy.return` to use dialect-converted operand values (same role as
-// `populateReturnOpTypeConversionPattern` for `func.return`). 
+// `populateReturnOpTypeConversionPattern` for `func.return`).
 class SdyReturnOpTypeConversionPattern
     : public OpConversionPattern<mlir::sdy::ReturnOp> {
   using OpConversionPattern::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(mlir::sdy::ReturnOp op,
-                  mlir::sdy::ReturnOp::Adaptor adaptor,
+  matchAndRewrite(mlir::sdy::ReturnOp op, mlir::sdy::ReturnOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<mlir::sdy::ReturnOp>(op,
-                                                       adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<mlir::sdy::ReturnOp>(op, adaptor.getOperands());
     return success();
   }
 };
@@ -505,8 +503,7 @@ struct StableHLOComplexDataTypeConversionPass
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
         ShardyManualComputationComplexConversionPattern,
-        SdyReturnOpTypeConversionPattern,
-        StablehloComplexToDecomposedPattern,
+        SdyReturnOpTypeConversionPattern, StablehloComplexToDecomposedPattern,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
         typeConverter, &getContext());
