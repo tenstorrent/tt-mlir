@@ -345,36 +345,52 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
 
     // The producer's init tensor.empty (output) is not part of the fused
-    // operands, but we need to ensure it's mapped so that any operations in
-    // the producer that reference it can be cloned properly.
+    // operands. Create a fresh intermediate tensor.empty for it inside the
+    // fused region rather than aliasing it to the consumer's output buffer.
+    //
+    // Aliasing producer-output to consumer-output is unsafe for chains of
+    // 3+ ops: the consumer-output is later materialized as a single output
+    // circular buffer, and the producer's pack_tile would write into that
+    // CB while a downstream linalg op in the fused region reads from it.
+    // The output CB's read pointer is never advanced by the compute thread
+    // (only the write pointer, via cb_push_back), so on the second outer
+    // loop iteration the unpack pulls stale tiles from the previous
+    // iteration, corrupting the result.
+    //
+    // For 2-op chains this manifested as a benign aliasing because the
+    // single intermediate fit in DST and was never packed to L1. With a
+    // separate intermediate tensor.empty, downstream lowering is free to
+    // either keep it in DST (no cost) or allocate it its own scratch CB
+    // (correct).
     Value prodOutputEmpty =
         GenericOp::getOperandAlloc(*orig.getParent(), prodInitArgNum);
-    unsigned consumerFirstOutputArgNum =
-        consumer.getDpsInitOperand(0)->getOperandNumber();
-    unsigned consumerOutputFusedIdx =
-        sourceToFusedIdx[{consumer.getOperation(), consumerFirstOutputArgNum}];
-    Value consumerOutputEmpty = fusedTensorEmpties[consumerOutputFusedIdx];
-
-    // If producer and consumer outputs have the same shape (eltwise->eltwise)
-    // reuse the consumer's tensor.empty; otherwise (eltwise->reduction) create
-    // a separate intermediate empty matching the producer's shape so that
-    // SpillAndScratch can identify it as an intermediate.
-    auto prodOutType = mlir::cast<ShapedType>(prodOutputEmpty.getType());
-    auto consOutType = mlir::cast<ShapedType>(consumerOutputEmpty.getType());
-    if (prodOutType.getShape() == consOutType.getShape()) {
-      irMap.map(prodOutputEmpty, consumerOutputEmpty);
-    } else {
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointAfterValue(fusedTensorEmpties.back());
-      auto intermediateEmpty = rewriter.create<mlir::tensor::EmptyOp>(
-          fusedOp.getLoc(), prodOutType.getShape(),
-          prodOutType.getElementType());
-      irMap.map(prodOutputEmpty, intermediateEmpty.getResult());
-    }
+    auto shapedType = mlir::cast<ShapedType>(prodOutputEmpty.getType());
+    auto intermediateEmpty = rewriter.create<mlir::tensor::EmptyOp>(
+        fusedOp.getLoc(), shapedType.getShape(), shapedType.getElementType());
+    irMap.map(prodOutputEmpty, intermediateEmpty.getResult());
   };
 
   mapProdRegionEmpties(producer, pb);
   mapConsRegionEmpties(consumer, cb);
+
+  // Build the set of operand-associated tensor.empty values for producer and
+  // consumer. Any tensor.empty in the original regions that is NOT in this set
+  // is an intermediate tensor.empty (e.g. one we created in a previous fusion
+  // for a producer's output) and must be cloned into the fused region rather
+  // than skipped. If we skip an intermediate tensor.empty, downstream linalg
+  // ops in the fused region will retain references to the original (about-to-
+  // be-erased) value, causing the greedy rewriter's eraseOp to assert on
+  // remaining uses.
+  llvm::DenseSet<Value> operandAssociatedEmpties;
+  auto collectOperandEmpties = [&](GenericOp generic, Block &orig) {
+    for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
+      if (Value origEmpty = GenericOp::getOperandAlloc(*orig.getParent(), i)) {
+        operandAssociatedEmpties.insert(origEmpty);
+      }
+    }
+  };
+  collectOperandEmpties(producer, pb);
+  collectOperandEmpties(consumer, cb);
 
   /////////////////////////////////////////////////////////////////////////////
   // Build fused region: clone producer then consumer, map fused operand to
@@ -386,20 +402,17 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // consumer.
   rewriter.setInsertionPointToEnd(&fusedBlock);
 
-  // Clone producer body (skip d2m.yield and remote_store to output).
-  // Operand-associated tensor.empty ops are already created and mapped above.
-  // Unmapped tensor.empty ops are intermediates carried over from a prior
-  // fusion round and must be cloned so that ops referencing them can be
-  // remapped (otherwise the old ops cannot be erased due to live uses).
+  // Clone producer body (skip d2m.yield, operand-associated tensor.empty, and
+  // remote_store to output). Operand-associated tensor.empty ops have already
+  // been created in the fused block; intermediate tensor.empty ops (added by
+  // a previous fusion iteration for a producer's output) must be cloned so
+  // their replacements live inside the new fused region.
   for (Operation &op : pb) {
     if (isa<YieldOp>(op)) {
       continue;
     }
-    if (isa<mlir::tensor::EmptyOp>(op)) {
-      if (irMap.lookupOrDefault(op.getResult(0)) != op.getResult(0)) {
-        continue;
-      }
-      rewriter.clone(op, irMap);
+    if (auto emptyOp = dyn_cast<mlir::tensor::EmptyOp>(&op);
+        emptyOp && operandAssociatedEmpties.contains(emptyOp.getResult())) {
       continue;
     }
     // Skip remote_store operations that store to the producer's output operand
@@ -481,13 +494,11 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     if (isa<YieldOp>(op)) {
       continue;
     }
-    // Operand-associated tensor.empty ops are already mapped. Clone unmapped
-    // ones: they are intermediates from a prior fusion round.
-    if (isa<mlir::tensor::EmptyOp>(op)) {
-      if (irMap.lookupOrDefault(op.getResult(0)) != op.getResult(0)) {
-        continue;
-      }
-      rewriter.clone(op, irMap);
+    // Skip operand-associated tensor.empty ops - already created in the fused
+    // block. Intermediate tensor.empty ops (from a prior fusion iteration)
+    // are cloned normally so the new fused region owns them.
+    if (auto emptyOp = dyn_cast<mlir::tensor::EmptyOp>(&op);
+        emptyOp && operandAssociatedEmpties.contains(emptyOp.getResult())) {
       continue;
     }
 
