@@ -21,6 +21,10 @@ namespace mlir {
 class Operation;
 } // namespace mlir
 
+namespace tt::tt_metal {
+class MetalEnv;
+} // namespace tt::tt_metal
+
 namespace tt::tt_metal::distributed {
 class MeshDevice;
 } // namespace tt::tt_metal::distributed
@@ -96,10 +100,7 @@ public:
       const std::optional<std::pair<size_t, size_t>> &meshShape = std::nullopt);
 
   // Destroys the current MeshDevice and creates a new one with a different
-  // mesh shape. Does NOT re-configure or disable mock mode, so mock mode
-  // must already be active.
-  // This exists because Metal's configure_mock_mode/disable_mock_mode
-  // cannot be reliably cycled within the same process.
+  // mesh shape. Requires mock mode to already be active (MetalEnv must exist).
   void reshapeMeshDevice(const std::pair<size_t, size_t> &meshShape,
                          size_t traceRegionSize = 0);
 
@@ -125,6 +126,8 @@ private:
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
+  // Owns the mock/silicon cluster environment. Must outlive m_device.
+  std::unique_ptr<::tt::tt_metal::MetalEnv> m_metalEnv;
   ttcore::SystemDescAttr m_systemDesc;
 
   // This field is technically not needed, but is there to assert that

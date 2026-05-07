@@ -12,6 +12,7 @@
 #include "tt-metalium/buffer_types.hpp"
 #include "tt-metalium/core_coord.hpp"
 #include "tt-metalium/device.hpp"
+#include "tt-metalium/experimental/context/metal_env.hpp"
 #include "tt-metalium/experimental/mock_device.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "ttnn/graph/graph_processor.hpp"
