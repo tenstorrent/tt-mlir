@@ -500,15 +500,6 @@ public:
         emitter.emit(srcOp.getLhs()),
         emitter.emit(srcOp.getRhs()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.template emit<
-            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
-            srcOp.getActivations()),
-        emitter.template emit<
-            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
-            srcOp.getInputTensorAActivations()),
-        emitter.template emit<
-            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
-            srcOp.getInputTensorBActivations()),
     };
 
     if constexpr (!std::is_same_v<SourceOp, ::mlir::tt::ttnn::Atan2Op>) {
