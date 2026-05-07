@@ -119,7 +119,6 @@ def create_binary_op_with_activations(
             in0,
             in1,
             dtype=dtype,
-            memory_config=None,
             activations=activations,
             input_tensor_a_activations=input_tensor_a_activations,
             input_tensor_b_activations=input_tensor_b_activations,
@@ -130,7 +129,6 @@ def create_binary_op_with_activations(
             result,
             in0,
             in1,
-            memory_config=None,
             activations=activations,
             input_tensor_a_activations=input_tensor_a_activations,
             input_tensor_b_activations=input_tensor_b_activations,
@@ -312,6 +310,7 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
         pipeline_options=pipeline_options,
     )
 
+
 @pytest.mark.parametrize(
     "memory_layout,grid_shape,shape",
     [
@@ -362,6 +361,7 @@ def test_add_dram_sharded(
         target=target,
         device=device,
     )
+
 
 activated_binary_ops = [
     pytest.param("add", ttnn.AddOp, True, id="add"),

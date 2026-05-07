@@ -2198,7 +2198,7 @@ createEltwiseBinaryCompositeWithoutFusedActivationOp(
 
   auto result = op.getResult();
 
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   auto out = cache.getOrCreateNoSharding(result, tensorValueToFlatbuffer,
 

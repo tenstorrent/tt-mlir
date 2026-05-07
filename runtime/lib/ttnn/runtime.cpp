@@ -1194,9 +1194,9 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::
       EltwiseBinaryCompositeWithoutFusedActivationOp: {
-    tensorRef =
+    tensorRefs = {
         opContext.type_as_EltwiseBinaryCompositeWithoutFusedActivationOp()
-            ->out();
+            ->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {

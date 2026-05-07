@@ -235,7 +235,6 @@ class TTNNBuilder(Builder):
     def _get_default_binary_activation_attrs(self):
         empty_activations = self._get_empty_activation_array()
         return {
-            "memory_config": None,
             "activations": empty_activations,
             "input_tensor_a_activations": empty_activations,
             "input_tensor_b_activations": empty_activations,
@@ -244,7 +243,6 @@ class TTNNBuilder(Builder):
     def _get_binary_activation_attrs_from_op(self, old_op):
         empty_activations = self._get_empty_activation_array()
         return {
-            "memory_config": getattr(old_op, "memory_config", None),
             "activations": getattr(old_op, "activations", None) or empty_activations,
             "input_tensor_a_activations": getattr(
                 old_op, "input_tensor_a_activations", None

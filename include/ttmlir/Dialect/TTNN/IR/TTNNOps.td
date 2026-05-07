@@ -253,14 +253,6 @@ class TTNN_ElementwiseBinaryCompositeWithoutFusedActivationOp<string mnemonic, l
         return ::mlir::ArrayAttr::get(getContext(), {});
       }
     }];
-
-    let builders =
-    [
-      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
-      [{
-        build($_builder, $_state, resultType, lhs, rhs);
-      }]>
-    ];
 }
 
 class TTNN_ElementwiseBinaryCompositeScalarOp<string mnemonic, list<Trait> traits = []> :
