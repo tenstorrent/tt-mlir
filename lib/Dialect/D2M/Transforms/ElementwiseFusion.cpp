@@ -165,7 +165,6 @@ static bool passesSharedFusionShapeChecks(OpOperand *fusionTargetOperand,
 }
 
 static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
-                                 unsigned dstCapacity,
                                  bool checkConsumer = true,
                                  bool checkProducer = true) {
   if (!fusionTargetOperand) {
@@ -707,10 +706,7 @@ struct FuseD2MEltwiseReductionOpsPattern : public OpRewritePattern<GenericOp> {
 
 namespace {
 struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
-  FuseD2MElementwiseOpsPattern(MLIRContext *context,
-                               unsigned maxDstPhysicalSizeTiles)
-      : OpRewritePattern<GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
@@ -720,16 +716,10 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
     assert(consumer.getNumRegions() == 1u);
 
-    Type largestDstType =
-        utils::getRegionLargestDstElemType(consumer.getRegion(0));
-    const unsigned dstCapacity =
-        ttcore::getOpChipDescAttr(consumer).getDstLogicalSizeTiles(
-            largestDstType, false, maxDstPhysicalSizeTiles);
-
     // Consumer was already validated above; only re-check the producer.
     OpOperand *fusedOperand = nullptr;
     for (OpOperand *use : consumer.getDpsInputOperands()) {
-      if (isElementwiseFusable(use, dstCapacity, /*checkConsumer=*/false,
+      if (isElementwiseFusable(use, /*checkConsumer=*/false,
                                /*checkProducer=*/true)) {
         fusedOperand = use;
         break;
@@ -744,8 +734,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     fuseOverOperand(fusedOperand, producer, consumer, rewriter);
     return success();
   }
-
-  unsigned maxDstPhysicalSizeTiles = 0;
 };
 } // namespace
 
@@ -757,8 +745,7 @@ class D2MElementwiseFusion
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<FuseD2MElementwiseOpsPattern>(
-        ctx, maxDstPhysicalSizeTiles.getValue());
+    patterns.add<FuseD2MElementwiseOpsPattern>(ctx);
     if (enableEltwiseReductionFusion) {
       patterns.add<FuseD2MEltwiseReductionOpsPattern>(ctx);
     }

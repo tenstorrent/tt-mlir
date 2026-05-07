@@ -127,8 +127,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
 
   if (options.enableElementwiseFusion || options.enableEltwiseReductionFusion) {
     d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
-    elementwiseFusionOptions.maxDstPhysicalSizeTiles =
-        options.maxDstPhysicalSizeTiles;
     elementwiseFusionOptions.enableEltwiseReductionFusion =
         options.enableEltwiseReductionFusion;
     pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
