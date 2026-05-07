@@ -723,6 +723,16 @@ public:
       return;
     }
 
+    // main_for_test currently assumes that forward function has a single
+    // tuple input (plus the device that this pass injects). When
+    // TTNNSplitForwardFuncArgsByType has split the forward function's
+    // inputs into an activations tuple and/or a weights dict, that
+    // assumption no longer holds, so skip wrapper creation in that case.
+    //
+    if (ttmlir::utils::hasSplitForwardFuncArgsByType(forwardFuncOp)) {
+      return;
+    }
+
     // Inject device argument into the forward function, replacing GetDeviceOp
     // uses. This follows the same pattern as TTNNPrepareModuleForExport so
     // that the EmitPy LoadCachedOpConversionPattern can find the device arg
