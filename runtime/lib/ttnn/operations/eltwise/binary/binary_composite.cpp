@@ -80,7 +80,7 @@ static void runEltwiseBinaryCompositeOpWithActivations(
   ::ttnn::Tensor out =
       ttnnOp(*setup.lhs, *setup.rhs, std::nullopt, setup.outputMemoryConfig,
              std::nullopt, setup.activations, setup.inputTensorAActivations,
-             setup.inputTensorBActivations, std::nullopt);
+             setup.inputTensorBActivations);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
