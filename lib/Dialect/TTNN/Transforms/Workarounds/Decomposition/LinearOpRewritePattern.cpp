@@ -127,6 +127,18 @@ static bool canKeepBiasFusedInLinear(ttnn::LinearOp linearOp,
     return false;
   }
 
+  // tt-metal's fused linear reshapes its output to the broadcast of
+  // matmul_shape and bias.logical_shape() (see bound_matmul in
+  // ttnn/cpp/ttnn/operations/matmul/matmul.cpp). When the bias has more dims
+  // than the matmul output, that broadcast yields a higher-rank tensor than
+  // the LinearOp's declared output type, so the runtime tensor disagrees with
+  // the IR (e.g. matmul=[50,720], bias=[1,1,720] -> runtime [1,50,720] while
+  // the LinearOp result type stays [50,720]). Decompose to matmul+add+reshape
+  // so the final reshape restores the declared rank.
+  if (biasShape.size() > matmulShape.size()) {
+    return false;
+  }
+
   return true;
 }
 
