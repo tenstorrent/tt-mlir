@@ -536,8 +536,14 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
     speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   }
-  if (l1Size > 0 && speculativeAddr &&
-      wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr)) {
+  // Always run the overlap check when the op declares a non-zero CB peak;
+  // pass UINT64_MAX as the "no L1 output" sentinel so wouldCBsOverlapTensors
+  // compares cushionedCBUsage strictly against the lowest-existing tensor
+  // address.
+  uint64_t addrForCheck =
+      speculativeAddr.value_or(std::numeric_limits<uint64_t>::max());
+  if (cbPeakUsage > 0 &&
+      wouldCBsOverlapTensors(op, pos, cbPeakUsage, addrForCheck)) {
     l1Size = handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
   }
   return l1Size;
@@ -574,10 +580,7 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   if (result.isSuccess()) {
     uint64_t l1Size =
         result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
-    if (l1Size > 0) {
-      l1Size =
-          ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
-    }
+    l1Size = ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
     if (l1Size > 0) {
       addResultsToLiveSet(l1Size);
       observer_->onLiveAdded(op, pos, l1Size, pos,
