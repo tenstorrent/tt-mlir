@@ -269,7 +269,8 @@ func.func @complex_tiled_mapping_preserves_untilize_shape(%arg0: tensor<1x1x1x5x
 
 func.func @tilize_ignores_rank_incompatible_input_vgm() -> tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst> {
   // CHECK-LABEL: @tilize_ignores_rank_incompatible_input_vgm
-  // CHECK: d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x1x1x1x128x1x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]+}}>
+  // CHECK: d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x1x1x128x4096xf32, #layout{{[0-9]+}}>
+  // CHECK: d2m.empty() : tensor<8x4x512x32xf32, #layout{{[0-9]+}}>
   // CHECK: d2m.tile_tilize_block
   %0 = d2m.empty() {virtualGridForwardMapping = #rank6_vgm_forward, virtualGridInverseMapping = #rank6_vgm_inverse} : tensor<1x1x1x1x128x4096xf32, #rank_incompatible_vgm_src>
   %view = d2m.view_layout %0 remapping = #rank8_view : tensor<1x1x1x1x128x4096xf32, #rank_incompatible_vgm_src> -> tensor<1x1x1x1x1x128x32x128xf32, #rank_incompatible_vgm_view>
