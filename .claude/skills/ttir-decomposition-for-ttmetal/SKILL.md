@@ -43,7 +43,7 @@ by the softmax pattern on subsequent rewriter iterations.
 You should NOT need to touch `CMakeLists.txt` or `Passes.td` pass
 registration in the common case. However, when adding a new composite
 decomposition, verify that `ttir-decompose-composites` is scheduled in the
-relevant TTMetal pipeline in `TTMetalPipelines.cpp`, and update that pipeline
+relevant D2M pipeline in `D2MPipelines.cpp`, and update that pipeline
 if necessary.
 
 ## Step-by-Step

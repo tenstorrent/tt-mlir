@@ -2,7 +2,7 @@
 name: ttir-model-op-analysis
 description: >
   Given a `.mlir` file (or a directory of `.mlir` files) with TTIR ops, run the same TTIR
-  normalization passes as `TTIRToTTMetalFrontendPipeline` before D2M, then produce per-file
+  normalization passes as `D2MFrontendPipeline` before D2M, then produce per-file
   outputs: `preprocessed.mlir`, `ttir-op-report.txt` (op counts from normalized IR),
   and `ops.mlir` (one func per unique op configuration, golden-style). Optional: per-pass IR dumps.
 ---
@@ -22,8 +22,8 @@ The input can be:
 
 ## Step 1: Run the frontend TTIR normalization pipeline
 
-These passes match `createTTIRToTTMetalFrontendPipeline` in
-`lib/Dialect/TTMetal/Pipelines/TTMetalPipelines.cpp`:
+These passes match `createD2MFrontendPipeline` in
+`lib/Dialect/D2M/Pipelines/D2MPipelines.cpp`:
 
 | # | Pass flag | Short name (for filenames) |
 |---|-----------|---------------------------|

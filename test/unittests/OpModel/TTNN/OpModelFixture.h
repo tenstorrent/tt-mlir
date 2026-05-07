@@ -11,10 +11,11 @@
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Utils.h"
+
+#include "testing/DeviceUtils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -63,6 +64,7 @@ public:
   llvm::SmallVector<int64_t> GetVirtualGridShape(
       const llvm::ArrayRef<int64_t> &tensorShape,
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
+      const mlir::tt::ttnn::BufferType &bufferType,
       const llvm::ArrayRef<int64_t> &gridPhyCores = GetPhysicalGridSize()) {
 
     auto tilePaddedShape =
@@ -90,6 +92,11 @@ public:
       assert(shapeInTiles.size() == 2);
       return {std::min(gridPhyCores[0], shapeInTiles[0]),
               std::min(gridPhyCores[1], shapeInTiles[1])};
+    case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
+      if (mlir::tt::ttnn::isL1BufferType(bufferType)) {
+        return {gridPhyCores[0], gridPhyCores[1]};
+      }
+      return {1, 1};
     default:
       return {gridPhyCores[0], gridPhyCores[1]};
     }
@@ -106,7 +113,7 @@ public:
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
-            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout, bufferType);
 
     auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
@@ -114,12 +121,14 @@ public:
                                    &context, tensorMemoryLayout);
     const auto dtypeSelected =
         dtype.has_value() ? dtype.value() : builder.getBF16Type();
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, mlir::tt::ttcore::TileType::get(dtypeSelected),
-        bufferType,
-        CreateGrid(&context, bufferType, tensorMemoryLayout,
-                   virtualGridSelected, physicalGrid),
-        memLayoutAttr);
+    return mlir::tt::ttnn::TTNNLayoutAttr::Builder(
+               &context, tensorShape,
+               mlir::tt::ttcore::TileType::get(dtypeSelected))
+        .setBufferType(bufferType)
+        .setMemoryLayout(memLayoutAttr)
+        .setGridShape(virtualGridSelected)
+        .buildWithCanonicalCorePlacement(
+            mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutInt32(
@@ -133,7 +142,7 @@ public:
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
-            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout, bufferType);
 
     auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
@@ -144,11 +153,13 @@ public:
     auto tileType =
         mlir::tt::ttcore::TileType::get(&context, {32, 32}, int32DataType);
 
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, tileType, bufferType,
-        CreateGrid(&context, bufferType, tensorMemoryLayout,
-                   virtualGridSelected, physicalGrid),
-        memLayoutAttr);
+    return mlir::tt::ttnn::TTNNLayoutAttr::Builder(&context, tensorShape,
+                                                   tileType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(memLayoutAttr)
+        .setGridShape(virtualGridSelected)
+        .buildWithCanonicalCorePlacement(
+            mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutUInt32(
@@ -174,7 +185,7 @@ public:
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
-            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout, bufferType);
 
     auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
@@ -183,11 +194,13 @@ public:
     const auto dtypeSelected =
         dtype.has_value() ? dtype.value() : builder.getBF16Type();
 
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, dtypeSelected, bufferType,
-        CreateGrid(&context, bufferType, tensorMemoryLayout,
-                   virtualGridSelected, physicalGrid),
-        memLayoutAttr);
+    return mlir::tt::ttnn::TTNNLayoutAttr::Builder(&context, tensorShape,
+                                                   dtypeSelected)
+        .setBufferType(bufferType)
+        .setMemoryLayout(memLayoutAttr)
+        .setGridShape(virtualGridSelected)
+        .buildWithCanonicalCorePlacement(
+            mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateRowMajorLayoutInt32(
@@ -200,7 +213,7 @@ public:
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
-            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout, bufferType);
 
     auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
@@ -209,35 +222,23 @@ public:
 
     auto int32DataType = mlir::IntegerType::get(&context, 32);
 
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, int32DataType, bufferType,
-        CreateGrid(&context, bufferType, tensorMemoryLayout,
-                   virtualGridSelected, physicalGrid),
-        memLayoutAttr);
-  }
-
-  mlir::tt::ttcore::GridAttr
-  CreateGrid(::mlir::MLIRContext *context,
-             const mlir::tt::ttnn::BufferType bufferType,
-             const mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout,
-             const llvm::ArrayRef<int64_t> virtualGridSize,
-             const llvm::ArrayRef<int64_t> physicalGridSize) {
-
-    auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            context, tensorMemoryLayout, physicalGridSize);
-
-    llvm::SmallVector<int64_t> gridShape(virtualGridSize);
-    if (!mlir::tt::ttnn::isL1BufferType(bufferType)) {
-      gridShape = {1, 1};
-    }
-    return mlir::tt::ttcore::GridAttr::get(
-        context, gridShape, virtToPhysicalMap, physicalToVirtMap);
+    return mlir::tt::ttnn::TTNNLayoutAttr::Builder(&context, tensorShape,
+                                                   int32DataType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(memLayoutAttr)
+        .setGridShape(virtualGridSelected)
+        .buildWithCanonicalCorePlacement(
+            mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGrid));
   }
 
   mlir::tt::ttcore::GridAttr CreateWorkerGrid(
       const llvm::ArrayRef<int64_t> physicalGridSize = GetPhysicalGridSize()) {
     return mlir::tt::ttcore::GridAttr::get(&context, physicalGridSize);
+  }
+
+  mlir::tt::ttcore::DeviceAttr CreateDeviceAttr(
+      const llvm::ArrayRef<int64_t> physicalGridSize = GetPhysicalGridSize()) {
+    return mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGridSize);
   }
 
   void ExpectLayoutsEQ(mlir::tt::ttnn::TTNNLayoutAttr layoutA,
@@ -248,13 +249,11 @@ public:
     EXPECT_EQ(layoutA.getDataType(), layoutB.getDataType());
     EXPECT_EQ(layoutA.getMemLayout().getValue(),
               layoutB.getMemLayout().getValue());
-    EXPECT_EQ(layoutA.getGrid().getGridVolume(),
-              layoutB.getGrid().getGridVolume());
-    ASSERT_EQ(layoutA.getGrid().getShape().size(),
-              layoutB.getGrid().getShape().size());
-    for (size_t i = 0; i < layoutA.getGrid().getShape().size(); ++i) {
-      EXPECT_EQ(layoutA.getGrid().getShape()[i],
-                layoutB.getGrid().getShape()[i]);
+    EXPECT_EQ(ttmlir::utils::volume(layoutA.getGridShape()),
+              ttmlir::utils::volume(layoutB.getGridShape()));
+    ASSERT_EQ(layoutA.getGridShape().size(), layoutB.getGridShape().size());
+    for (size_t i = 0; i < layoutA.getGridShape().size(); ++i) {
+      EXPECT_EQ(layoutA.getGridShape()[i], layoutB.getGridShape()[i]);
     }
     ASSERT_EQ(layoutA.getShardShape().size(), layoutB.getShardShape().size());
     for (size_t i = 0; i < layoutA.getShardShape().size(); ++i) {

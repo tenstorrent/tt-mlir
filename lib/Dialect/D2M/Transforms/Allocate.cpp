@@ -1364,6 +1364,27 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   L1memInfo, analysis.sequencing))) {
             return failure();
           }
+        } else {
+          // Mark allocs as aliased for HoistCBAllocs pass.
+          const OperandContext *sharedPeerCtx =
+              findSharedPeerOperandContext(genericOp, genericCtx, operandCtx);
+          // If alias exists and is on the peer for load/store pair, don't mark
+          // alias for this operand. Otherwise, mark alias for this operand.
+          if (!sharedPeerCtx || !inferBaseStreamRequirement(
+                                    genericOp, operandCtx,
+                                    ttcore::getMemorySpace(
+                                        operandCtx.operand->get().getType()))) {
+            auto operandIndex = operandCtx.operand->getOperandNumber();
+            Value cbMemref =
+                findLocalBufferForOperandLoadStore(genericOp, operandCtx);
+            if (cbMemref) {
+              if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(
+                      cbMemref.getDefiningOp())) {
+                allocOp->setAttr("d2m.alias_for_operand",
+                                 rewriter.getI64IntegerAttr(operandIndex));
+              }
+            }
+          }
         }
       }
 
@@ -1731,6 +1752,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
     }
     return false;
+  }
+
+  Value findLocalBufferForOperandLoadStore(d2m::GenericOp genericOp,
+                                           const OperandContext &operandCtx) {
+    Value localBuffer;
+    genericOp->walk([&](Operation *op) {
+      if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(op)) {
+        if (loadOp.getMemref() == operandCtx.operand->get()) {
+          localBuffer = loadOp.getLocalBuffer();
+          return WalkResult::interrupt();
+        }
+      } else if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(op)) {
+        if (storeOp.getMemref() == operandCtx.operand->get()) {
+          localBuffer = storeOp.getLocalBuffer();
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    });
+    return localBuffer;
   }
 
   static const OperandContext *

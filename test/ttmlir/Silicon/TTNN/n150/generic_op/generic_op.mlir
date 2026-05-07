@@ -87,8 +87,9 @@
 // Layout for single tile in L1
 #l1_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
-  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>,
-  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
+  <1x1>,
+  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>,
+  core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>
   >
 
 // CHECK: module attributes {ttcore.system_desc = #system_desc}

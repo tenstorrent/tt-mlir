@@ -58,6 +58,39 @@ module {
 
  // -----
 
+ #stale_forward = affine_map<(d0, d1, d2, d3) -> (0, 0, d2, d3)>
+ #stale_inverse = affine_map<(d0, d1) -> (0, 0, 0)>
+ #layout_stale_vgm = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+
+ module {
+   func.func @test_update_empty_drops_stale_vgm() -> (tensor<256x256xf32>) {
+     // CHECK-AFTER-LABEL: func.func @test_update_empty_drops_stale_vgm
+     // CHECK-AFTER: d2m.empty() : tensor<8x8x1x1x!ttcore.tile<32x32, f32>
+     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>
+     %0 = d2m.empty() {virtualGridForwardMapping = #stale_forward, virtualGridInverseMapping = #stale_inverse} : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_stale_vgm>
+
+     %1 = d2m.generic {
+       block_factors = [1, 1],
+       grid = #ttcore.grid<1x1>,
+       indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
+       iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+       threads = [#d2m.thread<unified>]
+     }
+     ins() outs(%0 : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_stale_vgm>)  {
+     ^unified0:
+       %out = tensor.empty() : tensor<8x8x!ttcore.tile<32x32, f32>>
+       d2m.yield %out : (tensor<8x8x!ttcore.tile<32x32, f32>>)
+     } : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_stale_vgm>
+
+     %2 = d2m.empty() : tensor<256x256xf32>
+     %3 = d2m.to_layout %1, %2 : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_stale_vgm> into tensor<256x256xf32> -> tensor<256x256xf32>
+
+     return %3 : tensor<256x256xf32>
+   }
+ }
+
+ // -----
+
  #layout_tm_device_input = #ttcore.metal_layout<logical_shape = 33x2x8, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
  #layout_tm_stream_map = #ttcore.metal_layout<logical_shape = 2x264, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
 

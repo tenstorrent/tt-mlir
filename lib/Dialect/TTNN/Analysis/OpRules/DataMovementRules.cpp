@@ -39,9 +39,9 @@ bool ConcatRuleBook::isValidInputCombination(
 
   // Concat requires all sharded inputs to have the same grid.
   if (inputLayouts[0].hasShardedTensorMemoryLayout()) {
-    auto firstGrid = inputLayouts[0].getGrid();
+    auto firstGridShape = inputLayouts[0].getGridShape();
     for (size_t i = 1; i < inputLayouts.size(); ++i) {
-      if (inputLayouts[i].getGrid() != firstGrid) {
+      if (inputLayouts[i].getGridShape() != firstGridShape) {
         return false;
       }
     }
@@ -74,12 +74,7 @@ bool ConcatRuleBook::isValidOutputHintForInputs(
     if (!hintSharded || hintMem != inputMem) {
       return false;
     }
-    auto hintGrid = hint.outputLayout.getGrid();
-    auto inputGrid = inputLayouts[0].getGrid();
-    if (!hintGrid || !inputGrid) {
-      return false;
-    }
-    return hintGrid == inputGrid;
+    return hint.outputLayout.getGridShape() == inputLayouts[0].getGridShape();
   }
 
   // Interleaved inputs: reject sharded output hints. tt-metal concat selects

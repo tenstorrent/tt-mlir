@@ -2074,16 +2074,7 @@ public:
           outChannelsAttr.getInt(), rewriter, op.getLoc());
     }
 
-    llvm::SmallVector<int64_t, 5> toNdhwcPermutation = {
-        batchDim, depthDim, heightDim, widthDim, channelDim};
-    bool needsPermute = !op.isNDHWC();
     Value input = adaptor.getInput();
-    if (needsPermute) {
-      input = ttir_to_ttnn::utils::generatePermute(
-          mlir::cast<TypedValue<RankedTensorType>>(input), toNdhwcPermutation,
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_to_ndhwc"));
-    }
 
     int64_t inChannels = inputShape[channelDim];
     if (inChannels % TILE_WIDTH != 0) {
@@ -2100,12 +2091,6 @@ public:
 
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
-    if (needsPermute) {
-      auto permutedOutputShape = ttmlir::utils::applyPermutation(
-          outputType.getShape(), toNdhwcPermutation);
-      outputType = ttnn::utils::RankedTensorTypeFactory::create(
-          outputType, permutedOutputShape);
-    }
 
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
         op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
@@ -2113,17 +2098,6 @@ public:
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
         *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
         nullptr);
-
-    if (needsPermute) {
-      auto fromNdhwcPermutation =
-          ttmlir::utils::inversePermutation(toNdhwcPermutation);
-      Value permutedOutput = ttir_to_ttnn::utils::generatePermute(
-          mlir::cast<TypedValue<RankedTensorType>>(convOp.getResult()),
-          fromNdhwcPermutation, rewriter,
-          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_from_ndhwc"));
-      rewriter.replaceOp(op, permutedOutput);
-      return success();
-    }
 
     rewriter.replaceOp(op, convOp.getResult());
 
@@ -3477,14 +3451,23 @@ public:
   }
 
 private:
-  // SDPA Query, Key, Value tensors have shape [B, H, S, D] (Batch, NumHeads,
-  // SeqLen, HeadDim).
+  // TTIR generic SDPA layout: Q [B, Hq, Sq, D], K/V [B, Hkv, Sk, D],
+  // mask [1|B, 1|Hq, Sq, Sk]. See ScaledDotProductAttentionOp::verify().
   static constexpr int64_t kNumHeadsDim = 1;
   static constexpr int64_t kSeqLenDim = 2;
 
-  // Permutation to convert query from [B, H, S, D] -> [S, B, H, D] for SDPA
-  // decode op.
+  // Generic->decode dispatch fires only when Sq == 1. Permutes query
+  // [B, Hq, 1, D] -> [1, B, Hq, D] to match the decode op layout.
   static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
+
+  // Permutes mask [1|B, 1|Hq, 1, Sk] -> [1|B, 1, 1|Hq, Sk] to match the decode
+  // op mask layout.
+  static constexpr std::array<int64_t, 4> kToDecodeMaskPermutation = {0, 2, 1,
+                                                                      3};
+
+  // Index of the heads dim in the post-permutation decode mask layout
+  // [B, 1, Hq, Sk].
+  static constexpr int64_t kDecodeMaskNumHeadsDim = 2;
 
   // Determine if the decode op should be used based on query sequence length.
   // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
@@ -3493,8 +3476,10 @@ private:
     return queryType.getDimSize(kSeqLenDim) == 1;
   }
 
-  // Broadcast attention mask's head dimension to match the number of heads.
-  // The decode op requires the mask to have explicit head dimension.
+  // Materialize the heads dim of the decode mask. The decode kernel currently
+  // does not support broadcasting the heads dim of the mask (batch broadcast
+  // is supported).
+  // Tracked by https://github.com/tenstorrent/tt-metal/issues/39946.
   Value broadcastMaskForDecode(Value mask, int64_t numHeads,
                                ConversionPatternRewriter &rewriter,
                                Location loc) const {
@@ -3504,7 +3489,7 @@ private:
 
     auto maskType = mlir::cast<RankedTensorType>(mask.getType());
     SmallVector<int64_t> broadcastShape(maskType.getShape());
-    broadcastShape[kSeqLenDim] = numHeads;
+    broadcastShape[kDecodeMaskNumHeadsDim] = numHeads;
 
     auto broadcastType =
         ttnn::utils::RankedTensorTypeFactory::create(maskType, broadcastShape);
@@ -3515,9 +3500,14 @@ private:
     return rewriter.create<ttnn::RepeatOp>(loc, broadcastType, mask, shapeAttr);
   }
 
-  // Lower to SDPA decode op with necessary permutations.
-  // Decode op expects [S, B, H, D] query shape, so we permute from [B, H, S,
-  // D].
+  // Lower to SDPA decode op. Operand layout transitions:
+  //   Q:      [B, Hq, 1, D]      -> [1, B, Hq, D]  (permute {2,0,1,3})
+  //   K, V:   [B, Hkv, Sk, D]    -> unchanged (TTIR generic and TTNN decode
+  //                                share this layout)
+  //   mask:   [1|B, 1|Hq, 1, Sk] -> [1|B, 1, 1|Hq, Sk] (permute {0,2,1,3},
+  //                                heads dim materialized when Hq > 1)
+  //   result: [1, B, Hq, D]      -> [B, Hq, 1, D]  (inverse Q permute) to
+  //                                match the original ttir SDPA result type
   LogicalResult lowerToDecodeOp(ttir::ScaledDotProductAttentionOp op,
                                 OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const {
@@ -3529,9 +3519,14 @@ private:
         mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getQuery()),
         llvm::to_vector(kToDecodePermutation), rewriter, op.getLoc());
 
-    // Broadcast mask head dimension if needed.
-    Value attentionMask = broadcastMaskForDecode(
-        adaptor.getAttentionMask(), numHeads, rewriter, op.getLoc());
+    Value attentionMask = adaptor.getAttentionMask();
+    if (attentionMask) {
+      attentionMask = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<mlir::RankedTensorType>>(attentionMask),
+          llvm::to_vector(kToDecodeMaskPermutation), rewriter, op.getLoc());
+      attentionMask = broadcastMaskForDecode(attentionMask, numHeads, rewriter,
+                                             op.getLoc());
+    }
 
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
