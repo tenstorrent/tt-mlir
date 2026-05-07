@@ -25,23 +25,23 @@ module {
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 0>, #d2m.thread<datamovement, noc = 1>, #d2m.thread<compute>]
     // CHECK: {
-    // CHECK: %[[LHS_CB:.*]] = d2m.get_cb(0) operand_index = 0
+    // CHECK: %[[LHS_CB:.*]] = d2m.get_cb(0)
     // CHECK-NOT: d2m.get_cb(1)
     // CHECK: scf.for
     // CHECK-NOT: d2m.remote_load %arg1
     // CHECK: d2m.remote_load %arg0{{.*}}into %[[LHS_CB]] mcore{{.*}} {preallocated_semaphores = [3, 4]}
     // CHECK-NOT: d2m.remote_load %arg1
     // CHECK: }, {
-    // CHECK: %[[RHS_CB:.*]] = d2m.get_cb(1) operand_index = 1
+    // CHECK: %[[RHS_CB:.*]] = d2m.get_cb(1)
     // CHECK-NOT: d2m.get_cb(0)
     // CHECK: scf.for
     // CHECK-NOT: d2m.remote_load %arg0
     // CHECK: d2m.remote_load %arg1{{.*}}into %[[RHS_CB]] mcore{{.*}} {preallocated_semaphores = [5, 6]}
     // CHECK-NOT: d2m.remote_load %arg0
     // CHECK: }, {
-    // CHECK: %[[OUT_CB:.*]] = d2m.get_cb(2) operand_index = 2
-    // CHECK: %[[COMPUTE_RHS_CB:.*]] = d2m.get_cb(1) operand_index = 1
-    // CHECK: %[[COMPUTE_LHS_CB:.*]] = d2m.get_cb(0) operand_index = 0
+    // CHECK: %[[OUT_CB:.*]] = d2m.get_cb(2)
+    // CHECK: %[[COMPUTE_RHS_CB:.*]] = d2m.get_cb(1)
+    // CHECK: %[[COMPUTE_LHS_CB:.*]] = d2m.get_cb(0)
     // CHECK: scf.for
     // CHECK: d2m.wait %[[COMPUTE_LHS_CB]]
     // CHECK: d2m.wait %[[COMPUTE_RHS_CB]]
@@ -65,8 +65,8 @@ module {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       %c8 = arith.constant 8 : index
-      %rhs_cb = d2m.get_cb(1) operand_index = 1 resolution_stage =  compile : <memref<1x8x!ttcore.tile<32x32, f32>, #l1>>
-      %lhs_cb = d2m.get_cb(0) operand_index = 0 resolution_stage =  compile : <memref<8x1x!ttcore.tile<32x32, f32>, #l1>>
+      %rhs_cb = d2m.get_cb(1) resolution_stage =  compile : <memref<1x8x!ttcore.tile<32x32, f32>, #l1>>
+      %lhs_cb = d2m.get_cb(0) resolution_stage =  compile : <memref<8x1x!ttcore.tile<32x32, f32>, #l1>>
       scf.for %k = %c0 to %c64 step %c1 {
         %core0 = d2m.core_index(0) {phys_to_virt_map = #identity} : index
         %core1 = d2m.core_index(1) {phys_to_virt_map = #identity} : index
@@ -82,9 +82,9 @@ module {
       %c1 = arith.constant 1 : index
       %c8 = arith.constant 8 : index
       %c4 = arith.constant 4 : index
-      %out_cb = d2m.get_cb(2) operand_index = 2 resolution_stage =  compile : <memref<8x8x!ttcore.tile<32x32, f32>, #l1>>
-      %rhs_cb = d2m.get_cb(1) operand_index = 1 resolution_stage =  compile : <memref<1x8x!ttcore.tile<32x32, f32>, #l1>>
-      %lhs_cb = d2m.get_cb(0) operand_index = 0 resolution_stage =  compile : <memref<8x1x!ttcore.tile<32x32, f32>, #l1>>
+      %out_cb = d2m.get_cb(2) resolution_stage =  compile : <memref<8x8x!ttcore.tile<32x32, f32>, #l1>>
+      %rhs_cb = d2m.get_cb(1) resolution_stage =  compile : <memref<1x8x!ttcore.tile<32x32, f32>, #l1>>
+      %lhs_cb = d2m.get_cb(0) resolution_stage =  compile : <memref<8x1x!ttcore.tile<32x32, f32>, #l1>>
       scf.for %k = %c0 to %c64 step %c1 {
         %lhs = d2m.wait %lhs_cb : <memref<8x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<8x1x!ttcore.tile<32x32, f32>, #l1>
         %lhs_flat = memref.collapse_shape %lhs [[0, 1]] : memref<8x1x!ttcore.tile<32x32, f32>, #l1> into memref<8x!ttcore.tile<32x32, f32>, #l1>

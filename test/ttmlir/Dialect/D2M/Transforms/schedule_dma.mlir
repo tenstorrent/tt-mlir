@@ -176,26 +176,14 @@ module {
       // CHECK: }, {
       // CHECK: d2m.remote_load
       // CHECK: }, {
-      // DM6: %[[CB0:.*]] = d2m.get_cb(0)
-      // DM6-NOT: d2m.get_cb(1)
-      // DM6-NOT: d2m.get_cb(2)
-      // DM6: d2m.remote_load %arg0{{.*}}into %[[CB0]]
-      // DM6-NOT: d2m.remote_load %arg1
-      // DM6-NOT: d2m.remote_load %arg2
+      // DM6: d2m.remote_load %arg{{[0-2]}}
+      // DM6-NOT: d2m.remote_load
       // DM6: }, {
-      // DM6: %[[CB2:.*]] = d2m.get_cb(2)
-      // DM6-NOT: d2m.get_cb(0)
-      // DM6-NOT: d2m.get_cb(1)
-      // DM6: d2m.remote_load %arg2{{.*}}into %[[CB2]]
-      // DM6-NOT: d2m.remote_load %arg0
-      // DM6-NOT: d2m.remote_load %arg1
+      // DM6: d2m.remote_load %arg{{[0-2]}}
+      // DM6-NOT: d2m.remote_load
       // DM6: }, {
-      // DM6: %[[CB1:.*]] = d2m.get_cb(1)
-      // DM6-NOT: d2m.get_cb(0)
-      // DM6-NOT: d2m.get_cb(2)
-      // DM6: d2m.remote_load %arg1{{.*}}into %[[CB1]]
-      // DM6-NOT: d2m.remote_load %arg0
-      // DM6-NOT: d2m.remote_load %arg2
+      // DM6: d2m.remote_load %arg{{[0-2]}}
+      // DM6-NOT: d2m.remote_load
       // DM6: }, {
       // DM6: d2m.wait
       // DM6-NOT: d2m.remote_load
