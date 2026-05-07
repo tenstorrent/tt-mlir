@@ -43,7 +43,7 @@ namespace mlir::tt::ttnn::op_model {
 // Guard A (binary eltwise H/W broadcast + sharded L1) removed — kernel handles it correctly.
 static std::atomic<int> guardBFires{0}; // softmax L1
 static std::atomic<int> guardCFires{0}; // grouped conv2d sharded
-static std::atomic<int> guardDFires{0}; // small-H conv2d HEIGHT/BLOCK_SHARDED
+// guardDFires removed — Guard D has been deleted for analysis
 static std::atomic<int> guardEFires{0}; // bilinear upsample sharded
 
 static void logGuardFire(const char *label, std::atomic<int> &counter) {
@@ -5243,54 +5243,6 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
           "is not supported when kernel > 1x1: all spatial sharding modes "
           "(height, block, width) require halo exchange which is not correctly "
           "implemented for grouped convolutions in TTNN");
-    }
-  }
-
-  // Conv2d HEIGHT_SHARDED / BLOCK_SHARDED guard: block when either the input
-  // height or the computed output height is <= kernel_h. This covers:
-  //  1. Direct small-H case: input_height <= kernel_h (3×3 conv on H=3 input)
-  //  2. Stride-2 downsampling: H_in=6 → H_out=3 with kernel_h=3 (output too
-  //     small for halo exchange regardless of input size)
-  // In both situations, TTNN's spatial halo kernel receives fewer rows per core
-  // than the halo size requires, producing incorrect activations. WIDTH_SHARDED
-  // (shards channels, not height) is unaffected.
-  if (groups == 1 && !kernel_size.empty() && kernel_size[0] > 1) {
-    bool outputHeightOrBlockSharded =
-        outputLayout && outputLayout.hasL1BufferType() &&
-        outputLayout.getMemLayout() &&
-        (outputLayout.getMemLayout().getValue() ==
-             TensorMemoryLayout::HeightSharded ||
-         outputLayout.getMemLayout().getValue() ==
-             TensorMemoryLayout::BlockSharded);
-    if (outputHeightOrBlockSharded) {
-      uint32_t kh = static_cast<uint32_t>(kernel_size[0]);
-      uint32_t pad_top = padding.empty() ? 0 : static_cast<uint32_t>(padding[0]);
-      uint32_t pad_bot = (padding.size() >= 4)
-                             ? static_cast<uint32_t>(padding[2])
-                             : pad_top;
-      uint32_t total_pad_h = pad_top + pad_bot;
-      uint32_t stride_h =
-          stride.empty() ? 1u : std::max(1u, static_cast<uint32_t>(stride[0]));
-      uint32_t dil_h = dilation.empty()
-                           ? 1u
-                           : std::max(1u, static_cast<uint32_t>(dilation[0]));
-      uint32_t eff_kh = dil_h * (kh - 1) + 1;
-      uint32_t output_height_val =
-          (input_height + total_pad_h >= eff_kh)
-              ? (input_height + total_pad_h - eff_kh) / stride_h + 1
-              : 0;
-      if (input_height <= kh || output_height_val <= kh) {
-        logGuardFire("D: small-H conv2d HEIGHT/BLOCK_SHARDED", guardDFires);
-        return llvm::createStringError(
-            llvm::inconvertibleErrorCode(),
-            "Conv2d HEIGHT_SHARDED or BLOCK_SHARDED output is not supported "
-            "when input_height or output_height is <= kernel_h: the spatial "
-            "shard is too small for TTNN's halo exchange to produce correct "
-            "results (input_height=" +
-                std::to_string(input_height) +
-                ", output_height=" + std::to_string(output_height_val) +
-                ", kernel_h=" + std::to_string(kh) + ")");
-      }
     }
   }
 
