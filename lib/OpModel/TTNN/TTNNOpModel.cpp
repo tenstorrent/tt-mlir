@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <atomic>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -36,6 +37,20 @@
 namespace mlir::tt::ttnn::op_model {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+
+// Guard fire counters — printed inline at each rejection site.
+// guardAFires removed — Guard A has been deleted for analysis
+// Guard A (binary eltwise H/W broadcast + sharded L1) removed — kernel handles it correctly.
+static std::atomic<int> guardBFires{0}; // softmax L1
+static std::atomic<int> guardCFires{0}; // grouped conv2d sharded
+static std::atomic<int> guardDFires{0}; // small-H conv2d HEIGHT/BLOCK_SHARDED
+static std::atomic<int> guardEFires{0}; // bilinear upsample sharded
+
+static void logGuardFire(const char *label, std::atomic<int> &counter) {
+  int n = ++counter;
+  fprintf(stderr, "[GUARD_FIRE] %s (total=%d)\n", label, n);
+  fflush(stderr);
+}
 
 // Macros to wrap overloaded functions for use with
 // query_op_constraints/runtime. These create a generic lambda that forwards
@@ -1123,42 +1138,6 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
     TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout,
     ttcore::DataTypeAttr opDtypeAttr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // BroadcastHeightAndWidthMultiCore (selected when one input broadcasts H and W
-  // over the other) does not support sharded L1 output OR sharded L1 input A:
-  // - Neither input sharded + sharded output: compute_output_specs falls back
-  //   to an empty CoreRangeSet shard spec, producing a corrupt output tensor.
-  // - Input A sharded (any output): the broadcast kernel assumes A is DRAM/
-  //   interleaved when computing per-core tile offsets for B; with A in a
-  //   sharded L1 layout the kernel reads wrong B tiles → corrupted output.
-  // Reject whenever one operand's H or W broadcasts over the other's AND either
-  // the output OR input A is in a sharded L1 layout. Guard against null
-  // TTNNLayoutAttr using short-circuit &&.
-  bool inputASharded = inputLayoutA && inputLayoutA.hasL1BufferType() &&
-                       inputLayoutA.getMemLayout() &&
-                       isShardedMemoryLayout(inputLayoutA.getMemLayout().getValue());
-  bool outputSharded = outputLayout && outputLayout.hasL1BufferType() &&
-                       outputLayout.getMemLayout() &&
-                       isShardedMemoryLayout(outputLayout.getMemLayout().getValue());
-  if ((inputASharded || outputSharded) && inputShapeA.size() >= 2 &&
-      inputShapeB.size() >= 2) {
-    auto rankA = inputShapeA.size();
-    auto rankB = inputShapeB.size();
-    bool bBroadcastsHWOverA =
-        inputShapeB[rankB - 2] == 1 && inputShapeB[rankB - 1] == 1 &&
-        (inputShapeA[rankA - 2] > 1 || inputShapeA[rankA - 1] > 1);
-    bool aBroadcastsHWOverB =
-        inputShapeA[rankA - 2] == 1 && inputShapeA[rankA - 1] == 1 &&
-        (inputShapeB[rankB - 2] > 1 || inputShapeB[rankB - 1] > 1);
-    if (bBroadcastsHWOverA || aBroadcastsHWOverB) {
-      return llvm::createStringError(
-          llvm::inconvertibleErrorCode(),
-          "Binary eltwise op with H/W broadcast does not support sharded L1 "
-          "input A or sharded L1 output; the broadcast kernel assumes "
-          "interleaved A when computing per-core offsets, producing incorrect "
-          "results with any sharded configuration");
-    }
-  }
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -1775,6 +1754,7 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
   bool inputL1 = inputLayout && inputLayout.hasL1BufferType();
   bool outputL1 = outputLayout && outputLayout.hasL1BufferType();
   if (inputL1 || outputL1) {
+    logGuardFire("B: softmax any-L1", guardBFires);
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
         "Softmax requires DRAM interleaved input and output; any L1 layout "
@@ -5256,6 +5236,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         outputLayout.getMemLayout() &&
         isShardedMemoryLayout(outputLayout.getMemLayout().getValue());
     if (inputSharded || outputSharded) {
+      logGuardFire("C: grouped-conv2d sharded-L1", guardCFires);
       return llvm::createStringError(
           llvm::inconvertibleErrorCode(),
           "Grouped conv2d (groups > 1) with any L1-sharded input or output "
@@ -5299,6 +5280,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
               ? (input_height + total_pad_h - eff_kh) / stride_h + 1
               : 0;
       if (input_height <= kh || output_height_val <= kh) {
+        logGuardFire("D: small-H conv2d HEIGHT/BLOCK_SHARDED", guardDFires);
         return llvm::createStringError(
             llvm::inconvertibleErrorCode(),
             "Conv2d HEIGHT_SHARDED or BLOCK_SHARDED output is not supported "
@@ -7584,6 +7566,7 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
   if (mode == "bilinear" && inputLayout.hasL1BufferType() &&
       inputLayout.getMemLayout() &&
       isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
+    logGuardFire("E: bilinear-upsample sharded-L1 input", guardEFires);
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
         "Bilinear upsample OpModel does not support sharded L1 input; "
@@ -7599,6 +7582,7 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
   if (mode == "bilinear" && outputLayout && outputLayout.hasL1BufferType() &&
       outputLayout.getMemLayout() &&
       isShardedMemoryLayout(outputLayout.getMemLayout().getValue())) {
+    logGuardFire("E: bilinear-upsample sharded-L1 output", guardEFires);
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
         "Bilinear upsample with sharded L1 output is not supported; "
