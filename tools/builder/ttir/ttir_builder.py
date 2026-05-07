@@ -1102,7 +1102,7 @@ class TTIRBuilder(Builder):
             result,
             input,
             dim_attr,
-            cluster_axis_attr,
+            cluster_axis=cluster_axis_attr,
             loc=loc,
         )
         op_result = op.result
@@ -1132,7 +1132,7 @@ class TTIRBuilder(Builder):
             result,
             in0,
             dim_attr,
-            cluster_axis_attr,
+            cluster_axis=cluster_axis_attr,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -1178,7 +1178,7 @@ class TTIRBuilder(Builder):
                         result,
                         in0,
                         dim_attr,
-                        cluster_axis_attr,
+                        cluster_axis=cluster_axis_attr,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result

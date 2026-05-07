@@ -4759,21 +4759,28 @@ def ttir_mesh_partition_golden(
     # the input is replicated, and we split it into N pieces along `dim` (where
     # N is the mesh size on `cluster_axis`), distributing one slice to each
     # device in the group. We assume the per-group shards are identical
-    # (replicated) and slice the first one.
+    # (replicated) and slice the first one. The input may also arrive fully
+    # replicated (single shard) when wrapped with `MeshShardType.Identity`, in
+    # which case we treat that single tensor as the per-group source.
     dim = unpack_mlir_attr(dim_attr)
     cluster_axis = unpack_mlir_attr(cluster_axis_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
-    output_shards = [None] * len(input.shard_map)
-    grouped_shards = input.group_by_axis(cluster_axis)
-    for group in grouped_shards:
-        group_tensor = next(iter(group.values()))
-        scattered = torch.chunk(group_tensor, len(group), dim=dim)
-        for index, id in enumerate(group.keys()):
-            output_shards[id] = scattered[index].clone().to(output_dtype)
-    return GoldenMapTensor(
-        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
-    )
+    rows, cols = input.mesh_shape
+    shard_map = input.shard_map
+    fallback_shard = next(iter(shard_map.values()))
+
+    cluster_size = cols if cluster_axis == 1 else rows
+    output_shards: Dict[int, torch.Tensor] = {}
+    for r in range(rows):
+        for c in range(cols):
+            device_id = r * cols + c
+            group_index = c if cluster_axis == 1 else r
+            source = shard_map.get(device_id, fallback_shard)
+            scattered = torch.chunk(source, cluster_size, dim=dim)
+            output_shards[device_id] = scattered[group_index].clone().to(output_dtype)
+
+    return GoldenMapTensor(output_shards, input.mesh_shape)
 
 
 def ttir_collective_permute_golden(
