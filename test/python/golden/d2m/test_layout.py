@@ -111,12 +111,15 @@ def test_to_layout(
             return from_device
 
     use_tensor_accessor_dma = True
-    pipeline = ",".join(
-        [
-            "d2m-lower-to-layout",
-            f"ttir-to-ttmetal-me-pipeline{{use-tensor-accessor-dma={1 if use_tensor_accessor_dma else 0}}}",
-            f"ttir-to-ttmetal-be-pipeline{{use-tensor-accessor-dma={1 if use_tensor_accessor_dma else 0}}}",
-        ]
+    ta = f"use-tensor-accessor-dma={1 if use_tensor_accessor_dma else 0}"
+    pipeline = (
+        f"d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,"
+        f"d2m-insert-scratch-buffers,d2m-generic-apply-interchange,"
+        f"d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,"
+        f"d2m-generic-lower-to-explicit-form,canonicalize,"
+        f"d2m-be-pipeline{{{ta}}},"
+        f"d2m-to-ttkernel-pipeline{{{ta}}},"
+        f"d2m-to-ttmetal-pipeline"
     )
     compile_and_execute_d2m(
         module,
