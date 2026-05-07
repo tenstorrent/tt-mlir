@@ -382,11 +382,11 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
           inputAlignments);
 
       auto inputPhysShape = coordLayout.getPhysicalShape(tileShape);
-      auto inputOptimalGrid =
-          utils::computeOptimalGrid(inputType, inputPhysShape,
-                                    info.grid.targetGrid);
+      auto inputOptimalGrid = utils::computeOptimalGrid(
+          inputType, inputPhysShape, info.grid.targetGrid);
 
-      auto deviceShape = coordLayout.getDeviceShape(inputOptimalGrid, tileShape);
+      auto deviceShape =
+          coordLayout.getDeviceShape(inputOptimalGrid, tileShape);
       newInputType = RankedTensorType::get(
           deviceShape, inputType.getElementType(), coordLayout);
     } else {
@@ -396,9 +396,8 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
       // shard shapes.
       auto inputPhysShape =
           utils::computePhysicalShape(input, info.grid.targetGrid, ttnnMode);
-      auto inputOptimalGrid =
-          utils::computeOptimalGrid(inputType, inputPhysShape,
-                                    info.grid.targetGrid);
+      auto inputOptimalGrid = utils::computeOptimalGrid(
+          inputType, inputPhysShape, info.grid.targetGrid);
       newInputType = utils::tensorWithOptimalGrid(
           inputType, info.grid.targetGrid, ttnnMode, inputOptimalGrid);
     }
@@ -518,6 +517,61 @@ deriveGenericGridAttr(d2m::GenericOp genericOp,
   return deriveGridAttrForOutput(output, gridShape, builder);
 }
 
+static llvm::SmallVector<int64_t> getCurrentPhysicalShape(Value value) {
+  auto shapedType = mlir::cast<ShapedType>(value.getType());
+  auto layout = ttcore::getDeviceLayout(shapedType);
+  TT_assert(layout);
+
+  ArrayRef<int64_t> gridShape = layout.getGridShape(shapedType);
+  ArrayRef<int64_t> shardShape = layout.getShardShape(shapedType);
+  TT_assert(gridShape.size() == shardShape.size());
+
+  llvm::SmallVector<int64_t> physicalShape;
+  physicalShape.reserve(gridShape.size());
+  for (auto [gridDim, shardDim] : llvm::zip_equal(gridShape, shardShape)) {
+    physicalShape.push_back(gridDim * shardDim);
+  }
+  return physicalShape;
+}
+
+static int64_t findLargestDivisorAtMost(int64_t maxFactor,
+                                        int64_t physicalDim) {
+  for (int64_t factor = maxFactor; factor > 1; --factor) {
+    if (physicalDim % factor == 0) {
+      return factor;
+    }
+  }
+  return 1;
+}
+
+static llvm::SmallVector<llvm::SmallVector<int64_t>>
+normalizeOperandGridsForCurrentTypes(
+    d2m::GenericOp genericOp,
+    ArrayRef<llvm::SmallVector<int64_t>> operandGrids) {
+  llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
+  physicalShapes.reserve(genericOp.getInputsAndOutputs().size());
+  for (Value operand : genericOp.getInputsAndOutputs()) {
+    physicalShapes.push_back(getCurrentPhysicalShape(operand));
+  }
+
+  llvm::SmallVector<llvm::SmallVector<int64_t>> sanitizedOperandGrids(
+      operandGrids.begin(), operandGrids.end());
+  for (auto [operandGrid, physicalShape] :
+       llvm::zip_equal(sanitizedOperandGrids, physicalShapes)) {
+    TT_assert(operandGrid.size() == physicalShape.size());
+    for (unsigned dim = 0; dim < operandGrid.size(); ++dim) {
+      int64_t &gridDim = operandGrid[dim];
+      int64_t physicalDim = physicalShape[dim];
+      if (physicalDim % gridDim != 0) {
+        gridDim = findLargestDivisorAtMost(gridDim, physicalDim);
+      }
+    }
+  }
+
+  return GridAnalysis::normalizeOperandGridsForGeneric(
+      genericOp, sanitizedOperandGrids, physicalShapes);
+}
+
 // Update a ViewLayoutOp by recreating it with a new output type that matches
 // the normalized grid. The remapping is composed with a reblock map that
 // accounts for the shape change from the old grid to the new grid.
@@ -583,18 +637,22 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
 // Failure is returned when generic recreation fails.
 static FailureOr<d2m::GenericOp>
 recreateGenericOp(d2m::GenericOp genericOp,
+                  ArrayRef<int64_t> effectiveTargetGrid,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
   if (optimalOperandGrids.empty()) {
     return genericOp;
   }
 
+  llvm::SmallVector<llvm::SmallVector<int64_t>> operandGrids =
+      normalizeOperandGridsForCurrentTypes(genericOp, optimalOperandGrids);
+
   OpBuilder builder(genericOp);
   unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
-  ArrayRef<int64_t> outputGridShape = optimalOperandGrids[outputOperandIndex];
+  ArrayRef<int64_t> outputGridShape = operandGrids[outputOperandIndex];
   ttcore::GridAttr grid =
-      deriveGenericGridAttr(genericOp, optimalOperandGrids, builder);
+      deriveGenericGridAttr(genericOp, operandGrids, builder);
   SmallVector<int64_t> blockFactors = utils::deriveBlockFactorsFromOperandGrids(
-      genericOp.getIndexingMapsValue(), optimalOperandGrids, outputGridShape);
+      genericOp.getIndexingMapsValue(), operandGrids, outputGridShape);
   auto ret = genericOp.withParallelization(builder, grid, blockFactors,
                                            /*generateReturnView=*/false);
   if (failed(ret)) {
@@ -684,8 +742,8 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
     }
   }
 
-  FailureOr<d2m::GenericOp> newGenericOp =
-      recreateGenericOp(genericOp, result.normalizedOperandGrids);
+  FailureOr<d2m::GenericOp> newGenericOp = recreateGenericOp(
+      genericOp, effectiveTargetGrid, result.normalizedOperandGrids);
   if (failed(newGenericOp)) {
     genericOp.emitOpError() << "grid selection failed to recreate generic op";
     return failure();

@@ -83,6 +83,15 @@ struct GridAnalysis {
   /// ViewLayoutOp chains.
   static bool isTTNNOperand(Value operand);
 
+  /// Normalize operand grids within a generic to ensure consistency across
+  /// operands sharing loop dimensions. Physical shapes are required to ensure
+  /// promoted grid factors evenly divide all affected operands.
+  static llvm::SmallVector<llvm::SmallVector<int64_t>>
+  normalizeOperandGridsForGeneric(
+      GenericOp genericOp,
+      ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
+      ArrayRef<llvm::SmallVector<int64_t>> physicalShapes);
+
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.
   GenericGridAnalysisResult
@@ -92,15 +101,6 @@ private:
   /// Compute the effective target grid range for a generic, accounting for
   /// spatial region grid ranges.
   EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp) const;
-
-  /// Normalize operand grids within a generic to ensure consistency across
-  /// operands sharing loop dimensions. Physical shapes are required to ensure
-  /// promoted grid factors evenly divide all affected operands.
-  static llvm::SmallVector<llvm::SmallVector<int64_t>>
-  normalizeOperandGridsForGeneric(
-      GenericOp genericOp,
-      ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
-      ArrayRef<llvm::SmallVector<int64_t>> physicalShapes);
 
   llvm::DenseMap<Operation *, std::unique_ptr<GenericGridAnalysisResult>>
       results;

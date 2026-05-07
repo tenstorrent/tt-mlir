@@ -127,9 +127,8 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
   ttcore::MetalLayoutAttr layout =
       mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-  // For now, only non-collapsed 2D virtual grids on L1 are supported.
-  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) ||
-      layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+  // Interleaved layouts have no sharded core placement to virtualize.
+  if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
     return false;
   }
   if (physicalShape.size() != 2) {

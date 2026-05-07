@@ -118,7 +118,11 @@ struct GridDecisionAndShape {
 
 static llvm::SmallVector<int64_t>
 computeSelectedGrid(mlir::Value operand, ArrayRef<int64_t> physicalShape,
-                    ArrayRef<int64_t> targetGrid) {
+                    ArrayRef<int64_t> targetGrid, bool allowVirtualGrid) {
+  if (!allowVirtualGrid) {
+    return utils::computeOptimalBlockShardedGrid(physicalShape, targetGrid);
+  }
+
   auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
   return utils::computeOptimalGrid(operandType, physicalShape, targetGrid);
 }
@@ -137,19 +141,6 @@ static llvm::SmallVector<int64_t> computeCurrentPhysicalShape(Value operand) {
   return physicalShape;
 }
 
-static bool gridDividesPhysicalShape(ArrayRef<int64_t> grid,
-                                     ArrayRef<int64_t> physicalShape) {
-  if (grid.size() != physicalShape.size()) {
-    return false;
-  }
-  for (auto [gridDim, physicalDim] : llvm::zip_equal(grid, physicalShape)) {
-    if (physicalDim % gridDim != 0) {
-      return false;
-    }
-  }
-  return true;
-}
-
 static GridDecisionAndShape
 computeCurrentBlockShardedDecision(mlir::Value operand,
                                    ArrayRef<int64_t> targetGrid) {
@@ -166,7 +157,7 @@ computeCurrentBlockShardedDecision(mlir::Value operand,
 static GridDecisionAndShape
 computeGridDecision(mlir::Value operand, ArrayRef<int64_t> initialLayoutGrid,
                     ArrayRef<int64_t> targetGrid, bool ttnnMode,
-                    bool preserveMatmulGridLogic) {
+                    bool allowVirtualGrid) {
   constexpr unsigned kMaxGridDecisionIterations = 8;
 
   llvm::SmallVector<int64_t> layoutGrid(initialLayoutGrid);
@@ -175,16 +166,16 @@ computeGridDecision(mlir::Value operand, ArrayRef<int64_t> initialLayoutGrid,
     GridDecisionAndShape result;
     result.physicalShape =
         utils::computePhysicalShape(operand, layoutGrid, ttnnMode);
-    result.decision = makeGridDecision(
-        computeSelectedGrid(operand, result.physicalShape, targetGrid),
-        targetGrid);
+    result.decision =
+        makeGridDecision(computeSelectedGrid(operand, result.physicalShape,
+                                             targetGrid, allowVirtualGrid),
+                         targetGrid);
+    if (!allowVirtualGrid) {
+      result.decision.layoutGrid = computeTrailingDimLayoutGrid(
+          result.decision.selectedGrid, targetGrid);
+    }
 
     if (result.decision.layoutGrid == layoutGrid) {
-      if (!preserveMatmulGridLogic &&
-          !gridDividesPhysicalShape(result.decision.selectedGrid,
-                                    computeCurrentPhysicalShape(operand))) {
-        return computeCurrentBlockShardedDecision(operand, targetGrid);
-      }
       return result;
     }
 
@@ -213,14 +204,14 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
       optimalOperandGrids.begin(), optimalOperandGrids.end());
 
-  uint64_t numInputs = genericOp.getInputs().size();
   // Map: loopDim -> list of (operandIndex, operandDimIdx) pairs that reference
   // this loop dimension in their indexing maps.
   llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
       dimToInputOperandDims;
 
   auto indexingMaps = genericOp.getIndexingMapsValue();
-  for (uint64_t operandIndex = 0; operandIndex < numInputs; ++operandIndex) {
+  for (uint64_t operandIndex = 0; operandIndex < indexingMaps.size();
+       ++operandIndex) {
     AffineMap operandIndexingMap = indexingMaps[operandIndex];
     auto results = operandIndexingMap.getResults();
     for (auto [operandDimIdx, expr] : llvm::enumerate(results)) {
@@ -234,8 +225,10 @@ GridAnalysis::normalizeOperandGridsForGeneric(
     }
   }
 
-  // For each loop dimension shared by multiple inputs, find the largest grid
-  // factor that evenly divides all operands' physical shapes for that dim.
+  // For each loop dimension shared by multiple operands, find the largest grid
+  // factor that evenly divides every participating physical shape. Generic
+  // recreation derives operand grids from loop factors, so outputs and inputs
+  // must agree on any loop dimension they both reference.
   for (auto &it : dimToInputOperandDims) {
     auto &entries = it.second;
     if (entries.size() < 2) {
@@ -254,54 +247,6 @@ GridAnalysis::normalizeOperandGridsForGeneric(
 
     for (auto [operandIndex, operandDimIdx] : entries) {
       normalizedOperandGrids[operandIndex][operandDimIdx] = commonFactor;
-    }
-  }
-
-  // Compute grid dim constraints implied by the generic's outputs.
-  auto outputIndexingMap =
-      genericOp.getIndexingMapsValue()[genericOp.getOutputs()
-                                           .getBeginOperandIndex()];
-  auto outputShape =
-      optimalOperandGrids[genericOp.getOutputs().getBeginOperandIndex()];
-  std::optional<SmallVector<int64_t>> outputConstraints =
-      d2m::utils::computeDimConstraints(
-          llvm::ArrayRef<AffineMap>(outputIndexingMap),
-          llvm::ArrayRef<SmallVector<int64_t>>(outputShape));
-
-  // Apply output constraints to input operands, but only if the constraint
-  // divides the input's physical shape for that dimension.
-  if (outputConstraints) {
-    for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp.getInputsAndOutputsMutable())) {
-      if (genericOp.isDpsInit(&operand)) {
-        continue;
-      }
-
-      AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-      auto results = indexingMap.getResults();
-      TT_assertv(results.size() == normalizedOperandGrids[operandIndex].size(),
-                 "indexing map results size does not match normalized operand "
-                 "grids size");
-
-      for (auto [resultIdx, expr] : llvm::enumerate(results)) {
-        auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
-        if (!dimExpr) {
-          continue;
-        }
-        int64_t dimPos = dimExpr.getPosition();
-        int64_t constraint = (*outputConstraints)[dimPos];
-        if (constraint != 0) {
-          int64_t physDim = physicalShapes[operandIndex][resultIdx];
-          if (physDim % constraint == 0) {
-            normalizedOperandGrids[operandIndex][resultIdx] = constraint;
-          } else {
-            // Output constraint doesn't divide this operand's physical dim;
-            // find the largest factor that divides both.
-            normalizedOperandGrids[operandIndex][resultIdx] =
-                findLargestCommonFactor(constraint, {physDim, constraint});
-          }
-        }
-      }
     }
   }
 
@@ -382,7 +327,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
 
   llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
   llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
-  bool preserveMatmulGridLogic = isMatmulGeneric(genericOp);
+  bool allowVirtualGrid = !isMatmulGeneric(genericOp);
 
   for (auto [operandIndex, operand] :
        llvm::enumerate(genericOp.getInputsAndOutputs())) {
@@ -395,7 +340,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
 
     ArrayRef<int64_t> targetGrid = perOperandTargetGrids[operandIndex];
     GridDecisionAndShape decisionAndShape = computeGridDecision(
-        operand, targetGrid, targetGrid, ttnnMode, preserveMatmulGridLogic);
+        operand, targetGrid, targetGrid, ttnnMode, allowVirtualGrid);
     physicalShapes.push_back(decisionAndShape.physicalShape);
     optimalOperandGrids.push_back(decisionAndShape.decision.selectedGrid);
 
@@ -411,19 +356,22 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   result.normalizedOperandGrids = normalizeOperandGridsForGeneric(
       genericOp, optimalOperandGrids, physicalShapes);
 
-  // Propagate normalized grids back to non-reinterpret ViewLayout operands
-  // only. Other operand kinds use their independently computed optimal
-  // grids — normalization may produce grids that exceed what the individual
-  // tensor can physically support.
+  // Propagate normalized grids back to operands so producer rewrites and the
+  // recreated generic agree on grid shape and virtual-grid metadata.
   for (unsigned idx = 0; idx < result.operandInfos.size(); ++idx) {
     OperandGridInfo &info = result.operandInfos[idx];
     if (isTTNNOperand(info.operand)) {
       continue;
     }
     auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
-    if (view && !view.getReinterpretLayout()) {
-      info.grid = makeGridDecision(result.normalizedOperandGrids[idx],
-                                   perOperandTargetGrids[idx]);
+    if (view && view.getReinterpretLayout()) {
+      continue;
+    }
+    info.grid = makeGridDecision(result.normalizedOperandGrids[idx],
+                                 perOperandTargetGrids[idx]);
+    if (!allowVirtualGrid) {
+      info.grid.layoutGrid = computeTrailingDimLayoutGrid(
+          info.grid.selectedGrid, perOperandTargetGrids[idx]);
     }
   }
 
@@ -437,8 +385,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
       }
       info.viewSourceGrid =
           computeGridDecision(toLayoutOp.getResult(0), info.grid.layoutGrid,
-                              info.grid.targetGrid, ttnnMode,
-                              preserveMatmulGridLogic)
+                              info.grid.targetGrid, ttnnMode, allowVirtualGrid)
               .decision;
     }
   }
