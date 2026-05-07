@@ -49,4 +49,22 @@ module @jit_eltwise_compare attributes {} {
     return %0 : tensor<13x31xi1>
     // CHECK: return %0 : tensor<13x31xi1>
   }
+
+  // Frontends (e.g. PyTorch/XLA) lower `bf16_tensor < python_scalar` by
+  // upcasting the tensor to a wider type and emitting the compare in the
+  // wider type. This drops PyTorch eager semantics (which compares in bf16)
+  // and flips the result at bf16-rounding boundaries. The conversion should
+  // peel the artificial upcast and narrow the constant.
+  func.func public @test_lt_bf16_through_f64_upcast(%arg0: tensor<1x2000x4xbf16>) -> tensor<1x2000x4xi1> {
+    // CHECK-LABEL: func.func public @test_lt_bf16_through_f64_upcast
+    // CHECK-NOT: ttir.typecast
+    // CHECK-NOT: tensor<{{.*}}xf64>
+    // CHECK: "ttir.constant"() <{value = dense<{{.*}}> : tensor<1x2000x4xbf16>}>
+    // CHECK: = "ttir.lt"(%arg0, %{{[^)]+}})
+    // CHECK-SAME: (tensor<1x2000x4xbf16>, tensor<1x2000x4xbf16>) -> tensor<1x2000x4xi1>
+    %cst = stablehlo.constant dense<0.99> : tensor<1x2000x4xf64>
+    %0 = stablehlo.convert %arg0 : (tensor<1x2000x4xbf16>) -> tensor<1x2000x4xf64>
+    %1 = stablehlo.compare  LT, %0, %cst : (tensor<1x2000x4xf64>, tensor<1x2000x4xf64>) -> tensor<1x2000x4xi1>
+    return %1 : tensor<1x2000x4xi1>
+  }
 }
