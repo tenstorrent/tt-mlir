@@ -810,9 +810,10 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     - linear: An affine map that defines how the logical tensor dimensions map to physical space.
 
     - grid_shape: The logical shape of the grid this tensor is placed onto:
-      - For sharded layouts, it is the shape of the grid the tensor is sharded accross;
-      - For L1-interleaved layouts, it is the shape of the grid the tensor is interleaved across;
-      - For non-L1 buffers, it must be 1x1.
+      - For L1-sharded layouts, it is the shape of the worker grid the tensor is sharded across;
+      - For DRAM-sharded layouts, it is the shape of the DRAM bank grid the tensor is sharded across;
+      - For L1-interleaved layouts, it is the shape of the worker grid the tensor is interleaved across;
+      - For DRAM-interleaved and SystemMemory layouts, it must be 1x1.
 
     - memref: A memref is used to describe shard size and memory space. Shard size is calculated by dividing the tensor size by grid size.
 

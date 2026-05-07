@@ -64,8 +64,12 @@ private:
     llvm::SmallVector<int64_t> gridShape;
     ttnn::CoreRangeSetAttr coreRangeSet;
 
+    bool isSharded() const {
+      return tensorMemoryLayout &&
+             isShardedMemoryLayout(tensorMemoryLayout.getValue());
+    }
     bool isL1Sharded() const {
-      return isShardedMemoryLayout(tensorMemoryLayout.getValue());
+      return bufferType == ttnn::BufferType::L1 && isSharded();
     }
     bool isOnHost() const {
       return bufferType == ttnn::BufferType::SystemMemory;
@@ -229,8 +233,9 @@ private:
       // changes. Same CRS can host different virtual grids (e.g. BlockSharded
       // {2,4} vs {4,2} on the same 8-core rectangle), and same gridShape can
       // sit on different CRSes (custom placement) — both demand a reshard.
+      // Applies to both L1 <-> L1 and DRAM <-> DRAM resharding.
       opsToCreate.createToMemoryConfigOp |=
-          (input.isL1Sharded() && output.isL1Sharded() &&
+          (input.isSharded() && output.isSharded() &&
            (input.gridShape != output.gridShape ||
             input.coreRangeSet != output.coreRangeSet));
     }
@@ -944,12 +949,14 @@ private:
     // If the output data type is untilizable on device, untilize on device
     // then move to host.
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
-      if (input.isL1Sharded() ||
-          (input.bufferType == ttnn::BufferType::L1 &&
-           output.bufferType == ttnn::BufferType::DRAM)) {
+      if (input.isSharded() || (input.bufferType == ttnn::BufferType::L1 &&
+                                output.bufferType == ttnn::BufferType::DRAM)) {
         // Move to target memory first, then untilize.
-        // L1 sharded: unshard first since untilize doesn't support
-        // sharded input with sharded output.
+        // Sharded input: unshard first.  ttnn.untilize's multicore path
+        // does not support DRAM-sharded inputs (tt-metal:
+        // untilize_device_operation.cpp — "Multicore implementation
+        // doesn't support DRAM sharding"), and the L1 sharded -> sharded
+        // path is similarly unsupported.
         // L1 interleaved → DRAM: move to DRAM while still tiled
         // (compact), then untilize in DRAM. Untilizing in L1 creates a
         // large row-major intermediate whose subsequent prim::copy CBs
@@ -1083,7 +1090,7 @@ private:
     if (output.isTilized()) {
       // If the input is sharded, typecast should happen after converting to
       // memory.
-      if (input.isL1Sharded()) {
+      if (input.isSharded()) {
         currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                             currentInput, info);
         currentInput = this->createDataTypeCastingOpIfNeeded(

@@ -191,6 +191,58 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
     )
 
 
+@pytest.mark.parametrize(
+    "memory_layout,grid_shape,shape",
+    [
+        (ttnn.TensorMemoryLayout.WidthSharded, [1, 8], (32, 256)),
+        (ttnn.TensorMemoryLayout.HeightSharded, [8, 1], (256, 32)),
+    ],
+    ids=["width_sharded", "height_sharded"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_add_dram_sharded(
+    memory_layout: ttnn.TensorMemoryLayout,
+    grid_shape: List[int],
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Smoke test for DRAM-sharded layouts on a binary eltwise op.
+
+    (DRAM-Interleaved args)
+        -> to_layout x2 -> (DRAM-sharded)
+        -> add          -> (DRAM-Interleaved, builder default)
+    """
+
+    def module(builder: TTNNBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def add_dram_sharded(
+            in0: Operand,
+            in1: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            shard_kwargs = dict(
+                layout=ttnn.Layout.Tile,
+                buffer_type=ttnn.BufferType.DRAM,
+                tensor_memory_layout=memory_layout,
+                grid_shape=grid_shape,
+            )
+            sharded_a = builder.to_layout(in0, **shard_kwargs)
+            sharded_b = builder.to_layout(in1, **shard_kwargs)
+            return builder.add(sharded_a, sharded_b, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 binary_bitwise_dtypes = [
     torch.int32,
     torch.uint32,

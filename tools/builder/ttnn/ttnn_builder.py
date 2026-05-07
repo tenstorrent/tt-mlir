@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import List, Callable, Any
+from typing import List, Callable, Any, Optional
 import torch
 import numpy as np
 
@@ -194,12 +194,23 @@ class TTNNBuilder(Builder):
         element_type: Union[torch.dtype, TypeInfo],
         layout: ttnn.ir.LayoutAttr = ttnn.Layout.Tile,
         buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
+        tensor_memory_layout: Optional[
+            ttnn.ir.TensorMemoryLayout
+        ] = ttnn.TensorMemoryLayout.Interleaved,
+        grid_shape: Optional[List[int]] = None,
+        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
     ) -> ttnn.ir.TTNNLayoutAttr:
         """
         TTNN tensors require that encoding information is present.
         This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interleaved tiled tensor.
+
+        By default produces a DRAM/Interleaved tiled tensor.
+        Callers wishing to express a sharded layout (L1 or DRAM)
+        can override `tensor_memory_layout`, `grid_shape`, and
+        `core_range_set` explicitly.
         """
+        if grid_shape is None:
+            grid_shape = [1, 1]
         if isinstance(element_type, torch.dtype):
             element_type = self._get_type_from_torch_dtype(element_type)
         with self._ctx, self._loc:
@@ -215,25 +226,15 @@ class TTNNBuilder(Builder):
 
             if buffer_type == ttnn.BufferType.SystemMemory:
                 tensor_memory_layout = None
-            elif buffer_type == ttnn.BufferType.L1:
-                tensor_memory_layout = ttnn.TensorMemoryLayout.WidthSharded
-            else:
-                tensor_memory_layout = ttnn.TensorMemoryLayout.Interleaved
 
-            grid_shape = [1, 1]
-
-            core_range_set = None
             is_sharded = (
                 tensor_memory_layout is not None
                 and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
             )
 
-            if is_sharded:
-                start = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
-                end = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
-                core_range_set = ttnn.ir.CoreRangeSetAttr.get(
-                    self._ctx,
-                    [ttnn.ir.CoreRangeAttr.get(self._ctx, start, end)],
+            if is_sharded and core_range_set is None:
+                core_range_set = self._derive_canonical_core_range_set(
+                    buffer_type, grid_shape, tensor_memory_layout
                 )
 
             return ttnn.ir.TTNNLayoutAttr.get(
@@ -252,15 +253,29 @@ class TTNNBuilder(Builder):
         element_type: Union[torch.dtype, TypeInfo],
         layout: ttnn.ir.LayoutAttr = ttnn.Layout.Tile,
         buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
+        tensor_memory_layout: Optional[
+            ttnn.ir.TensorMemoryLayout
+        ] = ttnn.TensorMemoryLayout.Interleaved,
+        grid_shape: Optional[List[int]] = None,
+        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
     ) -> RankedTensorType:
         """
         TTNN tensors require that encoding information is present.
         This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interleaved tiled tensor.
+
+        Defaults produce a DRAM/Interleaved tiled tensor.  Sharded callers
+        should pass `tensor_memory_layout`, `grid_shape`, and
+        `core_range_set` explicitly.
         """
         with self._ctx, self._loc:
             ttnn_layout_attr = self._create_tensor_encoding(
-                shape, element_type, layout, buffer_type
+                shape,
+                element_type,
+                layout,
+                buffer_type,
+                tensor_memory_layout=tensor_memory_layout,
+                grid_shape=grid_shape,
+                core_range_set=core_range_set,
             )
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
@@ -277,6 +292,9 @@ class TTNNBuilder(Builder):
         self,
         buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
         tensor_memory_layout: ttnn.ir.TensorMemoryLayout = ttnn.TensorMemoryLayout.Interleaved,
+        shape: Optional[Shape] = None,
+        grid_shape: Optional[List[int]] = None,
+        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
     ) -> ttnn.ir.MemoryConfigAttr:
         if buffer_type == ttnn.BufferType.SystemMemory:
             return self._create_system_memory_memory_config()
@@ -285,14 +303,85 @@ class TTNNBuilder(Builder):
             self._ctx, tensor_memory_layout
         )
         buffer_type_attr = ttnn.ir.BufferTypeAttr.get(self._ctx, buffer_type)
+
+        is_sharded = tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
+        if not is_sharded:
+            return ttnn.ir.MemoryConfigAttr.get(
+                self._ctx, tensor_memory_layout_attr, buffer_type_attr
+            )
+
+        if shape is None or grid_shape is None:
+            raise ValueError(
+                "Sharded MemoryConfigAttr requires `shape` and `grid_shape`; "
+                f"got shape={shape}, grid_shape={grid_shape}."
+            )
+        if core_range_set is None:
+            core_range_set = self._derive_canonical_core_range_set(
+                buffer_type, grid_shape, tensor_memory_layout
+            )
+        if shape[-2] % grid_shape[0] or shape[-1] % grid_shape[1]:
+            raise ValueError(
+                f"Tensor shape {tuple(shape[-2:])} not evenly divisible by "
+                f"shard grid {tuple(grid_shape)}; pass an explicit "
+                f"`core_range_set` and shard_spec for non-uniform shards."
+            )
+        shard_h = shape[-2] // grid_shape[0]
+        shard_w = shape[-1] // grid_shape[1]
+        shard_shape = ttnn.ir.ShapeAttr.get(self._ctx, [shard_h, shard_w])
+        shard_orientation = ttnn.ir.ShardOrientationAttr.get(
+            self._ctx, ttnn.ShardOrientation.RowMajor
+        )
+        shard_spec = ttnn.ir.ShardSpecAttr.get(
+            self._ctx, core_range_set, shard_shape, shard_orientation
+        )
         return ttnn.ir.MemoryConfigAttr.get(
-            self._ctx, tensor_memory_layout_attr, buffer_type_attr
+            self._ctx, tensor_memory_layout_attr, buffer_type_attr, shard_spec
         )
 
     def _create_system_memory_memory_config(self):
         # The pybound MemoryConfigAttr.get() requires a TensorMemoryLayoutAttr, but system_memory requires no TensorMemoryLayoutAttr
         memory_config_str = "#ttnn.memory_config<#ttnn.buffer_type<system_memory>>"
         return Attribute.parse(memory_config_str)
+
+    def _derive_canonical_core_range_set(
+        self,
+        buffer_type: ttnn.ir.BufferType,
+        grid_shape: List[int],
+        tensor_memory_layout: Optional[ttnn.ir.TensorMemoryLayout] = None,
+    ) -> ttnn.ir.CoreRangeSetAttr:
+        """
+        Canonical single-rectangle placement for a sharded layout's grid_shape.
+          - L1: mirrors the virtual grid orientation:
+            (0,0) -> (grid_shape[1]-1, grid_shape[0]-1).
+          - DRAM: always a horizontal strip along the device's single-row DRAM
+            bank grid: (0,0) -> (volume(grid_shape)-1, 0).  Only
+            HeightSharded / WidthSharded are accepted; BlockSharded is
+            rejected (DRAM bank grid is single-row).
+        L1 HeightSharded with M > worker_grid_height needs row-major
+        flattening across the worker grid; callers in that regime must pass an
+        explicit core_range_set instead.
+        """
+        if grid_shape is None or len(grid_shape) != 2:
+            raise ValueError(
+                f"Sharded layouts require a 2D grid_shape; got grid_shape={grid_shape}."
+            )
+        if buffer_type == ttnn.BufferType.DRAM:
+            if tensor_memory_layout == ttnn.TensorMemoryLayout.BlockSharded:
+                raise ValueError(
+                    "BlockSharded layout is not supported for DRAM buffer "
+                    "type; use WidthSharded or HeightSharded."
+                )
+            end_x = grid_shape[0] * grid_shape[1] - 1
+            end_y = 0
+        else:
+            end_x = grid_shape[1] - 1
+            end_y = grid_shape[0] - 1
+        start = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
+        end = ttnn.ir.CoreCoordAttr.get(self._ctx, end_x, end_y)
+        return ttnn.ir.CoreRangeSetAttr.get(
+            self._ctx,
+            [ttnn.ir.CoreRangeAttr.get(self._ctx, start, end)],
+        )
 
     # ----- Public TTNN Op Generators ----
 
@@ -8526,6 +8615,7 @@ class TTNNBuilder(Builder):
                 inputs[0].type.element_type,
                 ttnn.Layout.Tile,
                 ttnn.BufferType.L1,
+                tensor_memory_layout=ttnn.TensorMemoryLayout.WidthSharded,
             )
 
             # Prepare location for the operation
@@ -8705,7 +8795,10 @@ class TTNNBuilder(Builder):
         self,
         input: Operand,
         layout: Optional[ttnn.ir.LayoutAttr] = None,
-        buffer_type: Optional[ttnn.ir.BufferTypeAttr] = ttnn.BufferType.DRAM,
+        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
+        tensor_memory_layout: ttnn.ir.TensorMemoryLayout = ttnn.TensorMemoryLayout.Interleaved,
+        grid_shape: Optional[List[int]] = None,
+        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
     ) -> OpResult:
@@ -8719,10 +8812,25 @@ class TTNNBuilder(Builder):
         input_golden = self._get_golden_tensor(input)
         shape = input.type.shape
 
+        if grid_shape is None:
+            grid_shape = [1, 1]
+
         layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
-        memory_config_attr = self._create_memory_config_attr(buffer_type)
+        memory_config_attr = self._create_memory_config_attr(
+            buffer_type=buffer_type,
+            tensor_memory_layout=tensor_memory_layout,
+            shape=shape,
+            grid_shape=grid_shape,
+            core_range_set=core_range_set,
+        )
         result = self.create_ttnn_tensor(
-            shape, mlir_output_type, layout=layout, buffer_type=buffer_type
+            shape,
+            mlir_output_type,
+            layout=layout,
+            buffer_type=buffer_type,
+            tensor_memory_layout=tensor_memory_layout,
+            grid_shape=grid_shape,
+            core_range_set=core_range_set,
         )
         dtype = (
             self._get_data_type_attribute(result)

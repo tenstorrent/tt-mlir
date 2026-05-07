@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <vector>
 
 namespace mlir::tt::ttnn::op_model {
 
@@ -224,15 +225,16 @@ getShardShape(const llvm::ArrayRef<int64_t> &shapeAttr) {
 
 ::tt::tt_metal::CoreRangeSet
 getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
-  std::set<::tt::tt_metal::CoreRange> coreRangeSet;
+  std::vector<::tt::tt_metal::CoreRange> coreRanges;
+  coreRanges.reserve(coreRangeSetAttr.getCoreRanges().size());
   for (const CoreRangeAttr &coreRange : coreRangeSetAttr.getCoreRanges()) {
-    coreRangeSet.insert(::tt::tt_metal::CoreRange(
+    coreRanges.emplace_back(
         ::tt::tt_metal::CoreCoord(coreRange.getStartCoord().getX(),
                                   coreRange.getStartCoord().getY()),
         ::tt::tt_metal::CoreCoord(coreRange.getEndCoord().getX(),
-                                  coreRange.getEndCoord().getY())));
+                                  coreRange.getEndCoord().getY()));
   }
-  return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
+  return ::tt::tt_metal::CoreRangeSet(std::move(coreRanges));
 }
 
 ::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout) {

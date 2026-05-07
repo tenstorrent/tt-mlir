@@ -72,11 +72,14 @@ void populateTTNNModule(nb::module_ &m) {
   tt_attribute_class<tt::ttnn::ShardSpecAttr>(m, "ShardSpecAttr")
       .def_static(
           "get",
-          [](MlirContext ctx, tt::ttnn::CoreRangeSetAttr coreRangeSet,
-             tt::ttnn::ShapeAttr shardShape,
-             tt::ttnn::ShardOrientationAttr shardOrientation) {
+          [](MlirContext ctx, MlirAttribute coreRangeSet,
+             MlirAttribute shardShape, MlirAttribute shardOrientation) {
             return wrap(tt::ttnn::ShardSpecAttr::get(
-                unwrap(ctx), coreRangeSet, shardShape, shardOrientation));
+                unwrap(ctx),
+                mlir::cast<tt::ttnn::CoreRangeSetAttr>(unwrap(coreRangeSet)),
+                mlir::cast<tt::ttnn::ShapeAttr>(unwrap(shardShape)),
+                mlir::cast<tt::ttnn::ShardOrientationAttr>(
+                    unwrap(shardOrientation))));
           })
       .def_prop_ro(
           "core_range_set",

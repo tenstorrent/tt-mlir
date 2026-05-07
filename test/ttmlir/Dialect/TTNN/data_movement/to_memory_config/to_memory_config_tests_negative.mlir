@@ -61,20 +61,6 @@ module {
 
 // -----
 
-// Verify that memory config attribute verification fails if it has dram buffer type and doesn't have interleaved memory layout.
-#dram = #ttnn.buffer_type<dram>
-#device_tile_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x3x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-module{
-  func.func @forward(%arg0: tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2> {
-    // CHECK: error: DRAM buffer type must have Interleaved memory layout.
-    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#dram, <width_sharded>>}> : (tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2>
-    return %1 : tensor<32x96xf32, #device_tile_layout2>
-  }
-}
-
-// -----
-
 // Verify that memory config attribute verification fails if it has dram buffer type and doesn't have tensor memory layout.
 #dram = #ttnn.buffer_type<dram>
 #device_tile_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
@@ -89,14 +75,15 @@ module{
 
 // -----
 
-// Verify that memory config attribute verification fails if it has sharded tensor memory layout and doesn't have l1 buffer type.
+// Verify that memory config attribute verification fails if it has sharded
+// tensor memory layout but neither L1 nor DRAM buffer type.
 #dram = #ttnn.buffer_type<dram>
 #l1_small = #ttnn.buffer_type<l1_small>
 #device_tile_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<3x3x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <3x3>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_small>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (2, 2)>]>>
 module{
   func.func @forward(%arg0: tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2> {
-    // CHECK: error: Sharding is only valid for L1 buffer type
+    // CHECK: error: Sharding is only valid for L1 or DRAM buffer type
     %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1_small, <block_sharded>, #ttnn.shard_spec<<>, <32x32>, <row_major>>>}> : (tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2>
     return %1 : tensor<96x96xf32, #device_tile_layout2>
   }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <memory>
+#include <vector>
 
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -386,12 +387,19 @@ fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
 
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
-  std::set<tt::tt_metal::CoreRange> coreRanges;
+  // Preserve the order of core ranges as emitted by the compiler.
+  // Some DRAM-sharded kernels rely on the bank-to-worker assignment order
+  // implied by the CoreRangeSet (e.g. when carrying the result of
+  // get_optimal_dram_bank_to_logical_worker_assignment through the
+  // flatbuffer).  std::set would re-sort by start_coord and silently
+  // destroy that ordering.
+  std::vector<tt::tt_metal::CoreRange> coreRanges;
+  coreRanges.reserve(coreRangeSet.core_ranges()->size());
   for (const tt::target::ttnn::CoreRange *coreRange :
        *coreRangeSet.core_ranges()) {
-    coreRanges.emplace(toTTNNCoreRange(*coreRange));
+    coreRanges.emplace_back(toTTNNCoreRange(*coreRange));
   }
-  return tt::tt_metal::CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(std::move(coreRanges));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
