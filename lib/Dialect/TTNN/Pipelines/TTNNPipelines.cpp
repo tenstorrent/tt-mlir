@@ -137,7 +137,6 @@ void createTTNNPipelineAnalysisPasses(
       TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
       propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
       propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
-      propagationOptions.beamWidth = 8;
       propagationOptions.enableL1ShardingLayouts =
           options.memoryLayoutAnalysisEnabled;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
