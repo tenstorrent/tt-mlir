@@ -186,14 +186,17 @@ public:
     return programOutputIds;
   }
 
+  // Non-validating accessors. Used by load_cached / deletion::run to
+  // tolerate const-eval inputs whose buffers have already been freed
+  // by a prior `TT_RUNTIME_FREE_CONST_EVAL_INPUTS` retain-clear.
+  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
+  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
+
 private:
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;
   TensorMap intermedTensors;
   TensorPtrMap liveTensors;
-
-  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
-  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
 };
 
 class ProgramGlobalSemaphorePool {
