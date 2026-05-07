@@ -63,9 +63,7 @@ def test_scalar_kernel_arg(target: str, request, device):
     processKernelArgs (arguments.h) and the createScalarTensor runtime API.
     """
     sys_desc = request.config.getoption("--sys-desc")
-    register_device_opts = (
-        f"system-desc-path={sys_desc}" if sys_desc else ""
-    )
+    register_device_opts = f"system-desc-path={sys_desc}" if sys_desc else ""
 
     ctx = Context()
     loc = Location.unknown(ctx)
