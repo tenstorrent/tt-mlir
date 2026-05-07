@@ -240,11 +240,9 @@ void createD2MBackendPipeline(OpPassManager &pm,
   // pass.
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   d2m::D2MScheduleDMAOptions scheduleDMAOptions;
-  {
-    scheduleDMAOptions.numDatamovementProcessors =
-        options.numDatamovementProcessors;
-    scheduleDMAOptions.numNocs = options.numNocs;
-  }
+  scheduleDMAOptions.numDatamovementProcessors =
+      options.numDatamovementProcessors;
+  scheduleDMAOptions.numNocs = options.numNocs;
   pm.addPass(d2m::createD2MScheduleDMA(scheduleDMAOptions));
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());

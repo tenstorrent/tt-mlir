@@ -29,10 +29,12 @@ struct DMAThreadAssignment {
   // Estimated workload for this thread (number of DMA ops).
   size_t workload = 0;
 
-  // Assigned NoC index for this thread.
+  // Assigned NoC index for this thread. -1 leaves legacy/backend implicit
+  // selection in place.
   int32_t nocIndex = -1;
 
-  // Assigned hardware datamovement processor.
+  // Assigned hardware datamovement processor. -1 leaves legacy/backend
+  // implicit selection in place.
   int32_t processorIndex = -1;
 };
 
@@ -85,10 +87,11 @@ static void assignHardwareThreads(
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
     const DMASchedulingPolicy &policy) {
   if (policy.numNocs == 1) {
+    bool materializeProcessorIndex = policy.materializeProcessorIndex();
     for (auto [index, assignment] : llvm::enumerate(assignments)) {
       assignment.nocIndex = 0;
       assignment.processorIndex =
-          policy.materializeProcessorIndex() ? static_cast<int32_t>(index) : -1;
+          materializeProcessorIndex ? static_cast<int32_t>(index) : -1;
     }
     return;
   }
@@ -282,8 +285,9 @@ public:
         return store && ttcore::getMemorySpace(store.getMemref()) ==
                             ttcore::MemorySpace::DeviceDRAM;
       });
+      bool materializeProcessorIndex = policy.materializeProcessorIndex();
       int32_t nocIndex = policy.numNocs == 1 ? 0 : (writesDRAM ? 1 : 0);
-      int32_t processorIndex = policy.materializeProcessorIndex() ? 0 : -1;
+      int32_t processorIndex = materializeProcessorIndex ? 0 : -1;
       generic.setThreadsAttr(rewriter.getArrayAttr({
           rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
                                        nocIndex, processorIndex),
