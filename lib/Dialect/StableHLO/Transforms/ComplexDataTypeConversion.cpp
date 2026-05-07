@@ -424,7 +424,7 @@ public:
 
 // Rewrites `sdy.return` to use dialect-converted operand values (same role as
 // `populateReturnOpTypeConversionPattern` for `func.return`).
-class SdyReturnOpTypeConversionPattern
+class ShardyReturnOpTypeConversionPattern
     : public OpConversionPattern<mlir::sdy::ReturnOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -503,7 +503,8 @@ struct StableHLOComplexDataTypeConversionPass
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
         ShardyManualComputationComplexConversionPattern,
-        SdyReturnOpTypeConversionPattern, StablehloComplexToDecomposedPattern,
+        ShardyReturnOpTypeConversionPattern,
+        StablehloComplexToDecomposedPattern,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
         typeConverter, &getContext());

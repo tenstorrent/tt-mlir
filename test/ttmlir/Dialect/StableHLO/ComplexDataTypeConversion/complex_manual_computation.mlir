@@ -143,8 +143,10 @@ sdy.mesh @mesh = <["_axis_0_aux"=1, "_axis_0"=2]>
 // CHECK-SAME: %arg1: tensor<1024x22xf64>
 func.func @test_sdy_return_complex(%arg0: tensor<1024x22xf64>, %arg1: tensor<1024x22xf64>) -> (tensor<1024x22xf64>, tensor<1024x22xf64>, tensor<0xcomplex<f64>> ) {
   // CHECK: sdy.manual_computation
-  // CHECK-SAME: (%arg2: tensor<1024x22xf64>, %arg3: tensor<512x22xf64>) {
-  // CHECK: sdy.return %2, %4, %cst : tensor<1024x22xf64>, tensor<512x22xf64>, tensor<0x2xf64>
+  // CHECK-SAME: (%[[ARG2:.*]]: tensor<1024x22xf64>, %[[ARG3:.*]]: tensor<512x22xf64>) {
+  // CHECK: %[[CST:.*]] = stablehlo.constant
+  // CHECK: sdy.return %[[RET0:.*]], %[[RET1:.*]], %[[CST]] : tensor<1024x22xf64>, tensor<512x22xf64>, tensor<0x2xf64>
+  // CHECK-NOT: complex<f64>
   %0:3 = sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{}, {}]>, <@mesh, [{"_axis_0"}, {}]>] out_shardings=[<@mesh, [{}, {}]>, <@mesh, [{"_axis_0"}, {}]>, <@mesh, [{}]>] manual_axes={"_axis_0_aux", "_axis_0"} (%arg2: tensor<1024x22xf64> loc("p0.1"), %arg3: tensor<512x22xf64> loc("p1.5")) {
     %cst = stablehlo.constant dense<(0.000000e+00,0.000000e+00)> : tensor<0xcomplex<f64>>
     %1 = stablehlo.reshape %arg2 : (tensor<1024x22xf64>) -> tensor<1x1024x22xf64>
