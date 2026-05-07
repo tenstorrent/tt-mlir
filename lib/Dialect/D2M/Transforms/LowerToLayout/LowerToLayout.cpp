@@ -658,6 +658,16 @@ public:
           spec.vgmInverse ? AffineMapAttr::get(spec.vgmInverse) : nullptr;
       AffineMapAttr fwdAttr =
           spec.vgmForward ? AffineMapAttr::get(spec.vgmForward) : nullptr;
+      if (!invAttr && !fwdAttr) {
+        if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                spec.type.getEncoding())) {
+          return rewriter
+              .create<d2m::EmptyOp>(loc, spec.type.getShape(),
+                                    spec.type.getElementType(), layout,
+                                    targetGridShape)
+              .getResult();
+        }
+      }
       return rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr)
           .getResult();
     };
