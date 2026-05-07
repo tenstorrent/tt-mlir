@@ -65,6 +65,90 @@ static bool hasRankStrictOperandInvariants(Operation *op) {
              ttir::PagedScaledDotProductAttentionDecodeOp>(op);
 }
 
+/// Public, defined functions are the module's external boundary (e.g. JAX's
+/// entry point as seen by the PJRT runtime). Their signature must remain
+/// rank-0 to match the contract the runtime collected before this pass ran;
+/// otherwise the runtime sees a shape mismatch between the MLIR module and
+/// the compiled flatbuffer.
+static bool isBoundaryFunc(func::FuncOp op) {
+  return op.isPublic() && !op.isDeclaration();
+}
+
+/// Marker attribute placed on the reshape ops we insert at function
+/// boundaries. The body conversion pattern skips ops carrying this attr so
+/// our boundary reshapes are not promoted along with the rest of the body.
+static constexpr StringRef kBoundaryReshapeAttr = "ttir.boundary_reshape";
+
+/// For boundary funcs, insert entry-side `ttir.reshape` ops so every rank-0
+/// block argument is immediately reshaped to rank>=2 and the rest of the
+/// body operates on the promoted value. The block argument itself (and
+/// therefore the function signature) stays rank-0.
+static void insertEntryBoundaryReshapes(func::FuncOp funcOp) {
+  Block &entry = funcOp.getBody().front();
+  OpBuilder builder(funcOp.getContext());
+  builder.setInsertionPointToStart(&entry);
+  for (BlockArgument arg : llvm::to_vector(entry.getArguments())) {
+    auto argType = dyn_cast<RankedTensorType>(arg.getType());
+    if (!argType || argType.getRank() >= minRank) {
+      continue;
+    }
+    RankedTensorType promoted = expandRank(argType);
+    SmallVector<int32_t> shape(promoted.getShape().begin(),
+                               promoted.getShape().end());
+    auto reshape = builder.create<ttir::ReshapeOp>(
+        arg.getLoc(), promoted, arg, builder.getI32ArrayAttr(shape));
+    reshape->setAttr(kBoundaryReshapeAttr, builder.getUnitAttr());
+    arg.replaceAllUsesExcept(reshape.getResult(), reshape);
+  }
+}
+
+/// For boundary funcs, insert exit-side squeeze reshapes after the body has
+/// been promoted to rank>=2. For each return operand whose declared result
+/// type is rank<minRank, take the now-promoted producer (peeling through any
+/// `unrealized_conversion_cast` the framework inserted as a type bridge) and
+/// replace the return operand with a `ttir.reshape` from rank>=2 back to the
+/// declared rank, so the return matches the unchanged function signature.
+static void insertExitBoundaryReshapes(func::FuncOp funcOp) {
+  OpBuilder builder(funcOp.getContext());
+  funcOp.walk([&](func::ReturnOp returnOp) {
+    builder.setInsertionPoint(returnOp);
+    for (auto en : llvm::enumerate(returnOp.getOperands())) {
+      Type declared = funcOp.getResultTypes()[en.index()];
+      auto declaredType = dyn_cast<RankedTensorType>(declared);
+      if (!declaredType || declaredType.getRank() >= minRank) {
+        continue;
+      }
+
+      Value operand = en.value();
+      Value source = operand;
+      Operation *castOp = nullptr;
+      if (auto cast = operand.getDefiningOp<UnrealizedConversionCastOp>()) {
+        if (cast.getInputs().size() == 1) {
+          source = cast.getInputs()[0];
+          castOp = cast;
+        }
+      }
+
+      auto sourceType = dyn_cast<RankedTensorType>(source.getType());
+      if (!sourceType || sourceType.getRank() < minRank) {
+        continue;
+      }
+
+      SmallVector<int32_t> shape(declaredType.getShape().begin(),
+                                 declaredType.getShape().end());
+      auto reshape = builder.create<ttir::ReshapeOp>(
+          returnOp.getLoc(), declared, source,
+          builder.getI32ArrayAttr(shape));
+      reshape->setAttr(kBoundaryReshapeAttr, builder.getUnitAttr());
+      returnOp.setOperand(en.index(), reshape.getResult());
+
+      if (castOp && castOp->use_empty()) {
+        castOp->erase();
+      }
+    }
+  });
+}
+
 /// TypeConverter that expands tensor types with rank < minRank.
 class RankNormalizationTypeConverter : public TypeConverter {
 public:
@@ -100,6 +184,13 @@ public:
     }
 
     if (hasRankStrictOperandInvariants(op)) {
+      return failure();
+    }
+
+    // Reshapes we inserted at function boundaries must not be promoted; they
+    // are intentionally rank-asymmetric (rank-0 ↔ rank-2) to translate
+    // between the unchanged function signature and the promoted body.
+    if (op->hasAttr(kBoundaryReshapeAttr)) {
       return failure();
     }
 
@@ -343,6 +434,17 @@ public:
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
 
+    // Phase 1: insert entry-side boundary reshapes on every public function.
+    // This lets the body conversion below promote internal ops to rank>=2
+    // while the function arguments themselves stay rank-0.
+    module.walk([](func::FuncOp funcOp) {
+      if (isBoundaryFunc(funcOp)) {
+        insertEntryBoundaryReshapes(funcOp);
+      }
+    });
+
+    // Phase 2: existing op-level conversion. Boundary funcs and our marker
+    // reshapes are kept legal so the conversion framework leaves them alone.
     RankNormalizationTypeConverter typeConverter;
     ConversionTarget target(*ctx);
 
@@ -350,15 +452,32 @@ public:
       if (hasRankStrictOperandInvariants(op)) {
         return true;
       }
-      if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
-          llvm::any_of(op->getResultTypes(), needsRankExpansion)) {
-        return false;
+      if (op->hasAttr(kBoundaryReshapeAttr)) {
+        return true;
       }
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        if (isBoundaryFunc(funcOp)) {
+          return true;
+        }
         if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
             llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
           return false;
         }
+        return true;
+      }
+      // The terminator of a boundary function returns the (already-squeezed)
+      // rank-0 values that match the unchanged function signature. Don't let
+      // the framework rewrite it to take rank-2 operands.
+      if (auto returnOp = dyn_cast<func::ReturnOp>(op)) {
+        if (auto parent = returnOp->getParentOfType<func::FuncOp>()) {
+          if (isBoundaryFunc(parent)) {
+            return true;
+          }
+        }
+      }
+      if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
+          llvm::any_of(op->getResultTypes(), needsRankExpansion)) {
+        return false;
       }
       return true;
     });
@@ -373,7 +492,17 @@ public:
 
     if (failed(applyFullConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
+      return;
     }
+
+    // Phase 3: insert exit-side squeezes now that the body is fully promoted.
+    // Doing this post-conversion lets us pull the rank>=2 producer directly
+    // and avoid leaving stray `unrealized_conversion_cast` bridges in the IR.
+    module.walk([](func::FuncOp funcOp) {
+      if (isBoundaryFunc(funcOp)) {
+        insertExitBoundaryReshapes(funcOp);
+      }
+    });
   }
 };
 
