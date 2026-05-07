@@ -1123,42 +1123,6 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
     TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout,
     ttcore::DataTypeAttr opDtypeAttr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // BroadcastHeightAndWidthMultiCore (selected when one input broadcasts H and W
-  // over the other) does not support sharded L1 output OR sharded L1 input A:
-  // - Neither input sharded + sharded output: compute_output_specs falls back
-  //   to an empty CoreRangeSet shard spec, producing a corrupt output tensor.
-  // - Input A sharded (any output): the broadcast kernel assumes A is DRAM/
-  //   interleaved when computing per-core tile offsets for B; with A in a
-  //   sharded L1 layout the kernel reads wrong B tiles → corrupted output.
-  // Reject whenever one operand's H or W broadcasts over the other's AND either
-  // the output OR input A is in a sharded L1 layout. Guard against null
-  // TTNNLayoutAttr using short-circuit &&.
-  bool inputASharded = inputLayoutA && inputLayoutA.hasL1BufferType() &&
-                       inputLayoutA.getMemLayout() &&
-                       isShardedMemoryLayout(inputLayoutA.getMemLayout().getValue());
-  bool outputSharded = outputLayout && outputLayout.hasL1BufferType() &&
-                       outputLayout.getMemLayout() &&
-                       isShardedMemoryLayout(outputLayout.getMemLayout().getValue());
-  if ((inputASharded || outputSharded) && inputShapeA.size() >= 2 &&
-      inputShapeB.size() >= 2) {
-    auto rankA = inputShapeA.size();
-    auto rankB = inputShapeB.size();
-    bool bBroadcastsHWOverA =
-        inputShapeB[rankB - 2] == 1 && inputShapeB[rankB - 1] == 1 &&
-        (inputShapeA[rankA - 2] > 1 || inputShapeA[rankA - 1] > 1);
-    bool aBroadcastsHWOverB =
-        inputShapeA[rankA - 2] == 1 && inputShapeA[rankA - 1] == 1 &&
-        (inputShapeB[rankB - 2] > 1 || inputShapeB[rankB - 1] > 1);
-    if (bBroadcastsHWOverA || aBroadcastsHWOverB) {
-      return llvm::createStringError(
-          llvm::inconvertibleErrorCode(),
-          "Binary eltwise op with H/W broadcast does not support sharded L1 "
-          "input A or sharded L1 output; the broadcast kernel assumes "
-          "interleaved A when computing per-core offsets, producing incorrect "
-          "results with any sharded configuration");
-    }
-  }
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -1766,22 +1730,6 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Softmax requires all tiles along the reduction dimension to be visible on
-  // each core simultaneously. Any L1 layout (sharded or interleaved with a
-  // multi-core virtual grid) may distribute reduction-dimension tiles across
-  // cores so each core computes only a partial reduction → incorrect results.
-  // Reject ALL L1 input and output layouts; require DRAM interleaved.
-  // Guard against null TTNNLayoutAttr using short-circuit &&.
-  bool inputL1 = inputLayout && inputLayout.hasL1BufferType();
-  bool outputL1 = outputLayout && outputLayout.hasL1BufferType();
-  if (inputL1 || outputL1) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Softmax requires DRAM interleaved input and output; any L1 layout "
-        "(sharded or multi-core interleaved) may distribute the reduction "
-        "dimension across cores, producing incorrect partial reductions");
-  }
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -5236,82 +5184,6 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Grouped conv2d (groups > 1) with any L1-sharded input or output is
-  // unsupported when kernel_h > 1.  Any spatial sharding (height, block, or
-  // width) across TTNN cores requires each core to fetch halo rows/columns from
-  // its neighbours to compute correct convolution output at shard boundaries.
-  // For grouped convolutions this halo exchange is not implemented correctly in
-  // TTNN: the per-group channel partitioning conflicts with the per-core spatial
-  // partitioning assumed by the halo logic, so boundary spatial positions receive
-  // wrong activation data and produce ~7% PCC regression on the affected tensor.
-  // Reject all three sharding modes; only DRAM-interleaved and L1-interleaved
-  // (non-sharded) layouts are safe for grouped conv2d with kernel > 1×1.
-  if (groups > 1 && !kernel_size.empty() && kernel_size[0] > 1) {
-    bool inputSharded =
-        inputLayout && inputLayout.hasL1BufferType() &&
-        inputLayout.getMemLayout() &&
-        isShardedMemoryLayout(inputLayout.getMemLayout().getValue());
-    bool outputSharded =
-        outputLayout && outputLayout.hasL1BufferType() &&
-        outputLayout.getMemLayout() &&
-        isShardedMemoryLayout(outputLayout.getMemLayout().getValue());
-    if (inputSharded || outputSharded) {
-      return llvm::createStringError(
-          llvm::inconvertibleErrorCode(),
-          "Grouped conv2d (groups > 1) with any L1-sharded input or output "
-          "is not supported when kernel > 1x1: all spatial sharding modes "
-          "(height, block, width) require halo exchange which is not correctly "
-          "implemented for grouped convolutions in TTNN");
-    }
-  }
-
-  // Conv2d HEIGHT_SHARDED / BLOCK_SHARDED guard: block when either the input
-  // height or the computed output height is <= kernel_h. This covers:
-  //  1. Direct small-H case: input_height <= kernel_h (3×3 conv on H=3 input)
-  //  2. Stride-2 downsampling: H_in=6 → H_out=3 with kernel_h=3 (output too
-  //     small for halo exchange regardless of input size)
-  // In both situations, TTNN's spatial halo kernel receives fewer rows per core
-  // than the halo size requires, producing incorrect activations. WIDTH_SHARDED
-  // (shards channels, not height) is unaffected.
-  if (groups == 1 && !kernel_size.empty() && kernel_size[0] > 1) {
-    bool outputHeightOrBlockSharded =
-        outputLayout && outputLayout.hasL1BufferType() &&
-        outputLayout.getMemLayout() &&
-        (outputLayout.getMemLayout().getValue() ==
-             TensorMemoryLayout::HeightSharded ||
-         outputLayout.getMemLayout().getValue() ==
-             TensorMemoryLayout::BlockSharded);
-    if (outputHeightOrBlockSharded) {
-      uint32_t kh = static_cast<uint32_t>(kernel_size[0]);
-      uint32_t pad_top = padding.empty() ? 0 : static_cast<uint32_t>(padding[0]);
-      uint32_t pad_bot = (padding.size() >= 4)
-                             ? static_cast<uint32_t>(padding[2])
-                             : pad_top;
-      uint32_t total_pad_h = pad_top + pad_bot;
-      uint32_t stride_h =
-          stride.empty() ? 1u : std::max(1u, static_cast<uint32_t>(stride[0]));
-      uint32_t dil_h = dilation.empty()
-                           ? 1u
-                           : std::max(1u, static_cast<uint32_t>(dilation[0]));
-      uint32_t eff_kh = dil_h * (kh - 1) + 1;
-      uint32_t output_height_val =
-          (input_height + total_pad_h >= eff_kh)
-              ? (input_height + total_pad_h - eff_kh) / stride_h + 1
-              : 0;
-      if (input_height <= kh || output_height_val <= kh) {
-        return llvm::createStringError(
-            llvm::inconvertibleErrorCode(),
-            "Conv2d HEIGHT_SHARDED or BLOCK_SHARDED output is not supported "
-            "when input_height or output_height is <= kernel_h: the spatial "
-            "shard is too small for TTNN's halo exchange to produce correct "
-            "results (input_height=" +
-                std::to_string(input_height) +
-                ", output_height=" + std::to_string(output_height_val) +
-                ", kernel_h=" + std::to_string(kh) + ")");
-      }
-    }
-  }
-
   // Prepare weight tensor first.
   llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
@@ -7576,36 +7448,6 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     llvm::StringRef mode, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Bilinear upsample performs internal autosharding at runtime
-  // (compute_bilinear_autoshard_memory_config). When MLA probes it with a
-  // sharded L1 input, the halo kernel's generate_halo_kernel_config_tensors
-  // receives incompatible shard parameters and segfaults. Reject sharded L1
-  // inputs for bilinear mode so MLA selects an interleaved DRAM layout.
-  if (mode == "bilinear" && inputLayout.hasL1BufferType() &&
-      inputLayout.getMemLayout() &&
-      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Bilinear upsample OpModel does not support sharded L1 input; "
-        "the op performs internal autosharding at runtime");
-  }
-
-  // Bilinear upsample with sharded L1 output also conflicts with internal
-  // runtime autosharding (compute_bilinear_autoshard_memory_config). Even
-  // when the input is DRAM-interleaved, the runtime function overwrites the
-  // output memory config with its own internally computed sharding, which may
-  // differ from the compile-time sharded output layout set by MLA, producing
-  // corrupt output data.
-  if (mode == "bilinear" && outputLayout && outputLayout.hasL1BufferType() &&
-      outputLayout.getMemLayout() &&
-      isShardedMemoryLayout(outputLayout.getMemLayout().getValue())) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Bilinear upsample with sharded L1 output is not supported; "
-        "the op performs internal autosharding at runtime that may conflict "
-        "with the compile-time output shard layout, producing corrupt data");
-  }
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -7654,28 +7496,6 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
     TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Mirror the getOpConstraints guard: bilinear upsample with sharded L1 input
-  // crashes in the halo kernel during probing (see getOpConstraints).
-  if (mode == "bilinear" && inputLayout.hasL1BufferType() &&
-      inputLayout.getMemLayout() &&
-      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Bilinear upsample OpModel does not support sharded L1 input; "
-        "the op performs internal autosharding at runtime");
-  }
-
-  // Mirror the sharded L1 output guard from getOpConstraints.
-  if (mode == "bilinear" && outputLayout && outputLayout.hasL1BufferType() &&
-      outputLayout.getMemLayout() &&
-      isShardedMemoryLayout(outputLayout.getMemLayout().getValue())) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Bilinear upsample with sharded L1 output is not supported; "
-        "the op performs internal autosharding at runtime that may conflict "
-        "with the compile-time output shard layout, producing corrupt data");
-  }
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
