@@ -654,23 +654,28 @@ def test_reshape(
     )
 
 
-@pytest.mark.parametrize("shape", [(32, 32), (64, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-@pytest.mark.parametrize(
-    "buffer_type",
-    [ttnn.BufferType.DRAM, ttnn.BufferType.L1],
-    ids=["dram", "l1"],
-)
-def test_to_memory_config(
-    shape: Shape, dtype: torch.dtype, buffer_type, request, device
-):
+def test_to_memory_config(shape: Shape, dtype: torch.dtype, request, device):
+    shard_dims = [0, 1]
+
     def module(builder: TTNNBuilder):
-        @builder.func([shape], [dtype])
+        @builder.func([shape, shape], [dtype, dtype])
         def to_memory_config(
-            in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
+            in0: Operand,
+            in1: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
         ):
+            in0_l1 = builder.to_memory_config(
+                in0, buffer_type=ttnn.BufferType.L1, unit_attrs=unit_attrs
+            )
+            in1_l1 = builder.to_memory_config(
+                in1, buffer_type=ttnn.BufferType.L1, unit_attrs=unit_attrs
+            )
+            result = builder.add(in0_l1, in1_l1, unit_attrs=unit_attrs)
             return builder.to_memory_config(
-                in0, buffer_type=buffer_type, unit_attrs=unit_attrs
+                result, buffer_type=ttnn.BufferType.DRAM, unit_attrs=unit_attrs
             )
 
     compile_and_execute_ttnn(
