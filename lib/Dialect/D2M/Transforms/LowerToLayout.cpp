@@ -65,6 +65,20 @@ struct TensorInfo {
   }
 };
 
+static bool isVGMCompatibleWithType(RankedTensorType type,
+                                    ttcore::MetalLayoutAttr layout,
+                                    AffineMap inverseMap,
+                                    AffineMap forwardMap) {
+  // TODO (#8303): Rework LowerToLayout VGM propagation so intermediates derive
+  // virtual-grid mappings directly from their destination type instead of
+  // filtering copied maps for compatibility.
+  size_t gridRank = layout.getGridShape(type).size();
+  return forwardMap.getNumDims() == gridRank * 2 &&
+         forwardMap.getNumResults() == gridRank + 2 &&
+         inverseMap.getNumInputs() == 2 &&
+         inverseMap.getNumResults() == gridRank + 1;
+}
+
 // Helper to extract scalar type from potentially tiled type.
 static Type getScalarType(Type type) {
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(type)) {
@@ -825,7 +839,8 @@ public:
         auto fwd = utils::getVirtualGridForwardMapping(source);
         if (!(sourceLayout && inv && fwd &&
               llvm::equal(typeLayout.getGridShape(type),
-                          sourceLayout.getGridShape(sourceTy)))) {
+                          sourceLayout.getGridShape(sourceTy)) &&
+              isVGMCompatibleWithType(type, typeLayout, *inv, *fwd))) {
           return Value();
         }
         return rewriter

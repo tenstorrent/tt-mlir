@@ -12,10 +12,10 @@ module {
         outs(%alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
      {
     ^unified0():
-      // CHECK: %0 = d2m.get_cb(0) operand_index = 0 resolution_stage =  compile : <memref<32x32xf32, #l1>>
-      // CHECK: %1 = d2m.get_cb(1) operand_index = 1 resolution_stage =  compile : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
-      %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<32x32xf32, #l1>>
-      %cb1 = d2m.get_cb(1) operand_index = 1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      // CHECK: %0 = d2m.get_cb(0) resolution_stage =  compile : <memref<32x32xf32, #l1>>
+      // CHECK: %1 = d2m.get_cb(1) resolution_stage =  compile : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %cb0 = d2m.get_cb(0) : <memref<32x32xf32, #l1>>
+      %cb1 = d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %arg0 {
@@ -39,9 +39,9 @@ module {
         outs(%alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
      {
     ^unified0():
-      // CHECK: %0 = d2m.get_cb(0) operand_index = 0 resolution_stage =  compile : <memref<32x32xf32, #l1>>
+      // CHECK: %0 = d2m.get_cb(0) resolution_stage =  compile : <memref<32x32xf32, #l1>>
       // CHECK: %1 = d2m.get_cb(1) resolution_stage =  compile : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
-      %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<32x32xf32, #l1>>
+      %cb0 = d2m.get_cb(0) : <memref<32x32xf32, #l1>>
       %cb1 = d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
@@ -56,30 +56,30 @@ module {
 // -----
 
 // Test for capturing global semaphore types.
+#l1 = #ttcore.memory_space<l1>
 #layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #layout1 = #ttcore.metal_layout<logical_shape = 8x8, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = 1x1, chipIds = [0]>
-  func.func @generic_with_global_semaphore(%arg0: tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> {
-    %0 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
-    %1 = d2m.empty() : tensor<8x8x1x1xui32, #layout1>
-    %2 = d2m.create_global_semaphore(%1) {value = 0 : ui32} : tensor<8x8x1x1xui32, #layout1> -> !d2m.global_semaphore
-    %3 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
-    %4 = d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
-        ins(%arg0 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
-        outs(%3 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
+  func.func @generic_with_global_semaphore() {
+    %alloc = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_0 = memref.alloc() {address = 107808 : i64, alignment = 16 : i64} : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1>
+    %2 = d2m.create_global_semaphore(%alloc_0) {value = 0 : ui32} : memref<8x8x1x1xui32, #ttcore.shard<4x4, 1>, #l1> -> !d2m.global_semaphore
+    %alloc_1 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
+        outs(%alloc_1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
         additionalArgs(%2 : !d2m.global_semaphore)
      {
-    // CHECK: %5 = d2m.get_arg(2) resolution_stage =  compile : !d2m.global_semaphore
+    // CHECK: d2m.get_arg(2) resolution_stage =  compile : !d2m.global_semaphore
     ^unified0():
-      %cb0 = d2m.get_cb(0) operand_index = 0 : <tensor<1x1x!ttcore.tile<32x32, f32>>>
-      %cb1 = d2m.get_cb(1) operand_index = 1 : <tensor<1x1x!ttcore.tile<32x32, f32>>>
+      %cb0 = d2m.get_cb(0) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
       %c1 = arith.constant 1 : index
       d2m.semaphore_wait %2, %c1 : !d2m.global_semaphore
-      d2m.yield %3 : (tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
-    } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+    }
     d2m.reset_global_semaphore(%2) {value = 0 : ui32} : !d2m.global_semaphore
-    return %4 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+    return
   }
 }
 
@@ -106,8 +106,8 @@ module {
     // CHECK: %4 = d2m.get_arg(3) resolution_stage =  compile : !d2m.local_semaphore
     // CHECK: %5 = d2m.get_arg(2) resolution_stage =  compile : !d2m.local_semaphore
     ^datamovement0():
-      %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
-      %cb1 = d2m.get_cb(1) operand_index = 1 : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
+      %cb0 = d2m.get_cb(0) : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
+      %cb1 = d2m.get_cb(1) : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
       %c7 = arith.constant 7 : index
       %c8 = arith.constant 8 : index
       %c1 = arith.constant 1 : index
@@ -126,8 +126,8 @@ module {
     // CHECK: %4 = d2m.get_arg(5) resolution_stage =  compile : !d2m.local_semaphore
     // CHECK: %5 = d2m.get_arg(4) resolution_stage =  compile : !d2m.local_semaphore
     ^datamovement1():
-      %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
-      %cb1 = d2m.get_cb(1) operand_index = 1 : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
+      %cb0 = d2m.get_cb(0) : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
+      %cb1 = d2m.get_cb(1) : <memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>>
       %c7 = arith.constant 7 : index
       %c8 = arith.constant 8 : index
       %c1 = arith.constant 1 : index
@@ -167,7 +167,7 @@ module {
       %2 = d2m.get_cb(2) : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %3 = d2m.wait %1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       %c0 = arith.constant 0 : index
-      // CHECK: %4 = d2m.get_arg(0) resolution_stage =  compile : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1>
+      // CHECK: d2m.get_arg(0) resolution_stage =  compile : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
       %tx = d2m.dma_read %view[%c0, %c0, %c0], %3[%c0], <1> : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
       d2m.dma_wait %tx : !d2m.mem_tx<read>
     }, {
@@ -194,8 +194,8 @@ module {
      {
     // CHECK: %0 = d2m.get_arg(2) resolution_stage =  compile : index
     ^unified0():
-      %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<32x32xf32, #l1>>
-      %cb1 = d2m.get_cb(1) operand_index = 1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %cb0 = d2m.get_cb(0) : <memref<32x32xf32, #l1>>
+      %cb1 = d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       scf.for %arg2 = %c0 to %c1 step %arg0 {
@@ -241,8 +241,8 @@ module {
       %temp7 = builtin.unrealized_conversion_cast %arg7 : f32 to f32
       %temp8 = builtin.unrealized_conversion_cast %arg8 : bf16 to bf16
       %temp9 = builtin.unrealized_conversion_cast %arg9 : f16 to f16
-      %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<32x32xf32, #l1>>
-      %cb1 = d2m.get_cb(1) operand_index = 1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %cb0 = d2m.get_cb(0) : <memref<32x32xf32, #l1>>
+      %cb1 = d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
       %0 = d2m.reserve %cb0 : <memref<32x32xf32, #l1>> -> memref<32x32xf32, #l1>
       d2m.push %cb0 : <memref<32x32xf32, #l1>>
       %1 = d2m.wait %cb0 : <memref<32x32xf32, #l1>> -> memref<32x32xf32, #l1>
