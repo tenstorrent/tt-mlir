@@ -53,15 +53,17 @@ def D2MInsertScratchBuffers : Pass<"d2m-insert-scratch-buffers", "::mlir::Module
   ];
 }
 
-// Elementwise fusion of d2m.generic ops on tensors
-def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
-  let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
+// Fusion of d2m.generic ops on tensors (elementwise, eltwise->reduction).
+def D2MGenericFusion : Pass<"d2m-generic-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuse compute-only d2m.generic ops (elementwise and eltwise->reduction)";
   let description = [{
-    Performs elementwise fusion for `d2m.generic` producers into consumers when
-    safe to do so. The initial implementation targets compute-only, affine-map
-    form `d2m.generic` with tensor semantics and matching device attributes
-    (grid, threads, block_factors). The pass is intended to run pre-bufferization
-    to reduce intermediary tensors and improve locality.
+    Performs fusion for `d2m.generic` producers into consumers when safe to do
+    so. The initial implementation targets compute-only, affine-map form
+    `d2m.generic` with tensor semantics and matching device attributes (grid,
+    threads, block_factors). Elementwise->elementwise fusion is always enabled;
+    elementwise->reduction fusion (single reduction dim) is opt-in via
+    `enable-eltwise-reduction-fusion`. The pass is intended to run
+    pre-bufferization to reduce intermediary tensors and improve locality.
   }];
 
   list<Option> options = [

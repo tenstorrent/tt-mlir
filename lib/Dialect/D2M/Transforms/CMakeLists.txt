@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         DecomposeArange.cpp
         DecomposeMasking.cpp
         GenericApplyInterchange.cpp
+        GenericFusion.cpp
         GenericLinearizeMemref.cpp
         GenericRegionsToFuncs.cpp
         HoistCBAllocs.cpp
@@ -16,7 +17,6 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LowerScratchAllocate.cpp
         LowerToLayout.cpp
         MaterializeViewReturns.cpp
-        ElementwiseFusion.cpp
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
         InsertScratchBuffers.cpp

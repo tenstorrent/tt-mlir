@@ -126,10 +126,10 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MMaterializeViewReturns());
 
   if (options.enableElementwiseFusion || options.enableEltwiseReductionFusion) {
-    d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
-    elementwiseFusionOptions.enableEltwiseReductionFusion =
+    d2m::D2MGenericFusionOptions fusionOptions;
+    fusionOptions.enableEltwiseReductionFusion =
         options.enableEltwiseReductionFusion;
-    pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
+    pm.addPass(d2m::createD2MGenericFusion(fusionOptions));
   }
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);

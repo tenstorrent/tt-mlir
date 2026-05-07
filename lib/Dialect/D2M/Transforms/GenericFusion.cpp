@@ -21,10 +21,10 @@
 
 #include <tuple>
 
-#define DEBUG_TYPE "D2MElementwiseFusion"
+#define DEBUG_TYPE "D2MGenericFusion"
 
 namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MELEMENTWISEFUSION
+#define GEN_PASS_DEF_D2MGENERICFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 // Check that we're not exceeding physical limit of 32 CBs per d2m.generic
@@ -738,9 +738,9 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 } // namespace
 
 namespace {
-class D2MElementwiseFusion
-    : public tt::d2m::impl::D2MElementwiseFusionBase<D2MElementwiseFusion> {
-  using D2MElementwiseFusionBase::D2MElementwiseFusionBase;
+class D2MGenericFusion
+    : public tt::d2m::impl::D2MGenericFusionBase<D2MGenericFusion> {
+  using D2MGenericFusionBase::D2MGenericFusionBase;
 
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();

@@ -302,7 +302,7 @@ struct TTIRToTTNNCommonPipelineOptions
   // of elementwise TTNN ops, outlines each chain into a private function, and
   // replaces the original ops with a ttnn.d2m_subgraph op. The outlined
   // subgraphs are later compiled through the D2M pipeline where elementwise
-  // fusion can be performed in D2MElementwiseFusion pass. See the
+  // fusion can be performed in D2MGenericFusion pass. See the
   // enable-d2m-elementwise-fusion option.
   Option<bool> enableCreateD2MSubgraphs{
       *this, "enable-create-d2m-subgraphs",
