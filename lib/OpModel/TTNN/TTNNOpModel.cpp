@@ -38,20 +38,6 @@ namespace mlir::tt::ttnn::op_model {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-// Guard fire counters — printed inline at each rejection site.
-// guardAFires removed — Guard A has been deleted for analysis
-// Guard A (binary eltwise H/W broadcast + sharded L1) removed — kernel handles it correctly.
-static std::atomic<int> guardBFires{0}; // softmax L1
-// guardCFires removed — Guard C has been deleted for analysis
-// guardDFires removed — Guard D has been deleted for analysis
-// guardEFires removed — Guard E has been deleted for analysis
-
-static void logGuardFire(const char *label, std::atomic<int> &counter) {
-  int n = ++counter;
-  fprintf(stderr, "[GUARD_FIRE] %s (total=%d)\n", label, n);
-  fflush(stderr);
-}
-
 // Macros to wrap overloaded functions for use with
 // query_op_constraints/runtime. These create a generic lambda that forwards
 // arguments, letting the compiler resolve the correct overload based on the
@@ -1745,18 +1731,6 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Guard B: softmax on L1 layouts causes the optimizer to insert extra
-  // DRAM<->L1 boundary conversions that hurt throughput. Keep on DRAM.
-  bool inputL1 = inputLayout && inputLayout.hasL1BufferType();
-  bool outputL1 = outputLayout && outputLayout.hasL1BufferType();
-  if (inputL1 || outputL1) {
-    logGuardFire("B: softmax any-L1", guardBFires);
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Softmax requires DRAM interleaved input and output; L1 layouts "
-        "cause the optimizer to insert costly boundary conversions");
-  }
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
