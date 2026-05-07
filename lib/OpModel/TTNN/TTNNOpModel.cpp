@@ -42,7 +42,7 @@ namespace mlir::tt::ttnn::op_model {
 // guardAFires removed — Guard A has been deleted for analysis
 // Guard A (binary eltwise H/W broadcast + sharded L1) removed — kernel handles it correctly.
 static std::atomic<int> guardBFires{0}; // softmax L1
-static std::atomic<int> guardCFires{0}; // grouped conv2d sharded
+// guardCFires removed — Guard C has been deleted for analysis
 // guardDFires removed — Guard D has been deleted for analysis
 // guardEFires removed — Guard E has been deleted for analysis
 
@@ -1745,21 +1745,16 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Softmax requires all tiles along the reduction dimension to be visible on
-  // each core simultaneously. Any L1 layout (sharded or interleaved with a
-  // multi-core virtual grid) may distribute reduction-dimension tiles across
-  // cores so each core computes only a partial reduction → incorrect results.
-  // Reject ALL L1 input and output layouts; require DRAM interleaved.
-  // Guard against null TTNNLayoutAttr using short-circuit &&.
+  // Guard B: softmax on L1 layouts causes the optimizer to insert extra
+  // DRAM<->L1 boundary conversions that hurt throughput. Keep on DRAM.
   bool inputL1 = inputLayout && inputLayout.hasL1BufferType();
   bool outputL1 = outputLayout && outputLayout.hasL1BufferType();
   if (inputL1 || outputL1) {
     logGuardFire("B: softmax any-L1", guardBFires);
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
-        "Softmax requires DRAM interleaved input and output; any L1 layout "
-        "(sharded or multi-core interleaved) may distribute the reduction "
-        "dimension across cores, producing incorrect partial reductions");
+        "Softmax requires DRAM interleaved input and output; L1 layouts "
+        "cause the optimizer to insert costly boundary conversions");
   }
 
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -5216,36 +5211,6 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Grouped conv2d (groups > 1) with any L1-sharded input or output is
-  // unsupported when kernel_h > 1.  Any spatial sharding (height, block, or
-  // width) across TTNN cores requires each core to fetch halo rows/columns from
-  // its neighbours to compute correct convolution output at shard boundaries.
-  // For grouped convolutions this halo exchange is not implemented correctly in
-  // TTNN: the per-group channel partitioning conflicts with the per-core spatial
-  // partitioning assumed by the halo logic, so boundary spatial positions receive
-  // wrong activation data and produce ~7% PCC regression on the affected tensor.
-  // Reject all three sharding modes; only DRAM-interleaved and L1-interleaved
-  // (non-sharded) layouts are safe for grouped conv2d with kernel > 1×1.
-  if (groups > 1 && !kernel_size.empty() && kernel_size[0] > 1) {
-    bool inputSharded =
-        inputLayout && inputLayout.hasL1BufferType() &&
-        inputLayout.getMemLayout() &&
-        isShardedMemoryLayout(inputLayout.getMemLayout().getValue());
-    bool outputSharded =
-        outputLayout && outputLayout.hasL1BufferType() &&
-        outputLayout.getMemLayout() &&
-        isShardedMemoryLayout(outputLayout.getMemLayout().getValue());
-    if (inputSharded || outputSharded) {
-      logGuardFire("C: grouped-conv2d sharded-L1", guardCFires);
-      return llvm::createStringError(
-          llvm::inconvertibleErrorCode(),
-          "Grouped conv2d (groups > 1) with any L1-sharded input or output "
-          "is not supported when kernel > 1x1: all spatial sharding modes "
-          "(height, block, width) require halo exchange which is not correctly "
-          "implemented for grouped convolutions in TTNN");
-    }
-  }
-
   // Prepare weight tensor first.
   llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
