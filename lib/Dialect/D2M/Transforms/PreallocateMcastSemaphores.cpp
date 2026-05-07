@@ -90,19 +90,8 @@ private:
     Location loc = generic.getLoc();
     LocalSemaphoreType semType = rewriter.getType<LocalSemaphoreType>();
 
-    unsigned ioSize = generic.getInputsAndOutputs().size();
-
     for (RemoteLoadOp load : allMcastLoads) {
-      // Compute the position of sem0 in EnqueueProgramOp.getArgs().
-      // D2MToTTMetal puts inputsAndOutputs first, then only non-MemRef
-      // additionalArgs (semaphores). MemRef additionalArgs (hoisted CBs) go
-      // into the separate cbs list and must not be counted here.
-      unsigned argsIdx = ioSize;
-      for (Value additionalArg : generic.getAdditionalArgs()) {
-        if (!mlir::isa<MemRefType>(additionalArg.getType())) {
-          argsIdx++;
-        }
-      }
+      unsigned argsIdx = generic.getNumOperands();
       int64_t sem0AbsIdx = static_cast<int64_t>(argsIdx);
       int64_t sem1AbsIdx = sem0AbsIdx + 1;
 

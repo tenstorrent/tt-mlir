@@ -25,7 +25,7 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
       for (auto &operand : op->getOpOperands()) {
         if (synchronizedOp.isProducer(operand) &&
             synchronizedOp.isConsumer(operand)) {
-          llvm_unreachable(
+          llvm::report_fatal_error(
               "A single op operand cannot be both a producer and consumer");
         } else if (synchronizedOp.isProducer(operand)) {
           cbUsageInfo[operand.get()].producers.push_back(op);
@@ -38,6 +38,31 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
   });
 
   return cbUsageInfo;
+}
+
+bool isPurelyDerivedOp(Operation *op,
+                       DenseMap<Operation *, bool> &purelyDerivedOps) {
+  // check if the result is already cached
+  if (purelyDerivedOps.contains(op)) {
+    return purelyDerivedOps[op];
+  }
+
+  // if not, compute the result
+  bool isPurelyDerived = mlir::isPure(op);
+  for (auto operand : op->getOperands()) {
+    // Block arguments (e.g., loop induction variables) have no defining op
+    // and are considered pure since they don't have side effects.
+    Operation *definingOp = operand.getDefiningOp();
+    if (definingOp != nullptr &&
+        !isPurelyDerivedOp(definingOp, purelyDerivedOps)) {
+      isPurelyDerived = false;
+      break;
+    }
+  }
+
+  // cache the result and return it
+  purelyDerivedOps[op] = isPurelyDerived;
+  return isPurelyDerived;
 }
 
 // Wraps a range of ops in a SynchronizedRegionOp and returns the latter.
@@ -61,33 +86,22 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
     opsInRange.insert(&op);
   }
 
-  DenseSet<Operation *> pureOps;
+  DenseMap<Operation *, bool> purelyDerivedOps;
   SmallVector<Operation *> opsToErase;
   for (Operation &op : llvm::make_range(start, end)) {
-    bool isPure = mlir::isPure(&op);
-    for (auto operand : op.getOperands()) {
-      if (!pureOps.contains(operand.getDefiningOp())) {
-        isPure = false;
-        break;
-      }
-    }
-
-    if (isPure) {
-      pureOps.insert(&op);
-    } else {
+    if (!isPurelyDerivedOp(&op, purelyDerivedOps)) {
       opsToErase.push_back(&op);
       for (Value result : op.getResults()) {
         for (Operation *user : result.getUsers()) {
           if (!llvm::any_of(opsInRange, [&](Operation *op) {
                 return op->isAncestor(user);
               })) {
-            llvm::errs()
-                << "Found use of non-pure op result outside the range of ops "
-                   "being wrapped: \n"
-                << *user;
-            llvm_unreachable("Results of ops being wrapped in "
-                             "SynchronizedRegionOp cannot be "
-                             "used outside the range.");
+            std::string msg;
+            llvm::raw_string_ostream os(msg);
+            os << "Found use of non-pure op result outside the range of ops "
+                  "being wrapped: "
+               << *user;
+            llvm::report_fatal_error(llvm::StringRef(os.str()));
           }
         }
       }

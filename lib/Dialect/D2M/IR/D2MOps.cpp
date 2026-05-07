@@ -2368,39 +2368,6 @@ static Block *cloneParallelizedRegion(d2m::GenericOp thisOp,
   return newBlock;
 }
 
-// Use operand_index or remote_load/remote_store binding to find the associated
-// operand for a get_cb op.
-static Value findAssocOperandForGetCB(d2m::GetCBOp getCbOp) {
-  GenericOp genericOp = getCbOp->getParentOfType<GenericOp>();
-  if (!genericOp) {
-    return Value();
-  }
-
-  if (std::optional<int64_t> operandIndex = getCbOp.getOperandIndex()) {
-    if (*operandIndex >= 0 && static_cast<size_t>(*operandIndex) <
-                                  genericOp.getInputsAndOutputs().size()) {
-      return genericOp.getInputsAndOutputs()[*operandIndex];
-    }
-    return Value();
-  }
-
-  Value cb = getCbOp.getResult();
-  for (Operation *userOp : cb.getUsers()) {
-    if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(userOp)) {
-      if (loadOp.isExplicitCBForm() && loadOp.getCb() == cb) {
-        return loadOp.getMemref();
-      }
-    }
-    if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(userOp)) {
-      if (storeOp.isExplicitCBForm() && storeOp.getCb() == cb) {
-        return storeOp.getMemref();
-      }
-    }
-  }
-
-  return Value();
-}
-
 // Derive the type of a nested alloc from its transferred d2m.blocking_map.
 static Type getTypeFromBlockingMap(d2m::GenericOp genericOp,
                                    AffineMap blockingMap, Type typeToRetype) {
@@ -2453,17 +2420,6 @@ static void repairParallelizedRegionTypes(d2m::GenericOp genericOp,
         if (newEmptyType != tensorEmptyOp.getType()) {
           tensorEmptyOp.getResult().setType(
               cast<RankedTensorType>(newEmptyType));
-        }
-      }
-    } else if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&clonedOp)) {
-      Value associatedOperand = findAssocOperandForGetCB(getCbOp);
-      if (associatedOperand) {
-        auto oldCbType = mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
-        Type newUnderlyingType = d2m::utils::cloneWithShardShape(
-            associatedOperand, oldCbType.getUnderlying());
-        if (newUnderlyingType != oldCbType.getUnderlying()) {
-          getCbOp.getResult().setType(d2m::CBType::get(
-              getCbOp.getContext(), mlir::cast<ShapedType>(newUnderlyingType)));
         }
       }
     } else if (auto remoteLoadOp =
@@ -3229,24 +3185,7 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
       if (result) {
         return;
       }
-      if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&op)) {
-        if (std::optional<int64_t> assocOperandIndex =
-                getCbOp.getOperandIndex()) {
-          if (*assocOperandIndex >= 0 &&
-              static_cast<unsigned>(*assocOperandIndex) == operandIndex) {
-            result = getCbOp.getResult();
-            return;
-          }
-        } else if (Value associatedOperand =
-                       findAssocOperandForGetCB(getCbOp)) {
-          GenericOp generic = getCbOp->getParentOfType<GenericOp>();
-          if (generic && generic.getOperandIndex(associatedOperand) ==
-                             static_cast<int64_t>(operandIndex)) {
-            result = getCbOp.getResult();
-            return;
-          }
-        }
-      } else if (auto emptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
+      if (auto emptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
         LocalBufferAssociation assoc = analyzeLocalBufferAssociation(
             emptyOp.getResult(),
             generic ? generic.getOutputs().front() : Value());

@@ -173,6 +173,7 @@ static void addScratchToGeneric(GenericOp genericOp,
 
   auto scratchAlloc = builder.create<memref::AllocOp>(genericOp.getLoc(),
                                                       scratchShardMemRefType);
+  scratchAlloc->setAttr("d2m.scratch_buffer", builder.getUnitAttr());
   builder.create<ScratchInitOp>(genericOp.getLoc(), scratchAlloc.getResult());
 }
 
