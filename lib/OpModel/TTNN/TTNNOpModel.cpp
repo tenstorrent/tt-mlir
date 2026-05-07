@@ -44,7 +44,7 @@ namespace mlir::tt::ttnn::op_model {
 static std::atomic<int> guardBFires{0}; // softmax L1
 static std::atomic<int> guardCFires{0}; // grouped conv2d sharded
 // guardDFires removed — Guard D has been deleted for analysis
-static std::atomic<int> guardEFires{0}; // bilinear upsample sharded
+// guardEFires removed — Guard E has been deleted for analysis
 
 static void logGuardFire(const char *label, std::atomic<int> &counter) {
   int n = ++counter;
@@ -7510,36 +7510,25 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     llvm::StringRef mode, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Bilinear upsample performs internal autosharding at runtime
-  // (compute_bilinear_autoshard_memory_config). When MLA probes it with a
-  // sharded L1 input, the halo kernel's generate_halo_kernel_config_tensors
-  // receives incompatible shard parameters and segfaults. Reject sharded L1
-  // inputs for bilinear mode so MLA selects an interleaved DRAM layout.
+  // Guard E: bilinear upsample with sharded L1 input/output crashes during
+  // OpModel probing — TTNN's bilinear kernel calls compute_bilinear_autoshard_
+  // memory_config which conflicts with pre-sharded inputs (segfault in
+  // generate_halo_kernel_config_tensors). This is a real TTNN limitation.
   if (mode == "bilinear" && inputLayout.hasL1BufferType() &&
       inputLayout.getMemLayout() &&
       isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    logGuardFire("E: bilinear-upsample sharded-L1 input", guardEFires);
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
-        "Bilinear upsample OpModel does not support sharded L1 input; "
+        "Bilinear upsample does not support sharded L1 input; "
         "the op performs internal autosharding at runtime");
   }
-
-  // Bilinear upsample with sharded L1 output also conflicts with internal
-  // runtime autosharding (compute_bilinear_autoshard_memory_config). Even
-  // when the input is DRAM-interleaved, the runtime function overwrites the
-  // output memory config with its own internally computed sharding, which may
-  // differ from the compile-time sharded output layout set by MLA, producing
-  // corrupt output data.
   if (mode == "bilinear" && outputLayout && outputLayout.hasL1BufferType() &&
       outputLayout.getMemLayout() &&
       isShardedMemoryLayout(outputLayout.getMemLayout().getValue())) {
-    logGuardFire("E: bilinear-upsample sharded-L1 output", guardEFires);
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
-        "Bilinear upsample with sharded L1 output is not supported; "
-        "the op performs internal autosharding at runtime that may conflict "
-        "with the compile-time output shard layout, producing corrupt data");
+        "Bilinear upsample does not support sharded L1 output; "
+        "the op performs internal autosharding at runtime");
   }
 
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7590,26 +7579,19 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
     TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Mirror the getOpConstraints guard: bilinear upsample with sharded L1 input
-  // crashes in the halo kernel during probing (see getOpConstraints).
   if (mode == "bilinear" && inputLayout.hasL1BufferType() &&
       inputLayout.getMemLayout() &&
       isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
-        "Bilinear upsample OpModel does not support sharded L1 input; "
-        "the op performs internal autosharding at runtime");
+        "Bilinear upsample does not support sharded L1 input");
   }
-
-  // Mirror the sharded L1 output guard from getOpConstraints.
   if (mode == "bilinear" && outputLayout && outputLayout.hasL1BufferType() &&
       outputLayout.getMemLayout() &&
       isShardedMemoryLayout(outputLayout.getMemLayout().getValue())) {
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
-        "Bilinear upsample with sharded L1 output is not supported; "
-        "the op performs internal autosharding at runtime that may conflict "
-        "with the compile-time output shard layout, producing corrupt data");
+        "Bilinear upsample does not support sharded L1 output");
   }
 
   ::tt::tt_metal::distributed::MeshDevice *device =
