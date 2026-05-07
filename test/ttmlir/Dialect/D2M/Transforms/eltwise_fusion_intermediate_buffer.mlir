@@ -1,19 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-fe-pipeline --d2m-elementwise-fusion %s | FileCheck %s
-// RUN: ttmlir-opt --ttir-to-ttmetal-fe-pipeline --d2m-elementwise-fusion %s | FileCheck %s --check-prefix=UNIQUE12
-// RUN: ttmlir-opt --ttir-to-ttmetal-fe-pipeline --d2m-elementwise-fusion %s | FileCheck %s --check-prefix=UNIQUE23
-
-// Regression test for the read-after-write hazard in fused eltwise generics
-// when chaining 3+ elementwise ops. Previously, ElementwiseFusion mapped the
-// producer's output tensor.empty to the consumer's first output tensor.empty,
-// which meant every linalg.generic in the fused body wrote to the same buffer.
-// Downstream that buffer became a single output circular buffer; the producer's
-// pack_tile would write into it while a downstream linalg op in the same fused
-// region was still reading stale tiles from the previous outer-loop iteration,
-// corrupting the result.
-//
-// The fix creates a fresh intermediate tensor.empty for each producer's output
-// inside the fused region, so each linalg.generic in the fused body has its
-// own distinct outs buffer.
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-elementwise-fusion %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-elementwise-fusion %s | FileCheck %s --check-prefix=UNIQUE12
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-elementwise-fusion %s | FileCheck %s --check-prefix=UNIQUE23
 
 module {
   func.func @three_op_chain(
