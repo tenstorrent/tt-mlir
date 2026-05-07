@@ -1,6 +1,41 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "78197e564f34c476c02a5e806a8db202f5ff3190")
+set(TT_METAL_VERSION "89883e453b9c0ee182fea67a26cbb8b493622144")
+
+set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
+    "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
+
+if (TTMLIR_TTMETAL_SOURCE_DIR)
+  get_filename_component(TTMETAL_SOURCE_DIR "${TTMLIR_TTMETAL_SOURCE_DIR}" ABSOLUTE)
+  message(STATUS "Using user-managed tt-metal source: ${TTMETAL_SOURCE_DIR}")
+  message(STATUS "  TT_METAL_VERSION (${TT_METAL_VERSION}) is NOT enforced for user-managed checkouts")
+
+  # Many scripts (env/activate, tools/ttrt, tools/profiler, alchemist, CI workflows,
+  # BUILD_RPATH in lib/CMakeLists.txt) hardcode third_party/tt-metal/src/tt-metal.
+  # Symlink the canonical location to the override so those continue to work.
+  set(TTMETAL_CANONICAL_LINK "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src/tt-metal")
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src")
+  if(IS_SYMLINK "${TTMETAL_CANONICAL_LINK}")
+    file(READ_SYMLINK "${TTMETAL_CANONICAL_LINK}" _existing_link_target)
+    if(NOT "${_existing_link_target}" STREQUAL "${TTMETAL_SOURCE_DIR}")
+      file(REMOVE "${TTMETAL_CANONICAL_LINK}")
+      file(CREATE_LINK "${TTMETAL_SOURCE_DIR}" "${TTMETAL_CANONICAL_LINK}" SYMBOLIC)
+      message(STATUS "Repointed ${TTMETAL_CANONICAL_LINK} -> ${TTMETAL_SOURCE_DIR}")
+    endif()
+  elseif(EXISTS "${TTMETAL_CANONICAL_LINK}")
+    message(FATAL_ERROR
+        "TTMLIR_TTMETAL_SOURCE_DIR is set, but a real directory exists at\n"
+        "  ${TTMETAL_CANONICAL_LINK}\n"
+        "(likely a leftover clone from a prior non-override configure). "
+        "Remove it so cmake can replace it with a symlink to the override:\n"
+        "  rm -rf ${TTMETAL_CANONICAL_LINK}")
+  else()
+    file(CREATE_LINK "${TTMETAL_SOURCE_DIR}" "${TTMETAL_CANONICAL_LINK}" SYMBOLIC)
+    message(STATUS "Symlinked ${TTMETAL_CANONICAL_LINK} -> ${TTMETAL_SOURCE_DIR}")
+  endif()
+else()
+  set(TTMETAL_SOURCE_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal)
+endif()
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
