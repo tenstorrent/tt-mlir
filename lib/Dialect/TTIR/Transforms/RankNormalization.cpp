@@ -59,10 +59,22 @@ static bool needsRankExpansion(Type type) {
 /// Some ops have operand-rank invariants (e.g. require a 1D tensor) that this
 /// pass would break by promoting to rank 2. Treat those ops as legal so the
 /// rewriter leaves them and their operands/results untouched.
+///
+/// `ttir.mesh_shard` is included because its folder returns `getInput()` when
+/// the shard volume is 1. MLIR's dialect conversion framework runs
+/// `legalizeWithFold` on illegal ops before applying patterns; if our pass
+/// marks `mesh_shard` illegal while its operand has been transiently promoted
+/// (via the public-function entry reshape) but its declared result type has
+/// not yet been rewritten, the fold returns a rank-2 value where a rank-0/1
+/// is expected and the framework asserts. Keeping `mesh_shard` legal avoids
+/// the fold call entirely; we instead wrap each rank-strict op with explicit
+/// `ttir.reshape` ops in `insertRankStrictOpBoundaries` so the rest of the
+/// body can still operate on rank>=2.
 static bool hasRankStrictOperandInvariants(Operation *op) {
   return isa<ttir::PagedUpdateCacheOp, ttir::PagedFillCacheOp,
              ttir::ScaledDotProductAttentionDecodeOp,
-             ttir::PagedScaledDotProductAttentionDecodeOp>(op);
+             ttir::PagedScaledDotProductAttentionDecodeOp,
+             ttir::MeshShardOp>(op);
 }
 
 /// Public, defined functions are the module's external boundary (e.g. JAX's
@@ -83,6 +95,12 @@ static constexpr StringRef kBoundaryReshapeAttr = "ttir.boundary_reshape";
 /// block argument is immediately reshaped to rank>=2 and the rest of the
 /// body operates on the promoted value. The block argument itself (and
 /// therefore the function signature) stays rank-0.
+///
+/// Uses of block args that go directly into rank-strict ops (or into the
+/// boundary demote reshape we may have already inserted just before such an
+/// op in `insertRankStrictOpBoundaries`) are intentionally NOT replaced: the
+/// rank-strict op needs to keep seeing its original-rank value, and the
+/// demote reshape will itself read the rank-promoted value via its own use.
 static void insertEntryBoundaryReshapes(func::FuncOp funcOp) {
   Block &entry = funcOp.getBody().front();
   OpBuilder builder(funcOp.getContext());
@@ -98,7 +116,67 @@ static void insertEntryBoundaryReshapes(func::FuncOp funcOp) {
     auto reshape = builder.create<ttir::ReshapeOp>(
         arg.getLoc(), promoted, arg, builder.getI32ArrayAttr(shape));
     reshape->setAttr(kBoundaryReshapeAttr, builder.getUnitAttr());
-    arg.replaceAllUsesExcept(reshape.getResult(), reshape);
+
+    SmallPtrSet<Operation *, 4> excepted;
+    excepted.insert(reshape);
+    for (Operation *user : arg.getUsers()) {
+      if (hasRankStrictOperandInvariants(user)) {
+        excepted.insert(user);
+      }
+    }
+    arg.replaceAllUsesExcept(reshape.getResult(), excepted);
+  }
+}
+
+/// For ops in `hasRankStrictOperandInvariants` that have rank<minRank
+/// operands or results, wrap them with `ttir.reshape` ops so the rank-strict
+/// op continues to receive (and produce) values of its original rank while
+/// the surrounding IR is promoted to rank>=2 by the rest of the pass.
+///
+/// For each rank<minRank operand we insert a "demote" reshape just before the
+/// op (rank>=2 -> original rank) and rewire the op to read from the demote.
+/// For each rank<minRank result we insert a "promote" reshape just after the
+/// op (original rank -> rank>=2) and replace all other uses of the result
+/// with the promoted value.
+///
+/// At the time we insert these reshapes the producers/consumers may still be
+/// rank<minRank; once Phase 2 promotes them, the reshape's input/output ranks
+/// naturally diverge and the reshape stops being identity. We mark each
+/// inserted reshape with `kBoundaryReshapeAttr` so the body conversion
+/// pattern leaves it (and the wrapped op) alone.
+static void insertRankStrictOpBoundaries(Operation *op) {
+  OpBuilder builder(op->getContext());
+
+  builder.setInsertionPoint(op);
+  for (auto en : llvm::enumerate(op->getOperandTypes())) {
+    auto declared = dyn_cast<RankedTensorType>(en.value());
+    if (!declared || declared.getRank() >= minRank) {
+      continue;
+    }
+
+    Value operand = op->getOperand(en.index());
+    SmallVector<int32_t> shape(declared.getShape().begin(),
+                               declared.getShape().end());
+    auto demote = builder.create<ttir::ReshapeOp>(
+        op->getLoc(), declared, operand, builder.getI32ArrayAttr(shape));
+    demote->setAttr(kBoundaryReshapeAttr, builder.getUnitAttr());
+    op->setOperand(en.index(), demote.getResult());
+  }
+
+  builder.setInsertionPointAfter(op);
+  for (Value result : op->getResults()) {
+    auto declared = dyn_cast<RankedTensorType>(result.getType());
+    if (!declared || declared.getRank() >= minRank) {
+      continue;
+    }
+
+    RankedTensorType promotedType = expandRank(declared);
+    SmallVector<int32_t> shape(promotedType.getShape().begin(),
+                               promotedType.getShape().end());
+    auto promote = builder.create<ttir::ReshapeOp>(
+        op->getLoc(), promotedType, result, builder.getI32ArrayAttr(shape));
+    promote->setAttr(kBoundaryReshapeAttr, builder.getUnitAttr());
+    result.replaceAllUsesExcept(promote.getResult(), promote);
   }
 }
 
@@ -434,9 +512,32 @@ public:
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
 
-    // Phase 1: insert entry-side boundary reshapes on every public function.
+    // Phase 1a: wrap rank-strict ops (those with operand-rank invariants
+    // that this pass would otherwise break, e.g. `ttir.mesh_shard`) with
+    // explicit demote/promote reshapes so the surrounding IR can be promoted
+    // to rank>=2 without changing the rank-strict op's operand or result
+    // types. This must run BEFORE Phase 1b (entry boundary reshapes) so
+    // that we observe the operand types as originally declared by the
+    // rank-strict op, not the rank-promoted values that the entry reshape
+    // would have substituted. It must run before Phase 2 (the conversion
+    // framework would otherwise call `legalizeWithFold` on the rank-strict
+    // op, which can crash when the operand value rank no longer matches the
+    // op's declared result rank).
+    SmallVector<Operation *> rankStrictOps;
+    module.walk([&](Operation *op) {
+      if (hasRankStrictOperandInvariants(op)) {
+        rankStrictOps.push_back(op);
+      }
+    });
+    for (Operation *op : rankStrictOps) {
+      insertRankStrictOpBoundaries(op);
+    }
+
+    // Phase 1b: insert entry-side boundary reshapes on every public function.
     // This lets the body conversion below promote internal ops to rank>=2
-    // while the function arguments themselves stay rank-0.
+    // while the function arguments themselves stay rank-0. Direct uses of
+    // public block args by rank-strict ops are skipped (those uses already
+    // flow through the demote reshape that Phase 1a inserted).
     module.walk([](func::FuncOp funcOp) {
       if (isBoundaryFunc(funcOp)) {
         insertEntryBoundaryReshapes(funcOp);

@@ -423,3 +423,55 @@ func.func public @public_rank1(%arg0: tensor<5xf32>) -> tensor<5xf32> {
 func.func public @public_rank2_unchanged(%arg0: tensor<2x3xf32>) -> tensor<2x3xf32> {
   return %arg0 : tensor<2x3xf32>
 }
+
+// =============================================================================
+// Test: rank-1 ttir.mesh_shard is preserved at the public boundary.
+// =============================================================================
+//
+// `ttir.mesh_shard` has a folder that returns its input when the shard volume
+// is 1. If the pass marked it illegal, MLIR's conversion framework would call
+// the folder during legalizeWithFold, and the rank promotion of the operand
+// (without an accompanying result-type rewrite) would trigger an "incorrect
+// fold result type" assertion. The pass therefore keeps mesh_shard legal and
+// wraps it with explicit demote/promote reshapes so the rest of the body can
+// still use rank>=2 values around it. This mirrors the JAX/sdy entry point
+// where mesh_shard ops live in the public main function.
+
+// CHECK-LABEL: func.func public @public_mesh_shard_rank1
+// CHECK-SAME: (%arg0: tensor<2560xf32>) -> tensor<2560xf32>
+// Entry boundary reshape promotes the public arg to rank-2 for the body.
+// CHECK: %[[E:.*]] = "ttir.reshape"(%arg0) <{shape = [1 : i32, 2560 : i32]}> {ttir.boundary_reshape} : (tensor<2560xf32>) -> tensor<1x2560xf32>
+// Phase 1.5 demotes back to rank-1 right before the mesh_shard.
+// CHECK: %[[D:.*]] = "ttir.reshape"(%[[E]]) <{shape = [2560 : i32]}> {ttir.boundary_reshape} : (tensor<1x2560xf32>) -> tensor<2560xf32>
+// Mesh_shard stays rank-1 -> rank-1, untouched by the pass.
+// CHECK: %[[M:.*]] = "ttir.mesh_shard"(%[[D]])
+// CHECK-SAME: (tensor<2560xf32>) -> tensor<2560xf32>
+// Phase 1.5 promotes the result to rank-2 for downstream consumers.
+// CHECK: %[[P:.*]] = "ttir.reshape"(%[[M]]) <{shape = [1 : i32, 2560 : i32]}> {ttir.boundary_reshape} : (tensor<2560xf32>) -> tensor<1x2560xf32>
+// Exit boundary reshape squeezes back to rank-1 for the public return.
+// CHECK: %[[X:.*]] = "ttir.reshape"(%[[P]]) <{shape = [2560 : i32]}> {ttir.boundary_reshape} : (tensor<1x2560xf32>) -> tensor<2560xf32>
+// CHECK: return %[[X]] : tensor<2560xf32>
+func.func public @public_mesh_shard_rank1(%arg0: tensor<2560xf32>) -> tensor<2560xf32> {
+  %0 = "ttir.mesh_shard"(%arg0) <{
+    shard_direction = #ttcore.shard_direction<full_to_shard>,
+    shard_dims = array<i64: -1>,
+    shard_shape = array<i64: 1>,
+    shard_type = #ttcore.shard_type<replicate>}> : (tensor<2560xf32>) -> tensor<2560xf32>
+  return %0 : tensor<2560xf32>
+}
+
+// Rank>=2 mesh_shard at the public boundary is untouched (no inserted
+// boundary reshapes since neither operand nor result is rank<minRank).
+// CHECK-LABEL: func.func public @public_mesh_shard_rank2_unchanged
+// CHECK-NOT: ttir.boundary_reshape
+// CHECK: %[[M:.*]] = "ttir.mesh_shard"(%arg0)
+// CHECK-SAME: (tensor<2560x32xf32>) -> tensor<2560x32xf32>
+// CHECK: return %[[M]] : tensor<2560x32xf32>
+func.func public @public_mesh_shard_rank2_unchanged(%arg0: tensor<2560x32xf32>) -> tensor<2560x32xf32> {
+  %0 = "ttir.mesh_shard"(%arg0) <{
+    shard_direction = #ttcore.shard_direction<full_to_shard>,
+    shard_dims = array<i64: -1>,
+    shard_shape = array<i64: 1>,
+    shard_type = #ttcore.shard_type<replicate>}> : (tensor<2560x32xf32>) -> tensor<2560x32xf32>
+  return %0 : tensor<2560x32xf32>
+}
