@@ -1,5 +1,5 @@
 // REQUIRES: opmodel, llmbox
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=2,4 optimization-level=1 enable-trace=true experimental-weight-dtype=bfp_bf8 enable-const-eval=true enable-cpu-hoisted-const-eval=true" -o llama_3_1_70b_tp_decode_layer_ttnn.mlir %models/single_blocks_and_layers/llama_3_1_70b_tp_decode_layer.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=2,4 optimization-level=1 enable-trace=true experimental-weight-dtype=bfp_bf8 enable-const-eval=true enable-cpu-hoisted-const-eval=true" -o llama_3_1_70b_tp_decode_layer_ttnn.mlir %models/single_blocks_and_layers/llama_3_1_70b_tp_1lyr_bs32_decode.mlir
 // RUN: FileCheck %s --input-file=llama_3_1_70b_tp_decode_layer_ttnn.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn llama_3_1_70b_tp_decode_layer_ttnn.mlir
 

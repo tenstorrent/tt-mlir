@@ -1,6 +1,6 @@
 // RoPE (Rotary Position Embedding) fusing tests extracted from real model IRs.
 //
-// Source: test/ttmlir/models/single_blocks_and_layers/*_layer.mlir
+// Source: test/ttmlir/models/single_blocks_and_layers/*_1lyr_*.mlir
 //
 // Tests cover model-specific shape configurations:
 //   1. Llama 3.2 1B decode: batch=32, 8 heads, head_dim=64
