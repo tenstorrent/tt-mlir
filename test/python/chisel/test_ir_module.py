@@ -5,22 +5,7 @@
 Cross-validate IRModule against the flatbuffer binary: op walk order,
 tensor shapes, and element types.
 """
-import pytest
-import ttrt.binary
-
-from chisel.ops import IRModule
-
-
-@pytest.fixture
-def binary(binary_path):
-    return ttrt.binary.load_binary_from_path(binary_path)
-
-
-@pytest.fixture
-def ir_module(binary):
-    mlir_json = ttrt.binary.mlir_as_dict(binary)
-    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
-    return IRModule(mlir_source=mlir_json["source"], functions=functions)
+from utils import json_string_as_dict
 
 
 def _iterate_programs(binary):
@@ -33,7 +18,7 @@ def test_ops(ir_module, binary):
     """Cross-validate walk order, debug info, and tensor shapes against the flatbuffer."""
     for prog_idx, prog_name in _iterate_programs(binary):
         mlir_ops = ir_module.get_function_ops(prog_name)
-        fb_ops = ttrt.binary.program_ops_as_dict(binary, prog_idx)
+        fb_ops = json_string_as_dict(binary.get_program_ops_as_json(prog_idx))
 
         assert len(mlir_ops) == len(fb_ops), (
             f"Program '{prog_name}': count mismatch "

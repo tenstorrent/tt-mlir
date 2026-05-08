@@ -4,6 +4,23 @@
 import os
 
 import pytest
+import _ttmlir_runtime as tt_runtime
+
+from chisel.ops import IRModule
+
+from utils import json_string_as_dict
+
+
+@pytest.fixture
+def binary(binary_path):
+    return tt_runtime.binary.load_binary_from_path(binary_path)
+
+
+@pytest.fixture
+def ir_module(binary):
+    mlir_json = json_string_as_dict(binary.get_mlir_as_json())
+    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
+    return IRModule(mlir_source=mlir_json["source"], functions=functions)
 
 
 def pytest_addoption(parser):

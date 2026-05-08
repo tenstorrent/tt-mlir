@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <variant>
 #include <vector>
 
 #pragma clang diagnostic push
@@ -53,6 +54,9 @@ enum class DistributedMode {
   // across multiple hosts
   MultiProcess,
 };
+
+using Scalar = std::variant<uint32_t, int32_t, uint16_t, int16_t, uint8_t,
+                            int8_t, bool, float>;
 
 inline std::string toString(DeviceRuntime runtime) {
   return ::tt::runtime::flatbuffer::EnumNameDeviceRuntime(runtime);

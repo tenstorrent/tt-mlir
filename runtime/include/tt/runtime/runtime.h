@@ -101,6 +101,8 @@ Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize);
 
+Tensor createScalarTensor(Scalar scalar);
+
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
   return ::tt::runtime::createBorrowedHostTensor(
       data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
@@ -241,16 +243,17 @@ std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle);
 
-// Returns the reference to the output tensor of the current operation.
-// In case that operation does not have an output tensor, returns nullopt
-// instead.
-std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
-                                        CallbackContext programContextHandle);
+// Returns references to the output tensor(s) of the current operation.
+// Single-output ops return a vector of size 1. Multi-output ops return a
+// vector of size N. No-output ops (e.g. DeallocateOp) return an empty vector.
+std::vector<TensorRef> getOpOutputRefs(OpContext opContextHandle);
 
 // Returns the vector of references to the input tensors of the current
 // operation
-std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
-                                      CallbackContext programContextHandle);
+std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle);
+
+std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef);
+::tt::target::DataType getTensorRefDataType(TensorRef tensorRef);
 
 // For the given tensor reference, retrieves the tensor from the program's
 // tensor pool. Returns the tensor if found, or nullopt if not found or on
@@ -264,6 +267,13 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
 // match the existing tensor.
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
+
+size_t getProgramIndex(CallbackContext programContextHandle);
+
+using OpWalkFn = std::function<void(OpContext)>;
+
+void walkProgram(Binary executableHandle, uint32_t programIndex,
+                 const OpWalkFn &cb);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

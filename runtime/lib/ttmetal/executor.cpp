@@ -117,6 +117,11 @@ MCQExecutor::MCQExecutor(
   for (const Tensor &input : inputs) {
     const target::metal::BufferRef *ref = programInputs->Get(inputIndex++);
     std::visit(utils::overloaded{
+                   [&](const std::uint32_t &) {
+                     auto [_, inserted] =
+                         this->hostBuffers.try_emplace(ref->global_id(), input);
+                     LOG_ASSERT(inserted);
+                   },
                    [&](const TensorDesc &) {
                      auto [_, inserted] =
                          hostBuffers.try_emplace(ref->global_id(), input);
