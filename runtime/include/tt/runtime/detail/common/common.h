@@ -121,22 +121,22 @@ inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   }
 }
 
-inline UnpackToDestMode
+inline ::tt::tt_metal::UnpackToDestMode
 toUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
   switch (unpackToDestMode) {
   case tt::target::UnpackToDestMode::Fp32:
-    return UnpackToDestMode::UnpackToDestFp32;
+    return ::tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
   case tt::target::UnpackToDestMode::Default:
-    return UnpackToDestMode::Default;
+    return ::tt::tt_metal::UnpackToDestMode::Default;
   }
 }
 
-inline std::vector<UnpackToDestMode>
+inline std::vector<::tt::tt_metal::UnpackToDestMode>
 toUnpackToDestModes(const ::flatbuffers::Vector<tt::target::UnpackToDestMode>
                         *unpackToDestModesFB) {
   // Metal asserts that unpack_to_dest_mode.size() == NUM_CIRCULAR_BUFFERS.
-  std::vector<UnpackToDestMode> unpackToDestModes(NUM_CIRCULAR_BUFFERS,
-                                                  UnpackToDestMode::Default);
+  std::vector<::tt::tt_metal::UnpackToDestMode> unpackToDestModes(
+      NUM_CIRCULAR_BUFFERS, ::tt::tt_metal::UnpackToDestMode::Default);
   if (unpackToDestModesFB == nullptr) {
     return unpackToDestModes;
   }

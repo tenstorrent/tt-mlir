@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
@@ -553,16 +554,20 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
         if (targetDataType != result.getDataType()) {
           auto targetElementType = ttnn::utils::getElementType(
               result.getContext(), result.getLayout(), targetDataType);
-          result = result.withElementType(targetElementType, tensorShape);
+          result = TTNNLayoutAttr::Builder(result, tensorShape)
+                       .setElementType(targetElementType);
         }
 
         // Apply layout transformation if needed (after dtype change)
         if (targetLayout != result.getLayout()) {
-          result = result.withLayout(targetLayout, tensorShape);
+          result = TTNNLayoutAttr::Builder(result, tensorShape)
+                       .setLayout(targetLayout);
         }
 
         if (targetBufferType != result.getBufferType()) {
-          result = result.withBufferType(targetBufferType);
+          result = TTNNLayoutAttr::Builder(result, tensorShape)
+                       .setBufferType(targetBufferType)
+                       .build();
         }
 
         fallbackLayoutsSet.insert(result);
@@ -699,11 +704,12 @@ testFallbackCombination(Operation *op, const OpConfig &originalConfig,
   // For all fallbacks, constrain output layout to be DRAM Interleaved.
   OpConfig testConfig = originalConfig;
   if (testConfig.outputLayout) {
-    testConfig.outputLayout = originalConfig.outputLayout;
+    auto tensorType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
     testConfig.outputLayout =
-        testConfig.outputLayout.withBufferType(BufferType::DRAM);
-    testConfig.outputLayout = testConfig.outputLayout.withMemoryLayout(
-        TensorMemoryLayout::Interleaved);
+        TTNNLayoutAttr::Builder(testConfig.outputLayout, tensorType.getShape())
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .build();
   }
 
   return op_constraint_validation::validateOperation(op, inputLayouts,

@@ -23,7 +23,7 @@ func.func @pure_tensor_multiple_regions(%arg0: tensor<64x128xf32>, %arg1: tensor
   }
   ins(%arg0, %arg1 : tensor<64x128xf32>, tensor<64x128xf32>)
   outs(%0 : tensor<64x128xf32>) {
-  ^datamovement0(%sem0: !d2m.semaphore, %sem1: !d2m.semaphore, %sem2: !d2m.semaphore, %sem3: !d2m.semaphore):
+  ^datamovement0(%sem0: !d2m.local_semaphore, %sem1: !d2m.local_semaphore, %sem2: !d2m.local_semaphore, %sem3: !d2m.local_semaphore):
     %cb_in0 = d2m.get_cb(0) : !d2m.cb<tensor<64x128xf32>>
     %cb_in1 = d2m.get_cb(1) : !d2m.cb<tensor<64x128xf32>>
     %cb_out = d2m.get_cb(2) : !d2m.cb<tensor<64x128xf32>>
@@ -36,7 +36,7 @@ func.func @pure_tensor_multiple_regions(%arg0: tensor<64x128xf32>, %arg1: tensor
     %result = tensor.insert %val into %out[%c0, %c0] : tensor<64x128xf32>
     d2m.yield %result : (tensor<64x128xf32>)
   }, {
-  ^datamovement1(%sem0_2: !d2m.semaphore, %sem1_2: !d2m.semaphore, %sem2_2: !d2m.semaphore, %sem3_2: !d2m.semaphore):
+  ^datamovement1(%sem0_2: !d2m.local_semaphore, %sem1_2: !d2m.local_semaphore, %sem2_2: !d2m.local_semaphore, %sem3_2: !d2m.local_semaphore):
     %cb_in0_2 = d2m.get_cb(0) : !d2m.cb<tensor<64x128xf32>>
     %cb_in1_2 = d2m.get_cb(1) : !d2m.cb<tensor<64x128xf32>>
     %cb_out_2 = d2m.get_cb(2) : !d2m.cb<tensor<64x128xf32>>
@@ -49,7 +49,7 @@ func.func @pure_tensor_multiple_regions(%arg0: tensor<64x128xf32>, %arg1: tensor
     %result_2 = tensor.insert %val_2 into %out_2[%c0_2, %c0_2] : tensor<64x128xf32>
     d2m.yield %result_2 : (tensor<64x128xf32>)
   }, {
-  ^compute0(%sem0_3: !d2m.semaphore, %sem1_3: !d2m.semaphore, %sem2_3: !d2m.semaphore, %sem3_3: !d2m.semaphore):
+  ^compute0(%sem0_3: !d2m.local_semaphore, %sem1_3: !d2m.local_semaphore, %sem2_3: !d2m.local_semaphore, %sem3_3: !d2m.local_semaphore):
     %cb_in0_3 = d2m.get_cb(0) : !d2m.cb<tensor<64x128xf32>>
     %cb_in1_3 = d2m.get_cb(1) : !d2m.cb<tensor<64x128xf32>>
     %cb_out_3 = d2m.get_cb(2) : !d2m.cb<tensor<64x128xf32>>

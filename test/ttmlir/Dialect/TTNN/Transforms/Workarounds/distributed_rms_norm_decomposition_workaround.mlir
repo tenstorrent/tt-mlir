@@ -18,4 +18,5 @@ module @test_distributed_rms_norm_workaround attributes {} {
     %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x1x32x128xbf16, #ttnn_layout_supported>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x1x32x128xbf16, #ttnn_layout_supported>
     return %1 : tensor<1x1x32x128xbf16, #ttnn_layout_supported>
   }
+
 }

@@ -387,6 +387,11 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
       return getVirtualGridInverseMapping(toLayoutOp.getOutput());
     }
 
+    // ToDeviceOp results inherit the destination layout mapping.
+    if (auto toDeviceOp = mlir::dyn_cast<ToDeviceOp>(defOp)) {
+      return getVirtualGridInverseMapping(toDeviceOp.getOutput());
+    }
+
     // Trace through d2m.generic results to the corresponding output operand.
     // VGMs live on EmptyOps, so we need to explicitly trace from the result
     // to the output operand that produced it.
@@ -438,8 +443,7 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
 }
 
 std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
-  // Mirror of getVirtualGridInverseMapping but returns the forward map
-  // attribute.
+  // Mirror getVirtualGridInverseMapping for forward maps.
   if (auto *defOp = val.getDefiningOp()) {
     if (auto emptyOp = mlir::dyn_cast<EmptyOp>(defOp)) {
       if (auto fwd = emptyOp.getVirtualGridForwardMappingAttr()) {
@@ -450,6 +454,10 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
 
     if (auto toLayoutOp = mlir::dyn_cast<ToLayoutOp>(defOp)) {
       return getVirtualGridForwardMapping(toLayoutOp.getOutput());
+    }
+
+    if (auto toDeviceOp = mlir::dyn_cast<ToDeviceOp>(defOp)) {
+      return getVirtualGridForwardMapping(toDeviceOp.getOutput());
     }
 
     if (auto genericOp = mlir::dyn_cast<GenericOp>(defOp)) {
@@ -681,9 +689,8 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device,
                           memrefAndView.second, baseOffset);
 }
 
-static AffineMap canonicalStridedMap(MLIRContext *context,
-                                     ArrayRef<int64_t> shape, Type elementType,
-                                     AffineMap map) {
+AffineMap canonicalStridedMap(MLIRContext *context, ArrayRef<int64_t> shape,
+                              Type elementType, AffineMap map) {
   assert(map.isIdentity() && "Only identity maps are supported for now.");
   auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
   int64_t elementSizeBytes = tileType ? tileType.getSizeBytes()
@@ -815,6 +822,22 @@ collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
   auto result = findLegalPhysicalGridForVolume(volume, deviceGridShape);
   TT_assert(!result.empty());
   return result;
+}
+
+int32_t getNocElementAlignmentL1(
+    Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
+  const int32_t nocAlignmentL1 =
+      ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes();
+
+  const int32_t elemBitWidth = std::visit(
+      [&](auto &&ty) -> int32_t {
+        return static_cast<int32_t>(ty.getElementTypeBitWidth());
+      },
+      type);
+  const int32_t elemBytes = std::max(1, elemBitWidth / 8);
+
+  TT_assert(((nocAlignmentL1 != 0) && (nocAlignmentL1 % elemBytes == 0)));
+  return nocAlignmentL1 / elemBytes;
 }
 
 } // namespace mlir::tt::d2m::utils

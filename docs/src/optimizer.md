@@ -15,7 +15,7 @@ cmake -G Ninja -B build -DTTMLIR_ENABLE_OPMODEL=ON
 
 Optimizer is disabled by default. To enable it, use the `enable-optimizer` option:
 ```bash
-ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true" input.mlir
+ttmlir-opt --ttir-to-ttnn-runtime-pipeline="enable-optimizer=true" input.mlir
 ```
 
 ## Optimizer Options
@@ -42,7 +42,7 @@ The optimizer provides additional configuration options:
 
 ```bash
 # Enable optimizer with default settings
-ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true max-legal-layouts=8" input.mlir
+ttmlir-opt --ttir-to-ttnn-runtime-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true max-legal-layouts=8" input.mlir
 ```
 
 ## Design Documentation

@@ -269,6 +269,207 @@ private:
     return true;
   }
 };
+template <typename ReduceOpType, CommuteDirection commuteDirection>
+class TTIRCommuteReshapeThroughReduce
+    : public TTIRCommuteOpRewritePattern<ReshapeOp, ReduceOpType,
+                                         commuteDirection> {
+public:
+  using TTIRCommuteOpRewritePattern<
+      ReshapeOp, ReduceOpType, commuteDirection>::TTIRCommuteOpRewritePattern;
+
+  // Commute upwards: reduce(D, kd) → reshape(S) ⟹ reshape(S') → reduce(D',
+  // kd)
+  void performCommuteUpwardsRewrite(ReduceOpType op, ReshapeOp reshapeUser,
+                                    PatternRewriter &rewriter) const override {
+    auto reduceInputType = cast<RankedTensorType>(op.getInput().getType());
+    auto reshapeOutputType =
+        cast<RankedTensorType>(reshapeUser.getResult().getType());
+
+    auto reduceInputShape = reduceInputType.getShape();
+    auto reshapeOutputShape = reshapeOutputType.getShape();
+
+    // Map reduce dims from reduce-input space to reshape-output space.
+    auto newDimArgs = mapReduceDims(reduceInputShape, reshapeOutputShape, op);
+    assert(!newDimArgs.empty() &&
+           "isCommuteUpwardsFavorable should have ensured valid mapping");
+
+    // Create reshape: input → reshapeOutputShape
+    auto newReshapeType = RankedTensorType::get(
+        reshapeOutputShape, reduceInputType.getElementType(),
+        reshapeOutputType.getEncoding());
+    SmallVector<int32_t> reshapeShape(reshapeOutputShape.begin(),
+                                      reshapeOutputShape.end());
+    auto newReshape = rewriter.create<ReshapeOp>(
+        reshapeUser->getLoc(), newReshapeType, op.getInput(),
+        rewriter.getI32ArrayAttr(reshapeShape));
+
+    // Create reduce with mapped dims on the reshaped tensor.
+    auto newReduce = createReduceOp(op, newReshape.getResult(), newDimArgs,
+                                    reshapeOutputShape, rewriter);
+
+    SmallVector<Operation *> users(op->getUsers());
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(reshapeUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
+
+    for (auto *user : users) {
+      rewriter.replaceOp(user, newReduce);
+    }
+  }
+
+  // Commute downwards: reshape(S) → reduce(D, kd) ⟹ reduce(D', kd) →
+  // reshape(S')
+  void
+  performCommuteDownwardsRewrite(ReduceOpType op, ReshapeOp reshapeOperand,
+                                 PatternRewriter &rewriter) const override {
+    auto reshapeInputShape = reshapeOperand.getInput().getType().getShape();
+    auto reshapeOutputShape = reshapeOperand.getResult().getType().getShape();
+
+    // Map reduce dims from reshape-output space back to reshape-input space.
+    auto newDimArgs = mapReduceDims(reshapeOutputShape, reshapeInputShape, op);
+    assert(!newDimArgs.empty() &&
+           "isCommuteDownwardsFavorable should have ensured valid mapping");
+
+    // Create reduce on the original (pre-reshape) input with mapped dims.
+    auto newReduce = createReduceOp(op, reshapeOperand.getInput(), newDimArgs,
+                                    reshapeInputShape, rewriter);
+
+    // Create reshape to produce the original output shape.
+    auto originalOutputType = cast<RankedTensorType>(op.getResult().getType());
+    auto originalOutputShape = originalOutputType.getShape();
+    SmallVector<int32_t> reshapeShape(originalOutputShape.begin(),
+                                      originalOutputShape.end());
+    auto newReshape = rewriter.create<ReshapeOp>(
+        reshapeOperand->getLoc(), op.getType(), newReduce,
+        rewriter.getI32ArrayAttr(reshapeShape));
+
+    rewriter.replaceOp(op, newReshape.getResult());
+  }
+
+private:
+  // Map each reduce dim from fromShape to the corresponding dim in toShape.
+  // Returns empty vector if any dim can't be mapped (commute not valid).
+  SmallVector<int64_t> mapReduceDims(ArrayRef<int64_t> fromShape,
+                                     ArrayRef<int64_t> toShape,
+                                     ReduceOpType op) const {
+    int64_t fromRank = fromShape.size();
+    SmallVector<int64_t> reduceDims;
+
+    if (!op.getDimArg()) {
+      // Reduce all dims — always valid since total element count is the same.
+      reduceDims = llvm::to_vector(llvm::seq<int64_t>(0, toShape.size()));
+      return reduceDims;
+    }
+
+    for (Attribute attr : op.getDimArg()->getValue()) {
+      int64_t d = cast<IntegerAttr>(attr).getInt();
+      d = d < 0 ? d + fromRank : d;
+      int64_t mapped = utils::findMatchingDim(fromShape, toShape, d);
+      if (mapped == -1) {
+        // Can't map this dim — commute not possible.
+        return {};
+      }
+      reduceDims.push_back(mapped);
+    }
+    return reduceDims;
+  }
+
+  // Create a new reduce op with the given dims on the given input.
+  ReduceOpType createReduceOp(ReduceOpType origOp, Value newInput,
+                              ArrayRef<int64_t> newDims,
+                              ArrayRef<int64_t> inputShape,
+                              PatternRewriter &rewriter) const {
+    SmallVector<Attribute> dimAttrs;
+    for (int64_t d : newDims) {
+      dimAttrs.push_back(rewriter.getI32IntegerAttr(d));
+    }
+    ArrayAttr newDimArgAttr = ArrayAttr::get(rewriter.getContext(), dimAttrs);
+
+    llvm::SmallDenseSet<int64_t> reducedDimSet(newDims.begin(), newDims.end());
+    SmallVector<int64_t> outputShape;
+    for (auto [i, dim] : llvm::enumerate(inputShape)) {
+      if (!reducedDimSet.count(i)) {
+        outputShape.push_back(dim);
+      } else if (origOp.getKeepDim()) {
+        outputShape.push_back(1);
+      }
+    }
+
+    auto outputType =
+        RankedTensorType::get(outputShape, origOp.getType().getElementType(),
+                              origOp.getType().getEncoding());
+    return rewriter.create<ReduceOpType>(origOp->getLoc(), outputType, newInput,
+                                         origOp.getKeepDimAttr(),
+                                         newDimArgAttr);
+  }
+
+  bool isCommuteUpwardsViable(ReduceOpType op,
+                              ReshapeOp reshapeUser) const override {
+    // The upwards rewrite creates a reshape from the reduce input directly to
+    // the original reshape's output shape, then reduces it in place. For that
+    // to produce valid IR (matching element count AND matching result type
+    // for the replaced reshape) the reduce must preserve both element count
+    // and rank — i.e. keep_dim must be true and every reduce dim must have
+    // size 1 in the reduce input. Without this guard the rewrite can build
+    // an invalid reshape or a result-type mismatch when reductionLength > 1.
+    if (!op.getKeepDim()) {
+      return false;
+    }
+    auto reduceInputShape =
+        cast<RankedTensorType>(op.getInput().getType()).getShape();
+    if (!op.getDimArg()) {
+      return llvm::all_of(reduceInputShape, [](int64_t d) { return d == 1; });
+    }
+    int64_t rank = reduceInputShape.size();
+    for (Attribute attr : op.getDimArg()->getValue()) {
+      int64_t d = cast<IntegerAttr>(attr).getInt();
+      d = d < 0 ? d + rank : d;
+      if (reduceInputShape[d] != 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool isCommuteUpwardsFavorable(ReduceOpType op,
+                                 ReshapeOp reshapeUser) const override {
+    auto reduceInputShape =
+        cast<RankedTensorType>(op.getInput().getType()).getShape();
+    auto reshapeOutputShape =
+        cast<RankedTensorType>(reshapeUser.getResult().getType()).getShape();
+
+    auto mapped = mapReduceDims(reduceInputShape, reshapeOutputShape, op);
+    if (mapped.empty()) {
+      return false;
+    }
+
+    SmallVector<Operation *> users(op->getUsers());
+    return !users.empty() && checkAllUsersAreIdenticalTms(users);
+  }
+
+  bool isCommuteDownwardsViable(ReduceOpType op,
+                                ReshapeOp reshapeOperand) const override {
+    return true;
+  }
+
+  bool isCommuteDownwardsFavorable(ReduceOpType op,
+                                   ReshapeOp reshapeOperand) const override {
+    auto reshapeOutputShape = reshapeOperand.getResult().getType().getShape();
+    auto reshapeInputShape = reshapeOperand.getInput().getType().getShape();
+
+    auto mapped = mapReduceDims(reshapeOutputShape, reshapeInputShape, op);
+    if (mapped.empty()) {
+      return false;
+    }
+
+    // Always favorable — reduce has a single tensor operand (the input from
+    // the reshape), so there are no other operands to worry about.
+    return true;
+  }
+};
 } // namespace
 
 template <CommuteDirection commuteDirection>
@@ -281,7 +482,15 @@ void populateReduceCommutePatterns(MLIRContext *ctx,
                TTIRCommutePermuteThroughReduce<ProdOp, commuteDirection>,
                TTIRCommutePermuteThroughReduce<ReduceAndOp, commuteDirection>,
                TTIRCommutePermuteThroughReduce<ReduceOrOp, commuteDirection>,
-               TTIRCommutePermuteThroughReduce<ArgMaxOp, commuteDirection>>(
+               TTIRCommutePermuteThroughReduce<ArgMaxOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<SumOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<MeanOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<MaxOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<MinOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<ProdOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<ReduceAndOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<ReduceOrOp, commuteDirection>,
+               TTIRCommuteReshapeThroughReduce<ArgMaxOp, commuteDirection>>(
       ctx);
 }
 

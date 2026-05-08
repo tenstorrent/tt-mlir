@@ -52,7 +52,7 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::class_<tt::runtime::TensorDesc>(m, "TensorDesc")
       .def_ro("shape", &tt::runtime::TensorDesc::shape)
       .def_ro("stride", &tt::runtime::TensorDesc::stride)
-      .def_ro("item_size", &tt::runtime::TensorDesc::itemsize)
+      .def_prop_ro("item_size", &tt::runtime::TensorDesc::elementSize)
       .def_ro("dtype", &tt::runtime::TensorDesc::dataType)
       .def_ro("physical_volume", &tt::runtime::TensorDesc::physicalVolume);
 
@@ -245,7 +245,19 @@ void registerRuntimeBindings(nb::module_ &m) {
         return tt::runtime::getTensorLayout(self);
       });
 
-  nb::class_<tt::runtime::TensorRef>(m, "TensorRef");
+  nb::class_<tt::runtime::TensorRef>(m, "TensorRef")
+      .def(
+          "get_shape",
+          [](tt::runtime::TensorRef self) {
+            return tt::runtime::getTensorRefShape(self);
+          },
+          "Logical shape from the flatbuffer - no tensor allocation.")
+      .def(
+          "get_dtype",
+          [](tt::runtime::TensorRef self) {
+            return tt::runtime::getTensorRefDataType(self);
+          },
+          "Data type from the flatbuffer - no tensor allocation.");
   nb::class_<tt::runtime::Layout>(m, "Layout");
   nb::class_<tt::runtime::OpContext>(m, "OpContext");
   nb::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
@@ -488,43 +500,39 @@ void registerRuntimeBindings(nb::module_ &m) {
       },
       "Get the output tensor of the op");
   m.def(
-      "get_op_output_ref",
-      [](tt::runtime::OpContext &op_context_handle,
-         tt::runtime::CallbackContext &program_context_handle) {
-        return tt::runtime::getOpOutputRef(op_context_handle,
-                                           program_context_handle);
+      "get_op_output_refs",
+      [](tt::runtime::OpContext &op_context_handle) {
+        return tt::runtime::getOpOutputRefs(op_context_handle);
       },
-      nb::arg("op_context_handle"), nb::arg("program_context_handle"),
+      nb::arg("op_context_handle"),
       R"(
-    Return a reference to the *output* tensor produced by an operator.
+    Return references to the output tensor(s) produced by an operator.
 
     Parameters
     ----------
     op_context_handle : tt.runtime.OpContext
-    program_context_handle : tt.runtime.CallbackContext
 
     Returns
     -------
-    Optional[tt.runtime.TensorRef]
-        A reference that uniquely identifies the output tensor, or ``None`` if the
-        operator has no outputs.
+    List[tt.runtime.TensorRef]
+        References that uniquely identify the output tensor(s). Empty list if
+        the operator has no outputs (e.g. DeallocateOp). Single-output ops
+        return a list of length 1. Multi-output ops (e.g. SortOp) return a
+        list of length N.
     )");
 
   m.def(
       "get_op_input_refs",
-      [](tt::runtime::OpContext &op_context_handle,
-         tt::runtime::CallbackContext &program_context_handle) {
-        return tt::runtime::getOpInputRefs(op_context_handle,
-                                           program_context_handle);
+      [](tt::runtime::OpContext &op_context_handle) {
+        return tt::runtime::getOpInputRefs(op_context_handle);
       },
-      nb::arg("op_context_handle"), nb::arg("program_context_handle"),
+      nb::arg("op_context_handle"),
       R"(
     Return a list of references to the *input* tensors consumed by an operator.
 
     Parameters
     ----------
     op_context_handle : ttrt.runtime.OpContext
-    program_context_handle : ttrt.runtime.CallbackContext
 
     Returns
     -------
@@ -550,7 +558,7 @@ void registerRuntimeBindings(nb::module_ &m) {
     ----------
     program_context_handle : ttrt.runtime.CallbackContext
     tensor_ref : ttrt.runtime.TensorRef
-        Reference to the tensor of interest (from get_op_output_ref/get_op_input_refs).
+        Reference to the tensor of interest (from get_op_output_refs/get_op_input_refs).
     untilize : bool, default ``True``
         If the tensor is stored in a tilized format, de-tilize it before returning. If the untilize flag is ``False``, tensor will be with padding so shape will be different from the original shape
 
@@ -587,6 +595,25 @@ void registerRuntimeBindings(nb::module_ &m) {
     -------
     None
     )");
+
+  m.def(
+      "get_program_index",
+      [](tt::runtime::CallbackContext program_context_handle) {
+        return tt::runtime::getProgramIndex(program_context_handle);
+      },
+      nb::arg("program_context_handle"),
+      R"(
+    Returns the program index from a callback context.
+
+    Parameters
+    ----------
+    program_context_handle : ttrt.runtime.CallbackContext
+
+    Returns
+    -------
+    int
+    )");
+
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
@@ -657,24 +684,67 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
       .def_static(
           "get",
-          [](nb::callable pre_op_func, nb::callable post_op_func) {
+          [](std::optional<nb::callable> pre_op_func,
+             std::optional<nb::callable> post_op_func,
+             std::optional<nb::callable> pre_program_func,
+             std::optional<nb::callable> post_program_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+            std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
+                pre_op_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
+                post_op_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::ProgramCallbackFn>
+                pre_program_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::ProgramCallbackFn>
+                post_program_cb = std::nullopt;
+
+            if (pre_op_func.has_value()) {
+              pre_op_cb =
+                  [pre_op_func](tt::runtime::Binary Binary,
+                                tt::runtime::CallbackContext programContext,
+                                tt::runtime::OpContext opContext) {
+                    nb::gil_scoped_acquire acquire;
+                    (*pre_op_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (post_op_func.has_value()) {
+              post_op_cb =
+                  [post_op_func](tt::runtime::Binary Binary,
+                                 tt::runtime::CallbackContext programContext,
+                                 tt::runtime::OpContext opContext) {
+                    nb::gil_scoped_acquire acquire;
+                    (*post_op_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (pre_program_func.has_value()) {
+              pre_program_cb =
+                  [pre_program_func](
+                      tt::runtime::Binary Binary,
+                      tt::runtime::CallbackContext programContext) {
+                    nb::gil_scoped_acquire acquire;
+                    (*pre_program_func)(Binary, programContext);
+                  };
+            }
+            if (post_program_func.has_value()) {
+              post_program_cb =
+                  [post_program_func](
+                      tt::runtime::Binary Binary,
+                      tt::runtime::CallbackContext programContext) {
+                    nb::gil_scoped_acquire acquire;
+                    (*post_program_func)(Binary, programContext);
+                  };
+            }
+
             return tt::runtime::debug::Hooks::get(
-                [pre_op_func](tt::runtime::Binary Binary,
-                              tt::runtime::CallbackContext programContext,
-                              tt::runtime::OpContext opContext) {
-                  pre_op_func(Binary, programContext, opContext);
-                },
-                [post_op_func](tt::runtime::Binary Binary,
-                               tt::runtime::CallbackContext programContext,
-                               tt::runtime::OpContext opContext) {
-                  post_op_func(Binary, programContext, opContext);
-                });
+                pre_op_cb, post_op_cb, pre_program_cb, post_program_cb);
 #else
             tt::runtime::debug::Hooks::get();
             return std::nullopt;
 #endif
-          })
+          },
+          nb::arg("pre_op") = std::nullopt, nb::arg("post_op") = std::nullopt,
+          nb::arg("pre_program") = std::nullopt,
+          nb::arg("post_program") = std::nullopt)
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;
@@ -706,5 +776,12 @@ void registerRuntimeBindings(nb::module_ &m) {
 
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+
+  m.def(
+      "walk_program",
+      [](tt::runtime::Binary binary, uint32_t program_index, nb::callable cb) {
+        tt::runtime::walkProgram(binary, program_index, cb);
+      },
+      nb::arg("binary"), nb::arg("program_index"), nb::arg("cb"));
 }
 } // namespace tt::runtime::python

@@ -210,16 +210,17 @@ getProgram(const ::tt::runtime::Binary &executableHandle,
   }
 }
 
-MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
+::tt::tt_metal::MathFidelity
+toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
   switch (mathFidelity) {
   case ::tt::target::MathFidelity::LoFi:
-    return MathFidelity::LoFi;
+    return ::tt::tt_metal::MathFidelity::LoFi;
   case ::tt::target::MathFidelity::HiFi2:
-    return MathFidelity::HiFi2;
+    return ::tt::tt_metal::MathFidelity::HiFi2;
   case ::tt::target::MathFidelity::HiFi3:
-    return MathFidelity::HiFi3;
+    return ::tt::tt_metal::MathFidelity::HiFi3;
   case ::tt::target::MathFidelity::HiFi4:
-    return MathFidelity::HiFi4;
+    return ::tt::tt_metal::MathFidelity::HiFi4;
   }
 }
 

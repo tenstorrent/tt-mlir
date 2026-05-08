@@ -10,12 +10,12 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Conversion/TTNNToTTIR/TTNNToTTIR.h"
+#include "ttmlir/Dialect/D2M/Pipelines/D2MPipelines.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
@@ -30,7 +30,7 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 void createTTNNPipelineTTIRPasses(
-    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
 
   ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
@@ -95,7 +95,7 @@ void createTTNNPipelineTTIRPasses(
 }
 
 void createTTNNPipelineAnalysisPasses(
-    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
 
   pm.addPass(mlir::tt::ttnn::createTTNNConfigureCCLOps());
 
@@ -197,7 +197,7 @@ void createTTNNPipelineLoweringPasses(OpPassManager &pm,
 // If optimizer is not enabled we just add fusing pass directly and we don't
 // do op constraint validation.
 void createTTNNFusingPass(OpPassManager &pm,
-                          const TTIRToTTNNDevicePipelineOptions &options) {
+                          const TTIRToTTNNCommonPipelineOptions &options) {
   if (options.enableFusing) {
     if (options.optimizerPassEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -226,7 +226,7 @@ void createTTNNFusingPass(OpPassManager &pm,
 
 // Create a pass to workaround issues in the TTNN dialect.
 void createTTNNPipelineWorkaroundPass(
-    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
 
   // If the workaround pass is disabled, skip adding it.
   if (options.disableWorkarounds) {
@@ -237,9 +237,7 @@ void createTTNNPipelineWorkaroundPass(
       options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
 
-  if (options.optimizerPassEnabled) {
-    workaroundOptions.optimizerEnabled = true;
-  }
+  workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
@@ -247,23 +245,14 @@ void createTTNNPipelineWorkaroundPass(
 }
 
 void createTTNNPipelineLayoutDecompositionPass(
-    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
   pm.addPass(createTTNNDecomposeLayouts());
 }
 
 void createTTNNPipelineDeallocPass(
-    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
   pm.addPass(createTTNNDeallocate());
 }
-
-//===----------------------------------------------------------------------===//
-// Intermediate pipelines used to build end-to-end pipelines.
-// Each of these pipelines lowers either the Device or CPU module, which is
-// encoded in the pipeline name.
-//
-// The OpPassManager argument is expected to correspond to the top-level
-// (root) ModuleOp.
-//===----------------------------------------------------------------------===//
 
 // Pipeline which prepares the TTIR ops in the Device module for TTNN
 // lowering, and then lowers them to TTNN dialect.
@@ -271,10 +260,12 @@ void createTTNNPipelineDeallocPass(
 // CPU module does get modified in this pipeline, but only by
 // adding more TTIR ops to it (CPU hoisting passes).
 //
-void createTTIRToTTNNDevicePipeline(
-    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+void createTTIRToTTNNCommonPipeline(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
+  // Resolve options controlled by enable-create-d2m-subgraphs.
+  options.resolveCreateD2MSubgraphsOptions();
 
   // TODO(dmilinkovic): Remove this once multithreading issues in MetalContext
   // are resolved - tt-metal issue #31041.
@@ -348,6 +339,14 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
+    // KV cache dtype conversion runs before analysis passes so that the
+    // optimizer sees the target dtype and can make informed sharding decisions.
+    if (options.experimentalKVCacheDtype != BFPDtype::None) {
+      TTNNKVCacheDtypeConversionOptions convOpts;
+      convOpts.targetDtype = options.experimentalKVCacheDtype;
+      devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
+    }
+
     // Apply ComputeKernelConfig settings before analysis passes.
     // Create options struct and forward pipeline options.
     TTNNSetComputeKernelConfigOptions setConfigOptions;
@@ -361,14 +360,15 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 
-    if (options.enableD2MFusing) {
+    if (options.enableCreateD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {
         llvm::errs()
-            << "WARNING: D2M fusing pass only supported with Optimizer "
+            << "WARNING: D2M subgraph creation pass only supported with "
+               "Optimizer "
                "enabled. Automatically enabling Optimizer as a dependency.\n";
       }
       options.optimizerPassEnabled = true;
-      devicePm.addPass(tt::ttnn::createTTNND2MFusing());
+      devicePm.addPass(tt::ttnn::createTTNNCreateD2MSubgraphs());
     }
 
     // Const-eval pass which should pick up any const-evalable ops created in
@@ -383,8 +383,10 @@ void createTTIRToTTNNDevicePipeline(
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
-    if (options.enableD2MFusing) {
-      createTTNNPipelineD2MPass(devicePm);
+    if (options.enableCreateD2MSubgraphs) {
+      TTNNPipelineD2MPassOptions d2mOptions;
+      d2mOptions.enableElementwiseFusion = options.enableD2MElementwiseFusion;
+      createTTNNPipelineD2MPass(devicePm, d2mOptions);
       devicePm.addPass(createTTNNCollaspeD2M());
       devicePm.addPass(createCanonicalizerPass());
     }
@@ -455,21 +457,30 @@ void createRecoverStructureXLATorchPipeline(
   pm.addPass(createTTNNRemoveDeallocs());
 }
 
-// Pipeline which lowers the Device module from TTNN to EmitC dialect.
+// Pipeline which lowers the results of TTIRToTTNNCommonPipeline to an IR ready
+// for translation to Flatbuffer and execution with the TTNN runtime.
 //
-void createTTNNToEmitCDevicePipeline(
-    OpPassManager &pm, const TTNNToEmitCDevicePipelineOptions &options) {
-  // Unwrapping the device module.
+void createTTNNCommonToRuntimePipeline(
+    OpPassManager &pm, const TTNNCommonToRuntimePipelineOptions &options) {
+  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+  // Lower the CPU module to LLVM IR.
+  ttir::createSHLOAndTTIRToLLVMPipeline(cpuPm, options);
+}
+
+// Pipeline which lowers the results of TTIRToTTNNCommonPipeline to EmitC
+// dialect.
+//
+void createTTNNCommonToEmitCPipeline(
+    OpPassManager &pm, const TTNNCommonToEmitCPipelineOptions &options) {
+  // Unwrap the Device module into the top-level module, effectively dropping
+  // the CPU module.
   //
-  // TODO(dmilinkovic): Should be removed after support for generating
-  // a dynamic library from CPU module is implemented inside EmitC translation
-  // pipeline - issue #6100.
+  // TODO(dmilinkovic): Should be removed after support for
+  // CPU-hoisting on EmitC is implemented - issue #6100.
   //
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
-  // These passes operate on TTNN IR inside the (now unwrapped) top-level
-  // module.
-  //
   pm.addPass(createTTNNAdjustDeallocs());
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
@@ -504,10 +515,11 @@ void createTTNNToEmitCDevicePipeline(
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
-// Pipeline which lowers the Device module from TTNN to EmitPy dialect.
+// Pipeline which lowers the results of TTIRToTTNNCommon pipeline to EmitPy
+// dialect.
 //
-void createTTNNToEmitPyDevicePipeline(
-    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options) {
+void createTTNNCommonToEmitPyPipeline(
+    OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options) {
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());
@@ -530,8 +542,11 @@ void createTTNNToEmitPyDevicePipeline(
     devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
     devicePm.addPass(createTTNNPrepareModuleForExport());
   } else {
-    // In canonical path, run tuplification + input generation/loading.
+    // In canonical path, split forward functions inputs that have
+    // ttcore.argument_type attribute set on all args into activations and
+    // weights first. Then tuplify everything else.
     //
+    devicePm.addPass(createTTNNSplitForwardFuncArgsByType());
     devicePm.addPass(createTTNNTuplifyTensors());
 
     if (options.loadInputTensorsFromDisk) {
@@ -578,57 +593,56 @@ void createTTNNToEmitPyDevicePipeline(
   devicePm.addPass(createEmitPyFormExpressionsPass());
 
   devicePm.addPass(createEmitPyNameVarsPass());
-}
 
-// Pipeline which lowers the CPU module from TTIR to EmitPy.
-//
-// TTIR ops are converted directly to ttir_cpu.<op> calls, bypassing
-// TTNN lowering entirely.
-//
-void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
   // Lower TTIR directly to EmitPy (ttir_cpu).
+  //
   cpuPm.addPass(createConvertTTIRCPUToEmitPyPass());
 
   cpuPm.addPass(createEmitPyNameVarsPass());
+
+  // Link Device and CPU modules into the root module.
+  //
+  pm.addPass(createEmitPyLinkModulesPass());
+
+  // Add Python import statements.
+  //
+  pm.addPass(createEmitPyAddImportsPass());
 }
 
-void createTTNNPipelineD2MPass(OpPassManager &pm) {
+void createTTNNPipelineD2MPass(OpPassManager &pm,
+                               const TTNNPipelineD2MPassOptions &options) {
   // TODO(vtang): pass to strip intermediate layouts.
   pm.addPass(tt::createConvertTTNNToTTIRPass());
   // pm.addPass(strip layouts pass)
 
   // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
   // only works on top-level modules (doesn't run module has a parent op).
-  ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
+  ttmetal::D2MPipelineOptions ttmetalOptions;
   ttmetalOptions.ttnnMode = true;
-  ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
-  ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);
-  ttmetal::createTTIRToTTMetalBackendPipeline(pm, ttmetalOptions);
+  ttmetalOptions.enableElementwiseFusion = options.enableElementwiseFusion;
+  ttmetal::createD2MFrontendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MBackendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MToTTKernelPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MToTTNNPipeline(pm, ttmetalOptions);
 }
 
 //===----------------------------------------------------------------------===//
 // End-to-end pipelines.
 //===----------------------------------------------------------------------===//
 
-// Complete pipeline for lowering TTIR to TTNN backend.
+// Complete pipeline for lowering TTIR to TTNN runtime.
 //
-// Device module: TTIR -> TTNN.
-// CPU module: TTIR (+ StableHLO) -> LLVM.
-//
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+void createTTIRToTTNNRuntimePipeline(
+    OpPassManager &pm, const TTIRToTTNNRuntimePipelineOptions &options) {
 
-  createTTIRToTTNNDevicePipeline(pm, options);
+  createTTIRToTTNNCommonPipeline(pm, options);
 
-  ttir::createTTIRToLLVMCPUPipeline(pm, options);
+  createTTNNCommonToRuntimePipeline(pm, options);
 }
 
 // Complete pipeline for lowering TTIR to EmitC.
-//
-// Device module: TTIR -> TTNN -> EmitC.
-// CPU module: TTIR (+ StableHLO) -> LLVM.
 //
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
@@ -637,16 +651,12 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
         "Trace currently not supported in createTTIRToEmitCPipeline");
   }
 
-  createTTIRToTTNNDevicePipeline(pm, options);
-  createTTNNToEmitCDevicePipeline(pm, options);
+  createTTIRToTTNNCommonPipeline(pm, options);
 
-  // TODO(dmilinkovic): Lower CPU module to LLVM - issue #6100.
+  createTTNNCommonToEmitCPipeline(pm, options);
 }
 
 // Complete pipeline for lowering TTIR to EmitPy.
-//
-// Device module: TTIR -> TTNN -> EmitPy.
-// CPU module: TTIR -> TTNN -> EmitPy (with golden functions).
 //
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options) {
@@ -655,36 +665,9 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
         "Trace currently not supported in createTTIRToEmitPyPipeline");
   }
 
-  createTTIRToTTNNDevicePipeline(pm, options);
-  createTTNNToEmitPyDevicePipeline(pm, options);
+  createTTIRToTTNNCommonPipeline(pm, options);
 
-  // Lower CPU module to EmitPy using TTNN golden functions.
-  //
-  createTTIRToEmitPyCPUPipeline(pm);
-
-  // Link Device and CPU modules into the root module.
-  //
-  pm.addPass(createEmitPyLinkModulesPass());
-
-  // Add module-level Python import statements.
-  //
-  pm.addPass(createEmitPyAddImportsPass());
-}
-
-// Complete pipeline for lowering TTNN to EmitPy.
-//
-// This pipeline is used when the input is already in TTNN dialect, and assumes
-// the CPU module is still in TTIR.
-//
-// Device module: TTNN -> EmitPy.
-// CPU module: TTIR -> TTNN -> EmitPy (with golden functions).
-//
-void createTTNNToEmitPyPipeline(
-    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options) {
-  createTTNNToEmitPyDevicePipeline(pm, options);
-  createTTIRToEmitPyCPUPipeline(pm);
-  pm.addPass(createEmitPyLinkModulesPass());
-  pm.addPass(createEmitPyAddImportsPass());
+  createTTNNCommonToEmitPyPipeline(pm, options);
 }
 
 //===----------------------------------------------------------------------===//
@@ -692,29 +675,66 @@ void createTTNNToEmitPyPipeline(
 //===----------------------------------------------------------------------===//
 
 void registerTTNNPipelines() {
-  // TTIR to TTNN backend pipeline.
+  // TTIR to TTNN Common pipeline.
   //
   mlir::PassPipelineRegistration<
-      mlir::tt::ttnn::TTIRToTTNNBackendPipelineOptions>(
+      mlir::tt::ttnn::TTIRToTTNNCommonPipelineOptions>(
+      "ttir-to-ttnn-common-pipeline",
+      "Common pipeline lowering TTIR to TTNN. "
+      "Lowers the Device module to TTNN, and leaves the CPU module as TTIR. ",
+      mlir::tt::ttnn::createTTIRToTTNNCommonPipeline);
+
+  // =================================================================
+  // Target-specific pipelines, which all take the results of TTIRToTTNNCommon
+  // as input.
+  // =================================================================
+
+  // TTNN Common to Runtime pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTNNCommonToRuntimePipelineOptions>(
+      "ttnn-common-to-runtime-pipeline",
+      "Pipeline lowering results of TTIRToTTNNCommon pipeline to an IR ready "
+      "for Flatbuffer translation and Runtime execution.",
+      mlir::tt::ttnn::createTTNNCommonToRuntimePipeline);
+
+  // TTNN Common to EmitPy pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTNNCommonToEmitPyPipelineOptions>(
+      "ttnn-common-to-emitpy-pipeline",
+      "Pipeline lowering results of TTIRToTTNNCommon pipeline to EmitPy.",
+      mlir::tt::ttnn::createTTNNCommonToEmitPyPipeline);
+
+  // TTNN Common to EmitC pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTNNCommonToEmitCPipelineOptions>(
+      "ttnn-common-to-emitc-pipeline",
+      "Pipeline lowering results of TTIRToTTNNCommon pipeline to EmitC.",
+      mlir::tt::ttnn::createTTNNCommonToEmitCPipeline);
+
+  // ==============================================================
+  // End-to-end pipelines, which compose the TTIRToTTNNCommon pipeline with a
+  // target-specific pipeline.
+  // ==============================================================
+
+  // TTIR to TTNN runtime pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions>(
+      "ttir-to-ttnn-runtime-pipeline",
+      "Pipeline lowering TTIR to TTNN for tt-mlir Runtime execution.",
+      mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline);
+
+  // Backwards-compatible ttir-to-ttnn-backend-pipeline, which is the same as
+  // ttir-to-ttnn-runtime-pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions>(
       "ttir-to-ttnn-backend-pipeline",
-      "Pipeline lowering TTIR to TTNN backend.",
-      mlir::tt::ttnn::createTTIRToTTNNBackendPipeline);
-
-  // TTNN to EmitC Device pipeline.
-  //
-  mlir::PassPipelineRegistration<
-      mlir::tt::ttnn::TTNNToEmitCDevicePipelineOptions>(
-      "ttnn-to-emitc-device-pipeline",
-      "Pipeline lowering TTNN to EmitC in the Device module.",
-      mlir::tt::ttnn::createTTNNToEmitCDevicePipeline);
-
-  // TTNN to EmitPy Device pipeline.
-  //
-  mlir::PassPipelineRegistration<
-      mlir::tt::ttnn::TTNNToEmitPyDevicePipelineOptions>(
-      "ttnn-to-emitpy-device-pipeline",
-      "Pipeline lowering TTNN to EmitPy in the Device module.",
-      mlir::tt::ttnn::createTTNNToEmitPyDevicePipeline);
+      "DEPRECATED, use ttir-to-ttnn-runtime-pipeline instead.",
+      mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline);
 
   // TTIR to EmitC pipeline.
   //
@@ -728,13 +748,6 @@ void registerTTNNPipelines() {
       "ttir-to-emitpy-pipeline", "Pipeline lowering TTIR to EmitPy.",
       mlir::tt::ttnn::createTTIRToEmitPyPipeline);
 
-  // TTNN to EmitPy pipeline.
-  //
-  mlir::PassPipelineRegistration<
-      mlir::tt::ttnn::TTNNToEmitPyDevicePipelineOptions>(
-      "ttnn-to-emitpy-pipeline", "Pipeline lowering TTNN to EmitPy.",
-      mlir::tt::ttnn::createTTNNToEmitPyPipeline);
-
   // Recover Structure XLA/Torch pipeline.
   //
   mlir::PassPipelineRegistration<
@@ -746,13 +759,13 @@ void registerTTNNPipelines() {
 
   // TTNN D2M pipeline - runs D2M compilation on TTNN d2m_subgraph ops.
   //
-  mlir::PassPipelineRegistration<>(
+  mlir::PassPipelineRegistration<TTNNPipelineD2MPassOptions>(
       "ttnn-through-d2m-pipeline",
       "Pipeline to compile D2M subgraphs inside ttnn.d2m_subgraph ops.",
-      [](OpPassManager &pm) {
+      [](OpPassManager &pm, const TTNNPipelineD2MPassOptions &options) {
         auto &devicePm =
             pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
-        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm);
+        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm, options);
       });
 }
 } // namespace mlir::tt::ttnn

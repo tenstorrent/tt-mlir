@@ -32,7 +32,7 @@ static void copyTensorFromHostToDevice(const ::ttnn::Tensor &srcTensor,
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on host and dstTensor must be on device");
 
-  ::tt::tt_metal::tensor_impl::copy_to_device(srcTensor, dstTensor);
+  ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
 }
 
 static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
@@ -41,7 +41,7 @@ static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on device and dstTensor must be on device");
   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-  ::tt::tt_metal::tensor_impl::copy_to_device(hostSrcTensor, dstTensor);
+  ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
 }
 
 static void runTraceProgramAndCaptureTrace(
@@ -65,10 +65,9 @@ static void runTraceProgramAndCaptureTrace(
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
 
-  // Outputs will be returned in the order of traceId, actual outputs, trace
-  // input slots, trace output slots
-  size_t expectedNumOutputs =
-      1 + op->outputs()->size() + op->inputs()->size() + op->outputs()->size();
+  // Outputs are returned in the order of: traceId, trace input slots, trace
+  // output slots.
+  size_t expectedNumOutputs = 1 + op->inputs()->size() + op->outputs()->size();
   LOG_ASSERT(outputTensors.size() == expectedNumOutputs,
              "Mismatched number of output tensors, expected: ",
              expectedNumOutputs, " got: ", outputTensors.size());
@@ -85,12 +84,6 @@ static void runTraceProgramAndCaptureTrace(
       ::tt::runtime::ttnn::utils::getScalarFromTensor<uint32_t>(traceIdTensor);
   ::ttnn::MeshTraceId meshTraceId(traceId);
 
-  // Handle trace function outputs
-  for (size_t i = 0; i < op->outputs()->size(); i++) {
-    tensorPool.insertRuntimeTensorAndValidate(op->outputs()->Get(i),
-                                              outputTensors[currOutputIndex++]);
-  }
-
   // Handle trace input slots
   std::vector<::tt::runtime::Tensor> inputSlots;
   for (size_t i = 0; i < op->inputs()->size(); i++) {
@@ -104,7 +97,7 @@ static void runTraceProgramAndCaptureTrace(
     inputSlots.emplace_back(std::move(inputSlot));
   }
 
-  // Handle trace output slots
+  // Handle trace output slots.
   std::vector<::tt::runtime::Tensor> outputSlots;
   for (size_t i = 0; i < op->outputs()->size(); i++) {
     ::tt::runtime::Tensor &outputSlot = outputTensors[currOutputIndex++];
@@ -115,6 +108,12 @@ static void runTraceProgramAndCaptureTrace(
     // output slots need to be retained
     outputSlotWrapper.setRetain(true);
     outputSlots.emplace_back(std::move(outputSlot));
+  }
+
+  // Use output slots as the actual outputs for the first invocation.
+  for (size_t i = 0; i < op->outputs()->size(); i++) {
+    tensorPool.insertRuntimeTensorAndValidate(op->outputs()->Get(i),
+                                              outputSlots[i]);
   }
 
   TraceData traceData{.traceId = meshTraceId,

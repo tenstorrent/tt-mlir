@@ -19,21 +19,32 @@ class ProgramContext; // Forward declaration
  */
 class ProgramExecutor {
 public:
-  // Constructor for executing a program
+  // `parentContext` (optional) links this executor's ProgramContext to the
+  // caller's context so child programs can share state (e.g. implicit
+  // GlobalSemaphores) across nested invocations.
   ProgramExecutor(::tt::runtime::Device deviceHandle,
                   ::tt::runtime::Binary &executableHandle,
                   const size_t programIndex,
                   std::vector<::tt::runtime::Tensor> &programInputs,
-                  bool constEvalProgram = false);
+                  bool constEvalProgram = false,
+                  ProgramContext *parentContext = nullptr);
 
   /**
-   * Executes pre and post operation callbacks if registered
+   * Executes pre/post operation callbacks if registered
    */
-  void
-  runCallback(std::optional<::tt::runtime::debug::Hooks::CallbackFn> callback,
-              Binary &executableHandle,
-              const ::tt::target::ttnn::Operation *opContext,
-              ProgramContext *programContext);
+  void runOpCallback(
+      const std::optional<::tt::runtime::debug::Hooks::OperationCallbackFn>
+          &callback,
+      Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
+      ProgramContext *programContext);
+
+  /**
+   * Executes pre/post program callback if registered
+   */
+  void runProgramCallback(
+      const std::optional<::tt::runtime::debug::Hooks::ProgramCallbackFn>
+          &callback,
+      Binary &executableHandle, ProgramContext *programContext);
 
   /**
    * Executes all operations in the program
@@ -62,9 +73,13 @@ private:
   void runOperation(const ::tt::target::ttnn::Operation *op);
 
   /**
-   * Dumps device profile counters if needed
+   * Conditionally reads profiler data from device buffer.
+   *
+   * The read will be performed in case:
+   * - we don't have an active trace capture.
+   * - force flag is set or we have executed at least `dumpDeviceRate` ops
    */
-  void dumpPerfCountersIfNeeded();
+  void readProfilerDataIfNeeded(bool force = false);
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   /**

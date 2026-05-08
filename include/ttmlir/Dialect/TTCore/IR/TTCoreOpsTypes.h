@@ -73,6 +73,43 @@ inline void printVargDimensionList(mlir::AsmPrinter &printer, Args &&...dims) {
                      llvm::SmallVector<int64_t>({std::forward<Args>(dims)...}));
 }
 
+// Print a list of CoreCoordAttrs as `[(y, x), (y, x), ...]`.
+//
+// CoreCoordAttr's default printer renders `YxX` (shared with grid/tile-shape
+// fields), which reads as a 2D *shape* — fine for grids, misleading for points.
+// Here each element is a coordinate pair, so we use comma-separated `(y, x)`
+// to make it visually unambiguous that the two numbers are axes of one point,
+// not dimensions of a rectangle.
+inline void printCoreCoordList(mlir::AsmPrinter &printer,
+                               llvm::ArrayRef<CoreCoordAttr> coords) {
+  printer << '[';
+  for (size_t i = 0; i < coords.size(); ++i) {
+    if (i > 0) {
+      printer << ", ";
+    }
+    printer << '(' << coords[i].getY() << ", " << coords[i].getX() << ')';
+  }
+  printer << ']';
+}
+
+// Inverse of printCoreCoordList: parses `[(y, x), (y, x), ...]`.
+inline mlir::ParseResult
+parseCoreCoordList(mlir::AsmParser &parser,
+                   llvm::SmallVectorImpl<CoreCoordAttr> &coords) {
+  return parser.parseCommaSeparatedList(
+      mlir::AsmParser::Delimiter::Square, [&]() -> mlir::ParseResult {
+        int64_t y;
+        int64_t x;
+        if (parser.parseLParen() || parser.parseInteger(y) ||
+            parser.parseComma() || parser.parseInteger(x) ||
+            parser.parseRParen()) {
+          return mlir::failure();
+        }
+        coords.push_back(CoreCoordAttr::get(parser.getContext(), y, x));
+        return mlir::success();
+      });
+}
+
 inline void printIdentityAffineMap(mlir::AsmPrinter &printer,
                                    mlir::AffineMap affineMap) {
   if (affineMap.isIdentity()) {

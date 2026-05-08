@@ -115,6 +115,15 @@ SmallVector<Value> collectAncestorLoopIVs(Operation *op);
 
 bool hasTileMatmul(Operation *op);
 
+// True iff `op` is any tile-level reduction op (FPU or SFPU variant).
+bool isTileReductionOp(Operation *op);
+
+// Stamp a pass-allocated scratch slice onto the op's `dst_scratch_index`
+// attribute for the TTKernel lowering to consume.  Today only supports ops
+// that need exactly one scratch slice.
+void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
+                        int scratchSlice);
+
 bool hasAcquireDstOp(Region &region);
 
 DstRegionOpClassification classifyDstRegionOps(GenericOp gOp,

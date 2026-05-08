@@ -92,10 +92,13 @@ private:
   }
 
   // Check if a value should remain on device during trace capture.
-  // Handles three cases:
+  // Handles four cases:
   // 1. Direct BlockArgument → checks shouldKeepArgOnDevice
   // 2. LoadCachedOp result → always device-resident (consteval)
   // 3. MeshShardOp result → traces through to the input and recurses
+  // 4. ttnn.empty / ttnn.alloc result → prelude-allocated device scratch
+  //    buffer (e.g. stats scratch for distributed_rms_norm) that must be
+  //    passed through, not host-staged.
   bool isDeviceResidentValue(mlir::Value value) {
     if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
       auto funcOp =
@@ -117,6 +120,10 @@ private:
 
     if (auto meshShardOp = mlir::dyn_cast<ttnn::MeshShardOp>(defOp)) {
       return isDeviceResidentValue(meshShardOp.getInput());
+    }
+
+    if (mlir::isa<ttnn::EmptyOp, ttnn::AllocOp>(defOp)) {
+      return true;
     }
 
     return false;
@@ -201,9 +208,11 @@ private:
       } else if (mlir::isa<mlir::OpResult>(input)) {
         auto result = mlir::cast<mlir::OpResult>(input);
         Operation *defOp = result.getDefiningOp();
-        // If the input is a result of a load cached op
-        // Then we can mark it as a constant since it's a consteval result
-        if (mlir::isa<mlir::tt::ttcore::LoadCachedOp>(defOp)) {
+        // LoadCachedOp results are consteval; ttnn.empty / ttnn.alloc are
+        // prelude device-scratch buffers. Mark both as Constant so the trace
+        // wrapper passes them through device-resident.
+        if (mlir::isa<mlir::tt::ttcore::LoadCachedOp>(defOp) ||
+            mlir::isa<ttnn::EmptyOp, ttnn::AllocOp>(defOp)) {
           llvm::SmallVector<mlir::NamedAttribute> namedAttrs;
           namedAttrs.emplace_back(
               mlir::StringAttr::get(context, ttcore::ArgumentTypeAttr::name),
@@ -390,20 +399,14 @@ private:
 
     // The capture function returns multiple values for trace management:
     // 1. traceId - Identifier for the captured trace
-    // 2. actual outputs - Results from the first execution (non-traced)
-    // 3. trace input slots - Persistent device memory for input data
-    // 4. trace output slots - Persistent device memory for output data
+    // 2. trace input slots - Persistent device memory for input data
+    // 3. trace output slots - Persistent device memory for output data
+
     llvm::SmallVector<mlir::Type> outputTypes;
 
     // Trace ID for the captured trace, used for correlation between capture and
     // execution.
     outputTypes.push_back(utils::getTraceIdType(context));
-
-    // Actual outputs from the first execution of the trace function
-    // (non-traced).
-    for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
-      outputTypes.push_back(outputType);
-    }
 
     // Trace input slots for all inputs (including constants/parameters and KV
     // cache) that are persisted on device.
@@ -412,6 +415,7 @@ private:
     }
 
     // Trace output slots for all outputs that will be captured on device.
+    // These are also used as the actual outputs for the first invocation.
     for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
       outputTypes.push_back(outputType);
     }
@@ -442,7 +446,6 @@ private:
 
     auto deviceOp =
         utils::getOrInsertDevice(rewriter, runAndCaptureTraceFuncEntryBlock);
-    auto device = ttcore::lookupDevice(deviceOp);
 
     // Create or reuse trace input slots on device.
     // - Device-resident args (constants/parameters/KV cache): use directly
@@ -464,11 +467,8 @@ private:
 
       ttnn::TTNNLayoutAttr ttnnLayoutAttr =
           utils::getLayoutAttrFromTensor(deviceTensorType);
-      ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-          context, ttnnLayoutAttr.getMemLayout(),
-          ttnn::BufferTypeAttr::get(context, ttnnLayoutAttr.getBufferType()),
-          utils::createShardSpecIfNeeded(ttnnLayoutAttr,
-                                         device.getWorkerGrid()));
+      ttnn::MemoryConfigAttr memoryConfigAttr =
+          ttnn::MemoryConfigAttr::get(ttnnLayoutAttr);
 
       // Allocate an empty tensor on the device to serve as the trace input slot
       // for this argument.
@@ -499,10 +499,9 @@ private:
     }
 
     // Execute the trace function once without capture to compile programs and
-    // populate program cache. The results are discarded since this execution is
-    // just for warming up.
-    auto traceFuncCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
+    // populate program cache.
+    builder.create<func::CallOp>(runAndCaptureTraceFunc.getLoc(), traceFunc,
+                                 traceInputSlots);
 
     // Start capturing the trace.
     auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
@@ -519,22 +518,23 @@ private:
                                             deviceOp, beginTraceCaptureOp,
                                             /*cq_id=*/0);
 
-    // Assemble return values: trace ID, actual outputs, and persistent slots.
+    // Execute the trace once to fill output slots with real computed values.
+    builder.create<ttnn::ExecuteTraceOp>(runAndCaptureTraceFunc.getLoc(),
+                                         deviceOp, beginTraceCaptureOp,
+                                         /*cq_id=*/0, /*blocking=*/false);
+
+    // Assemble return values: trace ID and persistent slots.
     llvm::SmallVector<mlir::Value> returnValues;
 
     // Return the trace ID for correlation with execution.
     returnValues.push_back(beginTraceCaptureOp.getTraceId());
-    // Return the actual outputs from the first execution (non-traced).
-    for (mlir::Value output : traceFuncCall.getResults()) {
-      returnValues.push_back(output);
-    }
     // Return the trace input slots for all inputs (including
     // constants/parameters and KV cache) that are persisted on device.
     for (mlir::Value inputSlot : traceInputSlots) {
       returnValues.push_back(inputSlot);
     }
-    // Return the trace output slots for all outputs that will be captured on
-    // device.
+    // Return the trace output slots. After the execute_trace above, these
+    // contain valid computed results for the first invocation.
     for (mlir::Value outputSlot : captureTraceCall.getResults()) {
       returnValues.push_back(outputSlot);
     }

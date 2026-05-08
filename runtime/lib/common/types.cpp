@@ -15,17 +15,33 @@ namespace tt::runtime {
 
 TensorDesc::TensorDesc(const std::vector<uint32_t> &shape,
                        const ::tt::target::DataType dataType,
-                       const std::optional<uint32_t> itemsize,
                        const std::optional<std::vector<uint32_t>> &stride,
                        const std::optional<uint64_t> physicalVolume)
     : shape(shape), dataType(dataType) {
-  this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
   this->stride = stride.value_or(utils::calculateStride(shape));
   this->physicalVolume = physicalVolume.value_or(volume());
 }
 
 size_t TensorDesc::volume() const {
   return utils::product(shape.cbegin(), shape.cend());
+}
+
+size_t TensorDesc::sizeBytes() const {
+  if (utils::isBlockFormatDataType(dataType)) {
+    LOG_ASSERT(physicalVolume % 1024 == 0,
+               "Block format tensor physicalVolume must be a multiple of 1024 "
+               "(elements per 32x32 tile), got ",
+               physicalVolume);
+    return (physicalVolume / 1024) * utils::blockFormatTileSizeBytes(dataType);
+  }
+  return physicalVolume * elementSize();
+}
+
+uint32_t TensorDesc::elementSize() const {
+  LOG_ASSERT(!utils::isBlockFormatDataType(dataType),
+             "elementSize() is not meaningful for block format dtypes; "
+             "use sizeBytes() instead.");
+  return utils::dataTypeElementSize(dataType);
 }
 
 std::string MemoryView::toString() const {

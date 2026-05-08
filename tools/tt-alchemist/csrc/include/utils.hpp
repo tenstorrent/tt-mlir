@@ -5,6 +5,8 @@
 #ifndef TT_ALCHEMIST_UTILS_HPP
 #define TT_ALCHEMIST_UTILS_HPP
 
+#include "llvm/Support/Error.h"
+
 #include <dlfcn.h>
 #include <filesystem>
 
@@ -75,7 +77,8 @@ inline std::filesystem::path get_templates_dir() {
 
 enum class CodeGenerationTarget { Cpp, Python };
 
-std::string getPipelineName(mlir::ModuleOp module, CodeGenerationTarget target);
+llvm::Expected<std::string> getPipelineName(mlir::ModuleOp module,
+                                            CodeGenerationTarget target);
 
 bool runPipeline(mlir::PassManager &pm, mlir::ModuleOp module,
                  const std::string &pipelineName,

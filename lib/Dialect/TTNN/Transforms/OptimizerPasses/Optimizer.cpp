@@ -23,6 +23,8 @@
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
@@ -50,7 +52,7 @@
 namespace mlir::tt::ttnn {
 
 TTNNOptimizerOptions::TTNNOptimizerOptions(
-    const TTIRToTTNNDevicePipelineOptions &pipelineOptions)
+    const TTIRToTTNNCommonPipelineOptions &pipelineOptions)
     : insertMemReconfig(pipelineOptions.insertMemReconfig),
       overrideOutputLayout(pipelineOptions.overrideOutputLayout),
       overrideConv2dConfig(pipelineOptions.overrideConv2dConfig),
@@ -65,120 +67,6 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
 namespace {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-
-/// Applies the chosen layout to a D2MSubgraphOp: result type(s), output
-/// buffer(s) (Empty op), and the referenced D2M subgraph function.
-void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
-                                      RankedTensorType newTensorType,
-                                      TTNNLayoutAttr layoutAttr,
-                                      ttcore::GridAttr deviceGrid) {
-  assert(dispatchOp.getNumResults() <= 1 &&
-         "D2MSubgraphOp with multiple results not yet supported");
-
-  for (unsigned i = 0; i < dispatchOp.getNumResults(); ++i) {
-    dispatchOp.getResult(i).setType(newTensorType);
-  }
-
-  for (Value output : dispatchOp.getOutputs()) {
-    if (EmptyOp emptyOp = output.getDefiningOp<EmptyOp>()) {
-      emptyOp.getResult().setType(newTensorType);
-      BufferType bufferType = layoutAttr.getBufferType();
-      TensorMemoryLayoutAttr tensorMemoryLayoutAttr = layoutAttr.getMemLayout();
-      emptyOp.setDtype(layoutAttr.getDataType());
-      if (layoutAttr.isTiled()) {
-        emptyOp.setLayout(ttnn::Layout::Tile);
-      } else {
-        emptyOp.setLayout(ttnn::Layout::RowMajor);
-      }
-      emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-          dispatchOp.getContext(), tensorMemoryLayoutAttr,
-          BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
-          utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
-    } else {
-      llvm::report_fatal_error(
-          "Expected EmptyOp for D2MSubgraphOp output buffer");
-    }
-  }
-
-  if (func::FuncOp mainFunc = dispatchOp.getD2MMainFunc()) {
-    Block &entryBlock = mainFunc.getBody().front();
-    unsigned argIdx = 0;
-    for (Value input : dispatchOp.getInputs()) {
-      if (argIdx < entryBlock.getNumArguments()) {
-        Type inputType = input.getType();
-        if (isa<RankedTensorType>(inputType)) {
-          entryBlock.getArgument(argIdx).setType(inputType);
-        }
-        ++argIdx;
-      }
-    }
-    // Insert a trailing to_layout to convert the last op's output to the
-    // chosen layout X instead of rewriting every body op's result type.
-    Block &block = mainFunc.getBody().front();
-    Operation *terminator = block.getTerminator();
-    if (func::ReturnOp returnOp = dyn_cast<func::ReturnOp>(terminator)) {
-      if (returnOp.getNumOperands() > 0) {
-        Value currentResultValue = returnOp.getOperand(0);
-        if (currentResultValue.getType() != newTensorType) {
-          OpBuilder builder(dispatchOp.getContext());
-          builder.setInsertionPoint(returnOp);
-          ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
-              dispatchOp.getContext(), layoutAttr.getDataType());
-          LayoutAttr newLayout =
-              LayoutAttr::get(dispatchOp.getContext(), layoutAttr.getLayout());
-          MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-              dispatchOp.getContext(), layoutAttr.getMemLayout(),
-              BufferTypeAttr::get(dispatchOp.getContext(),
-                                  layoutAttr.getBufferType()),
-              utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
-          Location loc = mainFunc.getLoc();
-          ToLayoutOp toLayoutOp =
-              builder.create<ToLayoutOp>(loc, newTensorType, currentResultValue,
-                                         newLayout, dataType, memConfigAttr);
-          returnOp.setOperand(0, toLayoutOp.getResult());
-        }
-      }
-    }
-    SmallVector<Type> newInputTypes;
-    for (Value input : dispatchOp.getInputs()) {
-      newInputTypes.push_back(input.getType());
-    }
-    SmallVector<Type> newResultTypes(dispatchOp.getNumResults(), newTensorType);
-    mainFunc.setType(FunctionType::get(dispatchOp.getContext(), newInputTypes,
-                                       newResultTypes));
-  }
-}
-
-/// Sync the D2M subgraph function's argument and function types to the
-/// dispatch op's current input types (e.g. after spill, first operand may be
-/// DRAM).
-void syncD2MFuncTypesToDispatchInputs(D2MSubgraphOp dispatchOp) {
-  func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
-  if (!mainFunc) {
-    return;
-  }
-  Block &entryBlock = mainFunc.getBody().front();
-  unsigned argIdx = 0;
-  for (Value input : dispatchOp.getInputs()) {
-    if (argIdx < entryBlock.getNumArguments()) {
-      Type inputType = input.getType();
-      if (isa<RankedTensorType>(inputType)) {
-        entryBlock.getArgument(argIdx).setType(inputType);
-      }
-      ++argIdx;
-    }
-  }
-  SmallVector<Type> newInputTypes;
-  for (Value input : dispatchOp.getInputs()) {
-    newInputTypes.push_back(input.getType());
-  }
-  SmallVector<Type> newResultTypes;
-  for (Value result : dispatchOp.getResults()) {
-    newResultTypes.push_back(result.getType());
-  }
-  mainFunc.setType(FunctionType::get(dispatchOp.getContext(), newInputTypes,
-                                     newResultTypes));
-}
 
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -386,7 +274,7 @@ public:
       }
 
       func->walk([&](Operation *op) {
-        if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
+        if (!optimizer_utils::opHasTensorResult(op)) {
           return;
         }
 
@@ -566,8 +454,8 @@ public:
           // D2MSubgraphOp: apply chosen layout to result(s), output buffer(s),
           // and D2M subgraph.
           if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
-            applyChosenLayoutToD2MSubgraphOp(dispatchOp, newTensorType,
-                                             layoutAttr, deviceGrid);
+            d2m_optimizer_utils::applyChosenLayoutToD2MSubgraphOp(
+                dispatchOp, chosenLayout, deviceGrid);
             return;
           }
 
@@ -592,10 +480,6 @@ public:
           // Update DPS operand layout as well.
           //
           if (isa<mlir::DestinationStyleOpInterface>(op)) {
-            BufferType bufferType = layoutAttr.getBufferType();
-            TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
-                layoutAttr.getMemLayout();
-
             op->getOperands().back().setType(newTensorType);
             EmptyOp emptyOp =
                 mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
@@ -607,10 +491,8 @@ public:
               emptyOp.setLayout(ttnn::Layout::RowMajor);
             }
 
-            emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(), tensorMemoryLayoutAttr,
-                BufferTypeAttr::get(op->getContext(), bufferType),
-                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+            emptyOp.setMemoryConfigAttr(
+                ttnn::MemoryConfigAttr::get(layoutAttr));
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Align
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -618,17 +500,11 @@ public:
           // ToLayoutOp decomposition pass.
           //
           else if (isa<ttnn::ToLayoutOp>(op)) {
-            BufferType bufferType = layoutAttr.getBufferType();
-            TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
-                layoutAttr.getMemLayout();
-
             // Update the device op with the new tensor type.
             //
             ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
-            toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(), tensorMemoryLayoutAttr,
-                ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
-                utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+            toLayoutOp.setMemoryConfigAttr(
+                ttnn::MemoryConfigAttr::get(layoutAttr));
           }
 
           // Set specific Conv(Transpose)2d Op configuration if it is exists.
@@ -713,9 +589,7 @@ public:
 
       // Sync D2M subgraph function types to match dispatch op's current inputs
       // (e.g. after spill, first operand may be DRAM).
-      func->walk([&](D2MSubgraphOp dispatchOp) {
-        syncD2MFuncTypesToDispatchInputs(dispatchOp);
-      });
+      d2m_optimizer_utils::syncAllD2MFuncTypes(func);
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
@@ -902,11 +776,8 @@ private:
           producerOpTensorShape, producerOpTensorType.getElementType(),
           reshardOpLayout);
 
-      MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
-          consumerOp->getContext(), reshardOpLayout.getMemLayout(),
-          BufferTypeAttr::get(consumerOp->getContext(),
-                              reshardOpLayout.getBufferType()),
-          utils::createShardSpecIfNeeded(reshardOpLayout, deviceGrid));
+      MemoryConfigAttr outputMemConfigAttr =
+          MemoryConfigAttr::get(reshardOpLayout);
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -971,8 +842,10 @@ private:
 
       // Create a new tensor type with DRAM layout.
       TTNNLayoutAttr dramLayout =
-          layoutAttr.withBufferType(BufferType::DRAM)
-              .withMemoryLayout(TensorMemoryLayout::Interleaved);
+          TTNNLayoutAttr::Builder(layoutAttr, tensorShape)
+              .setBufferType(BufferType::DRAM)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .build();
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorShape, tensorType.getElementType(), dramLayout);
 
@@ -983,10 +856,7 @@ private:
       LayoutAttr newLayout =
           LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
-      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          spilledOp->getContext(), dramLayout.getMemLayout(),
-          BufferTypeAttr::get(spilledOp->getContext(), BufferType::DRAM),
-          utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
+      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(dramLayout);
 
       builder.setInsertionPointAfter(spilledOp);
       Location loc =
@@ -1082,12 +952,13 @@ private:
     for (Operation *spilledOp : spillToL1InterleavedOps) {
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType());
-      TTNNLayoutAttr layoutAttr =
-          mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
       TTNNLayoutAttr l1InterleavedLayout =
-          layoutAttr.withBufferType(BufferType::L1)
-              .withMemoryLayout(TensorMemoryLayout::Interleaved);
+          TTNNLayoutAttr::Builder(tensorType)
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .setGridShape(deviceGrid.getShape())
+              .build();
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorType.getShape(), tensorType.getElementType(),
           l1InterleavedLayout);
@@ -1097,10 +968,8 @@ private:
           spilledOp->getContext(), l1InterleavedLayout.getDataType());
       LayoutAttr newLayout = LayoutAttr::get(spilledOp->getContext(),
                                              l1InterleavedLayout.getLayout());
-      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-          spilledOp->getContext(), l1InterleavedLayout.getMemLayout(),
-          BufferTypeAttr::get(spilledOp->getContext(), BufferType::L1),
-          utils::createShardSpecIfNeeded(l1InterleavedLayout, deviceGrid));
+      MemoryConfigAttr memConfigAttr =
+          MemoryConfigAttr::get(l1InterleavedLayout);
 
       builder.setInsertionPointAfter(spilledOp);
       Location loc = ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(),

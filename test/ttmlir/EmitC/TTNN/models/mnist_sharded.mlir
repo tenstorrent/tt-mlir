@@ -1,6 +1,9 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttcore-mark-functions-as-forward %s -o %t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t.mlir
-// RUN: ttmlir-opt --ttnn-to-emitc-device-pipeline -o %t2.mlir %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttcore-mark-functions-as-forward --ttcore-wrap-device-module %s -o %t.mlir
+//
+// RUN: ttmlir-opt --ttnn-common-to-runtime-pipeline -o %t_rt.mlir %t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t_rt.mlir
+//
+// RUN: ttmlir-opt --ttnn-common-to-emitc-pipeline -o %t2.mlir %t.mlir
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 // Temporary workaround for running optimizer tests in CI is to run optimizer locally and run the rest of the pipeline on obtained IR:
@@ -14,7 +17,7 @@
 #ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x8x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<25x8x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x8x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
+#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 0)>]>>
 
 func.func @mnist_fwd(%arg0: tensor<1x784xf32, #ttnn_layout>, %arg1: tensor<1x10xf32, #ttnn_layout1>, %arg2: tensor<256x10xf32, #ttnn_layout2>, %arg3: tensor<1x256xf32, #ttnn_layout3>, %arg4: tensor<784x256xf32, #ttnn_layout4>) -> tensor<1x10xf32, #ttnn_layout5> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device

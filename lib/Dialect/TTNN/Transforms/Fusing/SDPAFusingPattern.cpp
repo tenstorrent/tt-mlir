@@ -27,6 +27,10 @@ static constexpr int64_t kSeqLenDim = 2;
 // decode op.
 static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
 
+// Permutation to convert mask from [B, H, S=1, kv_seq] -> [B, 1, H, kv_seq]
+// for SDPA decode op.
+static constexpr std::array<int64_t, 4> kToDecodeMaskPermutation = {0, 2, 1, 3};
+
 struct SDPAFusing::SDPAComponents {
   Value query, key, value, mask;
   Value attentionSink;
@@ -703,11 +707,19 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         llvm::to_vector(kToDecodePermutation), rewriter,
         c.attentionMatmul.getLoc());
 
+    Value permutedMask = c.mask;
+    if (permutedMask) {
+      permutedMask = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<RankedTensorType>>(permutedMask),
+          llvm::to_vector(kToDecodeMaskPermutation), rewriter,
+          c.attentionMatmul.getLoc());
+    }
+
     auto validationResult =
         validator.validateFusion<ScaledDotProductAttentionDecodeOp>(
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
-            /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
+            /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
             /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
@@ -722,7 +734,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
         c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
         c.key, c.value,
-        /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
+        /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());

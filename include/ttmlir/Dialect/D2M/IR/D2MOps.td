@@ -34,8 +34,8 @@ def D2M_ViewLayoutOp
   }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AffineMapAttr:$remapping,
-      DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
+                       AffineMapAttr:$remapping,
+                       DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{
@@ -68,9 +68,13 @@ def D2M_CompositeViewOp : D2M_Op<"composite_view",
   let description = [{
     Represents a piecewise-affine view that aggregates multiple input tensors
     along a certain dimension.
+    The optional `logicalSizes` attribute records the logical sizes of the
+    inputs along `dim`, which is required for row-major inputs.
   }];
 
-  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs, SI32Attr:$dim);
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                       SI32Attr:$dim,
+                       OptionalAttr<DenseI64ArrayAttr>:$logicalSizes);
 
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
@@ -105,8 +109,7 @@ def D2M_ToLayoutOp
       ```
     }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AnyRankedTensorOrMemRef:$output);
+  let arguments = (ins AnyRankedTensorOrMemRef:$input, AnyRankedTensorOrMemRef:$output);
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let assemblyFormat =
@@ -154,7 +157,8 @@ def D2M_ToDeviceOp
     }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AnyRankedTensorOrMemRef:$output, TTCore_MetalLayoutAttr:$layout);
+                       AnyRankedTensorOrMemRef:$output,
+                       TTCore_MetalLayoutAttr:$layout);
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let assemblyFormat =
@@ -192,7 +196,8 @@ def D2M_ToHostOp
     }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AnyRankedTensorOrMemRef:$output, TTCore_MetalLayoutAttr:$layout);
+                       AnyRankedTensorOrMemRef:$output,
+                       TTCore_MetalLayoutAttr:$layout);
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let assemblyFormat =
@@ -229,14 +234,13 @@ def D2M_GenericOp
     }];
 
   let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
-      Variadic<AnyRankedTensorOrMemRef>:$outputs,
-      Variadic<AnyType>:$additionalArgs,
-      TTCore_GridAttr:$grid,
-      I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
-      TTCore_IteratorTypeArrayAttr:$iterator_types,
-      D2M_ThreadArrayAttr:$threads,
-      OptionalAttr<DenseI64ArrayAttr>:$scratch_inputs,
-      OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
+                       Variadic<AnyRankedTensorOrMemRef>:$outputs,
+                       Variadic<AnyType>:$additionalArgs,
+                       TTCore_GridAttr:$grid,
+                       I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
+                       TTCore_IteratorTypeArrayAttr:$iterator_types,
+                       D2M_ThreadArrayAttr:$threads,
+                       OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);
 
@@ -388,11 +392,6 @@ def D2M_GenericOp
       /// positional counting.  Returns null if not found.
       static Value getOperandAlloc(Region &region, unsigned operandIndex);
 
-      bool isScratchInput(int64_t inputIndex) {
-        auto scratchAttr = getScratchInputsAttr();
-        if (!scratchAttr) return false;
-        return llvm::is_contained(scratchAttr.asArrayRef(), inputIndex);
-      }
       // Declare methods here - they go in the .h.inc file
       ::mlir::Operation::operand_range getInputsAndOutputs();
       MutableArrayRef<OpOperand> getInputsAndOutputsMutable();
@@ -516,6 +515,18 @@ def D2M_ResetGlobalSemaphoreOp : D2M_Op<"reset_global_semaphore"> {
   let assemblyFormat = [{ `(` $semaphore `)` attr-dict `:` type($semaphore) }];
 }
 
+def D2M_CreateLocalSemaphoreOp : D2M_Op<"create_local_semaphore"> {
+  let summary = "Create local semaphore op.";
+
+  let description = [{
+    This operation is a representational op. It creates a local semaphore in the core range within the generic op in which it is consumed.
+  }];
+
+  let arguments = (ins UI32Attr:$initialValue);
+  let results = (outs D2M_LocalSemaphore:$result);
+  let assemblyFormat = "prop-dict attr-dict `->` type($result)";
+}
+
 def D2M_MeshShardOp
     : D2M_Op<"mesh_shard",
              [Pure, DeclareOpInterfaceMethods<
@@ -528,9 +539,10 @@ def D2M_MeshShardOp
   }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      TTCore_MeshShardTypeAttr:$shard_type,
-      TTCore_MeshShardDirectionAttr:$shard_direction,
-      DenseI64ArrayAttr:$shard_shape, DenseI64ArrayAttr:$shard_dims);
+                       TTCore_MeshShardTypeAttr:$shard_type,
+                       TTCore_MeshShardDirectionAttr:$shard_direction,
+                       DenseI64ArrayAttr:$shard_shape,
+                       DenseI64ArrayAttr:$shard_dims);
 
   let results = (outs AnyRankedTensorOrMemRef:$result);
 

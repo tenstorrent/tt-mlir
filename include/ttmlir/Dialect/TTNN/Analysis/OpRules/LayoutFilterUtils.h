@@ -7,7 +7,11 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace mlir::tt::ttnn::layout_filter_utils {
@@ -18,10 +22,71 @@ inline bool rejectAllSharded(TTNNLayoutAttr layout) {
   return !(ml && isShardedMemoryLayout(ml.getValue()));
 }
 
+/// Require DRAM-interleaved: reject sharded and L1 layouts.
+inline bool requireDRAMInterleaved(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  if (ml && isShardedMemoryLayout(ml.getValue())) {
+    return false;
+  }
+  return isDRAMBufferType(layout.getBufferType());
+}
+
+/// Reject L1-interleaved: keep DRAM (any) and L1-sharded, reject
+/// L1-interleaved. Used for inputs whose kernel requires DRAM when not sharded
+/// (e.g. Q in sdpa_decode: "Q tensor buffer type must be DRAM when not
+/// sharded").
+inline bool rejectL1Interleaved(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  bool isSharded = ml && isShardedMemoryLayout(ml.getValue());
+  if (isSharded) {
+    return true;
+  }
+  return isDRAMBufferType(layout.getBufferType());
+}
+
 /// Reject width-sharded layouts. Returns true if the layout should be kept.
 inline bool rejectWidthSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();
   return !(ml && ml.getValue() == TensorMemoryLayout::WidthSharded);
+}
+
+/// Whether a sharded layout's core grid forms a full rectangular bounding
+/// box (num_cores == bbox_num_cores). Interleaved layouts return true.
+inline bool isFullBboxSharded(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  if (!isShardedMemoryLayout(ml.getValue())) {
+    return true;
+  }
+
+  ttnn::CoreRangeSetAttr ranges = layout.getCoreRangeSet();
+  assert(ranges && "sharded layout must have a valid core range set");
+
+  if (ranges.getCoreRanges().empty()) {
+    return false;
+  }
+
+  int32_t minX = std::numeric_limits<int32_t>::max();
+  int32_t minY = std::numeric_limits<int32_t>::max();
+  int32_t maxX = std::numeric_limits<int32_t>::min();
+  int32_t maxY = std::numeric_limits<int32_t>::min();
+  int64_t numCores = 0;
+  for (const auto &coreRange : ranges.getCoreRanges()) {
+    auto start = coreRange.getStartCoord();
+    auto end = coreRange.getEndCoord();
+
+    int32_t sizeX = end.getX() - start.getX() + 1;
+    int32_t sizeY = end.getY() - start.getY() + 1;
+
+    numCores += static_cast<int64_t>(sizeX) * static_cast<int64_t>(sizeY);
+
+    minX = std::min(minX, static_cast<int32_t>(start.getX()));
+    minY = std::min(minY, static_cast<int32_t>(start.getY()));
+    maxX = std::max(maxX, static_cast<int32_t>(end.getX()));
+    maxY = std::max(maxY, static_cast<int32_t>(end.getY()));
+  }
+  int64_t bboxCores = static_cast<int64_t>(maxX - minX + 1) *
+                      static_cast<int64_t>(maxY - minY + 1);
+  return numCores == bboxCores;
 }
 
 /// Allow only a specific sharding type (plus interleaved). Returns a filter
@@ -37,17 +102,14 @@ allowOnlyShardingType(TensorMemoryLayout allowedSharding) {
   };
 }
 
-/// Filter legalConfigs to only include non-sharded (DRAM or L1-interleaved).
+/// Filter legalConfigs by an output-layout predicate. Configs with a NULL
+/// output layout are always kept (NULL hint means "backend picks"). Keeps any
+/// config whose output layout passes `keep`.
 inline std::vector<OpConfig>
-filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
+filterConfigs(const std::vector<OpConfig> &legalConfigs, LayoutFilterFn keep) {
   std::vector<OpConfig> result;
   for (const auto &config : legalConfigs) {
-    if (!config.outputLayout) {
-      result.push_back(config);
-      continue;
-    }
-    auto memLayout = config.outputLayout.getMemLayout();
-    if (!memLayout || !isShardedMemoryLayout(memLayout.getValue())) {
+    if (!config.outputLayout || keep(config.outputLayout)) {
       result.push_back(config);
     }
   }
@@ -57,12 +119,40 @@ filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
 /// Non-sharded output hints (common pattern for many ops).
 inline OutputHints
 nonShardedOutputHints(const std::vector<OpConfig> &legalConfigs) {
-  return OutputHints{filterNonSharded(legalConfigs), {}};
+  return OutputHints{filterConfigs(legalConfigs, rejectAllSharded), {}};
+}
+
+/// All non-width-sharded output hints (interleaved + block/height sharded).
+inline OutputHints
+nonWidthShardedOutputHints(const std::vector<OpConfig> &legalConfigs) {
+  return OutputHints{filterConfigs(legalConfigs, rejectWidthSharded), {}};
 }
 
 /// NULL-hint-only output (backend decides from inputs, no fallbacks).
 inline OutputHints nullHintOnly() {
   return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}};
+}
+
+/// DRAM-interleaved output configs only (drops sharded and L1-interleaved
+/// configs). Useful for ops whose downstream consumers require DRAM input.
+inline OutputHints
+dramInterleavedOnlyOutputHints(const std::vector<OpConfig> &legalConfigs) {
+  std::vector<OpConfig> result;
+  for (const auto &cfg : legalConfigs) {
+    if (!cfg.outputLayout) {
+      result.push_back(cfg);
+      continue;
+    }
+    if (!isDRAMBufferType(cfg.outputLayout.getBufferType())) {
+      continue;
+    }
+    auto memLayout = cfg.outputLayout.getMemLayout();
+    if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+      continue;
+    }
+    result.push_back(cfg);
+  }
+  return OutputHints{result, {}};
 }
 
 } // namespace mlir::tt::ttnn::layout_filter_utils

@@ -29,6 +29,36 @@ inline constexpr llvm::StringLiteral kCompDecompositionKey("decomposition");
 inline constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
 inline constexpr llvm::StringLiteral kCompNameKey("name");
 
+// Discardable attribute key on custom_call ops converted from composites
+// with custom sharding rules. Carries the original composite attributes.
+// Not to be confused with kCompAttrsKey which is the stablehlo.composite
+// internal attribute key.
+inline constexpr llvm::StringLiteral
+    kCustomCallCompositeAttrsKey("tt.composite_attributes");
+
+// UnitAttr tag on custom_call ops that were converted from composites
+// with custom sharding rules.
+inline constexpr llvm::StringLiteral
+    kHasCustomShardingAttr("tt.has_custom_sharding");
+
+// Target name for the RMS norm custom_call op.
+inline constexpr llvm::StringLiteral
+    kTTRMSNormCustomCallTargetName("tenstorrent.rms_norm");
+
+// Composite names that have custom sharding rules. These composites are
+// converted to stablehlo.custom_call ops so that Shardy can propagate shardings
+// defined by the custom sharding rule for that composite as if the composite
+// is one op. This array is the source of truth used by any pass that deals
+// with ops and sharding (currently these passes are
+// FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass).
+inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
+    kTTRMSNormCustomCallTargetName,
+};
+
+// Target name for the distributed RMS norm custom_call op.
+inline constexpr llvm::StringLiteral
+    kDistributedRmsNormTargetName("tenstorrent.distributed_rms_norm");
+
 // Create a new private function with the provided ops within the module.
 // - Captures become function arguments (in declared order).
 // - Escapes become function results (in declared order).

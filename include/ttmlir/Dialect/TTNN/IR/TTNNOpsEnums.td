@@ -380,15 +380,15 @@ def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-def TTNN_WeightDtypeNone : I32EnumAttrCase<"None", 0, "none">;
-def TTNN_WeightDtypeBfpBf8 : I32EnumAttrCase<"BFP_BFloat8", 1, "bfp_bf8">;
-def TTNN_WeightDtypeBfpBf4 : I32EnumAttrCase<"BFP_BFloat4", 2, "bfp_bf4">;
+def TTNN_BFPDtypeNone : I32EnumAttrCase<"None", 0, "none">;
+def TTNN_BFPDtypeBfpBf8 : I32EnumAttrCase<"BFP_BFloat8", 1, "bfp_bf8">;
+def TTNN_BFPDtypeBfpBf4 : I32EnumAttrCase<"BFP_BFloat4", 2, "bfp_bf4">;
 
-def TTNN_WeightDtype : I32EnumAttr<"WeightDtype", "Weight data type for conversion",
+def TTNN_BFPDtype : I32EnumAttr<"BFPDtype", "Block floating-point data type for conversion passes",
                            [
-                            TTNN_WeightDtypeNone,
-                            TTNN_WeightDtypeBfpBf8,
-                            TTNN_WeightDtypeBfpBf4,
+                            TTNN_BFPDtypeNone,
+                            TTNN_BFPDtypeBfpBf8,
+                            TTNN_BFPDtypeBfpBf4,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

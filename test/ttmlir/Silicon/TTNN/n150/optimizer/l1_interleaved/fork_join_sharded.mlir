@@ -7,7 +7,7 @@ module @L1InterleavedTestForkJoin attributes {} {
   func.func @forward(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %arg2: tensor<64x128xbf16>, %arg3: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK-DAG: #[[DRAM:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
     // CHECK-DAG: #[[L1:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
-    // CHECK-DAG: #[[SHARDED:.*]] = #ttnn.ttnn_layout<{{.*}}, <height_sharded>>
+    // CHECK-DAG: #[[SHARDED:.*]] = #ttnn.ttnn_layout<{{.*}}, <height_sharded>{{(, core_ranges = (#ttnn\.core_range_set)?<\[[^]]*\]>)?}}>
     // not immediately consumed -> dram
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>

@@ -17,12 +17,14 @@
 #include "operations/ccl/all_reduce_async.h"
 #include "operations/ccl/all_to_all_combine.h"
 #include "operations/ccl/all_to_all_dispatch.h"
+#include "operations/ccl/all_to_all_dispatch_metadata.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/moe_expert_token_remap.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
+#include "operations/ccl/selective_reduce_combine.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv3d.h"
@@ -83,6 +85,7 @@
 #include "operations/normalization/layer_norm_post_all_gather.h"
 #include "operations/normalization/layer_norm_pre_all_gather.h"
 #include "operations/normalization/rms_norm.h"
+#include "operations/normalization/rms_norm_pre_all_gather.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
@@ -91,6 +94,7 @@
 #include "operations/reduction/cumsum.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/reduction/sampling.h"
 #include "operations/reduction/topk.h"
 #include "operations/reduction/topk_router_gpt.h"
 #include "operations/tensor_serialization/dump_tensor.h"
@@ -127,7 +131,8 @@ using LogType = ::tt::runtime::logger::LogType;
 ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
-    std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram)
+    std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram,
+    ProgramContext *parentContext)
     : program(utils::getProgram(executableHandle, programIndex)),
       executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
@@ -153,12 +158,12 @@ ProgramExecutor::ProgramExecutor(
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
       GlobalSemaphoreMap(), common::DylibManager(program->dylibs()),
-      std::move(deviceHandle), executableHandle, programIndex);
+      std::move(deviceHandle), executableHandle, programIndex, parentContext);
 }
 
-void ProgramExecutor::runCallback(
-    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
-    const ::tt::target::ttnn::Operation *opContext,
+void ProgramExecutor::runOpCallback(
+    const std::optional<debug::Hooks::OperationCallbackFn> &callback,
+    Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
@@ -172,11 +177,24 @@ void ProgramExecutor::runCallback(
   }
 }
 
+void ProgramExecutor::runProgramCallback(
+    const std::optional<debug::Hooks::ProgramCallbackFn> &callback,
+    Binary &executableHandle, ProgramContext *programContext) {
+  if (callback) {
+    std::shared_ptr<void> programContextPtr =
+        ::tt::runtime::utils::unsafeBorrowShared(programContext);
+    (*callback)(executableHandle,
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN));
+  }
+}
+
 void ProgramExecutor::execute() {
   ZoneScopedN("program_execute");
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+  runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
+                     executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -186,16 +204,32 @@ void ProgramExecutor::execute() {
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
         perf::Env::get().tracyProgramMetadata);
-    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
-                op, context.get());
+    runOpCallback(debug::Hooks::get().getPreOperatorCallback(),
+                  executableHandle, op, context.get());
     runOperation(op);
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
 #endif
-    runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
-                op, context.get());
-    dumpPerfCountersIfNeeded();
+
+    runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
+                  executableHandle, op, context.get());
+    readProfilerDataIfNeeded();
   }
+
+  runProgramCallback(debug::Hooks::get().getpostProgramCallback(),
+                     executableHandle, context.get());
+
+  // Always read the profiler data after program execution. This handles trace
+  // replay case, since the op counting logic (in `readProfilerDataIfNeeded`)
+  // doesn't work there - we execute only one op (trace replay) which will
+  // indirectly execute lots of ops on the device. This will reduce the chance
+  // for overflow on the device buffer which holds profiler data.
+  //
+  // In case we are running a traced graph and an overflow occurs, the only way
+  // to get all of the profiler data is to increase the buffer size (via
+  // `--op-support-count` flag in `tracy` CLI tool).
+  readProfilerDataIfNeeded(/*force=*/true);
+
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }
@@ -397,6 +431,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
+    return operations::rms_norm_pre_all_gather::run(
+        op->type_as_RMSNormPreAllGatherOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     return operations::distributed_rms_norm::run(
         op->type_as_DistributedRMSNormOp(), getContext());
@@ -478,8 +516,16 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
     return operations::ccl::run(op->type_as_AllToAllDispatchOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp: {
+    return operations::ccl::run(op->type_as_AllToAllDispatchMetadataOp(),
+                                getContext());
+  }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
     return operations::ccl::run(op->type_as_AllToAllCombineOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::SelectiveReduceCombineOp: {
+    return operations::ccl::run(op->type_as_SelectiveReduceCombineOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
     return operations::ccl::run(op->type_as_MoeExpertTokenRemapOp(),
@@ -504,6 +550,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
     return operations::kv_cache::run(op->type_as_PagedFillCacheOp(),
                                      getContext());
+  }
+  case ::tt::target::ttnn::OpType::SamplingOp: {
+    return operations::reduction::sampling::run(op->type_as_SamplingOp(),
+                                                getContext());
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), getContext());
@@ -619,16 +669,26 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
             "statement");
 }
 
-void ProgramExecutor::dumpPerfCountersIfNeeded() {
+void ProgramExecutor::readProfilerDataIfNeeded(bool force) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   static uint32_t counter = 0;
-  if (++counter >= perf::Env::get().dumpDeviceRate) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
-                                           std::to_string(counter) +
-                                           " operations");
-    ::tt::tt_metal::ReadMeshDeviceProfilerResults(context->getMeshDevice());
-    counter = 0;
+  if (!force && ++counter < perf::Env::get().dumpDeviceRate) {
+    return;
   }
+
+  // We cannot run `ReadMeshDeviceProfilerResults` if there is an active trace
+  // capture - detect this case and skip reading the profiler data.
+  auto &meshDevice = context->getMeshDevice();
+  for (uint8_t cqId = 0; cqId < meshDevice.num_hw_cqs(); ++cqId) {
+    if (meshDevice.mesh_command_queue(cqId).trace_id().has_value()) {
+      return;
+    }
+  }
+  LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
+                                         std::to_string(counter) +
+                                         " operations");
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(meshDevice);
+  counter = 0;
 #endif
 }
 

@@ -176,6 +176,7 @@ module @test_sdpa_workaround attributes {} {
 
   // Test 7: Decode workaround SHOULD apply - mask num_heads=1 needs broadcast
   // to match query num_heads. tt-metal requires mask[2] == num_heads for decode.
+  // Mask layout is [batch_or_1, 1, num_heads_or_1, kv_seq_len].
   func.func public @test_sdpa_decode_workaround_broadcast_mask_heads(
     %query: tensor<1x32x32x64xbf16>,
     %key: tensor<32x32x128x64xbf16>,
@@ -200,7 +201,7 @@ module @test_sdpa_workaround attributes {} {
     return %result : tensor<1x32x32x64xbf16>
   }
 
-  // Test 8: Decode workaround should NOT apply - mask already has correct num_heads
+  // Test 8: Decode workaround should NOT apply - mask already has correct num_heads.
   func.func public @test_sdpa_decode_no_workaround_mask_heads_match(
     %query: tensor<1x32x32x64xbf16>,
     %key: tensor<32x32x128x64xbf16>,

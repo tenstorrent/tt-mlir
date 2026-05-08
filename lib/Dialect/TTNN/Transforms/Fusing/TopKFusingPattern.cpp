@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
@@ -83,10 +84,11 @@ RankedTensorType computeTopKResultType(RankedTensorType inputType,
 
   // If the input has a TTNNLayoutAttr encoding, create a new layout with the
   // updated shape so the validation function has properly typed results.
-  Attribute encoding = nullptr;
+  TTNNLayoutAttr encoding = nullptr;
   if (auto inputLayout =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputType.getEncoding())) {
-    encoding = inputLayout.withElementType(elementType, shape);
+    encoding =
+        TTNNLayoutAttr::Builder(inputLayout, shape).setElementType(elementType);
   }
 
   return RankedTensorType::get(shape, elementType, encoding);

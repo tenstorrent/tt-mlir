@@ -115,8 +115,10 @@ table PagedScaledDotProductAttentionDecodeOp {
   cur_pos_tensor: tt.target.ttnn.TensorRef;
   attention_sink: tt.target.ttnn.TensorRef;
   scale: float = null;
+  sliding_window_size: uint32 = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+  core_grid: tt.target.ttnn.CoreCoord;
 }
 
 table PagedFlashMultiLatentAttentionDecodeOp {

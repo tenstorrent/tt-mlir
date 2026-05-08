@@ -5,19 +5,8 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-
 using namespace mlir;
 using namespace mlir::tt::d2m;
-
-mlir::LogicalResult
-mlir::tt::d2m::detail::verifyGenericParent(mlir::Operation *op) {
-  return (op->getParentOfType<mlir::tt::d2m::GenericOp>() ||
-          op->getParentOfType<func::FuncOp>())
-             ? success()
-             : op->emitOpError(
-                   "D2M Generic Ops must be inside a generic region");
-}
 
 std::pair<mlir::MemRefType, mlir::AffineMap>
 mlir::tt::d2m::applyViews(mlir::Operation *op) {

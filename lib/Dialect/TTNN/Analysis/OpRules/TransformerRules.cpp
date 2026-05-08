@@ -11,7 +11,8 @@ namespace mlir::tt::ttnn {
 // ConcatenateHeadsRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn ConcatenateHeadsRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn
+ConcatenateHeadsRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // ConcatenateHeads: cannot consume any sharded inputs.
   // https://github.com/tenstorrent/tt-mlir/issues/7145
   return layout_filter_utils::rejectAllSharded;
@@ -46,10 +47,26 @@ OutputHints SDPARuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
+// SDPADecodeRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+SDPADecodeRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  // Q (operand 0): kernel asserts "Q tensor buffer type must be DRAM when
+  // not sharded" -- accept DRAM (any) or L1-sharded; reject L1-interleaved.
+  // K, V, and cache tensors (operand >= 1): must be DRAM-interleaved.
+  if (operandIdx == 0) {
+    return layout_filter_utils::rejectL1Interleaved;
+  }
+  return layout_filter_utils::requireDRAMInterleaved;
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn RotaryEmbeddingRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn
+RotaryEmbeddingRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   return layout_filter_utils::allowOnlyShardingType(
       TensorMemoryLayout::HeightSharded);
 }
@@ -75,6 +92,57 @@ OutputHints SplitQKVRuleBook::getOutputHints(
   // Use NULL hint only to keep input/output DRAM-interleaved.
   // https://github.com/tenstorrent/tt-metal/issues/41526
   return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
+// PagedUpdateCacheRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  // Operand 1 (fill value) must be L1 height-sharded.
+  // Reject interleaved and all other sharding types so the beam search
+  // is forced to explore HeightSharded reshard candidates.
+  if (operandIdx == 1) {
+    return [](TTNNLayoutAttr layout) -> bool {
+      auto ml = layout.getMemLayout();
+      return layout.hasL1BufferType() && ml &&
+             ml.getValue() == TensorMemoryLayout::HeightSharded;
+    };
+  }
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// FillCache / PagedFillCache: cache buffer (operand 0) must stay in DRAM
+//===----------------------------------------------------------------------===//
+
+// Cache buffer: DRAM interleaved only.  These are in-place ops; the cache
+// modifications must land in the actual DRAM-resident KV cache, not in a
+// temporary L1 scratch copy that the optimizer would insert if it picks an
+// L1 layout.
+static LayoutFilterFn cacheBufferDramOnlyFilter() {
+  return [](TTNNLayoutAttr layout) -> bool {
+    auto ml = layout.getMemLayout();
+    return layout.hasDRAMBufferType() && ml &&
+           ml.getValue() == TensorMemoryLayout::Interleaved;
+  };
+}
+
+LayoutFilterFn
+FillCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  if (operandIdx == 0) {
+    return cacheBufferDramOnlyFilter();
+  }
+  return nullptr;
+}
+
+LayoutFilterFn
+PagedFillCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  if (operandIdx == 0) {
+    return cacheBufferDramOnlyFilter();
+  }
+  return nullptr;
 }
 
 } // namespace mlir::tt::ttnn

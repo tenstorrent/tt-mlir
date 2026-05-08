@@ -29,6 +29,14 @@ This guide will cover the following steps:
     - [`test/ttmlir/Silicon/TTNN/matmul/simple_matmul.mlir`](#testttmlirsiliconttnnmatmulsimple_matmulmlir)
   - [9. Add an EmitC test for the Op](#9-add-an-emitc-test-for-the-op)
     - [`test/ttmlir/EmitC/TTNN/matmul/matmul.mlir`](#testttmliremitcttnnmatmulmatmulmlir)
+  - [10. Add a builder test for the Op](#10-add-a-builder-test-for-the-op)
+  - [11. Add CPU-hoisting support (if applicable)](#11-add-cpu-hoisting-support-if-applicable)
+    - [11a. TTIR to Linalg/TOSA conversion pattern](#11a-ttir-to-linalgtosa-conversion-pattern)
+    - [11b. TTIR to Linalg/TOSA lit test](#11b-ttir-to-linalgtosa-lit-test)
+    - [11c. Decomposition alternative to 11a–11b (runtime path only)](#11c-decomposition-alternative-to-11a11b-runtime-path-only)
+    - [11d. TTIR to EmitPy CPU conversion pattern](#11d-ttir-to-emitpy-cpu-conversion-pattern)
+    - [11e. Torch implementation in `ttir_cpu`](#11e-torch-implementation-in-ttir_cpu)
+    - [11f. Tests for CPU-hoisted ops](#11f-tests-for-cpu-hoisted-ops)
 
 ## 1. Define the Op in the TTIR frontend dialect
 
@@ -260,7 +268,7 @@ You can also manually run `ttmlir-opt` on the test file to see the
 resulting output:
 
 ```bash
-./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir
+./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-runtime-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir
 ```
 
 ## 5. Define flatbuffer schema for the Op
@@ -340,7 +348,7 @@ Lots of things are happening here, let's break it down:
 
 We can finally generate a binary with our new Op!  We can use the following command:
 ```bash
-./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir | ./build/bin/ttmlir-translate --ttnn-to-flatbuffer -o out.ttnn
+./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-runtime-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir | ./build/bin/ttmlir-translate --ttnn-to-flatbuffer -o out.ttnn
 ```
 
 And we can inspect the with [`ttrt`](./ttrt.md#read):
@@ -406,7 +414,7 @@ Couple things to point out about this process:
 - Tests placed under `test/ttmlir/Dialect` will only test the compiler's capability of compiling the module.
 If you want the module to run on silicon in CI, the test must be placed under `test/ttmlir/Silicon`.
 - Notice the differences between the compilation headers of `test/ttmlir/Silicon/TTNN/simple_matmul.mlir` and `test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir`
-  - `--ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%"`: The `system-desc-path` option specifies the location of the system descriptor
+  - `--ttir-to-ttnn-runtime-pipeline="system-desc-path=%system_desc_path%"`: The `system-desc-path` option specifies the location of the system descriptor
   required for compiling the module. This is crucial for silicon tests, as modules compiled with different system descriptors may vary in silicon compatibility.
   Ensuring the system descriptor accurately reflects the target hardware is essential for running the module correctly.
   - `// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn`: This runs `ttmlir-translate` that serializes the output mlir module to a flatbuffer binary.
@@ -429,3 +437,129 @@ Additionally, the op's header file `operations/matmul/matmul.hpp` should be adde
 ```cpp
 {{#include ../../../tools/ttnn-standalone/ttnn-precompiled.hpp:standalone_includes}}
 ```
+
+## 10. Add a builder test for the Op
+
+Builder tests verify end-to-end numerical correctness — they compile through the full
+TTIR → TTNN pipeline and execute on silicon, comparing results against PyTorch golden
+values. They complement the structural lit tests from steps 4 and 8.
+
+### 10a. Add the op to `ttir_builder.py`
+
+If the op does not yet have a builder method in
+`tools/builder/ttir/ttir_builder.py`, add one now. This involves:
+
+1. Writing the builder method that calls `_op_proxy` with the appropriate TTIR
+   op class, operands, and keyword attributes.
+2. Registering a golden function in `tools/golden/mapping.py` so `_op_proxy`
+   can compare compiler output against the PyTorch reference.
+
+Refer to [Adding a new op to ttir-builder](./builder/adding-a-ttir-op.md) for
+the full workflow, including how to write golden functions and register them in
+`GOLDEN_MAPPINGS`.
+
+### 10b. Write the builder test
+
+Builder tests live under `test/python/golden/ttir_ops/<category>/`. Add a new
+file (or extend an existing one) for the op. The test parametrizes over shapes,
+dtypes, and target backends, then delegates to `compile_and_execute_ttir` which
+builds the TTIR module, compiles it, runs it on device, and checks numerical
+correctness against the golden.
+
+#### `test/python/golden/ttir_ops/matmul/test_matmul.py`
+
+```python
+{{#include ../../../test/python/golden/ttir_ops/matmul/test_matmul.py::test_matmul}}
+```
+
+Key conventions:
+
+- `pytestmark = pytest.mark.frontend("ttir")` — required file-wide mark.
+- Shape parameters must be named `shape`, `shapes`, `input_shape`, or
+  `input_shapes`; dtype parameters must be named `dtype`, `dtypes`, or
+  `input_dtypes`. See [Builder Testing](./builder/testing.md#parametrization-rules)
+  for the full rules.
+- `target` must be a parametrized dimension even for single-target tests (the
+  `device` fixture reads it to initialise the right backend).
+- The inner `@builder.func([shapes], [dtypes])` decorator wires up MLIR function
+  arguments; the computation is expressed with `builder.<op>(...)` calls inside.
+
+Run with:
+
+```bash
+pytest test/python/golden/ttir_ops/matmul/test_matmul.py
+```
+
+For full parametrization rules, skip marks (`skip_config`, `x86_only`), and
+test-report requirements refer to [Builder Testing](./builder/testing.md).
+
+## 11. Add CPU-hoisting support (if applicable)
+
+CPU-hoisting moves selected TTIR ops off the device and executes them on the host CPU, improving
+numerical precision (full f32/i32) and reducing peak DRAM/L1 usage. It is appropriate for standard
+elementwise, reduction, normalization, and similar ops. **Skip this step for complex,
+model-specific ops** (e.g., `ScaledDotProductAttentionDecodeOp`) that have no meaningful host
+execution path and should always run on device.
+
+Hoisted ops are lowered through two independent paths:
+
+- **Runtime target** (flatbuffer path): TTIR → Linalg/TOSA → LLVM IR → `.so` dylib, embedded in
+  the flatbuffer and loaded at runtime via `dlopen()`.
+- **EmitPy target**: TTIR → `CallOpaqueOp("ttir_cpu.<op>")` → pure-torch implementation in
+  `ttir_cpu.py`.
+
+### 11a. TTIR to Linalg/TOSA conversion pattern
+
+Add a conversion pattern in `lib/Conversion/TTIRToLinalg/` and register it in the appropriate
+populate function. Elementwise ops typically lower to `linalg.generic` or a TOSA equivalent; see
+existing patterns in the same directory for reference.
+
+### 11b. TTIR to Linalg/TOSA lit test
+
+Add `test/ttmlir/Conversion/TTIRToLinalg/<op_name>.mlir`. See existing tests in that directory
+for the `RUN`/`FileCheck` boilerplate and `CHECK` conventions for both Linalg and TOSA targets.
+
+### 11c. Decomposition alternative to 11a–11b (runtime path only)
+
+If the op has no natural Linalg/TOSA equivalent but decomposes cleanly into ops that already have
+Linalg support (e.g., `DotGeneralOp` → `MatmulOp`), steps 11a–11b can be skipped. Add the op as
+illegal under `DecompMode::CPUFallback` in
+`lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecompositionPass.cpp` and add the decomposition
+pattern under `lib/Conversion/TTIRToTTIRDecomposition/`. The runtime CPU pipeline runs this
+decomposition before the Linalg lowering, and the hoisting validation uses the same check.
+
+**Note:** decomposition does **not** help the EmitPy path — the EmitPy CPU pipeline has no prior
+decomposition step, so steps 11d–11e are still required.
+
+### 11d. TTIR to EmitPy CPU conversion pattern
+
+Add a pattern in `lib/Conversion/TTIRToEmitPy/TTIRCPUToEmitPyPass.cpp`. For elementwise ops,
+use the existing generic templates; for ops with non-trivial attributes write a custom pattern
+using `EmitPyCallBuilder`. See existing patterns in the same file for reference.
+
+### 11e. Torch implementation in `ttir_cpu`
+
+Add a pure-torch function to `tools/tt-alchemist/templates/python/local/ttir_cpu.py` mirroring
+the TTIR op semantics (EmitPy target only — the runtime target goes through Linalg → LLVM). Use
+`**_` to absorb unused kwargs, `builtins.*` when a local name shadows a Python builtin, and
+operate in float32 for reductions/normalization. Match TTIR semantics exactly — this is the
+reference implementation for const-eval.
+
+### 11f. Tests for CPU-hoisted ops
+
+**Linalg conversion lit test:** run the test added in 11b:
+
+```bash
+llvm-lit test/ttmlir/Conversion/TTIRToLinalg/<op_name>.mlir
+```
+
+**EmitPy lit test:** add a function to `test/ttmlir/EmitPy/cpu_hoisted_ops.mlir`. The convention
+is to run the op twice in one function — once tagged `{ttir.should_hoist}` and once on device —
+then subtract the results, exercising both paths. Check for the expected `ttir_cpu.<op>` call in
+the generated Python. See existing functions in that file for the pattern.
+
+**Builder test:** add a `test_cpu_hoistable_*` test to
+`test/python/golden/ttir_ops/<category>/test_<category>.py`, passing
+`unit_attrs=["ttir.should_hoist"]` to the builder call and parametrizing over all three targets
+(`ttnn`, `ttmetal`, `emitpy`). See existing `test_cpu_hoistable_*` tests for exact parametrization
+and decorator patterns (e.g., `@x86_only`).

@@ -44,10 +44,11 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-enable-decomposition-workaround-pass",
              "bool", /*default=*/"true",
              "TTNN Decompsition Workarounds Pass">,
-      Option<"optimizerEnabled",
-             "ttnn-is-optimizer-enabled",
-             "bool", /*default=*/"false",
-             "flag specifying if optimizer is enabled">,
+      Option<"optimizationLevel",
+             "ttnn-optimization-level",
+             "int", /*default=*/"0",
+             "Optimization level forwarded from the pipeline; controls which "
+             "workarounds are active.">,
   ];
 }
 
@@ -178,6 +179,37 @@ def TTNNCreateMainForTest: Pass<"ttnn-create-main-for-test", "::mlir::ModuleOp">
   }];
 }
 
+def TTNNSplitForwardFuncArgsByType : Pass<"ttnn-split-forward-func-args-by-type", "::mlir::ModuleOp"> {
+  let summary = "Split forward function arguments into activations tuple and weights dictionary.";
+  let description = [{
+    This pass rewrites each forward function of device module by separating its tensor arguments into activations and weights.
+    Activation arguments are packed into a tuple, while weight arguments are packed into a dictionary.
+
+    Given a forward function like this:
+
+    ```mlir
+    func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                       %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>})
+        -> tensor<32x32xbf16> {
+      ...
+    }
+    ```
+
+    The pass will produce:
+
+    ```mlir
+    func.func @forward(%arg0: tuple<tensor<32x32xbf16>>,
+                       %arg1: !ttcore.dict)
+        -> tensor<32x32xbf16>
+        attributes {ttcore.original_argument_types = [...]} {
+      %input0 = ttcore.get_tuple_element %arg0[0] : ...
+      %weight0 = ttcore.get_key_value %arg1["weight_0"] : ...
+      ...
+    }
+    ```
+  }];
+}
+
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
@@ -290,10 +322,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   ];
 }
 
-def TTNND2MFusing: Pass<"ttnn-d2m-fusing", "::mlir::ModuleOp"> {
-  let summary = "TTNN D2M fusing pass.";
+def TTNNCreateD2MSubgraphs: Pass<"ttnn-create-d2m-subgraphs", "::mlir::ModuleOp"> {
+  let summary = "TTNN create D2M subgraphs pass.";
   let description = [{
-    This pass identifies potential subgraphs that can be fused through D2M compilation.
+    This pass identifies potential subgraphs that can be fused through D2M compilation,
+    outlines each subgraph into a private function, and replaces the original ops
+    with a `ttnn.d2m_subgraph` op. Fusion through the D2M pipeline is done in D2MElementwiseFusion pass.
 
     Right now, this is limited to eltwise chains.
   }];
@@ -426,9 +460,24 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   }];
 
   list<Option> options = [
-    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::WeightDtype",
-           /*default=*/"::mlir::tt::ttnn::WeightDtype::None",
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
+           /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
            "Target data type for weight conversion (bfp_bf8, bfp_bf4).">,
+  ];
+}
+
+def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert KV cache tensors to a lower precision dtype.";
+  let description = [{
+    This pass changes KV cache function argument types to a target dtype and inserts
+    ttnn.typecast ops on the input operands of ttnn.fill_cache and
+    ttnn.update_cache so written data matches the new cache format.
+  }];
+
+  list<Option> options = [
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
+           /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
+           "Target data type for KV cache conversion (bfp_bf8, bfp_bf4).">
   ];
 }
 
@@ -457,8 +506,8 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     The metrics are serialized to JSON format for debugging, profiling, and external analysis.
 
     Usage:
-    Enable performance metrics collection in the TTIR to TTNN backend pipeline using:
-    --ttir-to-ttnn-backend-pipeline="ttnn-perf-metrics-enabled=true"
+    Enable performance metrics collection in the TTIR to TTNN runtime pipeline using:
+    --ttir-to-ttnn-runtime-pipeline="ttnn-perf-metrics-enabled=true"
 
     Output file naming:
     - If --ttnn-perf-metrics-output-file is not specified or is the default, files are automatically
@@ -551,7 +600,7 @@ def TTNNPrepareConstEvalCaching : Pass<"ttnn-prepare-const-eval-caching", "::mli
   let description = [{
     Packs the results of all LoadCachedOps into a single global caching
     dictionary per forward function.  For each forward function containing
-    LoadCachedOps it creates a global dictionary (e.g. `_cached_forward`),
+    LoadCachedOps it creates a global dictionary (e.g. `ce_cache_forward`),
     retrieves it at the top of the function body, and stores each
     LoadCachedOp result under its callee name.
   }];
@@ -653,9 +702,9 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
     Option<"maxInputCandidatesPerOperand", "max-input-candidates-per-operand",
            "int64_t", "64",
            "Maximum number of input candidates per operand before truncation.">,
-    Option<"maxReshardCandidates", "max-reshard-candidates",
-           "int64_t", "8",
-           "Maximum number of reshard candidates per tensor type.">,
+    Option<"maxReshardCandidatesPerType", "max-reshard-candidates-per-type",
+           "int64_t", "4",
+           "Maximum reshard candidates per sharding type (block, height, width).">,
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
            "Enable decision trace JSON output.">,
     Option<"decisionTraceDir", "decision-trace-dir", "std::string",

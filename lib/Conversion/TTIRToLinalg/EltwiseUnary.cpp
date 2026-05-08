@@ -595,6 +595,7 @@ void populateTTIRToLinalgEltwiseUnaryPatterns(MLIRContext *ctx,
   patterns.add<
       ElementwiseUnaryOpToMathConversionPattern<ttir::AcosOp, math::AcosOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::AsinOp, math::AsinOp>,
+      ElementwiseUnaryOpToMathConversionPattern<ttir::AsinhOp, math::AsinhOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::AtanOp, math::AtanOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::CbrtOp, math::CbrtOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::ErfcOp, math::ErfcOp>,

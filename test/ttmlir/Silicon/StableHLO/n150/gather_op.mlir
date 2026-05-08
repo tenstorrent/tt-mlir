@@ -146,7 +146,6 @@ module attributes {} {
 
   // CHECK-LABEL: func.func @gather_13
   func.func @gather_13(%operand: tensor<1x7x2xbf16>, %start_indices: tensor<1x2xi32>) -> (tensor<1x2xbf16> {jax.result_info = "result"}) {
-    // CHECK: "ttnn.permute"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<7x2xbf16, {{.+}}>) -> tensor<1x1x2xbf16, {{.+}}>
@@ -170,12 +169,10 @@ module attributes {} {
   // In examples 15 and 16 permute ops are needed
   // CHECK-LABEL: func.func @gather_15
   func.func @gather_15(%operand: tensor<1x2x3x5xf32>, %start_indices: tensor<4x1xi32>) -> (tensor<1x2x3x4xf32> {jax.result_info = "result"}) {
-    // CHECK: "ttnn.permute"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<4x1xui32, {{.+}}>, tensor<5x6xbf16, {{.+}}>) -> tensor<4x1x6xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
-    // CHECK: "ttnn.permute"
     %1 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [0, 1, 2], collapsed_slice_dims = [3], start_index_map = [3], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 2, 3, 1>}> : (tensor<1x2x3x5xf32>, tensor<4x1xi32>) -> tensor<1x2x3x4xf32>
     return %1 : tensor<1x2x3x4xf32>
   }

@@ -8,8 +8,10 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillManagement.h"
 #include "ttmlir/Dialect/TTNN/Diagnostics/DecisionTrace.h"
+#include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -32,6 +34,13 @@ public:
       TTNNGreedyL1SpillManagement>::TTNNGreedyL1SpillManagementBase;
 
   void runOnOperation() final {
+#ifndef TTMLIR_ENABLE_OPMODEL
+    llvm::llvm_unreachable_internal(
+        "TTNNGreedyL1SpillManagement pass requires OpModel support to be "
+        "enabled.");
+#else
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
+
     ModuleOp moduleOp = getOperation();
 
     // Get L1 budget from system description and usage cap.
@@ -62,6 +71,10 @@ public:
           func, deviceGrid, l1BudgetPerCore, std::move(observer));
       spill.run();
 
+      // Sync D2M subgraph function types to match dispatch op's current inputs
+      // (e.g. after spill, operand types may have changed to DRAM).
+      d2m_optimizer_utils::syncAllD2MFuncTypes(func);
+
       // Merge spill management data into the existing decision trace JSON.
       if (enableDecisionTrace) {
         if (const DecisionTrace *dt = spill.getObserver()->getDecisionTrace()) {
@@ -80,6 +93,7 @@ public:
         }
       }
     });
+#endif
   }
 };
 

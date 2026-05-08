@@ -257,6 +257,11 @@ public:
   // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
   static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
 
+  // Create workarounds for gather op operands. The input and index tensors must
+  // always be in TILED layout.
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451
+  static TTNNOperandsWorkarounds createGatherOpOperandsWorkarounds();
+
   // Create workarounds for scatter op operands.
   static TTNNOperandsWorkarounds
   createScatterOpOperandsWorkarounds(mlir::Operation *op);
@@ -291,6 +296,8 @@ public:
   static TTNNOperandsWorkarounds
   createPagedFillCacheOpOperandsWorkarounds(Operation *op);
 
+  static TTNNOperandsWorkarounds createSamplingOpOperandsWorkarounds();
+
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);
@@ -300,9 +307,16 @@ public:
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
+  static TTNNOperandsWorkarounds
+  createErfOpOperandsWorkarounds(mlir::RankedTensorType inputType);
+
   // Create workarounds for group norm op operands.
   static TTNNOperandsWorkarounds
   createGroupNormOpOperandsWorkarounds(mlir::Operation *op);
+
+  // Create workarounds for unary bitwise op (bitwise_not) operands.
+  static TTNNOperandsWorkarounds
+  createUnaryBitwiseOpOperandsWorkarounds(mlir::Operation *op);
 
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
@@ -362,6 +376,13 @@ public:
   // Expert indices and mapping require uint16 dtype and ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
   static TTNNOperandsWorkarounds createAllToAllDispatchOpOperandsWorkarounds();
+
+  // Create workarounds for all_to_all_dispatch_metadata op operands.
+  // Expert indices, scores, and mapping require specific dtypes and ROW_MAJOR
+  // layout. Indices/scores outputs are HEIGHT_SHARDED on L1 by the metal
+  // kernel.
+  static TTNNOperandsWorkarounds
+  createAllToAllDispatchMetadataOpOperandsWorkarounds(Operation *op);
 
   // Create workarounds for all_to_all_combine op operands.
   // Expert metadata and mapping require uint16 dtype and ROW_MAJOR layout.

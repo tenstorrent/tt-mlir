@@ -20,11 +20,12 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNAdjustDeallocs.cpp
         TTNNCollaspeD2M.cpp
         TTNNCollectPerfMetrics.cpp
-        TTNND2MFusing.cpp
+        TTNNCreateD2MSubgraphs.cpp
         TTNNFileSplit.cpp
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
         Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
+        Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
         Decomposition/TTNNDecompositionPass.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
@@ -41,20 +42,21 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
         TTNNWeightDtypeConversion.cpp
+        TTNNKVCacheDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
+        Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
-        Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
-        Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
+        Workarounds/Decomposition/SliceStaticOpRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
@@ -65,7 +67,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ReduceScatterConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
         Workarounds/Decomposition/PadHighDimRewritePattern.cpp
-        Workarounds/Decomposition/ProdOpRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS

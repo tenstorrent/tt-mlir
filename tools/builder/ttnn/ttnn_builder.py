@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import List, Callable, Any
 import torch
+import numpy as np
 
 from ttmlir.ir import *
 from ttmlir import util
@@ -32,7 +33,7 @@ class TTNNBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict)
-        self._default_tensor_encoding = self.create_tensor_encoding
+        self.create_tensor_encoding = self._create_tensor_encoding
 
     def func(
         self,
@@ -44,12 +45,24 @@ class TTNNBuilder(Builder):
             return super().func(input_shapes, input_types)
 
         def wrapper(fn):
-            original = self.create_tensor_encoding
-            self.create_tensor_encoding = self.create_host_row_major_tensor_encoding
+            # Create a wrapper that matches create_tensor_encoding signature
+            # but sets layout to RowMajor and buffer type to SystemMemory for host tensors.
+            def host_row_major_wrapper(
+                shape, element_type, layout=None, buffer_type=None
+            ):
+                return self._create_tensor_encoding(
+                    shape,
+                    element_type,
+                    ttnn.Layout.RowMajor,
+                    ttnn.BufferType.SystemMemory,
+                )
+
+            self.create_tensor_encoding = host_row_major_wrapper
+
             try:
                 result = super(TTNNBuilder, self).func(input_shapes, input_types)(fn)
             finally:
-                self.create_tensor_encoding = original
+                self.create_tensor_encoding = self._create_tensor_encoding
             return result
 
         return wrapper
@@ -158,15 +171,29 @@ class TTNNBuilder(Builder):
 
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
         with self._ctx, self._loc:
-            dtype = ttnn.ir.TTNNLayoutAttr.maybe_downcast(
-                self._get_type(operand).encoding
-            ).data_type_as_int
-            return ttcore.ir.DataTypeAttr.get(self._ctx, dtype)
+            tensor_type = (
+                operand
+                if isinstance(operand, RankedTensorType)
+                else self._get_type(operand)
+            )
+            dtype = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor_type.encoding)
+            return ttcore.ir.DataTypeAttr.get(self._ctx, dtype.data_type_as_int)
+
+    def _get_data_type_attribute_from_torch_dtype(
+        self, dtype: torch.dtype
+    ) -> ttcore.ir.DataTypeAttr:
+        with self._ctx, self._loc:
+            data_type = self._get_datatype_from_torch_dtype(dtype).data_type_as_int
+            return ttcore.ir.DataTypeAttr.get(self._ctx, data_type)
 
     # ----- Public Helper Methods ----
 
-    def create_tensor_encoding(
-        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    def _create_tensor_encoding(
+        self,
+        shape: Shape,
+        element_type: Union[torch.dtype, TypeInfo],
+        layout: ttnn.ir.LayoutAttr = ttnn.Layout.Tile,
+        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
     ) -> ttnn.ir.TTNNLayoutAttr:
         """
         TTNN tensors require that encoding information is present.
@@ -176,96 +203,64 @@ class TTNNBuilder(Builder):
         if isinstance(element_type, torch.dtype):
             element_type = self._get_type_from_torch_dtype(element_type)
         with self._ctx, self._loc:
-            data_type = util.element_type_to_data_type(element_type)
-            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
-            buffer_type = ttnn.BufferType.DRAM
-            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
-            ttnn_layout_attr = ttnn.ir.TTNNLayoutAttr.get(
-                self._ctx,
-                shape,
-                tile_element_type,
-                buffer_type,
-                grid_attr,
-                ttnn.TensorMemoryLayout.Interleaved,
+            if layout == ttnn.Layout.Tile:
+                data_type = util.element_type_to_data_type(element_type)
+                layout_element_type = ttcore.ir.TileType.get(
+                    self._ctx, 32, 32, data_type
+                )
+            elif layout == ttnn.Layout.RowMajor:
+                layout_element_type = element_type
+            else:
+                raise ValueError(f"Unsupported layout: {layout}")
+
+            if buffer_type == ttnn.BufferType.SystemMemory:
+                tensor_memory_layout = None
+            elif buffer_type == ttnn.BufferType.L1:
+                tensor_memory_layout = ttnn.TensorMemoryLayout.WidthSharded
+            else:
+                tensor_memory_layout = ttnn.TensorMemoryLayout.Interleaved
+
+            grid_shape = [1, 1]
+
+            core_range_set = None
+            is_sharded = (
+                tensor_memory_layout is not None
+                and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
             )
-            return ttnn_layout_attr
 
-    def create_ttnn_tensor(self, shape: Shape, element_type: Type) -> RankedTensorType:
-        """
-        TTNN tensors require that encoding information is present.
-        This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interleaved tiled tensor.
-        """
-        with self._ctx, self._loc:
-            ttnn_layout_attr = self.create_tensor_encoding(shape, element_type)
-            return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
+            if is_sharded:
+                start = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
+                end = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
+                core_range_set = ttnn.ir.CoreRangeSetAttr.get(
+                    self._ctx,
+                    [ttnn.ir.CoreRangeAttr.get(self._ctx, start, end)],
+                )
 
-    def create_host_tensor_encoding(
-        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
-    ) -> ttnn.ir.TTNNLayoutAttr:
-        """
-        Create a TTNN tensor encoding for a host (system memory) tensor
-        in tile layout.
-        """
-        if isinstance(element_type, torch.dtype):
-            element_type = self._get_type_from_torch_dtype(element_type)
-        with self._ctx, self._loc:
-            data_type = util.element_type_to_data_type(element_type)
-            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
-            buffer_type = ttnn.BufferType.SystemMemory
-            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
             return ttnn.ir.TTNNLayoutAttr.get(
                 self._ctx,
                 shape,
-                tile_element_type,
+                layout_element_type,
                 buffer_type,
-                grid_attr,
+                grid_shape,
+                core_range_set,
+                tensor_memory_layout,
             )
 
-    def create_host_row_major_tensor_encoding(
-        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
-    ) -> ttnn.ir.TTNNLayoutAttr:
-        """
-        Create a TTNN tensor encoding for a host (system memory) tensor
-        in row-major layout. Used for intermediate tensors produced by
-        distribute_tensor / aggregate_tensor at runtime.
-        """
-        if isinstance(element_type, torch.dtype):
-            element_type = self._get_type_from_torch_dtype(element_type)
-        with self._ctx, self._loc:
-            buffer_type = ttnn.BufferType.SystemMemory
-            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
-            return ttnn.ir.TTNNLayoutAttr.get(
-                self._ctx,
-                shape,
-                element_type,
-                buffer_type,
-                grid_attr,
-            )
-
-    def create_l1_width_sharded_tiled_encoding(
-        self, shape: Shape, element_type: Type
-    ) -> ttnn.ir.TTNNLayoutAttr:
-        with self._ctx, self._loc:
-            data_type = util.element_type_to_data_type(element_type)
-            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
-            buffer_type = ttnn.BufferType.L1
-            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
-            return ttnn.ir.TTNNLayoutAttr.get(
-                self._ctx,
-                shape,
-                tile_element_type,
-                buffer_type,
-                grid_attr,
-                ttnn.TensorMemoryLayout.WidthSharded,
-            )
-
-    def create_l1_width_sharded_tiled_ttnn_tensor(
-        self, shape: Shape, element_type: Type
+    def create_ttnn_tensor(
+        self,
+        shape: Shape,
+        element_type: Union[torch.dtype, TypeInfo],
+        layout: ttnn.ir.LayoutAttr = ttnn.Layout.Tile,
+        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
     ) -> RankedTensorType:
+        """
+        TTNN tensors require that encoding information is present.
+        This method creates a TTNN tensor with encoding information.
+        For simplicity we will always create DRAM/Interleaved tiled tensor.
+        """
         with self._ctx, self._loc:
-            ttnn_layout_attr = self.create_l1_width_sharded_tiled_encoding(
-                shape, element_type
+            ttnn_layout_attr = self._create_tensor_encoding(
+                shape, element_type, layout, buffer_type
             )
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
@@ -275,6 +270,29 @@ class TTNNBuilder(Builder):
         filename = caller_frame.filename
         lineno = caller_frame.lineno
         return Location.name(f"{filename}:{lineno}")
+
+    # ----- Private CCL Helpers -----
+
+    def _create_memory_config_attr(
+        self,
+        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
+        tensor_memory_layout: ttnn.ir.TensorMemoryLayout = ttnn.TensorMemoryLayout.Interleaved,
+    ) -> ttnn.ir.MemoryConfigAttr:
+        if buffer_type == ttnn.BufferType.SystemMemory:
+            return self._create_system_memory_memory_config()
+
+        tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
+            self._ctx, tensor_memory_layout
+        )
+        buffer_type_attr = ttnn.ir.BufferTypeAttr.get(self._ctx, buffer_type)
+        return ttnn.ir.MemoryConfigAttr.get(
+            self._ctx, tensor_memory_layout_attr, buffer_type_attr
+        )
+
+    def _create_system_memory_memory_config(self):
+        # The pybound MemoryConfigAttr.get() requires a TensorMemoryLayoutAttr, but system_memory requires no TensorMemoryLayoutAttr
+        memory_config_str = "#ttnn.memory_config<#ttnn.buffer_type<system_memory>>"
+        return Attribute.parse(memory_config_str)
 
     # ----- Public TTNN Op Generators ----
 
@@ -361,7 +379,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             add_module = Module.create()
             add_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -479,7 +497,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             abs_module = Module.create()
             abs_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -590,7 +608,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             cbrt_module = Module.create()
             cbrt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -701,7 +719,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             ceil_module = Module.create()
             ceil_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -812,7 +830,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             cos_module = Module.create()
             cos_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -923,7 +941,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             acos_module = Module.create()
             acos_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1033,7 +1051,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             erf_module = Module.create()
             erf_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1144,7 +1162,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             erfc_module = Module.create()
             erfc_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1255,7 +1273,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             exp_module = Module.create()
             exp_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1365,7 +1383,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             floor_module = Module.create()
             floor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1475,7 +1493,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             gelu_module = Module.create()
             gelu_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1585,7 +1603,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             isfinite_module = Module.create()
             isfinite_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1694,7 +1712,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_not_module = Module.create()
             logical_not_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1804,7 +1822,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             bitwise_not_module = Module.create()
             bitwise_not_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1914,7 +1932,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             neg_module = Module.create()
             neg_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2024,7 +2042,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             tan_module = Module.create()
             tan_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2134,7 +2152,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             atan_module = Module.create()
             atan_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2244,7 +2262,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             tanh_module = Module.create()
             tanh_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2354,7 +2372,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             reciprocal_module = Module.create()
             reciprocal_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2464,7 +2482,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             relu_module = Module.create()
             relu_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2574,7 +2592,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             relu6_module = Module.create()
             relu6_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2684,7 +2702,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             rsqrt_module = Module.create()
             rsqrt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2794,7 +2812,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             sigmoid_module = Module.create()
             sigmoid_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2904,7 +2922,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             silu_module = Module.create()
             silu_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3014,7 +3032,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             sign_module = Module.create()
             sign_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3124,7 +3142,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             sin_module = Module.create()
             sin_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3234,7 +3252,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             asin_module = Module.create()
             asin_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3267,6 +3285,116 @@ class TTNNBuilder(Builder):
                 ]
 
         return asin_module, asin_builder
+
+    ############### ttnn.AsinhOp ###############
+
+    @tag(ttnn.AsinhOp)
+    def asinh(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.asinh)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.AsinhOp)
+    def asinh_parser(
+        self,
+        old_op: ttnn.AsinhOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.asinh_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.AsinhOp)
+    def asinh_split(
+        self,
+        old_op: ttnn.AsinhOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.asinh_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            asinh_module = Module.create()
+            asinh_builder = TTNNBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(asinh_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="asinh_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    asinh_builder._set_golden_tensor(new_op_result, old_op_result)
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    asinh_builder._set_golden_tensor(in0, input0)
+                    asinh_builder._annotate_presharded_arg(in0)
+
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                asinh_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return asinh_module, asinh_builder
 
     ############### ttnn.SqrtOp ###############
 
@@ -3344,7 +3472,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             sqrt_module = Module.create()
             sqrt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3451,7 +3579,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             typecast_module = Module.create()
             typecast_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3561,7 +3689,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             log_module = Module.create()
             log_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3671,7 +3799,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             log1p_module = Module.create()
             log1p_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3781,7 +3909,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             expm1_module = Module.create()
             expm1_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3898,7 +4026,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             eq_module = Module.create()
             eq_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4020,7 +4148,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             ne_module = Module.create()
             ne_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4142,7 +4270,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             ge_module = Module.create()
             ge_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4264,7 +4392,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             gt_module = Module.create()
             gt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4386,7 +4514,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             le_module = Module.create()
             le_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4508,7 +4636,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             lt_module = Module.create()
             lt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4630,7 +4758,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_and_module = Module.create()
             logical_and_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4752,7 +4880,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_left_shift_module = Module.create()
             logical_left_shift_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4876,7 +5004,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_or_module = Module.create()
             logical_or_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5000,7 +5128,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_right_shift_module = Module.create()
             logical_right_shift_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5126,7 +5254,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_xor_module = Module.create()
             logical_xor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5249,7 +5377,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             bitwise_and_module = Module.create()
             bitwise_and_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5370,7 +5498,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             bitwise_or_module = Module.create()
             bitwise_or_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5491,7 +5619,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             bitwise_xor_module = Module.create()
             bitwise_xor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5611,7 +5739,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             minimum_module = Module.create()
             minimum_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5733,7 +5861,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             maximum_module = Module.create()
             maximum_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5855,7 +5983,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             subtract_module = Module.create()
             subtract_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5977,7 +6105,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             remainder_module = Module.create()
             remainder_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6097,7 +6225,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             pow_tensor_module = Module.create()
             pow_tensor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6217,7 +6345,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             atan2_module = Module.create()
             atan2_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6339,7 +6467,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             multiply_module = Module.create()
             multiply_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6463,7 +6591,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             divide_module = Module.create()
             divide_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6600,7 +6728,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             clamp_tensor_module = Module.create()
             clamp_tensor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [
                 old_op.input.type,
@@ -6738,7 +6866,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             concat_module = Module.create()
             concat_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [inp.type for inp in old_op.inputs]
 
@@ -6864,7 +6992,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             repeat_module = Module.create()
             repeat_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7011,7 +7139,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             where_module = Module.create()
             where_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [
                 old_op.first.type,
@@ -7170,7 +7298,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             matmul_module = Module.create()
             matmul_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.a.type, old_op.b.type]
 
@@ -7329,7 +7457,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             linear_module = Module.create()
             linear_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.a.type, old_op.b.type]
             has_bias = old_op.bias is not None
@@ -7462,7 +7590,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             clamp_scalar_module = Module.create()
             clamp_scalar_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7582,7 +7710,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             repeat_interleave_module = Module.create()
             repeat_interleave_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7623,6 +7751,459 @@ class TTNNBuilder(Builder):
                 ]
 
         return repeat_interleave_module, repeat_interleave_builder
+
+    ############### ttnn.FullOp ###############
+
+    @tag(ttnn.FullOp)
+    def full(
+        self,
+        shape: List[int],
+        fill_value: Union[int, float],
+        device: Optional[Operand] = None,
+        output_type: Optional[torch.dtype] = None,
+        layout: Optional[ttnn.ir.LayoutAttr] = None,
+        buffer_type: Optional[ttnn.ir.BufferTypeAttr] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.full)
+
+        if output_type is None:
+            mlir_output_type = self._get_type_from_torch_dtype(torch.float32)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        # Create attributes
+        shape_attr = ttnn.ir.ShapeAttr.get(self._ctx, shape)
+        if isinstance(fill_value, int):
+            fill_value_attr = IntegerAttr.get(IntegerType.get_signless(32), fill_value)
+        else:
+            fill_value_attr = FloatAttr.get_f32(fill_value)
+
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        memory_config_attr = self._create_memory_config_attr(buffer_type)
+        result = self.create_ttnn_tensor(
+            shape, mlir_output_type, layout=layout, buffer_type=buffer_type
+        )
+
+        dtype = self._get_data_type_attribute(result)
+        op_golden_function = get_golden_function(ttnn_op)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+        golden_output = op_golden_function(
+            shape_attr, fill_value_attr, mesh_shape_attr, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            shape=shape_attr,
+            fill_value=fill_value_attr,
+            device=device,
+            dtype=dtype,
+            layout=layout_attr,
+            memory_config=memory_config_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.FullOp)
+    def full_parser(
+        self,
+        old_op: ttnn.FullOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.full_parser)
+        result = old_op.result.type
+        device = global_dict[old_op.device] if old_op.device is not None else None
+
+        new_op = ttnn_op(
+            result,
+            shape=old_op.shape,
+            fill_value=old_op.fill_value,
+            device=device,
+            dtype=old_op.dtype,
+            layout=old_op.layout,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        op_golden_function = get_golden_function(ttnn_op)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+        golden_output = op_golden_function(
+            old_op.shape, old_op.fill_value, mesh_shape_attr, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.FullOp)
+    def full_split(
+        self,
+        old_op: ttnn.FullOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.full_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            full_module = Module.create()
+            full_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+
+            with InsertionPoint(full_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(name="full_module")
+                def decorated_func():
+                    result = old_op.result.type
+
+                    device = None
+                    if old_op.device is not None:
+                        mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                            old_ctx, *self._mesh_shape
+                        )
+                        mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
+                            old_ctx, *self._mesh_offset
+                        )
+                        new_get_device_op = ttnn.GetDeviceOp(
+                            mesh_shape=mesh_shape_attr,
+                            mesh_offset=mesh_offset_attr,
+                        )
+                        device = new_get_device_op.device
+
+                    result = old_op.result.type
+                    memory_config_attr = old_op.memory_config
+
+                    new_op = ttnn_op(
+                        result,
+                        shape=old_op.shape,
+                        fill_value=old_op.fill_value,
+                        device=device,
+                        dtype=old_op.dtype,
+                        layout=old_op.layout,
+                        memory_config=old_op.memory_config,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    full_builder._set_golden_tensor(new_op_result, old_op_result)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                full_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return full_module, full_builder
+
+    ############### ttnn.ConstantOp ###############
+
+    @tag(ttnn.ConstantOp)
+    def constant(
+        self,
+        value: Union[torch.Tensor, List, float, int],
+        device: Optional[Operand] = None,
+        output_type: Optional[torch.dtype] = None,
+        layout: Optional[ttnn.ir.LayoutAttr] = None,
+        buffer_type: Optional[ttnn.ir.BufferTypeAttr] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.constant)
+
+        # Convert value to torch tensor if necessary
+        if not isinstance(value, torch.Tensor):
+            value = torch.tensor(value)
+
+        if output_type is None:
+            mlir_output_type = self._get_type_from_torch_dtype(value.dtype)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+            value = value.to(output_type)
+
+        # Create DenseElementsAttr from the tensor
+        value_shape = list(value.shape)
+        mlir_value_type = RankedTensorType.get(value_shape, mlir_output_type)
+
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        memory_config_attr = self._create_memory_config_attr(buffer_type)
+        result = self.create_ttnn_tensor(
+            value_shape, mlir_output_type, layout=layout, buffer_type=buffer_type
+        )
+
+        if value.dtype == torch.bfloat16:
+            u16 = value.detach().cpu().view(torch.int16).numpy().astype(np.uint16)
+            value_attr = DenseElementsAttr.get(u16, type=result)
+        else:
+            value_attr = DenseElementsAttr.get(value.numpy())
+
+        dtype = self._get_data_type_attribute(result)
+        op_golden_function = get_golden_function(ttnn_op)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+        golden_output = op_golden_function(
+            value_attr, mesh_shape_attr, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            value=value_attr,
+            device=device,
+            dtype=dtype,
+            layout=layout_attr,
+            memory_config=memory_config_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ConstantOp)
+    def constant_parser(
+        self,
+        old_op: ttnn.ConstantOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.constant_parser)
+        result = old_op.result.type
+        device = global_dict[old_op.device] if old_op.device is not None else None
+
+        new_op = ttnn_op(
+            result,
+            value=old_op.value,
+            device=device,
+            dtype=old_op.dtype,
+            layout=old_op.layout,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        op_golden_function = get_golden_function(ttnn_op)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+        golden_output = op_golden_function(
+            old_op.value, mesh_shape_attr, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.ConstantOp)
+    def constant_split(
+        self,
+        old_op: ttnn.ConstantOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.constant_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            constant_module = Module.create()
+            constant_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+
+            with InsertionPoint(constant_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(name="constant_module")
+                def decorated_func():
+                    result = old_op.result.type
+
+                    device = None
+                    if old_op.device is not None:
+                        mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                            old_ctx, *self._mesh_shape
+                        )
+                        mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
+                            old_ctx, *self._mesh_offset
+                        )
+                        new_get_device_op = ttnn.GetDeviceOp(
+                            mesh_shape=mesh_shape_attr,
+                            mesh_offset=mesh_offset_attr,
+                        )
+                        device = new_get_device_op.device
+
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result,
+                        value=old_op.value,
+                        device=device,
+                        dtype=old_op.dtype,
+                        layout=old_op.layout,
+                        memory_config=old_op.memory_config,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    constant_builder._set_golden_tensor(new_op_result, old_op_result)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                constant_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return constant_module, constant_builder
+
+    ############### ttnn.ReshapeOp ###############
+
+    @tag(ttnn.ReshapeOp)
+    def reshape(
+        self,
+        in0: Operand,
+        shape: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.reshape)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        shape_attr = ArrayAttr.get(
+            [IntegerAttr.get(IntegerType.get_signless(32), s) for s in shape]
+        )
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, shape_attr, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            shape=shape_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ReshapeOp)
+    def reshape_parser(
+        self,
+        old_op: ttnn.ReshapeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.reshape_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, shape=old_op.shape, loc=old_op.location)
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, old_op.shape, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.ReshapeOp)
+    def reshape_split(
+        self,
+        old_op: ttnn.ReshapeOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.reshape_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            reshape_module = Module.create()
+            reshape_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(reshape_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="reshape_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result, in0, shape=old_op.shape, loc=old_op.location
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    reshape_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    reshape_builder._set_golden_tensor(in0, input0)
+                    reshape_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                reshape_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return reshape_module, reshape_builder
 
     ############### ttnn.LeakyReluOp ###############
 
@@ -7698,7 +8279,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             leaky_relu_module = Module.create()
             leaky_relu_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7802,7 +8383,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             mish_module = Module.create()
             mish_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7892,7 +8473,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             dump_tensor_module = Module.create()
             dump_tensor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7940,9 +8521,11 @@ class TTNNBuilder(Builder):
         """
         with self._ctx, self._loc:
             # Create L1 width-sharded output tensor
-            sharded_output_type = self.create_l1_width_sharded_tiled_ttnn_tensor(
-                shape=inputs[0].type.shape,
-                element_type=inputs[0].type.element_type,
+            sharded_output_type = self.create_ttnn_tensor(
+                inputs[0].type.shape,
+                inputs[0].type.element_type,
+                ttnn.Layout.Tile,
+                ttnn.BufferType.L1,
             )
 
             # Prepare location for the operation
@@ -8121,7 +8704,8 @@ class TTNNBuilder(Builder):
     def to_layout(
         self,
         input: Operand,
-        layout,
+        layout: Optional[ttnn.ir.LayoutAttr] = None,
+        buffer_type: Optional[ttnn.ir.BufferTypeAttr] = ttnn.BufferType.DRAM,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
     ) -> OpResult:
@@ -8133,21 +8717,35 @@ class TTNNBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input_golden = self._get_golden_tensor(input)
+        shape = input.type.shape
+
         layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        memory_config_attr = self._create_memory_config_attr(buffer_type)
+        result = self.create_ttnn_tensor(
+            shape, mlir_output_type, layout=layout, buffer_type=buffer_type
+        )
+        dtype = (
+            self._get_data_type_attribute(result)
+            if layout != ttnn.Layout.RowMajor
+            else None
+        )
+
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input_golden, layout_attr, mlir_output_type)
-        shape = input.type.shape
-        if layout == ttnn.Layout.Tile:
-            result = self._create_host_ttnn_tensor(shape, mlir_output_type)
-        else:
-            result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
         else:
             loc = Location.name(loc)
 
-        op = ttnn_op(result, input, layout=layout_attr, loc=loc)
+        op = ttnn_op(
+            result,
+            input,
+            layout=layout_attr,
+            dtype=dtype,
+            memory_config=memory_config_attr,
+            loc=loc,
+        )
         op_result = op.result
 
         self._set_golden_tensor(op_result, golden_output)
@@ -8165,7 +8763,14 @@ class TTNNBuilder(Builder):
         result = old_op.result.type
         layout_attr = old_op.layout
 
-        new_op = ttnn_op(result, in0, layout=layout_attr, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            in0,
+            layout=layout_attr,
+            dtype=old_op.dtype,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(in0)
@@ -8203,7 +8808,12 @@ class TTNNBuilder(Builder):
                     layout_attr = old_op.layout
 
                     new_op = ttnn_op(
-                        result, in0, layout=layout_attr, loc=old_op.location
+                        result,
+                        in0,
+                        layout=layout_attr,
+                        dtype=old_op.dtype,
+                        memory_config=old_op.memory_config,
+                        loc=old_op.location,
                     )
                     new_op_result = new_op.result
 
@@ -8252,10 +8862,12 @@ class TTNNBuilder(Builder):
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input_golden, mlir_output_type)
         shape = input.type.shape
-        result = self._create_dram_tiled_ttnn_tensor(shape, mlir_output_type)
+        result = self.create_ttnn_tensor(
+            shape, mlir_output_type, ttnn.Layout.RowMajor, ttnn.BufferType.DRAM
+        )
 
         if memory_config is None:
-            memory_config = self._create_dram_memory_config()
+            memory_config = self._create_memory_config_attr(ttnn.BufferType.DRAM)
         if loc is None:
             loc = self._get_location()
         else:
@@ -8307,7 +8919,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             to_device_module = Module.create()
             to_device_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types: List[Type] = [old_op.input.type]
 
@@ -8382,7 +8994,12 @@ class TTNNBuilder(Builder):
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input_golden, mlir_output_type)
         shape = input.type.shape
-        result = self._create_host_ttnn_tensor(shape, mlir_output_type)
+        result = self.create_ttnn_tensor(
+            shape,
+            mlir_output_type,
+            layout=ttnn.Layout.RowMajor,
+            buffer_type=ttnn.BufferType.SystemMemory,
+        )
 
         if loc is None:
             loc = self._get_location()
@@ -8428,7 +9045,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             from_device_module = Module.create()
             from_device_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -8504,39 +9121,51 @@ class TTNNBuilder(Builder):
 
         return None, {}
 
-    # ----- Private CCL Helpers -----
+    @split(ttnn.DeallocateOp)
+    def deallocate_split(
+        self,
+        old_op: ttnn.DeallocateOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.deallocate_split)
 
-    def _create_host_ttnn_tensor(
-        self, shape: Shape, element_type: Type
-    ) -> RankedTensorType:
-        with self._ctx, self._loc:
-            host_encoding = self.create_host_tensor_encoding(shape, element_type)
-            return RankedTensorType.get(shape, element_type, host_encoding)
-
-    def _create_host_row_major_ttnn_tensor(
-        self, shape: Shape, element_type: Type
-    ) -> RankedTensorType:
-        with self._ctx, self._loc:
-            host_encoding = self.create_host_row_major_tensor_encoding(
-                shape, element_type
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            deallocate_module = Module.create()
+            deallocate_builder = TTNNBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
-            return RankedTensorType.get(shape, element_type, host_encoding)
+            op_input_types = [old_op.input.type]
 
-    def _create_dram_tiled_ttnn_tensor(
-        self, shape: Shape, element_type: Type
-    ) -> RankedTensorType:
-        with self._ctx, self._loc:
-            ttnn_layout_attr = self._default_tensor_encoding(shape, element_type)
-            return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
+            with InsertionPoint(deallocate_module.body):
 
-    def _create_dram_memory_config(self):
-        tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
-            self._ctx, ttnn.TensorMemoryLayout.Interleaved
-        )
-        buffer_type_attr = ttnn.ir.BufferTypeAttr.get(self._ctx, ttnn.BufferType.DRAM)
-        return ttnn.ir.MemoryConfigAttr.get(
-            self._ctx, tensor_memory_layout_attr, buffer_type_attr
-        )
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="deallocate_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+
+                    ttnn_op(
+                        in0,
+                        force=old_op.force,
+                        loc=old_op.location,
+                    )
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    deallocate_builder._set_golden_tensor(in0, input0)
+                    deallocate_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+
+                    return
+
+                new_func_op = decorated_func.func_op
+                deallocate_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return deallocate_module, deallocate_builder
 
     ############### ttnn.DistributeTensorOp ###############
 
@@ -8575,8 +9204,11 @@ class TTNNBuilder(Builder):
         input0 = self._get_golden_tensor(input)
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input0, config_attr, mlir_output_type)
-        host_rm_result = self._create_host_row_major_ttnn_tensor(
-            golden_output.shape, mlir_output_type
+        host_rm_result = self.create_ttnn_tensor(
+            golden_output.shape,
+            mlir_output_type,
+            ttnn.Layout.RowMajor,
+            ttnn.BufferType.SystemMemory,
         )
 
         if loc is None:
@@ -8641,7 +9273,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             distribute_tensor_module = Module.create()
             distribute_tensor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types: List[Type] = [old_op.input.type]
 
@@ -8747,8 +9379,11 @@ class TTNNBuilder(Builder):
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input0, config_attr, mlir_output_type)
 
-        host_result = self._create_host_row_major_ttnn_tensor(
-            golden_output.shape, mlir_output_type
+        host_result = self.create_ttnn_tensor(
+            golden_output.shape,
+            mlir_output_type,
+            ttnn.Layout.RowMajor,
+            ttnn.BufferType.SystemMemory,
         )
 
         if loc is None:
@@ -8813,7 +9448,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             aggregate_tensor_module = Module.create()
             aggregate_tensor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types: List[Type] = [old_op.input.type]
 
@@ -8881,6 +9516,183 @@ class TTNNBuilder(Builder):
             f"No non-overlapping dimension found for input_rank={input_rank}, "
             f"shard_dims={shard_dims}, composer_dims={composer_dims}"
         )
+
+    ############### ttnn.RMSNormPreAllGatherOp ###############
+
+    @tag(ttnn.RMSNormPreAllGatherOp)
+    def rms_norm_pre_all_gather(
+        self,
+        input: Operand,
+        residual: Optional[Operand] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.rms_norm_pre_all_gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        residual_golden = (
+            self._get_golden_tensor(residual) if residual is not None else None
+        )
+        op_golden_function = get_golden_function(ttnn_op)
+
+        golden_output = op_golden_function(
+            input_golden,
+            residual_golden,
+            mlir_output_type,
+        )
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        output_dtype = self._get_data_type_attribute(input)
+
+        op = ttnn_op(
+            result,
+            input,
+            loc=loc,
+            residual=residual,
+            dtype=output_dtype,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.RMSNormPreAllGatherOp)
+    def rms_norm_pre_all_gather_parser(
+        self,
+        old_op: ttnn.RMSNormPreAllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(
+            TTNNBuilder.rms_norm_pre_all_gather_parser
+        )
+
+        in0 = global_dict[old_op.input]
+        residual = global_dict[old_op.residual] if old_op.residual is not None else None
+        result = old_op.result.type
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            loc=old_op.location,
+            residual=residual,
+            dtype=old_op.dtype,
+            memory_config=old_op.memory_config,
+            compute_config=old_op.compute_config,
+            program_config=old_op.program_config,
+            use_2d_core_grid=old_op.use_2d_core_grid,
+        )
+        new_op_result = new_op.result
+
+        input_golden = self._get_golden_tensor(in0)
+        residual_golden = (
+            self._get_golden_tensor(residual) if residual is not None else None
+        )
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input_golden,
+            residual_golden,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    @split(ttnn.RMSNormPreAllGatherOp)
+    def rms_norm_pre_all_gather_split(
+        self,
+        old_op: ttnn.RMSNormPreAllGatherOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.rms_norm_pre_all_gather_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            rms_norm_pre_all_gather_module = Module.create()
+            rms_norm_pre_all_gather_builder = TTNNBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+            if old_op.residual is not None:
+                op_input_types.append(old_op.residual.type)
+
+            with InsertionPoint(rms_norm_pre_all_gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="rms_norm_pre_all_gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    input_idx = 1
+
+                    residual = None
+                    if old_op.residual is not None:
+                        residual = inputs[input_idx]
+
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        loc=old_op.location,
+                        residual=residual,
+                        dtype=old_op.dtype,
+                        memory_config=old_op.memory_config,
+                        compute_config=old_op.compute_config,
+                        program_config=old_op.program_config,
+                        use_2d_core_grid=old_op.use_2d_core_grid,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    rms_norm_pre_all_gather_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+
+                    input_golden = self._get_golden_tensor(old_op.input)
+                    rms_norm_pre_all_gather_builder._set_golden_tensor(
+                        in0, input_golden
+                    )
+                    rms_norm_pre_all_gather_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+
+                    if old_op.residual is not None:
+                        residual_golden = self._get_golden_tensor(old_op.residual)
+                        rms_norm_pre_all_gather_builder._set_golden_tensor(
+                            residual, residual_golden
+                        )
+                        rms_norm_pre_all_gather_builder._annotate_presharded_arg(
+                            residual
+                        )
+                        ordered_inputs.append(residual)
+
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                rms_norm_pre_all_gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return rms_norm_pre_all_gather_module, rms_norm_pre_all_gather_builder
 
     ############### ttnn.LayerNormPreAllGatherOp ###############
 
@@ -9006,7 +9818,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             layer_norm_pre_all_gather_module = Module.create()
             layer_norm_pre_all_gather_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
             if old_op.residual_input is not None:
@@ -9216,7 +10028,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             layer_norm_post_all_gather_module = Module.create()
             layer_norm_post_all_gather_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type, old_op.stats.type]
             if old_op.weight is not None:
@@ -9310,6 +10122,226 @@ class TTNNBuilder(Builder):
 
         return layer_norm_post_all_gather_module, layer_norm_post_all_gather_builder
 
+    ############### ttnn.GatherOp ###############
+
+    @tag(ttnn.GatherOp)
+    def gather(
+        self,
+        in0: Operand,
+        index: Operand,
+        dim: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
+
+        input0 = self._get_golden_tensor(in0)
+        input_index = self._get_golden_tensor(index)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0,
+            input_index,
+            dim_attr,
+            mlir_output_type,
+        )
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            index,
+            dim_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.GatherOp)
+    def gather_parser(
+        self,
+        old_op: ttnn.GatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.gather_parser)
+
+        in0 = global_dict[old_op.input]
+        index = global_dict[old_op.index]
+        result = old_op.result.type
+        dim_attr = old_op.dim
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            index,
+            dim_attr,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input_index = self._get_golden_tensor(index)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0,
+            input_index,
+            dim_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.GatherOp)
+    def gather_split(
+        self,
+        old_op: ttnn.GatherOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.gather_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            gather_module = Module.create()
+            gather_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type, old_op.index.type]
+
+            with InsertionPoint(gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    index = inputs[1]
+                    result = old_op.result.type
+                    dim_attr = old_op.dim
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        index,
+                        dim_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    input_index = self._get_golden_tensor(old_op.index)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    gather_builder._set_golden_tensor(new_op_result, old_op_result)
+                    gather_builder._set_golden_tensor(in0, input0)
+                    gather_builder._set_golden_tensor(index, input_index)
+                    gather_builder._annotate_presharded_arg(in0)
+                    gather_builder._annotate_presharded_arg(index)
+                    ordered_inputs.extend([in0, index])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return gather_module, gather_builder
+
+    @tag(ttnn.SamplingOp)
+    def sampling(
+        self,
+        input_values: Operand,
+        input_indices: Operand,
+        k: Operand,
+        p: Operand,
+        temp: Operand,
+        seed: Optional[int] = None,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        """Fused top-k + top-p + multinomial sampling on pre-filtered candidates.
+
+        Args:
+            input_values: Candidate logit values [batch=32, candidates] bf16.
+            input_indices: Global vocab indices for candidates [batch=32, candidates] int32.
+            k: Per-request top-k values [batch=32] uint32.
+            p: Per-request top-p values [batch=32] bf16.
+            temp: Per-request temperature values [batch=32] bf16 (1/temperature).
+            seed: Optional random seed for reproducibility.
+        Returns:
+            Sampled global token indices [batch=32] int32.
+        """
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.sampling)
+
+        mlir_output_type = self._get_type_from_torch_dtype(torch.int32)
+
+        vals_golden = self._get_golden_tensor(input_values)
+        idx_golden = self._get_golden_tensor(input_indices)
+        k_golden = self._get_golden_tensor(k)
+        p_golden = self._get_golden_tensor(p)
+        temp_golden = self._get_golden_tensor(temp)
+
+        seed_attr = None
+        if seed is not None:
+            seed_attr = IntegerAttr.get(IntegerType.get_unsigned(32), seed)
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            vals_golden,
+            idx_golden,
+            k_golden,
+            p_golden,
+            temp_golden,
+            seed_attr,
+            mlir_output_type,
+        )
+
+        batch = vals_golden.shape[0]
+        result = self.create_ttnn_tensor([batch], mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            input_values,
+            input_indices,
+            k,
+            p,
+            temp,
+            seed=seed_attr,
+            loc=loc,
+        )
+        op_result = op.result
+        self._set_golden_tensor(op_result, golden_output)
+        return op_result
+
     ############### ttnn.AllGatherOp ###############
 
     @tag(ttnn.AllGatherOp)
@@ -9339,8 +10371,11 @@ class TTNNBuilder(Builder):
         golden_output = op_golden_function(
             input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
         )
-        result = self._create_dram_tiled_ttnn_tensor(
-            golden_output.shape, mlir_output_type
+        result = self.create_ttnn_tensor(
+            golden_output.shape,
+            mlir_output_type,
+            ttnn.Layout.Tile,
+            ttnn.BufferType.DRAM,
         )
 
         if loc is None:
@@ -9415,7 +10450,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             all_gather_module = Module.create()
             all_gather_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -9495,8 +10530,11 @@ class TTNNBuilder(Builder):
             cluster_axis_attr,
             mlir_output_type,
         )
-        result = self._create_dram_tiled_ttnn_tensor(
-            golden_output.shape, mlir_output_type
+        result = self.create_ttnn_tensor(
+            golden_output.shape,
+            mlir_output_type,
+            ttnn.Layout.Tile,
+            ttnn.BufferType.DRAM,
         )
 
         if loc is None:
@@ -9576,7 +10614,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             reduce_scatter_module = Module.create()
             reduce_scatter_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 

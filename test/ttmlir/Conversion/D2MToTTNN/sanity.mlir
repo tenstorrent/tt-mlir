@@ -1,8 +1,9 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-to-ttmetal-be-pipeline="ttnn-mode=true" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --d2m-to-ttkernel-pipeline="ttnn-mode=true" --d2m-to-ttnn-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
+#l1_mem = #ttcore.memory_space<l1>
 
 #core_range = #ttnn.core_range<(0,0), (0,0)>
 #core_ranges = #ttnn.core_range_set<[#core_range]>
@@ -19,15 +20,15 @@
 // Layout for single tile in L1
 #l1_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
-  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
-  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
+  <1x1>,
+  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = #core_ranges
   >
 
 // BF16 tile layout (dtype must match memref element type for ttnn.full / empty).
 #l1_layout_bf16 = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
-  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
-  memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>
+  <1x1>,
+  memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #core_ranges
   >
 
 module {
@@ -60,16 +61,30 @@ module {
     // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>]
     // CHECK-SAME: common_rt_args = []
     // CHECK-SAME: page_size = 4096
+    %sem0 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %sem1 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %sem2 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %sem3 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %cb_0 = d2m.operand_alias %view_input : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_mem>
+    %cb_1 = d2m.operand_alias %view_output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_mem>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @read_kernel>, #d2m.thread<datamovement, @write_kernel>, #d2m.thread<compute, @compute_kernel0>]}
         ins(%view_input : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
         outs(%view_output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
+    additionalArgs(%sem0, %sem1, %sem2, %sem3, %cb_0, %cb_1 : !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_mem>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_mem>)
 
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>
     // CHECK-SAME: buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<1>>
+    %sem4 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %sem5 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %sem6 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %sem7 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %cb_2 = d2m.operand_alias %metal_input_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_mem>
+    %cb_3 = d2m.operand_alias %metal_output_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_mem>
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @read_kernel>, #d2m.thread<datamovement, @write_kernel>, #d2m.thread<compute, @compute_kernel0>]}
         ins(%metal_input_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
         outs(%metal_output_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
+    additionalArgs(%sem4, %sem5, %sem6, %sem7, %cb_2, %cb_3 : !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_mem>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_mem>)
 
     // CHECK-NOT: ttir.ttnn_metal_layout_cast
     %output_l1 = ttir.ttnn_metal_layout_cast %metal_output_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>> -> tensor<32x32xf32, #l1_layout>
@@ -93,9 +108,9 @@ module {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       rt_args = [<arg_type = buffer_address, operand_index = 0>]
       ct_args = [
-        <arg_type = cb_port, operand_index = 0>,
-        <arg_type = semaphore, operand_index = 0>,
-        <arg_type = semaphore, operand_index = 1>
+        <arg_type = cb_port, operand_index = 6>,
+        <arg_type = local_semaphore, operand_index = 0>,
+        <arg_type = local_semaphore, operand_index = 1>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<noc>
@@ -105,8 +120,8 @@ module {
   func.func private @compute_kernel0() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       ct_args = [
-        <arg_type = cb_port, operand_index = 0>,
-        <arg_type = cb_port, operand_index = 1>
+        <arg_type = cb_port, operand_index = 6>,
+        <arg_type = cb_port, operand_index = 7>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<compute>
@@ -117,9 +132,9 @@ module {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       rt_args = [<arg_type = buffer_address, operand_index = 1>]
       ct_args = [
-        <arg_type = cb_port, operand_index = 1>,
-        <arg_type = semaphore, operand_index = 2>,
-        <arg_type = semaphore, operand_index = 3>
+        <arg_type = cb_port, operand_index = 7>,
+        <arg_type = local_semaphore, operand_index = 2>,
+        <arg_type = local_semaphore, operand_index = 3>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<noc>

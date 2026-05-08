@@ -38,9 +38,9 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     }];
 }
 
-def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
+def TTKernel_LocalSemaphore : TTKernel_Type<"LocalSemaphore", "local_semaphore"> {
   let summary = "TTKernel semaphore";
-  let description = "Semaphore type in TTKernel dialect";
+  let description = "Local semaphore type in TTKernel dialect";
 }
 
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedLayerNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -22,6 +23,9 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<decomposition::DistributedRMSNormDecompositionRewritePattern>(
         &getContext());
+    patterns
+        .add<decomposition::DistributedLayerNormDecompositionRewritePattern>(
+            &getContext());
 
     FrozenRewritePatternSet patternSet(std::move(patterns));
     GreedyRewriteConfig config;

@@ -71,6 +71,17 @@ table DistributedRMSNormOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table RMSNormPreAllGatherOp {
+  input: tt.target.ttnn.TensorRef;
+  dtype: tt.target.DataType;
+  residual: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  program_config: tt.target.ttnn.LayerNormShardedMultiCoreProgramConfig;
+  use_2d_core_grid : bool;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table LayerNormOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;

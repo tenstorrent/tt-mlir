@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttcore-register-device --canonicalize --ttir-bufferization-pipeline --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops --d2m-allocate --d2m-lower-multicast-loads --d2m-generic-lower-to-explicit-form --canonicalize --d2m-be-pipeline --d2m-to-ttkernel-pipeline --d2m-to-ttmetal-pipeline %s | FileCheck %s
 
 // Test for d2m.create_global_semaphore and global semaphore operands in d2m.generic.
 // This tests:
@@ -13,7 +13,7 @@
 #sem_layout = #ttcore.metal_layout<logical_shape = 8x8, dim_alignments = 1x1, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK-LABEL: func.func @generic_with_global_semaphore
   func.func @generic_with_global_semaphore(
     %arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
@@ -40,8 +40,6 @@ module {
       threads = [#d2m.thread<unified>]
     }> ({
     ^unified0:
-      %cb_in = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
-      %cb_out = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       %c2 = arith.constant 2 : index
@@ -70,8 +68,8 @@ module {
             : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
               tensor<2x2x!ttcore.tile<32x32, f32>>
             -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
-        }
-      }
+        } { d2m.blocking_loop = 2 : i64}
+      } { d2m.blocking_loop = 2 : i64}
 
       d2m.semaphore_wait %sem, %c1 : !d2m.global_semaphore
 

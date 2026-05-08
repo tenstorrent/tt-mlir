@@ -46,6 +46,16 @@ table TopKOp {
   outputs: [tt.target.ttnn.TensorRef];
 }
 
+table SamplingOp {
+  input_values: tt.target.ttnn.TensorRef;
+  input_indices: tt.target.ttnn.TensorRef;
+  k: tt.target.ttnn.TensorRef;
+  p: tt.target.ttnn.TensorRef;
+  temp: tt.target.ttnn.TensorRef;
+  seed: uint32 = null;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table TopKRouterGptOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;

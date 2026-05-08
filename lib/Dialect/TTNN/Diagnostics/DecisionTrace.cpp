@@ -35,16 +35,14 @@ std::string layoutToString(TTNNLayoutAttr layout) {
   }
 
   // Grid shape for sharded layouts.
-  if (auto grid = layout.getGrid()) {
-    auto shape = grid.getShape();
-    if (!shape.empty()) {
-      os << "/";
-      for (size_t i = 0; i < shape.size(); ++i) {
-        if (i > 0) {
-          os << "x";
-        }
-        os << shape[i];
+  auto shape = layout.getGridShape();
+  if (!shape.empty()) {
+    os << "/";
+    for (size_t i = 0; i < shape.size(); ++i) {
+      if (i > 0) {
+        os << "x";
       }
+      os << shape[i];
     }
   }
 

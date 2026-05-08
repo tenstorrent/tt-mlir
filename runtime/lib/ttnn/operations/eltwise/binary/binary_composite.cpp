@@ -77,9 +77,12 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
-    runEltwiseBinaryCompositeOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::remainder(std::forward<decltype(args)>(args)...);
-    });
+    runEltwiseBinaryCompositeOp(
+        op, tensorPool,
+        [](const ::ttnn::Tensor &lhs, const ::ttnn::Tensor &rhs,
+           const std::optional<::ttnn::MemoryConfig> &memCfg) {
+          return ::ttnn::remainder(lhs, rhs, std::nullopt, memCfg);
+        });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow: {

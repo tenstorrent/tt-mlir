@@ -251,8 +251,8 @@ void ResponseFactory::buildGetTensorDescResponse(
 
   // Create TensorDescFlat FlatBuffer object
   auto tensorDescFlatOffset = fb::CreateTensorDescFlat(
-      fbb, shapeOffset, tensorDesc.dataType, tensorDesc.itemsize, strideOffset,
-      tensorDesc.physicalVolume);
+      fbb, shapeOffset, tensorDesc.dataType, tensorDesc.elementSize(),
+      strideOffset, tensorDesc.physicalVolume);
 
   BUILD_RESPONSE(GetTensorDesc, fbb, commandId, tensorDescFlatOffset);
 }

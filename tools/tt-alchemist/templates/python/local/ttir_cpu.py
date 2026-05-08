@@ -103,6 +103,10 @@ def asin(t, **_):
     return torch.asin(t)
 
 
+def asinh(t, **_):
+    return torch.asinh(t)
+
+
 def atan(t, **_):
     return torch.atan(t)
 

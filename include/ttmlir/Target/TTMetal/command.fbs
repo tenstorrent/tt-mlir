@@ -31,6 +31,10 @@ table ResetGlobalSemaphoreCommand {
   value: uint32;
 }
 
+table CreateLocalSemaphoreCommand {
+  ref: LocalSemaphoreRef;
+}
+
 table EnqueueWriteBufferCommand {
   src: BufferRef;
   dst: BufferRef;
@@ -95,6 +99,7 @@ union CommandType {
   DeallocateBufferCommand,
   CreateGlobalSemaphoreCommand,
   ResetGlobalSemaphoreCommand,
+  CreateLocalSemaphoreCommand,
   EnqueueRecordEventCommand,
   EnqueueWaitForEventCommand,
   EventSynchronizeCommand,

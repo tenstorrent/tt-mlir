@@ -29,9 +29,9 @@ def D2M_MemTx : D2M_Type<"MemTx", "mem_tx"> {
     let assemblyFormat = "`<` $dmaType `>`";
 }
 
-def D2M_Semaphore : D2M_Type<"Semaphore", "semaphore"> {
-    let summary = "D2M semaphore type.";
-    let description = "Semaphore primitive type used with semaphore ops to synchronize cores.";
+def D2M_LocalSemaphore : D2M_Type<"LocalSemaphore", "local_semaphore"> {
+    let summary = "D2M local semaphore type.";
+    let description = "Local semaphore primitive type used with semaphore ops to synchronize cores.";
 }
 
 def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLikeTypeInterface, Bufferization_BufferLikeTypeInterface]> {

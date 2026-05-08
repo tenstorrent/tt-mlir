@@ -37,9 +37,11 @@ module {
       %r = "d2m.tile_exp"(%v) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
       affine.store %r, %cb1[0, 0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
     }
-    // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<4x!ttcore.tile<32x32, f32>, #dst>
-    // CB -> DST load:
+    // CB load happens before acquire_dst (acquire_dst is moved to just before
+    // its first user so SplitUnifiedThread can keep compute ops contiguous):
     // CHECK: %[[CB_VAL:.*]] = affine.load %{{.*}}[0, 0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<4x!ttcore.tile<32x32, f32>, #dst>
+    // CB -> DST:
     // CHECK: affine.store %[[CB_VAL]], %[[DST]][0] : memref<4x!ttcore.tile<32x32, f32>, #dst>
     // Compute in DST:
     // CHECK: %[[DST_VAL:.*]] = affine.load %[[DST]][0] : memref<4x!ttcore.tile<32x32, f32>, #dst>
@@ -77,9 +79,11 @@ module {
       %r = "d2m.tile_maximum"(%a, %b) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
       affine.store %r, %cb2[0, 0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
     }
-    // CHECK: d2m.acquire_dst() : memref<4x!ttcore.tile<32x32, f32>, #dst>
-    // Two CB -> DST loads:
+    // First CB load happens before acquire_dst (see unary case above for
+    // rationale).  acquire_dst lands between the first CB load and the first
+    // CB->DST store, then the second CB load follows.
     // CHECK: affine.load %{{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: d2m.acquire_dst() : memref<4x!ttcore.tile<32x32, f32>, #dst>
     // CHECK: affine.store %{{.*}}, %{{.*}} : memref<4x!ttcore.tile<32x32, f32>, #dst>
     // CHECK: affine.load %{{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
     // CHECK: affine.store %{{.*}}, %{{.*}} : memref<4x!ttcore.tile<32x32, f32>, #dst>

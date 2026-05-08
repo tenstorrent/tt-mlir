@@ -46,6 +46,10 @@ def asin(in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = N
     return asin_0
 
 
+def asinh(in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.asinh(in0, unit_attrs=unit_attrs)
+
+
 def atan(in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.atan(in0, unit_attrs=unit_attrs)
 
@@ -239,6 +243,7 @@ unary_ops = [
     abs,
     acos,
     asin,
+    asinh,
     atan,
     cbrt,
     ceil,

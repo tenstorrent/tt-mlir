@@ -4,78 +4,13 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
-#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICREGIONSTOFUNCS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
-
-static std::optional<unsigned> getCapturedOperandIndex(GenericOp op,
-                                                       Value operand) {
-  for (OpOperand &opOperand : op->getOpOperands()) {
-    if (opOperand.get() == operand) {
-      return opOperand.getOperandNumber();
-    }
-  }
-  return std::nullopt;
-}
-
-static void rewriteOperand(OpBuilder &builder, DMAOpInterface dma,
-                           OpOperand &dmaOperand, unsigned operandIndex) {
-  MemRefType memref = mlir::cast<MemRefType>(dmaOperand.get().getType());
-  AffineMap affineMapView = builder.getMultiDimIdentityMap(memref.getRank());
-  if (dmaOperand.get().getDefiningOp()) {
-    std::tie(memref, affineMapView) =
-        applyViews(dmaOperand.get().getDefiningOp());
-  }
-  Operation *globalOperand =
-      builder.create<GetGlobalOperandOp>(dma.getLoc(), memref, operandIndex);
-  dmaOperand.set(globalOperand->getResult(0));
-}
-
-static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
-                                       DMAOpInterface dma) {
-
-  auto srcIndex = getCapturedOperandIndex(generic, dma.getSrc());
-  auto dstIndex = getCapturedOperandIndex(generic, dma.getDst());
-
-  builder.setInsertionPoint(dma);
-  if (srcIndex) {
-    rewriteOperand(builder, dma, dma.getSrcMutable(), *srcIndex);
-  }
-
-  if (dstIndex) {
-    rewriteOperand(builder, dma, dma.getDstMutable(), *dstIndex);
-  }
-}
-
-static void rewriteAdditionalArgOperands(OpBuilder &builder,
-                                         GenericOp generic) {
-  //  Get all uses of additional arg
-  //  operands that are not the generic operation itself.
-  for (auto [idx, operand] : llvm::enumerate(generic.getAdditionalArgs())) {
-    unsigned capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
-    for (OpOperand &use : llvm::make_early_inc_range(operand.getUses())) {
-      if (use.getOwner() != generic.getOperation() &&
-          generic->isAncestor(use.getOwner())) {
-        builder.setInsertionPoint(use.getOwner());
-        //  And insert a get_global_operand op where the generic operand is being used.
-        auto globalOperand = builder.create<GetGlobalOperandOp>(
-            use.getOwner()->getLoc(), operand.getType(), capturedOperandIndex);
-        use.set(globalOperand.getResult());
-      }
-    }
-  }
-}
 
 namespace {
 class D2MGenericRegionsToFuncs
@@ -89,11 +24,6 @@ public:
     OpBuilder builder(&getContext());
     int unique = 0;
     moduleOp->walk([&](GenericOp generic) {
-      generic.walk([&](DMAOpInterface dma) {
-        rewriteCapturedDMAOperands(builder, generic, dma);
-      });
-      rewriteAdditionalArgOperands(builder, generic);
-
       SmallVector<Attribute> threads;
       auto origThreads = generic.getThreadsAttr().getValue();
       for (Region &region : generic.getRegions()) {
@@ -132,7 +62,6 @@ public:
           generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
           generic.getBlockFactors(), generic.getIndexingMaps(),
           generic.getIteratorTypes(), builder.getArrayAttr(threads),
-          generic.getScratchInputsAttr(),
           generic.getFabricConnectionConfigAttr(),
           /*numRegions*/ 0);
 

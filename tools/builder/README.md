@@ -5,7 +5,7 @@
 ## import relevant packages
 
 ```python
-from ttmlir.passes import ttir_to_ttnn_backend_pipeline
+from ttmlir.passes import ttir_to_ttnn_runtime_pipeline
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.ttnn.ttnn_builder import TTNNBuilder
@@ -613,6 +613,39 @@ compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_module_t
 )
 
 execute_fb(compiled_bin, input_output_goldens, intermediate_goldens, device=device)
+
+tt_runtime.runtime.close_mesh_device(device)
+```
+
+## load and execute a pre-compiled flatbuffer
+
+```python
+import torch
+from builder.base.builder_runtime import execute_fb, GoldenMapTensor
+import _ttmlir_runtime as tt_runtime
+
+# Prepare your input and expected output tensors
+input0 = torch.rand([128, 128], dtype=torch.float32)
+output0 = torch.abs(input0)
+
+# Create golden tensors dictionary
+# Format: {program_index: {"input_N": GoldenMapTensor, "output_N": GoldenMapTensor}}
+input_output_goldens = {
+    0: {
+        "input_0": GoldenMapTensor({0: input0}, (1, 1)),
+        "output_0": GoldenMapTensor({0: output0}, (1, 1)),
+    }
+}
+
+tt_runtime.runtime.set_current_device_runtime(tt_runtime.runtime.DeviceRuntime.TTNN)
+mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+mesh_options.mesh_shape = (1, 1)
+device = tt_runtime.runtime.open_mesh_device(mesh_options)
+
+bin = tt_runtime.binary.load_binary_from_path("abs_module.ttnn")
+
+execute_fb(bin, input_output_goldens=input_output_goldens, device=device)
 
 tt_runtime.runtime.close_mesh_device(device)
 ```

@@ -20,6 +20,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
@@ -61,7 +63,7 @@ public:
     rowMajorEnabled = opts.rowMajorEnabled;
     beamWidth = opts.beamWidth;
     maxInputCandidatesPerOperand = opts.maxInputCandidatesPerOperand;
-    maxReshardCandidates = opts.maxReshardCandidates;
+    maxReshardCandidatesPerType = opts.maxReshardCandidatesPerType;
     enableL1ShardingLayouts = opts.enableL1ShardingLayouts;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
@@ -124,7 +126,14 @@ public:
       }
 
       func->walk([&](Operation *op) {
-        if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
+        if (!optimizer_utils::opHasTensorResult(op)) {
+          // Constraint sinks (FillCacheOp, PagedUpdateCacheOp) have no tensor
+          // result but still need input layout validation. Register a
+          // null-output OpConfig so processOp can validate their input
+          // combinations and drive upstream reshards.
+          if (mlir::dyn_cast<OpModel>(op) && optimizer_utils::isSinkOp(op)) {
+            legalConfigs[op] = {OpConfig{TTNNLayoutAttr()}};
+          }
           return;
         }
         // Skip ops that don't implement the OpModel interface (e.g.,
@@ -183,11 +192,16 @@ public:
       }
 
       MemoryLayoutPropagation propagation(
-          func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
+          func, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
-          static_cast<size_t>(maxReshardCandidates), std::move(observer));
+          static_cast<size_t>(maxReshardCandidatesPerType),
+          std::move(observer));
       propagation.run();
+
+      // Sync D2M subgraph function types to match dispatch op's current inputs
+      // (e.g. after reshard insertion, operand types may have changed).
+      d2m_optimizer_utils::syncAllD2MFuncTypes(func);
 
       // Write decision trace JSON if enabled.
       if (enableDecisionTrace) {

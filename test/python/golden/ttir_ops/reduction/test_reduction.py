@@ -44,7 +44,21 @@ dim_arg_options = [
 
 
 @pytest.mark.parametrize("shapes", [[(32, 128, 128)], [(1, 1, 1)]], ids=shapes_list_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32
+        | Marks(
+            pytest.mark.xfail(
+                reason="Integer reductions route through fp32 workaround; full-range int32 inputs (~±2^31) exceed fp32's exact-int range (2^24). Needs native int reduction (tt-metal#21071).",
+                strict=False,
+            )
+        ),
+    ],
+    ids=["f32", "bf16", "i32"],
+)
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_names)
@@ -105,7 +119,7 @@ reduction_op_cpu_hoisted_names = [
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_cpu_hoisted_names)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_reduction_cpu_hoisted_ops(
     shape,
     dtype: torch.dtype,
@@ -190,7 +204,7 @@ def test_cumsum(shapes: List[Shape], dim: int, request, target, device):
     ids=["dim1", "dim0", "dim_negative"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_cumsum(
     shapes: List[Shape],
     dim: int,

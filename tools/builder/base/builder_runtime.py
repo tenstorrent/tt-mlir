@@ -16,6 +16,7 @@ from functools import partial
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
+from golden import get_atol_rtol_pcc
 
 import _ttmlir_runtime as tt_runtime
 
@@ -182,105 +183,6 @@ def program_inputs_as_dict(bin, index):
 
 def program_outputs_as_dict(bin, index):
     return json_string_as_dict(bin.get_program_outputs_as_json(index))
-
-
-def mask_torch_inf_nan(tensor):
-    tensor[
-        torch.logical_or(
-            torch.isnan(tensor),
-            torch.logical_or(torch.isinf(tensor), torch.isneginf(tensor)),
-        )
-    ] = 0
-    return tensor
-
-
-def get_atol_rtol_pcc(golden, calculated, atol, rtol):
-    # Clone tensors to avoid modifying the originals
-    golden = golden.clone()
-    calculated = calculated.clone()
-    if not torch.is_floating_point(golden):
-        golden = golden.to(torch.float64)
-    if not torch.is_floating_point(calculated):
-        calculated = calculated.to(torch.float64)
-
-    if golden.numel() == 0 or calculated.numel() == 0:
-        cal_atol = 0.0
-        cal_rtol = 0.0
-    else:
-        cal_atol = torch.max(torch.abs(golden - calculated)).item()
-        cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
-
-    def get_pcc(golden, calculated):
-        if golden.numel() == 0 and calculated.numel() == 0:
-            if golden.shape == calculated.shape:
-                return 1.0
-            else:
-                return 0.0
-        elif golden.numel() == 0 or calculated.numel() == 0:
-            return 0.0
-        if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
-            return 1.0
-        elif torch.any(golden.bool()) != torch.any(calculated.bool()):
-            return 0.0
-        elif torch.all(torch.isnan(golden)) or torch.all(torch.isnan(calculated)):
-            return 0.0
-        else:
-            golden = mask_torch_inf_nan(golden)
-            calculated = mask_torch_inf_nan(calculated)
-
-            if torch.equal(golden, calculated):
-                return 1.0
-
-            if golden.dtype == torch.bfloat16:
-                golden = golden.type(torch.float32)
-            if calculated.dtype == torch.bfloat16:
-                calculated = calculated.type(torch.float32)
-
-            if golden.numel() == 1:
-                return float(torch.isclose(golden, calculated, atol=atol, rtol=rtol))
-
-            if torch.max(golden) == torch.min(golden) and torch.max(
-                calculated
-            ) == torch.min(calculated):
-                return float(
-                    torch.isclose(
-                        torch.max(golden), torch.max(calculated), atol=atol, rtol=rtol
-                    ).item()
-                )
-
-            cal_pcc = np.ma.corrcoef(
-                np.ma.masked_invalid(torch.squeeze(golden).detach().numpy()).flatten(),
-                np.ma.masked_invalid(
-                    torch.squeeze(calculated).detach().numpy()
-                ).flatten(),
-            )
-            mask = np.ones(cal_pcc.shape, dtype=bool)
-            np.fill_diagonal(mask, 0)
-            cal_pcc = np.min(cal_pcc[mask])
-
-            if isinstance(cal_pcc, np.ma.core.MaskedConstant):
-                return 1.0
-
-            return cal_pcc
-
-    if golden.numel() == 1 and golden.item() != 0:
-        cal_pcc = (
-            1.0
-            if torch.nn.functional.cosine_similarity(
-                golden.float().unsqueeze(0),
-                calculated.float().unsqueeze(0),
-                dim=0,
-            ).item()
-            else 0.0
-        )
-    else:
-        cal_pcc = get_pcc(golden, calculated)
-
-    return (
-        cal_atol,
-        cal_rtol,
-        cal_pcc,
-    )
 
 
 def check_outputs(
@@ -523,16 +425,16 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
             # Bypass the runtime tensor by replacing it with the intermediate golden tensor if the op is in the bypass list
             if loc in callback_runtime_config.bypass_ops:
-                output_tensor_ref = tt_runtime.runtime.get_op_output_ref(
-                    op_context, program_context
-                )
-                tensor = tt_runtime.runtime.retrieve_tensor_from_pool(
-                    program_context, output_tensor_ref
-                )
-                update_device_tensor(
-                    program_context, output_tensor_ref, tensor, golden_tensor_torch
-                )
-                results["bypassed"] = "True"
+                output_tensor_refs = tt_runtime.runtime.get_op_output_refs(op_context)
+                if output_tensor_refs:
+                    output_tensor_ref = output_tensor_refs[0]
+                    tensor = tt_runtime.runtime.retrieve_tensor_from_pool(
+                        program_context, output_tensor_ref
+                    )
+                    update_device_tensor(
+                        program_context, output_tensor_ref, tensor, golden_tensor_torch
+                    )
+                    results["bypassed"] = "True"
 
             device_results[device_id] = results
         except Exception as e:
@@ -578,14 +480,6 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     op_memory_report["trace"] = create_memory_dictionary(trace_memory_view)
 
     callback_runtime_config.memory_report.append(op_memory_report)
-
-
-def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-    pass
-
-
-def pre_op_get_callback_fn(callback_runtime_config):
-    return partial(pre_op_callback, callback_runtime_config)
 
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
@@ -687,21 +581,36 @@ def execute_fb(
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
-    fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
+    fbb = None
+    if type(compiled_bin).__name__ == "PyCapsule":
+        fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
+    elif isinstance(compiled_bin, tt_runtime.binary.Binary):
+        fbb = compiled_bin
+    else:
+        raise ValueError(
+            f"Unsupported compiled_bin type: {type(compiled_bin)}, expected PyCapsule or Binary."
+        )
+
     program_indices = range(fbb.get_num_programs())
-    golden_input_output_tensors = convert_golden_input_output_to_torch(
-        input_output_goldens
-    )
-    golden_intermediate_torch_tensors = convert_golden_intermediates_to_torch(
-        intermediate_goldens
-    )
+    golden_input_output_tensors = {}
+    if input_output_goldens is not None:
+        golden_input_output_tensors = convert_golden_input_output_to_torch(
+            input_output_goldens
+        )
+    else:
+        disable_golden = True
+
+    golden_intermediate_torch_tensors = {}
+    if intermediate_goldens is not None:
+        golden_intermediate_torch_tensors = convert_golden_intermediates_to_torch(
+            intermediate_goldens
+        )
+
     output_tensors = {}
     golden_report = {}
     if bypass_ops is None:
         bypass_ops = []
     verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
-    if input_output_goldens is None:
-        disable_golden = True
 
     callback_runtime_config = CallbackRuntimeConfig(
         device=device,
@@ -721,8 +630,7 @@ def execute_fb(
 
     if verify_intermediates or dump_memory:
         tt_runtime.runtime.DebugHooks.get(
-            pre_op_get_callback_fn(callback_runtime_config),
-            post_op_get_callback_fn(callback_runtime_config),
+            post_op=post_op_get_callback_fn(callback_runtime_config),
         )
 
     for program_index in program_indices:
@@ -753,7 +661,17 @@ def execute_fb(
                         i_dict["desc"]["layout"]["memory_desc"]["data_type"]
                     ),
                 )
-                golden_inputs_torch.append(torch_tensor)
+                if i_dict["desc"]["shard_status"] == "Unsharded":
+                    golden_inputs_torch.append({0: torch_tensor.clone()})
+                else:
+                    golden_inputs_torch.append(
+                        {
+                            i: torch_tensor.clone()
+                            for i in range(
+                                device.get_mesh_shape()[0] * device.get_mesh_shape()[1]
+                            )
+                        }
+                    )
 
         inputs = []
         for i in golden_inputs_torch:
@@ -775,9 +693,8 @@ def execute_fb(
             )
             tt_runtime.runtime.wait(runtime_outputs)
         except Exception as e:
-            raise TTBuilderRuntimeException(e)
-        finally:
             tt_runtime.runtime.unregister_hooks()
+            raise TTBuilderRuntimeException(e)
 
         golden_outputs_torch = []
         outputs_torch = []
@@ -898,6 +815,9 @@ def execute_fb(
 
             golden_report[f"program_{program_index}"] = program_golden_report
             output_tensors[f"program_{program_index}"] = program_output_tensors
+
+    if verify_intermediates or dump_memory:
+        tt_runtime.runtime.unregister_hooks()
 
     return golden_report, output_tensors
 

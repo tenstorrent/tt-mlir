@@ -11,10 +11,6 @@
 
 namespace mlir::tt::d2m {
 
-namespace detail {
-mlir::LogicalResult verifyGenericParent(mlir::Operation *op);
-} // namespace detail
-
 std::pair<mlir::MemRefType, mlir::AffineMap> applyViews(mlir::Operation *op);
 
 } // namespace mlir::tt::d2m

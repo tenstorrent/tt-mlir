@@ -176,6 +176,22 @@ bool hasTileMatmul(Operation *op) {
       .wasInterrupted();
 }
 
+bool isTileReductionOp(Operation *op) {
+  return mlir::isa<d2m::TileReduceMaxOp, d2m::TileReduceSumOp,
+                   d2m::TileReduceMeanOp, d2m::TileSFPUReduceMaxOp,
+                   d2m::TileSFPUReduceSumOp>(op);
+}
+
+void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
+                        int scratchSlice) {
+  TT_assertv(computeOp.getNumDstScratchSlices() == 1,
+             "setDstScratchIndex supports exactly one scratch slice");
+  Operation *op = computeOp.getOperation();
+  op->setAttr("dst_scratch_index",
+              mlir::IntegerAttr::get(
+                  mlir::IntegerType::get(op->getContext(), 64), scratchSlice));
+}
+
 static Value getSecondIterationValue(PatternRewriter &rewriter, Location loc,
                                      Value loopIV) {
   auto one = rewriter.create<arith::ConstantOp>(
@@ -339,17 +355,12 @@ Value lookThroughSubView(Value memref) {
   if (auto *definingOp = memref.getDefiningOp()) {
     if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
       memref = definingOp->getOperand(0);
-    } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
-      Value assocOperand = GenericOp::findAssocOperand(allocOp);
-      if (!assocOperand) {
-        return nullptr;
-      }
-      Value cb =
-          GenericOp::findAssocCBByOperand(allocOp.getOperation(), assocOperand);
-      if (cb) {
-        return cb;
-      }
-      return nullptr;
+    } else if (mlir::isa<memref::AllocOp>(definingOp)) {
+      // Post-SplitUnifiedThread refactor (#8135): scratch/aliased allocs are
+      // not reliably traceable to a CB via `findAssocOperand`, so treat any
+      // `memref.alloc` we walk down to as a logical CB (non-null result
+      // means "emit guards"). The previous CB lookup is no longer needed.
+      return memref;
     }
   }
   if (mlir::isa<CBType>(memref.getType())) {
@@ -1017,6 +1028,20 @@ bool insertDstRegisterAccessFinalize(
 
   // Fix intermediate DST results.
   fixDstIntermediateResults(rewriter, loc, dst, dstIntermediates);
+
+  // When there's no outermost compute loop (loop was canonicalized away),
+  // the acquire_dst may have been placed at the start of the region before
+  // remote_load ops. Move it to just before its first use to ensure compute
+  // ops are contiguous (important for SplitUnifiedThread which separates out
+  // contiguous regions of compute ops into synchronized regions). When there
+  // IS an outermost compute loop, the insertion point was already set
+  // correctly (inside or before the loop body), so no move is needed.
+  if (!outermostInnerComputeLoop) {
+    if (Operation *firstUser =
+            ttmlir::utils::findFirstUserInBlock(acquireDst)) {
+      acquireDst->moveBefore(firstUser);
+    }
+  }
 
   return true;
 }

@@ -355,7 +355,7 @@ struct TypeName<::ttnn::QueueId> {
 
 template <>
 struct TypeName<::ttnn::MathFidelity> {
-  inline static const std::string value = "::MathFidelity";
+  inline static const std::string value = "::tt::tt_metal::MathFidelity";
 };
 
 template <>
@@ -1920,6 +1920,11 @@ inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "::ttnn::getScalarFromTensor";
 
+// Name for the function that creates a GlobalSemaphore from a tensor's shard
+// spec.
+inline constexpr const char *kCreateGlobalSemaphoreFunctionName =
+    "::ttnn::createGlobalSemaphore";
+
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:
@@ -2381,16 +2386,8 @@ public:
     auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
 
-    ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
-        layoutAttr.getContext(), layoutAttr.getBufferType());
-    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
-        ttnn::utils::createShardSpecIfNeeded(layoutAttr,
-                                             deviceAttr.getWorkerGrid()));
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(layoutAttr);
 
     return emit(memoryConfigAttr);
   }

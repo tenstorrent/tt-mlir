@@ -14,6 +14,8 @@ def D2M_ReduceDimAttr : EnumAttr<D2M_Dialect, D2M_ReduceDim, "reduce_dim">;
 
 def D2M_TileBcastTypeAttr : EnumAttr<D2M_Dialect, D2M_TileBcastType, "tile_bcast_type">;
 
+def D2M_ResolutionStageAttr : EnumAttr<D2M_Dialect, D2M_ResolutionStage, "resolution_stage">;
+
 def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
   let mnemonic = "thread";
   let summary = "Thread information for a generic op.";
@@ -28,7 +30,11 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
     DefaultValuedParameter<"int32_t", "-1">:$nocIndex
   );
 
-  let assemblyFormat = [{ `<` $threadType (`,` $kernelSymbol^)? (`,` `noc` `=` $nocIndex^)? `>` }];
+  // Format: `<` threadType (`,` kernelSymbol)? (`,` `noc` `=` nocIndex)? `>`.
+  // Both optional groups start with `,`, which the declarative format cannot
+  // disambiguate, so we hand-roll the parser to peek for the `noc` keyword
+  // after a comma and pick the right branch.
+  let hasCustomAssemblyFormat = 1;
 
   let extraClassDeclaration = [{
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {

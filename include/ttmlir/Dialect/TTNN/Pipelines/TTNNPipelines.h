@@ -8,10 +8,10 @@
 #include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
-#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
@@ -21,10 +21,26 @@ class MeshDevice;
 } // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn {
-// TTIR to TTNN Device pipeline options.
+// ============================================================
+// TTIRToTTNNCommonPipeline - baseline pipeline for lowering TTIR to TTNN.
 //
-struct TTIRToTTNNDevicePipelineOptions
-    : public PassPipelineOptions<TTIRToTTNNDevicePipelineOptions> {
+// It performs the actual heavy-lifting for the TTIR -> TTNN conversion -
+// decompositions, TTIR -> TTNN dialect conversion, optimizer, fusings...
+//
+// Target-specific pipelines (Runtime, EmitPy, EmitC) latch onto the output of
+// this pipeline and perform additional passes, as required by targets.
+//
+// If CPU-hoisting is enabled, `ttcore.cpu_module` op gets created
+// (if it doesn't already exist) and gets populated with TTIR ops.
+// These ops don't get lowered to TTNN, and it's up to the
+// target-specific pipelines to lower these TTIR ops to ops executable on the
+// host CPU, since each target handles CPU-hoisting differently.
+// ============================================================
+
+// TTIR to TTNN common pipeline options.
+//
+struct TTIRToTTNNCommonPipelineOptions
+    : public PassPipelineOptions<TTIRToTTNNCommonPipelineOptions> {
   // Optimization level controls multiple optimization passes.
   // Level 0 (default): All optimizer passes disabled.
   // Level 1: All optimizer passes enabled. Memory layout analysis is disabled.
@@ -282,9 +298,22 @@ struct TTIRToTTNNDevicePipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
-  Option<bool> enableD2MFusing{*this, "enable-d2m-fusing-pass",
-                               llvm::cl::desc("Enable D2M fusing pass."),
-                               llvm::cl::init(false)};
+  // Enable the TTNNCreateD2MSubgraphs pass. This pass finds maximal chains
+  // of elementwise TTNN ops, outlines each chain into a private function, and
+  // replaces the original ops with a ttnn.d2m_subgraph op. The outlined
+  // subgraphs are later compiled through the D2M pipeline where elementwise
+  // fusion can be performed in D2MElementwiseFusion pass. See the
+  // enable-d2m-elementwise-fusion option.
+  Option<bool> enableCreateD2MSubgraphs{
+      *this, "enable-create-d2m-subgraphs",
+      llvm::cl::desc("Enable TTNN create D2M subgraphs pass."),
+      llvm::cl::init(false)};
+
+  // Enable the d2m elementwise fusion pass when enable-create-d2m-subgraphs is
+  // on. See resolveCreateD2MSubgraphsOptions for more details.
+  mutable Option<bool> enableD2MElementwiseFusion{
+      *this, "enable-d2m-elementwise-fusion",
+      llvm::cl::desc("Enable elementwise fusion pass."), llvm::cl::init(false)};
 
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
@@ -356,16 +385,24 @@ struct TTIRToTTNNDevicePipelineOptions
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
 
-  Option<WeightDtype> experimentalWeightDtype{
+  Option<BFPDtype> experimentalWeightDtype{
       *this, "experimental-weight-dtype",
       llvm::cl::desc("Experimental: Target dtype for weight conversion in "
                      "matrix multiplication and linear operations."),
       llvm::cl::values(
-          clEnumValN(WeightDtype::None, "none", "Disabled"),
-          clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
-          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
-                     "BFP BFloat4 format")),
-      llvm::cl::init(WeightDtype::None)};
+          clEnumValN(BFPDtype::None, "none", "Disabled"),
+          clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
+      llvm::cl::init(BFPDtype::None)};
+
+  Option<BFPDtype> experimentalKVCacheDtype{
+      *this, "experimental-kv-cache-dtype",
+      llvm::cl::desc("Experimental: Target dtype for KV cache conversion."),
+      llvm::cl::values(
+          clEnumValN(BFPDtype::None, "none", "Disabled"),
+          clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
+      llvm::cl::init(BFPDtype::None)};
 
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
@@ -454,6 +491,21 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
       llvm::cl::init(false)};
 
+  void resolveCreateD2MSubgraphsOptions() const {
+    // enable-d2m-elementwise-fusion is a sub-option of
+    // enable-create-d2m-subgraphs and should only be enabled if
+    // enable-create-d2m-subgraphs is also enabled.
+    if (enableD2MElementwiseFusion && !enableCreateD2MSubgraphs) {
+      llvm::reportFatalUsageError("enable-d2m-elementwise-fusion=true requires "
+                                  "enable-create-d2m-subgraphs to be enabled.");
+    }
+
+    if (enableCreateD2MSubgraphs &&
+        enableD2MElementwiseFusion.getNumOccurrences() == 0) {
+      enableD2MElementwiseFusion = true;
+    }
+  }
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
@@ -488,10 +540,31 @@ struct TTIRToTTNNDevicePipelineOptions
   }
 };
 
-// TTNN to EmitC Device pipeline options.
+void createTTIRToTTNNCommonPipeline(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options);
+
+// ============================================================
+// Target-specific pipelines, which receive the output of the
+// TTIRToTTNNCommonPipeline and produce IR ready for translation
+// to the specific target (e.g. TTNN Runtime, EmitC, EmitPy).
+// ============================================================
+
+// TTNN common to Runtime pipeline options.
 //
-struct TTNNToEmitCDevicePipelineOptions
-    : public PassPipelineOptions<TTNNToEmitCDevicePipelineOptions> {
+// Currently, inherits from SHLOAndTTIRToLLVMPipelineOptions, since the only
+// thing that the Runtime pipeline does after the common pipeline is lowering
+// the CPU module to LLVM.
+//
+struct TTNNCommonToRuntimePipelineOptions
+    : public ttir::SHLOAndTTIRToLLVMPipelineOptions {};
+
+// TTNN common to EmitC pipeline options.
+//
+// TODO(dmilinkovic): will be extended with CPU-hoisting specific options once
+// CPU-hoisting is supported on EmitC - issue #6100.
+//
+struct TTNNCommonToEmitCPipelineOptions
+    : public PassPipelineOptions<TTNNCommonToEmitCPipelineOptions> {
   Option<bool> targetDylib{*this, "target-dylib",
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
@@ -527,10 +600,10 @@ struct TTNNToEmitCDevicePipelineOptions
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
-// TTNN to EmitPy Device pipeline options.
+// TTNN common to EmitPy pipeline options.
 //
-struct TTNNToEmitPyDevicePipelineOptions
-    : public PassPipelineOptions<TTNNToEmitPyDevicePipelineOptions> {
+struct TTNNCommonToEmitPyPipelineOptions
+    : public PassPipelineOptions<TTNNCommonToEmitPyPipelineOptions> {
   Option<bool> targetModule{
       *this, "target-module",
       llvm::cl::desc("Tailor passes for Python module target. When enabled, "
@@ -574,22 +647,29 @@ struct TTNNToEmitPyDevicePipelineOptions
       llvm::cl::init(false)};
 };
 
-// TTIR to TTNN backend pipeline options.
-//
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTIRToLLVMCPUPipelineOptions to reuse the options.
-//
-struct TTIRToTTNNBackendPipelineOptions
-    : public TTIRToTTNNDevicePipelineOptions,
-      public ttir::TTIRToLLVMCPUPipelineOptions {};
+void createTTNNCommonToRuntimePipeline(
+    OpPassManager &pm, const TTNNCommonToRuntimePipelineOptions &options);
 
-// TTIR to EmitC end-to-end pipeline options.
+void createTTNNCommonToEmitCPipeline(
+    OpPassManager &pm, const TTNNCommonToEmitCPipelineOptions &options);
+
+void createTTNNCommonToEmitPyPipeline(
+    OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options);
+
+// ============================================================
+// End-to-end pipelines, which lower TTIR to specific TTNN targets.
+// ============================================================
+
+// TTIR to TTNN Runtime pipeline options.
 //
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTNNToEmitCDevicePipelineOptions to reuse the options.
+struct TTIRToTTNNRuntimePipelineOptions
+    : public TTIRToTTNNCommonPipelineOptions,
+      public TTNNCommonToRuntimePipelineOptions {};
+
+// TTIR to EmitC pipeline options.
 //
-struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                    public TTNNToEmitCDevicePipelineOptions {
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
+                                    public TTNNCommonToEmitCPipelineOptions {
   TTIRToEmitCPipelineOptions() {
     // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
     // #6100.
@@ -599,25 +679,12 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
 
 // TTIR to EmitPy pipeline options.
 //
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTNNToEmitPyDevicePipelineOptions to reuse the options.
-//
-struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                     public TTNNToEmitPyDevicePipelineOptions {
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
+                                     public TTNNCommonToEmitPyPipelineOptions {
 };
 
-// Recover Structure XLA/Torch pipeline options.
-struct RecoverStructureXLATorchPipelineOptions
-    : public PassPipelineOptions<RecoverStructureXLATorchPipelineOptions> {
-  // Add any future options here if needed
-};
-
-//===----------------------------------------------------------------------===//
-// End-to-end pipelines, which lower TTIR to various TTNN targets.
-//===----------------------------------------------------------------------===//
-
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+void createTTIRToTTNNRuntimePipeline(
+    OpPassManager &pm, const TTIRToTTNNRuntimePipelineOptions &options);
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
@@ -625,13 +692,33 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
 
-void createTTNNToEmitPyPipeline(
-    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
+// ============================================================
+// Other pipelines.
+// ============================================================
+
+// Recover Structure XLA/Torch pipeline options.
+struct RecoverStructureXLATorchPipelineOptions
+    : public PassPipelineOptions<RecoverStructureXLATorchPipelineOptions> {
+  // Add any future options here if needed
+};
 
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
-void createTTNNPipelineD2MPass(OpPassManager &pm);
+// TTNN Pipeline D2M pass options.
+struct TTNNPipelineD2MPassOptions
+    : public PassPipelineOptions<TTNNPipelineD2MPassOptions> {
+  // Enable the d2m elementwise fusion pass.
+  // Same downstream pass as TTIRToTTNNCommonPipelineOptions::
+  // enableD2MElementwiseFusion / enable-d2m-elementwise-fusion.
+  Option<bool> enableElementwiseFusion{
+      *this, "enable-elementwise-fusion",
+      llvm::cl::desc("Enable elementwise fusion of d2m.generic ops."),
+      llvm::cl::init(false)};
+};
+
+void createTTNNPipelineD2MPass(OpPassManager &pm,
+                               const TTNNPipelineD2MPassOptions &options);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn

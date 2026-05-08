@@ -1385,6 +1385,7 @@ class Builder(metaclass=BuilderMeta):
 
             new_func_op = decorated_func.func_op
             self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
+            self._func_name_to_op[new_func_op.name.value] = new_func_op
             return new_func_op
 
         return wrapper

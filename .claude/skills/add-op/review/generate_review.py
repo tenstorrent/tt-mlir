@@ -543,13 +543,13 @@ def collect_emitted_python(op_name: str, input_mlir: str | None) -> dict:
 
     tmp = f"/tmp/addop_review_{op_name}_ttnn_py.mlir"
     cmd = (
-        f"ttmlir-opt --ttir-to-ttnn-backend-pipeline -o {tmp} {input_mlir}\n"
-        f"ttmlir-opt --ttnn-to-emitpy-pipeline {tmp} "
+        f"ttmlir-opt --ttir-to-ttnn-common-pipeline -o {tmp} {input_mlir}\n"
+        f"ttmlir-opt --ttnn-common-to-emitpy-pipeline {tmp} "
         f"| ttmlir-translate --mlir-to-python"
     )
 
     rc1, err = run_cmd(
-        ["ttmlir-opt", "--ttir-to-ttnn-backend-pipeline", "-o", tmp, input_mlir]
+        ["ttmlir-opt", "--ttir-to-ttnn-common-pipeline", "-o", tmp, input_mlir]
     )
     if rc1 != 0:
         return {"code": f"# Error: TTIR-to-TTNN pipeline failed\n# {err}", "cmd": cmd}
@@ -558,7 +558,7 @@ def collect_emitted_python(op_name: str, input_mlir: str | None) -> dict:
         [
             "bash",
             "-c",
-            f"ttmlir-opt --ttnn-to-emitpy-pipeline {tmp} 2>/dev/null"
+            f"ttmlir-opt --ttnn-common-to-emitpy-pipeline {tmp} 2>/dev/null"
             " | ttmlir-translate --mlir-to-python 2>&1",
         ]
     )
@@ -576,8 +576,8 @@ def collect_emitted_cpp(op_name: str, input_mlir: str | None) -> dict:
     tmp_ttnn = f"/tmp/addop_review_{op_name}_ttnn_c.mlir"
     tmp_emitc = f"/tmp/addop_review_{op_name}_emitc.mlir"
     cmd = (
-        f"ttmlir-opt --ttir-to-ttnn-backend-pipeline -o {tmp_ttnn} {input_mlir}\n"
-        f"ttmlir-opt --ttnn-to-emitc-device-pipeline -o {tmp_emitc} {tmp_ttnn}\n"
+        f"ttmlir-opt --ttir-to-ttnn-common-pipeline -o {tmp_ttnn} {input_mlir}\n"
+        f"ttmlir-opt --ttnn-common-to-emitc-pipeline -o {tmp_emitc} {tmp_ttnn}\n"
         f"ttmlir-translate --mlir-to-cpp {tmp_emitc}"
     )
 
@@ -585,8 +585,8 @@ def collect_emitted_cpp(op_name: str, input_mlir: str | None) -> dict:
         [
             "bash",
             "-c",
-            f"ttmlir-opt --ttir-to-ttnn-backend-pipeline -o {tmp_ttnn} {input_mlir} 2>/dev/null"
-            f" && ttmlir-opt --ttnn-to-emitc-device-pipeline -o {tmp_emitc} {tmp_ttnn} 2>/dev/null"
+            f"ttmlir-opt --ttir-to-ttnn-common-pipeline -o {tmp_ttnn} {input_mlir} 2>/dev/null"
+            f" && ttmlir-opt --ttnn-common-to-emitc-pipeline -o {tmp_emitc} {tmp_ttnn} 2>/dev/null"
             f" && ttmlir-translate --mlir-to-cpp {tmp_emitc} 2>&1",
         ]
     )
@@ -973,8 +973,8 @@ class AsyncDataCollector:
 
         # Step 1: EmitC pipeline (TTIR -> TTNN -> EmitC -> C++)
         pipeline_cmd = (
-            f"ttmlir-opt --ttir-to-ttnn-backend-pipeline -o {tmp_ttnn} {input_mlir}"
-            f" && ttmlir-opt --ttnn-to-emitc-device-pipeline -o {tmp_emitc} {tmp_ttnn}"
+            f"ttmlir-opt --ttir-to-ttnn-common-pipeline -o {tmp_ttnn} {input_mlir}"
+            f" && ttmlir-opt --ttnn-common-to-emitc-pipeline -o {tmp_emitc} {tmp_ttnn}"
             f" && ttmlir-translate --mlir-to-cpp {tmp_emitc} > {tmp_cpp}"
         )
         rc, output = run_cmd(["bash", "-c", pipeline_cmd], timeout=120)

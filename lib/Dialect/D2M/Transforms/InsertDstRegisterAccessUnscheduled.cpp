@@ -137,15 +137,10 @@ collectDstAccesses(GenericOp gOp, Region &region,
         if (dstRegInPlace || rhsIsScalar) {
           bool isUnaryOp = computeOp->getNumOperands() == 1;
           bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
-          bool isReduction =
-              mlir::isa<d2m::TileReduceMaxOp, d2m::TileReduceSumOp,
-                        d2m::TileReduceMeanOp>(computeOp);
-          TT_assertv(
-              (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar),
-              "Only unary ops, tile matmul, reductions, and tile+scalar ops "
-              "supported for destination register in place, multi-operand "
-              "ops would reference wrong tile, but those ops should be "
-              "setting output tile.");
+          bool isReduction = isTileReductionOp(computeOp);
+          TT_assertv((isUnaryOp || isTileMatmul || isReduction || rhsIsScalar),
+                     "in-place DST only supported for unary, tile matmul, "
+                     "reductions, and tile+scalar ops");
           dstSlice = getInPlaceDstSlice(computeOp);
         } else if (numLoads >= 2) {
           dstSlice = firstInputDstSlice;
@@ -166,15 +161,10 @@ collectDstAccesses(GenericOp gOp, Region &region,
         if (dstRegInPlace || rhsIsScalar) {
           bool isUnaryOp = computeOp->getNumOperands() == 1;
           bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
-          bool isReduction =
-              mlir::isa<d2m::TileReduceMaxOp, d2m::TileReduceSumOp,
-                        d2m::TileReduceMeanOp>(computeOp);
-          TT_assertv(
-              (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar),
-              "Only unary ops, tile matmul, reductions, and tile+scalar ops "
-              "supported for destination register in place, multi-operand "
-              "ops would reference wrong tile, but those ops should be "
-              "setting output tile.");
+          bool isReduction = isTileReductionOp(computeOp);
+          TT_assertv((isUnaryOp || isTileMatmul || isReduction || rhsIsScalar),
+                     "in-place DST only supported for unary, tile matmul, "
+                     "reductions, and tile+scalar ops");
           dstSlice = getInPlaceDstSlice(computeOp);
         } else if (numLoads >= 2) {
           dstSlice = firstInputDstSlice;
@@ -213,6 +203,15 @@ collectDstAccesses(GenericOp gOp, Region &region,
           dstIntermediates[computeOp] = {dstSlice, outermostInnerComputeLoop};
         }
       }
+    }
+
+    // Reserve any extra DST scratch slices the op declares via the
+    // interface so they don't collide with operand/output slots.
+    // TODO(https://github.com/tenstorrent/tt-mlir/issues/8081): scratch
+    // becomes the new `getCurrSliceIndex()`; safe today but a future
+    // in-region fusion would trip it.
+    for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
+      setDstScratchIndex(computeOp, dstSliceAllocationState.allocate());
     }
   });
   return {copyInfos, dstIntermediates};
