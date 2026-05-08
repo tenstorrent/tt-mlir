@@ -364,6 +364,7 @@ class D2MBuilder(Builder):
     def _create_generic(
         self,
         operands,
+        additional_args,
         grid,
         block_factors,
         indexing_maps,
@@ -388,7 +389,7 @@ class D2MBuilder(Builder):
             [ret_type],
             inputs,
             outputs,
-            [],  # additional_args
+            additional_args,
             ttcore.ir.GridAttr.get(ctx, grid),
             block_factors,
             list(map(affine_map_from_lambda, indexing_maps)),
@@ -455,8 +456,10 @@ class D2MBuilder(Builder):
                 nonlocal iterator_types
                 nonlocal skip_grid_selection
 
+                additional_args = kwargs.pop("additional_args", [])
                 generic = self._create_generic(
                     args,
+                    additional_args,
                     grid,
                     block_factors,
                     indexing_maps,
