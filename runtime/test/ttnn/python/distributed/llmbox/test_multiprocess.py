@@ -212,7 +212,7 @@ def test_get_tensor_volume():
         ((1, 3, 224, 224), torch.bfloat16),
     ],
 )
-def test_createUnsafeBorrowedHostTensor(shape, dtype):
+def test_create_unsafe_borrowed_host_tensor(shape, dtype):
     launch_distributed_runtime()
 
     reference_torch_tensor = torch.randn(shape, dtype=dtype)
@@ -240,6 +240,21 @@ def test_createUnsafeBorrowedHostTensor(shape, dtype):
 
     assert torch.allclose(output_from_owned, output_from_borrowed)
     assert torch.allclose(output_from_owned, reference_torch_tensor)
+
+    # Mutate owned tensor after borrowed tensor is created and verify borrowed
+    # tensor observes the update, ensuring this is aliasing (not a copy).
+    updated_torch_tensor = torch.randn(shape, dtype=dtype)
+    updated_owned_tensor = get_runtime_tensor_from_torch(
+        updated_torch_tensor, storage=Storage.Owned
+    )
+    ttrt.runtime.memcpy(owned_tensor, updated_owned_tensor)
+
+    output_from_borrowed_after_update = torch.zeros(shape, dtype=dtype)
+    ttrt.runtime.memcpy(
+        output_from_borrowed_after_update.data_ptr(), borrowed_tensor
+    )
+
+    assert torch.allclose(output_from_borrowed_after_update, updated_torch_tensor)
 
     shutdown_distributed_runtime()
 
