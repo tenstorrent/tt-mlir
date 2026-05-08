@@ -283,6 +283,9 @@ L1SpillManagement<MemoryTracker>::L1SpillManagement(
 template <typename MemoryTracker>
 OpConfig
 L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
+  if (op->getNumResults() == 0) {
+    return OpConfig{};
+  }
   auto tensorType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
   auto layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   OpConfig config(layout);
@@ -723,12 +726,20 @@ void L1SpillManagement<MemoryTracker>::evictValue(Value victim, int64_t pos,
   memoryTracker.removeTensorFromSizes(victim);
   markEvictedAndRebuild(victim);
 
-  // Insert reshards for already-processed consumers instead of cascade
-  // revalidation. This preserves downstream ops' sharded layouts.
+  // Restore the original L1-sharded layout for consumers that need it:
+  // - Past consumers (pos < currentPos): always restore. They were already
+  //   validated assuming L1-sharded input; without reshard the IR is broken.
+  // - Future consumers (pos >= currentPos): probe the consumer's layout
+  //   constraints with the new (DRAM-after-spill) inputs in isolation
+  //   (additionalL1Usage=0 — we don't know what L1 will be occupied at the
+  //   consumer's position yet). If a hard input-layout constraint rejects
+  //   it (e.g. paged_update_cache requires sharded input), insert reshard.
+  //   Otherwise leave the consumer to read DRAM — that's the actual L1
+  //   saving the spill bought us.
   if (originalL1Layout.hasL1BufferType()) {
     for (Operation *consumer : collectDownstreamConsumers(victimOp)) {
       auto posIt = data.positionMap.find(consumer);
-      if (posIt == data.positionMap.end() || posIt->second >= pos) {
+      if (posIt == data.positionMap.end()) {
         continue;
       }
       if (!mlir::dyn_cast<OpModel>(consumer)) {
@@ -737,11 +748,31 @@ void L1SpillManagement<MemoryTracker>::evictValue(Value victim, int64_t pos,
       if (isa<ToLayoutOp>(consumer)) {
         continue;
       }
+
+      llvm::SmallVector<unsigned, 2> spilledOperandIdx;
       for (unsigned i = 0; i < consumer->getNumOperands(); ++i) {
-        Value operand = consumer->getOperand(i);
-        Operation *defOp = operand.getDefiningOp();
+        Operation *defOp = consumer->getOperand(i).getDefiningOp();
         if (isa_and_nonnull<ToMemoryConfigOp>(defOp) &&
             defOp->getOperand(0) == victim) {
+          spilledOperandIdx.push_back(i);
+        }
+      }
+      if (spilledOperandIdx.empty()) {
+        continue;
+      }
+
+      bool needsReshard = posIt->second < pos;
+      if (!needsReshard) {
+        auto consumerInputs = utils::extractInputLayouts(consumer);
+        auto consumerConfig = extractOpConfigFromIR(consumer);
+        auto consumerResult = op_constraint_validation::validateOperation(
+            consumer, consumerInputs, consumerConfig,
+            /*additionalL1Usage=*/0);
+        needsReshard = consumerResult.isMetalBackendError();
+      }
+
+      if (needsReshard) {
+        for (unsigned i : spilledOperandIdx) {
           insertReshardForConsumer(consumer, i, originalL1Layout);
         }
       }
