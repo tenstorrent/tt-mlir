@@ -2,12 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpRewritePattern.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -19,6 +20,7 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
+// Temporary fix for https://github.com/tenstorrent/tt-metal/issues/43371.
 // Rewrites a ConcatOp that would overflow the circular buffer in L1.
 //
 // This pattern handles the case where:
@@ -42,9 +44,6 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 //   - concat dim=0 is not the last dim
 //   - build_non_aligned_last_dim_concat does not trigger (not last dim)
 //   - single_page_size = tile_size = TILE_HEIGHT * TILE_WIDTH * element_size
-
-static constexpr int64_t TILE_HEIGHT = 32;
-static constexpr int64_t TILE_WIDTH = 32;
 
 LogicalResult
 ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
@@ -76,7 +75,13 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
     return failure();
   }
 
-  // Condition 2: at least one input must have an unaligned last dim, i.e.
+  // Condition 2:  The dim before last dim must be divisible by TILE_HEIGHT.
+  int64_t totalRows = firstInputType.getShape()[rank - 2];
+  if (totalRows % TILE_HEIGHT != 0) {
+    return failure();
+  }
+
+  // Condition 3: at least one input must have an unaligned last dim, i.e.
   // logical_shape[-1] != padded_shape[-1] (next multiple of TILE_WIDTH).
   // This is what routes execution into the untilize -> transpose path.
   bool anyUnaligned = false;
@@ -92,7 +97,7 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
     return failure();
   }
 
-  // Condition 3: after the internal transpose(-2,-1) the new last dim is
+  // Condition 4: after the internal transpose(-2,-1) the new last dim is
   // dim[-2] of the original tensor. Check whether the double-buffered CB
   // for this page size exceeds usable L1.
   mlir::Type elementType = firstInputType.getElementType();
@@ -120,12 +125,6 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
 
   if (chunkSize <= 0) {
     // Cannot find a valid chunk size.
-    return failure();
-  }
-
-  int64_t totalRows = firstInputType.getShape()[0];
-
-  if (totalRows % TILE_HEIGHT != 0) {
     return failure();
   }
 
