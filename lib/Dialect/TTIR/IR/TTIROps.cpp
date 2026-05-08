@@ -3736,15 +3736,15 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 // The pattern does not run when:
 //   - The input has no unit dimensions (nothing to squeeze).
 //   - Squeezing all unit dims would produce a rank-0 (scalar) index tensor.
+//   - The input is not produced by a ReshapeOp or the output is not connected
+//   to a ReshapeOp.
 //
 void mlir::tt::ttir::EmbeddingOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   patterns.add(+[](mlir::tt::ttir::EmbeddingOp op,
                    mlir::PatternRewriter &rewriter) -> LogicalResult {
-    // Do not apply when the indices are already produced by a ReshapeOp *and*
-    // every consumer of the result is a ReshapeOp.  Both conditions together
-    // indicate that this canonicalization has already fired, so re-running
-    // would only produce redundant reshape chains.
+    // Do not apply when the indices are not produced by a ReshapeOp or when the
+    // output is not connected to a ReshapeOp.
     bool inputFromReshape =
         op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>() != nullptr;
     bool outputToReshape =
@@ -3752,7 +3752,7 @@ void mlir::tt::ttir::EmbeddingOp::getCanonicalizationPatterns(
         llvm::all_of(op->getUsers(), [](mlir::Operation *user) {
           return mlir::isa<mlir::tt::ttir::ReshapeOp>(user);
         });
-    if (!inputFromReshape && !outputToReshape) {
+    if (!inputFromReshape || !outputToReshape) {
       return failure();
     }
 
