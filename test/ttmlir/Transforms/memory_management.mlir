@@ -17,6 +17,8 @@
 #layout_r_1x1x1x16 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<16xf32, #dram>, <interleaved>>
 #layout_r_1x1x1x1024 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<1024xf32, #dram>, <interleaved>>
 #layout_r_1x1x32x32 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<1024xf32, #dram>, <interleaved>>
+#layout_r_16x40000x4x1_si32 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0, d1, d2, d3), <1x1>, memref<2560000xsi32, #dram>, <interleaved>>
+#layout_r_16x160000_si32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2560000xsi32, #dram>, <interleaved>>
 
 module {
   // sliceReshape
@@ -90,5 +92,17 @@ module {
     %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>, tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>
     %1 = "ttnn.reshape"(%0) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}> : (tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x32x32xf32, #layout_r_1x1x32x32>
     return %1 : tensor<1x1x32x32xf32, #layout_r_1x1x32x32>
+  }
+
+  // reshape-eltwise adjust through clamp_scalar with a trailing size-1 dim
+  // dropped by the reshape (e.g. [16, 40000, 4, 1] -> [16, 160000]).
+  // CHECK-LABEL: func.func @reshape_clamp_scalar_drop_trailing_one
+  // CHECK: %[[R:.*]] = "ttnn.reshape"(%arg0) <{shape = [16 : i32, 160000 : i32]}>
+  // CHECK: %[[CLAMP:.*]] = "ttnn.clamp_scalar"(%[[R]])
+  // CHECK-NOT: "ttnn.reshape"(%[[CLAMP]])
+  func.func @reshape_clamp_scalar_drop_trailing_one(%arg0: tensor<16x40000x4x1xsi32, #layout_r_16x40000x4x1_si32>) -> tensor<16x160000xsi32, #layout_r_16x160000_si32> {
+    %0 = "ttnn.clamp_scalar"(%arg0) <{max = 199 : i32, min = 0 : i32}> : (tensor<16x40000x4x1xsi32, #layout_r_16x40000x4x1_si32>) -> tensor<16x40000x4x1xsi32, #layout_r_16x40000x4x1_si32>
+    %1 = "ttnn.reshape"(%0) <{shape = [16 : i32, 160000 : i32]}> : (tensor<16x40000x4x1xsi32, #layout_r_16x40000x4x1_si32>) -> tensor<16x160000xsi32, #layout_r_16x160000_si32>
+    return %1 : tensor<16x160000xsi32, #layout_r_16x160000_si32>
   }
 }

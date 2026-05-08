@@ -37,7 +37,8 @@ struct DimGroup {
 // merge+split combinations. Each group maps a range of consecutive input
 // dims to a range of consecutive output dims with equal products.
 // Inserted size-1 output dims (with no corresponding input dim) are
-// represented as groups with inCount=0.
+// represented as groups with inCount=0; dropped size-1 input dims (with no
+// corresponding output dim) are represented as groups with outCount=0.
 static bool computeDimGroupMapping(ArrayRef<int64_t> inputShape,
                                    ArrayRef<int64_t> outputShape,
                                    SmallVector<DimGroup> &groups) {
@@ -50,6 +51,13 @@ static bool computeDimGroupMapping(ArrayRef<int64_t> inputShape,
         (inIdx >= inRank || inputShape[inIdx] != 1)) {
       groups.push_back({inIdx, 0, outIdx, 1});
       ++outIdx;
+      continue;
+    }
+
+    if (inIdx < inRank && inputShape[inIdx] == 1 &&
+        (outIdx >= outRank || outputShape[outIdx] != 1)) {
+      groups.push_back({inIdx, 1, outIdx, 0});
+      ++inIdx;
       continue;
     }
 
@@ -690,7 +698,10 @@ public:
         ReshapeElementwiseAdjusting<ttnn::AddOp>,
         ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
         ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
-        ReshapeElementwiseAdjusting<ttnn::DivideOp>>(&getContext());
+        ReshapeElementwiseAdjusting<ttnn::DivideOp>,
+        ReshapeElementwiseAdjusting<ttnn::FloorOp>,
+        ReshapeElementwiseAdjusting<ttnn::ClampScalarOp>,
+        ReshapeElementwiseAdjusting<ttnn::TypecastOp>>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
