@@ -578,6 +578,7 @@ private:
 //
 // Lanes whose original index was negative end up as NaN in the output,
 // making the failure visible
+// https://github.com/tenstorrent/tt-metal/issues/43869
 class GatherSi32Workaround : public OpRewritePattern<ttnn::GatherOp> {
 public:
   using OpRewritePattern<ttnn::GatherOp>::OpRewritePattern;
