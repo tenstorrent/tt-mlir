@@ -374,12 +374,26 @@ public:
     patterns.add<
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
+        // Pilot 3.1: conv2d + gelu/tanh. tt-metal's Conv2dConfig accepts
+        // these via UnaryWithParam (Whisper uses GELU between conv1d's).
+        TTNNConv2dWithActivation<GeluOp>, TTNNConv2dWithActivation<TanhOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>,
+        // Pilot 1.1 extension: matmul/linear + relu/relu6/tanh.
+        // tt-metal accepts these via string_to_unary_with_param. The matmul
+        // dispatch path uses StringAttr (issue #31393) so any new variant
+        // just needs registration here. End-to-end runtime plumbing exists
+        // (matmul.cpp:36-49 forwards `activation` into ::ttnn::matmul).
+        TTNNMatmulAndLinearWithActivation<MatmulOp, ReluOp>,
+        TTNNMatmulAndLinearWithActivation<LinearOp, ReluOp>,
+        TTNNMatmulAndLinearWithActivation<MatmulOp, Relu6Op>,
+        TTNNMatmulAndLinearWithActivation<LinearOp, Relu6Op>,
+        TTNNMatmulAndLinearWithActivation<MatmulOp, TanhOp>,
+        TTNNMatmulAndLinearWithActivation<LinearOp, TanhOp>,
         // §2A: fold post-binary activation into the binary op.
         // CNN residual blocks: add → relu (16 sites in ResNet-50).
         TTNNBinaryWithPostActivation<AddOp, ReluOp>,
