@@ -194,12 +194,18 @@ def _compile(root_func: Callable, builder: Builder):
 
 def build_module(
     mod: Callable,
-    builder_type: Literal["ttir", "stablehlo", "ttnn", "d2m"],
+    builder_type: Literal["ttir", "stablehlo", "ttnn", "d2m", "multi"],
+    dialects: Optional[List[str]] = None,
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
     artifact_dir: str = ".",
-) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
+) -> Tuple[
+    Module,
+    Union[
+        TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder, "MultiDialectBuilder"
+    ],
+]:
     """
     Build an MLIR `Module` from a Python emission function using the chosen builder.
 
@@ -208,8 +214,14 @@ def build_module(
     mod : Callable
         A Python function that receives a builder instance and emits ops.
         Its body is captured into an MLIR module. Example signature: `def mod(b: TTIRBuilder): ...`.
-    builder_type : Literal["ttir", "stablehlo", "ttnn", "d2m"]
+    builder_type : Literal["ttir", "stablehlo", "ttnn", "d2m", "multi"]
         The type of builder to use for emission.
+        Use "multi" for multi-dialect support.
+    dialects : Optional[List[str]]
+        For builder_type="multi", specify which dialects to enable.
+        Example: ["ttir", "ttnn", "stablehlo"]
+        Default: ["ttir", "ttnn"] if not specified.
+        Ignored for other builder types.
     mesh_name : str
         Mesh symbol name to attach to the module (where applicable).
     mesh_dict : OrderedDict[str, int]
@@ -221,8 +233,26 @@ def build_module(
 
     Returns
     -------
-    Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]
+    Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder, MultiDialectBuilder]]
         The constructed MLIR module and the corresponding builder instance.
+
+    Examples
+    --------
+    Single dialect (traditional):
+        >>> def my_module(builder):
+        ...     @builder.func([(32, 32)], [torch.float32])
+        ...     def forward(x, builder):
+        ...         return builder.sigmoid(x)
+        >>> module, builder = build_module(my_module, "ttir")
+
+    Multi-dialect (new):
+        >>> def my_module(builder):
+        ...     @builder.func([(32, 32)], [torch.float32])
+        ...     def forward(x, builder):
+        ...         x = builder.ttir.sigmoid(x)  # Explicit TTIR
+        ...         y = builder.ttnn.add(x, x)   # Explicit TTNN
+        ...         return y
+        >>> module, builder = build_module(my_module, "multi", dialects=["ttir", "ttnn"])
     """
     ctx = Context()
 
@@ -241,6 +271,18 @@ def build_module(
         builder = TTNNBuilder(ctx, loc, mesh_name, mesh_dict)
     elif builder_type == "d2m":
         builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
+    elif builder_type == "multi":
+        # Import here to avoid circular dependency
+        from builder.base.multi_dialect_builder import MultiDialectBuilder
+
+        if dialects is None:
+            dialects = ["ttir", "ttnn"]  # Default dialects
+        builder = MultiDialectBuilder(ctx, loc, dialects, mesh_name, mesh_dict)
+    else:
+        raise ValueError(
+            f"Unknown builder_type: '{builder_type}'. "
+            f"Must be one of: 'ttir', 'stablehlo', 'ttnn', 'd2m', 'multi'"
+        )
 
     with ctx, loc:
         new_module = _compile(mod, builder)
@@ -707,6 +749,238 @@ def compile_and_execute_ttir(
         dump_memory=dump_memory,
     )
     return os.path.join(artifact_dir, f"{target}_compiled.mlir")
+
+
+def compile_and_execute_multi(
+    fn: Callable,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    test_base: str = "test",
+    output_root: str = ".",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    save_artifacts: bool = False,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
+    device=None,
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+    skip_exec: bool = False,
+    check_pcc: bool = True,
+    check_atol: bool = False,
+    check_rtol: bool = False,
+    enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
+) -> str:
+    """
+    Compiles and executes a TTIR function through the complete pipeline.
+
+    This function:
+    1. Builds a TTIR MLIR module from the function
+    2. Compiles it to a flatbuffer
+    3. Executes the flatbuffer on device
+
+    Parameters
+    ----------
+    fn : Callable
+        The TTIRBuilder function to compile and execute
+    inputs_shapes : List[Shape]
+        Shapes of the respective ranked tensor inputs
+    inputs_types : Optional[List[Union[torch.dtype, TypeInfo]]]
+        The dtypes to use for the inputs
+    system_desc_path : str
+        Path to the system descriptor file
+    test_base : str
+        Base name for dumped files
+    output_root : str
+        Path to dump all generated files
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
+        Target backend to use
+    mesh_name : str
+        Name of the mesh to be used
+    mesh_dict : OrderedDict[str, int]
+        Dictionary defining the mesh shape
+    save_artifacts : bool
+        Whether to save generated artifacts to `artifact_dir`
+    argument_types_string : Optional[str]
+        String defining argument types for constant evaluation
+    custom_pipeline : Optional[Union[Callable, str]]
+        Custom pipeline function or string
+    pipeline_options : Optional[List[str]]
+        Additional pipeline options
+    print_ir : Union[bool, str]
+        Controls intermediate IR dumping
+    device : Optional
+        Device to execute on (if None, opens a new device)
+    pcc : float
+        PCC threshold for golden comparison
+    atol : float
+        Absolute tolerance for golden comparison
+    rtol : float
+        Relative tolerance for golden comparison
+    disable_golden : bool
+        Whether to disable golden comparison
+    check_atol : bool
+        Whether to check absolute tolerance during golden comparison
+    check_rtol : bool
+        Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
+    """
+    artifact_dir = get_artifact_dir(
+        output_root, "MultiDialectBuilder", test_base, save_artifacts
+    )
+    _compile_and_execute(
+        compile_fn=compile_multi_to_flatbuffer,
+        fn=fn,
+        system_desc_path=system_desc_path,
+        artifact_dir=artifact_dir,
+        target=target,
+        mesh_name=mesh_name,
+        mesh_dict=mesh_dict,
+        save_artifacts=save_artifacts,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=pipeline_options,
+        print_ir=print_ir,
+        device=device,
+        pcc=pcc,
+        atol=atol,
+        rtol=rtol,
+        disable_golden=disable_golden,
+        skip_exec=skip_exec,
+        check_pcc=check_pcc,
+        check_atol=check_atol,
+        check_rtol=check_rtol,
+        enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
+    )
+    return os.path.join(artifact_dir, f"{target}_compiled.mlir")
+
+
+def compile_multi_to_flatbuffer(
+    fn: Callable,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    artifact_dir: str = ".",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    save_artifacts: bool = False,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
+) -> str:
+    """
+    Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
+
+    This decorator is mainly a wrapper around the following functions, with
+    each next function called on the output of the last:
+
+    1. `build_module`
+    2. `run_ttir_pipeline`
+    3. `to_target`
+
+    The choice of TTNN vs. TTMetal is controlled by the `target` parameter.
+
+    Parameters
+    ----------
+    fn : Callable
+        The TTIRBuilder function to compile. Must take `builder : TTIRBuilder` as a kwarg.
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function.
+    inputs_types : *Optional[List[torch.dtype]]*, optional
+        The dtypes to use for the inputs to `fn`. Note that if supplied,
+        `len(inputs_shapes) == len(inputs_types)` must be true.
+        Default is None.
+    test_base : str
+        The string to be used as the base name for dumped files throughout the
+        process. If `None` is provided, then the `__name__` of `fn` will be used.
+    output_root : str
+        The path to dump all generated arguments under. If this path doesn't
+        exist, it will be created.
+    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy"]*
+        Either "ttnn", "ttmetal", or "emitc". This controls which backend to use.
+    mesh_name : *str*, optional
+        Name of the mesh to be used in the module. Default is "mesh".
+    mesh_dict : *OrderedDict[str, int]*, optional
+        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
+    argument_types_string : *Optional[str]*, optional
+        String defining argument types for constant evaluation.
+    argument_types_string : *Optional[str]*
+    custom_pipeline : *Union[Callable, str]*, optional
+        Pipeline function to run.
+        Can be either:
+        - A Callable: custom_pipeline(module, options)
+        - A str: "ttir-lower-to-layout,ttir-bufferization-pipeline"
+    system_desc_path : str, optional
+        Path to the system descriptor file
+    mesh_name : *str*
+        Name of the mesh to be used in the module. Default is "mesh".
+    mesh_dict : *OrderedDict[str, int]*
+        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
+    save_artifacts : bool
+        Set to True to print out generated TTIR MLIR module.
+        Default is False.
+    pipeline_options : *Optional[List[str]]*
+        Pipeline options to be added to the pass
+    print_ir : Union[bool, str], optional
+        Controls intermediate IR dumping during compilation.
+        - True  →  Print IR to stdout after each pass.
+                This is convenient for quick inspection or interactive
+                debugging (e.g. with breakpoints), but is unreliable if
+                the process crashes or aborts as the output may be truncated or
+                lost.
+        - str (directory path)  →  Write IR after each pass to a separate file
+                under the given directory. This is more reliable than stdout,
+                since files are flushed incrementally and preserved up to the
+                point of failure. It can give hints about where the pipeline
+                crashed.
+        Notes:
+            - For fatal crashes (e.g. MLIR assertions), neither mode guarantees
+            a complete dump. Using a directory at least preserves passes run
+            before the crash.
+            - For stdout mode, you may need to run Python with unbuffered output
+            (e.g. `pytest -s` or `python -u`) and/or use pdb to reliably see
+            dumps before a crash.
+        Default is False (no IR printed).
+
+    Returns
+    -------
+    Tuple[Builder, Any, Dict[int, Dict[str, Dict[int, GoldenMapTensor]]], Dict[str, Dict[int, GoldenMapTensor]]]
+        Builder, compiled_bin, input/output goldens, intermediate goldens
+    """
+
+    # Compile model to TTIR MLIR
+    try:
+        module, builder = build_module(
+            fn,
+            "multi",
+            mesh_name=mesh_name,
+            mesh_dict=mesh_dict,
+            save_artifacts=save_artifacts,
+            artifact_dir=artifact_dir,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
+
+    return builder, *compile_ttir_module_to_flatbuffer(
+        module,
+        builder,
+        system_desc_path=system_desc_path,
+        artifact_dir=artifact_dir,
+        target=target,
+        mesh_dict=mesh_dict,
+        save_artifacts=save_artifacts,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=pipeline_options,
+        print_ir=print_ir,
+    )
 
 
 def compile_ttir_to_flatbuffer(

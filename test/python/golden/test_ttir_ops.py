@@ -12,7 +12,11 @@ from conftest import x86_only, get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import compile_and_execute_ttir, build_module
+from builder.base.builder_apis import (
+    compile_and_execute_ttir,
+    compile_and_execute_multi,
+    build_module,
+)
 from builder.base.builder_enums import *
 from ttmlir.ir import DenseI32ArrayAttr
 from test_utils import (
@@ -22,6 +26,7 @@ from test_utils import (
     make_shard_shape,
     shard_wrap_factory,
 )
+from builder.base.multi_dialect_builder import MultiDialectBuilder
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -3136,5 +3141,29 @@ def test_constant(
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+def test_multi(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module(builder: MultiDialectBuilder):
+        @builder.func([shape, shape], [torch.float32, torch.float32])
+        def div(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            add = builder.add(in0, in1)
+            cos = builder.ttnn.cos(add)
+            return builder.div(cos, in1)
+
+    compile_and_execute_multi(
+        module,
+        **get_request_kwargs(request),
+        target=target,
         device=device,
     )
