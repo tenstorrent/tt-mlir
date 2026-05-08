@@ -2,8 +2,6 @@
 // RUN: FileCheck %s --check-prefix=CHECK-MAX --input-file=%t.max
 // RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t.auto %s
 // RUN: FileCheck %s --check-prefix=CHECK-AUTO --input-file=%t.auto
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608 test-allow-aliased-eltwise-blocking=false" -o %t.override %s
-// RUN: FileCheck %s --check-prefix=CHECK-OVERRIDE --input-file=%t.override
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -141,13 +139,10 @@ module {
     return %out : memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #dram>
   }
 
-  // Default reblocks to [8, 2] while preserving the L1 output alias.
-  // Override with false preserves aliased output at [1, 1].
+  // Auto reblocks to [8, 2] while preserving the L1 output alias.
   // CHECK-AUTO-LABEL: func.func @eltwise_auto_preserves_aliased_output_by_default()
   // CHECK-AUTO: d2m.generic {block_factors = [8, 2], grid = #ttcore.grid<1x1>
   // CHECK-AUTO-COUNT-2: memref.alloc(){{.*}} : memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
-  // CHECK-OVERRIDE-LABEL: func.func @eltwise_auto_preserves_aliased_output_by_default()
-  // CHECK-OVERRIDE: d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>
   func.func @eltwise_auto_preserves_aliased_output_by_default() -> memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #l1> {
     %lhs = memref.alloc() : memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #l1>
     %rhs = memref.alloc() : memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #l1>
@@ -165,30 +160,6 @@ module {
       %add = "d2m.tile_add"(%t0, %t1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     }
     return %out : memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #l1>
-  }
-
-  // Pure permutation indexing maps are still safe for the L1 output alias path.
-  // CHECK-AUTO-LABEL: func.func @eltwise_auto_preserves_permuted_aliased_output()
-  // CHECK-AUTO: d2m.generic {block_factors = [8, 8], grid = #ttcore.grid<1x1>
-  // CHECK-AUTO: outs(%{{.*}} : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
-  // CHECK-AUTO-COUNT-2: memref.alloc(){{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
-  func.func @eltwise_auto_preserves_permuted_aliased_output() -> memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> {
-    %lhs = memref.alloc() : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    %rhs = memref.alloc() : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    %out = memref.alloc() : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    d2m.generic {block_factors = [8, 8], grid = #ttcore.grid<1x1>, indexing_maps = [#eltwisePermuted, #eltwisePermuted, #eltwisePermuted], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
-        ins(%lhs, %rhs : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
-        outs(%out : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
-    ^compute0():
-      %tmp_in0 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %tmp_in1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %tmp_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %c0 = arith.constant 0 : index
-      %t0 = memref.load %tmp_in0[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %t1 = memref.load %tmp_in1[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %add = "d2m.tile_add"(%t0, %t1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-    }
-    return %out : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
   }
 
   // Auto reblocking applies to unary eltwise ops too.

@@ -282,8 +282,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       << asSeq(llvm::to_vector(obj.availableL1AddrRange)) << "\n";
     s << "\ttest-assume-l1-capacity: " << obj.testAssumeL1Capacity << "\n";
     s << "\ttest-buffer-size-policy: " << obj.testBufferSizePolicy << "\n";
-    s << "\ttest-allow-aliased-eltwise-blocking: "
-      << obj.testAllowAliasedEltwiseBlocking << "\n";
     s << "}";
     return s.str();
   }
@@ -963,7 +961,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     BlockFactorAnalysis::Options bfOpts;
     bfOpts.policy = bufferSizePolicy;
     bfOpts.numBuffers = numStreamBuffers;
-    bfOpts.allowAliasedEltwiseBlocking = testAllowAliasedEltwiseBlocking;
     BlockFactorAnalysis blockFactorAnalysis(funcOp, bfOpts);
 
     [[maybe_unused]] int32_t genericsInExplicitDatamovementForm = 0;
@@ -1867,80 +1864,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return Value();
   }
 
-  static bool isPurePermutationIndexingMap(AffineMap map) {
-    return map.getNumSymbols() == 0 &&
-           map.getNumResults() == map.getNumDims() && map.isPermutation();
-  }
-
-  bool canAliasBlockedAllParallelEltwiseOutput(
-      d2m::GenericOp genericOp, const GenericOpContext &genericCtx,
-      const OperandContext &operandCtx, MemorySpace memspace) const {
-    if (!operandCtx.isOutput || genericCtx.isExplicitDatamovement ||
-        genericOp.isDMAOnlyForm() ||
-        !isOperandExemptFromStreaming(operandCtx, memspace)) {
-      return false;
-    }
-
-    if (!llvm::all_of(genericOp.getIteratorTypesValue(),
-                      [](ttcore::IteratorType iteratorType) {
-                        return iteratorType == ttcore::IteratorType::Parallel;
-                      })) {
-      return false;
-    }
-
-    bool hasTile = false;
-    bool hasNonTile = false;
-    for (auto [operandIndex, operand] :
-         llvm::enumerate(genericOp.getInputsAndOutputs())) {
-      if (allocation::hasNonTrivialView(operand)) {
-        return false;
-      }
-
-      auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
-      if (!memrefType ||
-          ttcore::getMemorySpace(memrefType) != MemorySpace::DeviceL1) {
-        return false;
-      }
-
-      if (mlir::isa<ttcore::TileType>(memrefType.getElementType())) {
-        hasTile = true;
-      } else {
-        hasNonTile = true;
-      }
-
-      AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-      if (!isPurePermutationIndexingMap(indexingMap)) {
-        return false;
-      }
-    }
-
-    return !(hasTile && hasNonTile);
-  }
-
   bool requiresCBAllocation(d2m::GenericOp genericOp,
                             const GenericOpContext &genericCtx,
                             const OperandContext &operandCtx,
                             MemorySpace memspace) const {
-
-    // Blocked operands must be registered with the memory planner so their
-    // in-generic allocs receive an L1 address. This runs before
-    // reblockGenerics, so the view doesn't exist yet and
-    // isOperandExemptFromStreaming would incorrectly skip the alloc.
-    // Explicit DM generics have no indexing maps and are never reblocked.
-    if (!genericCtx.isExplicitDatamovement &&
-        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
-                                     genericCtx.reblockedFactors)) {
-      if (canAliasBlockedAllParallelEltwiseOutput(genericOp, genericCtx,
-                                                  operandCtx, memspace)) {
-        return false;
-      }
-      return true;
-    }
-
     if (isOperandExemptFromStreaming(operandCtx, memspace)) {
       return false;
     }
-
     return inferStreamRequirement(genericOp, genericCtx, operandCtx, memspace);
   }
 
@@ -2008,22 +1938,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                               const GenericOpContext &genericCtx,
                               const OperandContext &operandCtx,
                               MemorySpace memspace) const {
-    const bool baseNeedsStream =
-        inferBaseStreamRequirement(genericOp, operandCtx, memspace);
-
-    const bool blocked =
-        !genericCtx.isExplicitDatamovement &&
-        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
-                                     genericCtx.reblockedFactors);
-
-    if (blocked) {
-      if (!operandCtx.isOutput) {
-        return true;
-      }
-      return baseNeedsStream || testAllowAliasedEltwiseBlocking;
-    }
-
-    if (!baseNeedsStream) {
+    if (!inferBaseStreamRequirement(genericOp, operandCtx, memspace)) {
       return false;
     }
 
