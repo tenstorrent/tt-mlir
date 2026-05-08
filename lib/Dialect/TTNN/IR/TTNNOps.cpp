@@ -3129,6 +3129,7 @@ bool mlir::tt::ttnn::DistributedRMSNormOp::hasUnboundBuffers() {
   return !getStats();
 }
 
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
 void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
     ::mlir::RewriterBase &rewriter) {
   if (!hasUnboundBuffers()) {
@@ -3199,11 +3200,13 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
   rewriter.modifyOpInPlace(
       *this, [&]() { getStatsMutable().assign(statsEmptyOp.getResult()); });
 }
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 bool mlir::tt::ttnn::DistributedRMSNormOp::hasUnboundSemaphores() {
   return !getSemaphore();
 }
 
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
 void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
     ::mlir::RewriterBase &rewriter) {
   if (!hasUnboundSemaphores()) {
@@ -3245,6 +3248,7 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
   rewriter.modifyOpInPlace(
       *this, [&]() { getSemaphoreMutable().assign(semaphoreOp.getResult()); });
 }
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 //===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp
