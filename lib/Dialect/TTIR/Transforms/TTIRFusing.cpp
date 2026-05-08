@@ -17,6 +17,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include <cmath>
 #include <cstdint>
 
 #include <type_traits>
@@ -122,6 +123,115 @@ private:
       return std::make_pair(rhsConvOp, *fusableBias);
     }
     return std::nullopt;
+  }
+};
+
+// Fuse a leading `ttir.pad -> ttir.conv2d` chain by absorbing the spatial
+// (H/W) zero-fill padding into the conv's `padding` attribute.
+//
+// Conv padding in tt-metal is always zero-fill, so a `ttir.pad` with
+// `value = 0.0` on the H/W dimensions is equivalent to extending the conv's
+// own padding. Pads on N (batch) or C (channel) cannot be absorbed and we
+// reject them.
+//
+// TTIR Conv2d input layout is NHWC, so a flat pad attribute of length 8
+// decodes as `[lowN, highN, lowH, highH, lowW, highW, lowC, highC]`.
+// TTIR Conv2d `padding` (4-element form) is `[pT, pL, pB, pR]`. The new
+// conv padding is therefore:
+//   pT' = pT + lowH, pL' = pL + lowW,
+//   pB' = pB + highH, pR' = pR + highW.
+template <typename ConvOpType>
+class FuseSpatialPadIntoConv2d : public mlir::OpRewritePattern<ConvOpType> {
+  using mlir::OpRewritePattern<ConvOpType>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ConvOpType convOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    static_assert(std::is_same_v<ConvOpType, Conv2dOp>,
+                  "FuseSpatialPadIntoConv2d currently supports only Conv2dOp");
+
+    auto padOp = convOp.getInput().template getDefiningOp<PadOp>();
+    if (!padOp) {
+      return mlir::failure();
+    }
+
+    // The conv must be the only consumer of the pad result.
+    if (!padOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Only zero-fill pads can be absorbed (conv padding is zero-fill).
+    auto valueAttr = mlir::dyn_cast<mlir::FloatAttr>(padOp.getValueAttr());
+    if (!valueAttr) {
+      return mlir::failure();
+    }
+    double padValue = valueAttr.getValueAsDouble();
+    if (std::isnan(padValue) || padValue != 0.0) {
+      return mlir::failure();
+    }
+
+    // Pad attribute is interleaved: [low_0, high_0, low_1, high_1, ...].
+    llvm::ArrayRef<int32_t> pads = padOp.getPadding();
+
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(padOp.getInput().getType());
+    int64_t rank = inputType.getRank();
+    if (static_cast<int64_t>(pads.size()) != 2 * rank) {
+      return mlir::failure();
+    }
+
+    // Conv2d expects rank-4 NHWC.
+    if (rank != 4 || !convOp.isNHWC()) {
+      return mlir::failure();
+    }
+
+    int32_t lowN = pads[0], highN = pads[1];
+    int32_t lowH = pads[2], highH = pads[3];
+    int32_t lowW = pads[4], highW = pads[5];
+    int32_t lowC = pads[6], highC = pads[7];
+
+    // Only H/W spatial pads can be absorbed into conv padding.
+    if (lowN != 0 || highN != 0 || lowC != 0 || highC != 0) {
+      return mlir::failure();
+    }
+    // Negative pads (cropping) are not handled here.
+    if (lowH < 0 || highH < 0 || lowW < 0 || highW < 0) {
+      return mlir::failure();
+    }
+    if (lowH == 0 && highH == 0 && lowW == 0 && highW == 0) {
+      // Nothing to absorb; let other patterns handle (or DCE) the no-op pad.
+      return mlir::failure();
+    }
+
+    // Decode existing conv padding [pT, pL, pB, pR].
+    auto convPad =
+        ttmlir::utils::getQuadrupleOfInteger<int32_t>(convOp.getPaddingAttr());
+    if (!convPad) {
+      llvm::consumeError(convPad.takeError());
+      return mlir::failure();
+    }
+    auto [pT, pL, pB, pR] = *convPad;
+
+    int32_t newPT = pT + lowH;
+    int32_t newPL = pL + lowW;
+    int32_t newPB = pB + highH;
+    int32_t newPR = pR + highW;
+
+    auto newPaddingAttr =
+        rewriter.getDenseI32ArrayAttr({newPT, newPL, newPB, newPR});
+
+    rewriter.replaceOpWithNewOp<Conv2dOp>(
+        convOp, convOp.getResult().getType(), padOp.getInput(),
+        convOp.getWeight(), convOp.getBias(), convOp.getStrideAttr(),
+        newPaddingAttr, convOp.getDilationAttr(),
+        rewriter.getI32IntegerAttr(convOp.getGroups()),
+        convOp.getBatchDimAttr(), convOp.getHeightDimAttr(),
+        convOp.getWidthDimAttr(), convOp.getChannelDimAttr(),
+        convOp.getFlattenedCompatInfoAttr());
+
+    // The pad op becomes dead and will be removed by DCE.
+    return mlir::success();
   }
 };
 
@@ -3012,6 +3122,7 @@ public:
       patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
       patterns.add<ConvAddBias<ConvTranspose2dOp>>(&getContext());
       patterns.add<ConvAddBias<Conv3dOp>>(&getContext());
+      patterns.add<FuseSpatialPadIntoConv2d<Conv2dOp>>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
