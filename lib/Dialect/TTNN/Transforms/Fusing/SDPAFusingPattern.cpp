@@ -16,6 +16,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include <cmath>
+#include <limits>
+
 namespace mlir::tt::ttnn::fusing {
 
 // SDPA Query, Key, Value tensors have shape [B, H, S, D]
@@ -34,6 +37,7 @@ struct SDPAFusing::SDPAComponents {
   MatmulOp attentionMatmul;
   SoftmaxOp softmax;
   Operation *scoreOp = nullptr;
+  bool isCausal = false;
 };
 
 // Normalize a shape to 4D by prepending 1s. Used for validation only, does not
@@ -172,6 +176,162 @@ SDPAFusing::extractMultiplyWithConstant(Value v) const {
 }
 
 // ============================================================================
+// Where-form mask helpers
+// ============================================================================
+
+// Detect whether `cond` is a structurally causal mask, i.e. a triangular
+// boolean tensor of all-ones (triu(ones, k=0) or tril(ones, k=0)). We look
+// through Typecast/Reshape/Repeat/Broadcast and accept ConstantOp dense values
+// or LoadCachedOp results whose body returns a triangular constant.
+//
+// This is a structural check on the values; the actual triangularity is
+// detected by examining a 2D-or-higher dense constant and verifying that all
+// nonzero values lie on or above (triu) / on or below (tril) the diagonal.
+bool SDPAFusing::isCausalCondShape(Value cond) const {
+  cond = ttmlir::utils::lookThrough<TypecastOp, ReshapeOp, RepeatOp>(cond);
+
+  // Helper: given a dense ElementsAttr representing the bool/causal mask,
+  // verify that nonzero entries form an exact upper- or lower-triangular
+  // pattern over the last two dims.
+  auto checkTriangular = [](mlir::ElementsAttr attr,
+                            ArrayRef<int64_t> shape) -> bool {
+    if (shape.size() < 2) {
+      return false;
+    }
+    int64_t rows = shape[shape.size() - 2];
+    int64_t cols = shape[shape.size() - 1];
+    if (rows != cols || rows == 0) {
+      return false;
+    }
+    auto values = attr.tryGetValues<llvm::APInt>();
+    if (!values) {
+      auto fpVals = attr.tryGetValues<llvm::APFloat>();
+      if (!fpVals) {
+        return false;
+      }
+      // Inspect the last 2D slab only (other leading dims should broadcast).
+      int64_t total = 1;
+      for (int64_t d : shape) {
+        total *= d;
+      }
+      int64_t slabSize = rows * cols;
+      if (total < slabSize) {
+        return false;
+      }
+      bool triuOk = true, trilOk = true;
+      auto it = fpVals->begin();
+      // Skip to the last slab.
+      for (int64_t i = 0; i < total - slabSize; ++i) {
+        ++it;
+      }
+      for (int64_t r = 0; r < rows; ++r) {
+        for (int64_t c = 0; c < cols; ++c) {
+          bool nz = !(*it).isZero();
+          if (nz && c < r) {
+            triuOk = false;
+          }
+          if (nz && c > r) {
+            trilOk = false;
+          }
+          ++it;
+        }
+      }
+      return triuOk || trilOk;
+    }
+    int64_t total = 1;
+    for (int64_t d : shape) {
+      total *= d;
+    }
+    int64_t slabSize = rows * cols;
+    if (total < slabSize) {
+      return false;
+    }
+    bool triuOk = true, trilOk = true;
+    auto it = values->begin();
+    for (int64_t i = 0; i < total - slabSize; ++i) {
+      ++it;
+    }
+    for (int64_t r = 0; r < rows; ++r) {
+      for (int64_t c = 0; c < cols; ++c) {
+        bool nz = !(*it).isZero();
+        if (nz && c < r) {
+          triuOk = false;
+        }
+        if (nz && c > r) {
+          trilOk = false;
+        }
+        ++it;
+      }
+    }
+    return triuOk || trilOk;
+  };
+
+  if (auto constantOp = cond.getDefiningOp<ConstantOp>()) {
+    auto type = mlir::dyn_cast<RankedTensorType>(constantOp.getResult().getType());
+    if (!type) {
+      return false;
+    }
+    return checkTriangular(constantOp.getValue(), type.getShape());
+  }
+
+  if (auto loadCached = cond.getDefiningOp<ttcore::LoadCachedOp>()) {
+    auto callee = loadCached.getCallee();
+    auto moduleOp = loadCached->getParentOfType<ModuleOp>();
+    if (!moduleOp) {
+      return false;
+    }
+    auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(callee);
+    if (!funcOp) {
+      return false;
+    }
+    bool result = false;
+    funcOp.walk([&](ConstantOp inner) {
+      auto type = mlir::dyn_cast<RankedTensorType>(inner.getResult().getType());
+      if (type && checkTriangular(inner.getValue(), type.getShape())) {
+        result = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    return result;
+  }
+
+  return false;
+}
+
+// Materialize an additive mask from a boolean condition: emits
+//   full(0.0) where cond, full(-inf) where !cond
+// Returned value has the same shape and a float element type matching the
+// surrounding score chain (caller is expected to typecast as needed).
+Value SDPAFusing::materializeAdditiveMaskFromCond(Value cond,
+                                                  PatternRewriter &rewriter,
+                                                  Location loc) const {
+  auto condType = mlir::cast<RankedTensorType>(cond.getType());
+  // The full(0)/full(-inf) tensors keep the cond's shape and element type;
+  // downstream unsqueeze/typecast logic adapts as required when the mask is
+  // routed through the additive-mask path.
+  Operation *anchorOp =
+      cond.getDefiningOp() ? cond.getDefiningOp()
+                           : rewriter.getInsertionBlock()->getParentOp();
+  auto deviceOp = utils::getOrInsertDevice(rewriter, anchorOp);
+
+  auto zeros = rewriter.create<FullOp>(loc, condType,
+                                       rewriter.getF32FloatAttr(0.0f),
+                                       deviceOp.getResult());
+  float negInfVal = -std::numeric_limits<float>::infinity();
+  auto negInf = rewriter.create<FullOp>(loc, condType,
+                                        rewriter.getF32FloatAttr(negInfVal),
+                                        deviceOp.getResult());
+
+  // where(cond, fill_when_true=0, fill_when_false=-inf): produces an additive
+  // mask that is 0 for kept positions and -inf for masked-out positions.
+  return rewriter
+      .create<WhereOp>(loc, condType, cond, zeros.getResult(),
+                       negInf.getResult())
+      .getResult();
+}
+
+// ============================================================================
 // Pattern Matching with Backtracking
 // ============================================================================
 
@@ -219,7 +379,8 @@ bool SDPAFusing::matchSoftmaxPath(Value v, SDPAComponents &c) const {
   return false;
 }
 
-bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
+bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c,
+                                        PatternRewriter &rewriter) const {
   v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   // Peel optional concat — the other half of the softmax padding pattern
@@ -238,6 +399,43 @@ bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
       c.attentionSink =
           ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[1]);
     }
+  }
+
+  // Where-form attention mask: where(cond, -inf, scores) — older PyTorch / GPT
+  // style codepaths that pre-date F.scaled_dot_product_attention. Following
+  // the same operand convention used in matchSoftmaxPath above, getThird()
+  // carries the actual score chain and getSecond() carries the fill applied
+  // when the condition is true (typically -inf or a large negative number).
+  if (auto whereOp = v.getDefiningOp<WhereOp>()) {
+    Value cond = whereOp.getFirst();
+    Value fillWhenTrue = ttmlir::utils::lookThrough<TypecastOp>(whereOp.getSecond());
+    Value scoresBranch = ttmlir::utils::lookThrough<TypecastOp>(whereOp.getThird());
+
+    // Verify the "fill" branch is -inf (or close to it). A non-(-inf) fill
+    // does not correspond to an attention mask and we must NOT fuse.
+    auto fillConst = extractConstant(fillWhenTrue);
+    bool fillIsNegInf =
+        fillConst.has_value() && std::isinf(*fillConst) && *fillConst < 0.0f;
+    if (!fillIsNegInf) {
+      return false;
+    }
+
+    // Recurse into the scores branch first so we collect Q/K/scale/etc.
+    if (!matchScoreChain(scoresBranch, c)) {
+      return false;
+    }
+
+    if (isCausalCondShape(cond)) {
+      // Drop any mask; let the SDPA op handle causality natively.
+      c.mask = Value();
+      c.isCausal = true;
+    } else {
+      // Materialize an additive mask from the boolean condition and route
+      // through the existing additive-mask path.
+      c.mask = materializeAdditiveMaskFromCond(cond, rewriter,
+                                                whereOp.getLoc());
+    }
+    return true;
   }
 
   if (auto linearOp = v.getDefiningOp<LinearOp>()) {
@@ -647,7 +845,7 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
     return failure();
   }
 
-  if (!matchScoreComputation(c.softmax.getInput(), c)) {
+  if (!matchScoreComputation(c.softmax.getInput(), c, rewriter)) {
     return failure();
   }
 
@@ -703,7 +901,10 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         llvm::to_vector(kToDecodePermutation), rewriter,
         c.attentionMatmul.getLoc());
 
-    Value permutedMask = c.mask;
+    // When is_causal=true, the SDPA op requires a null mask (verifier
+    // rejects the combination). Otherwise, permute the mask to match the
+    // decode-form query layout.
+    Value permutedMask = c.isCausal ? Value() : c.mask;
     if (permutedMask) {
       permutedMask = ttir_to_ttnn::utils::generatePermute(
           mlir::cast<TypedValue<RankedTensorType>>(permutedMask),
@@ -715,7 +916,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         validator.validateFusion<ScaledDotProductAttentionDecodeOp>(
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
-            /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
+            /*is_causal=*/rewriter.getBoolAttr(c.isCausal), permutedMask,
             /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
@@ -730,7 +931,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
         c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
         c.key, c.value,
-        /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
+        /*is_causal=*/rewriter.getBoolAttr(c.isCausal), permutedMask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
@@ -745,11 +946,13 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
+    // When is_causal=true the verifier requires a null mask.
+    Value prefillMask = c.isCausal ? Value() : c.mask;
     auto validationResult =
         validator.validateFusion<ScaledDotProductAttentionOp>(
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
-            {c.query.getType()}, c.query, c.key, c.value, c.mask,
-            /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
+            {c.query.getType()}, c.query, c.key, c.value, prefillMask,
+            /*is_causal=*/rewriter.getBoolAttr(c.isCausal), scaleAttr,
             /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
             /*memory_config=*/MemoryConfigAttr());
 
@@ -762,8 +965,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
     auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
         c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
-        c.mask,
-        /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
+        prefillMask,
+        /*is_causal=*/rewriter.getBoolAttr(c.isCausal), scaleAttr,
         /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
         /*memory_config=*/MemoryConfigAttr());
 

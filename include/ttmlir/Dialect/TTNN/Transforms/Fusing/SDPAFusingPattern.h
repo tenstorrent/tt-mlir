@@ -45,9 +45,15 @@ private:
   std::pair<Value, std::optional<float>>
   extractMultiplyWithConstant(Value v) const;
 
+  // Where-form mask helpers
+  bool isCausalCondShape(Value cond) const;
+  Value materializeAdditiveMaskFromCond(Value cond, PatternRewriter &rewriter,
+                                        Location loc) const;
+
   // Pattern Matching
   bool matchSoftmaxPath(Value v, SDPAComponents &c) const;
-  bool matchScoreComputation(Value v, SDPAComponents &c) const;
+  bool matchScoreComputation(Value v, SDPAComponents &c,
+                             PatternRewriter &rewriter) const;
   bool matchScoreChain(Value v, SDPAComponents &c) const;
 
   // Input Canonicalization
