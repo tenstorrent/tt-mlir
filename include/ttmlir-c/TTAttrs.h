@@ -58,8 +58,7 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTSystemDescAttrGet(
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTMetalLayoutAttrGet(
     MlirContext ctx, intptr_t logicalRank, const int64_t *logicalShape,
     intptr_t gridRank, const int64_t *gridShape, MlirType elementType,
-    intptr_t tileRank, const int64_t *tileShape, unsigned oobVal,
-    unsigned memorySpace);
+    intptr_t tileRank, const int64_t *tileShape, unsigned memorySpace);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTMemorySpaceAttrGet(MlirContext ctx, uint32_t memorySpace);

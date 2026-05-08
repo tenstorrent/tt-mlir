@@ -1177,18 +1177,18 @@ createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
 
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout) {
   auto [collapsedIntervals, dimAlignmentsVec] =
       createDefaultCollapsedIntervalsAndAlignments(context, logicalShape);
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout);
+             memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals) {
   llvm::SmallVector<int64_t> normalizedIntervals =
@@ -1196,17 +1196,17 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
   llvm::SmallVector<int64_t> dimAlignmentsVec =
       computeTileAlignments(logicalShape, normalizedIntervals);
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout);
+             memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
-  return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
+  return get(context, logicalShape, dimAlignments, collapsedIntervals,
              memorySpace, memoryLayout);
 }
 
@@ -1230,8 +1230,8 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<int64_t> logicalShape,
     ::llvm::ArrayRef<int64_t> dimAlignments,
-    DenseIntElementsAttr collapsedIntervals, OOBVal oobVal,
-    MemorySpace memorySpace, TensorMemoryLayout memoryLayout) {
+    DenseIntElementsAttr collapsedIntervals, MemorySpace memorySpace,
+    TensorMemoryLayout memoryLayout) {
 
   int64_t logicalRank = logicalShape.size();
 

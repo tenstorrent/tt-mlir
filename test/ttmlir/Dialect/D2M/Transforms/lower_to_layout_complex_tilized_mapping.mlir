@@ -1,10 +1,10 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-to-layout -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-#src = #ttcore.metal_layout<logical_shape = 32x5120, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#dst = #ttcore.metal_layout<logical_shape = 32x5120, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#bfp_src = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#bfp_dst = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 128x128, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#src = #ttcore.metal_layout<logical_shape = 32x5120, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#dst = #ttcore.metal_layout<logical_shape = 32x5120, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#bfp_src = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#bfp_dst = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 128x128, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // CHECK-LABEL: func.func @preserve_virtual_grid_during_untilize
 // CHECK: %[[SRC:.*]] = d2m.empty() {virtualGridForwardMapping = #map, virtualGridInverseMapping = #map1} : tensor<1x40x1x4x!ttcore.tile<32x32, f32>, #{{.*}}>

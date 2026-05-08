@@ -143,16 +143,21 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
       chipCapabilitiesUnwrapped, chipCoordsUnwrapped, chipChannelsUnwrapped));
 }
 
-MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, intptr_t logicalRank,
-                                         const int64_t *logicalShape,
-                                         intptr_t gridRank, unsigned oobVal,
-                                         unsigned memorySpace) {
+MlirAttribute ttmlirTTMetalLayoutAttrGet(
+    MlirContext ctx, intptr_t logicalRank, const int64_t *logicalShape,
+    intptr_t gridRank, const int64_t *gridShape, MlirType elementType,
+    intptr_t tileRank, const int64_t *tileShape, unsigned memorySpace) {
+  (void)gridRank;
+  (void)gridShape;
+  (void)elementType;
+  (void)tileRank;
+  (void)tileShape;
 
   llvm::ArrayRef<int64_t> logicalShapeRef(logicalShape, logicalRank);
 
-  return wrap(MetalLayoutAttr::get(
-      unwrap(ctx), logicalShapeRef, static_cast<OOBVal>(oobVal),
-      static_cast<MemorySpace>(memorySpace), TensorMemoryLayout::Sharded));
+  return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef,
+                                   static_cast<MemorySpace>(memorySpace),
+                                   TensorMemoryLayout::Sharded));
 }
 
 MlirAttribute ttmlirTTMemorySpaceAttrGet(MlirContext ctx,

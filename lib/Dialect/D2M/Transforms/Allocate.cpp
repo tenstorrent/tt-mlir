@@ -1748,8 +1748,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return false;
   }
 
-  Value findLocalBufferForOperandLoadStore(d2m::GenericOp genericOp,
-                                           const OperandContext &operandCtx) {
+  static Value
+  findLocalBufferForOperandLoadStore(d2m::GenericOp genericOp,
+                                     const OperandContext &operandCtx) {
     Value localBuffer;
     genericOp->walk([&](Operation *op) {
       if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(op)) {
@@ -1865,6 +1866,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                             const GenericOpContext &genericCtx,
                             const OperandContext &operandCtx,
                             MemorySpace memspace) const {
+    // Some explicit datamovement generics are synthesized before allocation
+    // and already contain implicit remote load/store ops. Their local buffers
+    // must become CB operands so SplitUnifiedThread can trace compute-side
+    // users after cloning the unified region.
+    if (genericOp.isExplicitDatamovementForm() &&
+        findLocalBufferForOperandLoadStore(genericOp, operandCtx)) {
+      return true;
+    }
+
+    // Blocked operands must be registered with the memory planner so their
+    // in-generic allocs receive an L1 address. This runs before
+    // reblockGenerics, so the view doesn't exist yet and
+    // isOperandExemptFromStreaming would incorrectly skip the alloc.
+    // Explicit DM generics have no indexing maps and are never reblocked.
+    if (!genericCtx.isExplicitDatamovement &&
+        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
+                                     genericCtx.reblockedFactors)) {
+      return true;
+    }
+
     if (isOperandExemptFromStreaming(operandCtx, memspace)) {
       return false;
     }

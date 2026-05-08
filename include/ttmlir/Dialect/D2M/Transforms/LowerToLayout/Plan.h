@@ -87,28 +87,14 @@ struct RemapStep {
   AffineMap remapping = {};
 };
 
-// Emits a d2m.view_layout with reinterpretLayout=true. This is for
-// metadata-only type changes on an already-materialized buffer; it does not
-// perform data movement.
-struct ReinterpretLayoutStep {
-  RankedTensorType outputType = {};
-};
-
-struct MaskStep {
-  ttcore::OOBVal oobVal = ttcore::OOBVal::Undef;
-  llvm::SmallVector<int64_t> logicalShape = {};
-  OutputBufferSpec output = {};
-};
-
 // A `Step` is one atomic layout transformation: memory space, tile form,
-// grid/alignment, VGM, remapping, or OOB region. A `Plan` is the ordered
-// sequence that transforms a tensor from one `PlanState` to another. Plans are
-// produced by `canonicalize`, simplified by `minimize`, and materialized by the
+// grid/alignment, VGM, or remapping. A `Plan` is the ordered sequence that
+// transforms a tensor from one `PlanState` to another. Plans are produced by
+// `canonicalize`, simplified by `minimize`, and materialized by the
 // LowerToLayout pass.
-using Step =
-    std::variant<HostToDeviceStep, DeviceToHostStep, L1ToDRAMStep, DRAMToL1Step,
-                 TilizeStep, UntilizeStep, RebufferStep, ReshardStep, RemapStep,
-                 ReinterpretLayoutStep, MaskStep>;
+using Step = std::variant<HostToDeviceStep, DeviceToHostStep, L1ToDRAMStep,
+                          DRAMToL1Step, TilizeStep, UntilizeStep, RebufferStep,
+                          ReshardStep, RemapStep>;
 
 using Plan = llvm::SmallVector<Step>;
 

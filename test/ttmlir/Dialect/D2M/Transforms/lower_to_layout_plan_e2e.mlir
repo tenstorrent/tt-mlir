@@ -1,11 +1,11 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-to-layout -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-#remap_layout = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#oob_src = #ttcore.metal_layout<logical_shape = 1x1x32x33, dim_alignments = 1x1x32x32, collapsed_intervals = dense<[[0, 3], [3, 4]]> : tensor<2x2xi64>, undef, l1, sharded>
-#oob_dst = #ttcore.metal_layout<logical_shape = 1x1x32x33, dim_alignments = 1x1x32x32, collapsed_intervals = dense<[[0, 3], [3, 4]]> : tensor<2x2xi64>, zero, l1, sharded>
-#vgm_layout = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#remap_reblock_layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#remap_layout = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#oob_src = #ttcore.metal_layout<logical_shape = 1x1x32x33, dim_alignments = 1x1x32x32, collapsed_intervals = dense<[[0, 3], [3, 4]]> : tensor<2x2xi64>, l1, sharded>
+#oob_dst = #ttcore.metal_layout<logical_shape = 1x1x32x33, dim_alignments = 1x1x32x32, collapsed_intervals = dense<[[0, 3], [3, 4]]> : tensor<2x2xi64>, l1, sharded>
+#vgm_layout = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#remap_reblock_layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // CHECK-LABEL: func.func @remap_only_uses_view_layout
 // CHECK: %[[RESULT:.*]] = d2m.view_layout %arg0 remapping = #map : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout>
@@ -33,19 +33,16 @@ func.func @remap_after_reblock_uses_backing_empty(%arg0: tensor<2x4x32x32xf32, #
   return %2 : tensor<4x2x32x32xf32, #remap_reblock_layout>
 }
 
-// CHECK-LABEL: func.func @oob_only_change_reinterprets_then_masks
-// CHECK: %[[REINT:.*]] = d2m.view_layout %arg0 remapping = #map{{[0-9]*}} {reinterpretLayout = true} : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}> -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
+// CHECK-LABEL: func.func @oob_only_change_masks_explicitly
 // CHECK: %[[DST:.*]] = d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
-// CHECK: d2m.generic
-// CHECK: ins(%[[REINT]]
-// CHECK: outs(%{{.*}} : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>)
-// CHECK: d2m.block_mask
-// CHECK-SAME: <zero>
+// CHECK: d2m.mask %arg0, %[[DST]] logical_shape = [1, 1, 32, 33] fill_value = <zero>
 // CHECK: return %{{.*}} : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
-func.func @oob_only_change_reinterprets_then_masks(%arg0: tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_src>) -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst> {
+func.func @oob_only_change_masks_explicitly(%arg0: tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_src>) -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst> {
   %0 = d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst>
   %1 = d2m.to_layout %arg0, %0 : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_src> into tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst> -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst>
-  return %1 : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst>
+  %2 = d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst>
+  %3 = d2m.mask %1, %2 logical_shape = [1, 1, 32, 33] fill_value = <zero> : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst> into tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst> -> tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst>
+  return %3 : tensor<1x1x1x2x!ttcore.tile<32x32, f32>, #oob_dst>
 }
 
 // CHECK-LABEL: func.func @vgm_only_change_rebuffers_without_view

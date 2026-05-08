@@ -96,9 +96,14 @@ def test_complete_tile_masking(
                 output_type=builder.get_metal_tensor_layout(
                     logical_shape,
                     tiled=True,
-                    oobVal=oobval,
                     dim_alignments=aligned_shape,
                 ),
+                unit_attrs=unit_attrs,
+            )
+            to_device = builder.mask(
+                to_device,
+                logical_shape=logical_shape,
+                fill_value=oobval,
                 unit_attrs=unit_attrs,
             )
 
@@ -106,9 +111,7 @@ def test_complete_tile_masking(
             # Keep tiled=True so the final to_layout will properly untilize
             view_with_aligned_logical = builder.view_layout(
                 to_device,
-                output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=True, oobVal=oobval
-                ),
+                output_type=builder.get_metal_tensor_layout(aligned_shape, tiled=True),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
             )
@@ -162,9 +165,7 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
             # No explicit dim_alignments - uses natural tile alignment
             to_device = builder.tilize(
                 in0,
-                output_type=builder.get_metal_tensor_layout(
-                    shape, tiled=True, oobVal=ttcore.OOBVal.Zero
-                ),
+                output_type=builder.get_metal_tensor_layout(shape, tiled=True),
                 unit_attrs=unit_attrs,
             )
 
@@ -242,10 +243,15 @@ def test_multicore_tile_masking(
                 output_type=builder.get_metal_tensor_layout(
                     logical_shape,
                     tiled=True,
-                    oobVal=oobval,
                     dim_alignments=aligned_shape,
                     grid=grid_shape,  # Explicit 4x4 grid
                 ),
+                unit_attrs=unit_attrs,
+            )
+            to_device = builder.mask(
+                to_device,
+                logical_shape=logical_shape,
+                fill_value=oobval,
                 unit_attrs=unit_attrs,
             )
 
@@ -253,7 +259,7 @@ def test_multicore_tile_masking(
             view_with_aligned_logical = builder.view_layout(
                 to_device,
                 output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=True, oobVal=oobval, grid=grid_shape
+                    aligned_shape, tiled=True, grid=grid_shape
                 ),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
@@ -341,18 +347,21 @@ def test_partial_tile_masking(
                 output_type=builder.get_metal_tensor_layout(
                     logical_shape,
                     tiled=True,
-                    oobVal=oobval,
                     dim_alignments=aligned_shape,
                 ),
+                unit_attrs=unit_attrs,
+            )
+            to_device = builder.mask(
+                to_device,
+                logical_shape=logical_shape,
+                fill_value=oobval,
                 unit_attrs=unit_attrs,
             )
 
             # View as tiled with the ALIGNED logical shape
             view_with_aligned_logical = builder.view_layout(
                 to_device,
-                output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=True, oobVal=oobval
-                ),
+                output_type=builder.get_metal_tensor_layout(aligned_shape, tiled=True),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
             )
@@ -433,10 +442,15 @@ def test_multicore_partial_tile_masking(
                 output_type=builder.get_metal_tensor_layout(
                     logical_shape,
                     tiled=True,
-                    oobVal=oobval,
                     dim_alignments=aligned_shape,
                     grid=grid_shape,  # Explicit 4x4 grid
                 ),
+                unit_attrs=unit_attrs,
+            )
+            to_device = builder.mask(
+                to_device,
+                logical_shape=logical_shape,
+                fill_value=oobval,
                 unit_attrs=unit_attrs,
             )
 
@@ -444,7 +458,7 @@ def test_multicore_partial_tile_masking(
             view_with_aligned_logical = builder.view_layout(
                 to_device,
                 output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=True, oobVal=oobval, grid=grid_shape
+                    aligned_shape, tiled=True, grid=grid_shape
                 ),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
