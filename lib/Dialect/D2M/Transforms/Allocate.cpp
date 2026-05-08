@@ -1522,6 +1522,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   }
                 }
               })
+              .Case([&](d2m::TileTilizeBlockOp op) {
+                op.getResult().setType(op.getOutput().getType());
+              })
+              .Case([&](d2m::TileUntilizeBlockOp op) {
+                op.getResult().setType(op.getOutput().getType());
+              })
               .Case([&](d2m::RemoteStoreOp op) {
                 Value oldMemref = op.getMemref();
                 std::optional<int32_t> operandIndex;
