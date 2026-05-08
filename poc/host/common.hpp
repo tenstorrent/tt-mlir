@@ -106,6 +106,30 @@ struct Step4Task {
 static_assert(sizeof(Step4Task) == 24 + 8 * 8 + 8 * 4 * 2 + 8,
               "Step4Task layout must match firmware");
 
+// Task descriptor for step5 (X280 copies a TTNN-interleaved DRAM tensor into
+// a contiguous local-DRAM staging buffer, runs an MLIR-lowered LLVM-dialect
+// kernel linked into the firmware via poc/fw/cpu.o, and writes the result
+// back to a separate TTNN output tensor). Layout must match fw_step5.c
+// byte-for-byte. Input and output tensors are assumed to share the same
+// allocator configuration (num_banks / page_size / aligned_page_size /
+// num_pages and the same bank DRAM cores), so we keep one bank_x/bank_y
+// table and only duplicate the per-bank base offsets.
+struct Step5Task {
+  uint32_t kick; // host -> fw start signal (0 / kKick)
+  uint32_t num_banks;
+  uint32_t aligned_page_size;
+  uint32_t page_size;
+  uint64_t num_pages;
+  uint64_t input_bank_base[kStep4MaxBanks];
+  uint64_t output_bank_base[kStep4MaxBanks];
+  uint32_t bank_x[kStep4MaxBanks];
+  uint32_t bank_y[kStep4MaxBanks];
+  uint32_t done; // fw -> host (host MUST never write)
+  uint32_t pad_done;
+};
+static_assert(sizeof(Step5Task) == 24 + 8 * 8 * 2 + 8 * 4 * 2 + 8,
+              "Step5Task layout must match firmware");
+
 // ---------------------------------------------------------------------------
 // Host helpers.
 // ---------------------------------------------------------------------------

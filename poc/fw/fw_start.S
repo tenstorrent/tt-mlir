@@ -13,11 +13,16 @@ _start:
     csrr    a0, mhartid
     bnez    a0, park
 
-    /* Enable the FP unit. mstatus.FS resets to 0 (Off) on the X280, so any
-     * FP instruction (flw, fadd.s, fsw, fmv.*) traps with illegal-instruction.
-     * mtvec is unset at boot, so a trap dead-loops at address 0. We set FS=11
-     * (Dirty) so we never have to think about it again. */
-    li      t0, 3 << 13         /* mstatus.FS = 0b11 = Dirty */
+    /* Enable the FP and Vector units. mstatus.FS and mstatus.VS both reset
+     * to 0 (Off) on the X280, so the first FP instruction (flw, fadd.s,
+     * fsw, fmv.*) OR the first vector / vector-CSR instruction (vsetvli,
+     * vle*.v, csrr vlenb, ...) traps with illegal-instruction. mtvec is
+     * unset at boot, so a trap dead-loops at address 0. We set both fields
+     * to 11 (Dirty) so we never have to think about it again. The Vector
+     * bit matters even for code that "looks scalar": clang auto-vectorises
+     * memcpy / strided copies into whole-register vl*r.v / vs*r.v under
+     * -mcpu=sifive-x280, and the very first such instruction reads vlenb. */
+    li      t0, (3 << 13) | (3 << 9)  /* mstatus.FS = mstatus.VS = Dirty */
     csrs    mstatus, t0
 
     la      sp, _stack_top

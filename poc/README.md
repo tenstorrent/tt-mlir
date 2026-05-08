@@ -16,6 +16,7 @@ poc/
     fw_step1.c              # Step 1: write 0xDEADBEEF to a mailbox
     fw_step2.c              # Step 2 / 3: increment a host-supplied float buffer
     fw_step4.c              # Step 4: NOC-TLB program + in-place increment of an interleaved tensor
+    fw_step5.c              # Step 5: copy in/out + call MLIR-lowered kernel from tmp/cpu.o
     Makefile                # cross-build via clang-20 + ld.lld + llvm-objcopy
   host/
     common.hpp common.cpp   # shared boot helpers (PLL, reset, NOC, ARC APB)
@@ -23,6 +24,7 @@ poc/
     step2_task.cpp          # Step 2 host
     step3_ttnn_x280.cpp     # Step 3: TTNN -> host -> X280 -> host (host staging)
     step4_inplace.cpp       # Step 4: TTNN -> X280 reaches Tensix DRAM via NOC TLB -> TTNN (no host staging)
+    step5_hoisted.cpp       # Step 5: TTNN -> X280 runs MLIR-lowered abs (linked from tmp/cpu.o) -> TTNN
   CMakeLists.txt
 ```
 
@@ -34,6 +36,7 @@ poc/
 | `step2_task`       | Host publishes a Task descriptor; X280 reads a 16-float buffer, increments each, signals done |
 | `step3_ttnn_x280`  | TTNN computes 5.0, host stages to L2CPU0 DRAM, X280 increments to 6.0, host reads back |
 | `step4_inplace`    | TTNN computes 5.0; X280 reaches into the **interleaved Tensix DRAM** banks directly via its own NOC TLB and increments to 6.0 in place; TTNN reads back. No PCIe round-trip during the modify phase. |
+| `step5_hoisted`    | TTNN allocates `input(-5.0)` and `output(0.0)` tensors; X280 stages input into local DRAM, calls **MLIR-compiled `abs` kernel from `poc/fw/cpu.o`** linked into the firmware, writes results back to the output tensor. TTNN reads `5.0`. First step where the X280 executes compiler-generated code. |
 
 ## Prereqs
 
@@ -71,6 +74,7 @@ build/bin/step1_boot       build/fw/fw_step1.bin
 build/bin/step2_task       build/fw/fw_step2.bin
 build/bin/step3_ttnn_x280  build/fw/fw_step2.bin
 build/bin/step4_inplace    build/fw/fw_step4.bin
+build/bin/step5_hoisted    build/fw/fw_step5.bin
 ```
 
 Each binary issues a warm reset on entry and on exit, so consecutive runs
