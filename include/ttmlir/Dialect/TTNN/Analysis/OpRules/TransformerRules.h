@@ -46,6 +46,15 @@ struct SDPARuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// ScaledDotProductAttentionDecodeOp / PagedScaledDotProductAttentionDecodeOp:
+/// Per-operand input layout filtering.
+/// - Q (operand 0): DRAM (any) or L1-sharded -- L1-interleaved rejected
+///   ("Q tensor buffer type must be DRAM when not sharded").
+/// - K, V, and cache tensors (operand >= 1): DRAM-interleaved only.
+struct SDPADecodeRuleBook : SDPARuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+};
+
 /// RotaryEmbedding / RotaryEmbeddingLlama:
 /// NULL hint only, no reshards. Rejects width-sharded and block-sharded
 /// inputs (only height-sharded or interleaved accepted).

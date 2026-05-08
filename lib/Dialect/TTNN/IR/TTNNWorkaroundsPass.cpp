@@ -911,6 +911,9 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(T op) {
 //    float32 data types only.
 // 3. Reduction ops generates incorrect output for integer input tensor.
 //    tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/21071
+//    Route through Float32 (not BFloat16) so integer values up to 2^24 are
+//    preserved exactly; BFloat16 silently rounds (e.g. 8400 -> 8384).
+//    tt-mlir issue: https://github.com/tenstorrent/tt-mlir/issues/8279
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
     mlir::Operation *op) {
@@ -920,7 +923,7 @@ TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
   TTNNOperandWorkarounds operandWorkaround;
   if (!inputType.isF32() && !inputType.isBF16()) {
     operandWorkaround.tensorDataTypeWorkaround =
-        mlir::tt::ttcore::DataType::BFloat16;
+        mlir::tt::ttcore::DataType::Float32;
   }
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()

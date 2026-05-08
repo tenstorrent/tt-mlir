@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillManagement.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
@@ -72,15 +73,18 @@ void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
   freeList.clear();
   freeList.push_back({0, l1Budget});
   tensorAddresses.clear();
+  aliasGroups.clear();
 }
 
 SumL1MemoryTracker::Snapshot SumL1MemoryTracker::takeSnapshot() const {
-  return {freeList, tensorAddresses};
+  return {freeList, tensorAddresses, aliasGroups, currentOccupied};
 }
 
 void SumL1MemoryTracker::restoreSnapshot(const Snapshot &snapshot) {
   freeList = snapshot.freeList;
   tensorAddresses = snapshot.tensorAddresses;
+  aliasGroups = snapshot.aliasGroups;
+  currentOccupied = snapshot.currentOccupied;
 }
 
 void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
@@ -96,6 +100,11 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
       // Allocate from the top of this block.
       uint64_t allocStart = freeList[i].end - alignedSize;
       tensorAddresses[result] = {allocStart, alignedSize};
+      // First allocation in this slot: open the alias group at refcount 1
+      // and account the buffer once. Aliases joining via allocateAddressAt
+      // do not re-bump currentOccupied.
+      aliasGroups[allocStart] = {/*count=*/1, /*rawSize=*/l1SizePerCore};
+      currentOccupied += l1SizePerCore;
 
       // Shrink or remove the free block.
       if (freeList[i].size() == alignedSize) {
@@ -114,10 +123,28 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
 
 void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
   tensorSizes[result] = l1SizePerCore;
-  currentOccupied += l1SizePerCore;
-
-  // Address simulation: top-down allocation with 32-byte alignment.
   allocateAddress(result, l1SizePerCore);
+}
+
+void SumL1MemoryTracker::allocateAddressAt(Value result, Value srcAtSameAddr) {
+  auto srcIt = tensorAddresses.find(srcAtSameAddr);
+  assert(srcIt != tensorAddresses.end() &&
+         "allocateAddressAt: src must already be in tensorAddresses");
+  // Snapshot the slot before inserting `result`, since the insert may
+  // rehash and invalidate `srcIt`.
+  auto slot = srcIt->second;
+  tensorAddresses[result] = slot;
+  auto groupIt = aliasGroups.find(slot.first);
+  assert(groupIt != aliasGroups.end() &&
+         "allocateAddressAt: aliasGroups entry missing for src's slot");
+  ++groupIt->second.count;
+}
+
+void SumL1MemoryTracker::addTensorAtAddress(Value result,
+                                            uint64_t l1SizePerCore,
+                                            Value srcAtSameAddr) {
+  allocateAddressAt(result, srcAtSameAddr);
+  tensorSizes[result] = l1SizePerCore;
 }
 
 void SumL1MemoryTracker::freeAddress(Value result) {
@@ -128,6 +155,17 @@ void SumL1MemoryTracker::freeAddress(Value result) {
   auto [freedStart, freedSize] = addrIt->second;
   uint64_t freedEnd = freedStart + freedSize;
   tensorAddresses.erase(addrIt);
+
+  // Last alias of this slot reclaims the buffer; earlier ones just
+  // detach from the alias group.
+  auto groupIt = aliasGroups.find(freedStart);
+  assert(groupIt != aliasGroups.end() &&
+         "freeAddress: aliasGroups entry missing for live slot");
+  if (--groupIt->second.count > 0) {
+    return;
+  }
+  currentOccupied -= groupIt->second.rawSize;
+  aliasGroups.erase(groupIt);
 
   // Find insertion point in sorted freeList (sorted by start address).
   size_t insertIdx = 0;
@@ -155,25 +193,23 @@ void SumL1MemoryTracker::freeAddress(Value result) {
 
 void SumL1MemoryTracker::logState() const {
   for ([[maybe_unused]] const auto &entry : tensorAddresses) {
-    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "Tensor {}: address {} - {} (size {})", entry.first,
                  entry.second.first, entry.second.first + entry.second.second,
                  entry.second.second);
   }
 
   for ([[maybe_unused]] const auto &entry : freeList) {
-    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "Free block: address {} - {} (size {})", entry.start,
                  entry.end, entry.size());
   }
 }
 
 void SumL1MemoryTracker::removeTensorFromSizes(Value result) {
-  auto it = tensorSizes.find(result);
-  if (it != tensorSizes.end()) {
-    currentOccupied -= it->second;
-    tensorSizes.erase(it);
-  }
+  // Size-table-only — used by eviction, which then `restoreSnapshot +
+  // replay` rebuilds currentOccupied. Address-side path is `freeAddress`.
+  tensorSizes.erase(result);
 }
 
 void SumL1MemoryTracker::removeTensor(Value result) {
@@ -183,6 +219,10 @@ void SumL1MemoryTracker::removeTensor(Value result) {
 
 bool SumL1MemoryTracker::hasTensor(Value result) const {
   return tensorSizes.count(result);
+}
+
+bool SumL1MemoryTracker::hasTensorAddress(Value result) const {
+  return tensorAddresses.count(result);
 }
 
 uint64_t SumL1MemoryTracker::getTensorSize(Value result) const {
@@ -640,8 +680,18 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
     }
     if (l1EventLog[i].kind == L1Event::kAlloc) {
       addressSnapshots[i] = memoryTracker.takeSnapshot();
-      memoryTracker.allocateAddress(l1EventLog[i].tensor,
-                                    l1EventLog[i].sizePerCore);
+      // View-eligible reshape: alias if src is still address-tracked in
+      // this replay, otherwise fresh-allocate (the counterfactual when
+      // src was evicted to DRAM).
+      Operation *defOp = l1EventLog[i].tensor.getDefiningOp();
+      if (defOp && canReshapeBeView(defOp) &&
+          memoryTracker.hasTensorAddress(defOp->getOperand(0))) {
+        memoryTracker.allocateAddressAt(l1EventLog[i].tensor,
+                                        defOp->getOperand(0));
+      } else {
+        memoryTracker.allocateAddress(l1EventLog[i].tensor,
+                                      l1EventLog[i].sizePerCore);
+      }
     } else {
       memoryTracker.freeAddress(l1EventLog[i].tensor);
     }
@@ -882,11 +932,11 @@ bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
   // from transient internal op allocations (ghost holes).
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "    CB FRAG CHECK: cbPeakUsage={0}, cushion={1}, "
-               "speculativeOutputAddr={2}, lowestExistingAddr={3}, "
-               "effectiveLowest={4}",
-               cbPeakUsage, cbFragCushion, speculativeOutputAddr,
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    CB FRAG CHECK for {0}: cbPeakUsage={1}, cushion={2}, "
+               "speculativeOutputAddr={3}, lowestExistingAddr={4}, "
+               "effectiveLowest={5}",
+               op->getName(), cbPeakUsage, cbFragCushion, speculativeOutputAddr,
                lowestExistingAddr, effectiveLowest);
 
   if (cushionedCBUsage > effectiveLowest) {
@@ -1023,7 +1073,18 @@ void L1SpillManagement<MemoryTracker>::run() {
         addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
         l1EventLog.push_back(
             {L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
-        memoryTracker.addTensor(val, perResultL1);
+
+        // View-eligible reshape: alias src's buffer instead of carving a
+        // fresh slot. See `addTensorAtAddress`.
+        Operation *defOp = val.getDefiningOp();
+        if (defOp && canReshapeBeView(defOp) &&
+            memoryTracker.hasTensor(defOp->getOperand(0))) {
+          memoryTracker.addTensorAtAddress(val, perResultL1,
+                                           defOp->getOperand(0));
+        } else {
+          memoryTracker.addTensor(val, perResultL1);
+        }
+
         liveValues.insert(val);
         liveSet.push({resultLastUse, val});
       }
