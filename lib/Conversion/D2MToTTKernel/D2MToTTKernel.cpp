@@ -2180,6 +2180,11 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAReadOp op, d2m::DMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // Shard-level ops are handled by D2MDMAReadViaTensorAccessorRewriter when
+    // use-tensor-accessor-dma is enabled. Skip them here so they fall through.
+    if (op.isShardLevel()) {
+      return failure();
+    }
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
     Location loc = op.getLoc();
@@ -2232,6 +2237,11 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAWriteOp op, d2m::DMAWriteOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // Shard-level ops are handled by D2MDMAWriteViaTensorAccessorRewriter when
+    // use-tensor-accessor-dma is enabled. Skip them here so they fall through.
+    if (op.isShardLevel()) {
+      return failure();
+    }
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
 
