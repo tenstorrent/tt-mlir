@@ -264,7 +264,17 @@ L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
         attrs.computeKernelConfig = matmulOp.getComputeConfig();
         config.opSpecificAttrs = std::move(attrs);
       })
-      .Default([](Operation *) {});
+      .Default([&](Operation *defaultOp) {
+        // Drop the output layout hint for multi-output ops. This is needed
+        // because those ops don't have 1:1 relationship between memory config
+        // and outputs, which can create weird bugs in op validation. Safe is to
+        // ignore the hint in this case.
+        if (llvm::count_if(defaultOp->getResults(), [](Value r) {
+              return mlir::isa<RankedTensorType>(r.getType());
+            }) > 1) {
+          config.outputLayout = TTNNLayoutAttr{};
+        }
+      });
 
   return config;
 }
