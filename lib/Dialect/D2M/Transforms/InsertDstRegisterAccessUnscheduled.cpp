@@ -64,7 +64,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
       }
       auto *defOp = op->getOperand(operandIdx).getDefiningOp();
       if (defOp) {
-        auto it = dstIntermediates.find(defOp);
+        auto *it = dstIntermediates.find(defOp);
         if (it != dstIntermediates.end()) {
           return it->second.dstSlice;
         }
