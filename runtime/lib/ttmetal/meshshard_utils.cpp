@@ -291,6 +291,11 @@ std::shared_ptr<tt_metal::DistributedHostBuffer> tensorFullToShard(
 
   return std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) {
+            LOG_FATAL("Unsupported variant type");
+            return std::make_shared<tt_metal::DistributedHostBuffer>(
+                tt_metal::DistributedHostBuffer::create(meshShape));
+          },
           [&](const TensorDesc &tensorDesc)
               -> std::shared_ptr<tt_metal::DistributedHostBuffer> {
             void *dst = input.data.get();
@@ -332,6 +337,10 @@ std::shared_ptr<tt_metal::HostBuffer> tensorShardToFull(
 
   return std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) {
+            LOG_FATAL("Unsupported variant type");
+            return std::make_shared<tt_metal::HostBuffer>();
+          },
           [&](const TensorDesc &tensorDesc)
               -> std::shared_ptr<tt_metal::HostBuffer> {
             LOG_FATAL("tensorShardToFull from TensorDesc not supported.");
