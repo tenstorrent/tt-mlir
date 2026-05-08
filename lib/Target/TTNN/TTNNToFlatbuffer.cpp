@@ -2037,8 +2037,14 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
+  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> postActivation = 0;
+  if (auto attr = op.getPostActivationAttr()) {
+    postActivation = toFlatbuffer(cache, attr);
+  }
+
   return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out,
+      postActivation);
 }
 
 template <typename EltwiseBinaryCompositeOp>

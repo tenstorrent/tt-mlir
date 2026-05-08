@@ -123,6 +123,68 @@ private:
   }
 };
 
+// Fold a unary activation (relu, silu, gelu, sigmoid, ...) that consumes the
+// result of an elementwise binary op (add, multiply, ...) into the binary
+// op's `post_activation` attribute. tt-metal's `::ttnn::add(...)` etc. accept
+// a `post_activations` argument that runs the activation inside the binary
+// kernel, saving a kernel launch and a DRAM round-trip per residual block.
+//
+// CNN backbones (ResNet, RegNet, MobileNet, SegFormer encoder) emit one such
+// `add → relu` pair per residual block — 16 sites in ResNet-50.
+template <typename BinaryOp, typename ActivationOp>
+class TTNNBinaryWithPostActivation : public mlir::OpRewritePattern<BinaryOp> {
+  using TTNNBinaryWithPostActivation::template OpRewritePattern<
+      BinaryOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(BinaryOp srcOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Only fuse when the binary op has no existing post_activation, has
+    // exactly one user, and that user is the target activation op.
+    if (srcOp.getPostActivation()) {
+      return mlir::failure();
+    }
+    if (!srcOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+    if (!ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
+      return mlir::failure();
+    }
+
+    ActivationOp activationOp =
+        mlir::cast<ActivationOp>(*srcOp.getResult().getUsers().begin());
+
+    // Map ActivationOp's MLIR op name (e.g. "ttnn.relu") to UnaryOpType enum.
+    UnaryOpType opType = activationOpToUnaryOpType();
+
+    auto unaryAttr = UnaryWithParamAttr::get(rewriter.getContext(), opType,
+                                             /*params=*/llvm::ArrayRef<FloatAttr>{});
+
+    rewriter.modifyOpInPlace(
+        srcOp, [&]() { srcOp.setPostActivationAttr(unaryAttr); });
+
+    rewriter.replaceAllUsesWith(activationOp, activationOp.getInput());
+    return mlir::success();
+  }
+
+private:
+  static UnaryOpType activationOpToUnaryOpType() {
+    if constexpr (std::is_same_v<ActivationOp, ReluOp>) {
+      return UnaryOpType::Relu;
+    } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
+      return UnaryOpType::Silu;
+    } else if constexpr (std::is_same_v<ActivationOp, GeluOp>) {
+      return UnaryOpType::Gelu;
+    } else if constexpr (std::is_same_v<ActivationOp, SigmoidOp>) {
+      return UnaryOpType::Sigmoid;
+    } else {
+      static_assert(sizeof(ActivationOp) == 0,
+                    "Unsupported activation op for binary post-activation fusion");
+    }
+  }
+};
+
 template <typename SrcOp, typename ActivationOp>
 class TTNNMatmulAndLinearWithActivation : public mlir::OpRewritePattern<SrcOp> {
   using TTNNMatmulAndLinearWithActivation::template OpRewritePattern<
@@ -317,7 +379,17 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>,
+        // §2A: fold post-binary activation into the binary op.
+        // CNN residual blocks: add → relu (16 sites in ResNet-50).
+        TTNNBinaryWithPostActivation<AddOp, ReluOp>,
+        TTNNBinaryWithPostActivation<AddOp, SiluOp>,
+        TTNNBinaryWithPostActivation<AddOp, GeluOp>,
+        TTNNBinaryWithPostActivation<AddOp, SigmoidOp>,
+        TTNNBinaryWithPostActivation<MultiplyOp, ReluOp>,
+        TTNNBinaryWithPostActivation<MultiplyOp, SiluOp>,
+        TTNNBinaryWithPostActivation<MultiplyOp, GeluOp>,
+        TTNNBinaryWithPostActivation<MultiplyOp, SigmoidOp>>(&getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {

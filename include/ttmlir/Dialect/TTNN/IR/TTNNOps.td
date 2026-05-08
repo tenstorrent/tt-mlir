@@ -178,7 +178,8 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     let arguments = (ins AnyRankedTensor:$lhs,
                          AnyRankedTensor:$rhs,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<UnaryWithParamAttr>:$post_activation);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -199,7 +200,25 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
         {
           outputDTypeAttr = $_builder.getAttr<ttcore::DataTypeAttr>(layoutAttr.getDataType());
         }
-        build($_builder, $_state, resultType, lhs, rhs, outputDTypeAttr, /*memory_config=*/nullptr);
+        // Cast the trailing post_activation nullptr to disambiguate against
+        // GeluBackwardOp which also inherits this template but replaces
+        // post_activation with a `StrAttr approximate` (same nullptr type).
+        build($_builder, $_state, resultType, lhs, rhs, outputDTypeAttr,
+              ttnn::MemoryConfigAttr(),
+              ttnn::UnaryWithParamAttr());
+      }]>,
+      // Backward-compat builder for existing call sites that pass
+      // (resultType, lhs, rhs, dtype, memory_config) — avoid migrating ~10
+      // existing decomposition / workaround call sites by defaulting the new
+      // post_activation attr to null here.
+      OpBuilder<(ins "Type": $resultType,
+                     "Value": $lhs,
+                     "Value": $rhs,
+                     "::mlir::tt::ttcore::DataTypeAttr": $dtype,
+                     "::mlir::tt::ttnn::MemoryConfigAttr": $memory_config),
+      [{
+        build($_builder, $_state, resultType, lhs, rhs, dtype, memory_config,
+              ttnn::UnaryWithParamAttr());
       }]>
     ];
 }
@@ -886,6 +905,26 @@ def TTNN_GeluBackwardOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
                        DefaultValuedAttr<StrAttr, "\"none\"">:$approximate);
 
   let results = (outs AnyRankedTensor:$result);
+
+  // Override the inherited 3-arg convenience builder. The base
+  // TTNN_ElementwiseBinaryOp's body now ends with a UnaryWithParamAttr
+  // (post_activation) which doesn't match this op's `approximate` StrAttr.
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+    [{
+      ttcore::DataTypeAttr outputDTypeAttr = ttcore::DataTypeAttr();
+      RankedTensorType rankedTensorType = mlir::cast<RankedTensorType>(resultType);
+      TTNNLayoutAttr layoutAttr = mlir::dyn_cast_if_present<TTNNLayoutAttr>(rankedTensorType.getEncoding());
+      if (layoutAttr)
+      {
+        outputDTypeAttr = $_builder.getAttr<ttcore::DataTypeAttr>(layoutAttr.getDataType());
+      }
+      build($_builder, $_state, resultType, lhs, rhs, outputDTypeAttr,
+            ttnn::MemoryConfigAttr(),
+            $_builder.getStringAttr("none"));
+    }]>
+  ];
 
   let hasVerifier = 1;
 }

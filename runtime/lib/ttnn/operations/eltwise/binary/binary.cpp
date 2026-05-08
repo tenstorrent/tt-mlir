@@ -7,7 +7,29 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
+
 namespace tt::runtime::ttnn::operations::eltwise::binary {
+
+// Convert the optional flatbuffer post_activation field on EltwiseBinaryOp
+// into the EltwiseUnaryWithParam vector that tt-metal's ::ttnn::add etc.
+// take as `post_activations`.
+static std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>
+buildPostActivations(const ::tt::target::ttnn::EltwiseBinaryOp *op) {
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> out;
+  if (auto fb = op->post_activation()) {
+    auto opType = static_cast<::ttnn::operations::unary::UnaryOpType>(
+        static_cast<int>(fb->op_type()));
+    std::vector<float> params;
+    if (fb->params()) {
+      for (auto p : *fb->params()) {
+        params.push_back(p);
+      }
+    }
+    out.emplace_back(opType, params);
+  }
+  return out;
+}
 
 template <typename Fn>
 static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
@@ -34,19 +56,54 @@ static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
+// Specialized helper for ops that support the `post_activations` arg
+// (TTNN_BINARY_OP_TENSOR_TENSOR signature). The §2A fusion folds an
+// activation op into the binary op's `post_activation` attribute; this
+// helper plumbs that into tt-metal's `::ttnn::add(..., post_activations)`
+// 6th positional argument.
+template <typename Fn>
+static void runEltwiseBinaryOpWithPostActivation(
+    const ::tt::target::ttnn::EltwiseBinaryOp *op, ProgramTensorPool &tensorPool,
+    Fn &&ttnnOp) {
+
+  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
+
+  std::optional<::ttnn::DataType> outputDataType = std::nullopt;
+  if (op->output_dtype()) {
+    outputDataType =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+  }
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  auto postActivations = buildPostActivations(op);
+  std::optional<::ttnn::Tensor> outputTensor = std::nullopt;
+
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
+                              outputTensor, postActivations);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
 void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseBinaryOpType::Add: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+    runEltwiseBinaryOpWithPostActivation(op, tensorPool, [](auto &&...args) {
       return ::ttnn::add(std::forward<decltype(args)>(args)...);
     });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+    runEltwiseBinaryOpWithPostActivation(op, tensorPool, [](auto &&...args) {
       return ::ttnn::multiply(std::forward<decltype(args)>(args)...);
     });
     break;
