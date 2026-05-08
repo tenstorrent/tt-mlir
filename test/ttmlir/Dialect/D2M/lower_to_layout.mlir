@@ -2,6 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 #layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#layout_dram = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, dram, sharded>
 #layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // Distribute to the target grid before tilization.
@@ -59,6 +60,27 @@ func.func @untilize(%arg0: tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>) ->
   // CHECK: d2m.to_host %[[UNTILIZED]], %[[HOST]] layout = #layout{{[0-9]*}} : tensor<8x8x128x128xf32, #layout{{[0-9]*}}> into tensor<1024x1024xf32>
 
   %1 = d2m.to_layout %arg0, %0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> into tensor<1024x1024xf32>
+    -> tensor<1024x1024xf32>
+
+  return %1 : tensor<1024x1024xf32>
+}
+
+// Test untilize from DRAM to host stages through L1 before d2m.to_host.
+func.func @untilize_dram_to_host_stages_l1(%arg0: tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout_dram>) -> tensor<1024x1024xf32> {
+  %0 = d2m.empty() : tensor<1024x1024xf32>
+
+  // CHECK-LABEL: @untilize_dram_to_host_stages_l1
+  // CHECK: %[[L1_TILED:.*]] = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
+  // CHECK: %[[DRAM_TO_L1:.*]] = d2m.generic
+  // CHECK-NEXT: ins(%arg0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>)
+  // CHECK-NEXT: outs(%[[L1_TILED]] : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>)
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store %[[L1_TILED]]
+  // CHECK: %[[L1_SCALAR:.*]] = d2m.generic
+  // CHECK-NEXT: ins(%[[DRAM_TO_L1]] : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>)
+  // CHECK: d2m.tile_untilize_block
+  // CHECK: d2m.to_host %[[L1_SCALAR]]
+  %1 = d2m.to_layout %arg0, %0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout_dram> into tensor<1024x1024xf32>
     -> tensor<1024x1024xf32>
 
   return %1 : tensor<1024x1024xf32>
