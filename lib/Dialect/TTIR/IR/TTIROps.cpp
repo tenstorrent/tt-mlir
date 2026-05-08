@@ -3741,6 +3741,21 @@ void mlir::tt::ttir::EmbeddingOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   patterns.add(+[](mlir::tt::ttir::EmbeddingOp op,
                    mlir::PatternRewriter &rewriter) -> LogicalResult {
+    // Do not apply when the indices are already produced by a ReshapeOp *and*
+    // every consumer of the result is a ReshapeOp.  Both conditions together
+    // indicate that this canonicalization has already fired, so re-running
+    // would only produce redundant reshape chains.
+    bool inputFromReshape =
+        op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>() != nullptr;
+    bool outputToReshape =
+        !op->use_empty() &&
+        llvm::all_of(op->getUsers(), [](mlir::Operation *user) {
+          return mlir::isa<mlir::tt::ttir::ReshapeOp>(user);
+        });
+    if (!inputFromReshape && !outputToReshape) {
+      return failure();
+    }
+
     RankedTensorType inputType = op.getInput().getType();
 
     // Compute the squeezed shape by dropping all unit dimensions.
@@ -3751,17 +3766,19 @@ void mlir::tt::ttir::EmbeddingOp::getCanonicalizationPatterns(
       }
     }
 
+    // Index tensor is made up of unit dimensions only, so push back a 1.
+    if (squeezedShape.empty()) {
+      squeezedShape.push_back(1);
+    }
+
     // Nothing to do when there are no unit dimensions to remove.
     if (static_cast<int64_t>(squeezedShape.size()) == inputType.getRank()) {
       return failure();
     }
 
-    // Index tensor is made up of unit dimensions only, so nothing to do.
-    if (squeezedShape.empty()) {
-      return failure();
-    }
-
     RankedTensorType resultType = op.getType();
+    assert(!resultType.getEncoding() && "EmbeddingOp should not have a layout");
+
     int64_t B = resultType.getDimSize(resultType.getRank() - 1);
 
     // Reshape input to the squeezed index shape.
