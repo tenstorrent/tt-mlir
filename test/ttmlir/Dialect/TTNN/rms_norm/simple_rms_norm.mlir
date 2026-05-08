@@ -35,4 +35,17 @@ module {
     %3 = "ttir.rms_norm"(%arg0, %1, %2) <{normalized_shape = array<i64: 1024>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0>}> : (tensor<512x1024xbf16>, tensor<1024xbf16>, tensor<1024xbf16>) -> tensor<512x1024xbf16>
     return %3 : tensor<512x1024xbf16>
   }
+
+  // Test RMS norm with weight + residual (the new fusion path).
+  // operandSegmentSizes = [input=1, weight=1, bias=0, residual=1] — the
+  // residual operand survives lowering and the runtime forwards it as
+  // ::ttnn::rms_norm's residual_input_tensor parameter.
+  func.func @forward_with_weight_and_residual(%arg0: tensor<512x1024xbf16>, %arg_res: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {
+    %1 = ttir.empty() : tensor<1024xbf16>
+    // CHECK-LABEL: forward_with_weight_and_residual
+    // CHECK: "ttnn.rms_norm"
+    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 1>
+    %2 = "ttir.rms_norm"(%arg0, %1, %arg_res) <{normalized_shape = array<i64: 1024>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 1>}> : (tensor<512x1024xbf16>, tensor<1024xbf16>, tensor<512x1024xbf16>) -> tensor<512x1024xbf16>
+    return %2 : tensor<512x1024xbf16>
+  }
 }
