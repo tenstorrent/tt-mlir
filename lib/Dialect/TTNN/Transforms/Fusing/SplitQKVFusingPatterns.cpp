@@ -822,6 +822,396 @@ template class SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>;
 template class SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>;
 
 // ============================================================================
+// CrossAttnSplitQKVFusing — Pilot 3.6 (fuse_kv_split)
+// ============================================================================
+
+namespace {
+
+// Cross-attn structural match for one of Q/K/V: matmul -> (typecast)
+// -> reshape (3D->4D BSHD) -> (typecast) -> permute [0,2,1,3]. Returns the
+// final 4D permuted shape via the captured PermuteOp. This is the same chain
+// shape the self-attention path consumes, but without a leading slice (each
+// matmul produces a single Q/K/V tensor on its own).
+struct ReshapePermuteMatch {
+  ReshapeOp reshapeOp;
+  PermuteOp permuteOp;
+
+  RankedTensorType getFinalType() { return permuteOp.getType(); }
+  Operation *getFinalOp() { return permuteOp.getOperation(); }
+  int64_t numHeads() { return getFinalType().getShape()[O_NUM_HEADS]; }
+  int64_t headDim() { return getFinalType().getShape()[O_HEAD_DIM]; }
+  int64_t seqLen() { return getFinalType().getShape()[O_SEQ_LEN]; }
+  int64_t batch() { return getFinalType().getShape()[O_BATCH]; }
+};
+
+// Match a single matmul -> reshape -> permute [0,2,1,3] chain.
+// Returns nullopt if the matmul has any other non-deallocate consumer or if
+// the permute is missing/malformed. Conservative on purpose.
+template <typename MatMulOpType>
+std::optional<ReshapePermuteMatch>
+matchReshapePermuteChain(MatMulOpType matmulOp) {
+  Operation *next = lookThroughTypecasts(matmulOp.getResult());
+  auto reshapeOp = dyn_cast_or_null<ReshapeOp>(next);
+  if (!reshapeOp || reshapeOp.getType().getShape().size() != 4) {
+    return std::nullopt;
+  }
+
+  Operation *afterReshape = lookThroughTypecasts(reshapeOp.getResult());
+  auto permuteOp = dyn_cast_or_null<PermuteOp>(afterReshape);
+  if (!permuteOp ||
+      permuteOp.getPermutation() != ArrayRef<int64_t>{0, 2, 1, 3}) {
+    return std::nullopt;
+  }
+
+  // Validate the reshape collapses leading dims into [B, S, H, D].
+  auto matmulShape = matmulOp.getType().getShape();
+  auto reshapeShape = reshapeOp.getType().getShape();
+  int64_t batchSeqIn = 1;
+  for (size_t i = 0; i + 1 < matmulShape.size(); ++i) {
+    batchSeqIn *= matmulShape[i];
+  }
+  int64_t hidden = matmulShape.back();
+  if (reshapeShape[0] * reshapeShape[1] != batchSeqIn) {
+    return std::nullopt;
+  }
+  if (reshapeShape[2] * reshapeShape[3] != hidden) {
+    return std::nullopt;
+  }
+
+  return ReshapePermuteMatch{reshapeOp, permuteOp};
+}
+
+// Locate the K and V sibling matmul among matmul users that share the encoder
+// LHS with the anchor K. Returns true if exactly one V sibling is found whose
+// permute target is SDPA.value and whose role traces succeed.
+template <typename MatMulOpType>
+std::optional<MatMulOpType> findSiblingValueMatmul(MatMulOpType anchor,
+                                                   QKVRole anchorRole) {
+  Value sharedLhs = anchor.getA();
+  MatMulOpType found;
+  for (Operation *user : sharedLhs.getUsers()) {
+    auto sibling = dyn_cast<MatMulOpType>(user);
+    if (!sibling || sibling == anchor || sibling.getA() != sharedLhs) {
+      continue;
+    }
+    auto chain = matchReshapePermuteChain(sibling);
+    if (!chain) {
+      continue;
+    }
+    auto role = findQKVRole(chain->permuteOp.getResult());
+    if (!role) {
+      continue;
+    }
+    // Anchor + sibling must cover exactly {Key, Value} between them.
+    QKVRole expectedSiblingRole =
+        (anchorRole == QKVRole::Key) ? QKVRole::Value : QKVRole::Key;
+    if (*role != expectedSiblingRole) {
+      continue;
+    }
+    if (found) {
+      // Multiple V candidates is ambiguous (e.g. two attention layers fed off
+      // the same encoder hidden state). Refuse to fuse rather than guess.
+      return std::nullopt;
+    }
+    found = sibling;
+  }
+  if (!found) {
+    return std::nullopt;
+  }
+  return found;
+}
+
+// Locate the Q matmul: the matmul whose reshape->permute chain feeds the same
+// SDPA's Query operand. We scan from the SDPA op backward through Q's chain.
+template <typename MatMulOpType>
+std::optional<std::pair<MatMulOpType, ReshapePermuteMatch>>
+findQueryMatmulFromSDPA(Operation *sdpaOp) {
+  Value qOperand;
+  llvm::TypeSwitch<Operation *>(sdpaOp)
+      .Case<ScaledDotProductAttentionOp, ScaledDotProductAttentionDecodeOp,
+            PagedScaledDotProductAttentionDecodeOp>(
+          [&](auto op) { qOperand = op.getQuery(); });
+  if (!qOperand) {
+    return std::nullopt;
+  }
+
+  // Walk backward through typecasts/permutes/reshapes to the producing matmul.
+  Value cur = qOperand;
+  PermuteOp permuteOp;
+  ReshapeOp reshapeOp;
+  for (int hop = 0; hop < 6 && cur; ++hop) {
+    Operation *def = cur.getDefiningOp();
+    if (!def) {
+      return std::nullopt;
+    }
+    if (auto tc = dyn_cast<TypecastOp>(def)) {
+      cur = tc.getInput();
+      continue;
+    }
+    if (auto p = dyn_cast<PermuteOp>(def)) {
+      if (permuteOp ||
+          p.getPermutation() != ArrayRef<int64_t>{0, 2, 1, 3}) {
+        return std::nullopt;
+      }
+      permuteOp = p;
+      cur = p.getInput();
+      continue;
+    }
+    if (auto r = dyn_cast<ReshapeOp>(def)) {
+      if (reshapeOp || r.getType().getShape().size() != 4) {
+        return std::nullopt;
+      }
+      reshapeOp = r;
+      cur = r.getInput();
+      continue;
+    }
+    if (auto m = dyn_cast<MatMulOpType>(def)) {
+      if (!permuteOp || !reshapeOp) {
+        return std::nullopt;
+      }
+      // Sanity-check the reshape factorization.
+      auto matmulShape = m.getType().getShape();
+      auto reshapeShape = reshapeOp.getType().getShape();
+      int64_t batchSeqIn = 1;
+      for (size_t i = 0; i + 1 < matmulShape.size(); ++i) {
+        batchSeqIn *= matmulShape[i];
+      }
+      int64_t hidden = matmulShape.back();
+      if (reshapeShape[0] * reshapeShape[1] != batchSeqIn ||
+          reshapeShape[2] * reshapeShape[3] != hidden) {
+        return std::nullopt;
+      }
+      return std::make_pair(m, ReshapePermuteMatch{reshapeOp, permuteOp});
+    }
+    return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+// Find the SDPA op that consumes the result of a chain. Returns the SDPA op
+// pointer if it appears as a direct user (after typecasts) of the permute
+// result; otherwise nullptr.
+Operation *findSDPAUser(Value v) {
+  llvm::SmallVector<Value, 8> queue;
+  llvm::DenseSet<Value> visited;
+  queue.push_back(v);
+  visited.insert(v);
+  size_t idx = 0;
+  while (idx < queue.size()) {
+    Value cur = queue[idx++];
+    for (Operation *user : cur.getUsers()) {
+      if (isa<ScaledDotProductAttentionOp,
+              ScaledDotProductAttentionDecodeOp,
+              PagedScaledDotProductAttentionDecodeOp>(user)) {
+        return user;
+      }
+      if (isa<TypecastOp>(user)) {
+        for (Value res : user->getResults()) {
+          if (visited.insert(res).second) {
+            queue.push_back(res);
+          }
+        }
+      }
+    }
+  }
+  return nullptr;
+}
+
+} // namespace
+
+template <typename MatMulOpType>
+mlir::LogicalResult CrossAttnSplitQKVFusing<MatMulOpType>::matchAndRewrite(
+    MatMulOpType matmulOp, mlir::PatternRewriter &rewriter) const {
+  // Anchor on a matmul that flows reshape -> permute -> SDPA (as Key OR
+  // Value). We then locate the sibling KV matmul (same LHS, opposite role)
+  // and the Q matmul (different LHS) reachable from the same SDPA op.
+
+  // 1. Match anchor's reshape -> permute chain.
+  auto anchorChain = matchReshapePermuteChain(matmulOp);
+  if (!anchorChain) {
+    return mlir::failure();
+  }
+
+  // 2. Trace the anchor to its QKV role.
+  auto anchorRole = findQKVRole(anchorChain->permuteOp.getResult());
+  if (!anchorRole || *anchorRole == QKVRole::Query) {
+    // We anchor on K or V only — the symmetry is broken by which one shares
+    // its LHS with another matmul.
+    return mlir::failure();
+  }
+
+  // To avoid running the rewrite twice (once anchored on K, once on V), only
+  // proceed when anchor is Key. The sibling lookup will find V from K.
+  if (*anchorRole != QKVRole::Key) {
+    return mlir::failure();
+  }
+
+  // 3. Find the SDPA op consumed by the anchor chain.
+  Operation *sdpaOp = findSDPAUser(anchorChain->permuteOp.getResult());
+  if (!sdpaOp) {
+    return mlir::failure();
+  }
+
+  // 4. Find the V sibling matmul (same LHS, role==Value).
+  auto vMatmulOpt = findSiblingValueMatmul<MatMulOpType>(matmulOp, *anchorRole);
+  if (!vMatmulOpt) {
+    return mlir::failure();
+  }
+  MatMulOpType vMatmul = *vMatmulOpt;
+  auto vChain = matchReshapePermuteChain(vMatmul);
+  if (!vChain) {
+    return mlir::failure();
+  }
+
+  // 5. Find the Q matmul by walking backward from the SDPA's Query operand.
+  auto qLookup = findQueryMatmulFromSDPA<MatMulOpType>(sdpaOp);
+  if (!qLookup) {
+    return mlir::failure();
+  }
+  MatMulOpType qMatmul = qLookup->first;
+  ReshapePermuteMatch qChain = qLookup->second;
+
+  // 6. Cross-attention invariants:
+  //    K.lhs == V.lhs (encoder_h) and Q.lhs != K.lhs (decoder_h).
+  if (qMatmul.getA() == matmulOp.getA()) {
+    return mlir::failure(); // Self-attention shape; defer to existing pattern.
+  }
+
+  // 7. Dimension compatibility: head_dim must agree across Q/K/V; K and V
+  //    must have the same num_heads (num_kv_heads); Q's num_heads must be
+  //    a multiple of num_kv_heads (allows GQA but not weirder ratios).
+  if (qChain.headDim() != anchorChain->headDim() ||
+      anchorChain->headDim() != vChain->headDim()) {
+    return mlir::failure();
+  }
+  if (anchorChain->numHeads() != vChain->numHeads()) {
+    return mlir::failure();
+  }
+  if (anchorChain->seqLen() != vChain->seqLen()) {
+    return mlir::failure();
+  }
+  if (qChain.batch() != anchorChain->batch()) {
+    return mlir::failure();
+  }
+
+  // 8. Each chain's permute must be the only non-dealloc user of its reshape
+  //    (and the permute's user is the SDPA, possibly through a typecast).
+  //    We rely on findSDPAUser succeeding for K and V; check Q's chain too.
+  if (!findSDPAUser(qChain.permuteOp.getResult())) {
+    return mlir::failure();
+  }
+  if (!findSDPAUser(vChain->permuteOp.getResult())) {
+    return mlir::failure();
+  }
+
+  uint32_t numHeads = static_cast<uint32_t>(qChain.numHeads());
+  uint32_t numKVHeads = static_cast<uint32_t>(anchorChain->numHeads());
+  int64_t headDim = qChain.headDim();
+  int64_t batchSize = qChain.batch();
+  int64_t seqLenQ = qChain.seqLen();
+  int64_t seqLenKV = anchorChain->seqLen();
+  bool isGQA = (numHeads != numKVHeads);
+
+  // 9. Build the Q input_tensor: reshape qMatmul's output (potentially 2D
+  //    [B*S, H*D]) to 3D [B, S_q, H*D].
+  auto qMatmulType = mlir::cast<RankedTensorType>(qMatmul.getType());
+  rewriter.setInsertionPointAfter(qMatmul);
+  SmallVector<int64_t> qInputShape = {batchSize, seqLenQ,
+                                      static_cast<int64_t>(numHeads) * headDim};
+  Value qInput = qMatmul.getResult();
+  if (qMatmulType.getRank() != 3 ||
+      qMatmulType.getShape() != ArrayRef<int64_t>(qInputShape)) {
+    SmallVector<int32_t> qInputShapeI32(qInputShape.begin(), qInputShape.end());
+    auto qInputTy =
+        utils::RankedTensorTypeFactory::create(qMatmulType, qInputShape);
+    qInput = rewriter
+                 .create<ReshapeOp>(
+                     qMatmul.getLoc(), qInputTy, qInput,
+                     rewriter.getI32ArrayAttr(qInputShapeI32),
+                     /*memory_config=*/MemoryConfigAttr())
+                 .getResult();
+  }
+
+  // 10. Build the KV input_tensor by concatenating K and V matmul outputs
+  //     along the last dim. Reshape to 3D [B, S_kv, 2 * H_kv * D] first.
+  auto kMatmulType = mlir::cast<RankedTensorType>(matmulOp.getType());
+  auto vMatmulType = mlir::cast<RankedTensorType>(vMatmul.getType());
+
+  // Insert KV reshape/concat after the later of the two matmul defs.
+  Operation *kvInsertAfter =
+      vMatmul->isBeforeInBlock(matmulOp) ? matmulOp.getOperation() : vMatmul.getOperation();
+  rewriter.setInsertionPointAfter(kvInsertAfter);
+
+  auto reshape3D = [&](Value m, RankedTensorType origTy,
+                       int64_t hidden) -> Value {
+    SmallVector<int64_t> shape3D = {batchSize, seqLenKV, hidden};
+    if (origTy.getRank() == 3 && origTy.getShape() == ArrayRef<int64_t>(shape3D)) {
+      return m;
+    }
+    SmallVector<int32_t> shape3DI32(shape3D.begin(), shape3D.end());
+    auto ty3D = utils::RankedTensorTypeFactory::create(origTy, shape3D);
+    return rewriter
+        .create<ReshapeOp>(m.getLoc(), ty3D, m,
+                           rewriter.getI32ArrayAttr(shape3DI32),
+                           /*memory_config=*/MemoryConfigAttr())
+        .getResult();
+  };
+  int64_t kvHidden = static_cast<int64_t>(numKVHeads) * headDim;
+  Value kReshaped = reshape3D(matmulOp.getResult(), kMatmulType, kvHidden);
+  Value vReshaped = reshape3D(vMatmul.getResult(), vMatmulType, kvHidden);
+
+  SmallVector<int64_t> kvConcatShape = {batchSize, seqLenKV, 2 * kvHidden};
+  auto kvConcatTy =
+      utils::RankedTensorTypeFactory::create(kMatmulType, kvConcatShape);
+  Value kvInput = rewriter
+                      .create<ConcatOp>(matmulOp.getLoc(), kvConcatTy,
+                                        ValueRange{kReshaped, vReshaped},
+                                        /*dim=*/static_cast<int32_t>(2),
+                                        MemoryConfigAttr())
+                      .getResult();
+
+  // 11. Build split op result types.
+  rewriter.setInsertionPointAfter(kvInput.getDefiningOp());
+  RankedTensorType qSplitTy = qChain.getFinalType();
+  RankedTensorType kSplitTy = anchorChain->getFinalType();
+  RankedTensorType vSplitTy = vChain->getFinalType();
+
+  auto numHeadsAttr = rewriter.getUI32IntegerAttr(numHeads);
+  auto numKVHeadsAttr =
+      isGQA ? rewriter.getUI32IntegerAttr(numKVHeads) : IntegerAttr();
+  auto transposeKeyAttr = rewriter.getBoolAttr(false);
+
+  // 12. Validate the fused op via op-model constraints (when enabled).
+  FusionValidator validator(rewriter.getContext(), validationConfig);
+  auto validationResult =
+      validator.validateFusion<SplitQueryKeyValueAndSplitHeadsOp>(
+          matmulOp.getOperation(), matmulOp.getLoc(),
+          {qSplitTy, kSplitTy, vSplitTy}, qInput, kvInput, numHeadsAttr,
+          numKVHeadsAttr, transposeKeyAttr, MemoryConfigAttr());
+  if (!validationResult.isSuccess()) {
+    return mlir::failure();
+  }
+
+  // 13. Create the fused op.
+  auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+      matmulOp.getLoc(), TypeRange{qSplitTy, kSplitTy, vSplitTy}, qInput,
+      kvInput, numHeadsAttr, numKVHeadsAttr, transposeKeyAttr,
+      MemoryConfigAttr());
+
+  // 14. Replace the three permute ops (the chains' final ops) with the split
+  //     outputs. The original matmuls become dead and are DCE'd.
+  rewriter.replaceOp(qChain.getFinalOp(), splitOp.getQuery());
+  rewriter.replaceOp(anchorChain->getFinalOp(), splitOp.getKey());
+  rewriter.replaceOp(vChain->getFinalOp(), splitOp.getValue());
+
+  return mlir::success();
+}
+
+// Explicit template instantiations for cross-attention pattern.
+template class CrossAttnSplitQKVFusing<MatmulOp>;
+template class CrossAttnSplitQKVFusing<LinearOp>;
+
+// ============================================================================
 // NLPCreateQKVHeadsDecodeFusing
 // ============================================================================
 

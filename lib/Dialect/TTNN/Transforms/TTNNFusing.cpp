@@ -421,6 +421,17 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
           &getContext(), validationConfig);
+      // Pilot 3.6 — cross-attention K/V concat fuser. Recognises three
+      // separate sibling matmuls (Q from decoder, K+V from encoder sharing
+      // an LHS) and consolidates them into the SplitQueryKeyValueAndSplit
+      // HeadsOp's two-input form (input_tensor + kv_input_tensor). This is
+      // shape-conditional on silicon; landed default-on alongside the
+      // self-attention pattern, gated by the existing FusionValidator path
+      // so unsupported shapes fall back automatically.
+      patterns.add<fusing::CrossAttnSplitQKVFusing<MatmulOp>>(
+          &getContext(), validationConfig);
+      patterns.add<fusing::CrossAttnSplitQKVFusing<LinearOp>>(
+          &getContext(), validationConfig);
       patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
                                                           validationConfig);
     }
