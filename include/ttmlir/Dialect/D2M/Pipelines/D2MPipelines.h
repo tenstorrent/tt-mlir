@@ -99,14 +99,14 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::values(
           clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
           clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")),
-      llvm::cl::init(ttcore::MemorySpace::DeviceL1)};
+      llvm::cl::init(ttcore::MemorySpace::DeviceDRAM)};
   Option<ttcore::MemorySpace> defaultOutputMemSpace{
       *this, "default-output-memspace",
       llvm::cl::desc("Set default memspace for output tensors"),
       llvm::cl::values(
           clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
           clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")),
-      llvm::cl::init(ttcore::MemorySpace::DeviceL1)};
+      llvm::cl::init(ttcore::MemorySpace::DeviceDRAM)};
 
   // This option disables back-to-back ToLayoutOp folding; this is mainly
   // useful for mocking up DMA tests that do 'unnecessary' roundtrip DMA.

@@ -107,12 +107,12 @@ def TTIRToD2M: Pass<"ttir-to-d2m", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::d2m::D2MDialect", "mlir::linalg::LinalgDialect"];
   let constructor = "createTTIRToD2MPass()";
   let options = [
-      Option<"defaultInputMemSpace", "default-input-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for input tensors",
+      Option<"defaultInputMemSpace", "default-input-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceDRAM", "Set default memspace for input tensors",
           [{::llvm::cl::values(
             clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
             clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
           )}]>,
-      Option<"defaultOutputMemSpace", "default-output-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for output tensors",
+      Option<"defaultOutputMemSpace", "default-output-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceDRAM", "Set default memspace for output tensors",
           [{::llvm::cl::values(
             clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
             clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
