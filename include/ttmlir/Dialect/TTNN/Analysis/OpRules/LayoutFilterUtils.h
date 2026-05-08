@@ -22,6 +22,28 @@ inline bool rejectAllSharded(TTNNLayoutAttr layout) {
   return !(ml && isShardedMemoryLayout(ml.getValue()));
 }
 
+/// Require DRAM-interleaved: reject sharded and L1 layouts.
+inline bool requireDRAMInterleaved(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  if (ml && isShardedMemoryLayout(ml.getValue())) {
+    return false;
+  }
+  return isDRAMBufferType(layout.getBufferType());
+}
+
+/// Reject L1-interleaved: keep DRAM (any) and L1-sharded, reject
+/// L1-interleaved. Used for inputs whose kernel requires DRAM when not sharded
+/// (e.g. Q in sdpa_decode: "Q tensor buffer type must be DRAM when not
+/// sharded").
+inline bool rejectL1Interleaved(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  bool isSharded = ml && isShardedMemoryLayout(ml.getValue());
+  if (isSharded) {
+    return true;
+  }
+  return isDRAMBufferType(layout.getBufferType());
+}
+
 /// Reject width-sharded layouts. Returns true if the layout should be kept.
 inline bool rejectWidthSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();

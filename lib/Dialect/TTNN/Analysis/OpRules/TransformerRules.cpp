@@ -47,6 +47,21 @@ OutputHints SDPARuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
+// SDPADecodeRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+SDPADecodeRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  // Q (operand 0): kernel asserts "Q tensor buffer type must be DRAM when
+  // not sharded" -- accept DRAM (any) or L1-sharded; reject L1-interleaved.
+  // K, V, and cache tensors (operand >= 1): must be DRAM-interleaved.
+  if (operandIdx == 0) {
+    return layout_filter_utils::rejectL1Interleaved;
+  }
+  return layout_filter_utils::requireDRAMInterleaved;
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingRuleBook
 //===----------------------------------------------------------------------===//
 
