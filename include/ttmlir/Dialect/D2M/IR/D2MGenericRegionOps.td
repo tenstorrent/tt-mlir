@@ -884,8 +884,7 @@ def D2M_TileSFPUReduceMaxOp : D2M_GenericRegionComputeOp<"tile_sfpu_reduce_max",
   let hasVerifier = 1;
 }
 
-// TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
-def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast"> {
   let summary = "D2M Tile Broadcast Op";
   let description = [{
     The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
