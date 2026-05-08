@@ -78,6 +78,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static RotaryEmbeddingRuleBook rotaryEmbedding;
   static SplitQKVRuleBook splitQKV;
   static RmsNormRuleBook rmsNorm;
+  static MeshPartitionRuleBook meshPartition;
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static FillCacheRuleBook fillCache;
   static PagedFillCacheRuleBook pagedFillCache;
@@ -115,6 +116,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(RotaryEmbeddingLlamaOp::getOperationName(), &rotaryEmbedding);
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
     reg(RMSNormOp::getOperationName(), &rmsNorm);
+    reg(MeshPartitionOp::getOperationName(), &meshPartition);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(FillCacheOp::getOperationName(), &fillCache);
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
