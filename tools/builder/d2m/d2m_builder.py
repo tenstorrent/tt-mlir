@@ -499,3 +499,30 @@ class D2MBuilder(Builder):
             mcast_dims=mcast_dims,
             local_buffer=dst,
         )
+
+    def create_global_semaphore(
+        self,
+        output: Optional[Operand] = None,
+        output_type: Optional[RankedTensorType] = None,
+        value: int = 0,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
+        """Create a D2M create_global_semaphore operation."""
+        resolved_output_type, output_create_fn = self._resolve_output_spec(
+            output=output, output_type=output_type
+        )
+        return self._op_proxy(
+            d2m.CreateGlobalSemaphoreOp,
+            [],
+            unit_attrs=unit_attrs,
+            organize_d2m_args=lambda _inputs, output, _output_shape: (output,),
+            output_type=resolved_output_type,
+            output_shape=resolved_output_type.shape,
+            output_create_fn=output_create_fn,
+            d2m_kwargs={
+                "value": value,
+                "results": [d2m.ir.GlobalSemaphoreType.get(self._ctx)],
+            },
+            loc=loc,
+        )
