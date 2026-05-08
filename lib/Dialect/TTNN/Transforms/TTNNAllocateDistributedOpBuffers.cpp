@@ -15,12 +15,8 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
-// Allocates explicit scratch / persistent buffers for distributed ops that
-// implement DistributedOpInterface. Runs before the optimizer so the
-// allocated EmptyOps are visible to L1 budgeting analyses.
-//
-// The interface implementation owns the allocation logic (shape, dtype,
-// layout, prelude placement). This pass only walks the IR and dispatches.
+// Walks every DistributedOpInterface op and invokes allocateBuffers. The
+// interface implementation owns the allocation logic and is idempotent.
 class TTNNAllocateDistributedOpBuffers
     : public impl::TTNNAllocateDistributedOpBuffersBase<
           TTNNAllocateDistributedOpBuffers> {
@@ -32,11 +28,8 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    moduleOp.walk([&](DistributedOpInterface op) {
-      if (op.hasUnboundBuffers()) {
-        op.allocateBuffers(rewriter);
-      }
-    });
+    moduleOp.walk(
+        [&](DistributedOpInterface op) { op.allocateBuffers(rewriter); });
   }
 };
 

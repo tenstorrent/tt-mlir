@@ -6,6 +6,8 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -65,8 +67,6 @@ mlir::Value reshapeTo(PatternRewriter &rewriter, Location loc, mlir::Value v,
 //
 // Returns the (possibly new) weight value, or the original value if no
 // reshape is needed.
-constexpr int64_t kTileWidth = 32;
-
 mlir::Value maybeReshapeWeightToTileWidth(PatternRewriter &rewriter,
                                           Location loc, mlir::Value weight) {
   if (!weight) {
@@ -77,12 +77,12 @@ mlir::Value maybeReshapeWeightToTileWidth(PatternRewriter &rewriter,
     return weight;
   }
   int64_t totalElements = weightType.getShape()[0];
-  if (totalElements % kTileWidth != 0) {
+  if (totalElements % TILE_WIDTH != 0) {
     // Cannot reshape to (N/32, 32) cleanly; leave as-is and let downstream
     // verification surface the error.
     return weight;
   }
-  SmallVector<int64_t> reshapedShape = {totalElements / kTileWidth, kTileWidth};
+  SmallVector<int64_t> reshapedShape = {totalElements / TILE_WIDTH, TILE_WIDTH};
   return reshapeTo(rewriter, loc, weight, reshapedShape);
 }
 
@@ -117,10 +117,10 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       // with the new weight and forward all other operands/attrs through.
       auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
           loc, resultType, op.getInput(), reshapedWeight, op.getResidual(),
-          op.getStats(), op.getSemaphore(), op.getDevice(),
-          op.getClusterAxis(), op.getEpsilon(), op.getSubDeviceIdAttr(),
-          op.getMemoryConfigAttr(), op.getNumLinksAttr(), op.getTopologyAttr(),
-          op.getComputeConfigAttr(), op.getProgramConfigAttr());
+          op.getStats(), op.getSemaphore(), op.getDevice(), op.getClusterAxis(),
+          op.getEpsilon(), op.getSubDeviceIdAttr(), op.getMemoryConfigAttr(),
+          op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
+          op.getProgramConfigAttr());
       rewriter.replaceOp(op, newOp.getResult());
       return success();
     }

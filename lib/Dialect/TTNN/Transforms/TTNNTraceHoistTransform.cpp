@@ -22,6 +22,21 @@ namespace mlir::tt::ttnn {
 
 using TraceSmallString = llvm::SmallString<64>;
 
+namespace {
+// GlobalSemaphore values are pass-through handles into the trace wrapper:
+// they are part of the trace function signature so device kernels can use
+// them, but they have no host-side representation, no persistent device
+// slot, and no host-to-device transfer. Their position in the wrapper
+// signature is fixed at the end (after all tensor inputs) so the runtime
+// program signature matches.
+inline bool isSemaphoreType(mlir::Type type) {
+  return ::mlir::isa<ttnn::GlobalSemaphoreType>(type);
+}
+inline bool isSemaphoreValue(mlir::Value value) {
+  return isSemaphoreType(value.getType());
+}
+} // namespace
+
 class TTNNTraceHoistTransform
     : public impl::TTNNTraceHoistTransformBase<TTNNTraceHoistTransform> {
 public:
@@ -143,8 +158,8 @@ private:
     // Collect inputs: operands that come from outside the operation set
     for (Operation *op : opsToHoist) {
       for (auto operand : op->getOperands()) {
-        if (!::mlir::isa<RankedTensorType, ttnn::GlobalSemaphoreType>(
-                operand.getType())) {
+        if (!::mlir::isa<RankedTensorType>(operand.getType()) &&
+            !isSemaphoreValue(operand)) {
           continue;
         }
         Operation *definingOp = operand.getDefiningOp();
@@ -159,8 +174,8 @@ private:
     llvm::sort(inputs.begin(), inputs.end(), [](mlir::Value a, mlir::Value b) {
       // Tensors before semaphores; capture/execute op operand groups and the
       // runtime program signature follow this layout.
-      bool aIsSemaphore = ::mlir::isa<ttnn::GlobalSemaphoreType>(a.getType());
-      bool bIsSemaphore = ::mlir::isa<ttnn::GlobalSemaphoreType>(b.getType());
+      bool aIsSemaphore = isSemaphoreValue(a);
+      bool bIsSemaphore = isSemaphoreValue(b);
       if (aIsSemaphore != bIsSemaphore) {
         return !aIsSemaphore;
       }
@@ -373,9 +388,7 @@ private:
     for (size_t i = 0; i < traceFunc.getNumArguments(); i++) {
       mlir::Value traceFuncArg = traceFunc.getArgument(i);
 
-      // Semaphores are pass-through handles, not tensors. They go through the
-      // wrapper signature but have no persistent slot.
-      if (::mlir::isa<ttnn::GlobalSemaphoreType>(traceFuncArg.getType())) {
+      if (isSemaphoreValue(traceFuncArg)) {
         inputTypes.push_back(traceFuncArg.getType());
         continue;
       }
@@ -477,7 +490,7 @@ private:
     for (size_t i = 0; i < runAndCaptureTraceFunc.getNumArguments(); i++) {
       mlir::Value funcArg = runAndCaptureTraceFunc.getArgument(i);
 
-      if (::mlir::isa<ttnn::GlobalSemaphoreType>(funcArg.getType())) {
+      if (isSemaphoreValue(funcArg)) {
         traceCallArgs.push_back(funcArg);
         continue;
       }
@@ -810,15 +823,15 @@ private:
 
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
 
-    // Convert inputs to match capture function signature.
-    llvm::SmallVector<mlir::Value> captureOrExecuteTraceOpTensorInputs;
-    llvm::SmallVector<mlir::Value> captureOrExecuteTraceOpSemaphoreInputs;
+    // Split inputs into the two operand groups expected by the op.
+    llvm::SmallVector<mlir::Value> tensorInputs;
+    llvm::SmallVector<mlir::Value> semaphoreInputs;
 
     for (size_t i = 0; i < inputs.size(); i++) {
       mlir::Value input = inputs[i];
 
-      if (::mlir::isa<ttnn::GlobalSemaphoreType>(input.getType())) {
-        captureOrExecuteTraceOpSemaphoreInputs.push_back(input);
+      if (isSemaphoreValue(input)) {
+        semaphoreInputs.push_back(input);
         continue;
       }
 
@@ -844,7 +857,7 @@ private:
               "Device-resident input must be on device, but found on "
               "system memory");
         }
-        captureOrExecuteTraceOpTensorInputs.push_back(input);
+        tensorInputs.push_back(input);
       }
       // For inputs, convert them to system memory/row major if needed
       else if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
@@ -857,17 +870,16 @@ private:
             funcOp.getLoc(), systemMemoryTileType, input,
             /*layout=*/LayoutAttr::get(context, layout.getLayout()),
             /*dtype=*/ttcore::DataTypeAttr::get(context, layout.getDataType()));
-        captureOrExecuteTraceOpTensorInputs.push_back(toLayoutOp.getResult());
+        tensorInputs.push_back(toLayoutOp.getResult());
       } else {
         // Already on system memory
-        captureOrExecuteTraceOpTensorInputs.push_back(input);
+        tensorInputs.push_back(input);
       }
     }
 
     auto traceOp = builder.create<ttnn::CaptureOrExecuteTraceOp>(
         funcOp.getLoc(), outputTypes, device, captureTraceSymbolAttr,
-        executeTraceSymbolAttr, captureOrExecuteTraceOpTensorInputs,
-        captureOrExecuteTraceOpSemaphoreInputs);
+        executeTraceSymbolAttr, tensorInputs, semaphoreInputs);
 
     // Replace uses of original outputs with the output of the trace op function
     for (size_t i = 0; i < outputs.size(); i++) {

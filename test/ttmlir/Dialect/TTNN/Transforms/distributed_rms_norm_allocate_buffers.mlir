@@ -3,7 +3,7 @@
 
 #l1 = #ttnn.buffer_type<l1>
 #system_memory = #ttnn.buffer_type<system_memory>
-#ttnn_layout_input_ws = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1 + d1, d2 * 128 + d3), <1x4, (d0, d1) -> (0, d0, d1)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#ttnn_layout_input_ws = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1 + d1, d2 * 128 + d3), <1x4, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
 #ttnn_layout_weight_rm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<4x32xbf16, #system_memory>>
 
 // The pass walks DistributedOpInterface ops with unbound buffer operands and
@@ -31,7 +31,7 @@ module @test_allocate_buffers attributes {} {
       cluster_axis = 1 : ui32,
       epsilon = 1.000000e-05 : f32,
       operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>,
-      compute_config = #ttnn.compute_kernel_config<math_fidelity = HiFi4, math_approx_mode = false, fp32_dest_acc_en = true, packer_l1_acc = true>
+      compute_config = #ttnn.device_compute_kernel_config<math_fidelity = hifi4, math_approx_mode = false, fp32_dest_acc_en = true, packer_l1_acc = true>
     }> : (tensor<1x1x32x128xbf16, #ttnn_layout_input_ws>, tensor<4x32xbf16, #ttnn_layout_weight_rm>, !ttnn.device) -> tensor<1x1x32x128xbf16, #ttnn_layout_input_ws>
     return %1 : tensor<1x1x32x128xbf16, #ttnn_layout_input_ws>
   }

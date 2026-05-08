@@ -3126,7 +3126,7 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 bool mlir::tt::ttnn::DistributedRMSNormOp::hasUnboundBuffers() {
-  return getStats() == nullptr;
+  return !getStats();
 }
 
 void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
@@ -3135,10 +3135,9 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
     return;
   }
 
-  // The fused kernel CB data format must match the compute_config's
-  // fp32_dest_acc_en (Float32 when set, BFloat16 otherwise). The compute
-  // config is expected to be set by the workaround pattern (or an earlier
-  // pass like TTNNSetComputeKernelConfig); fall back to fp32 if missing.
+  // The fused kernel CB data format must match compute_config.fp32_dest_acc_en
+  // (Float32 when set, BFloat16 otherwise). compute_config is set upstream by
+  // the workaround pattern or TTNNSetComputeKernelConfig; default to fp32.
   bool fp32DestAccEn = true;
   if (auto computeConfig = getComputeConfigAttr()) {
     if (auto fp32Attr = computeConfig.getFp32DestAccEn()) {
@@ -3156,11 +3155,12 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
       ttcore::getCurrentScopeSystemDesc(*this).getChipDescs()[0].getGrid();
   auto [virtToPhysicalMap, physicalToVirtMap] =
       optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-          rewriter.getContext(), TensorMemoryLayout::WidthSharded, physicalGrid);
+          rewriter.getContext(), TensorMemoryLayout::WidthSharded,
+          physicalGrid);
 
-  // One tile (32x32) per device, width-sharded on core (0,0) in L1. The
-  // fused kernel writes partial RMS statistics here and exchanges them
-  // across devices via the all-gather.
+  // One tile (32x32) per device, width-sharded on core (0,0) in L1. The fused
+  // kernel writes partial RMS statistics here and exchanges them across
+  // devices via the all-gather.
   SmallVector<int64_t> statsGridShape = {1, 1};
   auto statsGrid = ttcore::GridAttr::get(rewriter.getContext(), statsGridShape,
                                          virtToPhysicalMap, physicalToVirtMap);
@@ -3168,9 +3168,10 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
       rewriter.getContext(), TensorMemoryLayout::WidthSharded);
 
   SmallVector<int64_t> statsShape = {1, 1, 32, 32};
-  TTNNLayoutAttr statsLayout = TTNNLayoutAttr::get(
-      rewriter.getContext(), statsShape, ttcore::TileType::get(statsElementType),
-      BufferType::L1, statsGrid, statsMemLayoutAttr);
+  TTNNLayoutAttr statsLayout =
+      TTNNLayoutAttr::get(rewriter.getContext(), statsShape,
+                          ttcore::TileType::get(statsElementType),
+                          BufferType::L1, statsGrid, statsMemLayoutAttr);
 
   auto statsShapeAttr = ShapeAttr::get(rewriter.getContext(), statsShape);
   auto statsDtypeAttr =
@@ -3183,38 +3184,9 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
 
   auto device = utils::getOrInsertDevice(rewriter, *this);
 
-  // Scratch buffer for the fused kernel's all-gather stats.
-  //
-  // Placement: inserted right after GetDeviceOp so it sits in the block
-  //   prelude. Leaving it inline would trip TTNNTraceHoistTransform with
-  //   "Non-hoistable op in the middle of hoistable ops". EmptyOp is a
-  //   host-side allocation and cannot appear inside the trace body: device
-  //   buffer allocations during trace capture are forbidden by tt-metal
-  //   (allocator warns "Allocating device buffers is unsafe due to the
-  //   existence of an active trace"; dispatch-side writes TT_FATAL).
-  //
-  // Runtime behavior under capture_or_execute_trace:
-  //   - First @main call: this EmptyOp result is passed into the trace
-  //     function as an `argument_type<constant>` operand and retained by
-  //     TraceData; the trace records its L1 address.
-  //   - Subsequent @main calls: a fresh EmptyOp result is allocated and gets
-  //     a new TTNNTensorWrapper version (versions are a monotonically
-  //     incrementing global counter). Because the version differs from the
-  //     retained slot's, capture_or_execute_trace performs a
-  //     device->host->device copy into the retained slot before each replay.
-  //     This copy is wasted work on every iteration.
-  //
-  // Why it is correct today: rms_allgather's writer kernel
-  //   (rms_writer.cpp) writes its partial-stats buffer before reading it,
-  //   so whatever the version-mismatch copy left in the slot is overwritten.
-  //
-  // Failure mode if violated: a future consumer of this slot that depends
-  //   on its initial state will be silently corrupted, since the
-  //   version-mismatch path copies uninitialized contents in.
-  //
-  // Proper fix (out of scope here): a dedicated
-  //   `argument_type<persistent_buffer>` that bypasses the version-
-  //   reconciliation path in capture_or_execute_trace.cpp.
+  // Inserted right after GetDeviceOp so the EmptyOp sits in the block prelude.
+  // TTNNTraceHoistTransform requires a contiguous block of hoistable ops, and
+  // EmptyOp (a host-side allocation) is forbidden inside the trace body.
   ttnn::EmptyOp statsEmptyOp;
   {
     OpBuilder::InsertionGuard guard(rewriter);
@@ -3224,13 +3196,12 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
         statsLayoutAttr, statsMemConfig);
   }
 
-  rewriter.modifyOpInPlace(*this, [&]() {
-    getStatsMutable().assign(statsEmptyOp.getResult());
-  });
+  rewriter.modifyOpInPlace(
+      *this, [&]() { getStatsMutable().assign(statsEmptyOp.getResult()); });
 }
 
 bool mlir::tt::ttnn::DistributedRMSNormOp::hasUnboundSemaphores() {
-  return getSemaphore() == nullptr;
+  return !getSemaphore();
 }
 
 void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
@@ -3239,11 +3210,10 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
     return;
   }
 
-  // The fused kernel's global semaphore lives on the bounding box of the
-  // input's actual shard cores, so the semaphore is guaranteed to live on
-  // cores that exist on the device. We read the shard spec from the op's
-  // memory_config attribute, which is populated by the workaround pattern
-  // and may be further refined by the optimizer before this pass runs.
+  // Derive the semaphore core range from the input's shard spec so it lives on
+  // cores that actually exist on the device. memory_config is populated by the
+  // workaround pattern and may be further refined by the optimizer before this
+  // runs.
   MemoryConfigAttr memoryConfig = getMemoryConfigAttr();
   assert(memoryConfig &&
          "DistributedRMSNormOp must have a memory_config before semaphore "
@@ -3259,32 +3229,10 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
 
   auto device = utils::getOrInsertDevice(rewriter, *this);
 
-  // Global semaphore for the fused kernel's all-gather.
-  //
-  // Placement: same prelude position as the buffer allocation, for the
-  //   same reasons. CreateGlobalSemaphoreOp is a host-side allocation and
-  //   TTNNTraceHoistTransform requires a contiguous block of hoistable ops.
-  //
-  // Cross-replay reset is the kernel's responsibility: rms_writer.cpp resets
-  //   `out_ready_sem_bank_addr_ptr` to 0 via on-device `noc_semaphore_set`.
-  //   That on-device write is recorded into the trace and runs every replay.
-  //
-  // Why we cannot insert `ttnn.reset_global_semaphore` instead:
-  //   - In the trace body: forbidden. Its runtime impl calls
-  //     `EnqueueWriteMeshBuffer` (host-mediated, blocking), which TT_FATALs
-  //     during capture (fd_mesh_command_queue.cpp: "Writes are not supported
-  //     during trace capture").
-  //   - In the prelude: would only run on the first @main call (during
-  //     capture), not between replays. Does not solve cross-replay state
-  //     leakage.
-  //   - In the postlude (after capture_or_execute_trace): would force a
-  //     blocking host sync on every call, defeating the purpose of trace.
-  //
-  // Failure mode if violated: if a future CCL kernel reused through this
-  //   rewrite does NOT reset its global semaphore, trace replays from the
-  //   second iteration onwards will see the leftover value from the previous
-  //   replay. Waits-for-N pass immediately, before any cores have done their
-  //   work, producing silent wrong outputs.
+  // Same prelude placement as the scratch buffer above, for the same
+  // trace-hoisting reasons. Cross-replay semaphore reset is handled on-device
+  // by the kernel (rms_writer.cpp), so ttnn.reset_global_semaphore is
+  // intentionally not inserted here.
   ttnn::CreateGlobalSemaphoreOp semaphoreOp;
   {
     OpBuilder::InsertionGuard guard(rewriter);
@@ -3294,9 +3242,8 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
         /*initial_value=*/rewriter.getUI32IntegerAttr(0), *semaphoreCoreRange);
   }
 
-  rewriter.modifyOpInPlace(*this, [&]() {
-    getSemaphoreMutable().assign(semaphoreOp.getResult());
-  });
+  rewriter.modifyOpInPlace(
+      *this, [&]() { getSemaphoreMutable().assign(semaphoreOp.getResult()); });
 }
 
 //===----------------------------------------------------------------------===//
@@ -4844,14 +4791,14 @@ void CaptureOrExecuteTraceOp::getEffects(
   }
 
   for (BlockArgument arg : traceFuncOp.getArguments()) {
-    if (::mlir::isa<ttnn::GlobalSemaphoreType>(arg.getType())) {
-      continue;
-    }
-    if (!::mlir::isa<RankedTensorType>(arg.getType())) {
+    auto tensorType = ::mlir::dyn_cast<RankedTensorType>(arg.getType());
+    if (!tensorType) {
+      if (::mlir::isa<ttnn::GlobalSemaphoreType>(arg.getType())) {
+        continue;
+      }
       return emitOpError() << "All input arguments of trace function must be "
                            << "ranked tensors or global semaphores";
     }
-    auto tensorType = ::mlir::cast<RankedTensorType>(arg.getType());
     if (!utils::isTensorOnDevice(tensorType)) {
       return emitOpError()
              << "All input arguments of trace function must be on device."

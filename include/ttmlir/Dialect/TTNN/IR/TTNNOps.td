@@ -2375,7 +2375,6 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      // DistributedOpInterface implementations.
       bool hasUnboundBuffers();
       void allocateBuffers(::mlir::RewriterBase &rewriter);
       bool hasUnboundSemaphores();
