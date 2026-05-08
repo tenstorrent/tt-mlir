@@ -48,40 +48,6 @@ static llvm::BitVector getDimMask(std::size_t rank,
   return mask;
 }
 
-// @return true if the operand needs a dedicated CB by existing rules.
-static bool operandNeedsDedicatedCBByExistingRules(GenericOp genericOp,
-                                                   uint32_t operandIndex) {
-  Value operand = genericOp.getInputsAndOutputs()[operandIndex];
-
-  if (hasNonTrivialView(operand)) {
-    return true;
-  }
-
-  auto operandType = mlir::dyn_cast<MemRefType>(operand.getType());
-  if (!operandType) {
-    return false;
-  }
-  if (ttcore::getMemorySpace(operandType) == ttcore::MemorySpace::DeviceDRAM) {
-    return true;
-  }
-
-  const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-  const auto broadcastDims = indexingMap.getBroadcastDims();
-  const auto iteratorTypes = genericOp.getIteratorTypesValue();
-  for (std::size_t resultIndex = 0; resultIndex < indexingMap.getNumResults();
-       ++resultIndex) {
-    if (llvm::is_contained(broadcastDims, resultIndex)) {
-      return true;
-    }
-    if (iteratorTypes[indexingMap.getDimPosition(resultIndex)] ==
-        ttcore::IteratorType::Reduction) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 /// Classify a generic op's iteration shape for auto-policy search.
 /// @return the search config or nullopt if auto-blocking is not applicable.
 static std::optional<AutoSearchConfig>
@@ -200,8 +166,7 @@ static std::optional<CandidateScore> evaluateCandidate(
     ArrayRef<int64_t> shardExtents, ArrayRef<int64_t> shardFactors,
     ArrayRef<int64_t> originalBlockFactors, ArrayRef<int64_t> dimScales,
     ttcore::DeviceAttr device, ttcore::MemorySpaceAttr l1Attr,
-    uint32_t numBuffers, bool allowAliasedEltwiseBlocking,
-    bool allowIdentityCandidate = false) {
+    uint32_t numBuffers, bool allowIdentityCandidate = false) {
   SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
                                             gridExtents.end());
   SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
@@ -245,14 +210,6 @@ static std::optional<CandidateScore> evaluateCandidate(
 
     // Reject candidates that would result in a too small operand shard shape.
     if (ttmlir::utils::volume<int64_t>(operandShardShape) < 4) {
-      return std::nullopt;
-    }
-
-    // Reject candidates that would result in a dedicated CB being needed for
-    // output operands if aliased eltwise blocking is not allowed.
-    if (genericOp.isOutputOperandIdx(operandIndex) &&
-        !operandNeedsDedicatedCBByExistingRules(genericOp, operandIndex) &&
-        !allowAliasedEltwiseBlocking) {
       return std::nullopt;
     }
 
@@ -343,8 +300,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<ttcore::IteratorType> iteratorTypes,
                 ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
-                ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-                bool allowAliasedEltwiseBlocking) {
+                ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers) {
   const SmallVector<int64_t> originalBlockFactors =
       genericOp.getBlockFactorsValue();
 
@@ -374,8 +330,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
     bestCandidate = evaluateCandidate(
         genericOp, config->candidateDims, indexingMaps, gridExtents,
         shardExtents, shardFactors, originalBlockFactors, currentDimScales,
-        device, l1Attr, numBuffers, allowAliasedEltwiseBlocking,
-        /*allowIdentityCandidate=*/true);
+        device, l1Attr, numBuffers, /*allowIdentityCandidate=*/true);
   }
 
   std::function<void(std::size_t)> enumerateCandidates =
@@ -385,8 +340,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
           auto candidate = evaluateCandidate(
               genericOp, config->candidateDims, indexingMaps, gridExtents,
               shardExtents, shardFactors, originalBlockFactors,
-              currentDimScales, device, l1Attr, numBuffers,
-              allowAliasedEltwiseBlocking);
+              currentDimScales, device, l1Attr, numBuffers);
           if (candidate && (!bestCandidate ||
                             isBetterCandidate(config->shapeClass, *candidate,
                                               *bestCandidate))) {
@@ -425,8 +379,7 @@ static SmallVector<int64_t> chooseReblockedFactors(
     ArrayRef<ttcore::IteratorType> iteratorTypes, ArrayRef<int64_t> gridExtents,
     ArrayRef<int64_t> shardExtents, ttcore::DeviceAttr device,
     BlockFactorAnalysis::BufferSizePolicy policy,
-    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-    bool allowAliasedEltwiseBlocking) {
+    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers) {
   const SmallVector<int64_t> shardFactors = getShardBlockFactors(genericOp);
   switch (policy) {
   case BlockFactorAnalysis::BufferSizePolicy::Max:
@@ -436,7 +389,7 @@ static SmallVector<int64_t> chooseReblockedFactors(
   case BlockFactorAnalysis::BufferSizePolicy::Auto:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, allowAliasedEltwiseBlocking);
+                           numBuffers);
   }
 
   llvm_unreachable("unknown buffer size policy");
@@ -468,8 +421,7 @@ BlockFactorAnalysis::BlockFactorAnalysis(Operation *op, const Options &opts) {
 
     SmallVector<int64_t> reblockedFactors = chooseReblockedFactors(
         genericOp, indexingMaps, iteratorTypes, gridExtents, shardExtents,
-        device, opts.policy, l1Attr, opts.numBuffers,
-        opts.allowAliasedEltwiseBlocking);
+        device, opts.policy, l1Attr, opts.numBuffers);
 
     results[genericOp.getOperation()] = Result{std::move(reblockedFactors)};
   });
