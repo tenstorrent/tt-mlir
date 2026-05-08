@@ -120,6 +120,11 @@ public:
     for (auto funcOp : moduleOp.getOps<mlir::func::FuncOp>()) {
       funcOp->walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(
           [&](mlir::Operation *op) {
+            // This pass only annotates TTIR ops. Skip ops from other dialects
+            // (e.g. D2M) defensively.
+            if (op->getDialect()->getNamespace() != "ttir") {
+              return mlir::WalkResult::advance();
+            }
             if (mlir::isa<mlir::func::ReturnOp>(op)) {
               return mlir::WalkResult::skip();
             }
