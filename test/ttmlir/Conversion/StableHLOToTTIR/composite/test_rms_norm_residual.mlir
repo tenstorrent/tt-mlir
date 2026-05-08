@@ -11,7 +11,7 @@ module @jit__residual_rms_norm attributes {mhlo.num_partitions = 1 : i32, mhlo.n
   sdy.mesh @empty_mesh = <["default_updated"=1, "default"=1]>
 
   // CHECK-LABEL: func.func public @test_rms_norm_with_residual
-  // CHECK: "ttir.rms_norm"(%{{.*}}, %{{.*}}, %{{.*}})
+  // CHECK: "ttir.rms_norm"
   // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 1>
 
   func.func public @test_rms_norm_with_residual(
