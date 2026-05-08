@@ -241,10 +241,9 @@ void createTTNNPipelineWorkaroundPass(
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
 
-  // Bind scratch / persistent buffers for distributed ops (e.g. the stats
-  // EmptyOp for distributed_rms_norm) right after the workaround that creates
-  // them in the IR, so the canonicalize + CSE below can deduplicate identical
-  // EmptyOps across multiple distributed ops with matching shape/dtype/layout.
+  // Bind distributed-op scratch buffers before the optimizer so they
+  // contribute to L1 budgeting; the canonicalize + CSE below dedupe matching
+  // EmptyOps across multiple distributed ops.
   pm.addPass(createTTNNAllocateDistributedOpBuffers());
 
   pm.addPass(mlir::createCanonicalizerPass());
@@ -414,17 +413,12 @@ void createTTIRToTTNNCommonPipeline(
       }
     }
 
-    // Allocate global semaphores for distributed ops (e.g.
-    // distributed_rms_norm) after the optimizer so the semaphore core range
-    // is derived from the finalized input shard spec. Must run before trace
-    // hoisting so the semaphore SSA values are visible at the trace
-    // boundary and get treated as pass-through handles.
+    // Bind distributed-op semaphores after the optimizer (core range derives
+    // from the finalized input shard spec) and before trace hoisting (SSA
+    // values must be visible at the trace boundary). The CSE that follows
+    // folds identical create_global_semaphore ops across multiple distributed
+    // ops; on-device kernel reset makes sharing safe.
     devicePm.addPass(createTTNNAllocateDistributedOpSemaphores());
-
-    // CSE folds identical create_global_semaphore ops produced by the
-    // allocator across multiple distributed ops with matching core range
-    // and initial value (kernel design guarantees on-device reset, so
-    // sharing is safe).
     devicePm.addPass(mlir::createCSEPass());
 
     // Trace hoisting must run before layout decomposition because it adjusts

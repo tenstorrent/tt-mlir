@@ -15,13 +15,8 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
-// Allocates explicit global semaphores for distributed ops that implement
-// DistributedOpInterface. Runs after the optimizer so semaphore core ranges
-// are derived from the finalized input shard spec.
-//
-// The interface implementation owns the allocation logic (core range,
-// initial value, prelude placement). This pass only walks the IR and
-// dispatches.
+// Walks every DistributedOpInterface op and invokes allocateSemaphores. The
+// interface implementation owns the allocation logic and is idempotent.
 class TTNNAllocateDistributedOpSemaphores
     : public impl::TTNNAllocateDistributedOpSemaphoresBase<
           TTNNAllocateDistributedOpSemaphores> {
@@ -34,11 +29,8 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    moduleOp.walk([&](DistributedOpInterface op) {
-      if (op.hasUnboundSemaphores()) {
-        op.allocateSemaphores(rewriter);
-      }
-    });
+    moduleOp.walk(
+        [&](DistributedOpInterface op) { op.allocateSemaphores(rewriter); });
   }
 };
 

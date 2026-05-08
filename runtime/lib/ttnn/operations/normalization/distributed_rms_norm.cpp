@@ -65,7 +65,7 @@ void run(const ::tt::target::ttnn::DistributedRMSNormOp *op,
         op->program_config());
   }
 
-  LOG_ASSERT(op->semaphore() != nullptr,
+  LOG_ASSERT(op->semaphore(),
              "DistributedRMSNormOp expects an explicit global semaphore");
   ::ttnn::GlobalSemaphore semaphore =
       context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(

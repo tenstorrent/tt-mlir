@@ -56,3 +56,4 @@ env/build/
 
 # Generated Artifacts
 generated/*
+test/python/golden/generated/*

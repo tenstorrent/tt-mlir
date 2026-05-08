@@ -17,7 +17,7 @@ module @test_distributed_rms_norm_workaround attributes {} {
     // CHECK-LABEL: func.func public @test_workaround_layout_only
     // Input is converted to a width-sharded L1 layout.
     // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: <l1>
+    // CHECK-SAME: #l1
     // CHECK-SAME: <width_sharded>
     // Weight is converted from Tile to RowMajor.
     // CHECK: "ttnn.to_layout"
@@ -34,4 +34,5 @@ module @test_distributed_rms_norm_workaround attributes {} {
     %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>}> : (tensor<1x1x32x128xbf16, #ttnn_layout_supported>, tensor<4x32xbf16, #ttnn_layout_weight_2d>, !ttnn.device) -> tensor<1x1x32x128xbf16, #ttnn_layout_supported>
     return %1 : tensor<1x1x32x128xbf16, #ttnn_layout_supported>
   }
+
 }
