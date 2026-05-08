@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -33,6 +34,13 @@ public:
       TTNNGreedyL1SpillManagement>::TTNNGreedyL1SpillManagementBase;
 
   void runOnOperation() final {
+#ifndef TTMLIR_ENABLE_OPMODEL
+    llvm::llvm_unreachable_internal(
+        "TTNNGreedyL1SpillManagement pass requires OpModel support to be "
+        "enabled.");
+#else
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
+
     ModuleOp moduleOp = getOperation();
 
     // Get L1 budget from system description and usage cap.
@@ -85,6 +93,7 @@ public:
         }
       }
     });
+#endif
   }
 };
 
