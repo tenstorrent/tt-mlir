@@ -170,6 +170,7 @@ module {
   // Pure permutation indexing maps are still safe for the L1 output alias path.
   // CHECK-AUTO-LABEL: func.func @eltwise_auto_preserves_permuted_aliased_output()
   // CHECK-AUTO: d2m.generic {block_factors = [8, 8], grid = #ttcore.grid<1x1>
+  // CHECK-AUTO: outs(%{{.*}} : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
   // CHECK-AUTO-COUNT-2: memref.alloc(){{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
   func.func @eltwise_auto_preserves_permuted_aliased_output() -> memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> {
     %lhs = memref.alloc() : memref<8x8x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>

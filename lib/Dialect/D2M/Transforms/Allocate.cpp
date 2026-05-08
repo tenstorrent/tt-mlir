@@ -1868,24 +1868,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   }
 
   static bool isPurePermutationIndexingMap(AffineMap map) {
-    if (map.getNumSymbols() != 0 || map.getNumResults() != map.getNumDims()) {
-      return false;
-    }
-
-    llvm::BitVector seenDims(map.getNumDims(), false);
-    for (AffineExpr expr : map.getResults()) {
-      auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
-      if (!dimExpr) {
-        return false;
-      }
-      unsigned dim = dimExpr.getPosition();
-      if (dim >= map.getNumDims() || seenDims[dim]) {
-        return false;
-      }
-      seenDims[dim] = true;
-    }
-
-    return seenDims.all();
+    return map.getNumSymbols() == 0 &&
+           map.getNumResults() == map.getNumDims() && map.isPermutation();
   }
 
   bool canAliasBlockedAllParallelEltwiseOutput(
@@ -1962,7 +1946,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
   /// @return `true` if `operandCtx` is an output that is exempt from stream
   /// insertion. Currently, this is true for outputs when L1 output spilling is
-  /// disabled and the output is not a non-trivial view.
+  /// disabled and the output is a trivial view.
   bool isOperandExemptFromStreaming(const OperandContext &operandCtx,
                                     MemorySpace memspace) const {
     if (isNonTrivialView(operandCtx)) {
