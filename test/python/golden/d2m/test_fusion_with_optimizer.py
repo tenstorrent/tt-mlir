@@ -23,31 +23,14 @@ SNIPPETS_BASE_DIR = os.path.join(os.path.dirname(__file__), "../mlir_snippets")
 # Pytest auto-derives test IDs from these strings, so they double as the
 # parametrize IDs. Use pytest.param(..., marks=...) to attach xfail/skip marks.
 SNIPPETS = [
-    pytest.param(
-        "models/gpt_oss_20b/swiglu_prefill",
-        marks=pytest.mark.xfail(
-            reason="https://github.com/tenstorrent/tt-mlir/issues/8156"
-        ),
-    ),
-    pytest.param(
-        "models/gpt_oss_20b/swiglu_decode",
-        marks=pytest.mark.xfail(
-            reason="https://github.com/tenstorrent/tt-mlir/issues/8156"
-        ),
-    ),
+    "models/gpt_oss_20b/swiglu_prefill",
+    "models/gpt_oss_20b/swiglu_decode",
     "models/gpt_oss_20b/attention_mask_prefill",
     "models/gpt_oss_20b/attention_mask_decode",
     "models/gpt_oss_20b/rope_sin_prefill",
     "models/gpt_oss_20b/rope_sin_decode",
     "models/gpt_oss_20b/rope_cos_prefill",
     "models/gpt_oss_20b/rope_cos_decode",
-    "models/gpt_oss_20b/rope_embedding",
-    pytest.param(
-        "models/gpt_oss_20b/gate_up",
-        marks=pytest.mark.xfail(
-            reason="https://github.com/tenstorrent/tt-mlir/issues/8156"
-        ),
-    ),
     "ttir/d2m_optimizer_two_d2m_subgraphs/unary_matmul_unary",
     "ttir/d2m_optimizer_two_d2m_subgraphs/eltwise_matmul_eltwise",
 ]
