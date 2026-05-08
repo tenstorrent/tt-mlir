@@ -5,6 +5,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -13,6 +14,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRRANKNORMALIZATION
@@ -54,6 +56,35 @@ static bool needsRankExpansion(Type type) {
     return tensorType.getRank() < minRank;
   }
   return false;
+}
+
+/// Collects functions that participate in rank normalization. A function
+/// participates if it is external and its signature needs rank expansion, or
+/// if its body contains at least one TTIR-dialect op.
+static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
+  DenseSet<func::FuncOp> result;
+  module.walk([&](func::FuncOp funcOp) {
+    if (funcOp.isExternal()) {
+      if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+          llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
+        result.insert(funcOp);
+      }
+      return;
+    }
+
+    bool hasTTIROp = false;
+    funcOp.walk([&](Operation *inner) {
+      if (isa<ttir::TTIRDialect>(inner->getDialect())) {
+        hasTTIROp = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    if (hasTTIROp) {
+      result.insert(funcOp);
+    }
+  });
+  return result;
 }
 
 /// TypeConverter that expands tensor types with rank < minRank.
@@ -332,19 +363,32 @@ public:
 
     RankNormalizationTypeConverter typeConverter;
     ConversionTarget target(*ctx);
+    target.addLegalDialect<ttnn::TTNNDialect>();
+
+    auto participatingFuncs = collectParticipatingFuncs(module);
 
     target.markUnknownOpDynamicallyLegal([&](Operation *op) {
-      if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
-          llvm::any_of(op->getResultTypes(), needsRankExpansion)) {
-        return false;
-      }
+      bool needsRewrite;
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
-            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
-          return false;
-        }
+        needsRewrite =
+            llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
+      } else {
+        needsRewrite =
+            llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
+            llvm::any_of(op->getResultTypes(), needsRankExpansion);
       }
-      return true;
+      if (!needsRewrite) {
+        return true;
+      }
+
+      func::FuncOp parentFunc = isa<func::FuncOp>(op)
+                                    ? cast<func::FuncOp>(op)
+                                    : op->getParentOfType<func::FuncOp>();
+      if (parentFunc && !participatingFuncs.contains(parentFunc)) {
+        return true;
+      }
+      return false;
     });
 
     RewritePatternSet patterns(ctx);

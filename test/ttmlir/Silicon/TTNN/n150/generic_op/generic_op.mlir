@@ -87,8 +87,9 @@
 // Layout for single tile in L1
 #l1_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
-  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>,
-  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
+  <1x1>,
+  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>,
+  core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>
   >
 
 // CHECK: module attributes {ttcore.system_desc = #system_desc}
@@ -116,29 +117,32 @@ module {
 
     %zero = "emitc.constant"() <{value = 0 : i32}> : () -> i32
     %2 = emitc.call_opaque "get_common_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
-    %3 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
+    %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
     %4 = emitc.literal "my_x[noc_index]" : !emitc.size_t
     %5 = emitc.literal "my_y[noc_index]" : !emitc.size_t
 
     // Move single tile from address in L1 to CB
-    emitc.call_opaque "cb_reserve_back"(%3, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+    emitc.verbatim "cb_ctarg_0.reserve_back({});" args %0 : i32
     %6 = emitc.call_opaque "get_write_ptr"(%3) : (!emitc.opaque<"::tt::CB">) -> i32
     %7 = emitc.call_opaque "get_noc_addr"(%4, %5, %2) : (!emitc.size_t, !emitc.size_t, i32) -> i64
     emitc.call_opaque "noc_async_read"(%7, %6, %1) : (i64, i32, i32) -> ()
     emitc.call_opaque "noc_async_read_barrier"() : () -> ()
-    emitc.call_opaque "cb_push_back"(%3, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+    emitc.verbatim "cb_ctarg_0.push_back({});" args %0 : i32
     return
   }
   func.func private @compute_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
     %1 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
 
-    %2 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-    %3 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
+    %2 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %2 : !emitc.opaque<"::tt::CB">
+    %3 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %3 : !emitc.opaque<"::tt::CB">
 
     // Move single tile from CB to register
-    emitc.call_opaque "cb_reserve_back"(%3, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-    emitc.call_opaque "cb_wait_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+    emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
+    emitc.verbatim "cb_ctarg_0.wait_front({});" args %0 : i32
     emitc.call_opaque "init_sfpu"(%2, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
     emitc.call_opaque "tile_regs_acquire"() : () -> ()
     emitc.call_opaque "copy_tile_init"(%2) : (!emitc.opaque<"::tt::CB">) -> ()
@@ -153,8 +157,8 @@ module {
     emitc.call_opaque "tile_regs_wait"() : () -> ()
     emitc.call_opaque "pack_tile"(%1, %3, %1) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
     emitc.call_opaque "tile_regs_release"() : () -> ()
-    emitc.call_opaque "cb_push_back"(%3, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-    emitc.call_opaque "cb_pop_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+    emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
+    emitc.verbatim "cb_ctarg_0.pop_front({});" args %0 : i32
     return
   }
   // Test named arguments by passing page size as a constant
@@ -164,17 +168,18 @@ module {
 
     %zero = "emitc.constant"() <{value = 0 : i32}> : () -> i32
     %2 = emitc.call_opaque "get_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
-    %3 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
+    %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
     %4 = emitc.literal "my_x[noc_index]" : !emitc.size_t
     %5 = emitc.literal "my_y[noc_index]" : !emitc.size_t
 
     // Move single tile from CB to address in L1
-    emitc.call_opaque "cb_wait_front"(%3, %one) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+    emitc.verbatim "cb_ctarg_0.wait_front({});" args %one : i32
     %6 = emitc.call_opaque "get_read_ptr"(%3) : (!emitc.opaque<"::tt::CB">) -> i32
     %7 = emitc.call_opaque "get_noc_addr"(%4, %5, %2) : (!emitc.size_t, !emitc.size_t, i32) -> i64
     emitc.call_opaque "noc_async_write"(%6, %7, %1) : (i32, i64, i32) -> ()
     emitc.call_opaque "noc_async_write_barrier"() : () -> ()
-    emitc.call_opaque "cb_pop_front"(%3, %one) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+    emitc.verbatim "cb_ctarg_0.pop_front({});" args %one : i32
     return
   }
 }

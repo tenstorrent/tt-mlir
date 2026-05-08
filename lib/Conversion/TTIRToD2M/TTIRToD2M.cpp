@@ -158,7 +158,7 @@ protected:
 
   llvm::SmallVector<int64_t>
   getLegacyGrid(ttnn::TTNNLayoutAttr ttnnLayout) const {
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
 
     bool legacyWithVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
                                      ttnn::TensorMemoryLayout::HeightSharded ||
@@ -280,8 +280,7 @@ protected:
         auto memLayout = ttnnLayout.getMemLayout().getValue();
         if (memLayout == ttnn::TensorMemoryLayout::HeightSharded ||
             memLayout == ttnn::TensorMemoryLayout::WidthSharded) {
-          llvm::SmallVector<int64_t> ttnnGridShape(
-              ttnnLayout.getGrid().getShape());
+          llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
           llvm::SmallVector<int64_t> virtualGrid;
           if (memLayout == ttnn::TensorMemoryLayout::HeightSharded) {
             virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
@@ -647,23 +646,33 @@ protected:
   mlir::Value createScaler(mlir::ConversionPatternRewriter &rewriter,
                            mlir::Location loc, mlir::RankedTensorType inputType,
                            double fillValue = 1.0) const {
-
+    mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Type elementType = inputType.getElementType();
     mlir::Attribute encoding = nullptr;
 
     if (auto ttnnLayout = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
             inputType.getEncoding())) {
-      auto grid = ttcore::GridAttr::get(rewriter.getContext(), {1, 1});
+      llvm::SmallVector<int64_t> gridShape{1, 1};
       auto tileType = ttcore::TileType::get(
           elementType, ttcore::TileType::getDefaultShape());
       auto memref = mlir::MemRefType::get(
           {1, 1}, tileType, mlir::MemRefLayoutAttrInterface{},
           ttnnLayout.getMemref().getMemorySpace());
+
+      auto memLayout = ttnnLayout.getMemLayout();
+      ttnn::CoreRangeSetAttr coreRangeSet{};
+      if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+        coreRangeSet = ttnn::CoreRangeSetAttr::get(
+            ctx, ttnn::CoreRangeAttr::get(
+                     ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+                     ttnn::CoreCoordAttr::get(ctx, gridShape[1] - 1,
+                                              gridShape[0] - 1)));
+      }
+
       encoding = ttnn::TTNNLayoutAttr::get(
-          rewriter.getContext(), rewriter.getMultiDimIdentityMap(2), grid,
-          memref, ttnnLayout.getMemLayout(),
-          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false,
-          /*exactGrid=*/true);
+          rewriter.getContext(), rewriter.getMultiDimIdentityMap(2),
+          /*gridShape=*/gridShape, memref, ttnnLayout.getMemLayout(),
+          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false, coreRangeSet);
     }
 
     mlir::RankedTensorType scalerType = mlir::RankedTensorType::get(
@@ -1398,7 +1407,9 @@ private:
     }
 
     mlir::SmallVector<mlir::Value> origInputs = adaptor.getOperands();
-    mlir::SmallVector<mlir::Value> origOutputs = {*filledOutput};
+    origInputs.push_back(*filledOutput);
+    SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {outputType});
     bool noCollapse = inputType.getRank() > 2;
     auto [inputs, outputs] = toLayoutOperandsAndResults(
         rewriter, {origInputs, origOutputs},
@@ -1406,13 +1417,14 @@ private:
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
-    const std::size_t numOperands = numInputs + numOutputs;
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
     assertPhysicalIteratorRankForReduction(physicalRank);
 
-    mlir::SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, op, numOperands, physicalRank);
+    SmallVector<mlir::AffineMap> indexingMaps = {
+        rewriter.getMultiDimIdentityMap(physicalRank),
+        getOutputAffineMap(rewriter, op, physicalRank),
+        getOutputAffineMap(rewriter, op, physicalRank)};
     mlir::SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, op, physicalRank);
 
@@ -1445,30 +1457,66 @@ private:
         rewriter, loc, inputShardType, inputLoadBuffer, generic->getOperand(0),
         inputIndices, mcastGridDims);
 
-    mlir::AffineMap outputIndexingMap = generic.getIndexingMap(numInputs);
+    mlir::AffineMap outputIndexingMap = generic.getIndexingMap(1);
     mlir::SmallVector<mlir::Value> outputIndices =
         d2m::utils::buildGridIndices(rewriter, loc, outputIndexingMap);
-    mlir::Value outputLoadBuffer = rewriter.create<mlir::tensor::EmptyOp>(
+    mlir::Value fillLoadBuffer = rewriter.create<mlir::tensor::EmptyOp>(
         loc, outputShardType.getShape(), outputShardType.getElementType());
-    mlir::Value accumulatorSlice = createRemoteTensorSlice(
-        rewriter, loc, outputShardType, outputLoadBuffer,
-        generic->getOperand(numInputs), outputIndices, {});
+    mlir::Value fillSlice =
+        createRemoteTensorSlice(rewriter, loc, outputShardType, fillLoadBuffer,
+                                generic->getOperand(1), outputIndices, {});
+    mlir::Value outputBuffer = rewriter.create<mlir::tensor::EmptyOp>(
+        loc, outputShardType.getShape(), outputShardType.getElementType());
 
     std::size_t shardRank = outputShardType.getRank();
-    auto [accumulatorMap, linalgIteratorTypes] =
+    auto accumulationSig =
         shardLinalgAccumulationSignature(rewriter, dimArg, shardRank);
+    mlir::AffineMap accumulatorMap = accumulationSig.first;
+    SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+        std::move(accumulationSig.second);
     mlir::SmallVector<mlir::AffineMap> linalgIndexingMaps = {
-        rewriter.getMultiDimIdentityMap(shardRank), accumulatorMap};
+        rewriter.getMultiDimIdentityMap(shardRank), accumulatorMap,
+        accumulatorMap};
 
     auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
-        loc, mlir::TypeRange{accumulatorSlice.getType()},
-        mlir::ValueRange{inputSlice}, mlir::ValueRange{accumulatorSlice},
+        loc, mlir::TypeRange{outputBuffer.getType()},
+        mlir::ValueRange{inputSlice, fillSlice}, mlir::ValueRange{outputBuffer},
         linalgIndexingMaps, linalgIteratorTypes,
         [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
             mlir::ValueRange bbArgs) {
+          // Check if we're on the first iteration of all reduction dimensions.
+          // If so, use bbArgs[1] (init from fillSlice), otherwise use bbArgs[2]
+          // (accumulated value from outputBuffer).
+          mlir::Value c0 =
+              bbBuilder.create<mlir::arith::ConstantIndexOp>(bbLoc, 0);
+          mlir::Value isFirstIter = nullptr;
+          for (size_t dim = 0; dim < shardRank; ++dim) {
+            if (linalgIteratorTypes[dim] ==
+                mlir::utils::IteratorType::reduction) {
+              mlir::Value idx =
+                  bbBuilder.create<mlir::linalg::IndexOp>(bbLoc, dim);
+              mlir::Value isZero = bbBuilder.create<mlir::arith::CmpIOp>(
+                  bbLoc, mlir::arith::CmpIPredicate::eq, idx, c0);
+              if (!isFirstIter) {
+                isFirstIter = isZero;
+              } else {
+                isFirstIter = bbBuilder.create<mlir::arith::AndIOp>(
+                    bbLoc, isFirstIter, isZero);
+              }
+            }
+          }
+
+          // Select the accumulator: use init (bbArgs[1]) on first iteration,
+          // otherwise use the output accumulator (bbArgs[2]).
+          mlir::Value acc = bbArgs[2];
+          if (isFirstIter) {
+            acc = bbBuilder.create<mlir::arith::SelectOp>(bbLoc, isFirstIter,
+                                                          bbArgs[1], bbArgs[2]);
+          }
+
           mlir::Value reduced = bbBuilder.create<TileAccumulateOp>(
-              bbLoc, mlir::TypeRange{bbArgs[1].getType()},
-              mlir::ValueRange{bbArgs[0], bbArgs[1]});
+              bbLoc, mlir::TypeRange{acc.getType()},
+              mlir::ValueRange{bbArgs[0], acc});
           bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, reduced);
         });
 
@@ -1593,9 +1641,8 @@ private:
     return ttcore::OOBVal::Zero;
   }
 
-  static SmallVector<mlir::AffineMap>
-  getAffineMapsArray(mlir::OpBuilder &builder, ConcreteOp op, std::size_t arity,
-                     std::size_t rank) {
+  static mlir::AffineMap getOutputAffineMap(mlir::OpBuilder &builder,
+                                            ConcreteOp op, std::size_t rank) {
     mlir::ArrayAttr dimArg = *op.getDimArg();
     mlir::AffineExpr zero =
         mlir::getAffineConstantExpr(0, builder.getContext());
@@ -1610,10 +1657,8 @@ private:
         accumulator.setResult(i, zero);
       }
     }
-    SmallVector<mlir::AffineMap> maps(arity - 1,
-                                      builder.getMultiDimIdentityMap(rank));
-    maps.emplace_back(accumulator.getAffineMap());
-    return maps;
+
+    return accumulator.getAffineMap();
   }
 
   static SmallVector<mlir::Attribute>
@@ -2655,7 +2700,7 @@ private:
       return std::nullopt;
     }
 
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
     llvm::SmallVector<int64_t> virtualGrid;
     if (memLayout == ttnn::TensorMemoryLayout::HeightSharded) {
       virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};

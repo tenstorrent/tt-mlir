@@ -22,8 +22,8 @@ module {
         ins(%in : memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
         outs(%out : memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
     ^unified0:
-      %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
-      %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
       %in_cb = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %out_cb = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %c0 = arith.constant 0 : index

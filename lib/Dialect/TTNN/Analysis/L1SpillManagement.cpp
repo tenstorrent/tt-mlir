@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/Support/Logger.h"
@@ -467,18 +468,14 @@ typename L1SpillManagement<MemoryTracker>::ScheduleData
 L1SpillManagement<MemoryTracker>::buildScheduleData() {
   ScheduleData data;
 
-  // Build schedule (ops in IR order = topological order).
+  // Build schedule (ops in IR order = topological order). Include sink ops
+  // (paged_fill_cache / paged_update_cache / fill_cache) even though they
+  // have no tensor result — their operand uses must be visible to
+  // computeLastUsePositions so that values consumed only by a cache write
+  // (e.g. per-layer KV typecasts) are kept alive in L1 until the cache
+  // write actually executes, not freed at the layer-local to_memory_config.
   func->walk([&](Operation *op) {
-    if (op->getNumResults() == 0) {
-      return;
-    }
-    if (isa<EmptyOp>(op)) {
-      return;
-    }
-    bool hasTensorResult = llvm::any_of(op->getResults(), [](OpResult r) {
-      return mlir::isa<RankedTensorType>(r.getType());
-    });
-    if (!hasTensorResult) {
+    if (!optimizer_utils::isBeamSearchTarget(op)) {
       return;
     }
     data.schedule.push_back(op);
@@ -539,8 +536,14 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
     speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   }
-  if (l1Size > 0 && speculativeAddr &&
-      wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr)) {
+  // Always run the overlap check when the op declares a non-zero CB peak;
+  // pass UINT64_MAX as the "no L1 output" sentinel so wouldCBsOverlapTensors
+  // compares cushionedCBUsage strictly against the lowest-existing tensor
+  // address.
+  uint64_t addrForCheck =
+      speculativeAddr.value_or(std::numeric_limits<uint64_t>::max());
+  if (cbPeakUsage > 0 &&
+      wouldCBsOverlapTensors(op, pos, cbPeakUsage, addrForCheck)) {
     l1Size = handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
   }
   return l1Size;
@@ -577,10 +580,7 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   if (result.isSuccess()) {
     uint64_t l1Size =
         result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
-    if (l1Size > 0) {
-      l1Size =
-          ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
-    }
+    l1Size = ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
     if (l1Size > 0) {
       addResultsToLiveSet(l1Size);
       observer_->onLiveAdded(op, pos, l1Size, pos,
@@ -936,6 +936,15 @@ void L1SpillManagement<MemoryTracker>::run() {
 
     processDeadTensors(pos, data);
 
+    // Sink ops (paged_fill_cache / paged_update_cache / fill_cache) are in
+    // the schedule only so computeLastUsePositions sees their operand uses
+    // (which keeps their L1-resident input tensors alive in the tracker
+    // until the cache write actually executes). They have no tensor result,
+    // so addResultsToLiveSet / extractOpConfigFromIR / validate do not apply.
+    if (optimizer_utils::isSinkOp(op)) {
+      continue;
+    }
+
     // ToLayoutOp with L1 output: workaround-inserted and always immediately
     // consumed by the target op. MemoryLayoutPropagation skips these, so
     // output_l1_usage is never set and pre-decomposition OpModel is inaccurate.
@@ -951,8 +960,8 @@ void L1SpillManagement<MemoryTracker>::run() {
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
       assert(lo && "ToLayoutOp result must have TTNNLayoutAttr encoding");
       if (lo.hasL1BufferType()) {
-        uint64_t derivedL1 =
-            utils::getPerCoreL1Usage(lo, lo.getGrid().getGridVolume());
+        uint64_t derivedL1 = utils::getPerCoreL1Usage(
+            lo, ttmlir::utils::volume(lo.getGridShape()));
         TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                      "  [pos={0}] L1_TOLAYOUT: {1}, derivedL1={2} bytes, "
                      "occupied={3}/{4}",
@@ -1157,9 +1166,10 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
       continue;
     }
     TTNNLayoutAttr dramLayout =
-        layoutAttr.withBufferType(BufferType::DRAM)
-            .withMemoryLayout(TensorMemoryLayout::Interleaved)
-            .withTensorShape(tensorType.getShape());
+        TTNNLayoutAttr::Builder(layoutAttr, tensorType.getShape())
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .build();
     RankedTensorType newType =
         utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
     opResult.setType(newType);
@@ -1169,10 +1179,7 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
   if (auto tmcOp = mlir::dyn_cast<ToMemoryConfigOp>(op)) {
     auto dramLayout = mlir::cast<TTNNLayoutAttr>(
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding());
-    MemoryConfigAttr dramMemConfig = MemoryConfigAttr::get(
-        op->getContext(), dramLayout.getMemLayout(),
-        BufferTypeAttr::get(op->getContext(), BufferType::DRAM),
-        utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
+    MemoryConfigAttr dramMemConfig = MemoryConfigAttr::get(dramLayout);
     tmcOp.setMemoryConfigAttr(dramMemConfig);
   }
 
@@ -1283,15 +1290,11 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
   }
 
   // Create DRAM interleaved layout.
-  // Use withTensorShape to recompute the memref dimensions from the full tensor
-  // shape. A plain withBufferType(DRAM) would preserve the per-core shard
-  // dimensions in the memref, producing an incorrect layout (e.g., 32x4 tiles
-  // instead of 2048x4 for a 65536x128 tensor that was height-sharded on 64
-  // cores).
   TTNNLayoutAttr dramLayout =
-      layoutAttr.withBufferType(BufferType::DRAM)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved)
-          .withTensorShape(tensorType.getShape());
+      TTNNLayoutAttr::Builder(layoutAttr, tensorType.getShape())
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .build();
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    SPILL_TO_DRAM: {0}, new layout: {1}",
                ttmlir::opToString(defOp), dramLayout);
@@ -1299,10 +1302,7 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
 
-  MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-      defOp->getContext(), dramLayout.getMemLayout(),
-      BufferTypeAttr::get(defOp->getContext(), BufferType::DRAM),
-      utils::createShardSpecIfNeeded(dramLayout, deviceGrid));
+  MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(dramLayout);
 
   OpBuilder builder(defOp->getContext());
   if (insertBefore) {
@@ -1355,11 +1355,7 @@ void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
       utils::RankedTensorTypeFactory::create(spillTensorType, originalL1Layout);
 
   // Build MemoryConfigAttr for the reshard target.
-  MemoryConfigAttr memConfig = MemoryConfigAttr::get(
-      consumer->getContext(), originalL1Layout.getMemLayout(),
-      BufferTypeAttr::get(consumer->getContext(),
-                          originalL1Layout.getBufferType()),
-      utils::createShardSpecIfNeeded(originalL1Layout, deviceGrid));
+  MemoryConfigAttr memConfig = MemoryConfigAttr::get(originalL1Layout);
 
   // Insert ToMemoryConfigOp before consumer.
   OpBuilder builder(consumer);

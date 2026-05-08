@@ -383,67 +383,6 @@ d2m::MeshShardOp::getBufferType(
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
-// Helper: return true if two MetalLayoutAttrs are identical except for OOBVal.
-static bool layoutsMatchExceptOOB(ttcore::MetalLayoutAttr a,
-                                  ttcore::MetalLayoutAttr b) {
-  return a.getLogicalShape() == b.getLogicalShape() &&
-         a.getDimAlignments() == b.getDimAlignments() &&
-         a.getCollapsedIntervals() == b.getCollapsedIntervals() &&
-         a.getMemorySpace() == b.getMemorySpace() &&
-         a.getMemoryLayout() == b.getMemoryLayout();
-}
-
-// Fold away a to_layout whose only effect is changing the OOB fill value.
-// OOB is metadata that controls padding behaviour during LowerToLayout; when
-// two layouts are otherwise identical a to_layout between them is a no-op
-// because the underlying data arrangement is the same.
-struct ToLayoutFoldOOBUndefPattern : public OpRewritePattern<ToLayoutOp> {
-  using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
-
-  ToLayoutFoldOOBUndefPattern(MLIRContext *context)
-      : OpRewritePattern<ToLayoutOp>(context) {
-    setDebugName("d2m.ToLayoutFoldOOBUndefPattern");
-  }
-
-  LogicalResult matchAndRewrite(ToLayoutOp op,
-                                PatternRewriter &rewriter) const final {
-    auto inputType = mlir::dyn_cast<RankedTensorType>(op.getInput().getType());
-    auto outputType =
-        mlir::dyn_cast<RankedTensorType>(op.getOutput().getType());
-    if (!inputType || !outputType) {
-      return failure();
-    }
-
-    auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-        inputType.getEncoding());
-    auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-        outputType.getEncoding());
-    if (!inputLayout || !outputLayout) {
-      return failure();
-    }
-
-    // OOB must actually differ (same OOB is handled by identity fold),
-    // and at least one side must be undef.
-    if (inputLayout.getOobVal() == outputLayout.getOobVal()) {
-      return failure();
-    }
-    if (inputLayout.getOobVal() != ttcore::OOBVal::Undef &&
-        outputLayout.getOobVal() != ttcore::OOBVal::Undef) {
-      return failure();
-    }
-
-    if (inputType.getShape() != outputType.getShape() ||
-        inputType.getElementType() != outputType.getElementType() ||
-        !layoutsMatchExceptOOB(inputLayout, outputLayout)) {
-      return failure();
-    }
-
-    // Layouts match except OOB — the to_layout is a no-op.
-    rewriter.replaceOp(op, op.getInput());
-    return success();
-  }
-};
-
 struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
@@ -546,6 +485,13 @@ ToLayoutOp::fold(FoldAdaptor,
     if (getInput().getDefiningOp<ViewLayoutOp>()) {
       return mlir::failure();
     }
+    // Don't fold if the associated remapping differs between input and output.
+    // A remap-only to_layout is semantically meaningful even when the ranked
+    // tensor types themselves are identical.
+    if (utils::getAssociatedRemapping(getInput()) !=
+        utils::getAssociatedRemapping(getOutput())) {
+      return mlir::failure();
+    }
     // Don't fold when the virtualGridInverseMappings of the input and output
     // differ.  Different TTNN shard strategies (e.g. height_sharded vs
     // block_sharded) can map to the same MetalLayoutAttr after the
@@ -602,7 +548,6 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
   });
 
   patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
-  patterns.add(std::make_unique<ToLayoutFoldOOBUndefPattern>(context));
 }
 
 bool ToLayoutOp::bufferizesToMemoryRead(
@@ -2368,39 +2313,6 @@ static Block *cloneParallelizedRegion(d2m::GenericOp thisOp,
   return newBlock;
 }
 
-// Use operand_index or remote_load/remote_store binding to find the associated
-// operand for a get_cb op.
-static Value findAssocOperandForGetCB(d2m::GetCBOp getCbOp) {
-  GenericOp genericOp = getCbOp->getParentOfType<GenericOp>();
-  if (!genericOp) {
-    return Value();
-  }
-
-  if (std::optional<int64_t> operandIndex = getCbOp.getOperandIndex()) {
-    if (*operandIndex >= 0 && static_cast<size_t>(*operandIndex) <
-                                  genericOp.getInputsAndOutputs().size()) {
-      return genericOp.getInputsAndOutputs()[*operandIndex];
-    }
-    return Value();
-  }
-
-  Value cb = getCbOp.getResult();
-  for (Operation *userOp : cb.getUsers()) {
-    if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(userOp)) {
-      if (loadOp.isExplicitCBForm() && loadOp.getCb() == cb) {
-        return loadOp.getMemref();
-      }
-    }
-    if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(userOp)) {
-      if (storeOp.isExplicitCBForm() && storeOp.getCb() == cb) {
-        return storeOp.getMemref();
-      }
-    }
-  }
-
-  return Value();
-}
-
 // Derive the type of a nested alloc from its transferred d2m.blocking_map.
 static Type getTypeFromBlockingMap(d2m::GenericOp genericOp,
                                    AffineMap blockingMap, Type typeToRetype) {
@@ -2453,17 +2365,6 @@ static void repairParallelizedRegionTypes(d2m::GenericOp genericOp,
         if (newEmptyType != tensorEmptyOp.getType()) {
           tensorEmptyOp.getResult().setType(
               cast<RankedTensorType>(newEmptyType));
-        }
-      }
-    } else if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&clonedOp)) {
-      Value associatedOperand = findAssocOperandForGetCB(getCbOp);
-      if (associatedOperand) {
-        auto oldCbType = mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
-        Type newUnderlyingType = d2m::utils::cloneWithShardShape(
-            associatedOperand, oldCbType.getUnderlying());
-        if (newUnderlyingType != oldCbType.getUnderlying()) {
-          getCbOp.getResult().setType(d2m::CBType::get(
-              getCbOp.getContext(), mlir::cast<ShapedType>(newUnderlyingType)));
         }
       }
     } else if (auto remoteLoadOp =
@@ -3229,24 +3130,7 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
       if (result) {
         return;
       }
-      if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&op)) {
-        if (std::optional<int64_t> assocOperandIndex =
-                getCbOp.getOperandIndex()) {
-          if (*assocOperandIndex >= 0 &&
-              static_cast<unsigned>(*assocOperandIndex) == operandIndex) {
-            result = getCbOp.getResult();
-            return;
-          }
-        } else if (Value associatedOperand =
-                       findAssocOperandForGetCB(getCbOp)) {
-          GenericOp generic = getCbOp->getParentOfType<GenericOp>();
-          if (generic && generic.getOperandIndex(associatedOperand) ==
-                             static_cast<int64_t>(operandIndex)) {
-            result = getCbOp.getResult();
-            return;
-          }
-        }
-      } else if (auto emptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
+      if (auto emptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
         LocalBufferAssociation assoc = analyzeLocalBufferAssociation(
             emptyOp.getResult(),
             generic ? generic.getOutputs().front() : Value());
