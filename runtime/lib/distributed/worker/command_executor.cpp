@@ -399,8 +399,9 @@ void CommandExecutor::execute(
   tensorPool_.insert_or_assign(outputGlobalId, borrowedTensor);
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
-      buildResponse(ResponseFactory::buildCreateUnsafeBorrowedHostTensorResponse,
-                    commandId);
+      buildResponse(
+          ResponseFactory::buildCreateUnsafeBorrowedHostTensorResponse,
+          commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }

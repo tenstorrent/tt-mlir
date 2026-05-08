@@ -227,8 +227,8 @@ createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor) {
 
   void *data = utils::getRawHostDataPtr(hostShard);
   TensorDesc desc = getTensorDesc(ownedHostTensor);
-  return createBorrowedHostTensor(data, desc.shape, desc.stride, desc.elementSize(),
-                                  desc.dataType);
+  return createBorrowedHostTensor(data, desc.shape, desc.stride,
+                                  desc.elementSize(), desc.dataType);
 }
 
 ::tt::runtime::Tensor

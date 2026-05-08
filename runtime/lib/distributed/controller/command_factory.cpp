@@ -270,9 +270,9 @@ uint64_t CommandFactory::buildCreateUnsafeBorrowedHostTensorCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId = BUILD_COMMAND(
-      CreateUnsafeBorrowedHostTensor, fbb, sourceHostTensor.getGlobalId(),
-      outputTensor.getGlobalId());
+  uint64_t commandId =
+      BUILD_COMMAND(CreateUnsafeBorrowedHostTensor, fbb,
+                    sourceHostTensor.getGlobalId(), outputTensor.getGlobalId());
 
   return commandId;
 }

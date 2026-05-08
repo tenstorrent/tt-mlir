@@ -371,7 +371,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Create a tensor with owned memory");
   m.def(
       "create_unsafe_borrowed_host_tensor",
-      &::tt::runtime::createUnsafeBorrowedHostTensor, nb::arg("owned_host_tensor"),
+      &::tt::runtime::createUnsafeBorrowedHostTensor,
+      nb::arg("owned_host_tensor"),
       "Create a borrowed host tensor that aliases the buffer of an owned host "
       "tensor; the owned tensor must outlive the result");
   m.def(
