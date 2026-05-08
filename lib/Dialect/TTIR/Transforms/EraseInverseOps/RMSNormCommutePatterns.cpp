@@ -53,22 +53,26 @@ public:
         rewriter.create<ReshapeOp>(op.getLoc(), newInputType, op.getInput(),
                                    rewriter.getI32ArrayAttr(newInputShape));
 
+    // Reshape the optional residual to the new input shape if present. Both
+    // RMSNormOp and DistributedRMSNormOp now require residual to match input.
+    Value newResidual;
+    if (op.getResidual()) {
+      auto residualType = cast<RankedTensorType>(op.getResidual().getType());
+      auto newResidualType = RankedTensorType::get(
+          outputReshapeType.getShape(), residualType.getElementType(),
+          residualType.getEncoding());
+      newResidual = rewriter.create<ReshapeOp>(
+          op.getLoc(), newResidualType, op.getResidual(),
+          rewriter.getI32ArrayAttr(newInputShape));
+    }
+
     RMSNormOpT newRmsNorm;
     if constexpr (std::is_same_v<RMSNormOpT, RMSNormOp>) {
       newRmsNorm = rewriter.create<RMSNormOp>(
           op.getLoc(), outputReshapeType, newInputReshape, op.getWeight(),
-          op.getBias(), op.getNormalizedShapeAttr(), op.getEpsilonAttr());
+          op.getBias(), newResidual, op.getNormalizedShapeAttr(),
+          op.getEpsilonAttr());
     } else {
-      Value newResidual;
-      if (op.getResidual()) {
-        auto residualType = cast<RankedTensorType>(op.getResidual().getType());
-        auto newResidualType = RankedTensorType::get(
-            outputReshapeType.getShape(), residualType.getElementType(),
-            residualType.getEncoding());
-        newResidual = rewriter.create<ReshapeOp>(
-            op.getLoc(), newResidualType, op.getResidual(),
-            rewriter.getI32ArrayAttr(newInputShape));
-      }
       newRmsNorm = rewriter.create<DistributedRMSNormOp>(
           op.getLoc(), outputReshapeType, newInputReshape, op.getWeight(),
           newResidual, op.getClusterAxisAttr(), op.getEpsilonAttr());

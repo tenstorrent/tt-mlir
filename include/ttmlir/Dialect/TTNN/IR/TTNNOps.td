@@ -2373,6 +2373,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
     let arguments = (ins AnyRankedTensor:$input,
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$bias,
+                         Optional<AnyRankedTensor>:$residual,
                          DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
@@ -2386,7 +2387,8 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
                      "MemoryConfigAttr":$memory_config),
       [{
         build($_builder, $_state, result, input, weight, bias,
-              epsilon, memory_config, /*compute_config=*/nullptr);
+              /*residual=*/nullptr, epsilon, memory_config,
+              /*compute_config=*/nullptr);
       }]>
     ];
 

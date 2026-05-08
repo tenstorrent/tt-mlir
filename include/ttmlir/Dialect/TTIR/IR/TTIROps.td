@@ -2248,6 +2248,7 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let arguments = (ins AnyRankedTensor:$input,
                        Optional<AnyRankedTensor>:$weight,
                        Optional<AnyRankedTensor>:$bias,
+                       Optional<AnyRankedTensor>:$residual,
                        DenseI64ArrayAttr:$normalized_shape,
                        DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
 

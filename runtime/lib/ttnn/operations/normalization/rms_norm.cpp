@@ -23,6 +23,11 @@ void run(const ::tt::target::ttnn::RMSNormOp *op, ProgramContext &context) {
     bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
+  std::optional<::ttnn::Tensor> residual = std::nullopt;
+  if (op->residual()) {
+    residual = tensorPool.getTTNNTensorAndValidate(op->residual());
+  }
+
   float epsilon = op->epsilon();
 
   // Handle optional memory config
@@ -38,9 +43,7 @@ void run(const ::tt::target::ttnn::RMSNormOp *op, ProgramContext &context) {
 
   // Call TTNN RMS norm operation
   ::ttnn::Tensor output = ::ttnn::rms_norm(
-      input, epsilon, weight, bias,
-      /*residual_input_tensor=*/std::nullopt, // Not used in our implementation
-      memoryConfig,
+      input, epsilon, weight, bias, residual, memoryConfig,
       /*program_config=*/std::nullopt,        // Use default
       /*compute_kernel_config=*/computeConfig // Use default
   );

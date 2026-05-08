@@ -2775,7 +2775,8 @@ public:
                               inputType.getEncoding());
     auto rmsNorm = rewriter.create<RMSNormOp>(
         outerMul.getLoc(), rmsNormOutputType, x, gamma,
-        /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
+        /*bias=*/nullptr, /*residual=*/nullptr,
+        rewriter.getDenseI64ArrayAttr(normalizedShape),
         rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
 
     mlir::Value result = rmsNorm;

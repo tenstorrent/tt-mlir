@@ -1534,6 +1534,12 @@ createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
         getOperandThroughDPSOps(op.getBias()));
   }
 
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> residual = 0;
+  if (op.getResidual()) {
+    residual = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getResidual()));
+  }
+
   ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
@@ -1548,7 +1554,7 @@ createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
 
   return ::tt::target::ttnn::CreateRMSNormOp(
       *cache.fbb, input, weight, bias, op.getEpsilon().convertToFloat(),
-      memoryConfig, output, computeConfig.value_or(0));
+      memoryConfig, output, computeConfig.value_or(0), residual);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::DistributedRMSNormOp>

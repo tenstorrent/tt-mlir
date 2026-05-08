@@ -3072,6 +3072,15 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
     }
   }
 
+  // Verify residual tensor shape if present (full input shape — runtime sums
+  // it with input before normalization).
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual tensor shape must match input shape");
+    }
+  }
+
   return success();
 }
 

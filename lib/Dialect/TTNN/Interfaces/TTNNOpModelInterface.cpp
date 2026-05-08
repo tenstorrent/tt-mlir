@@ -4275,21 +4275,20 @@ static RMSNormOptionalArgs
 unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
                           RMSNormOp op) {
   RMSNormOptionalArgs ret;
-  if (inputs.size() == 2) {
-    if (op.getWeight()) {
-      ret.weightShape = op.getWeight().getType().getShape();
-      ret.weightLayout = inputs[1];
-    } else if (op.getBias()) {
-      ret.biasShape = op.getBias().getType().getShape();
-      ret.biasLayout = inputs[1];
-    }
-  }
-  if (inputs.size() == 3) {
+  // inputs[0] is the activation; remaining entries follow MLIR operand
+  // order (weight, bias, residual). Each is present only if the op holds
+  // the corresponding optional operand. Residual is currently unused by
+  // the op model (passed as nullopt), but we still skip it correctly.
+  size_t idx = 1;
+  if (op.getWeight()) {
     ret.weightShape = op.getWeight().getType().getShape();
-    ret.biasShape = op.getBias().getType().getShape();
-    ret.weightLayout = inputs[1];
-    ret.biasLayout = inputs[2];
+    ret.weightLayout = inputs[idx++];
   }
+  if (op.getBias()) {
+    ret.biasShape = op.getBias().getType().getShape();
+    ret.biasLayout = inputs[idx++];
+  }
+  // Skip residual layout (idx++) — op model does not yet model it.
   return ret;
 }
 

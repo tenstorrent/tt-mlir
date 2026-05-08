@@ -278,6 +278,10 @@ public:
 // Shared helper: extract normalized_shape and epsilon from a DictionaryAttr,
 // build the named attributes and operand segment sizes, and replace srcOp
 // with ttir::RMSNormOp.
+//
+// Composite operand layout:
+//   has_residual=false: (input, [weight], [bias])
+//   has_residual=true : (..., residual) — residual is always the last operand
 static LogicalResult convertToTTIRRMSNorm(mlir::Operation *srcOp,
                                           mlir::ValueRange operands,
                                           DictionaryAttr compositeAttrs,
@@ -313,21 +317,62 @@ static LogicalResult convertToTTIRRMSNorm(mlir::Operation *srcOp,
     namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
   }
 
-  // ttir.rms_norm has AttrSizedOperandSegments: [input, weight, bias]
+  bool hasResidual = false;
+  if (auto residualAttr = compositeAttrs.get("has_residual")) {
+    if (auto boolAttr = mlir::dyn_cast<BoolAttr>(residualAttr)) {
+      hasResidual = boolAttr.getValue();
+    }
+  }
+
+  // Reorder operands to TTIR layout (input, weight, bias, residual). The
+  // composite never emits bias today, so we only see 1-3 non-residual operands.
+  SmallVector<mlir::Value> reorderedOperands;
   size_t numOperands = operands.size();
-  SmallVector<int32_t> segmentSizes;
-  if (numOperands == 3) { // input, weight, bias
-    segmentSizes = {1, 1, 1};
-  } else if (numOperands == 2) { // input, weight
-    segmentSizes = {1, 1, 0};
-  } else { // input
-    segmentSizes = {1, 0, 0};
+  size_t numNonResidual = hasResidual ? numOperands - 1 : numOperands;
+
+  if (hasResidual && numOperands == 0) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "has_residual=true requires at least one operand (residual)");
+  }
+
+  // input, weight, bias from the leading operands.
+  SmallVector<int32_t> segmentSizes(4, 0);
+  if (numNonResidual >= 1) {
+    reorderedOperands.push_back(operands[0]);
+    segmentSizes[0] = 1;
+  }
+  if (numNonResidual >= 2) {
+    reorderedOperands.push_back(operands[1]);
+    segmentSizes[1] = 1;
+  } else {
+    reorderedOperands.push_back(nullptr);
+  }
+  if (numNonResidual >= 3) {
+    reorderedOperands.push_back(operands[2]);
+    segmentSizes[2] = 1;
+  } else {
+    reorderedOperands.push_back(nullptr);
+  }
+  if (hasResidual) {
+    reorderedOperands.push_back(operands[numOperands - 1]);
+    segmentSizes[3] = 1;
+  } else {
+    reorderedOperands.push_back(nullptr);
+  }
+
+  // Strip null trailing operands so AttrSizedOperandSegments matches the
+  // ValueRange the rewriter sees.
+  SmallVector<mlir::Value> finalOperands;
+  for (auto v : reorderedOperands) {
+    if (v) {
+      finalOperands.push_back(v);
+    }
   }
 
   namedAttrs.push_back(rewriter.getNamedAttr(
       "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-  rewriter.replaceOpWithNewOp<ttir::RMSNormOp>(srcOp, outputType, operands,
+  rewriter.replaceOpWithNewOp<ttir::RMSNormOp>(srcOp, outputType, finalOperands,
                                                namedAttrs);
   return success();
 }

@@ -200,7 +200,7 @@ func.func @sdpa_with_mask(%q: tensor<1x8x64x64xbf16>, %k: tensor<1x8x64x64xbf16>
 // RMS: "ttir.add"
 // RMS: return
 func.func @rms_norm_weight_bias(%input: tensor<2x4x64xf32>, %weight: tensor<64xf32>, %bias: tensor<64xf32>) -> tensor<2x4x64xf32> {
-  %0 = "ttir.rms_norm"(%input, %weight, %bias) <{normalized_shape = array<i64: 64>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<2x4x64xf32>, tensor<64xf32>, tensor<64xf32>) -> tensor<2x4x64xf32>
+  %0 = "ttir.rms_norm"(%input, %weight, %bias) <{normalized_shape = array<i64: 64>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0>}> : (tensor<2x4x64xf32>, tensor<64xf32>, tensor<64xf32>) -> tensor<2x4x64xf32>
   return %0 : tensor<2x4x64xf32>
 }
 
@@ -218,7 +218,7 @@ func.func @rms_norm_weight_bias(%input: tensor<2x4x64xf32>, %weight: tensor<64xf
 // RMS-NOT: "ttir.multiply"
 // RMS: return
 func.func @rms_norm_no_weight_no_bias(%input: tensor<32x128xf32>) -> tensor<32x128xf32> {
-  %0 = "ttir.rms_norm"(%input) <{normalized_shape = array<i64: 128>, epsilon = 1.000000e-06 : f32, operandSegmentSizes = array<i32: 1, 0, 0>}> : (tensor<32x128xf32>) -> tensor<32x128xf32>
+  %0 = "ttir.rms_norm"(%input) <{normalized_shape = array<i64: 128>, epsilon = 1.000000e-06 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<32x128xf32>) -> tensor<32x128xf32>
   return %0 : tensor<32x128xf32>
 }
 
@@ -236,7 +236,7 @@ func.func @rms_norm_no_weight_no_bias(%input: tensor<32x128xf32>) -> tensor<32x1
 // RMS-NOT: "ttir.add"
 // RMS: return
 func.func @rms_norm_weight_only(%input: tensor<2x4x64xf32>, %weight: tensor<64xf32>) -> tensor<2x4x64xf32> {
-  %0 = "ttir.rms_norm"(%input, %weight) <{normalized_shape = array<i64: 64>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<2x4x64xf32>, tensor<64xf32>) -> tensor<2x4x64xf32>
+  %0 = "ttir.rms_norm"(%input, %weight) <{normalized_shape = array<i64: 64>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0>}> : (tensor<2x4x64xf32>, tensor<64xf32>) -> tensor<2x4x64xf32>
   return %0 : tensor<2x4x64xf32>
 }
 
@@ -249,7 +249,7 @@ func.func @rms_norm_weight_only(%input: tensor<2x4x64xf32>, %weight: tensor<64xf
 // RMS: "ttir.full"() <{fill_value = 9.99999997E-7 : f32
 // RMS: return
 func.func @rms_norm_custom_epsilon(%input: tensor<32x128xf32>) -> tensor<32x128xf32> {
-  %0 = "ttir.rms_norm"(%input) <{normalized_shape = array<i64: 128>, epsilon = 1.000000e-06 : f32, operandSegmentSizes = array<i32: 1, 0, 0>}> : (tensor<32x128xf32>) -> tensor<32x128xf32>
+  %0 = "ttir.rms_norm"(%input) <{normalized_shape = array<i64: 128>, epsilon = 1.000000e-06 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<32x128xf32>) -> tensor<32x128xf32>
   return %0 : tensor<32x128xf32>
 }
 

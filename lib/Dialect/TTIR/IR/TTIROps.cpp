@@ -6361,6 +6361,15 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     }
   }
 
+  // Verify residual tensor shape if present (must match input shape so the
+  // runtime can sum it with input before normalization).
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputShape) {
+      return emitOpError("residual tensor shape must match input shape");
+    }
+  }
+
   return success();
 }
 

@@ -46,7 +46,7 @@ func.func @linear_with_compute_config(%arg0: tensor<512x1024xbf16>, %arg1: tenso
 // rmsNorm has HiFi4 as default math fidelity
 // CHECK: ::tt::tt_metal::MathFidelity::HiFi4
 func.func @rms_norm_with_compute_config(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x2048xbf16> {
-  %0 = "ttir.rms_norm"(%arg0, %arg1) <{normalized_shape = array<i64: 2048>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<32x2048xbf16>, tensor<2048xbf16>) -> tensor<32x2048xbf16>
+  %0 = "ttir.rms_norm"(%arg0, %arg1) <{normalized_shape = array<i64: 2048>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0>}> : (tensor<32x2048xbf16>, tensor<2048xbf16>) -> tensor<32x2048xbf16>
   return %0 : tensor<32x2048xbf16>
 }
 

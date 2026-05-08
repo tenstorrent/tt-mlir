@@ -103,7 +103,7 @@ module {
         // CHECK-SAME: tensor<1x2048xbf16>
         // CHECK: "ttir.reshape"
         %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 2048 : i32]}> : (tensor<1x32x64xbf16>) -> tensor<1x2048xbf16>
-        %1 = "ttir.rms_norm"(%0, %arg1) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 2048>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<1x2048xbf16>, tensor<2048xbf16>) -> tensor<1x2048xbf16>
+        %1 = "ttir.rms_norm"(%0, %arg1) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 2048>, operandSegmentSizes = array<i32: 1, 1, 0, 0>}> : (tensor<1x2048xbf16>, tensor<2048xbf16>) -> tensor<1x2048xbf16>
         %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 32 : i32, 64 : i32]}> : (tensor<1x2048xbf16>) -> tensor<1x32x64xbf16>
         return %2 : tensor<1x32x64xbf16>
     }

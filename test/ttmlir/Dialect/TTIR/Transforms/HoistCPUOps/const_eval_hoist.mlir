@@ -151,7 +151,7 @@ func.func private @const_eval_multiple_outputs(
 func.func private @const_eval_non_lowerable(
     %arg0: tensor<2x4x8xf32>, %arg1: tensor<8xf32>
 ) -> tensor<2x4x8xf32> attributes {tt.function_type = "const_eval"} {
-  %0 = "ttir.rms_norm"(%arg0, %arg1) <{normalized_shape = array<i64: 8>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<2x4x8xf32>, tensor<8xf32>) -> tensor<2x4x8xf32>
+  %0 = "ttir.rms_norm"(%arg0, %arg1) <{normalized_shape = array<i64: 8>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0>}> : (tensor<2x4x8xf32>, tensor<8xf32>) -> tensor<2x4x8xf32>
   return %0 : tensor<2x4x8xf32>
 }
 

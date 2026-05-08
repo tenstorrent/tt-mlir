@@ -3834,7 +3834,7 @@ public:
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
         emitter.emit(srcOp.getWeight(), "weight"),
         emitter.emit(srcOp.getBias(), "bias"),
-        emitter.emit(std::nullopt, "residual_input_tensor"),
+        emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
