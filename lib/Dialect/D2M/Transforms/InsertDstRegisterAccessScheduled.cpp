@@ -1,12 +1,12 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Transforms/InsertDstRegisterAccessShared.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Transforms/InsertDstRegisterAccessShared.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -16,8 +16,12 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
+
+#include <deque>
+#include <optional>
 
 #define DEBUG_TYPE "D2MInsertDstRegisterAccessScheduled"
 
@@ -28,6 +32,135 @@ namespace mlir::tt::d2m {
 namespace {
 
 using namespace detail;
+
+// ---------------------------------------------------------------------------
+// Stack-based allocator used by the scheduled path.  Each compute op pops
+// inputs off `inputStack` (LIFO), and stores push onto `outputQueue`; on
+// deallocate inputs come back first, otherwise the second-from-tail entry
+// of the output queue (the previous output, no longer live) is dropped so
+// the running tail output stays available for the next consumer.
+// ---------------------------------------------------------------------------
+
+class DstStackAllocator {
+public:
+  DstStackAllocator() = delete;
+  explicit DstStackAllocator(unsigned dstSliceCapacityIn)
+      : dstSliceCapacity(dstSliceCapacityIn) {
+    initSliceStack();
+  }
+
+  unsigned allocate(bool isStore = false);
+  unsigned deallocate();
+  void setStoreToDst() { storedToDst = true; }
+  bool didStoreToDst() const { return storedToDst; }
+  unsigned getCurrSliceIndex() const { return currSliceIndex; }
+  unsigned getFirstInputSliceIndex();
+  void deallocateAllButFirstInput();
+
+private:
+  unsigned dstSliceCapacity = 0;
+  unsigned currSliceIndex = 0;
+  SmallVector<unsigned, 16> inputStack;
+  std::deque<unsigned> outputQueue;
+  SmallVector<unsigned, 16> sliceStack;
+  bool storedToDst = false;
+
+  void initSliceStack();
+};
+
+// Print allocator state to debug log, prefixed by `header`.
+static void debugDumpDstStackAllocator(StringRef header,
+                                       ArrayRef<unsigned> sliceStack,
+                                       ArrayRef<unsigned> inputStack,
+                                       const std::deque<unsigned> &outputQueue,
+                                       std::optional<unsigned> action) {
+  LDBG_OS([&](raw_ostream &os) {
+    os << header << "\n";
+    os << "  SliceStack  = ";
+    llvm::interleaveComma(sliceStack, os);
+    os << "\n  InputStack  = ";
+    llvm::interleaveComma(inputStack, os);
+    os << "\n  OutputQueue = ";
+    llvm::interleaveComma(outputQueue, os);
+    if (action) {
+      os << "\n  --> " << *action;
+    }
+  });
+}
+
+unsigned DstStackAllocator::allocate(bool isStore) {
+  TT_assertv(!sliceStack.empty(), "Out of dst slices");
+
+  currSliceIndex = sliceStack.pop_back_val();
+
+  if (isStore) {
+    outputQueue.push_back(currSliceIndex);
+  } else {
+    inputStack.push_back(currSliceIndex);
+  }
+
+  debugDumpDstStackAllocator("== ALLOCATE ==", sliceStack, inputStack,
+                             outputQueue, currSliceIndex);
+  return currSliceIndex;
+}
+
+unsigned DstStackAllocator::deallocate() {
+  TT_assertv(!(inputStack.empty() && outputQueue.empty()),
+             "Deallocating non-existent dst slice");
+
+  // Inputs are deallocated LIFO (most recent input first).  If there are no
+  // inputs left, deallocate from outputQueue.  When the output queue holds
+  // more than one slice, the *last* one is the running output that the next
+  // op may still consume, so we drop the second-from-tail entry instead and
+  // keep the tail live.  TODO(sgholami): once the allocator is reworked to
+  // make this implicit (e.g. by tracking the running output separately),
+  // this special case can go away.
+  unsigned id = 0;
+  if (!inputStack.empty()) {
+    id = inputStack.pop_back_val();
+  } else if (outputQueue.size() > 1) {
+    id = outputQueue.at(outputQueue.size() - 2);
+    outputQueue.erase(outputQueue.end() - 2);
+  } else {
+    id = outputQueue.back();
+    outputQueue.pop_back();
+  }
+
+  sliceStack.push_back(id);
+
+  debugDumpDstStackAllocator("== DEALLOCATE ==", sliceStack, inputStack,
+                             outputQueue, id);
+  return id;
+}
+
+unsigned DstStackAllocator::getFirstInputSliceIndex() {
+  TT_assertv(!inputStack.empty(), "No input slots allocated");
+  return inputStack.front();
+}
+
+void DstStackAllocator::deallocateAllButFirstInput() {
+  TT_assertv(inputStack.size() >= 1u, "Need at least one input to keep");
+
+  unsigned firstInput = inputStack.front();
+  inputStack.erase(inputStack.begin());
+
+  while (!inputStack.empty()) {
+    unsigned id = inputStack.pop_back_val();
+    sliceStack.push_back(id);
+    debugDumpDstStackAllocator("== DEALLOCATE (keeping first) ==", sliceStack,
+                               inputStack, outputQueue, id);
+  }
+
+  currSliceIndex = firstInput;
+}
+
+void DstStackAllocator::initSliceStack() {
+  TT_assert((dstSliceCapacity > 0u && dstSliceCapacity <= 16u));
+
+  for (int i = dstSliceCapacity - 1; i >= 0; --i) {
+    sliceStack.push_back(static_cast<unsigned>(i));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Scheduled-only: in-place data copy generation (no loop cloning)
@@ -48,6 +181,10 @@ static void dataCopyGenerateScheduledInPlace(
     return;
   }
 
+  // NB: structured binding here is by copy because MLIR op accessors
+  // (.getLoc(), .getIndices(), ...) are not const-marked, so a const-ref
+  // binding to an ArrayRef element would fail to compile.  Each element is
+  // a small POD-ish LoadStoreRecord, so copying is cheap.
   for (auto [loadStore, bcast, dstSliceIndex, guardIVs] : loadStoreOps) {
     mlir::IRMapping emptyIRMapper;
 
@@ -68,8 +205,13 @@ static void dataCopyGenerateScheduledInPlace(
   }
 }
 
-// Used by dataCopyGenerateScheduled for the affine store path: clones the
-// loop skeleton and generates a separate store copy nest.
+// Thin adapter so the existing scheduled callers (which were written
+// against `(loc, cb, ...)` for the copy callback and `(op, ...)` for the
+// rewriter) keep working on top of the shared `emitDstCopyNest`.
+//
+// The shared helper passes the full `LoadStoreRecord` to both callbacks;
+// here we re-derive `loc` / `cb` / `op` from `record.loadStore` for the
+// adapter callbacks the scheduled pass already had.
 template <typename LoadStoreOpTy>
 static void dataCopyGenerateWithClone(
     PatternRewriter &rewriter, Operation *loopNestOrOp,
@@ -80,55 +222,21 @@ static void dataCopyGenerateWithClone(
     llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
                             ValueRange)>
         dstAccessReplacement) {
-  if (loadStoreOps.empty()) {
-    return;
-  }
-
-  mlir::IRMapping irMapper;
-  if (mlir::isa<affine::AffineForOp>(loopNestOrOp)) {
-    rewriter.clone(*loopNestOrOp, irMapper)->walk([&](Operation *op) {
-      if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
-                     affine::AffineApplyOp>(op)) {
-        op->dropAllUses();
-        rewriter.eraseOp(op);
-      }
-    });
-  }
-
-  for (auto [loadStore, bcast, dstSliceIndex, guardIVs] : loadStoreOps) {
-    Block *fromScope = loadStore->getBlock();
-    Block *toScope = irMapper.lookupOrNull(fromScope);
-    if (toScope) {
-      Operation *terminator = toScope->getTerminator();
-      if (terminator) {
-        rewriter.setInsertionPoint(terminator);
-      } else {
-        rewriter.setInsertionPointToEnd(toScope);
-      }
-    }
-
-    {
-      auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
-          buildIndices(rewriter, loadStore.getLoc(), irMapper,
-                       loadStore.getIndices(), dstSliceIndex,
-                       loadStore.getMap(), loadStore.getMemRefType(),
-                       loopNestOrOp);
-      loadStoreDstAccessGenerator(
-          rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
-          l1AccessIndices, dstAccessMap, dstAccessIndices);
-    }
-
-    {
-      mlir::IRMapping dummyIRMapper;
-      rewriter.setInsertionPoint(loadStore);
-      auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
-          buildIndices(rewriter, loadStore.getLoc(), dummyIRMapper,
-                       loadStore.getIndices(), dstSliceIndex,
-                       loadStore.getMap(), loadStore.getMemRefType(),
-                       loopNestOrOp);
-      dstAccessReplacement(rewriter, loadStore, dstAccessMap, dstAccessIndices);
-    }
-  }
+  emitDstCopyNest<LoadStoreOpTy>(
+      rewriter, loopNestOrOp, loadStoreOps,
+      [&](PatternRewriter &rw, LoadStoreRecord<LoadStoreOpTy> record,
+          AffineMap l1AccessMap, ValueRange l1AccessIndices,
+          AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+        loadStoreDstAccessGenerator(
+            rw, record.loadStore.getLoc(), record.loadStore.getMemRef(),
+            l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices);
+      },
+      [&](PatternRewriter &rw, LoadStoreRecord<LoadStoreOpTy> record,
+          AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+        dstAccessReplacement(rw, record.loadStore, dstAccessMap,
+                             dstAccessIndices);
+      },
+      /*enableL1Acc=*/false);
 }
 
 // ---------------------------------------------------------------------------
@@ -200,8 +308,8 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           bool isMemrefStore = memrefStore && notDstMemspace(memrefStore);
 
           if (isAffineStore || isMemrefStore) {
-            assert(!dstStackAllocator.didStoreToDst() &&
-                   "Multiple stores from last op to dst not supported");
+            TT_assertv(!dstStackAllocator.didStoreToDst(),
+                       "Multiple stores from last op to dst not supported");
 
             bool dstRegInPlace = computeOp.getDstRegInPlace();
             bool rhsIsScalar = computeOp.isScalarOperand(1);
@@ -226,11 +334,11 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
                                     outermostInnerComputeLoop);
             }
           } else if (user->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-            assert(computeOp->hasOneUse() &&
-                   "Currently we do not support multiple "
-                   "users in the same compute dst region.");
-            assert(computeOp->getNumResults() == 1);
-            assert(!dstIntermediates.contains(computeOp));
+            TT_assertv(computeOp->hasOneUse(),
+                       "Currently we do not support multiple users in the "
+                       "same compute dst region.");
+            TT_assert(computeOp->getNumResults() == 1u);
+            TT_assert(!dstIntermediates.contains(computeOp));
 
             bool hasTileInputs = numLoads > 0;
             bool overwriteInput =
@@ -350,7 +458,7 @@ static void dataCopyGenerateScheduledAll(PatternRewriter &rewriter,
                                .getResult();
           }
 
-          rewriter.create<affine::AffineStoreOp>(loc, dstLoad.getResult(), cb,
+          rewriter.create<affine::AffineStoreOp>(loc, valueToStore, cb,
                                                  l1AccessMap, l1AccessIndices);
         },
         [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
@@ -366,7 +474,7 @@ static void dataCopyGenerateScheduledAll(PatternRewriter &rewriter,
           }
 
           rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-              op, op.getValue(), dst, dstAccessMap, dstAccessIndices);
+              op, valueToStore, dst, dstAccessMap, dstAccessIndices);
         });
 
     // Process memref stores (scheduled path with scf.for loops).
@@ -435,7 +543,8 @@ struct D2MInsertDstRegisterAccessScheduledRewriter final
       Region *genericRegion = &gOp.getRegion(regionIndex);
       Block &block = genericRegion->getBlocks().front();
 
-      OperationTypes opTypes = getOperationTypes(gOp, regionIndex);
+      DstRegionOpClassification opTypes =
+          classifyDstRegionOps(gOp, regionIndex);
       if (!opTypes.hasComputeOps && !opTypes.hasLinalgGeneric &&
           !opTypes.hasMarkedAffineLoops) {
         return failure();

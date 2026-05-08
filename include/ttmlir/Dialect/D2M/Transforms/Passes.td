@@ -266,8 +266,55 @@ def D2MInsertDstRegisterAccessUnscheduled : Pass<"d2m-insert-dst-register-access
     no-`linalg_root` fallback (canonicalized-away root loops); that is owned
     by the scheduled pass.
 
-    Requires prior `--d2m-linalg-to-affine` (no `linalg.generic` in compute
-    regions).
+    Precondition: `--d2m-linalg-to-affine` must have been run beforehand
+    (the pass calls `verifyInsertDstRegisterAccessPreconditions`, which walks
+    the module and fails if any `linalg.generic` is still present in the
+    compute regions).
+
+    Example, this pass will convert the following code:
+    ```mlir
+    ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #l1>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #l1>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #l1>):
+      affine.for %i2 = 0 to 3 {
+        affine.for %i3 = 0 to 2 {
+          affine.for %i4 = 0 to 3 {
+            %0 = affine.load %cb0[%i2, %i4] : memref<3x3x!tt.tile<32x32, f32>, #l1>
+            %1 = affine.load %cb1[%i4, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+            %2 = affine.load %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+            %3 = "d2m.tile_matmul"(%0, %1, %2) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+            affine.store %3, %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+          }
+        }
+      } {d2m.linalg_root}
+    ```
+
+    Into (3 separate loop nests: CB->DST loads, compute, DST->CB stores):
+    ```mlir
+    ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #l1>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #l1>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #l1>):
+      %dst = d2m.acquire_dst() : memref<3x2x!tt.tile<32x32, f32>, #dst>
+      affine.for %i2 = 0 to 3 {
+        affine.for %i3 = 0 to 2 {
+          %0 = affine.load %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+          affine.store %0, %dst[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+        }
+      }
+      affine.for %i2 = 0 to 3 {
+        affine.for %i3 = 0 to 2 {
+          affine.for %i4 = 0 to 3 {
+            %0 = affine.load %cb0[%i2, %i4] : memref<3x3x!tt.tile<32x32, f32>, #l1>
+            %1 = affine.load %cb1[%i4, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+            %2 = affine.load %dst[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+            %3 = "d2m.tile_matmul"(%0, %1, %2) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+            affine.store %3, %dst[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+          }
+        }
+      }
+      affine.for %i2 = 0 to 3 {
+        affine.for %i3 = 0 to 2 {
+          %0 = affine.load %dst[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+          affine.store %0, %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+        }
+      }
+    ```
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
@@ -297,8 +344,52 @@ def D2MInsertDstRegisterAccessScheduled : Pass<"d2m-insert-dst-register-access-s
     Run **after** `d2m-insert-dst-register-access-unscheduled` when both passes
     are needed.
 
-    Requires prior `--d2m-linalg-to-affine` (no `linalg.generic` in compute
-    regions).
+    Precondition: `--d2m-linalg-to-affine` must have been run beforehand
+    (see the unscheduled pass for details on how the pre-condition is
+    enforced).
+
+    Example, given a `d2m.scheduled` root produced by `--d2m-op-scheduler`
+    over a 3-input fused eltwise:
+    ```mlir
+    ^compute0(%cb0, %cb1, %cb2: memref<2x4x!tt.tile<32x32, f32>, #l1>, %cb3: memref<2x4x!tt.tile<32x32, f32>, #l1>):
+      affine.for %i = 0 to 2 {
+        affine.for %j = 0 to 4 {
+          %0 = affine.load %cb0[%i, %j] : memref<2x4x!tt.tile<32x32, f32>, #l1>
+          %1 = affine.load %cb1[%i, %j] : memref<2x4x!tt.tile<32x32, f32>, #l1>
+          %2 = affine.load %cb2[%i, %j] : memref<2x4x!tt.tile<32x32, f32>, #l1>
+          %3 = "d2m.tile_add"(%0, %1) : (!tt.tile, !tt.tile) -> !tt.tile
+          %4 = "d2m.tile_div"(%3, %2) : (!tt.tile, !tt.tile) -> !tt.tile
+          affine.store %4, %cb3[%i, %j] : memref<2x4x!tt.tile<32x32, f32>, #l1>
+        }
+      } {d2m.linalg_root, d2m.scheduled}
+    ```
+
+    The pass rewrites loads/stores in place against DST and emits a single
+    DST->CB store nest after the compute loop:
+    ```mlir
+    ^compute0(...):
+      %dst = d2m.acquire_dst() : memref<...x!tt.tile<32x32, f32>, #dst>
+      affine.for %i = 0 to 2 {
+        affine.for %j = 0 to 4 {
+          %0 = affine.load %cb0[%i, %j] ... ; -> writes DST slice 0
+          %1 = affine.load %cb1[%i, %j] ... ; -> writes DST slice 1
+          %2 = affine.load %cb2[%i, %j] ... ; -> writes DST slice 2
+          %a = affine.load %dst[...slot 0...] ; ... etc
+          %b = affine.load %dst[...slot 1...]
+          %3 = "d2m.tile_add"(%a, %b) -> stores into DST
+          %c = affine.load %dst[...]
+          %d = affine.load %dst[...slot 2...]
+          %4 = "d2m.tile_div"(%c, %d) -> stores into DST
+        }
+      } {d2m.linalg_root}
+      affine.for %i = 0 to 2 {
+        affine.for %j = 0 to 4 {
+          %v = affine.load %dst[...]
+          affine.store %v, %cb3[%i, %j] ...
+        }
+      }
+    ```
+    Note that the `d2m.scheduled` attribute is consumed by the pass.
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",

@@ -1,22 +1,13 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Tests for L1 accumulation guard insertion in the unscheduled pass.
-// When enable-l1-acc=true and the root loop contains a tile_matmul,
-// the pass inserts a d2m.set_l1_accumulate guarded by an scf.if that
-// checks whether the outer tiling loop has reached its second iteration.
-//
-// The test uses hand-crafted IR with a matmul (4x4 * 4x2 -> 4x2) tiled
-// into 2x2 blocks via scf.for loops, giving the outer loop 2 iterations
-// so the L1 acc guard survives canonicalization.
-//
-// Exercises:
-//   - insertPackerL1AccGuard (L1 accumulation insertion)
-//   - collectAncestorLoopIVs (finding parent scf.for IV)
-//   - enableL1Acc=true skips CB->DST load copies in the load loop
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-unscheduled="enable-l1-acc=true" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
+
+// Tests L1 accumulation guard insertion in the unscheduled pass: with
+// enable-l1-acc=true and a tile_matmul root, expect a d2m.set_l1_accumulate
+// guarded by scf.if on the outer tiling IV.
 
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>

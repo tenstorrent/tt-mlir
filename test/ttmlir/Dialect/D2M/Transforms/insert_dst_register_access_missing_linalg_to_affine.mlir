@@ -1,4 +1,11 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// Both passes share the same `--d2m-linalg-to-affine` precondition, so run
+// each one over the same IR and verify the same diagnostic.
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-unscheduled %s -split-input-file -verify-diagnostics
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-scheduled %s -split-input-file -verify-diagnostics
 
 #l1_ = #ttcore.memory_space<l1>
 

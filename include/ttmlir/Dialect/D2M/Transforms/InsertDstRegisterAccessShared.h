@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,18 +12,15 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <deque>
 #include <optional>
 
 namespace mlir::tt::d2m {
-
-class GenericOp;
 
 // ---------------------------------------------------------------------------
 // Preconditions
@@ -37,7 +34,10 @@ LogicalResult verifyInsertDstRegisterAccessPreconditions(ModuleOp moduleOp);
 
 namespace detail {
 
-struct OperationTypes {
+// Coarse classification of what the compute region of a d2m.generic looks
+// like at the time the DST-insertion pass runs.  Used by both passes to
+// decide whether the region is a candidate for rewrite.
+struct DstRegionOpClassification {
   bool hasComputeOps = false;
   bool hasLinalgGeneric = false;
   bool hasMarkedAffineLoops = false;
@@ -86,60 +86,26 @@ struct CopyInfo {
   SmallVector<LoadStoreRecord<memref::StoreOp>> memrefStores;
 };
 
-using CopyInfoMap = DenseMap<Operation *, CopyInfo>;
+// `MapVector` is used (instead of `DenseMap`) so that iteration order is
+// the deterministic insertion order; this matters for IR emission stability
+// across runs and for reproducible debug output.
+using CopyInfoMap = llvm::MapVector<Operation *, CopyInfo>;
 
 struct DstIntermediateResult {
   int dstSlice;
   Operation *outermostLoop;
 };
-using DstIntermediatesMap = DenseMap<Operation *, DstIntermediateResult>;
+using DstIntermediatesMap = llvm::MapVector<Operation *, DstIntermediateResult>;
 
 struct DstAccessCollection {
   CopyInfoMap copyInfos;
   DstIntermediatesMap dstIntermediates;
 };
 
-// ---------------------------------------------------------------------------
-// DST slice allocators
-// ---------------------------------------------------------------------------
-
-// Simple bump allocator -- used by the unscheduled path.
-class DstSliceAllocationState {
-public:
-  int allocate() { return nextSliceIndex++; }
-  void setStoreToDst() { storedToDst = true; }
-  bool didStoreToDst() { return storedToDst; }
-  int getCurrSliceIndex() { return nextSliceIndex - 1; }
-
-private:
-  int64_t nextSliceIndex = 0;
-  bool storedToDst = false;
-};
-
-// Stack-based allocator -- used by the scheduled path.
-class DstStackAllocator {
-public:
-  DstStackAllocator() = delete;
-  explicit DstStackAllocator(unsigned dstSliceCapacityIn);
-
-  unsigned allocate(bool isStore = false);
-  unsigned deallocate();
-  void setStoreToDst() { storedToDst = true; }
-  bool didStoreToDst() { return storedToDst; }
-  unsigned getCurrSliceIndex() { return currSliceIndex; }
-  unsigned getFirstInputSliceIndex();
-  void deallocateAllButFirstInput();
-
-private:
-  unsigned dstSliceCapacity = 0;
-  unsigned currSliceIndex = 0;
-  SmallVector<unsigned, 16> inputStack;
-  std::deque<unsigned> outputQueue;
-  SmallVector<unsigned, 16> sliceStack;
-  bool storedToDst = false;
-
-  void initSliceStack();
-};
+// DST slice allocator types live in their respective pass .cpp files
+// (`DstSliceAllocationState` in InsertDstRegisterAccessUnscheduled.cpp,
+// `DstStackAllocator` in InsertDstRegisterAccessScheduled.cpp), since each is
+// only used by one pass.
 
 // ---------------------------------------------------------------------------
 // Shared utility free functions
@@ -151,7 +117,8 @@ bool hasTileMatmul(Operation *op);
 
 bool hasAcquireDstOp(Region &region);
 
-OperationTypes getOperationTypes(GenericOp gOp, unsigned regionIndex);
+DstRegionOpClassification classifyDstRegionOps(GenericOp gOp,
+                                               unsigned regionIndex);
 
 std::pair<Type, int> inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos);
 
@@ -172,18 +139,16 @@ getObviousCarriedOutputRegions(OperandLoadStoreRegisterOpInterface computeOp);
 SmallVector<int64_t>
 getAccumClassificationOperandIndices(OperandLoadStoreRegisterOpInterface op);
 
-void recordDstAccess(affine::AffineLoadOp loadOrStore, CopyInfoMap &copyInfos,
+void recordDstAccess(affine::AffineLoadOp op, CopyInfoMap &copyInfos,
                      int dstSlice, Operation *outermostInnerComputeLoop,
                      bool emitGuard);
-void recordDstAccess(affine::AffineStoreOp loadOrStore, CopyInfoMap &copyInfos,
+void recordDstAccess(affine::AffineStoreOp op, CopyInfoMap &copyInfos,
                      int dstSlice, Operation *outermostInnerComputeLoop,
                      bool emitGuard);
-void recordDstAccess(memref::LoadOp loadOrStore, CopyInfoMap &copyInfos,
-                     int dstSlice, Operation *outermostInnerComputeLoop,
-                     bool emitGuard);
-void recordDstAccess(memref::StoreOp loadOrStore, CopyInfoMap &copyInfos,
-                     int dstSlice, Operation *outermostInnerComputeLoop,
-                     bool emitGuard);
+void recordDstAccess(memref::LoadOp op, CopyInfoMap &copyInfos, int dstSlice,
+                     Operation *outermostInnerComputeLoop, bool emitGuard);
+void recordDstAccess(memref::StoreOp op, CopyInfoMap &copyInfos, int dstSlice,
+                     Operation *outermostInnerComputeLoop, bool emitGuard);
 void recordDstAccess(affine::AffineLoadOp loadOp, d2m::TileBcastOp bcastOp,
                      CopyInfoMap &copyInfos, int dstSlice,
                      Operation *outermostInnerComputeLoop, bool emitGuard);
@@ -196,13 +161,13 @@ void collectDstStoreAccess(memref::StoreOp storeOp, CopyInfoMap &copyInfos,
 
 void collectDstLoadWithAccumAnalysis(affine::AffineLoadOp loadOp,
                                      int64_t operandIdx,
-                                     ArrayRef<Value> carriedOutputRegions,
+                                     ValueRange carriedOutputRegions,
                                      ArrayRef<int64_t> accumOperandIndices,
                                      CopyInfoMap &copyInfos, int dstSlice,
                                      Operation *outermostInnerComputeLoop,
                                      bool noAccumGuard = false);
 void collectDstLoadWithAccumAnalysis(memref::LoadOp loadOp, int64_t operandIdx,
-                                     ArrayRef<Value> carriedOutputRegions,
+                                     ValueRange carriedOutputRegions,
                                      ArrayRef<int64_t> accumOperandIndices,
                                      CopyInfoMap &copyInfos, int dstSlice,
                                      Operation *outermostInnerComputeLoop,
@@ -210,6 +175,38 @@ void collectDstLoadWithAccumAnalysis(memref::LoadOp loadOp, int64_t operandIdx,
 
 scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
                               ValueRange guardIVs, bool isBcastGuard);
+
+// Clone the loop scaffolding of `loopNestOrOp` (affine.for / yield / apply
+// only) and return the cloned root + the IRMapping that maps original IVs
+// to the clone. If `loopNestOrOp` is not an `affine::AffineForOp`, returns
+// {nullptr, empty mapping}.
+std::pair<Operation *, mlir::IRMapping>
+cloneAffineLoopSkeleton(PatternRewriter &rewriter, Operation *loopNestOrOp);
+
+// Shared "wrap a compute loop with a cloned CB<->DST copy nest" emitter
+// used by both the scheduled and unscheduled paths.
+//
+// For each record in `loadStoreRecords`, this:
+//   1. Emits a copy op via `copyGenerator` inside a clone of `loopNestOrOp`
+//      (the *shared* clone built once up front); records that carry a
+//      non-empty `guardIVs` get a fresh, per-record clone wrapped in an
+//      `scf.if` (accumulation / bcast init guard).
+//   2. Rewrites the original load/store via `accessReplacer` so it now
+//      goes through the DST register.
+//
+// `enableL1Acc=true` skips the upfront copy nest entirely (the L1 acc
+// guard preserves the running tile).
+template <typename LoadOrStoreTy>
+void emitDstCopyNest(
+    PatternRewriter &rewriter, Operation *loopNestOrOp,
+    ArrayRef<LoadStoreRecord<LoadOrStoreTy>> loadStoreRecords,
+    llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
+                            AffineMap, ValueRange, AffineMap, ValueRange)>
+        copyGenerator,
+    llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
+                            AffineMap, ValueRange)>
+        accessReplacer,
+    bool enableL1Acc = false);
 
 std::pair<AffineMap, SmallVector<Value>>
 buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op, int dstSlice,
