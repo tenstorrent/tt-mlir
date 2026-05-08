@@ -109,15 +109,9 @@ private:
       return a.numElements > b.numElements;
     });
 
+    Block &block = region.front();
     computeLiveness(allocations, block, region);
     int64_t peakUsage = assignOffsets(allocations);
-
-    OpBuilder builder(&block, block.begin());
-    builder.setInsertionPointAfterValue(scratchCB);
-    auto scratchFromCBOp =
-        builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchCB);
-    Value scratchMemRef = scratchFromCBOp.getResult();
-    auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
 
     // Verify allocations fit in the scratch buffer.
     assert(!llvm::is_contained(scratchMemRefType.getShape(),
@@ -141,81 +135,6 @@ private:
     scratchInit.erase();
 
     return success();
-  }
-
-  // Compute liveness ranges for scratch allocations.
-  //
-  // Each allocation's live range spans from its definition to its last use.
-  void computeLiveness(SmallVectorImpl<ScratchAllocationInfo> &allocations,
-                       Block &block, Region &region) {
-    // Assign sequential position indices to top-level operations in the block.
-    DenseMap<Operation *, int64_t> opPositions;
-    int64_t pos = 0;
-    for (Operation &op : block) {
-      opPositions[&op] = pos++;
-    }
-
-    // Helper: walk up to find the enclosing operation that lives directly in
-    // the region's entry block.
-    auto getTopLevelOp = [&](Operation *op) -> Operation * {
-      while (op->getParentRegion() != &region) {
-        op = op->getParentOp();
-      }
-      return op;
-    };
-
-    for (auto &info : allocations) {
-      Operation *topLevelDef = getTopLevelOp(info.op.getOperation());
-      info.startPosition = opPositions[topLevelDef];
-      info.endPosition = info.startPosition;
-
-      for (OpOperand &use : info.op.getResult().getUses()) {
-        Operation *topLevelUser = getTopLevelOp(use.getOwner());
-        int64_t userPos = opPositions[topLevelUser];
-        info.endPosition = std::max(info.endPosition, userPos);
-      }
-    }
-  }
-
-  // Assign element offsets using a first-fit-decreasing heuristic.
-  //
-  // Allocations are already sorted descending by size. Each "outer" allocation
-  // reserves a region of scratch memory. Smaller allocations whose live ranges
-  // do not overlap with the outer allocation are packed inside its footprint,
-  // reusing the same memory at different sub-offsets.
-  //
-  // Returns the peak scratch usage (total elements required).
-  int64_t assignOffsets(SmallVectorImpl<ScratchAllocationInfo> &allocations) {
-    int64_t currentOffset = 0;
-    for (size_t i = 0; i < allocations.size(); ++i) {
-      auto &outer = allocations[i];
-      assert(outer.numElements > 0 && "scratch allocation must be non-empty");
-      if (outer.packed) {
-        continue;
-      }
-
-      outer.elementOffset = currentOffset;
-      int64_t innerOffset = currentOffset;
-
-      // Try to pack smaller, non-conflicting allocations inside this one.
-      for (size_t j = i + 1; j < allocations.size(); ++j) {
-        auto &inner = allocations[j];
-        if (inner.packed) {
-          continue;
-        }
-
-        bool fits = (innerOffset + inner.numElements) <=
-                    (currentOffset + outer.numElements);
-        if (!livesOverlap(outer, inner) && fits) {
-          inner.packed = true;
-          inner.elementOffset = innerOffset;
-          innerOffset += inner.numElements;
-        }
-      }
-
-      currentOffset += outer.numElements;
-    }
-    return currentOffset;
   }
 
   // Compute liveness ranges for scratch allocations.

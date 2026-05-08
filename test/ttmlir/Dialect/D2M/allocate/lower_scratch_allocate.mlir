@@ -48,32 +48,32 @@ func.func @single_scratch_store_load() {
 // CHECK-LABEL: func.func @two_scratch_conflicting
 func.func @two_scratch_conflicting() {
   %in = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-  %scratch_buf = memref.alloc() : memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
   %out = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, 0)>, affine_map<(d0, d1) -> (d0, d1)>],
+    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#parallel, #parallel],
-    scratch_inputs = array<i64: 1>,
     threads = [#d2m.thread<unified>]
   }
-  ins(%in, %scratch_buf : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>)
+  ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
     %alloc_cb3 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb4 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb5 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb4 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK-NOT: d2m.scratch_init
+    %scratch = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    d2m.scratch_init %scratch : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: d2m.get_cb(1)
-    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
 
-    // Slot 0 (1 tile): lives [1, 4]. Conflicts with slot 1 [2, 5].
-    // Sorted by size: slot 1 gets offset 0, slot 0 gets offset 2.
+    // Slot 0 (1 tile) is defined first and last-used before slot 1's last use,
+    // but their live ranges overlap so they cannot share storage.
+    // Sorted by size descending: slot 1 (2 tiles) gets offset 0,
+    // slot 0 (1 tile) cannot pack inside it and gets offset 2.
     // CHECK: %[[SV0:.*]] = memref.subview %[[SCRATCH]][0, 2] [1, 1] [1, 1]
     // CHECK-SAME: to memref<1x!ttcore.tile<32x32, f32>
     %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<1x!ttcore.tile<32x32, f32>, #l1>
 
-    // Slot 1 (2 tiles): lives [2, 5]. Conflicts with slot 0 [1, 4].
     // CHECK: %[[SV1:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 2] [1, 1]
     // CHECK-SAME: to memref<2x!ttcore.tile<32x32, f32>
     %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<2x!ttcore.tile<32x32, f32>, #l1>
@@ -95,24 +95,23 @@ func.func @two_scratch_conflicting() {
 // CHECK-LABEL: func.func @packing_non_conflicting
 func.func @packing_non_conflicting() {
   %in = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-  %scratch_buf = memref.alloc() : memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
   %out = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, 0)>, affine_map<(d0, d1) -> (d0, d1)>],
+    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#parallel, #parallel],
-    scratch_inputs = array<i64: 1>,
     threads = [#d2m.thread<unified>]
   }
-  ins(%in, %scratch_buf : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>)
+  ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
     %alloc_cb11 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb12 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb13 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb12 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK-NOT: d2m.scratch_init
+    %scratch = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    d2m.scratch_init %scratch : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: d2m.get_cb(1)
-    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
 
     // Slot 2 (5 tiles): defined and last-used here. Dies before slots 0/1.
     // CHECK: %[[SV2:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 5] [1, 1]
@@ -138,7 +137,7 @@ func.func @packing_non_conflicting() {
   return
 }
 
-// --- Test 4: Generic without scratch_inputs is unchanged ---
+// --- Test 4: Generic without scratch_init is unchanged ---
 
 // CHECK-LABEL: func.func @no_scratch_noop
 func.func @no_scratch_noop() {
