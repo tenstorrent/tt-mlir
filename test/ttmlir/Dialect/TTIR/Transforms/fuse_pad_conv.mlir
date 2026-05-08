@@ -39,6 +39,30 @@ func.func @no_fuse_nonzero_pad_value(%arg0: tensor<1x32x32x64xbf16>, %arg1: tens
   return %1 : tensor<1x32x32x64xbf16>
 }
 
+// Positive case for NCHW (PyTorch default — channel_dim=1, height_dim=2,
+// width_dim=3). Pad on H/W is absorbed into the conv padding via the conv
+// op's dim attributes. Validates the matcher works on NCHW models like
+// mobilenet_v2 / resnet50.
+// CHECK-LABEL: func.func @fuse_pad_into_conv2d_nchw
+func.func @fuse_pad_into_conv2d_nchw(%arg0: tensor<1x3x224x224xbf16>, %arg1: tensor<32x3x3x3xbf16>) -> tensor<1x32x112x112xbf16> {
+  // CHECK-NOT: "ttir.pad"
+  // CHECK: %[[CONV:.*]] = "ttir.conv2d"(%arg0, %arg1)
+  // CHECK-SAME: padding = array<i32: 0, 0, 1, 1>
+  // CHECK: return %[[CONV]]
+  // Real mobilenet_v2 first-conv pad: padding = [N(0,0), C(0,0), H(0,1), W(0,1)]
+  %0 = "ttir.pad"(%arg0) <{padding = array<i32: 0, 0, 0, 0, 0, 1, 0, 1>, value = 0.0 : f32}> : (tensor<1x3x224x224xbf16>) -> tensor<1x3x225x225xbf16>
+  %1 = "ttir.conv2d"(%0, %arg1)
+          <{
+            batch_dim = 0 : i64, channel_dim = 1 : i64,
+            height_dim = 2 : i64, width_dim = 3 : i64,
+            stride = array<i32: 2, 2>,
+            padding = array<i32: 0, 0, 0, 0>,
+            dilation = array<i32: 1, 1>,
+            groups = 1: i32
+          }> : (tensor<1x3x225x225xbf16>, tensor<32x3x3x3xbf16>) -> tensor<1x32x112x112xbf16>
+  return %1 : tensor<1x32x112x112xbf16>
+}
+
 // Negative case: non-zero pad on the batch (N) dimension cannot be absorbed
 // into conv padding. The pad op must remain.
 // CHECK-LABEL: func.func @no_fuse_pad_on_batch_dim

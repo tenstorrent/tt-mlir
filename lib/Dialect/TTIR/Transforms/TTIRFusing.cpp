@@ -181,15 +181,20 @@ public:
       return mlir::failure();
     }
 
-    // Conv2d expects rank-4 NHWC.
-    if (rank != 4 || !convOp.isNHWC()) {
+    if (rank != 4) {
       return mlir::failure();
     }
 
-    int32_t lowN = pads[0], highN = pads[1];
-    int32_t lowH = pads[2], highH = pads[3];
-    int32_t lowW = pads[4], highW = pads[5];
-    int32_t lowC = pads[6], highC = pads[7];
+    // Read each dim's [low,high] using the conv op's dim attributes — works
+    // for both NCHW (PyTorch default — channel_dim=1, height_dim=2, width_dim=3)
+    // and NHWC (height_dim=1, width_dim=2, channel_dim=3) layouts.
+    auto getPair = [&](int64_t dim) {
+      return std::pair<int32_t, int32_t>{pads[2 * dim], pads[2 * dim + 1]};
+    };
+    auto [lowN, highN] = getPair(convOp.getBatchDim());
+    auto [lowH, highH] = getPair(convOp.getHeightDim());
+    auto [lowW, highW] = getPair(convOp.getWidthDim());
+    auto [lowC, highC] = getPair(convOp.getChannelDim());
 
     // Only H/W spatial pads can be absorbed into conv padding.
     if (lowN != 0 || highN != 0 || lowC != 0 || highC != 0) {
