@@ -56,6 +56,11 @@ struct SliceRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// True if a `ttnn.reshape` is realized by tt-metal as a zero-copy view of
+/// its input (same buffer, same address). Mirrors the `this_is_view`
+/// condition in tt-metal's reshape.cpp.
+bool canReshapeBeView(Operation *op);
+
 /// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
 /// View-eligible reshapes use NULL hint only (inherit input memory config).
 /// Non-view reshapes use non-sharded output hints.

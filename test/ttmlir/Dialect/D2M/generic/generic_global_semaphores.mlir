@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttcore-register-device --canonicalize --ttir-bufferization-pipeline --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops --d2m-allocate --d2m-lower-multicast-loads --d2m-generic-lower-to-explicit-form --canonicalize --d2m-be-pipeline --d2m-to-ttkernel-pipeline --d2m-to-ttmetal-pipeline %s | FileCheck %s
 
 // Test for d2m.create_global_semaphore and global semaphore operands in d2m.generic.
 // This tests:
@@ -40,8 +40,6 @@ module {
       threads = [#d2m.thread<unified>]
     }> ({
     ^unified0:
-      %cb_in = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
-      %cb_out = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       %c2 = arith.constant 2 : index
@@ -70,8 +68,8 @@ module {
             : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
               tensor<2x2x!ttcore.tile<32x32, f32>>
             -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
-        }
-      }
+        } { d2m.blocking_loop = 2 : i64}
+      } { d2m.blocking_loop = 2 : i64}
 
       d2m.semaphore_wait %sem, %c1 : !d2m.global_semaphore
 

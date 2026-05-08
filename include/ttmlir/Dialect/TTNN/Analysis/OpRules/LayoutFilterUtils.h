@@ -5,11 +5,12 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_LAYOUTFILTERUTILS_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_LAYOUTFILTERUTILS_H
 
-#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <vector>
 
@@ -19,6 +20,28 @@ namespace mlir::tt::ttnn::layout_filter_utils {
 inline bool rejectAllSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();
   return !(ml && isShardedMemoryLayout(ml.getValue()));
+}
+
+/// Require DRAM-interleaved: reject sharded and L1 layouts.
+inline bool requireDRAMInterleaved(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  if (ml && isShardedMemoryLayout(ml.getValue())) {
+    return false;
+  }
+  return isDRAMBufferType(layout.getBufferType());
+}
+
+/// Reject L1-interleaved: keep DRAM (any) and L1-sharded, reject
+/// L1-interleaved. Used for inputs whose kernel requires DRAM when not sharded
+/// (e.g. Q in sdpa_decode: "Q tensor buffer type must be DRAM when not
+/// sharded").
+inline bool rejectL1Interleaved(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  bool isSharded = ml && isShardedMemoryLayout(ml.getValue());
+  if (isSharded) {
+    return true;
+  }
+  return isDRAMBufferType(layout.getBufferType());
 }
 
 /// Reject width-sharded layouts. Returns true if the layout should be kept.
@@ -35,14 +58,10 @@ inline bool isFullBboxSharded(TTNNLayoutAttr layout) {
     return true;
   }
 
-  auto grid = layout.getGrid();
-  mlir::AffineMap mapping = grid.getVirtToPhysicalMap();
-  assert(mapping &&
-         "sharded layout must have a grid with a virt-to-phys mapping");
+  ttnn::CoreRangeSetAttr ranges = layout.getCoreRangeSet();
+  assert(ranges && "sharded layout must have a valid core range set");
 
-  auto ranges =
-      mlir::tt::ttcore::utils::toCoreRangeSet(grid.getShape(), mapping);
-  if (ranges.empty()) {
+  if (ranges.getCoreRanges().empty()) {
     return false;
   }
 
@@ -51,12 +70,19 @@ inline bool isFullBboxSharded(TTNNLayoutAttr layout) {
   int32_t maxX = std::numeric_limits<int32_t>::min();
   int32_t maxY = std::numeric_limits<int32_t>::min();
   int64_t numCores = 0;
-  for (const auto &[loc, size] : ranges) {
-    numCores += static_cast<int64_t>(size[0]) * static_cast<int64_t>(size[1]);
-    minX = std::min(minX, loc[0]);
-    minY = std::min(minY, loc[1]);
-    maxX = std::max(maxX, loc[0] + size[0] - 1);
-    maxY = std::max(maxY, loc[1] + size[1] - 1);
+  for (const auto &coreRange : ranges.getCoreRanges()) {
+    auto start = coreRange.getStartCoord();
+    auto end = coreRange.getEndCoord();
+
+    int32_t sizeX = end.getX() - start.getX() + 1;
+    int32_t sizeY = end.getY() - start.getY() + 1;
+
+    numCores += static_cast<int64_t>(sizeX) * static_cast<int64_t>(sizeY);
+
+    minX = std::min(minX, static_cast<int32_t>(start.getX()));
+    minY = std::min(minY, static_cast<int32_t>(start.getY()));
+    maxX = std::max(maxX, static_cast<int32_t>(end.getX()));
+    maxY = std::max(maxY, static_cast<int32_t>(end.getY()));
   }
   int64_t bboxCores = static_cast<int64_t>(maxX - minX + 1) *
                       static_cast<int64_t>(maxY - minY + 1);

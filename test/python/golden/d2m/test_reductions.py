@@ -241,6 +241,9 @@ _3D_OUTER_COMBOS = [
     _cycled_reduction_params(_3D_OUTER_COMBOS, keep_dims=[True]),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.xfail(
+    reason="Out of place reduction not supported with blocking. See #8290"
+)
 def test_reduce_outer_3d(
     b: int,
     m: int,
@@ -330,6 +333,9 @@ _4D_OUTER_COMBOS = [
 @pytest.mark.parametrize(
     "a,b,reduce_dim,reduce_type,dtype,keep_dim",
     _cycled_reduction_params(_4D_OUTER_COMBOS, keep_dims=[True]),
+)
+@pytest.mark.xfail(
+    reason="Out of place reduction not supported with blocking. See #8290"
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_outer_4d(
@@ -468,6 +474,7 @@ def test_reduce_i32_3d_inner(
         **get_request_kwargs(request),
         device=device,
         atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
+        print_ir=True,
     )
 
 
@@ -475,6 +482,9 @@ def test_reduce_i32_3d_inner(
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.xfail(
+    reason="Out of place reduction not supported with blocking. See #8290"
+)
 def test_reduce_i32_outer_3d(
     b: int,
     reduce_type: str,

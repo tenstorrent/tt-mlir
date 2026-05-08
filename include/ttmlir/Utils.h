@@ -99,6 +99,12 @@ T volume(mlir::ArrayRef<T> shape, T stride = 1) {
                          std::multiplies<T>());
 }
 
+template <typename T, unsigned int N>
+T volume(const mlir::SmallVector<T, N> &shape, T stride = 1) {
+  return std::accumulate(shape.begin(), shape.end(), stride,
+                         std::multiplies<T>());
+}
+
 // Returns a string that is the concatenation of the string representations of
 // Range R elements interleaved with separator. Example: join({1, 2, 3}, ", ")
 // -> "1, 2, 3"
@@ -785,6 +791,32 @@ mlir::Value lookThrough(mlir::Value value) {
 template <typename OpTy, typename... Ops>
 OpTy findOpThrough(mlir::Value value) {
   return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
+}
+
+/// Find the first user of an operation's result within the same block.
+///
+/// Iterates through all results of the given operation and their users,
+/// returning the user that appears earliest in the block. Users in different
+/// blocks are ignored.
+///
+/// @param op The operation whose results' users should be searched.
+/// @return The earliest user operation in the same block, or nullptr if no
+///         users exist in the same block.
+inline mlir::Operation *findFirstUserInBlock(mlir::Operation *op) {
+  mlir::Operation *firstUser = nullptr;
+  mlir::Block *opBlock = op->getBlock();
+  for (mlir::Value result : op->getResults()) {
+    for (mlir::Operation *user : result.getUsers()) {
+      mlir::Operation *userInBlock = opBlock->findAncestorOpInBlock(*user);
+      if (!userInBlock) {
+        continue;
+      }
+      if (!firstUser || userInBlock->isBeforeInBlock(firstUser)) {
+        firstUser = userInBlock;
+      }
+    }
+  }
+  return firstUser;
 }
 
 } // namespace ttmlir::utils

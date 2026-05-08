@@ -72,12 +72,16 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PadRuleBook pad;
   static ConcatenateHeadsRuleBook concatHeads;
   static SDPARuleBook sdpa;
+  static SDPADecodeRuleBook sdpaDecode;
   static EmbeddingRuleBook embedding;
   static TypecastRuleBook typecast;
   static RotaryEmbeddingRuleBook rotaryEmbedding;
   static SplitQKVRuleBook splitQKV;
   static RmsNormRuleBook rmsNorm;
   static MeshPartitionRuleBook meshPartition;
+  static PagedUpdateCacheRuleBook pagedUpdateCache;
+  static FillCacheRuleBook fillCache;
+  static PagedFillCacheRuleBook pagedFillCache;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -101,9 +105,10 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PadOp::getOperationName(), &pad);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
     reg(NLPConcatHeadsDecodeOp::getOperationName(), &sdpa);
-    reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpa);
-    reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(), &sdpa);
     reg(ScaledDotProductAttentionOp::getOperationName(), &sdpa);
+    reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
+    reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(),
+        &sdpaDecode);
     reg(EmbeddingOp::getOperationName(), &embedding);
     reg(TypecastOp::getOperationName(), &typecast);
     reg(WhereOp::getOperationName(), &typecast);
@@ -112,6 +117,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
     reg(RMSNormOp::getOperationName(), &rmsNorm);
     reg(MeshPartitionOp::getOperationName(), &meshPartition);
+    reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
+    reg(FillCacheOp::getOperationName(), &fillCache);
+    reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;

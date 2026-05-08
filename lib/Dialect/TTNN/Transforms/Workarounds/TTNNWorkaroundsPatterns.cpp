@@ -18,7 +18,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
@@ -53,6 +52,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <limits>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -172,14 +172,18 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   RankedTensorType opResultType =
       mlir::cast<RankedTensorType>(opResult.getType());
 
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+
   // Create the new output layout attribute with the updated tensor layout,
   // buffer type, memory layout and data type.
   TTNNLayoutAttr newOutputLayoutAttr =
-      opResultLayoutAttr.withElementType(elementType, opResultType.getShape())
-          .withBufferType(
+      TTNNLayoutAttr::Builder(opResultLayoutAttr, opResultType.getShape())
+          .setElementType(elementType)
+          .setBufferType(
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-          .withMemoryLayout(
-              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
+          .setMemoryLayout(
+              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue)
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType = utils::RankedTensorTypeFactory::create(
@@ -566,6 +570,97 @@ private:
   }
 };
 
+// This pattern wraps an si32-indexed gather in a fill-style mask, modeled
+// on what JAX emits for `jax.lax.gather(..., mode='fill')`:
+//
+//   mask     = idx < 0
+//   safe     = max(idx, 0)
+//   safe_u32 = to_layout(safe, dtype = ui32)
+//   raw      = ttnn.gather(input, safe_u32, dim)
+//   result   = where(mask, NaN, raw)
+//
+// Lanes whose original index was negative end up as NaN in the output,
+// making the failure visible
+// https://github.com/tenstorrent/tt-metal/issues/43869
+class GatherSi32Workaround : public OpRewritePattern<ttnn::GatherOp> {
+public:
+  using OpRewritePattern<ttnn::GatherOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::GatherOp op,
+                                PatternRewriter &rewriter) const override {
+    RankedTensorType indexType = op.getIndex().getType();
+    if (ttcore::elementTypeToDataType(indexType.getElementType()) !=
+        ttcore::DataType::Int32) {
+      return failure();
+    }
+
+    Location loc = op.getLoc();
+    Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    RankedTensorType outputType = op.getResult().getType();
+
+    RankedTensorType maskType = ttnn::utils::RankedTensorTypeFactory::create(
+        indexType, ttcore::elementTypeToDataType(outputType.getElementType()));
+    TTNNLayoutAttr indexLayout =
+        ttnn::utils::getLayoutAttrFromTensor(indexType);
+
+    // %zero = ttnn.full(0 : si32, shape = idx_shape)
+    auto zero = rewriter.create<ttnn::FullOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_zero"), indexType,
+        rewriter.getI32IntegerAttr(0), device);
+
+    // %mask = ttnn.lt(idx, zero) -> numeric mask tensor
+    auto mask = rewriter.create<ttnn::LessThanOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_idx_lt_zero"), maskType,
+        op.getIndex(), zero.getResult());
+
+    // %safe = ttnn.maximum(idx, zero) -> si32 (negatives clamped to 0)
+    auto safeIdx = rewriter.create<ttnn::MaximumOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_clamp"), indexType,
+        op.getIndex(), zero.getResult());
+
+    // %safe_u32 = ttnn.to_layout(%safe, dtype = ui32)
+    ttnn::ToLayoutOp safeIdxU32 = ttnn::utils::createToLayoutOp(
+        op.getOperation(),
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(safeIdx.getResult()),
+        rewriter, indexLayout.getLayout(), indexLayout.getBufferType(),
+        indexLayout.getMemLayout(), ttcore::DataType::UInt32, "_to_u32");
+
+    // %raw = ttnn.gather(input, %safe_u32, dim)
+    auto rawGather = rewriter.create<ttnn::GatherOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_safe_gather"), outputType,
+        op.getInput(), safeIdxU32.getResult(), op.getDimAttr(),
+        op.getMemoryConfigAttr());
+
+    //   - float => NaN
+    //   - int   => int32_min (for unsigned this makes a large positive number,
+    //   and for signed this makes a large negative number)
+    mlir::Type outputElemType = outputType.getElementType();
+    mlir::Attribute fillValue;
+    if (mlir::isa<mlir::FloatType>(outputElemType)) {
+      fillValue =
+          rewriter.getF32FloatAttr(std::numeric_limits<float>::quiet_NaN());
+    } else if (mlir::isa<mlir::IntegerType>(outputElemType)) {
+      fillValue =
+          rewriter.getI32IntegerAttr(std::numeric_limits<int32_t>::min());
+    } else {
+      return failure();
+    }
+
+    // %fill = ttnn.full(fill_value, shape = output_shape)
+    auto fillTensor = rewriter.create<ttnn::FullOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_fill"), outputType,
+        fillValue, device);
+
+    // %result = ttnn.where(mask, fill_value, raw)
+    rewriter.replaceOpWithNewOp<ttnn::WhereOp>(op, outputType, mask.getResult(),
+                                               fillTensor.getResult(),
+                                               rawGather.getResult());
+
+    return success();
+  }
+};
+
 class PagedSDPADecodeP150CoreGridWorkaround
     : public OpRewritePattern<ttnn::PagedScaledDotProductAttentionDecodeOp> {
   // Paged SDPA decode crashes with TT_FATAL: Output spatial index 32 out of
@@ -610,7 +705,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          PagedSDPADecodeP150CoreGridWorkaround, TTNNAllReduceWorkarounds,
+          GatherSi32Workaround, PagedSDPADecodeP150CoreGridWorkaround,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
@@ -630,7 +725,8 @@ public:
           workarounds::decomposition::NLPConcatHeadsDecodeInputRewritePattern,
           workarounds::decomposition::
               SplitQueryKeyValueAndSplitHeadsOpRewritePattern,
-          workarounds::decomposition::PagedUpdateCacheOpRewritePattern,
+          // PagedUpdateCacheOpRewritePattern added below — conditionally.
+
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeAttentionSinkRewritePattern,
           workarounds::decomposition::
@@ -649,9 +745,16 @@ public:
           &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
-      patterns
-          .add<workarounds::decomposition::LinearOpOutputShapeRewritePattern>(
-              &getContext(), /*benefit=*/1);
+
+      // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
+      // At level >= 2 the greedy sharding optimizer (PagedUpdateCacheRuleBook
+      // constraint sink) drives the upstream producer to L1 height-sharded
+      // and inserts a proper ToMemoryConfigOp via beam search.
+      if (optimizationLevel < 2) {
+        patterns
+            .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
+                &getContext());
+      }
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
@@ -660,7 +763,7 @@ public:
       RewritePatternSet patterns(&getContext());
 
       std::set<mlir::StringRef> enabledOps;
-      if (optimizerEnabled) {
+      if (optimizationLevel >= 1) {
         enabledOps = enabledOpsForWorkaroundWithOptimizer;
       } else {
         enabledOps = utils::getAllTTNNDialectOps(&getContext());

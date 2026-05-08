@@ -9,6 +9,8 @@
 // Tiled layouts for input and index (workaround should be a no-op for these).
 #ttnn_layout_input_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #ttnn_layout_index_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, u32>, #dram>, <interleaved>>
+// Tiled int32 index (workaround should cast it to uint32).
+#ttnn_layout_index_tile_i32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
 
 module attributes {} {
   // Verify that the input and index tensors are converted to tiled layout when
@@ -48,6 +50,43 @@ module attributes {} {
         <{dim = 0 : i32}>
         : (tensor<5x3xf32, #ttnn_layout_input_tile>,
            tensor<2x3xui32, #ttnn_layout_index_tile>)
+        -> tensor<2x3xf32, #ttnn_layout_output>
+    return %0 : tensor<2x3xf32, #ttnn_layout_output>
+  }
+
+  // Verify that an Int32 index tensor is wrapped in the fill-style protection
+  // pattern: lanes whose original index was negative are replaced with NaN in
+  // the output, and the inner gather sees a UInt32 (clamped) index.
+  func.func @gather_int32_index(
+      %arg0: tensor<5x3xf32, #ttnn_layout_input_tile>,
+      %arg1: tensor<2x3xi32, #ttnn_layout_index_tile_i32>)
+      -> tensor<2x3xf32, #ttnn_layout_output> {
+    // CHECK-LABEL: func.func @gather_int32_index
+    // CHECK: %[[DEVICE:.*]] = "ttnn.get_device"
+    // %zero = ttnn.full(0 : si32)
+    // CHECK: %[[ZERO:.*]] = "ttnn.full"(%[[DEVICE]])
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
+    // CHECK-SAME: fill_value = 0 : i32
+    // %mask = ttnn.lt(idx, zero)  -> numeric predicate tensor
+    // CHECK: %[[MASK:.*]] = "ttnn.lt"(%arg1, %[[ZERO]])
+    // %safe = ttnn.maximum(idx, zero)  -> si32 (negatives clamped to 0)
+    // CHECK: %[[CLAMPED:.*]] = "ttnn.maximum"(%arg1, %[[ZERO]])
+    // %safe_u32 = ttnn.to_layout(safe, dtype = ui32)
+    // CHECK: %[[SAFE_U32:.*]] = "ttnn.to_layout"(%[[CLAMPED]])
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
+    // CHECK-SAME: -> tensor<2x3xui32,
+    // %raw = ttnn.gather(input, safe_u32, dim)
+    // CHECK: %[[RAW:.*]] = "ttnn.gather"(%arg0, %[[SAFE_U32]])
+    // %nan = ttnn.full(NaN : f32)   ; 0x7FC00000 is the bit pattern for quiet NaN
+    // CHECK: %[[NAN:.*]] = "ttnn.full"(%[[DEVICE]])
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
+    // CHECK-SAME: fill_value = 0x7FC00000 : f32
+    // %result = ttnn.where(mask, NaN, raw)
+    // CHECK: "ttnn.where"({{.*}}, %[[NAN]], %[[RAW]])
+    %0 = "ttnn.gather"(%arg0, %arg1)
+        <{dim = 0 : i32}>
+        : (tensor<5x3xf32, #ttnn_layout_input_tile>,
+           tensor<2x3xi32, #ttnn_layout_index_tile_i32>)
         -> tensor<2x3xf32, #ttnn_layout_output>
     return %0 : tensor<2x3xf32, #ttnn_layout_output>
   }
