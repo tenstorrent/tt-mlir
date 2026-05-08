@@ -3598,9 +3598,9 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   const ::mlir::RankedTensorType resultType = getResult().getType();
 
   if (!indexType.getElementType().isUnsignedInteger(16) &&
-      !indexType.getElementType().isUnsignedInteger(32)) {
-    return emitOpError() << "Index tensor must have an unsigned integer "
-                         << "type of ui16 or ui32, got "
+      !indexType.getElementType().isInteger(32)) {
+    return emitOpError() << "Index tensor element type must be one of "
+                         << "ui16, ui32, si32 or i32, got "
                          << indexType.getElementType();
   }
 
