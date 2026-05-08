@@ -17,6 +17,7 @@ from ttmlir.dialects import d2m, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
+from builder.base.builder_enums import MeshShardDirection, MeshShardType
 from builder.base.builder_utils import *
 
 from golden import *
@@ -164,6 +165,60 @@ class D2MBuilder(Builder):
             ).result
 
     # ----- D2M Layout Operations -----
+
+    def mesh_shard(
+        self,
+        input: Operand,
+        shard_type: MeshShardType,
+        shard_direction: MeshShardDirection,
+        shard_shape: List[int],
+        shard_dims: List[int],
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
+        input_type = self._get_type(input)
+        output_shape = list(input_type.shape)
+        for factor, dim in zip(shard_shape, shard_dims):
+            if dim < 0:
+                continue
+            if shard_direction == MeshShardDirection.FullToShard:
+                assert (
+                    output_shape[dim] % factor == 0
+                ), f"Illegal shard factor {factor} for dim[{dim}]={output_shape[dim]}"
+                output_shape[dim] //= factor
+            else:
+                output_shape[dim] *= factor
+
+        output_encoding = None
+        if shard_direction == MeshShardDirection.FullToShard:
+            mesh_attr = Attribute.parse(
+                f'#ttcore.tensor_mesh<"{self._mesh_name}">', self._ctx
+            )
+            output_encoding = mesh_attr
+
+        output_type = RankedTensorType.get(
+            output_shape, input_type.element_type, output_encoding
+        )
+
+        shard_type_attr = ttcore.ir.MeshShardTypeAttr.get(self._ctx, shard_type.value)
+        shard_direction_attr = ttcore.ir.MeshShardDirectionAttr.get(
+            self._ctx, shard_direction.value
+        )
+        shard_shape_attr = DenseI64ArrayAttr.get(shard_shape)
+        shard_dims_attr = DenseI64ArrayAttr.get(shard_dims)
+
+        with self._ctx, self._loc:
+            if loc is not None:
+                loc = Location.name(loc, context=self._ctx)
+            op = d2m.MeshShardOp(
+                output_type,
+                input,
+                shard_type_attr,
+                shard_direction_attr,
+                shard_shape_attr,
+                shard_dims_attr,
+                loc=loc,
+            )
+            return op.result
 
     def to_layout(
         self,
