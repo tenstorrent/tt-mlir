@@ -33,15 +33,16 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 //          single_page_size = element_size * padded_shape[-2]
 //      which with double buffering exceeds usable L1.
 //
-// Fix: split all inputs along dim=0 into chunks of C rows where:
+// Fix: split all inputs along dim[-2] into chunks of C slices where:
 //   - element_size * C * 2 <= usable_l1  (chunk CB fits after transpose)
 //   - C is a multiple of TILE_HEIGHT=32   (tile-layout alignment)
 //
 // Each set of input chunks is concatenated along the last dim independently,
-// then all chunk results are concatenated along dim=0 to form the final output.
+// then all chunk results are concatenated along dim[-2] to form the final
+// output.
 //
-// The final dim=0 concat is safe because:
-//   - concat dim=0 is not the last dim
+// The final dim[-2] concat is safe because:
+//   - concat dim[-2] is not the last dim
 //   - build_non_aligned_last_dim_concat does not trigger (not last dim)
 //   - single_page_size = tile_size = TILE_HEIGHT * TILE_WIDTH * element_size
 
@@ -115,8 +116,13 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
     return failure();
   }
 
-  // Compute chunk size C along dim=0.
-  // After transpose of a [C, w] chunk the new last dim is C, so we need:
+  // The split dimension is dim[-2] (= rank-2). For 2D tensors this is dim[0];
+  // for higher-rank tensors this is the dim that, after the internal
+  // transpose(-2,-1), becomes the new last dim and drives CB page size.
+  int64_t splitDim = rank - 2;
+
+  // Compute chunk size C along dim[-2].
+  // After transpose of a [..., C, w] chunk the new last dim is C, so we need:
   //   element_size * C * 2 <= l1UsableSize
   //   C <= l1UsableSize / (element_size * 2)
   // Round down to nearest multiple of TILE_HEIGHT for tile-layout alignment.
@@ -136,7 +142,7 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
 
   Location loc = srcOp.getLoc();
 
-  // Helper: slice rows [rowStart, rowEnd) from a tensor along dim=0.
+  // Helper: slice [rowStart, rowEnd) from a tensor along dim[-2].
   auto sliceRows = [&](Value tensor, int64_t rowStart,
                        int64_t rowEnd) -> Value {
     RankedTensorType tensorType =
@@ -147,11 +153,11 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
     llvm::SmallVector<int32_t> ends(shape.begin(), shape.end());
     llvm::SmallVector<int32_t> steps(rank, 1);
 
-    begins[0] = static_cast<int32_t>(rowStart);
-    ends[0] = static_cast<int32_t>(rowEnd);
+    begins[splitDim] = static_cast<int32_t>(rowStart);
+    ends[splitDim] = static_cast<int32_t>(rowEnd);
 
     llvm::SmallVector<int64_t> sliceShape(shape.begin(), shape.end());
-    sliceShape[0] = rowEnd - rowStart;
+    sliceShape[splitDim] = rowEnd - rowStart;
 
     RankedTensorType sliceType =
         utils::RankedTensorTypeFactory::create(tensorType, sliceShape);
@@ -164,24 +170,24 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
         .getResult();
   };
 
-  // Build one chunk concat per row band.
+  // Build one chunk concat per slice band along dim[-2].
   llvm::SmallVector<Value> chunkResults;
   int64_t row = 0;
   while (row < totalRows) {
     int64_t rowEnd = std::min(row + chunkSize, totalRows);
 
-    // Slice each input to this row band.
+    // Slice each input to this band.
     llvm::SmallVector<Value> chunkInputs;
     chunkInputs.reserve(inputs.size());
     for (Value input : inputs) {
       chunkInputs.push_back(sliceRows(input, row, rowEnd));
     }
 
-    // Output shape for this chunk: same as full output except dim=0
+    // Output shape for this chunk: same as full output except dim[-2]
     // is (rowEnd - row). The last dim is the concatenated width.
     llvm::SmallVector<int64_t> chunkOutputShape(outputType.getShape().begin(),
                                                 outputType.getShape().end());
-    chunkOutputShape[0] = rowEnd - row;
+    chunkOutputShape[splitDim] = rowEnd - row;
 
     RankedTensorType chunkOutputType =
         utils::RankedTensorTypeFactory::create(outputType, chunkOutputShape);
@@ -203,15 +209,15 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
     return success();
   }
 
-  // Final concat of all chunk results along dim=0.
+  // Final concat of all chunk results along dim[-2].
   // Safe because:
-  //   - concat dim=0 != last dim → transpose path never fires
+  //   - concat dim[-2] != last dim → transpose path never fires
   //   - single_page_size = tile_size regardless of tensor dimensions
   Value finalConcat =
       rewriter
           .create<ttnn::ConcatOp>(
               ttmlir::utils::appendLocationSuffix(loc, "_final_concat"),
-              outputType, chunkResults, static_cast<int32_t>(0),
+              outputType, chunkResults, static_cast<int32_t>(splitDim),
               srcOp.getMemoryConfig().value_or(ttnn::MemoryConfigAttr()))
           .getResult();
 

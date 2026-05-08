@@ -18,6 +18,12 @@
 #layout_small_b = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x1x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
 #layout_small_out = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x1x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
 
+// Layout for the 3-dims case: [32, 1993728, 3] and [32, 1993728, 1] int32.
+#layout_3_dims_a = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<32x1993728x3x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
+#layout_3_dims_b = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<32x1993728x1x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
+#layout_3_dims_out = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0, d1, d2), <1x1>, memref<32x1993728x4x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
+
+
 module {
   // Test: concat [1993728, 3] + [1993728, 1] along dim=1 (last dim, unaligned).
   // dim[-2] = 1993728, so CB after transpose = 4 * 1993728 * 2 >> L1.
@@ -93,5 +99,33 @@ module {
            tensor<1993728x3xsi32, #layout_a>)
        -> tensor<3987456x3xsi32, #layout_out>
     return %0 : tensor<3987456x3xsi32, #layout_out>
+  }
+
+  // Test: concat [32, 1993728, 3] + [32, 1993728, 1] along dim=2 (last dim, unaligned).
+  func.func @concat_last_dim_unaligned_cb_exceeds_l1_3_dims(
+      %arg0: tensor<32x1993728x3xsi32, #layout_3_dims_a>,
+      %arg1: tensor<32x1993728x1xsi32, #layout_3_dims_b>)
+      -> tensor<32x1993728x4xsi32, #layout_3_dims_out> {
+    // CHECK-LABEL: func.func @concat_last_dim_unaligned_cb_exceeds_l1_3_dims
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.concat"
+    // CHECK: "ttnn.concat"
+    %0 = "ttnn.concat"(%arg0, %arg1) <{dim = 2 : si32}> : (tensor<32x1993728x3xsi32, #layout_3_dims_a>, tensor<32x1993728x1xsi32, #layout_3_dims_b>) -> tensor<32x1993728x4xsi32, #layout_3_dims_out>
+    return %0 : tensor<32x1993728x4xsi32, #layout_3_dims_out>
+  }
+
+  // Test: concat [32, 1993728, 32] + [32, 1993728, 32] along dim=2 (last dim, aligned).
+  // Both inputs have logical[-1] == padded[-1] == 32, so untilize does not
+  // trigger and the workaround should NOT fire.
+  func.func @concat_last_dim_aligned_no_workaround_3_dims(
+      %arg0: tensor<32x1993728x32xsi32, #layout_3_dims_a>,
+      %arg1: tensor<32x1993728x32xsi32, #layout_3_dims_a>)
+      -> tensor<32x1993728x64xsi32, #layout_3_dims_out> {
+    // CHECK-LABEL: func.func @concat_last_dim_aligned_no_workaround_3_dims
+    // CHECK-NOT: "ttnn.slice_static"
+    // CHECK: "ttnn.concat"
+    // CHECK-SAME: dim = 2
+    %0 = "ttnn.concat"(%arg0, %arg1) <{dim = 2 : si32}> : (tensor<32x1993728x32xsi32, #layout_3_dims_a>, tensor<32x1993728x32xsi32, #layout_3_dims_a>) -> tensor<32x1993728x64xsi32, #layout_3_dims_out>
+    return %0 : tensor<32x1993728x64xsi32, #layout_3_dims_out>
   }
 }
