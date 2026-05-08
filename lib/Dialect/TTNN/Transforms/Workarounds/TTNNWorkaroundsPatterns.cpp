@@ -706,8 +706,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          GatherSi32Workaround,
-          PagedSDPADecodeP150CoreGridWorkaround,
+          GatherSi32Workaround, PagedSDPADecodeP150CoreGridWorkaround,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
