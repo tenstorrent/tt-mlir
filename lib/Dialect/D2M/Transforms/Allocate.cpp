@@ -1867,6 +1867,72 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return Value();
   }
 
+  static bool isPurePermutationIndexingMap(AffineMap map) {
+    if (map.getNumSymbols() != 0 || map.getNumResults() != map.getNumDims()) {
+      return false;
+    }
+
+    llvm::BitVector seenDims(map.getNumDims(), false);
+    for (AffineExpr expr : map.getResults()) {
+      auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+      if (!dimExpr) {
+        return false;
+      }
+      unsigned dim = dimExpr.getPosition();
+      if (dim >= map.getNumDims() || seenDims[dim]) {
+        return false;
+      }
+      seenDims[dim] = true;
+    }
+
+    return seenDims.all();
+  }
+
+  bool canAliasBlockedAllParallelEltwiseOutput(
+      d2m::GenericOp genericOp, const GenericOpContext &genericCtx,
+      const OperandContext &operandCtx, MemorySpace memspace) const {
+    if (!operandCtx.isOutput || genericCtx.isExplicitDatamovement ||
+        genericOp.isDMAOnlyForm() ||
+        !isOperandExemptFromStreaming(operandCtx, memspace)) {
+      return false;
+    }
+
+    if (!llvm::all_of(genericOp.getIteratorTypesValue(),
+                      [](ttcore::IteratorType iteratorType) {
+                        return iteratorType == ttcore::IteratorType::Parallel;
+                      })) {
+      return false;
+    }
+
+    bool hasTile = false;
+    bool hasNonTile = false;
+    for (auto [operandIndex, operand] :
+         llvm::enumerate(genericOp.getInputsAndOutputs())) {
+      if (allocation::hasNonTrivialView(operand)) {
+        return false;
+      }
+
+      auto memrefType = mlir::dyn_cast<MemRefType>(operand.getType());
+      if (!memrefType ||
+          ttcore::getMemorySpace(memrefType) != MemorySpace::DeviceL1) {
+        return false;
+      }
+
+      if (mlir::isa<ttcore::TileType>(memrefType.getElementType())) {
+        hasTile = true;
+      } else {
+        hasNonTile = true;
+      }
+
+      AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+      if (!isPurePermutationIndexingMap(indexingMap)) {
+        return false;
+      }
+    }
+
+    return !(hasTile && hasNonTile);
+  }
+
   bool requiresCBAllocation(d2m::GenericOp genericOp,
                             const GenericOpContext &genericCtx,
                             const OperandContext &operandCtx,
@@ -1880,6 +1946,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     if (!genericCtx.isExplicitDatamovement &&
         allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
                                      genericCtx.reblockedFactors)) {
+      if (canAliasBlockedAllParallelEltwiseOutput(genericOp, genericCtx,
+                                                  operandCtx, memspace)) {
+        return false;
+      }
       return true;
     }
 
