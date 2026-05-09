@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true enable-const-eval=true experimental-weight-dtype=bfp_bf4" %s | FileCheck %s
+// TODO: Add the "enable-optimizer=true" option back once the tt-metal issue is fixed.
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-const-eval=true experimental-weight-dtype=bfp_bf4" %s | FileCheck %s
 // REQUIRES: opmodel
 
 // End-to-end test: TTIR matmul through the full backend pipeline with BFP4
