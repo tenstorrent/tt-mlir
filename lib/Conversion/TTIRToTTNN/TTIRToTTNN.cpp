@@ -1691,6 +1691,117 @@ buildDefaultComputeKernelConfigAttr(MLIRContext *ctx) {
       /*dstFullSyncEn=*/nullptr);
 }
 
+// Quetzal pilot: emit a tuned MatmulMultiCoreReuseMultiCast1DProgramConfig for
+// the M=1 big-matmul shape (LLM decode). tt-metal's default runtime picker is
+// known-bad for S=1 — it doesn't pick the 1D-mcast variant, so the DRAM-BW win
+// is left on the table. Mirrors the host-side codegen in Quetzal
+// (ttnn_codegen.py:2050-2110): 8x8 compute grid, in0_block_w=2 for the decode
+// regime, per_core_M=1, per_core_N=ceil(N_tiles/cores). Eligibility matches
+// Quetzal: K >= 1024, N >= 1024 (small intermediate matmuls fall through to
+// the default picker).
+static ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr
+tryBuildDecodeMatmul1DProgramConfig(MLIRContext *ctx, RankedTensorType aType,
+                                    RankedTensorType bType,
+                                    ttcore::DeviceAttr deviceAttr) {
+  constexpr int64_t kTileH = 32;
+  constexpr int64_t kTileW = 32;
+  constexpr int64_t kBigDimThreshold = 1024;
+
+  // B must be a 2D weight tensor (typical nn.Linear shape).
+  auto aShape = aType.getShape();
+  auto bShape = bType.getShape();
+  if (aShape.size() < 2 || bShape.size() != 2) {
+    return nullptr;
+  }
+
+  // Effective M is the penultimate dim of A (last-2 matmul shape).
+  int64_t M = aShape[aShape.size() - 2];
+  int64_t K = aShape[aShape.size() - 1];
+  int64_t Kb = bShape[0];
+  int64_t N = bShape[1];
+
+  // M==1 is the decode/S=1 trigger; K must match between A and B.
+  if (M != 1 || K != Kb) {
+    return nullptr;
+  }
+  // Big-matmul gate — small N gets nothing from 1D mcast, leave to default.
+  if (K < kBigDimThreshold || N < kBigDimThreshold) {
+    return nullptr;
+  }
+
+  // Compute grid from device. The 1D-mcast layout uses all cores; coerce to
+  // 8x8 when available (Quetzal's empirically-tuned grid). On smaller harvested
+  // grids we fall back to the device's actual worker grid.
+  auto gridShape = deviceAttr.getWorkerGrid().getShape();
+  // GridAttr shape is [y, x].
+  int64_t coreY = std::min<int64_t>(gridShape[0], 8);
+  int64_t coreX = std::min<int64_t>(gridShape[1], 8);
+  int64_t cores = coreX * coreY;
+  if (cores <= 0) {
+    return nullptr;
+  }
+
+  int64_t KTiles = (K + kTileW - 1) / kTileW;
+  int64_t NTiles = (N + kTileW - 1) / kTileW;
+  int64_t MTiles = std::max<int64_t>(1, (M + kTileH - 1) / kTileH);
+
+  // per_core_N: distribute N tiles across all cores.
+  int64_t perCoreN = std::max<int64_t>(1, (NTiles + cores - 1) / cores);
+  // per_core_M: 1D-mcast — every core sees all M tiles.
+  int64_t perCoreM = MTiles;
+
+  // in0_block_w: must divide K_tiles. Quetzal's decode path picks 2 when
+  // possible, falling back to 1.
+  int64_t in0BlockW = 1;
+  if (KTiles % 2 == 0) {
+    in0BlockW = 2;
+  }
+
+  // out_subblock_h * out_subblock_w must fit in DEST (cap 4 with fp32_dest_acc
+  // which the default compute_config emits). Maximize area subject to dividing
+  // per_core_M / per_core_N.
+  constexpr int64_t kDestCap = 4;
+  int64_t outSubH = 1, outSubW = 1, bestArea = 0;
+  for (int64_t h = perCoreM; h >= 1; --h) {
+    if (perCoreM % h != 0) {
+      continue;
+    }
+    for (int64_t w = perCoreN; w >= 1; --w) {
+      if (perCoreN % w != 0) {
+        continue;
+      }
+      if (h * w > kDestCap) {
+        continue;
+      }
+      if (h * w > bestArea) {
+        bestArea = h * w;
+        outSubH = h;
+        outSubW = w;
+      }
+    }
+  }
+
+  auto gridAttr = ttnn::CoreCoordAttr::get(ctx, coreX, coreY);
+  auto hopCoresAttr = ttnn::CoreRangeSetAttr::get(ctx, {});
+
+  return ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
+      ctx, gridAttr,
+      /*in0_block_w=*/static_cast<uint64_t>(in0BlockW),
+      /*out_subblock_h=*/static_cast<uint64_t>(outSubH),
+      /*out_subblock_w=*/static_cast<uint64_t>(outSubW),
+      /*out_block_h=*/static_cast<uint64_t>(perCoreM),
+      /*out_block_w=*/static_cast<uint64_t>(perCoreN),
+      /*per_core_m=*/static_cast<uint64_t>(perCoreM),
+      /*per_core_n=*/static_cast<uint64_t>(perCoreN),
+      /*fuse_batch=*/true,
+      /*fused_activation=*/nullptr,
+      /*mcast_in0=*/true,
+      /*gather_in0=*/false,
+      /*hop_cores=*/hopCoresAttr,
+      /*num_global_cb_receivers=*/1,
+      /*untilize_out=*/false);
+}
+
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
 public:
   using OpConversionPattern<ttir::MatmulOp>::OpConversionPattern;
@@ -1700,10 +1811,27 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto computeConfigAttr =
         buildDefaultComputeKernelConfigAttr(rewriter.getContext());
+
+    // Quetzal pilot: detect M=1 big matmul (LLM decode shape) and emit a tuned
+    // MatmulMultiCoreReuseMultiCast1DProgramConfig. Skip on transpose since the
+    // M/K/N derivation below assumes the canonical [..., M, K] x [K, N] form.
+    Attribute programConfigAttr = nullptr;
+    if (!op.getTransposeA() && !op.getTransposeB()) {
+      auto aType = mlir::dyn_cast<RankedTensorType>(adaptor.getA().getType());
+      auto bType = mlir::dyn_cast<RankedTensorType>(adaptor.getB().getType());
+      if (aType && bType) {
+        auto deviceAttr = ttcore::lookupDevice(op);
+        if (deviceAttr) {
+          programConfigAttr = tryBuildDecodeMatmul1DProgramConfig(
+              rewriter.getContext(), aType, bType, deviceAttr);
+        }
+      }
+    }
+
     auto newOp = rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
-        /*matmul_program_config=*/nullptr, /*activation=*/nullptr,
+        /*matmul_program_config=*/programConfigAttr, /*activation=*/nullptr,
         /*compute_config=*/computeConfigAttr);
     if (auto attr = op->getAttr("ttcore.weight_dtype")) {
       newOp->setAttr("ttcore.weight_dtype", attr);
