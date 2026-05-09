@@ -440,6 +440,101 @@ public:
   }
 };
 
+// Converts stablehlo.composite @tenstorrent.slice_reshape -> ttir.slice_reshape.
+// The composite carries `begins`, `ends`, `step`, and `shape` as
+// composite_attributes; the legalize pass forwards them onto the TTIR op.
+class TenstorrentSliceReshapeConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentSliceReshapeConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.slice_reshape") {
+      return failure();
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+    if (adaptor.getOperands().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "slice_reshape composite expects exactly one operand");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "slice_reshape composite missing composite_attributes");
+    }
+
+    // Helper: read an integer-array composite attribute and convert it into
+    // an I32ArrayAttr suitable for the TTIR op. Accepts ArrayAttr (the
+    // common StableHLOCompositeBuilder spelling) or DenseI64ArrayAttr.
+    auto readIntArray =
+        [&](llvm::StringRef key) -> std::optional<::mlir::ArrayAttr> {
+      mlir::Attribute attr = compositeAttrs.get(key);
+      if (!attr) {
+        return std::nullopt;
+      }
+      llvm::SmallVector<mlir::Attribute, 8> elems;
+      if (auto arr = mlir::dyn_cast<mlir::ArrayAttr>(attr)) {
+        for (mlir::Attribute e : arr) {
+          if (auto i = mlir::dyn_cast<mlir::IntegerAttr>(e)) {
+            elems.push_back(rewriter.getI32IntegerAttr(
+                static_cast<int32_t>(i.getInt())));
+          } else {
+            return std::nullopt;
+          }
+        }
+        return rewriter.getArrayAttr(elems);
+      }
+      if (auto dense = mlir::dyn_cast<mlir::DenseI64ArrayAttr>(attr)) {
+        for (int64_t v : dense.asArrayRef()) {
+          elems.push_back(
+              rewriter.getI32IntegerAttr(static_cast<int32_t>(v)));
+        }
+        return rewriter.getArrayAttr(elems);
+      }
+      if (auto dense = mlir::dyn_cast<mlir::DenseI32ArrayAttr>(attr)) {
+        for (int32_t v : dense.asArrayRef()) {
+          elems.push_back(rewriter.getI32IntegerAttr(v));
+        }
+        return rewriter.getArrayAttr(elems);
+      }
+      return std::nullopt;
+    };
+
+    auto begins = readIntArray("begins");
+    auto ends = readIntArray("ends");
+    auto step = readIntArray("step");
+    auto shape = readIntArray("shape");
+    if (!begins || !ends || !step || !shape) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "slice_reshape composite_attributes must contain integer-array "
+          "`begins`, `ends`, `step`, and `shape`");
+    }
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(rewriter.getNamedAttr("begins", *begins));
+    namedAttrs.push_back(rewriter.getNamedAttr("ends", *ends));
+    namedAttrs.push_back(rewriter.getNamedAttr("step", *step));
+    namedAttrs.push_back(rewriter.getNamedAttr("shape", *shape));
+
+    rewriter.replaceOpWithNewOp<ttir::SliceReshapeOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 // Converts stablehlo.composite @tenstorrent.rms_norm -> ttir.rms_norm.
 // Used in the non-sharded path where composites are not converted to
 // custom_calls.
@@ -1017,6 +1112,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<TenstorrentGatedActivationConversionPattern>(context);
+  patterns.add<TenstorrentSliceReshapeConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);

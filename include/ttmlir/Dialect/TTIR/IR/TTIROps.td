@@ -2291,6 +2291,40 @@ def TTIR_GatedActivationOp : TTIR_NamedOp<"gated_activation"> {
   let hasVerifier = 1;
 }
 
+def TTIR_SliceReshapeOp : TTIR_NamedOp<"slice_reshape"> {
+  let summary = "Fused slice + reshape (same-rank slice followed by reshape).";
+  let description = [{
+    Equivalent to `reshape(slice_static(input, begins, ends, step))`, bundled
+    so the runtime emits a single program-executor case (one less flatbuffer
+    op-dispatch round-trip — same kernel calls). Matches the Quetzal
+    fuse_slice_reshape pattern: a same-rank `slice_static` (each output rank
+    equals input rank) feeding a `reshape`, where the slice has exactly one
+    consumer (the reshape) and the reshape has exactly one producer.
+
+    Inputs:
+    - `input` (Tensor): The tensor to slice and reshape.
+
+    Attributes:
+    - `begins` (Array of Integer): Starting indices for the slice (per dim).
+    - `ends` (Array of Integer): Ending indices (exclusive) for the slice.
+    - `step` (Array of Integer): Step sizes for the slice (per dim).
+    - `shape` (Array of Integer): Final reshape target shape.
+
+    Output:
+    - `result` (Tensor): The sliced + reshaped tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I32ArrayAttr:$begins,
+                       I32ArrayAttr:$ends,
+                       I32ArrayAttr:$step,
+                       I32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{

@@ -111,6 +111,16 @@ table SliceOp {
   params: SliceOpParams;
 }
 
+table SliceReshapeOp {
+  in: tt.target.ttnn.TensorRef;
+  begins: [int32];
+  ends: [int32];
+  step: [int32];
+  shape: [int32];
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table SortOp {
   in: tt.target.ttnn.TensorRef;
   dim: int8;

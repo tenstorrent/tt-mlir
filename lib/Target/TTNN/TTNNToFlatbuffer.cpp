@@ -2860,6 +2860,26 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
                                            paramsType, params);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SliceReshapeOp>
+createSliceReshapeOp(FlatbufferObjectCache &cache, SliceReshapeOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  auto begins =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getBegins());
+  auto ends =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getEnds());
+  auto step =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getStep());
+  auto shape =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  return ::tt::target::ttnn::CreateSliceReshapeOp(
+      *cache.fbb, in, begins, ends, step, shape, memoryConfig, out);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SortOp>
 createSortOp(FlatbufferObjectCache &cache, SortOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4590,6 +4610,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sliceDynamicOp = dyn_cast<SliceDynamicOp>(op); sliceDynamicOp) {
     return createOperation(cache, createSliceOp(cache, sliceDynamicOp),
+                           debugString, locInfo);
+  }
+  if (auto sliceReshapeOp = dyn_cast<SliceReshapeOp>(op); sliceReshapeOp) {
+    return createOperation(cache, createSliceReshapeOp(cache, sliceReshapeOp),
                            debugString, locInfo);
   }
   if (auto sortOp = dyn_cast<SortOp>(op); sortOp) {

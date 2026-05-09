@@ -6428,6 +6428,87 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// SliceReshapeOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::SliceReshapeOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  int64_t rank = static_cast<int64_t>(inputShape.size());
+
+  ::mlir::ArrayAttr beginsAttr = getBegins();
+  ::mlir::ArrayAttr endsAttr = getEnds();
+  ::mlir::ArrayAttr stepAttr = getStep();
+  ::mlir::ArrayAttr shapeAttr = getShape();
+
+  if (static_cast<int64_t>(beginsAttr.size()) != rank ||
+      static_cast<int64_t>(endsAttr.size()) != rank ||
+      static_cast<int64_t>(stepAttr.size()) != rank) {
+    return emitOpError("begins/ends/step length must equal input rank ")
+           << rank;
+  }
+
+  // Compute the implied slice output shape and validate per-dim constraints.
+  llvm::SmallVector<int64_t, 8> sliceShape;
+  sliceShape.reserve(rank);
+  for (int64_t i = 0; i < rank; ++i) {
+    int64_t b = mlir::cast<IntegerAttr>(beginsAttr[i]).getInt();
+    int64_t e = mlir::cast<IntegerAttr>(endsAttr[i]).getInt();
+    int64_t s = mlir::cast<IntegerAttr>(stepAttr[i]).getInt();
+    if (s < 1) {
+      return emitOpError("step on dim ") << i << " must be >= 1, got " << s;
+    }
+    if (b < 0 || b > e || e > inputShape[i]) {
+      return emitOpError("invalid slice on dim ")
+             << i << ": begin=" << b << " end=" << e
+             << " input_size=" << inputShape[i];
+    }
+    sliceShape.push_back((e - b + s - 1) / s);
+  }
+
+  // The implied slice output total numel must match the reshape target numel.
+  int64_t sliceNumel = 1;
+  for (int64_t d : sliceShape) {
+    sliceNumel *= d;
+  }
+  int64_t reshapeNumel = 1;
+  for (size_t i = 0; i < shapeAttr.size(); ++i) {
+    reshapeNumel *= mlir::cast<IntegerAttr>(shapeAttr[i]).getInt();
+  }
+  if (sliceNumel != reshapeNumel) {
+    return emitOpError("slice numel ")
+           << sliceNumel << " does not match reshape target numel "
+           << reshapeNumel;
+  }
+
+  // Output type must match the reshape target shape (rank + total numel).
+  int64_t outputNumel = 1;
+  for (int64_t d : outputShape) {
+    outputNumel *= d;
+  }
+  if (outputNumel != reshapeNumel) {
+    return emitOpError("output numel ")
+           << outputNumel << " does not match shape attr numel "
+           << reshapeNumel;
+  }
+  if (static_cast<int64_t>(outputShape.size()) !=
+      static_cast<int64_t>(shapeAttr.size())) {
+    return emitOpError("output rank must match shape attr length");
+  }
+  for (size_t i = 0; i < shapeAttr.size(); ++i) {
+    int64_t expected = mlir::cast<IntegerAttr>(shapeAttr[i]).getInt();
+    if (outputShape[i] != expected) {
+      return emitOpError("output shape mismatch on dim ")
+             << i << ": expected " << expected << ", got " << outputShape[i];
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::DistributedRMSNormOp::verify() {

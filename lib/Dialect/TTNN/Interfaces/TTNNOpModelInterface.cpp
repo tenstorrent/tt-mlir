@@ -4378,6 +4378,26 @@ GatedActivationOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SliceReshapeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+// SliceReshapeOp is a runtime-only fusion of ::ttnn::slice + ::ttnn::reshape;
+// the op model does not yet have a fused metal definition.
+
+llvm::Expected<op_model::OpConstraints>
+SliceReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+SliceReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

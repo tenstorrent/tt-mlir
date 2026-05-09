@@ -2453,6 +2453,27 @@ def TTNN_GatedActivationOp : TTNN_Op<"gated_activation", [TTNN_MemoryConfigOpInt
     let hasVerifier = 1;
 }
 
+def TTNN_SliceReshapeOp : TTNN_Op<"slice_reshape", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Fused slice + reshape (same-rank slice followed by reshape).";
+    let description = [{
+      Equivalent to `reshape(slice_static(input, begins, ends, step))`,
+      bundled to save one host-dispatch round-trip. Internally calls
+      `::ttnn::slice` followed by `::ttnn::reshape` — same kernel calls
+      as the unfused form, but only one program-executor case.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         I32ArrayAttr:$begins,
+                         I32ArrayAttr:$ends,
+                         I32ArrayAttr:$step,
+                         I32ArrayAttr:$shape,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Distributed RMS normalization with all-gather op.";
