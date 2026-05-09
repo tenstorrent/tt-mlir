@@ -1667,30 +1667,6 @@ public:
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
 namespace {
-// Build the default DeviceComputeKernelConfigAttr for matmul/conv2d lowerings.
-// Quetzal pilot 1.4 / 3.3: emit HiFi4 + fp32_dest_acc_en=true so single-row
-// decode (residual-feeding) matmuls remain numerically stable. The optimizer
-// pipeline (TTNNPipelines.h) deliberately disables this default at
-// optimizationLevel > 0 by setting computeCfgMathFidelity=Undefined and
-// computeCfgFp32DestAccEn=false in resolveOptimizationLevelOptions(); the
-// compute-config that ends up on the op there is whatever
-// TTNNSetComputeKernelConfig produces. This default lands when the optimizer
-// pipeline is NOT running so per-op lowering still has a sane numerics floor.
-//
-// Arch gating: both Wormhole B0 and Blackhole get the same HiFi4 default for
-// now. If a future tt-metal version differentiates, branch on
-// ttcore::getOpChipDescAttr(op).getArch().getValue() here.
-static ttnn::DeviceComputeKernelConfigAttr
-buildDefaultComputeKernelConfigAttr(MLIRContext *ctx) {
-  return ttnn::DeviceComputeKernelConfigAttr::get(
-      ctx,
-      /*mathFidelity=*/ttnn::MathFidelity::HiFi4,
-      /*mathApproxMode=*/nullptr,
-      /*fp32DestAccEn=*/BoolAttr::get(ctx, true),
-      /*packerL1Acc=*/nullptr,
-      /*dstFullSyncEn=*/nullptr);
-}
-
 // Quetzal pilot: emit a tuned MatmulMultiCoreReuseMultiCast1DProgramConfig for
 // the M=1 big-matmul shape (LLM decode). tt-metal's default runtime picker is
 // known-bad for S=1 — it doesn't pick the 1D-mcast variant, so the DRAM-BW win
@@ -1809,9 +1785,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto computeConfigAttr =
-        buildDefaultComputeKernelConfigAttr(rewriter.getContext());
-
     // Quetzal pilot: detect M=1 big matmul (LLM decode shape) and emit a tuned
     // MatmulMultiCoreReuseMultiCast1DProgramConfig. Skip on transpose since the
     // M/K/N derivation below assumes the canonical [..., M, K] x [K, N] form.
@@ -1832,7 +1805,7 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
         /*matmul_program_config=*/programConfigAttr, /*activation=*/nullptr,
-        /*compute_config=*/computeConfigAttr);
+        /*compute_config=*/nullptr);
     if (auto attr = op->getAttr("ttcore.weight_dtype")) {
       newOp->setAttr("ttcore.weight_dtype", attr);
     }
@@ -2152,15 +2125,13 @@ public:
     auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
                                 .withConfigTensorsInDram(true);
 
-    auto computeConfigAttr =
-        buildDefaultComputeKernelConfigAttr(rewriter.getContext());
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
         groupsAttr, outputDtypeAttr, conv2dConfigAttr,
-        /*compute_config=*/computeConfigAttr,
+        /*compute_config=*/nullptr,
         /*conv2d_slice_config=*/nullptr);
 
     return success();
