@@ -613,7 +613,6 @@ void createTTNNCommonToEmitPyPipeline(
 
 void createTTNNPipelineD2MPass(OpPassManager &pm,
                                const TTNNPipelineD2MPassOptions &options) {
-  // TODO(vtang): pass to strip intermediate layouts.
   pm.addPass(tt::createConvertTTNNToTTIRPass());
   pm.addPass(mlir::tt::ttir::createTTIRStripIntermediateTTNNLayouts());
 
