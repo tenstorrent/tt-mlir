@@ -2434,6 +2434,25 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
     let hasVerifier = 1;
 }
 
+def TTNN_GatedActivationOp : TTNN_Op<"gated_activation", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Gated activation: split input along dim, activate first half, multiply with second half.";
+    let description = [{
+      Implements glu/reglu/geglu/swiglu by splitting the input tensor in
+      half along `dim`, applying a non-linearity to the first half, and
+      multiplying with the second half. Maps to the corresponding tt-metal
+      composite unary op (::ttnn::glu / reglu / geglu / swiglu) at runtime.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         StrAttr:$activation,
+                         DefaultValuedAttr<SI32Attr, "-1">:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Distributed RMS normalization with all-gather op.";

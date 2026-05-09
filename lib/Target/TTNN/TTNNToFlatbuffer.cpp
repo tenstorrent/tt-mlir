@@ -2768,6 +2768,19 @@ createDropoutOp(FlatbufferObjectCache &cache, DropoutOp op) {
                                              usePerDeviceSeed, outputDtype,
                                              memoryConfig, out);
 }
+
+::flatbuffers::Offset<::tt::target::ttnn::GatedActivationOp>
+createOp(FlatbufferObjectCache &cache, GatedActivationOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  auto activation = cache.fbb->CreateString(op.getActivation().str());
+  int32_t dim = op.getDim();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  return ::tt::target::ttnn::CreateGatedActivationOp(
+      *cache.fbb, in, activation, dim, memoryConfig, out);
+}
 template <typename RepeatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
 createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
@@ -4552,6 +4565,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto dropoutOp = dyn_cast<DropoutOp>(op); dropoutOp) {
     return createOperation(cache, createDropoutOp(cache, dropoutOp),
+                           debugString, locInfo);
+  }
+  if (auto gatedActivationOp = dyn_cast<GatedActivationOp>(op);
+      gatedActivationOp) {
+    return createOperation(cache, createOp(cache, gatedActivationOp),
                            debugString, locInfo);
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {

@@ -377,6 +377,69 @@ static LogicalResult convertToTTIRRMSNorm(mlir::Operation *srcOp,
   return success();
 }
 
+// Converts stablehlo.composite @tenstorrent.{swiglu,glu,geglu,reglu}
+// -> ttir.gated_activation. The composite name selects the activation
+// (swiglu/glu/geglu/reglu); `dim` is read from composite_attributes if
+// present, otherwise defaults to -1.
+class TenstorrentGatedActivationConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentGatedActivationConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    llvm::StringRef name = srcOp.getName();
+    llvm::StringRef activation;
+    if (name == "tenstorrent.swiglu") {
+      activation = "swiglu";
+    } else if (name == "tenstorrent.glu") {
+      activation = "glu";
+    } else if (name == "tenstorrent.geglu") {
+      activation = "geglu";
+    } else if (name == "tenstorrent.reglu") {
+      activation = "reglu";
+    } else {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+    if (adaptor.getOperands().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "gated activation composite expects exactly one operand");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    int32_t dim = -1;
+    if (compositeAttrs) {
+      if (auto dimAttr = compositeAttrs.get("dim")) {
+        if (auto intAttr = mlir::dyn_cast<IntegerAttr>(dimAttr)) {
+          dim = static_cast<int32_t>(intAttr.getInt());
+        }
+      }
+    }
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(
+        rewriter.getNamedAttr("activation", rewriter.getStringAttr(activation)));
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "dim", rewriter.getIntegerAttr(rewriter.getIntegerType(32, /*isSigned=*/true), dim)));
+
+    rewriter.replaceOpWithNewOp<ttir::GatedActivationOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 // Converts stablehlo.composite @tenstorrent.rms_norm -> ttir.rms_norm.
 // Used in the non-sharded path where composites are not converted to
 // custom_calls.
@@ -953,6 +1016,7 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
+  patterns.add<TenstorrentGatedActivationConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);

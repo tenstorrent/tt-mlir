@@ -58,6 +58,7 @@
 #include "operations/eltwise/binary/binary_composite.h"
 #include "operations/eltwise/quantization/quantization.h"
 #include "operations/eltwise/ternary/where.h"
+#include "operations/eltwise/unary/gated_activation.h"
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
@@ -297,6 +298,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
     return operations::eltwise::unary::run(
         op->type_as_EltwiseUnaryCompositeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::GatedActivationOp: {
+    return operations::eltwise::unary::gated_activation::run(
+        op->type_as_GatedActivationOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::LinearOp: {
     return operations::matmul::run(op->type_as_LinearOp(), getContext());

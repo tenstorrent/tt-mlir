@@ -56,6 +56,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary_composite.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/quantization/quantization.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/ternary/where.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/gated_activation.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary_composite.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp

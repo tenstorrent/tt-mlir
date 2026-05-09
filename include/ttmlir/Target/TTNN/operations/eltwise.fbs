@@ -325,3 +325,11 @@ table DropoutOp {
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
+
+table GatedActivationOp {
+  in: tt.target.ttnn.TensorRef;
+  activation: string;
+  dim: int32 = -1;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}

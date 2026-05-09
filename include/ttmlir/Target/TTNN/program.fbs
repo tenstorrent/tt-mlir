@@ -71,6 +71,7 @@ union OpType {
   EmbeddingBackwardOp,
   EmbeddingOp,
   EmptyOp,
+  GatedActivationOp,
   EndTraceCaptureOp,
   ExecuteTraceOp,
   ExperimentalEltwiseBinaryBackwardOp,

@@ -3085,6 +3085,55 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// GatedActivationOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::GatedActivationOp::verify() {
+  llvm::StringRef activation = getActivation();
+  if (activation != "swiglu" && activation != "glu" && activation != "geglu" &&
+      activation != "reglu") {
+    return emitOpError("activation must be one of "
+                       "{\"swiglu\", \"glu\", \"geglu\", \"reglu\"}, got \"")
+           << activation << "\"";
+  }
+
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  int64_t rank = static_cast<int64_t>(inputShape.size());
+  if (rank == 0) {
+    return emitOpError("input must have rank >= 1");
+  }
+
+  int32_t rawDim = getDim();
+  int64_t dim = rawDim < 0 ? rawDim + rank : rawDim;
+  if (dim < 0 || dim >= rank) {
+    return emitOpError("dim ")
+           << rawDim << " is out of range for input rank " << rank;
+  }
+
+  if (inputShape[dim] % 2 != 0) {
+    return emitOpError("input shape on dim ")
+           << dim << " must be even, got " << inputShape[dim];
+  }
+
+  if (outputShape.size() != inputShape.size()) {
+    return emitOpError("output rank must match input rank");
+  }
+
+  for (int64_t i = 0; i < rank; ++i) {
+    int64_t expected = (i == dim) ? inputShape[i] / 2 : inputShape[i];
+    if (outputShape[i] != expected) {
+      return emitOpError("output shape mismatch on dim ")
+             << i << ": expected " << expected << ", got " << outputShape[i];
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::DistributedRMSNormOp::verify() {

@@ -2257,6 +2257,40 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_GatedActivationOp : TTIR_NamedOp<"gated_activation"> {
+  let summary = "Gated activation: split input along dim, activate first half, multiply with second half.";
+  let description = [{
+    Implements glu/reglu/geglu/swiglu by splitting the input tensor in half
+    along `dim`, applying a non-linearity to the first half, and multiplying
+    the result element-wise with the second half. The size of `dim` in the
+    input must be even, and the output shape is the input shape with `dim`
+    halved.
+
+    activation = "swiglu" -> SiLU(x[:H]) * x[H:]
+    activation = "glu"    -> Sigmoid(x[:H]) * x[H:]
+    activation = "geglu"  -> GELU(x[:H]) * x[H:]
+    activation = "reglu"  -> ReLU(x[:H]) * x[H:]
+
+    Inputs:
+    - `input` (Tensor): The input tensor whose `dim` axis will be split.
+
+    Attributes:
+    - `activation` (string): One of "swiglu", "glu", "geglu", "reglu".
+    - `dim` (i32): Axis to split along (default: -1, meaning last dim).
+
+    Output:
+    - `result` (Tensor): Same shape as input with `dim` halved.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       StrAttr:$activation,
+                       DefaultValuedAttr<SI32Attr, "-1">:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{

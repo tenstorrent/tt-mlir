@@ -1078,6 +1078,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_EltwiseUnaryCompositeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::GatedActivationOp: {
+    tensorRef = opContext.type_as_GatedActivationOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::LinearOp: {
     tensorRef = opContext.type_as_LinearOp()->out();
     break;
@@ -1516,6 +1520,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
     tensorRefs = {opContext.type_as_EltwiseUnaryCompositeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GatedActivationOp: {
+    tensorRefs = {opContext.type_as_GatedActivationOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::LinearOp: {

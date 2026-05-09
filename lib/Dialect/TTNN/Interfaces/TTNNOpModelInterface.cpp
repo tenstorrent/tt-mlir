@@ -4358,6 +4358,26 @@ DistributedRMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// GatedActivationOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+// GatedActivationOp dispatches to tt-metal's composite glu/swiglu/geglu/reglu;
+// the op model does not yet have a metal definition for these.
+
+llvm::Expected<op_model::OpConstraints>
+GatedActivationOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+GatedActivationOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
