@@ -14,12 +14,14 @@ module @test_distributed_rms_norm_decomposition attributes {} {
       %arg0: tensor<1x1x64x128xbf16, #ttnn_layout>,
       %arg1: tensor<128xbf16, #ttnn_layout_weight>) -> tensor<1x1x64x128xbf16, #ttnn_layout> {
     // CHECK-LABEL: func.func public @test_decompose_non_supported_shape
-    // Pre all-gather: square and local mean
-    // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.mean"
+    // Pre all-gather:
+    // CHECK: "ttnn.rms_norm_pre_all_gather"
     // All-gather
     // CHECK: "ttnn.all_gather"
     // Post all-gather: global mean, add epsilon, rsqrt, normalize, apply weight
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.slice_static"
+    // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.mean"
     // CHECK: "ttnn.full"
     // CHECK: "ttnn.add"
@@ -84,8 +86,7 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     // CHECK-LABEL: func.func public @test_decompose_unsupported_leading_dim
     // Leading dim != 1 means the input cannot be reshaped to (1,1,32,M)
     // without data movement, so the op must be decomposed here.
-    // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.mean"
+    // CHECK: "ttnn.rms_norm_pre_all_gather"
     // CHECK: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.distributed_rms_norm"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
@@ -100,8 +101,7 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     // CHECK-LABEL: func.func public @test_decompose_with_residual
     // With residual: first op must be add(input, residual).
     // CHECK: "ttnn.add"
-    // CHECK: "ttnn.multiply"
-    // CHECK: "ttnn.mean"
+    // CHECK: "ttnn.rms_norm_pre_all_gather"
     // CHECK: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.distributed_rms_norm"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device

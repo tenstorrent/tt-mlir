@@ -193,14 +193,9 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   }
 
   // --- Pre all-gather: compute local E(x^2) ---
-
-  // x_sq = multiply(x, x)
-  auto xSqOp = rewriter.create<ttnn::MultiplyOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_square"), inputType, x, x);
-
-  // local_stats = mean(x_sq, dim=-1, keep_dim=true)
+  // Output shape has last dim = TTNN::TILE_WIDTH (32)
   SmallVector<int64_t> statsShape(inputShape.begin(), inputShape.end());
-  statsShape.back() = 1;
+  statsShape.back() = ttnn::TILE_WIDTH;
   auto inputEncoding =
       mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
   ttnn::TTNNLayoutAttr statsEncoding =
@@ -208,15 +203,24 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   RankedTensorType statsType = RankedTensorType::get(
       statsShape, inputType.getElementType(), statsEncoding);
 
-  ArrayAttr dimArg = rewriter.getI32ArrayAttr({static_cast<int32_t>(rank - 1)});
-  auto localMeanOp = rewriter.create<ttnn::MeanOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_local_mean"), statsType,
-      xSqOp.getResult(), /*keep_dim=*/true, dimArg);
+  auto dtypeAttr = ttcore::DataTypeAttr::get(
+      rewriter.getContext(),
+      ttcore::elementTypeToDataType(inputType.getElementType()));
+
+  auto preAllGatherOp = rewriter.create<ttnn::RMSNormPreAllGatherOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_pre_all_gather"), statsType,
+      /*input*/ x,
+      /*residual_input=*/mlir::Value{},
+      /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr,
+      /*program_config=*/nullptr,
+      /*dtype=*/dtypeAttr,
+      /*use_2d_core_grid*/ nullptr);
 
   // --- All-gather: gather local stats across devices ---
 
   SmallVector<int64_t> gatheredShape(statsShape.begin(), statsShape.end());
-  gatheredShape.back() = numDevices;
+  gatheredShape.back() = ttnn::TILE_WIDTH * numDevices;
   ttnn::TTNNLayoutAttr gatheredEncoding =
       ttnn::TTNNLayoutAttr::Builder(inputEncoding, gatheredShape);
   RankedTensorType gatheredType = RankedTensorType::get(
@@ -224,7 +228,7 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
   auto allGatherOp = rewriter.create<ttnn::AllGatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_all_gather"), gatheredType,
-      localMeanOp.getResult(),
+      preAllGatherOp.getResult(),
       /*all_gather_dim=*/static_cast<int32_t>(rank - 1),
       /*cluster_axis=*/clusterAxis,
       /*sub_device_id=*/nullptr,
@@ -233,25 +237,128 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
   // --- Post all-gather: normalize using global stats ---
 
-  // global_stats = mean(gathered_stats, dim=-1, keep_dim=true)
+  // TODO: Replace the below primitive, reshape and slice ops with the
+  // rms_norm_post_all_gather
+  //
+  // rms_norm_pre_all_gather produces per-device statistics with shape
+  // [..., TILE_WIDTH], where only column 0 stores E(x^2) and the remaining
+  // columns are padding/unused.
+  //
+  // After all_gather, the stats tensor becomes:
+  // [..., numDevices * TILE_WIDTH]
+  //
+  // We cannot directly apply MeanOp over the last dimension because that would
+  // incorrectly average across both valid statistics and padded columns,
+  // resulting in normalization by (numDevices * TILE_WIDTH).
+  //
+  // To recover the per-device statistics, reshape:
+  // [..., numDevices * TILE_WIDTH] -> [..., numDevices, TILE_WIDTH]
+  //
+  // Then slice column 0 to extract the valid E(x^2) values from each device:
+  // [..., numDevices, TILE_WIDTH] -> [..., numDevices, 1]
+  //
+  // Flatten [..., numDevices, 1] back to [..., numDevices]
+  //
+  // Finally, compute the mean across the last dimension to obtain the global
+  // E(x^2) used for RMS normalization.
+
+  // [..., numDevices * TILE_WIDTH] -> [..., numDevices, TILE_WIDTH]
+  SmallVector<int64_t> reshapedStatsShape(statsType.getShape().begin(),
+                                          statsType.getShape().end());
+  reshapedStatsShape.back() = numDevices;
+  reshapedStatsShape.push_back(ttnn::TILE_WIDTH);
+  int64_t reshapedRank = static_cast<int64_t>(reshapedStatsShape.size());
+
+  auto reshapedStatsEncoding =
+      ttnn::TTNNLayoutAttr::Builder(inputEncoding, reshapedStatsShape);
+
+  RankedTensorType reshapedStatsType = RankedTensorType::get(
+      reshapedStatsShape, inputType.getElementType(), reshapedStatsEncoding);
+
+  SmallVector<int32_t> reshapedStatsShape32(reshapedStatsShape.begin(),
+                                            reshapedStatsShape.end());
+  auto reshapedStats = rewriter.create<ttnn::ReshapeOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_reshape_stats"),
+      reshapedStatsType, allGatherOp.getResult(),
+      rewriter.getI32ArrayAttr(reshapedStatsShape32),
+      /*memory_config=*/nullptr);
+
+  // Slice column 0: [..., numDevices, TILE_WIDTH] -> [..., numDevices, 1]
+  SmallVector<int64_t> slicedShape(reshapedStatsShape);
+  slicedShape.back() = 1;
+
+  auto slicedEncoding =
+      ttnn::TTNNLayoutAttr::Builder(inputEncoding, slicedShape);
+
+  RankedTensorType slicedType = RankedTensorType::get(
+      slicedShape, inputType.getElementType(), slicedEncoding);
+
+  SmallVector<int32_t> sliceBegins(reshapedRank, 0);
+  SmallVector<int32_t> sliceEnds;
+  for (int64_t dim : slicedShape) {
+    sliceEnds.push_back(static_cast<int32_t>(dim));
+  }
+  SmallVector<int32_t> sliceSteps(reshapedRank, 1);
+
+  auto sliceEx2 = rewriter.create<ttnn::SliceStaticOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_slice_ex2"), slicedType,
+      reshapedStats.getResult(), rewriter.getI32ArrayAttr(sliceBegins),
+      rewriter.getI32ArrayAttr(sliceEnds),
+      rewriter.getI32ArrayAttr(sliceSteps));
+
+  // Now we have the [..., numDevices, 1], we could either sum across numDevices
+  // (reshapedRankDim - 2) then reshape, or we could just reshape [...,
+  // numDevices, 1] to [..., numDevices * 1] and pass it to existing
+  // globalMeanOp.
+  // Flatten [..., numDevices, 1] back to [..., numDevices]
+  SmallVector<int64_t> flattenedStatsShape(slicedShape.begin(),
+                                           slicedShape.end() - 1);
+
+  auto flattenedEncoding =
+      ttnn::TTNNLayoutAttr::Builder(inputEncoding, flattenedStatsShape);
+
+  RankedTensorType flattenedStatsType = RankedTensorType::get(
+      flattenedStatsShape, inputType.getElementType(), flattenedEncoding);
+
+  SmallVector<int32_t> flattenedStatsShapeI32(flattenedStatsShape.begin(),
+                                              flattenedStatsShape.end());
+
+  auto flattenedStats = rewriter.create<ttnn::ReshapeOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_flatten_stats"),
+      flattenedStatsType, sliceEx2.getResult(),
+      rewriter.getI32ArrayAttr(flattenedStatsShapeI32), nullptr);
+
+  // Mean across device dimension (now last dim).
+  // [..., numDevices] to [..., 1]
+  SmallVector<int64_t> scalarRowShape(inputShape.begin(), inputShape.end());
+  scalarRowShape.back() = 1;
+
+  auto scalarEncoding =
+      ttnn::TTNNLayoutAttr::Builder(inputEncoding, scalarRowShape);
+
+  RankedTensorType scalarRowType = RankedTensorType::get(
+      scalarRowShape, inputType.getElementType(), scalarEncoding);
+
+  ArrayAttr dimArg = rewriter.getI32ArrayAttr({static_cast<int32_t>(rank - 1)});
+  // global_stats = mean(flattened per-device E(x^2), dim=-1, keep_dim=true)
   auto globalMeanOp = rewriter.create<ttnn::MeanOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_global_mean"), statsType,
-      allGatherOp.getResult(), /*keep_dim=*/true, dimArg);
+      ttmlir::utils::appendLocationSuffix(loc, "_global_mean"), scalarRowType,
+      flattenedStats.getResult(), /*keep_dim=*/true, dimArg);
 
   // eps_tensor = full(epsilon)
   auto epsTensor = rewriter.create<ttnn::FullOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_epsilon"), statsType,
+      ttmlir::utils::appendLocationSuffix(loc, "_epsilon"), scalarRowType,
       rewriter.getF32FloatAttr(op.getEpsilon().convertToFloat()),
       op.getDevice());
 
   // stabilized = add(global_stats, eps_tensor)
   auto addEpsOp = rewriter.create<ttnn::AddOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_add_eps"), statsType,
+      ttmlir::utils::appendLocationSuffix(loc, "_add_eps"), scalarRowType,
       globalMeanOp.getResult(), epsTensor.getResult());
 
   // inv_rms = rsqrt(stabilized)
   auto rsqrtOp = rewriter.create<ttnn::RsqrtOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_rsqrt"), statsType,
+      ttmlir::utils::appendLocationSuffix(loc, "_rsqrt"), scalarRowType,
       addEpsOp.getResult());
 
   // normalized = multiply(x, inv_rms) — broadcasts inv_rms across last dim
