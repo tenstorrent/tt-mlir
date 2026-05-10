@@ -249,6 +249,7 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
       .runtime_args = runtimeArgs,
       .common_runtime_args = commonRuntimeArgs,
       .config = createKernelConfigDescriptor(kernelDesc),
+      .compiler_include_paths = {},
       .buffer_bindings = {},
       .common_buffer_bindings = {}};
 
