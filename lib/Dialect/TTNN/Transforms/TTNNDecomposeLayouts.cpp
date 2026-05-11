@@ -64,8 +64,15 @@ private:
     llvm::SmallVector<int64_t> gridShape;
     ttnn::CoreRangeSetAttr coreRangeSet;
 
+    bool isSharded() const {
+      return tensorMemoryLayout &&
+             isShardedMemoryLayout(tensorMemoryLayout.getValue());
+    }
     bool isL1Sharded() const {
-      return isShardedMemoryLayout(tensorMemoryLayout.getValue());
+      return bufferType == ttnn::BufferType::L1 && isSharded();
+    }
+    bool isDramSharded() const {
+      return bufferType == ttnn::BufferType::DRAM && isSharded();
     }
     bool isOnHost() const {
       return bufferType == ttnn::BufferType::SystemMemory;
@@ -160,6 +167,18 @@ private:
            dataType == ttcore::DataType::Int32;
   }
 
+  bool canUntilizeOnDevice(const LayoutInfo &input,
+                           const LayoutInfo &output) const {
+    if (!canUntilizeDataTypeOnDevice(output.dataType)) {
+      return false;
+    }
+
+    // ttnn.untilize cannot operate on DRAM-sharded tensors - tt-metal issue
+    // #43975.
+    //
+    return !input.isDramSharded() && !output.isDramSharded();
+  }
+
   std::pair<LayoutInfo, LayoutInfo>
   getInputOutputLayouts(ttnn::ToLayoutOp op) const {
     LayoutInfo input, output;
@@ -229,8 +248,9 @@ private:
       // changes. Same CRS can host different virtual grids (e.g. BlockSharded
       // {2,4} vs {4,2} on the same 8-core rectangle), and same gridShape can
       // sit on different CRSes (custom placement) — both demand a reshard.
+      // Applies to both L1 <-> L1 and DRAM <-> DRAM resharding.
       opsToCreate.createToMemoryConfigOp |=
-          (input.isL1Sharded() && output.isL1Sharded() &&
+          (input.isSharded() && output.isSharded() &&
            (input.gridShape != output.gridShape ||
             input.coreRangeSet != output.coreRangeSet));
     }
@@ -646,7 +666,7 @@ private:
 
     // If the output is on device and we can untilize on device, move to device
     // and untilize.
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -659,8 +679,7 @@ private:
 
     // If the output is on device and we should untilize, we untilize on
     // host and then move the tensor to device.
-    if (info.shouldUntilize() &&
-        !canUntilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output)) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -800,9 +819,9 @@ private:
       return;
     }
 
-    // If we can untilize the output data type on device, move to device if
+    // If we can untilize on device, move to device if
     // needed, perform the typecast first and then untilize
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
@@ -815,10 +834,8 @@ private:
       return;
     }
 
-    // If we cannot untilize the output data type on device, untilize and
-    // typecast on host
-    if (info.shouldUntilize() &&
-        !canUntilizeDataTypeOnDevice(output.dataType)) {
+    // If we cannot untilize on device, untilize and typecast on host
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -941,9 +958,9 @@ private:
       return;
     }
 
-    // If the output data type is untilizable on device, untilize on device
+    // If we can untilize on device, untilize on device
     // then move to host.
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
       if (input.isL1Sharded() ||
           (input.bufferType == ttnn::BufferType::L1 &&
            output.bufferType == ttnn::BufferType::DRAM)) {
@@ -970,9 +987,9 @@ private:
       return;
     }
 
-    // If we want to untilize, but the output data type is not untilizable on
+    // If we want to untilize, but we cannot untilize on
     // device, move to host and then untilize
-    if (info.shouldUntilize() && !canUntilizeDataTypeOnDevice(input.dataType) &&
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output) &&
         opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
@@ -985,7 +1002,7 @@ private:
     // This is a rare untilize case, where we want to untilize a device tensor
     // but keep it on device. To handle this we need to move the tensor to host,
     // untilize it, and then move it back to device
-    if (info.shouldUntilize() && !canUntilizeDataTypeOnDevice(input.dataType) &&
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output) &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
@@ -1083,7 +1100,7 @@ private:
     if (output.isTilized()) {
       // If the input is sharded, typecast should happen after converting to
       // memory.
-      if (input.isL1Sharded()) {
+      if (input.isSharded()) {
         currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                             currentInput, info);
         currentInput = this->createDataTypeCastingOpIfNeeded(
@@ -1154,9 +1171,9 @@ private:
       return;
     }
 
-    // If we need to untilize and the output data type can be untilized on
+    // If we need to untilize and the output can be untilized on
     // device typecast and untilize on device
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -1167,10 +1184,9 @@ private:
       return;
     }
 
-    // If we need to untilize and the output data type cannot be untilized on
+    // If we need to untilize and the output cannot be untilized on
     // device typecast on device then untilize on host
-    if (info.shouldUntilize() &&
-        !canUntilizeDataTypeOnDevice(output.dataType) &&
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output) &&
         opsToCreate.createFromDeviceOp) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
@@ -1182,11 +1198,10 @@ private:
       return;
     }
 
-    // In case of device to device untilize, where the output data type cannot
-    // be untilized on device, typecast on device, untilize on host, then move
+    // In case of device to device untilize, where we cannot
+    // untilize on device, typecast on device, untilize on host, then move
     // back to device
-    if (info.shouldUntilize() &&
-        !canUntilizeDataTypeOnDevice(output.dataType) &&
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output) &&
         !opsToCreate.createFromDeviceOp) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
@@ -1196,8 +1211,6 @@ private:
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
                                                     info, /*forceCreate=*/true);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
       return;
     }

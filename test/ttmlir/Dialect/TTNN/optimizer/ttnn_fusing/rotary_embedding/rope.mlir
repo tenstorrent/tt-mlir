@@ -401,4 +401,28 @@ module {
     %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x64xbf16>
     return %result : tensor<16x8x1x64xbf16>
   }
+
+  // cos/sin seq dim (1) < input seq dim (32): the metal kernel indexes into
+  // cos/sin per sequence position without broadcasting, so positions beyond
+  // the cache size read tile padding garbage. Must NOT fuse.
+  // This pattern appears in Phi decode when the EIO commute pass pushes a
+  // reshape (needed by paged_update_cache) back through the RoPE elementwise
+  // ops, folding batch into the apparent seq dimension.
+  // CHECK-LABEL: @rope_cos_sin_seq_too_small_no_fuse
+  // CHECK-NOT: ttnn.rotary_embedding"
+  // CHECK: ttnn.add"
+  func.func @rope_cos_sin_seq_too_small_no_fuse(%x: tensor<1x32x32x64xbf16>, %cos: tensor<1x1x1x64xbf16>, %sin: tensor<1x1x1x64xbf16>) -> tensor<1x32x32x64xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos) <{broadcast_dimensions = array<i64: 1, 32, 32, 1>}> : (tensor<1x1x1x64xbf16>) -> tensor<1x32x32x64xbf16>
+    %x_cos = "ttir.multiply"(%x, %cos_bc) : (tensor<1x32x32x64xbf16>, tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16>
+
+    %x_hi = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 32:i32], ends = [1:i32, 32:i32, 32:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x32x32x64xbf16>) -> tensor<1x32x32x32xbf16>
+    %neg_hi = "ttir.neg"(%x_hi) : (tensor<1x32x32x32xbf16>) -> tensor<1x32x32x32xbf16>
+    %x_lo = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 32:i32, 32:i32, 32:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x32x32x64xbf16>) -> tensor<1x32x32x32xbf16>
+    %rotated = "ttir.concat"(%neg_hi, %x_lo) <{dim = 3 : si32}> : (tensor<1x32x32x32xbf16>, tensor<1x32x32x32xbf16>) -> tensor<1x32x32x64xbf16>
+
+    %sin_bc = "ttir.broadcast"(%sin) <{broadcast_dimensions = array<i64: 1, 32, 32, 1>}> : (tensor<1x1x1x64xbf16>) -> tensor<1x32x32x64xbf16>
+    %rot_sin = "ttir.multiply"(%rotated, %sin_bc) : (tensor<1x32x32x64xbf16>, tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16>
+    %result = "ttir.add"(%x_cos, %rot_sin) : (tensor<1x32x32x64xbf16>, tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16>
+    return %result : tensor<1x32x32x64xbf16>
+  }
 }

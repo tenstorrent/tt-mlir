@@ -37,9 +37,22 @@ def perf_device(request):
     """Open a device, yield it, then read profiler data and close.
 
     After the test body runs, we synchronize + read the device profiler so
-    ``get_latest_programs_perf_data`` returns only the ops from *this* test.
+    we can aggregate the ops executed during *this* test.
     Requires TT_METAL_DEVICE_PROFILER=1, TT_METAL_PROFILER_MID_RUN_DUMP=1,
     and TT_METAL_PROFILER_CPP_POST_PROCESS=1.
+
+    Note: we use ``get_all_programs_perf_data`` (not
+    ``get_latest_programs_perf_data``) because the JIT path runs through
+    ``tt::runtime::ttnn::ProgramExecutor::execute()``, which already triggers
+    an end-of-program ``ReadMeshDeviceProfilerResults`` when the runtime is
+    built with ``TT_RUNTIME_ENABLE_PERF_TRACE=ON`` (see
+    ``runtime/lib/ttnn/program_executor.cpp::readProfilerDataIfNeeded``).
+    The subsequent ``ttnn.ReadDeviceProfiler(device)`` call here would then
+    push an *empty* set as the "latest" entry, hiding the real JIT data.
+    Aggregating across all entries via ``get_all_programs_perf_data`` is
+    safe because the device profiler resets
+    ``device_programs_perf_analyses_map[device_id]`` whenever a device is
+    re-opened, so each test starts from a clean slate.
     """
     device = ttnn.open_device(device_id=0)
     yield device
@@ -49,7 +62,7 @@ def perf_device(request):
     try:
         ttnn.synchronize_device(device)
         ttnn.ReadDeviceProfiler(device)
-        data = ttnn.get_latest_programs_perf_data()
+        data = ttnn.get_all_programs_perf_data()
         for programs in data.values():
             for program in programs:
                 num_programs += 1

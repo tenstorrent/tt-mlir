@@ -1384,7 +1384,7 @@ struct EmitCTypeConverter<::ttnn::CoreRangeSet> {
     llvm::raw_string_ostream rso(buf);
     rso << TypeNameV<::ttnn::CoreRangeSet>;
     rso << "{";
-    rso << EmitCTypeConverter<std::set<::ttnn::CoreRange>>::convert(
+    rso << EmitCTypeConverter<std::vector<::ttnn::CoreRange>>::convert(
         attr.getCoreRanges());
     rso << "}";
     return buf;

@@ -28,6 +28,7 @@
 #include <cstddef>
 #include <optional>
 #include <set>
+#include <utility>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -501,7 +502,7 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   struct TTNNLayoutAttrCompare {
     bool operator()(const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) const {
       // Content-based comparison for deterministic ordering across runs
-      // Compare by: Layout -> DataType -> BufferType
+      // Compare by: Layout -> DataType -> BufferType -> MemoryLayout
       if (a.getLayout() != b.getLayout()) {
         return static_cast<int>(a.getLayout()) <
                static_cast<int>(b.getLayout());
@@ -514,8 +515,12 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
         return static_cast<int>(a.getBufferType()) <
                static_cast<int>(b.getBufferType());
       }
-      // Layouts match - fallbacks are equivalent
-      return false;
+      // Absent memLayout (e.g. SystemMemory) sorts before any present layout.
+      int aMemKey =
+          a.getMemLayout() ? static_cast<int>(a.getMemLayout().getValue()) : -1;
+      int bMemKey =
+          b.getMemLayout() ? static_cast<int>(b.getMemLayout().getValue()) : -1;
+      return aMemKey < bMemKey;
     }
   };
   std::set<TTNNLayoutAttr, TTNNLayoutAttrCompare> fallbackLayoutsSet;
@@ -528,18 +533,23 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   // Define the 2 target layouts for fallbacks
   std::vector<Layout> targetLayouts = {Layout::RowMajor, Layout::Tile};
 
-  // Only DRAM for fallbacks. SystemMemory cannot be used as tt-metal allocator
-  // rejects it and asserts. Anyway, there should not be a need to fallback to
-  // system memory.
-  std::vector<BufferType> targetBufferTypes = {BufferType::DRAM};
+  // Only DRAM, Interleaved for fallbacks. SystemMemory cannot be used as
+  // tt-metal allocator rejects it and asserts. Anyway, there should not be a
+  // need to fallback to system memory.
+  std::vector<std::pair<BufferType, TensorMemoryLayout>> targetConfigs = {
+      {BufferType::DRAM, TensorMemoryLayout::Interleaved}};
 
   for (Layout targetLayout : targetLayouts) {
     for (ttcore::DataType targetDataType : targetDataTypes) {
-      for (BufferType targetBufferType : targetBufferTypes) {
+      for (auto [targetBufferType, targetMemoryLayout] : targetConfigs) {
         // Skip if this is the same as original
+        TensorMemoryLayoutAttr originalMemLayout =
+            originalLayout.getMemLayout();
         if (targetLayout == originalLayout.getLayout() &&
             targetDataType == originalLayout.getDataType() &&
-            targetBufferType == originalLayout.getBufferType()) {
+            targetBufferType == originalLayout.getBufferType() &&
+            originalMemLayout &&
+            targetMemoryLayout == originalMemLayout.getValue()) {
           continue;
         }
 
@@ -564,9 +574,12 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
                        .setLayout(targetLayout);
         }
 
-        if (targetBufferType != result.getBufferType()) {
+        TensorMemoryLayoutAttr resultMemLayout = result.getMemLayout();
+        if (targetBufferType != result.getBufferType() || !resultMemLayout ||
+            targetMemoryLayout != resultMemLayout.getValue()) {
           result = TTNNLayoutAttr::Builder(result, tensorShape)
                        .setBufferType(targetBufferType)
+                       .setMemoryLayout(targetMemoryLayout)
                        .build();
         }
 
@@ -579,7 +592,7 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
       ttmlir::LogComponent::ValidationFallback,
       "Generated {} unique fallback layouts from {} target combinations",
       fallbackLayoutsSet.size(),
-      targetDataTypes.size() * targetLayouts.size() * targetBufferTypes.size());
+      targetDataTypes.size() * targetLayouts.size() * targetConfigs.size());
 
   // Convert set to vector for return
   return std::vector<TTNNLayoutAttr>(fallbackLayoutsSet.begin(),

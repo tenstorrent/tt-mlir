@@ -1368,6 +1368,10 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
 // ConcatOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::ConcatOp::verify() {
   mlir::OperandRange inputs = getInputs();
+  if (inputs.empty()) {
+    return emitOpError() << "At least one input tensor is required.";
+  }
+
   int32_t dim = getDim();
   mlir::RankedTensorType firstTensor =
       mlir::cast<mlir::RankedTensorType>(inputs.front().getType());
@@ -1995,17 +1999,12 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
     return emitOpError("Device memory space only supports interleaved or "
                        "sharded memory layouts");
   }
-
   if (outputBufferType == BufferType::DRAM &&
-      outputMemoryLayout.getValue() != TensorMemoryLayout::Interleaved) {
+      outputMemoryLayout.getValue() == TensorMemoryLayout::BlockSharded) {
     return emitOpError(
-        "Device DRAM memory space only supports interleaved memory layout");
+        "DRAM memory space doesn't support block sharded memory layout");
   }
-
   if (outputLayout.hasShardedTensorMemoryLayout()) {
-    if (not outputLayout.hasShardedL1TensorMemoryLayout()) {
-      return emitOpError("Sharded tensors layout must reside in L1");
-    }
     ::llvm::SmallVector<int64_t> shardShape = outputLayout.getShardShape();
     // Currently TTNN backend only supports 2D shard shape
     if (shardShape.size() != 2) {

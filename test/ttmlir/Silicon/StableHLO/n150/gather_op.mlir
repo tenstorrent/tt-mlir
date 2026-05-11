@@ -16,9 +16,9 @@ module attributes {} {
 
   // CHECK-LABEL: func.func @gather_1
   func.func @gather_1(%operand: tensor<448x384xbf16>, %start_indices: tensor<1x2x1xi32>) -> tensor<1x2x384xbf16> {
-    // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<1x2xui32, {{.+}}>, tensor<448x384xbf16, {{.+}}>) -> tensor<1x2x384xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<2xui32, {{.+}}>, tensor<448x384xbf16, {{.+}}>) -> tensor<2x384xbf16, {{.+}}>
+    // CHECK: "ttnn.reshape"
     %1 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 384>}> : (tensor<448x384xbf16>, tensor<1x2x1xi32>) -> tensor<1x2x384xbf16>
     return %1 : tensor<1x2x384xbf16>
   }
@@ -45,7 +45,7 @@ module attributes {} {
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<1x2xui32, {{.+}}>, tensor<2048x200xbf16, {{.+}}>) -> tensor<1x2x200xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<2xui32, {{.+}}>, tensor<2048x200xbf16, {{.+}}>) -> tensor<2x200xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %1 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [2, 3], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 200>}> : (tensor<2048x1x200xf32>, tensor<1x2x1xi32>) -> tensor<1x2x1x200xf32>
     return %1 : tensor<1x2x1x200xf32>
@@ -67,9 +67,8 @@ module attributes {} {
   // CHECK-LABEL: func.func @gather_6
   func.func @gather_6(%operand: tensor<6xbf16>, %start_indices: tensor<1xi32>) -> (tensor<1xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.reshape"
-    // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<6x1xbf16, {{.+}}>) -> tensor<1x1x1xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<1xui32, {{.+}}>, tensor<6x1xbf16, {{.+}}>) -> tensor<1x1xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %1 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1>}> : (tensor<6xbf16>, tensor<1xi32>) -> tensor<1xbf16>
     return %1 : tensor<1xbf16>
@@ -112,7 +111,7 @@ module attributes {} {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<1x4xui32, {{.+}}>, tensor<56x2xbf16, {{.+}}>) -> tensor<1x4x2xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<4xui32, {{.+}}>, tensor<56x2xbf16, {{.+}}>) -> tensor<4x2xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %1 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 2>}> : (tensor<7x8x2xf32>, tensor<2x2x2xi32>) -> tensor<2x2x2xf32>
     return %1 : tensor<2x2x2xf32>
@@ -125,7 +124,7 @@ module attributes {} {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<1x9xui32, {{.+}}>, tensor<306x2xbf16, {{.+}}>) -> tensor<1x9x2xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<9xui32, {{.+}}>, tensor<306x2xbf16, {{.+}}>) -> tensor<9x2xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %1 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [3], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 3>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 2>}> : (tensor<18x17x2xf32>, tensor<3x1x3x2xi32>) -> tensor<3x1x3x2xf32>
     return %1 : tensor<3x1x3x2xf32>
@@ -138,7 +137,7 @@ module attributes {} {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.reshape"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<1x2xui32, {{.+}}>, tensor<20x4xbf16, {{.+}}>) -> tensor<1x2x4xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<2xui32, {{.+}}>, tensor<20x4xbf16, {{.+}}>) -> tensor<2x4xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %1 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [3, 4], collapsed_slice_dims = [0, 1], start_index_map = [0, 1], index_vector_dim = 3>, indices_are_sorted = false, slice_sizes = array<i64: 1, 1, 2, 2>}> : (tensor<4x5x2x2xf32>, tensor<2x1x1x2xi32>) -> tensor<2x1x1x2x2xf32>
     return %1 : tensor<2x1x1x2x2xf32>
