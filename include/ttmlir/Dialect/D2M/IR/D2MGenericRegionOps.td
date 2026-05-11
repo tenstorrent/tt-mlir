@@ -2907,6 +2907,27 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
     let hasVerifier = 1;
 }
 
+def D2M_MyThreadIdOp : D2M_GenericRegionOp<"my_thread_id",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+  ]> {
+    let summary = "Compute thread id within an L1 region.";
+    let description = [{
+      Return the compute thread index, in [0, num_compute_threads), for use
+      inside a d2m.generic compute region. On hardware with multiple compute
+      threads per L1 region, every thread executes the same program; this op
+      returns the per-thread identifier so thread-specific behavior can be
+      derived from it.
+
+      Materialized by D2MMaterializeComputeThreadForall when lowering
+      scf.forall with #d2m.compute_thread mapping; not legal in user input.
+    }];
+
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ attr-dict `:` type($result) }];
+}
+
 def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
     let summary = "Mesh position op.";
     let description = [{

@@ -1746,6 +1746,26 @@ void CoreIndexOp::inferResultRanges(
   setResultRange(getResult(), getIndexRange(0, gridShape[dim] - 1));
 }
 
+//===----------------------------------------------------------------------===//
+// MyThreadIdOp
+//===----------------------------------------------------------------------===//
+
+void MyThreadIdOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "tid");
+}
+
+void MyThreadIdOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  // Hardcoded for the v1 future-hardware target (4 compute threads per L1
+  // region). When num_compute_threads is plumbed through the device
+  // descriptor or a pipeline option, read from there instead.
+  constexpr uint64_t kNumComputeThreadsV1 = 4;
+  setResultRange(getResult(),
+                 getIndexRange(0, kNumComputeThreadsV1 - 1));
+}
+
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult TileMatmulBlockOp::verify() {
   if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
