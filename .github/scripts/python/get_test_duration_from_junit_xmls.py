@@ -6,6 +6,10 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 
+DURATION_THRESHOLD = (
+    0.2  # Threshold in seconds for updating test durations in JSON files
+)
+
 
 def extract_test_case_info(xml_file):
     """
@@ -99,7 +103,28 @@ def main():
 
         # Write arch-specific JSON file
         output_file = os.path.join(output_dir, f"{arch}.json")
-        json_output = json.dumps(tests, indent=4)
+
+        # Load existing data if file exists
+        existing_tests = {}
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, "r") as f:
+                    existing_tests = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        # Merge with existing data: only update if duration change is >= DURATION_THRESHOLD
+        merged_tests = existing_tests.copy()
+        for test_name, new_duration in tests.items():
+            if test_name in merged_tests:
+                old_duration = merged_tests[test_name]
+                if abs(new_duration - old_duration) >= DURATION_THRESHOLD:
+                    merged_tests[test_name] = new_duration
+            else:
+                merged_tests[test_name] = new_duration
+
+        # Write sorted JSON to ensure consistent ordering
+        json_output = json.dumps(merged_tests, indent=4, sort_keys=True)
 
         with open(output_file, "w") as f:
             f.write(json_output)
