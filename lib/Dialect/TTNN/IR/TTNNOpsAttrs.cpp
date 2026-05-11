@@ -81,12 +81,19 @@ bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
 }
 
 // Checks:
-// 1. If buffer type is L1, then any grid shape is allowed.
-// 2. Otherwise, unit grid is expected.
+// 1. L1 buffers allow any grid shape (Interleaved spreads across the worker
+//    grid; sharded layouts shard across the worker grid).
+// 2. DRAM buffers allow any grid shape only for sharded layouts (the grid is
+//    interpreted against the device's DRAM bank grid).  DRAM-Interleaved must
+//    use a unit grid.
+// 3. SystemMemory must use a unit grid.
 llvm::LogicalResult
 verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
-                llvm::ArrayRef<int64_t> gridShape, BufferType bufferType) {
-  if (isL1BufferType(bufferType)) {
+                llvm::ArrayRef<int64_t> gridShape, BufferType bufferType,
+                TensorMemoryLayoutAttr memLayoutAttr) {
+  bool sharded =
+      memLayoutAttr && isShardedMemoryLayout(memLayoutAttr.getValue());
+  if (isL1BufferType(bufferType) || (isDRAMBufferType(bufferType) && sharded)) {
     return llvm::success();
   }
 
@@ -94,16 +101,18 @@ verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
   if (llvm::equal(gridShape, expectedGridShape)) {
     return llvm::success();
   }
-  return emitError() << "expected (" << expectedGridShape
-                     << ") grid shape for non-L1 buffer type, got ("
-                     << gridShape << ") for " << stringifyBufferType(bufferType)
-                     << " buffer type";
+  return emitError() << "expected (" << expectedGridShape << ") grid shape for "
+                     << stringifyBufferType(bufferType) << " buffer type"
+                     << (isDRAMBufferType(bufferType) ? " with interleaved "
+                                                        "memory layout"
+                                                      : "")
+                     << ", got (" << gridShape << ")";
 }
 
 // Checks:
 // 1. If memory layout is present then:
 //   - System memory buffer type is not allowed
-//   - DRAM buffer type must have Interleaved memory layout
+//   - DRAM buffer type doesn't support BlockSharded layout
 // 2. If memory layout is not present then:
 //   - Buffer type must be SystemMemory
 llvm::LogicalResult verifyBufferAndMemoryLayout(
@@ -114,11 +123,11 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
       return emitError()
              << "Memory layout is not allowed for SystemMemory buffer type.";
     }
-
     if (bufferType == BufferType::DRAM &&
-        memLayoutAttr.getValue() != TensorMemoryLayout::Interleaved) {
+        memLayoutAttr.getValue() == TensorMemoryLayout::BlockSharded) {
       return emitError()
-             << "DRAM buffer type must have Interleaved memory layout.";
+             << "BlockSharded layout is not supported for DRAM "
+                "buffer type; use WidthSharded, HeightSharded or Interleaved";
     }
   } else if (bufferType != BufferType::SystemMemory) {
     return emitError()
@@ -130,16 +139,17 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
 
 // Checks:
 // 1. If shard spec is present then:
-//   - Buffer type must be L1
+//   - Buffer type must be a device buffer (L1 or DRAM)
 //   - Tensor memory layout must be sharded: HeightSharded, WidthSharded,
 //   BlockSharded
+//   - DRAM buffer type only supports HeightSharded / WidthSharded layouts.
 llvm::LogicalResult
 verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                BufferType bufferType, TensorMemoryLayoutAttr memLayoutAttr,
                std::optional<ShardSpecAttr> shardSpec) {
   if (shardSpec && *shardSpec) {
-    if (bufferType != BufferType::L1) {
-      return emitError() << "Sharding is only valid for L1 buffer type";
+    if (bufferType != BufferType::L1 && bufferType != BufferType::DRAM) {
+      return emitError() << "Sharding is only valid for L1 or DRAM buffer type";
     }
 
     if (!memLayoutAttr) {
@@ -151,6 +161,12 @@ verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
         memLayoutAttr.getValue() != TensorMemoryLayout::WidthSharded) {
       return emitError() << "Sharding is only valid for block sharded, height "
                             "sharded, or width sharded tensor memory layout";
+    }
+
+    if (bufferType == BufferType::DRAM &&
+        memLayoutAttr.getValue() == TensorMemoryLayout::BlockSharded) {
+      return emitError() << "BlockSharded layout is not supported for DRAM "
+                            "buffer type; use WidthSharded or HeightSharded";
     }
   }
   return ::llvm::success();
@@ -393,7 +409,8 @@ llvm::LogicalResult TTNNLayoutAttr::verify(
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
   llvm::LogicalResult status = ::llvm::success();
-  if (llvm::failed(verifyGridShape(emitError, gridShape, bufferType))) {
+  if (llvm::failed(
+          verifyGridShape(emitError, gridShape, bufferType, memLayout))) {
     status = llvm::failure();
   }
   if (llvm::failed(
@@ -1106,13 +1123,14 @@ static llvm::SmallVector<int64_t>
 deriveShardShape(ArrayRef<int64_t> physicalShape, Type elementType,
                  AffineMap linear, ArrayRef<int64_t> gridShape,
                  BufferType bufferType, TensorMemoryLayoutAttr memLayout) {
-  if (bufferType != BufferType::L1) {
-    // Shard shape for non-L1 buffers matches the physical shape.
-    //
+  // SystemMemory and DRAM-Interleaved: shard shape == full physical shape
+  // (no per-core split).
+  bool isSharded = memLayout && isShardedMemoryLayout(memLayout.getValue());
+  if (!isSharded && !isL1BufferType(bufferType)) {
     return ttmlir::utils::evalShape(linear, physicalShape);
   }
 
-  TT_assertv(memLayout, "memLayout must be set for L1 buffers");
+  TT_assertv(memLayout, "memLayout must be set for device buffers");
 
   switch (memLayout.getValue()) {
   case TensorMemoryLayout::Interleaved:
@@ -1161,33 +1179,40 @@ buildRowMajorCoreRanges(mlir::MLIRContext *ctx, int64_t numCores,
   return ranges;
 }
 
-// Helper to derive the canonical CoreRangeSet for a sharded layout
-// by mapping the virtual `gridShape` onto physical cores per the
+// Helper to derive the canonical CoreRangeSet for an L1-sharded layout
+// by mapping the virtual `gridShape` onto physical worker cores per the
 // `memLayout` flatten rule.
 //
-static CoreRangeSetAttr deriveCanonicalCoreRangeSet(
+static CoreRangeSetAttr deriveCanonicalL1CoreRangeSet(
     mlir::MLIRContext *ctx, TensorMemoryLayout memLayout,
-    ArrayRef<int64_t> gridShape, mlir::tt::ttcore::GridAttr deviceGrid) {
+    ArrayRef<int64_t> gridShape, mlir::tt::ttcore::GridAttr workerGrid) {
   TT_assertv(isShardedMemoryLayout(memLayout),
              "CoreRangeSet can only be derived for sharded memory layouts");
 
   TT_assertv(gridShape.size() == 2U,
              "TTNNLayoutAttr shard grid must be 2D for L1 sharding");
 
-  TT_assertv(
-      deviceGrid,
-      "deviceGrid is required to derive the canonical CoreRangeSet for a "
-      "sharded TTNN layout");
+  TT_assertv(workerGrid,
+             "workerGrid is required to derive the canonical CoreRangeSet for "
+             "an L1-sharded TTNN layout");
 
-  llvm::ArrayRef<int64_t> deviceGridShape = deviceGrid.getShape();
+  llvm::ArrayRef<int64_t> workerGridShape = workerGrid.getShape();
 
-  TT_assertv(deviceGridShape.size() == 2U, "device worker grid must be 2D");
+  TT_assertv(workerGridShape.size() == 2U, "device worker grid must be 2D");
+
+  int64_t workerGridVolume = ttmlir::utils::volume(workerGridShape);
 
   llvm::SmallVector<CoreRangeAttr> ranges;
   switch (memLayout) {
   case TensorMemoryLayout::BlockSharded: {
     // Virtual [H, W] maps identity onto physical cores (0,0)-(W-1, H-1).
     //
+    TT_assertv((gridShape[0] <= workerGridShape[0] &&
+                gridShape[1] <= workerGridShape[1]),
+               "BlockSharded shard grid [{0}, {1}] does not fit in worker "
+               "grid [{2}, {3}]",
+               gridShape[0], gridShape[1], workerGridShape[0],
+               workerGridShape[1]);
     ranges.push_back(CoreRangeAttr::get(
         ctx, CoreCoordAttr::get(ctx, 0, 0),
         CoreCoordAttr::get(ctx, gridShape[1] - 1, gridShape[0] - 1)));
@@ -1197,20 +1222,64 @@ static CoreRangeSetAttr deriveCanonicalCoreRangeSet(
     // Virtual [M, 1] row-major flattens onto (m / W, m % W).
     //
     TT_assertv(gridShape[1] == 1U, "HeightSharded expects [M, 1] shard grid");
-    ranges = buildRowMajorCoreRanges(ctx, gridShape[0], deviceGridShape);
+    TT_assertv(gridShape[0] <= workerGridVolume,
+               "HeightSharded shard count {0} exceeds worker grid volume {1}",
+               gridShape[0], workerGridVolume);
+    ranges = buildRowMajorCoreRanges(ctx, gridShape[0], workerGridShape);
     break;
   }
   case TensorMemoryLayout::WidthSharded: {
     // Virtual [1, M] row-major flattens onto (m / W, m % W).
     //
     TT_assertv(gridShape[0] == 1U, "WidthSharded expects [1, M] shard grid");
-    ranges = buildRowMajorCoreRanges(ctx, gridShape[1], deviceGridShape);
+    TT_assertv(gridShape[1] <= workerGridVolume,
+               "WidthSharded shard count {0} exceeds worker grid volume {1}",
+               gridShape[1], workerGridVolume);
+    ranges = buildRowMajorCoreRanges(ctx, gridShape[1], workerGridShape);
     break;
   }
   default:
     llvm_unreachable("unexpected sharded memory layout");
   }
 
+  return CoreRangeSetAttr::get(ctx, ranges);
+}
+
+// Helper to derive the canonical CoreRangeSet for a DRAM-sharded layout:
+// a single rectangle covering the first `volume(gridShape)` DRAM banks of
+// the device's `dramGrid`.
+//
+static CoreRangeSetAttr deriveCanonicalDramCoreRangeSet(
+    mlir::MLIRContext *ctx, TensorMemoryLayout memLayout,
+    ArrayRef<int64_t> gridShape, mlir::tt::ttcore::GridAttr dramGrid) {
+  TT_assertv(dramGrid,
+             "dramGrid is required to derive the canonical CoreRangeSet for a "
+             "DRAM-sharded TTNN layout");
+  TT_assertv((memLayout == TensorMemoryLayout::HeightSharded ||
+              memLayout == TensorMemoryLayout::WidthSharded),
+             "DRAM-sharded layout only supports HeightSharded / WidthSharded; "
+             "got {0}",
+             stringifyTensorMemoryLayout(memLayout));
+
+  llvm::ArrayRef<int64_t> dramGridShape = dramGrid.getShape();
+  TT_assertv(dramGridShape.size() == 2U, "device DRAM grid must be 2D");
+  TT_assertv(dramGridShape[0] == 1,
+             "device DRAM grid is expected to be a single row [1, N]; got "
+             "[{0}, {1}]",
+             dramGridShape[0], dramGridShape[1]);
+
+  int64_t shardVolume = ttmlir::utils::volume(gridShape);
+  int64_t dramVolume = ttmlir::utils::volume(dramGridShape);
+  TT_assertv(shardVolume <= dramVolume,
+             "DRAM-sharded layout cannot exceed available DRAM banks; got "
+             "shard grid volume {0} vs dram grid volume {1}",
+             shardVolume, dramVolume);
+  TT_assertv(shardVolume >= 1,
+             "DRAM-sharded layout must use at least one DRAM bank");
+
+  llvm::SmallVector<CoreRangeAttr> ranges{
+      CoreRangeAttr::get(ctx, CoreCoordAttr::get(ctx, 0, 0),
+                         CoreCoordAttr::get(ctx, shardVolume - 1, 0))};
   return CoreRangeSetAttr::get(ctx, ranges);
 }
 
@@ -1317,18 +1386,6 @@ TTNNLayoutAttr::Builder::setBufferType(BufferType bufferTypeIn) {
   //
   coreRangeSet = nullptr;
 
-  // Update defaults for memory layout and grid shape based on the new buffer
-  // type.
-  //
-  if (bufferTypeIn == BufferType::DRAM) {
-    memLayout =
-        TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved);
-    gridShape = {1, 1};
-  } else if (bufferTypeIn == BufferType::SystemMemory) {
-    memLayout = TensorMemoryLayoutAttr{};
-    gridShape = {1, 1};
-  }
-
   return *this;
 }
 
@@ -1413,6 +1470,20 @@ TTNNLayoutAttr::Builder::setIgnorePhysicalLayout(bool ignore) {
 TTNNLayoutAttr TTNNLayoutAttr::Builder::build() {
   TT_assertv(elementType, "elementType must be set on the Builder.");
 
+  // Coerce buffer-type-driven invariants before validation, so callers can
+  // construct a layout from a builder seeded with an unrelated source layout
+  // without having to manually drop the inherited memLayout / gridShape:
+  //   - SystemMemory has no associated memory layout and is always 1x1.
+  //   - DRAM-Interleaved must use a unit grid (the verifier rejects anything
+  //     else).
+  if (bufferType == BufferType::SystemMemory) {
+    memLayout = TensorMemoryLayoutAttr{};
+    gridShape = {1, 1};
+  } else if (isDRAMBufferType(bufferType) && memLayout &&
+             memLayout.getValue() == TensorMemoryLayout::Interleaved) {
+    gridShape = {1, 1};
+  }
+
   if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
     TT_assertv(gridShape.size() != 0U,
                "gridShape must be set for sharded memory layouts.");
@@ -1449,15 +1520,23 @@ TTNNLayoutAttr TTNNLayoutAttr::Builder::build() {
                              tensorMesh, ignorePhysicalLayout, coreRangeSet);
 }
 
-// Terminator method to build a TTNNLayoutAttr with a canonical CoreRangeSet
-// derived from the device worker grid.
+// Terminator method to build a TTNNLayoutAttr with a canonical CoreRangeSet:
+//   - L1-sharded: rectangles derived from the device worker grid by flattening
+//     `gridShape` per the memory-layout-specific rule.
+//   - DRAM-sharded: a single rectangle spanning all DRAM banks of the device's
+//     `dramGrid`.
 //
 TTNNLayoutAttr TTNNLayoutAttr::Builder::buildWithCanonicalCorePlacement(
     ttcore::DeviceAttr deviceAttr) {
   if (!coreRangeSet && memLayout &&
       isShardedMemoryLayout(memLayout.getValue())) {
-    coreRangeSet = deriveCanonicalCoreRangeSet(
-        ctx, memLayout.getValue(), gridShape, deviceAttr.getWorkerGrid());
+    if (isDRAMBufferType(bufferType)) {
+      coreRangeSet = deriveCanonicalDramCoreRangeSet(
+          ctx, memLayout.getValue(), gridShape, deviceAttr.getDramGrid());
+    } else if (isL1BufferType(bufferType)) {
+      coreRangeSet = deriveCanonicalL1CoreRangeSet(
+          ctx, memLayout.getValue(), gridShape, deviceAttr.getWorkerGrid());
+    }
   }
 
   return build();

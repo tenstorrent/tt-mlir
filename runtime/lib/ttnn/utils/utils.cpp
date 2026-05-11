@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <memory>
+#include <vector>
 
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -117,13 +118,19 @@ bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
 
 // tt-metal untilize does not support ND sharding. See:
 // https://github.com/tenstorrent/tt-metal/issues/35418
+//
+// additionally, tt-metal untilize does not support DRAM-sharded tensors.
+// See: https://github.com/tenstorrent/tt-metal/issues/43975.
 bool canUntilizeOnDevice(
     const ::ttnn::DataType &dataType,
     const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
   bool notSharded = !memoryConfig.has_value() || !memoryConfig->is_sharded();
   bool legacySharded =
       memoryConfig.has_value() && memoryConfig->shard_spec().has_value();
-  return canUntilizeDataTypeOnDevice(dataType) && (notSharded || legacySharded);
+  bool dramSharded =
+      legacySharded && memoryConfig->buffer_type() == ::ttnn::BufferType::DRAM;
+  return canUntilizeDataTypeOnDevice(dataType) &&
+         (notSharded || (legacySharded && !dramSharded));
 }
 
 const ::tt::target::ttnn::TTNNBinary *
@@ -386,12 +393,16 @@ fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
 
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
-  std::set<tt::tt_metal::CoreRange> coreRanges;
+  // Even though `CoreRangeSet`'s naming implies usage of std::set,
+  // it's important that the order of core ranges is preserved,
+  // so we use std::vector here to maintain the order as originally defined.
+  std::vector<tt::tt_metal::CoreRange> coreRanges;
+  coreRanges.reserve(coreRangeSet.core_ranges()->size());
   for (const tt::target::ttnn::CoreRange *coreRange :
        *coreRangeSet.core_ranges()) {
-    coreRanges.emplace(toTTNNCoreRange(*coreRange));
+    coreRanges.emplace_back(toTTNNCoreRange(*coreRange));
   }
-  return tt::tt_metal::CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(std::move(coreRanges));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>

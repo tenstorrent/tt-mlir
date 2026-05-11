@@ -6,6 +6,7 @@ import pytest
 import torch
 from typing import Callable, List, Optional
 from conftest import x86_only, get_request_kwargs
+from ttmlir.dialects import ttnn
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import (
@@ -385,6 +386,73 @@ def test_unary_ops_with_float_param(
         device=device,
         pipeline_options=pipeline_options,
         pcc=0.98,
+    )
+
+
+@pytest.mark.parametrize(
+    "memory_layout,grid_shape,shape",
+    [
+        (ttnn.TensorMemoryLayout.WidthSharded, [1, 8], (32, 256)),
+        (ttnn.TensorMemoryLayout.HeightSharded, [8, 1], (256, 32)),
+    ],
+    ids=["width_sharded", "height_sharded"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_relu_dram_sharded(
+    memory_layout: ttnn.TensorMemoryLayout,
+    grid_shape: List[int],
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Smoke test for DRAM-sharded layouts, using an arbitrary op (relu).
+
+        (DRAM-Interleaved arg)
+            -> to_layout -> (DRAM-sharded)
+            -> relu      -> (DRAM-Interleaved, builder default for op outputs)
+
+    Exercises block-arg construction, the explicit DRAM-sharded `to_layout`
+    reshard, and a unary op consuming a sharded operand.
+    """
+
+    def module(builder: TTNNBuilder):
+        ctx = builder._ctx
+        bank_count = grid_shape[0] * grid_shape[1]
+        core_range_set = ttnn.ir.CoreRangeSetAttr.get(
+            ctx,
+            [
+                ttnn.ir.CoreRangeAttr.get(
+                    ctx,
+                    ttnn.ir.CoreCoordAttr.get(ctx, 0, 0),
+                    ttnn.ir.CoreCoordAttr.get(ctx, bank_count - 1, 0),
+                )
+            ],
+        )
+
+        @builder.func([shape], [dtype])
+        def relu_dram_sharded(
+            in0: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            sharded_in = builder.to_layout(
+                in0,
+                layout=ttnn.Layout.Tile,
+                buffer_type=ttnn.BufferType.DRAM,
+                tensor_memory_layout=memory_layout,
+                grid_shape=grid_shape,
+                core_range_set=core_range_set,
+            )
+            return builder.relu(sharded_in, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
     )
 
 
