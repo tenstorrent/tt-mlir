@@ -1753,12 +1753,22 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       operation has multiple modes; the explicit CB form and unicast/multicast
       modes are both orthogonal and can be mixed and matched.
 
-      The basic form takes a local buffer as input and loads data into it:
+      The basic form takes a local buffer as input and loads data into it.
+      In tensor form (pre-bufferization), the op produces a result that aliases
+      the local buffer:
+
+      ```mlir
+      %result = d2m.remote_load %buffer %generic_operand[%i, %j]
+        : tensor<SY x SX x f32, ...>, tensor<GY x GX x SY x SX x f32, ...>
+        -> tensor<SY x SX x f32, ...>
+      ```
+
+      In memref form (post-bufferization), the op has no result; data is loaded
+      in-place into the local buffer:
 
       ```mlir
       d2m.remote_load %buffer %generic_operand[%i, %j]
         : memref<SY x SX x f32, ...>, memref<GY x GX x SY x SX x f32, ...>
-        -> memref<SY x SX x f32, ...>
       ```
 
       The explicit CB form takes a CB (from `d2m.get_cb`) as additional input;
@@ -1770,8 +1780,9 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         : memref<GY x GX x SY x SX x f32, ...> into !d2m.cb<memref<SY x SX x f32, ...>>
       ```
 
-      In implicit form, the result matches the shard memref/tensor type and aliases
-      the input buffer.
+      In implicit tensor form (pre-bufferization), the result matches the shard
+      tensor type and aliases the input buffer. In implicit memref form
+      (post-bufferization), there is no result.
 
       ## High-Level Multicast Mode
 
@@ -1785,13 +1796,12 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       NOTE: If implementing the high-level multicast is not feasible, the
       operation will be lowered to an equivalent unicast remote load instead.
 
-      Example with high-level multicast (implicit form):
+      Example with high-level multicast (implicit memref form):
 
       ```mlir
       // Cooperative multicast along dimension 0
       d2m.remote_load %buffer %memref[%i, %j] mcast[%c0]
         : memref<4x6xf32, #l1_>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
-        -> memref<4x6xf32, #l1_>
       ```
 
       ## Low-Level Multicast Mode
@@ -1809,13 +1819,12 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         starting at `mcastStartIndex` with shape `mcastShape`
         - Receivers wait for the sender to complete
 
-      Example with low-level multicast (implicit form):
+      Example with low-level multicast (implicit memref form):
 
       ```mlir
       // Core 0 gathers and multicasts to a 1x4 region starting at mcore[0, 1]
       d2m.remote_load %buffer %memref[%i, %j] mcore[%c0, %c1] mshape[%c1, %c4]
         : memref<4x6xf32, #l1_>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
-        -> memref<4x6xf32, #l1_>
       ```
 
       Constraints:
@@ -2058,24 +2067,35 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       - Implicit form takes a plain memref/tensor as input to store; it doesn't
       assume a particular buffering implementation (CBs, scratchpad, etc).
 
+      In tensor form (pre-bufferization), the op produces a result that aliases
+      the operand:
+
+      ```mlir
+      // For an operand with device shape (GY x GX) x (SY x SX)
+      %result = d2m.remote_store %generic_operand[%i, %j] %buf
+        : tensor<GY x GX x SY x SX x f32, ...>, tensor<SY x SX x f32, ...>
+        -> tensor<GY x GX x SY x SX x f32, ...>
+      ```
+
+      In memref form (post-bufferization), the op has no result:
+
       ```mlir
       // For an operand with device shape (GY x GX) x (SY x SX)
       d2m.remote_store %generic_operand[%i, %j] %buf
         : memref<GY x GX x SY x SX x f32, ...>, memref<SY x SX x f32, ...>
-        -> memref<GY x GX x SY x SX x f32, ...>
       ```
 
       - Explicit CB form stores data from a concrete CB (from `d2m.get_cb`) to the remote operand.
 
       ```mlir
       d2m.remote_store %generic_operand[%i, %j] from %cb
-        : memref<GY x GX x SY x SX x f32, ...>, !d2m.cb<memref<SY x SX x f32, ...>>
-        -> memref<GY x GX x SY x SX x f32, ...>
+        : memref<GY x GX x SY x SX x f32, ...> from !d2m.cb<memref<SY x SX x f32, ...>>
       ```
 
-      In both forms, the result matches the type of the operand memref/tensor.
-      This allows using the result as yield value in a generic region, as well
-      as forming a complete use-chain from remote_load to remote_store.
+      In tensor form (pre-bufferization), the result matches the type of the
+      operand tensor, allowing it to be used as a yield value in a generic region
+      and forming a complete use-chain from remote_load to remote_store. In memref
+      form (post-bufferization), there is no result.
 
       Constraints:
       - The number of indices must equal N/2, where N is the memref/tensor rank.
