@@ -10,9 +10,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/PatternMatch.h"
-
-#define DEBUG_TYPE "d2m-lower-scratch-allocate"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERSCRATCHALLOCATE
@@ -106,11 +103,14 @@ private:
     // Sort descending by size so larger allocations are placed first, giving
     // the best chance for smaller ones to be packed inside them.
     llvm::sort(allocations, [](const auto &a, const auto &b) {
-      return a.numElements > b.numElements;
+      if (a.numElements != b.numElements) {
+        return a.numElements > b.numElements;
+      }
+      return a.slotId < b.slotId;
     });
 
     Block &block = region.front();
-    computeLiveness(allocations, block, region);
+    computeLiveness(allocations, block);
     int64_t peakUsage = assignOffsets(allocations);
 
     // Verify allocations fit in the scratch buffer.
@@ -121,7 +121,7 @@ private:
         ttmlir::utils::volume<int64_t>(scratchMemRefType.getShape());
     if (peakUsage > scratchCapacity) {
       return genericOp.emitOpError()
-             << "total scratch allocations (" << peakUsage
+             << "peak scratch usage (" << peakUsage
              << " elements) exceed scratch buffer capacity (" << scratchCapacity
              << " elements)";
     }
@@ -141,7 +141,7 @@ private:
   //
   // Each allocation's live range spans from its definition to its last use.
   void computeLiveness(SmallVectorImpl<ScratchAllocationInfo> &allocations,
-                       Block &block, Region &region) {
+                       Block &block) {
     // Assign sequential position indices to top-level operations in the block.
     DenseMap<Operation *, int64_t> opPositions;
     int64_t pos = 0;
@@ -149,22 +149,21 @@ private:
       opPositions[&op] = pos++;
     }
 
-    // Helper: walk up to find the enclosing operation that lives directly in
-    // the region's entry block.
     auto getTopLevelOp = [&](Operation *op) -> Operation * {
-      while (op->getParentRegion() != &region) {
-        op = op->getParentOp();
-      }
-      return op;
+      return block.findAncestorOpInBlock(*op);
     };
 
     for (auto &info : allocations) {
       Operation *topLevelDef = getTopLevelOp(info.op.getOperation());
+      assert(opPositions.contains(topLevelDef) &&
+             "scratch allocation must have a top-level position");
       info.startPosition = opPositions[topLevelDef];
       info.endPosition = info.startPosition;
 
       for (OpOperand &use : info.op.getResult().getUses()) {
         Operation *topLevelUser = getTopLevelOp(use.getOwner());
+        assert(opPositions.contains(topLevelUser) &&
+               "scratch allocation user must have a top-level position");
         int64_t userPos = opPositions[topLevelUser];
         info.endPosition = std::max(info.endPosition, userPos);
       }
