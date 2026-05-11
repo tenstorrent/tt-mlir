@@ -128,6 +128,59 @@ module attributes {ttcore.device = #any_device} {
 }
 
 // -----
+// Two regions with direct empty outs (no view_layout in between): verify VGM
+// on non-origin region output is preserved on generic grid mapping.
+#any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+#layout_1x1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#vgm_11_inv = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>
+#vgm_11_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>
+// CHECK-LABEL: func.func @spatial_multi_region_two_ranges_direct_empty
+module attributes {ttcore.device = #any_device} {
+  func.func @spatial_multi_region_two_ranges_direct_empty()
+      -> (tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>,
+          tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) {
+    %0 = d2m.empty() : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>
+    %1 = d2m.empty() {virtualGridInverseMapping = #vgm_11_inv, virtualGridForwardMapping = #vgm_11_fwd} : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+    // CHECK: d2m.spatial
+    // CHECK-SAME: grid_ranges = [#ttcore.core_range<(0,0), (0,0)>, #ttcore.core_range<(1,1), (2,2)>]
+    %2:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (2, 2)>]}
+        ins() outs(%0, %1 : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) {
+      ^region_0:
+        %3 = d2m.generic {
+          block_factors = [1, 1],
+          grid = #ttcore.grid<1x1>,
+          indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
+          iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+          threads = [#d2m.thread<unified>]
+        } ins() outs(%0 : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>) {
+          %out = tensor.empty() : tensor<4x4x!ttcore.tile<32x32, f32>>
+          d2m.yield %out : (tensor<4x4x!ttcore.tile<32x32, f32>>)
+        } : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>
+        d2m.spatial_yield %3 : (tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>)
+      }, {
+      ^region_1:
+        %4 = d2m.generic {
+          block_factors = [1, 1],
+          grid = #ttcore.grid<2x2>,
+          indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
+          iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+          threads = [#d2m.thread<unified>]
+        } ins() outs(%1 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) {
+          %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
+          d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
+        } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+        d2m.spatial_yield %4 : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>)
+    } : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+    // CHECK: d2m.generic
+    // CHECK-SAME: grid = #ttcore.grid<1x1>,
+    // CHECK: d2m.generic
+    // CHECK-SAME: grid = #ttcore.grid<2x2, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>,
+    return %2#0, %2#1 : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+  }
+}
+
+// -----
 // Four regions on an 8x8 device: each grid_range is a 4x4 square (quadrant).
 // Exercises spatial with more than two regions; each generic keeps grid 4x4.
 // Non-origin quadrants use d2m.empty VGM (offset from physical (y,x) to virtual 0..3).
