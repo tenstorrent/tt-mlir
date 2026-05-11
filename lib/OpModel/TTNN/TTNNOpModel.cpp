@@ -539,6 +539,36 @@ auto getOpSymbol() {
   }
 }
 
+// Returns true if the matmul program config already carries a fused
+// activation.
+inline bool programCarriesFusedActivation(
+    const std::optional<::ttnn::operations::matmul::MatmulProgramConfig> &pc) {
+  if (!pc) {
+    return false;
+  }
+  return std::visit(
+      [](const auto &cfg) -> bool {
+        using T = std::decay_t<decltype(cfg)>;
+        if constexpr (
+            std::is_same_v<T, ::ttnn::operations::matmul::
+                                  MatmulMultiCoreReuseMultiCastProgramConfig> ||
+            std::is_same_v<T,
+                           ::ttnn::operations::matmul::
+                               MatmulMultiCoreReuseMultiCast1DProgramConfig> ||
+            std::is_same_v<
+                T, ::ttnn::operations::matmul::
+                       MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig> ||
+            std::is_same_v<
+                T,
+                ::ttnn::operations::matmul::
+                    MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig>) {
+          return cfg.fused_activation.has_value();
+        }
+        return false;
+      },
+      *pc);
+}
+
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -4549,14 +4579,15 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Convert activation string to optional
-  std::optional<std::string> activationStr =
-      activation ? std::make_optional(activation->str()) : std::nullopt;
-
   // Convert program config attribute
   auto programConfig =
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
+
+  std::optional<std::string> activationStr;
+  if (activation && !detail::programCarriesFusedActivation(programConfig)) {
+    activationStr = activation->str();
+  }
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =
@@ -4667,14 +4698,15 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Convert activation string to optional
-  std::optional<std::string> activationStr =
-      activation ? std::make_optional(activation->str()) : std::nullopt;
-
   // Convert program config attribute
   auto programConfig =
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
+
+  std::optional<std::string> activationStr;
+  if (activation && !detail::programCarriesFusedActivation(programConfig)) {
+    activationStr = activation->str();
+  }
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =
