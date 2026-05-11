@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "ttmlir/AffineMapUtils.h"
@@ -9,6 +10,8 @@
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 #include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -25,6 +28,11 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include "mlir/IR/Builders.h"
+#include "mlir/Support/WalkResult.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 #include <optional>
 
@@ -354,7 +362,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     // This pass works with two sets of IR objects: memrefs (defined by
     // memref.alloc's) and generic ops (with operands that are either raw
-    // memrefs or views/streams of those).
+    // memrefs or views of those).
     //
     // The IR is allowed to contain "standalone" allocs that don't feed into
     // generic ops (TODO(vroubtsov) these won't become CBs, so can this
@@ -387,6 +395,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
+    if (failed(convertAliasedLoadStore(funcOp, analysis))) {
+      return failure();
+    }
+
+    if (failed(markSynchronizedOpBuffers(funcOp))) {
+      funcOp.emitOpError("Failed to mark synchronized op buffers");
+    }
+
     if (failed(analyzeGenericRegionAllocs(funcOp, analysis))) {
       return failure();
     }
@@ -403,7 +419,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(insertOperandStreams(funcOp, analysis))) {
+    if (failed(remapMemorySpacesOnOperandViews(funcOp, analysis))) {
       return failure();
     }
 
@@ -504,7 +520,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   ///   into `analysis.memrefs`.
   /// - For each memref value:
   ///   - Calculate effective liveness by extending `mlir::Liveness`
-  ///     ranges with uses by view/stream ops.
+  ///     ranges with uses by view ops.
   ///   - Pre-compute memory footprint if placed within L1 or DRAM.
   ///
   LogicalResult analyzeLiveness(func::FuncOp funcOp,
@@ -616,82 +632,50 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     funcBody.walk([&](d2m::GenericOp genericOp) {
       SequenceT genericSeqPos = analysis.sequencing[genericOp];
-      auto *genericIt = analysis.generics.find(genericOp);
 
-      // Register in-generic allocs that back streamed operands.
+      // Register all in-generic allocs.
       // The internal alloc needs a planner-assigned L1 address and will be
       // stamped with CBLayoutAttr, even for explicit generics, so that it can
       // be hoisted correctly as a CB later in the HoistCBAllocs pass.
-      if (genericIt != analysis.generics.end()) {
-        for (Region &region : genericOp->getRegions()) {
-          for (const OperandContext &operandCtx : genericIt->second.operands) {
-            if (!operandCtx.bufferType) {
-              continue;
-            }
-            auto operandMemSpace =
-                ttcore::getMemorySpace(operandCtx.operand->get().getType());
-            if (!requiresCBAllocation(genericOp, genericIt->second, operandCtx,
-                                      operandMemSpace)) {
-              continue;
-            }
-            Value operandAlloc = d2m::GenericOp::getOperandAlloc(
-                region, operandCtx.operandIndex());
-            // If getOperandAlloc fails but requiresCBAllocation is true,
-            // assume that is because the local buffer associated with this
-            // operand might be shared by a pair of remote load and store ops
-            // (buffer is not exclusive to a single operand).
-            if (!operandAlloc) {
-              operandAlloc = findSharedOutputBuffer(genericOp, operandCtx);
-            }
-            if (!operandAlloc) {
-              continue;
-            }
-            auto allocOp = operandAlloc.getDefiningOp<memref::AllocOp>();
-            if (!allocOp) {
-              continue;
-            }
-            auto memrefType = allocOp.getType();
-            MemrefValueContext &ctx = addMemrefValueContext(
-                rewriter, analysis, allocOp.getResult(), memrefType, device);
-            ctx.live = {genericSeqPos, genericSeqPos};
-            ctx.isInsideGeneric = true;
-            ctx.isMemspaceBound = true;
-            ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))] =
-                ttmlir::utils::alignUp(
-                    getCBBufferSizeBytes(operandCtx.bufferType, device),
-                    L1memInfo.alignment);
-          }
+      std::optional<int32_t> numBuffers = std::nullopt;
+      genericOp->walk([&](memref::AllocOp allocOp) {
+        if (allocOp->getAttr("d2m.compute_intermediate")) {
+          // skip allocating, this is a contrace from fusion and compute
+          // lowering saying we will not actually use this buffer, it's just a
+          // placeholder, so we can safely skip it
+          return WalkResult::advance();
+        } else if (allocOp->getAttr("d2m.scratch_buffer")) {
+          numBuffers = 1;
+        } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
+          numBuffers =
+              allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
+                  .getInt();
+        } else {
+          assert(false && "unexpected alloc op attribute");
+          // we should allow this but asserting for now to check it's not used
         }
-      }
+        // TODO: check not of more than one type (or maybe add a
+        // GenericAllocAttribute, which can convey the above types)
 
-      // Register all in-generic CBLayoutAttr allocs that were not already
-      // registered above (e.g. scratch buffers created by
-      // InsertScratchBuffers).
-      for (Region &region : genericOp->getRegions()) {
-        region.walk([&](memref::AllocOp allocOp) {
-          auto memrefType = allocOp.getType();
-          if (!mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
-            return;
-          }
-          // Skip if already registered (e.g. operand-backed allocs above).
-          if (analysis.memrefs.count(allocOp.getResult())) {
-            return;
-          }
-          MemrefValueContext &ctx = addMemrefValueContext(
-              rewriter, analysis, allocOp.getResult(), memrefType, device);
+        if (numBuffers.has_value()) {
+          MemrefValueContext &ctx =
+              addMemrefValueContext(rewriter, analysis, allocOp.getResult(),
+                                    allocOp.getType(), device);
           ctx.live = {genericSeqPos, genericSeqPos};
           ctx.isInsideGeneric = true;
           ctx.isMemspaceBound = true;
-          // Total CB size = shape[0] * stride[0] (row-major, stride
-          // includes element size).
-          auto cbLayout =
-              mlir::cast<ttcore::CBLayoutAttr>(memrefType.getLayout());
-          int64_t totalSizeBytes =
-              memrefType.getShape().front() * cbLayout.getStride().front();
+          TT_assertv(ttcore::getMemorySpace(allocOp.getType()) ==
+                         ttcore::MemorySpace::DeviceL1,
+                     "generic allocs must be allocated in L1");
           ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))] =
-              ttmlir::utils::alignUp(totalSizeBytes, L1memInfo.alignment);
-        });
-      }
+              ttmlir::utils::alignUp(
+                  numBuffers.value() *
+                      getMemrefSizeBytes(allocOp.getType(), device),
+                  L1memInfo.alignment);
+        }
+
+        return WalkResult::advance();
+      });
     });
 
     TT_ALLOC_DEBUG("collected {} in-generic memref alloc(s)",
@@ -841,15 +825,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               rootIdx, chainRoots.size(), asOperand(chainRoot.root),
               chainRoot.type);
         }
-      }
-
-      // Right now it's OK to use the 1st root's memref because we assert that
-      // all roots must be in the same memory space.
-      auto memrefType = chainRoots.front().type;
-      if (isOperandExemptFromStreaming(operandCtx,
-                                       ttcore::getMemorySpace(memrefType))) {
-        // For now, disabled `allow-l1-output-spilling` also means
-        // "don't insert streams but allow them in the incoming IR".
       }
 
       // Register ALL roots in analysis.memrefs and genericUseClosure.
@@ -1283,23 +1258,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   /// modifications:
   ///  - modify root alloc ops and any view layout ops to be in the final
   ///    memspace decided by the planner;
-  ///  - create local CB allocs inside the generic for streamed operands.
   ///
-  LogicalResult insertOperandStreams(func::FuncOp funcOp,
-                                     const FuncAnalysisData &analysis) {
+  LogicalResult remapMemorySpacesOnOperandViews(func::FuncOp funcOp,
+                                                FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
 
-    const auto &L1memInfo = memSpaces[ordinal(MemorySpace::DeviceL1)];
-
     llvm::DenseSet<Operation *> visited;
-    for (const auto &[genericOp, genericCtx] : analysis.generics) {
-
-      // Map every pre-stream alias back to its operand index so nested
-      // remote ops can be retargeted even if they still reference an older
-      // def-chain value such as the root alloc.
-      llvm::DenseMap<Value, int32_t> preStreamOperandIndices;
-
-      for (const OperandContext &operandCtx : genericCtx.operands) {
+    for (auto &[genericOp, genericCtx] : analysis.generics) {
+      for (OperandContext &operandCtx : genericCtx.operands) {
         std::optional<MemorySpace> remappedMemSpace;
         for (const ChainRoot &chainRoot : operandCtx.chainRoots) {
           const auto *memrefIt = analysis.memrefs.find(chainRoot.root);
@@ -1332,233 +1298,83 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 });
           }
         }
-        TT_assert(remappedMemSpace.has_value());
-        const MemorySpace finalRemappedMemSpace = *remappedMemSpace;
-        if (requiresCBAllocation(genericOp, genericCtx, operandCtx,
-                                 *remappedMemSpace)) {
-
-          // Record all aliases along the operand def-chain.
-          // This is needed because a generic operand may have several aliases
-          // along the def-chain (e.g. views, root alloc, etc.) and nested
-          // remote ops may reference any of them.
-          preStreamOperandIndices[operandCtx.operand->get()] =
-              operandCtx.operandIndex();
-          for (const ChainRoot &chainRoot : operandCtx.chainRoots) {
-            preStreamOperandIndices[chainRoot.root] = operandCtx.operandIndex();
-            for (Operation *opOnChain : chainRoot.defChain) {
-              if (opOnChain->getNumResults() == 1) {
-                preStreamOperandIndices[opOnChain->getResult(0)] =
-                    operandCtx.operandIndex();
-              }
-            }
-          }
-
-          auto &operand = *operandCtx.operand;
-
-          if (failed(insertStream(
-                  rewriter, operand, genericOp, operandCtx,
-                  (finalRemappedMemSpace == MemorySpace::DeviceDRAM ? DRAMAttr
-                                                                    : L1Attr),
-                  L1memInfo, analysis.sequencing))) {
-            return failure();
-          }
-        } else {
-          // Mark allocs as aliased for HoistCBAllocs pass.
-          const OperandContext *sharedPeerCtx =
-              findSharedPeerOperandContext(genericOp, genericCtx, operandCtx);
-          // If alias exists and is on the peer for load/store pair, don't mark
-          // alias for this operand. Otherwise, mark alias for this operand.
-          if (!sharedPeerCtx || !inferBaseStreamRequirement(
-                                    genericOp, operandCtx,
-                                    ttcore::getMemorySpace(
-                                        operandCtx.operand->get().getType()))) {
-            auto operandIndex = operandCtx.operand->getOperandNumber();
-            Value cbMemref =
-                findLocalBufferForOperandLoadStore(genericOp, operandCtx);
-            if (cbMemref) {
-              if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(
-                      cbMemref.getDefiningOp())) {
-                allocOp->setAttr("d2m.alias_for_operand",
-                                 rewriter.getI64IntegerAttr(operandIndex));
-              }
-            }
-          }
-        }
       }
+    }
 
-      // Fix up CB ops in the body:
-      for (Region &region : genericOp->getRegions()) {
-        TT_assert(region.hasOneBlock());
-        Block &block = region.getBlocks().front();
+    return success();
+  }
 
-        block.walk([&](Operation *blockOp) {
-          llvm::TypeSwitch<Operation *, void>(blockOp)
-              .Case([&](d2m::ReserveOp op) {
-                op->getResult(0).setType(
-                    op.getCbType().getUnderlyingAs<MemRefType>());
-              })
-              .Case([&](d2m::WaitOp op) {
-                op->getResult(0).setType(
-                    op.getCbType().getUnderlyingAs<MemRefType>());
-              });
-        });
-      }
-
-      // Post stream insertion and reblocking, remote_load
-      // and remote_store ops must be updated to reference
-      // updated operands and CB result types.
-      llvm::DenseMap<int32_t, Value> operandValueByIndex;
-      llvm::DenseMap<int32_t, Type> operandCBTypeByIndex;
+  LogicalResult convertAliasedLoadStore(func::FuncOp funcOp,
+                                        FuncAnalysisData &analysis) {
+    IRRewriter rewriter(funcOp->getContext());
+    for (const auto &[genericOp, genericCtx] : analysis.generics) {
+      const auto &genericOpRef = genericOp;
       for (const OperandContext &operandCtx : genericCtx.operands) {
+        // TODO: clean up
+        // this should be return a cb if memref is a cb or be a nromal memref if
+        // memref is not a cb replace remote_load/store with this alias op print
+        // aliased operand
+        // llvm::errs() << "aliased operand: " << operandCtx.operand->get()
+        //             << "\n";
 
-        const auto operandIndex = operandCtx.operand->getOperandNumber();
-
-        const auto *memrefIt2 = analysis.memrefs.find(operandCtx.primaryRoot);
-        TT_debug(memrefIt2 != analysis.memrefs.end());
-        const MemorySpace operandMemSpace = *memrefIt2->second.remappedMemSpace;
-
-        if (requiresCBAllocation(genericOp, genericCtx, operandCtx,
-                                 operandMemSpace)) {
-          Type cbUnderlyingType;
-          TT_assert(!genericOp->getRegions().empty());
-          Region &region = genericOp->getRegions().front();
-          TT_assert(region.hasOneBlock());
-          Value operandAlloc =
-              d2m::GenericOp::getOperandAlloc(region, operandIndex);
-          if (!operandAlloc) {
-            operandAlloc = findSharedOutputBuffer(genericOp, operandCtx);
+        genericOpRef->walk([&](RemoteLoadOp remoteLoadOp) {
+          // llvm::errs() << "remote load op: " << remoteLoadOp.getMemref()
+          //              << "\n";
+          if (remoteLoadOp.getMemref() == operandCtx.operand->get() &&
+              isAliasedLoad(remoteLoadOp)) {
+            // llvm::errs() << "replacing remote load op with aliased load
+            // op\n";
+            //  replace alloc with operand alias op
+            auto allocOp = remoteLoadOp.getLocalBuffer().getDefiningOp();
+            rewriter.setInsertionPoint(allocOp);
+            rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
+                allocOp, allocOp->getResultTypes(), remoteLoadOp.getMemref());
+            remoteLoadOp->setAttr("d2m.aliased_load", rewriter.getUnitAttr());
+            // rewriter.replaceAllUsesWith(op.getLocalBuffer(),
+            // operandAliasOp.getResult());
           }
-          if (operandAlloc) {
-            cbUnderlyingType = operandAlloc.getType();
-            if (auto cbType = mlir::dyn_cast<d2m::CBType>(cbUnderlyingType)) {
-              cbUnderlyingType = cbType.getUnderlying();
-            }
-          }
-          operandValueByIndex[operandCtx.operandIndex()] =
-              operandCtx.operand->get();
-          if (cbUnderlyingType) {
-            operandCBTypeByIndex[operandCtx.operandIndex()] = cbUnderlyingType;
-          }
-        }
-      }
-
-      // Helper to update localBuffer's defining op type.
-      auto updateLocalBufferType = [](d2m::RemoteLoadOp op, Type newType) {
-        if (Value localBuffer = op.getLocalBuffer()) {
-          if (Operation *defOp = localBuffer.getDefiningOp()) {
-            if (defOp->getNumResults() == 1) {
-              defOp->getResult(0).setType(newType);
-            }
-          }
-        }
-      };
-
-      // Rewrite remote load/store ops result types and remote memrefs
-      const GenericOpContext *genericCtxPtr = &genericCtx;
-      for (Region &region : genericOp->getRegions()) {
-        TT_assert(region.hasOneBlock());
-        Block &block = region.getBlocks().front();
-
-        block.walk([&](Operation *blockOp) {
-          llvm::TypeSwitch<Operation *, void>(blockOp)
-              .Case([&](d2m::RemoteLoadOp op) {
-                Value oldMemref = op.getMemref();
-                std::optional<int32_t> operandIndex;
-                // First try pre-stream operand indices to find the new stream
-                // value.
-                auto aliasIt = preStreamOperandIndices.find(oldMemref);
-                if (aliasIt != preStreamOperandIndices.end()) {
-                  operandIndex = aliasIt->second;
-                } else {
-                  // Try matching the current operand value directly.
-                  for (const OperandContext &operandCtx :
-                       genericCtxPtr->operands) {
-                    if (operandCtx.operand->get() == oldMemref) {
-                      operandIndex = operandCtx.operandIndex();
-                      break;
-                    }
-                  }
-                }
-
-                if (operandIndex) {
-                  // Rewrite the memref to the current operand value.
-                  if (auto valueIt = operandValueByIndex.find(*operandIndex);
-                      valueIt != operandValueByIndex.end()) {
-                    op.setMemRef(valueIt->second);
-                  }
-                }
-
-                if (operandIndex) {
-                  // Update the localBuffer (destination) type so the load
-                  // matches the stream type now associated with the operand.
-                  auto typeIt = operandCBTypeByIndex.find(*operandIndex);
-                  if (typeIt != operandCBTypeByIndex.end()) {
-                    Type newShardType = typeIt->second;
-                    updateLocalBufferType(op, newShardType);
-                    return;
-                  }
-                }
-
-                // If a localBuffer is already typed (its defining op assigned
-                // a memref type), trust that and don't override it with the
-                // generic L1 shard type below. This preserves layouts like
-                // #ttcore.cb_layout<...> that were set up by upstream logic.
-                if (op.getLocalBuffer()) {
-                  return;
-                }
-
-                if (op.isImplicitForm()) {
-                  // Fallback: compute shard shape from device layout when not
-                  // in the CB type map.
-                  Value memref = op.getMemref();
-                  auto deviceLayout = ttcore::getDeviceLayout(memref);
-                  if (deviceLayout) {
-                    auto shapedType = mlir::cast<ShapedType>(memref.getType());
-                    auto shardShape = deviceLayout.getShardShape(shapedType);
-                    MemRefType newShardType = MemRefType::get(
-                        shardShape, shapedType.getElementType(), nullptr,
-                        rewriter.getAttr<ttcore::MemorySpaceAttr>(
-                            ttcore::MemorySpace::DeviceL1));
-                    updateLocalBufferType(op, newShardType);
-                  }
-                }
-              })
-              .Case([&](d2m::TileTilizeBlockOp op) {
-                op.getResult().setType(op.getOutput().getType());
-              })
-              .Case([&](d2m::TileUntilizeBlockOp op) {
-                op.getResult().setType(op.getOutput().getType());
-              })
-              .Case([&](d2m::RemoteStoreOp op) {
-                Value oldMemref = op.getMemref();
-                std::optional<int32_t> operandIndex;
-                // First try pre-stream operand indices to find the new value.
-                auto aliasIt = preStreamOperandIndices.find(oldMemref);
-                if (aliasIt != preStreamOperandIndices.end()) {
-                  operandIndex = aliasIt->second;
-                } else {
-                  // Try matching the current operand value directly.
-                  for (const OperandContext &operandCtx :
-                       genericCtxPtr->operands) {
-                    if (operandCtx.operand->get() == oldMemref) {
-                      operandIndex = operandCtx.operandIndex();
-                      break;
-                    }
-                  }
-                }
-
-                if (!operandIndex) {
-                  return;
-                }
-
-                // Rewrite the memref to the current operand value.
-                auto valueIt = operandValueByIndex.find(*operandIndex);
-                if (valueIt != operandValueByIndex.end()) {
-                  op.setMemRef(valueIt->second);
-                }
-              });
         });
       }
+    }
+
+    for (const auto &[genericOp, genericCtx] : analysis.generics) {
+      const auto &genericOpRef = genericOp;
+      auto cbUsageInfo = utils::getCBUsageInfo(
+          const_cast<GenericOp &>(genericOp).getRegion(0));
+      for (const OperandContext &operandCtx : genericCtx.operands) {
+        genericOpRef->walk([&](RemoteStoreOp remoteStoreOp) {
+          // llvm::errs() << "remote store op: " << remoteStoreOp.getMemref()
+          //              << "\n";
+          //  Also check we don't already have aliased load since we can't alias
+          //  DMA on both sides
+          auto producerRemoteLoad = mlir::dyn_cast<d2m::RemoteLoadOp>(
+              cbUsageInfo[remoteStoreOp.getLocalBuffer()].producers[0]);
+          if (remoteStoreOp.getMemref() == operandCtx.operand->get() &&
+              isAliasedStore(remoteStoreOp) &&
+              (!producerRemoteLoad ||
+               !producerRemoteLoad->hasAttr("d2m.aliased_load"))) {
+            // llvm::errs() << "replacing remote store op with aliased store
+            // op\n";
+            auto allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
+            rewriter.setInsertionPoint(allocOp);
+            rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
+                allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());
+            remoteStoreOp->setAttr("d2m.aliased_store", rewriter.getUnitAttr());
+            // rewriter.replaceAllUsesWith(op.getLocalBuffer(),
+            // operandAliasOp.getResult());
+            // rewriter.eraseOp(op.getLocalBuffer().getDefiningOp());
+          }
+        });
+      }
+    }
+
+    // Remove in-generic allocs that are not used
+    for (const auto &[genericOp, genericCtx] : analysis.generics) {
+      genericOp->walk([&](memref::AllocOp allocOp) {
+        if (allocOp.getResult().getUsers().empty()) {
+          rewriter.eraseOp(allocOp);
+        }
+      });
     }
 
     return success();
@@ -1597,84 +1413,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
-  LogicalResult insertStream(RewriterBase &rewriter, OpOperand &operand,
-                             d2m::GenericOp op,
-                             const OperandContext &operandCtx,
-                             ttcore::MemorySpaceAttr remappedMemspace,
-                             const MemorySpaceInfo &info,
-                             const SequenceMapping &sequencing) {
-    const MemRefType bufferType = operandCtx.bufferType;
-    TT_debug(bufferType != nullptr);
-
-    // Compute the shard shape for the CB alloc inside the generic region.
-    auto shardShape =
-        mlir::cast<ttcore::DeviceLayoutInterface>(bufferType.getLayout())
-            .getShardShape(bufferType);
-    Type elementType = bufferType.getElementType();
-
-    // Replace the in-generic alloc with a CBLayoutAttr-tagged alloc that
-    // represents the circular buffer for this operand.
-    rewriter.startOpModification(op);
-    {
-      for (Region &region : op->getRegions()) {
-        TT_assert(region.hasOneBlock());
-
-        const auto operandIndex = operandCtx.operand->getOperandNumber();
-        Value oldTensor = d2m::GenericOp::getOperandAlloc(region, operandIndex);
-        if (!oldTensor) {
-          oldTensor = findSharedOutputBuffer(op, operandCtx);
-        }
-        if (oldTensor && oldTensor.getDefiningOp()) {
-          OpBuilder::InsertionGuard guard(rewriter);
-          rewriter.setInsertionPoint(oldTensor.getDefiningOp());
-          if (auto getCbOp =
-                  mlir::dyn_cast<d2m::GetCBOp>(oldTensor.getDefiningOp())) {
-            // Update the get_cb op's result type to reflect the new shard
-            // shape, preserving it as a CBType.
-            auto oldCbType =
-                mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
-            auto oldUnderlying =
-                oldCbType.template getUnderlyingAs<MemRefType>();
-            auto newUnderlying =
-                MemRefType::get(shardShape, elementType,
-                                /*layout=*/MemRefLayoutAttrInterface{},
-                                oldUnderlying.getMemorySpace());
-            getCbOp.getResult().setType(
-                d2m::CBType::get(getCbOp.getContext(), newUnderlying));
-          } else {
-            Value newValue;
-            if (auto oldAllocOp = mlir::dyn_cast<memref::AllocOp>(
-                    oldTensor.getDefiningOp())) {
-              auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
-              auto cbLayout = ttcore::CBLayoutAttr::get(
-                  bufferType.getContext(), shardShape,
-                  ttcore::getElementSizeBytes(elementType), numStreamBuffers);
-              auto newAllocOp = rewriter.create<memref::AllocOp>(
-                  oldTensor.getLoc(),
-                  MemRefType::get(shardShape, elementType, cbLayout,
-                                  oldMemRefType.getMemorySpace()));
-              // Transfer address and alignment from the old alloc (assigned
-              // by the planner in assignAllocAddresses).
-              if (auto addrAttr = oldAllocOp->getAttr("address")) {
-                newAllocOp->setAttr("address", addrAttr);
-              }
-              if (auto alignAttr = oldAllocOp.getAlignmentAttr()) {
-                newAllocOp.setAlignmentAttr(alignAttr);
-              }
-              newValue = newAllocOp.getResult();
-            } else {
-              auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
-                  oldTensor.getLoc(), shardShape, elementType);
-              newValue = newEmptyOp.getResult();
-            }
-            rewriter.replaceAllUsesWith(oldTensor, newValue);
-            rewriter.eraseOp(oldTensor.getDefiningOp());
-          }
+  LogicalResult markSynchronizedOpBuffers(func::FuncOp funcOp) {
+    IRRewriter rewriter(funcOp->getContext());
+    // Use getCBUsageInfo to determine which in-generic allocs are used for
+    // synchronization and mark them with d2m.synchronized_buffer attribute
+    funcOp->walk([&](d2m::GenericOp genericOp) {
+      auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
+      for (auto &[cb, usageInfo] : cbUsageInfo) {
+        llvm::errs() << "marking alloc as synchronized buffer:\n"
+                     << *cb.getDefiningOp();
+        if (auto allocOp =
+                mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
+          allocOp->setAttr("d2m.synchronized_buffer",
+                           rewriter.getI32IntegerAttr(numStreamBuffers));
         }
       }
-    }
-    rewriter.finalizeOpModification(op);
-
+    });
     return success();
   }
 
@@ -1694,223 +1448,54 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
   /// @return `true` iff the operand's defining chain includes a non-identity
   /// view remapping.
-  static bool isNonTrivialView(const OperandContext &operandCtx) {
-    return allocation::hasNonTrivialView(operandCtx.operand->get());
+  static bool isNonTrivialView(const Value &operand) {
+    return allocation::hasNonTrivialView(operand);
   }
 
-  struct SharedLoadStoreInfo {
-    Value localBuffer;
-    Value loadMemref;
-    Value storeMemref;
-  };
-
-  static std::optional<SharedLoadStoreInfo>
-  getSharedLoadStoreInfo(Value localBuffer) {
-    if (!localBuffer) {
-      return std::nullopt;
-    }
-
-    SharedLoadStoreInfo info{localBuffer, Value(), Value()};
-    for (Operation *userOp : localBuffer.getUsers()) {
-      if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(userOp)) {
-        if (loadOp.getLocalBuffer() == localBuffer) {
-          info.loadMemref = loadOp.getMemref();
-          continue;
-        }
-      }
-      if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(userOp)) {
-        if (storeOp.getLocalBuffer() == localBuffer) {
-          info.storeMemref = storeOp.getMemref();
-        }
-      }
-    }
-
-    if (!info.loadMemref || !info.storeMemref ||
-        info.loadMemref == info.storeMemref) {
-      return std::nullopt;
-    }
-
-    return info;
-  }
-
-  static bool isOperandAliasOfValue(const OperandContext &operandCtx,
-                                    Value value) {
-    if (!value) {
-      return false;
-    }
-    if (operandCtx.operand->get() == value) {
-      return true;
-    }
-    for (const ChainRoot &chainRoot : operandCtx.chainRoots) {
-      if (chainRoot.root == value) {
-        return true;
-      }
-      for (Operation *opOnChain : chainRoot.defChain) {
-        if (opOnChain->getNumResults() == 1 &&
-            opOnChain->getResult(0) == value) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  Value findLocalBufferForOperandLoadStore(d2m::GenericOp genericOp,
-                                           const OperandContext &operandCtx) {
-    Value localBuffer;
-    genericOp->walk([&](Operation *op) {
-      if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(op)) {
-        if (loadOp.getMemref() == operandCtx.operand->get()) {
-          localBuffer = loadOp.getLocalBuffer();
-          return WalkResult::interrupt();
-        }
-      } else if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(op)) {
-        if (storeOp.getMemref() == operandCtx.operand->get()) {
-          localBuffer = storeOp.getLocalBuffer();
-          return WalkResult::interrupt();
-        }
-      }
-      return WalkResult::advance();
-    });
-    return localBuffer;
-  }
-
-  static const OperandContext *
-  findOperandContextForAlias(const GenericOpContext &genericCtx, Value alias,
-                             const OperandContext &excludeOperandCtx) {
-    for (const OperandContext &candidateCtx : genericCtx.operands) {
-      if (&candidateCtx == &excludeOperandCtx) {
-        continue;
-      }
-      if (isOperandAliasOfValue(candidateCtx, alias)) {
-        return &candidateCtx;
-      }
-    }
-    return nullptr;
-  }
-
-  static const OperandContext *
-  findSharedPeerOperandContext(d2m::GenericOp genericOp,
-                               const GenericOpContext &genericCtx,
-                               const OperandContext &operandCtx) {
-    Value operandValue = operandCtx.operand->get();
-    for (Region &region : genericOp->getRegions()) {
-      TT_assert(region.hasOneBlock());
-      const OperandContext *peerCtx = nullptr;
-      WalkResult result = region.front().walk([&](Operation *op) {
-        Value localBuffer;
-        if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(op)) {
-          if (loadOp.getMemref() != operandValue) {
-            return WalkResult::advance();
-          }
-          localBuffer = loadOp.getLocalBuffer();
-        } else if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(op)) {
-          if (storeOp.getMemref() != operandValue) {
-            return WalkResult::advance();
-          }
-          localBuffer = storeOp.getLocalBuffer();
-        } else {
-          return WalkResult::advance();
-        }
-
-        std::optional<SharedLoadStoreInfo> sharedInfo =
-            getSharedLoadStoreInfo(localBuffer);
-        if (!sharedInfo) {
-          return WalkResult::advance();
-        }
-
-        Value peerAlias = sharedInfo->loadMemref == operandValue
-                              ? sharedInfo->storeMemref
-                              : sharedInfo->loadMemref;
-        peerCtx = findOperandContextForAlias(genericCtx, peerAlias, operandCtx);
-        if (!peerCtx) {
-          return WalkResult::advance();
-        }
-
-        return WalkResult::interrupt();
-      });
-      (void)result;
-      if (peerCtx) {
-        return peerCtx;
-      }
-    }
-
-    return nullptr;
-  }
-
-  static Value findSharedOutputBuffer(d2m::GenericOp genericOp,
-                                      const OperandContext &operandCtx) {
-    if (!operandCtx.isOutput) {
-      return Value();
-    }
-
-    Value operandValue = operandCtx.operand->get();
-    for (Region &region : genericOp->getRegions()) {
-      TT_assert(region.hasOneBlock());
-      Value sharedBuffer;
-      WalkResult result = region.front().walk([&](d2m::RemoteStoreOp storeOp) {
-        if (storeOp.getMemref() != operandValue) {
-          return WalkResult::advance();
-        }
-        Value localBuffer = storeOp.getLocalBuffer();
-        if (getSharedLoadStoreInfo(localBuffer)) {
-          sharedBuffer = localBuffer;
-          return WalkResult::interrupt();
-        }
-        return WalkResult::advance();
-      });
-      (void)result;
-      if (sharedBuffer) {
-        return sharedBuffer;
-      }
-    }
-
-    return Value();
-  }
-
-  bool requiresCBAllocation(d2m::GenericOp genericOp,
-                            const GenericOpContext &genericCtx,
-                            const OperandContext &operandCtx,
-                            MemorySpace memspace) const {
-    if (isOperandExemptFromStreaming(operandCtx, memspace)) {
-      return false;
-    }
-    return inferStreamRequirement(genericOp, genericCtx, operandCtx, memspace);
-  }
-
+  // TODO: remove since no longer used
   /// @return `true` if `operandCtx` is an output that is exempt from stream
   /// insertion. Currently, this is true for outputs when L1 output spilling is
   /// disabled and the output is a trivial view.
   bool isOperandExemptFromStreaming(const OperandContext &operandCtx,
                                     MemorySpace memspace) const {
-    if (isNonTrivialView(operandCtx)) {
+    if (isNonTrivialView(operandCtx.operand->get())) {
       return false;
     }
     return operandCtx.isOutput && !allowL1OutputSpilling &&
            memspace != MemorySpace::DeviceDRAM;
   }
 
+  // TODO: move into some DMA utils place alongside load/store aliasing logic
+  // which should be separated out to separate function after
   /// @return `true` if `genericOp` requires a stream
   /// for operand @`operandIndex` based on the available indexing space
   /// information, excluding any blocked-operand forcing.
-  bool inferBaseStreamRequirement(d2m::GenericOp genericOp,
-                                  const OperandContext &operandCtx,
-                                  MemorySpace memspace) const {
-    if (useAlwaysStreamPolicy()) {
+  bool canAliasOperand(d2m::GenericOp genericOp, Value memrefOperand) const {
+    auto memspace =
+        ttcore::getMemorySpace(mlir::cast<MemRefType>(memrefOperand.getType()));
+    auto operandIndex = genericOp.getOperandIndex(memrefOperand);
+    bool isOutput = llvm::find_if(genericOp.getOutputs(), [&](Value operand) {
+                      return operand == memrefOperand;
+                    }) != genericOp.getOutputs().end();
+    // TODO: remove???
+    if (!isNonTrivialView(memrefOperand) && isOutput &&
+        !allowL1OutputSpilling && memspace != MemorySpace::DeviceDRAM) {
       return true;
+    }
+
+    if (useAlwaysStreamPolicy()) {
+      return false;
     }
 
     // Non-trivial views need a stream to represent the implied data movement.
-    if (isNonTrivialView(operandCtx)) {
-      return true;
+    if (isNonTrivialView(memrefOperand)) {
+      return false;
     }
-
-    const uint32_t operandIndex = operandCtx.operandIndex();
 
     // DRAM operands always need streams because data must physically
     // move between DRAM and L1 circular buffers.
     if (memspace == MemorySpace::DeviceDRAM) {
-      return true;
+      return false;
     }
 
     // Early out if in explicit datamovement form (no indexing map info
@@ -1919,6 +1504,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return false;
     }
 
+    // TODO: remove??? redundant with mcast load check; call this function
+    // needsDMA and then used isAliasedLoad and isAliasedStore to check if
+    // load/store is aliasable
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
 
     const auto broadcastDims = indexingMap.getBroadcastDims();
@@ -1927,34 +1515,27 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (std::size_t resultIndex = 0; resultIndex < indexingMap.getNumResults();
          ++resultIndex) {
       if (llvm::is_contained(broadcastDims, resultIndex)) {
-        return true;
+        return false;
       }
       if (iteratorTypes[indexingMap.getDimPosition(resultIndex)] ==
           ttcore::IteratorType::Reduction) {
-        return true;
+        return false;
       }
     };
 
-    return false;
+    return true;
   }
 
-  bool inferStreamRequirement(d2m::GenericOp genericOp,
-                              const GenericOpContext &genericCtx,
-                              const OperandContext &operandCtx,
-                              MemorySpace memspace) const {
-    if (!inferBaseStreamRequirement(genericOp, operandCtx, memspace)) {
-      return false;
-    }
+  bool isAliasedLoad(RemoteLoadOp loadOp) {
+    return canAliasOperand(loadOp->getParentOfType<d2m::GenericOp>(),
+                           loadOp.getMemref()) &&
+           !loadOp.isMcast();
+  }
 
-    const OperandContext *sharedPeerCtx =
-        findSharedPeerOperandContext(genericOp, genericCtx, operandCtx);
-    if (!sharedPeerCtx) {
-      return true;
-    }
-
-    const MemorySpace peerMemspace =
-        ttcore::getMemorySpace(sharedPeerCtx->operand->get().getType());
-    return inferBaseStreamRequirement(genericOp, *sharedPeerCtx, peerMemspace);
+  bool isAliasedStore(RemoteStoreOp storeOp) {
+    return canAliasOperand(storeOp->getParentOfType<d2m::GenericOp>(),
+                           storeOp.getMemref()) &&
+           storeOp.getStartDevice().empty();
   }
 
   static void assignAddressAndAlignment(RewriterBase &rewriter,
