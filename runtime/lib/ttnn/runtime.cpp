@@ -13,6 +13,7 @@
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include "operations/conv/conv2d.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
@@ -528,6 +529,9 @@ void closeMeshDevice(Device parentMesh) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   ::tt::tt_metal::ReadMeshDeviceProfilerResults(ttnnMeshDevice);
 #endif
+  // Release cached conv2d prepared weights before the device closes so that
+  // Tensor::~Tensor() runs while GraphTracker is still alive (issue #7414).
+  operations::conv::clearConv2dPrepareCache();
   ttnnMeshDevice.close();
 }
 
