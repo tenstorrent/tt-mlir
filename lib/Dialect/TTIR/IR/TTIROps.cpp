@@ -3550,6 +3550,98 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   return success();
 }
 
+// EmbeddingOp canonicalization
+//
+// Squeeze unit dimensions out of the index tensor before the embedding lookup,
+// then reshape the result back to the original output shape.
+//
+//   Examples:
+//   Embedding([A,1],   [N,B]) -> Reshape(Embedding([A],   [N,B]), [A,1,B])
+//   Embedding([1,A],   [N,B]) -> Reshape(Embedding([A],   [N,B]), [1,A,B])
+//   Embedding([1,A,1], [N,B]) -> Reshape(Embedding([A],   [N,B]), [1,A,1,B])
+//
+// The pattern does not run when:
+//   - The input has no unit dimensions (nothing to squeeze).
+//   - The input is not produced by a ReshapeOp or the output is not connected
+//   to a ReshapeOp.
+//
+// If index tensor is all unit dimensions, it is reshaped to a scalar index
+// tensor.
+//   Embedding([1,1,1], [N,B]) -> Reshape(Embedding([1], [N,B]), [1,B])
+//
+void mlir::tt::ttir::EmbeddingOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](mlir::tt::ttir::EmbeddingOp op,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    // Do not apply when the indices are not produced by a ReshapeOp or when the
+    // output is not connected to a ReshapeOp.
+    bool inputFromReshape =
+        op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>() != nullptr;
+    bool outputToReshape =
+        !op->use_empty() &&
+        llvm::all_of(op->getUsers(), [](mlir::Operation *user) {
+          return mlir::isa<mlir::tt::ttir::ReshapeOp>(user);
+        });
+    if (!inputFromReshape || !outputToReshape) {
+      return failure();
+    }
+
+    RankedTensorType inputType = op.getInput().getType();
+
+    // Compute the squeezed shape by dropping all unit dimensions.
+    SmallVector<int64_t> squeezedShape;
+    for (int64_t dim : inputType.getShape()) {
+      if (dim != 1) {
+        squeezedShape.push_back(dim);
+      }
+    }
+
+    // Index tensor is made up of unit dimensions only, so push back a 1.
+    if (squeezedShape.empty()) {
+      squeezedShape.push_back(1);
+    }
+
+    // Nothing to do when there are no unit dimensions to remove.
+    if (static_cast<int64_t>(squeezedShape.size()) == inputType.getRank()) {
+      return failure();
+    }
+
+    RankedTensorType resultType = op.getType();
+    assert(!resultType.getEncoding() && "EmbeddingOp should not have a layout");
+
+    int64_t B = resultType.getDimSize(resultType.getRank() - 1);
+
+    // Reshape input to the squeezed index shape.
+    auto squeezedInputType =
+        RankedTensorType::get(squeezedShape, inputType.getElementType());
+    SmallVector<int32_t> squeezedInputShapeAttr(squeezedShape.begin(),
+                                                squeezedShape.end());
+    auto squeezedInput = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+        op.getLoc(), squeezedInputType, op.getInput(),
+        rewriter.getI32ArrayAttr(squeezedInputShapeAttr));
+
+    // Create a new embedding op with result shape: squeezedShape + [B].
+    SmallVector<int64_t> newResultShape(squeezedShape);
+    newResultShape.push_back(B);
+    auto newResultType =
+        RankedTensorType::get(newResultShape, resultType.getElementType());
+    auto newEmbedding = rewriter.create<mlir::tt::ttir::EmbeddingOp>(
+        op.getLoc(), newResultType, squeezedInput.getResult(), op.getWeight());
+
+    // Reshape back to the original result shape so all consumers are
+    // unaffected.
+    SmallVector<int32_t> origResultShape;
+    for (int64_t dim : resultType.getShape()) {
+      origResultShape.push_back(static_cast<int32_t>(dim));
+    }
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
+        op, resultType, newEmbedding.getResult(),
+        rewriter.getI32ArrayAttr(origResultShape));
+
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // EmbeddingBackwardOp
 //===----------------------------------------------------------------------===//
