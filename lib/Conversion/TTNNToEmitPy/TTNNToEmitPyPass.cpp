@@ -127,22 +127,23 @@ struct ConvertTTNNToEmitPyPass
         return;
       }
 
-      // Add device argument to the const-eval function signature.
+      // Append a device argument to the const-eval function signature.
+      // Use `insertArgument` so the function type, entry-block arguments, and
+      // `arg_attrs` array are grown atomically — calling `setArgAttr` after a
+      // manual `setFunctionType`/`addArgument` would index past the end of an
+      // existing `arg_attrs` array (e.g., when an arg already carries
+      // `ttir.conv2d_weight`).
       //
-      auto originalFuncType = funcOp.getFunctionType();
-      SmallVector<Type> newInputTypes(originalFuncType.getInputs().begin(),
-                                      originalFuncType.getInputs().end());
-      newInputTypes.push_back(deviceType);
-      auto newFuncType = FunctionType::get(&getContext(), newInputTypes,
-                                           originalFuncType.getResults());
-
-      funcOp.setFunctionType(newFuncType);
-
-      Block &entryBlock = funcOp.getBody().front();
-      BlockArgument deviceArg =
-          entryBlock.addArgument(deviceType, funcOp.getLoc());
-      funcOp.setArgAttr(newInputTypes.size() - 1, ttnn_to_emitpy::kNameAttr,
-                        rewriter.getStringAttr("device"));
+      unsigned deviceArgIndex = funcOp.getNumArguments();
+      DictionaryAttr deviceArgAttrs =
+          rewriter.getDictionaryAttr({rewriter.getNamedAttr(
+              ttnn_to_emitpy::kNameAttr, rewriter.getStringAttr("device"))});
+      if (failed(funcOp.insertArgument(deviceArgIndex, deviceType,
+                                       deviceArgAttrs, funcOp.getLoc()))) {
+        signalPassFailure();
+        return;
+      }
+      BlockArgument deviceArg = funcOp.getArgument(deviceArgIndex);
 
       // Replace all GetDeviceOp operations with the new device argument.
       //
