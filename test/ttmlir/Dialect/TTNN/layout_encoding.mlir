@@ -16,7 +16,7 @@ module {
 // -----
 
 // Verify that verification fails if a sharded TTNN layout is missing its
-// core_range_set (DRAM-sharded path).
+// core_range_set.
 #dram = #ttnn.buffer_type<dram>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<32x4xf32, #dram>, <width_sharded>>
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <width_sharded>>

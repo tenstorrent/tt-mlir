@@ -71,6 +71,9 @@ private:
     bool isL1Sharded() const {
       return bufferType == ttnn::BufferType::L1 && isSharded();
     }
+    bool isDramSharded() const {
+      return bufferType == ttnn::BufferType::DRAM && isSharded();
+    }
     bool isOnHost() const {
       return bufferType == ttnn::BufferType::SystemMemory;
     }
@@ -162,6 +165,18 @@ private:
            dataType == ttcore::DataType::Float32 ||
            dataType == ttcore::DataType::UInt32 ||
            dataType == ttcore::DataType::Int32;
+  }
+
+  bool canUntilizeOnDevice(const LayoutInfo &input,
+                           const LayoutInfo &output) const {
+    if (!canUntilizeDataTypeOnDevice(output.dataType)) {
+      return false;
+    }
+
+    // ttnn.untilize cannot operate on DRAM-sharded tensors - tt-metal issue
+    // #43975.
+    //
+    return !input.isDramSharded() && !output.isDramSharded();
   }
 
   std::pair<LayoutInfo, LayoutInfo>
@@ -651,7 +666,7 @@ private:
 
     // If the output is on device and we can untilize on device, move to device
     // and untilize.
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -664,8 +679,7 @@ private:
 
     // If the output is on device and we should untilize, we untilize on
     // host and then move the tensor to device.
-    if (info.shouldUntilize() &&
-        !canUntilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output)) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -805,9 +819,9 @@ private:
       return;
     }
 
-    // If we can untilize the output data type on device, move to device if
+    // If we can untilize on device, move to device if
     // needed, perform the typecast first and then untilize
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
@@ -820,10 +834,8 @@ private:
       return;
     }
 
-    // If we cannot untilize the output data type on device, untilize and
-    // typecast on host
-    if (info.shouldUntilize() &&
-        !canUntilizeDataTypeOnDevice(output.dataType)) {
+    // If we cannot untilize on device, untilize and typecast on host
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -946,17 +958,15 @@ private:
       return;
     }
 
-    // If the output data type is untilizable on device, untilize on device
+    // If we can untilize on device, untilize on device
     // then move to host.
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
-      if (input.isSharded() || (input.bufferType == ttnn::BufferType::L1 &&
-                                output.bufferType == ttnn::BufferType::DRAM)) {
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
+      if (input.isL1Sharded() ||
+          (input.bufferType == ttnn::BufferType::L1 &&
+           output.bufferType == ttnn::BufferType::DRAM)) {
         // Move to target memory first, then untilize.
-        // Sharded input: unshard first.  ttnn.untilize's multicore path
-        // does not support DRAM-sharded inputs (tt-metal:
-        // untilize_device_operation.cpp — "Multicore implementation
-        // doesn't support DRAM sharding"), and the L1 sharded -> sharded
-        // path is similarly unsupported.
+        // L1 sharded: unshard first since untilize doesn't support
+        // sharded input with sharded output.
         // L1 interleaved → DRAM: move to DRAM while still tiled
         // (compact), then untilize in DRAM. Untilizing in L1 creates a
         // large row-major intermediate whose subsequent prim::copy CBs
@@ -977,9 +987,9 @@ private:
       return;
     }
 
-    // If we want to untilize, but the output data type is not untilizable on
+    // If we want to untilize, but we cannot untilize on
     // device, move to host and then untilize
-    if (info.shouldUntilize() && !canUntilizeDataTypeOnDevice(input.dataType) &&
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output) &&
         opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
@@ -992,7 +1002,7 @@ private:
     // This is a rare untilize case, where we want to untilize a device tensor
     // but keep it on device. To handle this we need to move the tensor to host,
     // untilize it, and then move it back to device
-    if (info.shouldUntilize() && !canUntilizeDataTypeOnDevice(input.dataType) &&
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output) &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
@@ -1161,9 +1171,9 @@ private:
       return;
     }
 
-    // If we need to untilize and the output data type can be untilized on
+    // If we need to untilize and the output can be untilized on
     // device typecast and untilize on device
-    if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -1174,10 +1184,9 @@ private:
       return;
     }
 
-    // If we need to untilize and the output data type cannot be untilized on
+    // If we need to untilize and the output cannot be untilized on
     // device typecast on device then untilize on host
-    if (info.shouldUntilize() &&
-        !canUntilizeDataTypeOnDevice(output.dataType) &&
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output) &&
         opsToCreate.createFromDeviceOp) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
@@ -1189,11 +1198,10 @@ private:
       return;
     }
 
-    // In case of device to device untilize, where the output data type cannot
-    // be untilized on device, typecast on device, untilize on host, then move
+    // In case of device to device untilize, where we cannot
+    // untilize on device, typecast on device, untilize on host, then move
     // back to device
-    if (info.shouldUntilize() &&
-        !canUntilizeDataTypeOnDevice(output.dataType) &&
+    if (info.shouldUntilize() && !canUntilizeOnDevice(input, output) &&
         !opsToCreate.createFromDeviceOp) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
@@ -1203,8 +1211,6 @@ private:
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
                                                     info, /*forceCreate=*/true);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
       return;
     }

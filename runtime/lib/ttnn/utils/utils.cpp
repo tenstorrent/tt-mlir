@@ -118,13 +118,19 @@ bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
 
 // tt-metal untilize does not support ND sharding. See:
 // https://github.com/tenstorrent/tt-metal/issues/35418
+//
+// additionally, tt-metal untilize does not support DRAM-sharded tensors.
+// See: https://github.com/tenstorrent/tt-metal/issues/43975.
 bool canUntilizeOnDevice(
     const ::ttnn::DataType &dataType,
     const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
   bool notSharded = !memoryConfig.has_value() || !memoryConfig->is_sharded();
   bool legacySharded =
       memoryConfig.has_value() && memoryConfig->shard_spec().has_value();
-  return canUntilizeDataTypeOnDevice(dataType) && (notSharded || legacySharded);
+  bool dramSharded =
+      legacySharded && memoryConfig->buffer_type() == ::ttnn::BufferType::DRAM;
+  return canUntilizeDataTypeOnDevice(dataType) &&
+         (notSharded || (legacySharded && !dramSharded));
 }
 
 const ::tt::target::ttnn::TTNNBinary *
@@ -387,12 +393,9 @@ fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
 
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
-  // Preserve the order of core ranges as emitted by the compiler.
-  // Some DRAM-sharded kernels rely on the bank-to-worker assignment order
-  // implied by the CoreRangeSet (e.g. when carrying the result of
-  // get_optimal_dram_bank_to_logical_worker_assignment through the
-  // flatbuffer).  std::set would re-sort by start_coord and silently
-  // destroy that ordering.
+  // Even though `CoreRangeSet`'s naming implies usage of std::set,
+  // it's important that the order of core ranges is preserved,
+  // so we use std::vector here to maintain the order as originally defined.
   std::vector<tt::tt_metal::CoreRange> coreRanges;
   coreRanges.reserve(coreRangeSet.core_ranges()->size());
   for (const tt::target::ttnn::CoreRange *coreRange :

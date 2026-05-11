@@ -112,7 +112,7 @@ verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
 // Checks:
 // 1. If memory layout is present then:
 //   - System memory buffer type is not allowed
-//   - DRAM buffer type doesn't suport BlockSharded layout
+//   - DRAM buffer type doesn't support BlockSharded layout
 // 2. If memory layout is not present then:
 //   - Buffer type must be SystemMemory
 llvm::LogicalResult verifyBufferAndMemoryLayout(
@@ -142,7 +142,7 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
 //   - Buffer type must be a device buffer (L1 or DRAM)
 //   - Tensor memory layout must be sharded: HeightSharded, WidthSharded,
 //   BlockSharded
-//   - DRAM buffer type only supports HeightSharded / WidthSharded/
+//   - DRAM buffer type only supports HeightSharded / WidthSharded layouts.
 llvm::LogicalResult
 verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                BufferType bufferType, TensorMemoryLayoutAttr memLayoutAttr,

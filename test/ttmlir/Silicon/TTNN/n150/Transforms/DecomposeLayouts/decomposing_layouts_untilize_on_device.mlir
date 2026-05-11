@@ -13,7 +13,6 @@
 #ttnn_layout_device_l1_rm_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1024xf32, #l1>, <interleaved>>
 #ttnn_layout_device_l1_block_sharded_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <4x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,3)>]>>
 #ttnn_layout_device_dram_rm_bf16_small = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x256xbf16, #dram>, <interleaved>>
-#ttnn_layout_device_dram_width_sharded_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>>
 module attributes {} {
 
     // Test: L1 interleaved tile -> DRAM interleaved row-major (bf16).
@@ -76,21 +75,6 @@ module attributes {} {
         // CHECK-SAME: layout = #ttnn.layout<row_major>
         // CHECK: return %[[TO_LAYOUT]]
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x256xbf16, #ttnn_layout_device_l1_block_sharded_tile_bf16>) -> tensor<32x256xbf16, #ttnn_layout_device_dram_rm_bf16_small>
-        return %0 : tensor<32x256xbf16, #ttnn_layout_device_dram_rm_bf16_small>
-    }
-
-    // Test: DRAM width sharded tile -> DRAM interleaved row-major (bf16).
-    // Verify we unshard to DRAM-interleaved first (toMemoryConfig), then
-    // untilize (toLayout).  ttnn.untilize's multicore path does not support
-    // DRAM-sharded inputs, so the unshard must precede the untilize.
-    func.func @from_dram_sharded_tile_to_dram_rm_bf16(%arg0: tensor<32x256xbf16, #ttnn_layout_device_dram_width_sharded_tile_bf16>) -> tensor<32x256xbf16, #ttnn_layout_device_dram_rm_bf16_small> {
-        // CHECK-LABEL: func.func @from_dram_sharded_tile_to_dram_rm_bf16
-        // CHECK: %[[MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%arg0)
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
-        // CHECK: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%[[MEM_CONFIG]])
-        // CHECK-SAME: layout = #ttnn.layout<row_major>
-        // CHECK: return %[[TO_LAYOUT]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x256xbf16, #ttnn_layout_device_dram_width_sharded_tile_bf16>) -> tensor<32x256xbf16, #ttnn_layout_device_dram_rm_bf16_small>
         return %0 : tensor<32x256xbf16, #ttnn_layout_device_dram_rm_bf16_small>
     }
 }

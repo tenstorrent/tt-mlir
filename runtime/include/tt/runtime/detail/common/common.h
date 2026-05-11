@@ -74,6 +74,9 @@ toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
 
 inline tt::tt_metal::CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
+  // Even though `CoreRangeSet`'s naming implies usage of std::set,
+  // it's important that the order of core ranges is preserved,
+  // so we use std::vector here to maintain the order as originally defined.
   std::vector<tt::tt_metal::CoreRange> coreRanges;
   coreRanges.reserve(coreRangeSet->size());
   for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {

@@ -35,7 +35,7 @@ module {
 #dram_block_sharded = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <2x4>, memref<2x2x!ttcore.tile<32x32, f32>, #dram>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (3, 1)>]>>
 module {
   func.func @forward(%arg0: tensor<128x256xf32, #dram_block_sharded>) -> tensor<128x256xf32, #dram_block_sharded> {
-    // CHECK: error: BlockSharded layout is not supported for DRAM buffer type; use WidthSharded or HeightSharded
+    // CHECK: error: BlockSharded layout is not supported for DRAM buffer type; use WidthSharded, HeightSharded or Interleaved
     %1 = "ttnn.relu"(%arg0) : (tensor<128x256xf32, #dram_block_sharded>) -> tensor<128x256xf32, #dram_block_sharded>
     return %1 : tensor<128x256xf32, #dram_block_sharded>
   }
