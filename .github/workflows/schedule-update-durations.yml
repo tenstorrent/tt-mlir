@@ -6,7 +6,8 @@ name: Update Test Durations
 
 on:
   workflow_dispatch:
-
+  schedule:
+    - cron: '0 7 * * 1'
 
 permissions:
   actions: read
