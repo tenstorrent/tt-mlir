@@ -79,13 +79,31 @@ static bool needsRankExpansion(Type type) {
 /// and/or flipping `keep_dim`) produces a verifier failure of the form
 /// "Expected output shape (...), got (...)". Wrapping with boundary reshapes
 /// preserves all three quantities together.
+///
+/// `ttir.dot_general` is included because its result rank is a function of
+/// the operand ranks (result rank = lhs_rank + rhs_rank - 2*|contract| -
+/// |batch|). Promoting only the operands to rank>=2 without also adjusting
+/// the result type and the batch/contract dim attributes produces an op
+/// whose declared result type is inconsistent with its operands. The
+/// inconsistency is silently carried through to
+/// `TTIRToTTIRDecomposition::DotGeneralToMatmulConversionPattern`, which
+/// rebuilds the output shape from the post-promotion operand ranks
+/// (e.g. (1x40960) x (1x64) -> 1x40960x1x64) and then `replaceOpWithNewOp`s
+/// the dot_general with a reshape of that 4D shape. The dialect-conversion
+/// framework inserts a `builtin.unrealized_conversion_cast` to bridge back
+/// to the dot_general's original 2D result type. That cast escapes
+/// `TTIRToTTNNCommon` (whose 1:1 type converter installs no materialization
+/// callback) and the pipeline aborts with "failed to legalize unresolved
+/// materialization that remained live after conversion". Wrapping with
+/// boundary reshapes keeps the op's operand and result types exactly as
+/// SHLO->TTIR declared them.
 static bool hasRankStrictOperandInvariants(Operation *op) {
   return isa<ttir::PagedUpdateCacheOp, ttir::PagedFillCacheOp,
              ttir::ScaledDotProductAttentionDecodeOp,
              ttir::PagedScaledDotProductAttentionDecodeOp,
              ttir::MeshShardOp, ttir::SumOp, ttir::MeanOp, ttir::MaxOp,
              ttir::MinOp, ttir::ProdOp, ttir::ReduceAndOp, ttir::ReduceOrOp,
-             ttir::ArgMaxOp>(op);
+             ttir::ArgMaxOp, ttir::DotGeneralOp>(op);
 }
 
 /// Public, defined functions are the module's external boundary (e.g. JAX's

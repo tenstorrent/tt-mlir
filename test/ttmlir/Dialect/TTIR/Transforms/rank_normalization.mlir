@@ -688,3 +688,96 @@ func.func public @boundary_func_masked_cross_entropy_chain(%arg0: tensor<2x4xf32
   %3 = "ttir.div"(%0, %2) : (tensor<f32>, tensor<f32>) -> tensor<f32>
   return %3 : tensor<f32>
 }
+
+// =============================================================================
+// dot_general rank-strict regression tests
+//
+// Background: `ttir.dot_general`'s result rank is
+//   lhs_rank + rhs_rank - 2*|contract| - |batch|.
+// If RankNormalization promotes the operands without also adjusting the result
+// type / contract / batch attributes, the op's declared result type stops
+// matching what its operands actually produce. The downstream
+// TTIRToTTIRDecomposition pass then rebuilds the shape from the post-promotion
+// operand ranks (e.g. (1x40960) x (1x64) -> 1x40960x1x64) and the dialect
+// conversion framework leaves behind an `unrealized_conversion_cast` that
+// TTIRToTTNNCommon's 1:1 type converter cannot resolve. Adding DotGeneralOp
+// to `hasRankStrictOperandInvariants` keeps its operand/result types exactly
+// as SHLO->TTIR declared them by wrapping operands with boundary reshapes.
+//
+// The pattern below mirrors EasyDeL's rotary `compute_basic_frequencies`:
+//   einsum("i,j->ij", positions, inv_freqs) -> cos / sin / concat.
+// =============================================================================
+
+// Test: dot_general_outer_product_rank1_rank1 (private)
+// Both operands are rank-1, result is rank-2. The pass promotes the function
+// signature to rank-2 and wraps the rank-1 dot_general with boundary demote
+// reshapes, leaving the dot_general itself with rank-1 operands and a rank-2
+// result. After canonicalization the duplicate boundary reshapes (one pair
+// from Phase 1a, one pair materialized by the type converter) fold to a
+// single demote per operand.
+// CHECK-LABEL: func.func private @dot_general_outer_product_rank1_rank1
+// CHECK-SAME: (%arg0: tensor<1x40960xf32>, %arg1: tensor<1x64xf32>) -> tensor<40960x64xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: "ttir.dot_general"
+// CHECK-SAME: (tensor<40960xf32>, tensor<64xf32>) -> tensor<40960x64xf32>
+//
+// CHECK-CANON-LABEL: func.func private @dot_general_outer_product_rank1_rank1
+// CHECK-CANON-SAME: (%arg0: tensor<1x40960xf32>, %arg1: tensor<1x64xf32>) -> tensor<40960x64xf32>
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// After canonicalization there is exactly one demote reshape per operand and
+// the dot_general retains its rank-1 operand / rank-2 result signature.
+// CHECK-CANON-DAG: %[[L:.*]] = "ttir.reshape"(%arg0) <{shape = [40960 : i32]}> {ttir.boundary_reshape} : (tensor<1x40960xf32>) -> tensor<40960xf32>
+// CHECK-CANON-DAG: %[[R:.*]] = "ttir.reshape"(%arg1) <{shape = [64 : i32]}> {ttir.boundary_reshape} : (tensor<1x64xf32>) -> tensor<64xf32>
+// CHECK-CANON: %[[D:.*]] = "ttir.dot_general"(%[[L]], %[[R]])
+// CHECK-CANON-SAME: <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64>, contract_dims_rhs = array<i64>}>
+// CHECK-CANON-SAME: (tensor<40960xf32>, tensor<64xf32>) -> tensor<40960x64xf32>
+// CHECK-CANON: return %[[D]] : tensor<40960x64xf32>
+func.func private @dot_general_outer_product_rank1_rank1(%arg0: tensor<40960xf32>, %arg1: tensor<64xf32>) -> tensor<40960x64xf32> {
+  %0 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64>, contract_dims_rhs = array<i64>}> : (tensor<40960xf32>, tensor<64xf32>) -> tensor<40960x64xf32>
+  return %0 : tensor<40960x64xf32>
+}
+
+// Test: dot_general_already_rank2_unchanged (private)
+// Regression guard: when both operands are already rank>=2, the rank-strict
+// classification must be a complete no-op. No boundary reshapes anywhere.
+// CHECK-LABEL: func.func private @dot_general_already_rank2_unchanged
+// CHECK-SAME: (%arg0: tensor<16x32xf32>, %arg1: tensor<32x64xf32>) -> tensor<16x64xf32>
+// CHECK-NOT: ttir.reshape
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[D:.*]] = "ttir.dot_general"(%arg0, %arg1)
+// CHECK-SAME: <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}>
+// CHECK-SAME: (tensor<16x32xf32>, tensor<32x64xf32>) -> tensor<16x64xf32>
+// CHECK: return %[[D]] : tensor<16x64xf32>
+//
+// CHECK-CANON-LABEL: func.func private @dot_general_already_rank2_unchanged
+// CHECK-CANON-NOT: ttir.reshape
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// CHECK-CANON: "ttir.dot_general"(%arg0, %arg1)
+// CHECK-CANON-SAME: (tensor<16x32xf32>, tensor<32x64xf32>) -> tensor<16x64xf32>
+func.func private @dot_general_already_rank2_unchanged(%arg0: tensor<16x32xf32>, %arg1: tensor<32x64xf32>) -> tensor<16x64xf32> {
+  %0 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<16x32xf32>, tensor<32x64xf32>) -> tensor<16x64xf32>
+  return %0 : tensor<16x64xf32>
+}
+
+// Test: boundary_func_dot_general_outer_product_rank1_rank1 (public)
+// Same outer-product pattern but on a public boundary function. The function
+// signature stays rank-1; the entry reshape that would promote each arg to
+// rank-2 cancels with the rank-strict demote reshape after canonicalization,
+// leaving the dot_general operating directly on the rank-1 block arguments.
+// CHECK-LABEL: func.func public @boundary_func_dot_general_outer_product_rank1_rank1
+// CHECK-SAME: (%arg0: tensor<40960xf32>, %arg1: tensor<64xf32>) -> tensor<40960x64xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: "ttir.dot_general"
+// CHECK-SAME: (tensor<40960xf32>, tensor<64xf32>) -> tensor<40960x64xf32>
+//
+// CHECK-CANON-LABEL: func.func public @boundary_func_dot_general_outer_product_rank1_rank1
+// CHECK-CANON-SAME: (%arg0: tensor<40960xf32>, %arg1: tensor<64xf32>) -> tensor<40960x64xf32>
+// CHECK-CANON-NOT: ttir.reshape
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// CHECK-CANON: %[[D:.*]] = "ttir.dot_general"(%arg0, %arg1)
+// CHECK-CANON-SAME: (tensor<40960xf32>, tensor<64xf32>) -> tensor<40960x64xf32>
+// CHECK-CANON: return %[[D]] : tensor<40960x64xf32>
+func.func public @boundary_func_dot_general_outer_product_rank1_rank1(%arg0: tensor<40960xf32>, %arg1: tensor<64xf32>) -> tensor<40960x64xf32> {
+  %0 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64>, contract_dims_rhs = array<i64>}> : (tensor<40960xf32>, tensor<64xf32>) -> tensor<40960x64xf32>
+  return %0 : tensor<40960x64xf32>
+}
