@@ -1859,6 +1859,8 @@ public:
         typeConverter, funcOp.getContext(), "get_absolute_logical_x()");
     patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalYOp>>(
         typeConverter, funcOp.getContext(), "get_absolute_logical_y()");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyThreadIdOp>>(
+        typeConverter, funcOp.getContext(), "my_thread_id()");
 
     patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
                                                        funcOp.getContext());

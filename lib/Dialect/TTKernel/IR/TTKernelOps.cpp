@@ -494,6 +494,17 @@ void MyLogicalYOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
+void MyThreadIdOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  // Mirrors d2m::MyThreadIdOp range inference: v1 future-hardware target
+  // has 4 compute threads per L1 region. Update when the count is plumbed
+  // from the device descriptor.
+  constexpr uint64_t kNumComputeThreadsV1 = 4;
+  setResultRange(getResult(),
+                 getIndexRange(0, kNumComputeThreadsV1 - 1));
+}
+
 void NocAsyncReadBarrierOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   patterns.add(+[](NocAsyncReadBarrierOp op,

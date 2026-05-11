@@ -3899,6 +3899,25 @@ def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_",
     }];
 }
 
+def TTKernel_MyThreadIdOp : TTKernel_Op<"my_thread_id_",
+  [Pure, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+    let summary = "MyThreadId";
+    let description = [{
+      Lowers to a kernel-runtime call returning the compute thread id within
+      one L1 region, in [0, num_compute_threads). Target of D2M lowering for
+      d2m.my_thread_id. The corresponding kernel-side intrinsic is provided
+      by the hardware runtime on a parallel branch; this op may emit a
+      placeholder symbol until the runtime side is wired up.
+    }];
+
+    let arguments = (ins);
+    let results = (outs Index:$tid);
+
+    let assemblyFormat = [{
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_logical_x_to_translated", [Pure]> {
   let summary = "ConvertLogicalToTranslatedX";
   let description = [{

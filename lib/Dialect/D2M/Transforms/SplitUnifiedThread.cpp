@@ -139,11 +139,17 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     while (outermostOp->getParentOp() != genericOp.getOperation() &&
            !opsWithSynchronizableOps.contains(outermostOp->getParentOp())) {
       outermostOp = outermostOp->getParentOp();
+      // scf.forall with #d2m.compute_thread mapping is the compute-thread
+      // distribution construct; it sits between an inner linalg.generic and
+      // the surrounding blocking loop. It is part of the compute side, just
+      // like scf.for or linalg.generic, and the split pass should route it
+      // wholesale onto the compute thread.
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
+          !mlir::isa<scf::ForallOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {
         outermostOp->emitOpError(
-            "Parent ops containing compute ops must be scf.for or "
-            "linalg.generic");
+            "Parent ops containing compute ops must be scf.for, scf.forall, "
+            "or linalg.generic");
         walkFailed = true;
         return WalkResult::interrupt();
       }

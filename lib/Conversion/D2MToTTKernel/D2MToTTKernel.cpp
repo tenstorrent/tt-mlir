@@ -2587,6 +2587,21 @@ public:
 } // namespace
 
 namespace {
+class D2MMyThreadIdRewriter
+    : public OpConversionPattern<d2m::MyThreadIdOp> {
+public:
+  using OpConversionPattern<d2m::MyThreadIdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::MyThreadIdOp op, d2m::MyThreadIdOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::MyThreadIdOp>(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MMeshPositionRewriter
     : public OpConversionPattern<d2m::MeshPositionOp> {
 public:
@@ -3195,6 +3210,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
+               ttkernel::D2MMyThreadIdRewriter,
                ttkernel::D2MMeshPositionRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::D2MIndexedRowCopyRewriter,
