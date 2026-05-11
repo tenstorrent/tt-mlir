@@ -96,6 +96,7 @@ union OpType {
   MeshShardOp,
   MeshPartitionOp,
   MoeExpertTokenRemapOp,
+  MoeGptOp,
   CumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,

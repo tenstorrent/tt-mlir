@@ -33,6 +33,7 @@
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
 #include "operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
+#include "operations/experimental/ccl/moe_gpt/moe_gpt.hpp"
 #include "operations/experimental/ccl/rms_allgather/rms_allgather.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/dropout/dropout.hpp"

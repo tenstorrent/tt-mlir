@@ -1436,6 +1436,7 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::DeallocateOp:
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
+  case ::tt::target::ttnn::OpType::MoeGptOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp:
   case ::tt::target::ttnn::OpType::BreakpointOp:
   case ::tt::target::ttnn::OpType::PrintOp:
@@ -1894,6 +1895,15 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_MoeExpertTokenRemapOp()->topk_tensor(),
                   opContext.type_as_MoeExpertTokenRemapOp()->expert_mapping(),
                   opContext.type_as_MoeExpertTokenRemapOp()->expert_metadata()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeGptOp: {
+    tensorRefs = {opContext.type_as_MoeGptOp()->input_tensor(),
+                  opContext.type_as_MoeGptOp()->expert_indices(),
+                  opContext.type_as_MoeGptOp()->expert_scores(),
+                  opContext.type_as_MoeGptOp()->expert_mapping(),
+                  opContext.type_as_MoeGptOp()->w0_w1_tensor(),
+                  opContext.type_as_MoeGptOp()->w2_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
