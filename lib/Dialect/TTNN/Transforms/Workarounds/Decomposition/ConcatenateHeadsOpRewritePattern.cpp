@@ -13,57 +13,22 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 
-#include "llvm/Support/MathExtras.h"
-
 namespace mlir::tt::ttnn::workarounds::decomposition {
-
-namespace {
-
-// Upper bound on the per-core src0 CB we are willing to let through without
-// decomposing. We match the chip's usable L1 exactly (read off of the active
-// SystemDesc so we stay portable across arches): any extra headroom would be
-// arbitrary without a reliable way to account for the other allocations the
-// program makes, and tt-metal's own circular-buffer validation already rejects
-// anything that does not fit.
-uint64_t getConcatHeadsCbBudgetBytes(mlir::Operation *op) {
-  ttcore::ChipDescAttr chipDesc =
-      ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0];
-  return chipDesc.getUsableL1Size();
-}
-
-// Predict the per-core static circular-buffer allocation that tt-metal's
-// nlp_concat_heads kernel will request. The factory reserves
-//   per_tensor_tiles = num_heads * head_dim / TILE_WIDTH
-//   cb_src0_bytes    = per_tensor_tiles * 2 (double buffer) * single_tile_size
-// bytes on every core it runs on. When that exceeds what L1 can hold, program
-// validation fails before any kernel runs (see
-// ProgramImpl::validate_circular_buffer_region), so we pre-empt by decomposing
-// into permute + reshape which streams through small CBs.
-uint64_t estimateNlpConcatHeadsCbBytes(int64_t numHeads, int64_t headSize,
-                                       mlir::Type elementType) {
-  // Fall back to bf16 sizing when we cannot infer a bit width (e.g. tile
-  // encoded dtypes); bf16 is the dtype we see from TTNN lowering on prefill
-  // and it keeps the estimate conservative.
-  uint64_t elementBytes =
-      elementType.isIntOrFloat()
-          ? llvm::divideCeil<uint64_t>(elementType.getIntOrFloatBitWidth(), 8u)
-          : 2u;
-
-  constexpr uint64_t kTileHw =
-      static_cast<uint64_t>(ttnn::TILE_HEIGHT) * ttnn::TILE_WIDTH;
-  const uint64_t singleTileSize = kTileHw * elementBytes;
-  const uint64_t perTensorTiles =
-      (static_cast<uint64_t>(numHeads) * static_cast<uint64_t>(headSize)) /
-      ttnn::TILE_WIDTH;
-  return perTensorTiles * 2u /*double buffer*/ * singleTileSize;
-}
-
-} // namespace
 
 // Rewrite ConcatenateHeadsOp into PermuteOp + ReshapeOp when:
 //   * head size (input_shape[3]) is not divisible by tile size (32), or
-//   * the fused kernel's static per-core CB would exceed L1 (common for
-//     large num_heads * head_dim on small core grids during prefill).
+//   * the fused kernel's static per-core src0 CB would exceed the chip's
+//     usable L1 (common for large num_heads * head_dim on small core
+//     grids during prefill).
+//
+// tt-metal's nlp_concat_heads kernel reserves a per-core src0 CB of
+//   per_tensor_tiles = num_heads * head_dim / TILE_WIDTH
+//   cb_src0_bytes    = per_tensor_tiles * 2 (double buffer) * tile_bytes
+// on every core; when that exceeds L1, ProgramImpl rejects the program
+// before any kernel runs. We don't model any other allocations in L1 --
+// if a single CB already swallows the chip's usable L1, the fused path
+// has no chance, so decompose into permute + reshape which streams
+// through small CBs.
 LogicalResult ConcatenateHeadsOpRewritePattern::matchAndRewrite(
     ttnn::ConcatenateHeadsOp srcOp, PatternRewriter &rewriter) const {
 
@@ -80,10 +45,19 @@ LogicalResult ConcatenateHeadsOpRewritePattern::matchAndRewrite(
   const int64_t headSize = inputShape[INPUT_HEAD_SIZE];
 
   const bool headSizeNotTileAligned = (headSize % TILE_SIZE) != 0;
-  const bool cbWouldExceedL1 =
-      estimateNlpConcatHeadsCbBytes(numHeads, headSize,
-                                    inputType.getElementType()) >
-      getConcatHeadsCbBudgetBytes(srcOp);
+
+  const uint64_t elemSizeBytes =
+      ttcore::getElementSizeBytes(inputType.getElementType());
+  constexpr uint64_t kTileHw =
+      static_cast<uint64_t>(ttnn::TILE_HEIGHT) * ttnn::TILE_WIDTH;
+  const uint64_t perTensorTiles =
+      (static_cast<uint64_t>(numHeads) * static_cast<uint64_t>(headSize)) /
+      ttnn::TILE_WIDTH;
+  const uint64_t cbSrc0Bytes =
+      perTensorTiles * 2u /*double buffer*/ * (kTileHw * elemSizeBytes);
+  const uint64_t l1UsableSize =
+      ttcore::getOpChipDescAttr(srcOp).getUsableL1Size();
+  const bool cbWouldExceedL1 = cbSrc0Bytes > l1UsableSize;
 
   if (!headSizeNotTileAligned && !cbWouldExceedL1) {
     return failure();

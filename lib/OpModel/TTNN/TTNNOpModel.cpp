@@ -2642,35 +2642,6 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 namespace {
-// Coarse per-element byte size used only for estimating per-core K/V
-// circular-buffer pressure below. BFP variants are reported as the closest
-// whole-byte approximation; that is accurate enough for the L1 budget
-// threshold decision (the boundary between the default TTNN schedule and the
-// k_chunk_size=32 override is not sensitive to sub-byte precision).
-uint64_t pagedSdpaDecodeDataTypeBytes(ttcore::DataType dt) {
-  switch (dt) {
-  case ttcore::DataType::Float32:
-  case ttcore::DataType::UInt32:
-  case ttcore::DataType::Int32:
-    return 4;
-  case ttcore::DataType::Float16:
-  case ttcore::DataType::BFloat16:
-  case ttcore::DataType::UInt16:
-    return 2;
-  case ttcore::DataType::UInt8:
-  case ttcore::DataType::BFP_Float8:
-  case ttcore::DataType::BFP_BFloat8:
-    return 1;
-  case ttcore::DataType::BFP_Float4:
-  case ttcore::DataType::BFP_BFloat4:
-  case ttcore::DataType::BFP_Float2:
-  case ttcore::DataType::BFP_BFloat2:
-  case ttcore::DataType::Bool:
-    return 1;
-  }
-  return 2;
-}
-
 // Build the SDPAProgramConfig used by the paged SDPA decode op.
 //
 // IMPORTANT: this helper MUST stay in sync with the runtime-side logic in
@@ -2678,15 +2649,31 @@ uint64_t pagedSdpaDecodeDataTypeBytes(ttcore::DataType dt) {
 //   paged_scaled_dot_product_attention_decode.cpp
 // Both compile-time OpModel queries and the runtime executor must pick the
 // same program config; otherwise compile-time validation and execution
-// diverge. For example, on Blackhole the default TTNN schedule assigns one
-// core per head for each of the 10x11=110 compute cores, which violates
-// MAX_TREE_REDUCTION_ROUNDS (2^6 = 64 cores/head). The runtime caps
-// max_cores_per_head_batch to 64, and the constraint query must reflect that
-// cap to avoid a false-positive TTNNOperationValidationAndFallback failure.
+// diverge.
+//
+// tt-metal's SDPA decode program factory allocates the following static
+// per-core CBs (see sdpa_decode_program_factory.cpp):
+//
+//   k_tiles               = Sk_chunk_t_cb_size * DHt  * 2  // double-buffered
+//   v_tiles               = Sk_chunk_t_cb_size * vDHt * 2  // double-buffered
+//   intermed_output_tiles = (PNHt * vDHt + 2 * PNHt) * (num_cores_per_head - 1)
+//
+// where DHt = head_dim / TILE_WIDTH. num_cores_per_head is the
+// max_cores_per_head_batch chosen by the schedule, bounded by
+// MAX_TREE_REDUCTION_ROUNDS = 6 (i.e. 2^6 = 64 cores per head).
+//
+// Both K/V CBs and the intermed-output CB scale linearly with head_dim, and
+// the intermed-output CB also scales with num_cores_per_head. For large
+// head_dim (Gemma-4 31B uses 512) this overflows per-core L1 even on
+// Blackhole's 1.5 MB usable L1. Trigger an override schedule:
+// k_chunk_size=32 (bounds Sk_chunk_t_cb_size) plus max_cores_per_head_batch
+// capped at 32 (halves the intermed-output footprint vs the 64-core tree-
+// reduction limit). Gemma-4's sliding-window layers use head_dim=256 and
+// also need the override.
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
 buildPagedSdpaDecodeProgramConfig(
     ::tt::tt_metal::distributed::MeshDevice *device, uint32_t headDim,
-    uint32_t pageTableBlocks, uint64_t queryElementSize, bool isCausal) {
+    uint32_t pageTableBlocks, bool isCausal) {
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig;
   const auto computeGrid = device->compute_with_storage_grid_size();
@@ -2700,33 +2687,24 @@ buildPagedSdpaDecodeProgramConfig(
 
   const bool isBlackhole = device->arch() == ::tt::ARCH::BLACKHOLE;
 
-  // See runtime-side comments for the rationale of these heuristics.
   constexpr uint32_t kMaxSdpaDecodeCoresPerHeadBatch = 64u;
   constexpr uint32_t kPageTokens = 32u;
-  constexpr uint32_t kLargeHeadDimThreshold = 512u;
-  const uint64_t perPageKvBytes =
-      /*K+V*/ 2u * static_cast<uint64_t>(kPageTokens) *
-      static_cast<uint64_t>(headDim) * queryElementSize *
-      /*double buffer*/ 2u;
-  const uint64_t perCoreL1 = device->l1_size_per_core();
-  const uint64_t kvBudgetPerCore = perCoreL1 / 2u;
-  const bool needL1Override =
-      headDim >= kLargeHeadDimThreshold ||
-      (perPageKvBytes > 0 &&
-       perPageKvBytes * static_cast<uint64_t>(pageTableBlocks) >
-           kvBudgetPerCore);
+  constexpr uint32_t kOverrideHeadDimThreshold = 256u;
+  constexpr uint32_t kOverrideCoresCap = 32u;
 
+  const bool needL1Override = headDim >= kOverrideHeadDimThreshold;
   const uint32_t totalCores = computeGrid.x * computeGrid.y;
   const uint32_t coresCap =
       std::min(totalCores, kMaxSdpaDecodeCoresPerHeadBatch);
 
   if (needL1Override) {
+    const uint32_t overrideCap = std::min(coresCap, kOverrideCoresCap);
     programConfig.emplace();
     programConfig->q_chunk_size = 0;
     programConfig->k_chunk_size = kPageTokens;
     programConfig->compute_with_storage_grid_size = computeGrid;
     programConfig->max_cores_per_head_batch =
-        std::min(pageTableBlocks, coresCap);
+        std::min(pageTableBlocks, overrideCap);
   } else if (isBlackhole) {
     programConfig.emplace();
     programConfig->q_chunk_size = 0;
@@ -2794,13 +2772,11 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
 
   // Match the runtime-side program_config so validation mirrors what will
   // actually execute (see helper above).
-  const uint64_t queryElementBytes =
-      pagedSdpaDecodeDataTypeBytes(queryLayout.getDataType());
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig = buildPagedSdpaDecodeProgramConfig(
           device, /*headDim=*/static_cast<uint32_t>(queryShape.back()),
           /*pageTableBlocks=*/static_cast<uint32_t>(pageTableShape.back()),
-          queryElementBytes, isCausal);
+          isCausal);
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
@@ -2867,13 +2843,11 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
 
   // Match the runtime-side program_config so runtime estimates mirror what
   // will actually execute (see helper above).
-  const uint64_t queryElementBytes =
-      pagedSdpaDecodeDataTypeBytes(queryLayout.getDataType());
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig = buildPagedSdpaDecodeProgramConfig(
           device, /*headDim=*/static_cast<uint32_t>(queryShape.back()),
           /*pageTableBlocks=*/static_cast<uint32_t>(pageTableShape.back()),
-          queryElementBytes, isCausal);
+          isCausal);
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_RUNTIME(

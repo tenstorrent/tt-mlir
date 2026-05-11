@@ -6,8 +6,6 @@
 
 #include "tt/runtime/detail/ttnn/utils.h"
 
-#include <algorithm>
-
 namespace tt::runtime::ttnn::operations::transformer {
 static void runPagedScaledDotProductAttentionDecodeOp(
     const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp *op,
@@ -43,8 +41,11 @@ static void runPagedScaledDotProductAttentionDecodeOp(
   }
 
   std::optional<float> scale = op->scale();
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
-  const auto computeGrid = query.device()->compute_with_storage_grid_size();
+  std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
+  auto computeGrid = query.device()->compute_with_storage_grid_size();
+  if (op->core_grid()) {
+    computeGrid = ::tt::runtime::ttnn::utils::toTTNNCoreCoord(*op->core_grid());
+  }
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig = std::nullopt;
@@ -55,67 +56,56 @@ static void runPagedScaledDotProductAttentionDecodeOp(
   } else {
     const bool isBlackhole = query.device()->arch() == ::tt::ARCH::BLACKHOLE;
 
-    // TTNN SDPA decode reduces per-head partials via a binary tree whose depth
-    // is bounded by MAX_TREE_REDUCTION_ROUNDS = 6, so any schedule must keep
-    // max_cores_per_head_batch <= 2^6 = 64. Blackhole's 10x11 compute grid
-    // (110 cores) would otherwise trip the TT_FATAL in
-    // sdpa_decode_program_factory.cpp when used directly.
+    // tt-metal's SDPA decode program factory allocates the following static
+    // per-core CBs (see sdpa_decode_program_factory.cpp):
+    //
+    //   k_tiles                = Sk_chunk_t_cb_size * DHt  * 2  // double-buffered
+    //   v_tiles                = Sk_chunk_t_cb_size * vDHt * 2  // double-buffered
+    //   intermed_output_tiles  = (PNHt * vDHt + 2 * PNHt) * (num_cores_per_head - 1)
+    //
+    // where DHt = head_dim / TILE_WIDTH. num_cores_per_head is the
+    // max_cores_per_head_batch chosen by the schedule, bounded by
+    // MAX_TREE_REDUCTION_ROUNDS = 6 (i.e. 2^6 = 64 cores per head).
+    //
+    // Both K/V CBs and the intermed-output CB scale linearly with head_dim,
+    // and the intermed-output CB also scales with num_cores_per_head. For
+    // large head_dim (Gemma-4 31B uses 512) this overflows per-core L1 under
+    // the default schedule, even on Blackhole's 1.5 MB usable L1. We trigger
+    // an override schedule for those cases: pin k_chunk_size=32 (one page)
+    // to bound Sk_chunk_t_cb_size, and cap max_cores_per_head_batch at 32
+    // (vs the 64-core tree-reduction limit) to halve the intermed-output
+    // footprint.
+    //
+    // For Llama-class head_dim (128) the default schedule fits comfortably,
+    // so we leave it alone. Gemma-4's sliding-window layers use head_dim=256
+    // and still need the override -- the intermed-output CB at 64 cores per
+    // head is the bottleneck even when K/V residency is moderate.
     //
     // IMPORTANT: this logic is mirrored at compile time by
     //   lib/OpModel/TTNN/TTNNOpModel.cpp :: buildPagedSdpaDecodeProgramConfig
-    // so that the TTNNOperationValidationAndFallback pass sees the same
-    // program_config as the runtime. Keep both sites in sync when you edit
-    // the schedule below.
+    // so the TTNNOperationValidationAndFallback pass sees the same
+    // program_config the runtime will execute. Keep both sites in sync.
     constexpr uint32_t kMaxSdpaDecodeCoresPerHeadBatch = 64u;
+    constexpr uint32_t kPageTokens = 32u;
+    constexpr uint32_t kOverrideHeadDimThreshold = 256u;
+    constexpr uint32_t kOverrideCoresCap = 32u;
 
-    // Estimate per-core K/V circular-buffer pressure for the default TTNN
-    // causal schedule. The default path keeps resident K/V pages on every
-    // core per head, so footprint scales linearly with head_dim and the
-    // number of page-table blocks currently in flight. If that exceeds what
-    // we are willing to reserve in per-core L1, fall back to an explicit
-    // k_chunk_size=32 schedule which bounds parallelism to the number of
-    // resident page-table blocks (keeping static CBs small).
     const uint32_t headDim = query.padded_shape()[-1];
     const uint32_t pageTableBlocks = pageTable.padded_shape()[-1];
-    constexpr uint32_t kPageTokens = 32u;
-    constexpr uint32_t kLargeHeadDimThreshold = 512u;
-    const uint64_t dtypeBytes = query.element_size();
-    const uint64_t perPageKvBytes =
-        /*K+V*/ 2u * static_cast<uint64_t>(kPageTokens) *
-        static_cast<uint64_t>(headDim) * dtypeBytes *
-        /*double buffer*/ 2u;
-    const uint64_t perCoreL1 = query.device()->l1_size_per_core();
-    // Reserve half of per-core L1 for Q/O, softmax scratch, kernel code, and
-    // other overheads we do not model explicitly; give the rest to K/V
-    // residency.
-    const uint64_t kvBudgetPerCore = perCoreL1 / 2u;
-    // Force the L1-override schedule whenever head_dim is large (e.g.
-    // Gemma-4 global attention, head_dim=512). The K/V residency estimate
-    // alone underestimates total per-core CB pressure for these shapes
-    // because Q/O, attention-score, and partial-accumulator workspaces also
-    // scale with head_dim and tripped a static-CB overflow on Blackhole.
-    const bool needL1Override =
-        headDim >= kLargeHeadDimThreshold ||
-        (perPageKvBytes > 0 &&
-         perPageKvBytes * static_cast<uint64_t>(pageTableBlocks) >
-             kvBudgetPerCore);
+    const bool needL1Override = headDim >= kOverrideHeadDimThreshold;
 
     const uint32_t totalCores = computeGrid.x * computeGrid.y;
     const uint32_t coresCap =
         std::min(totalCores, kMaxSdpaDecodeCoresPerHeadBatch);
 
     if (needL1Override) {
-      // Large head_dim (e.g. Gemma-4 global_head_dim=512) or long contexts:
-      // default path would over-allocate L1. Pin K/V chunks to one page so
-      // static CBs stay small, and cap cores per head batch by the number of
-      // page-table blocks in the current request (further capped by the tree
-      // reduction limit).
+      const uint32_t overrideCap = std::min(coresCap, kOverrideCoresCap);
       programConfig.emplace();
       programConfig->q_chunk_size = 0;
       programConfig->k_chunk_size = kPageTokens;
       programConfig->compute_with_storage_grid_size = computeGrid;
       programConfig->max_cores_per_head_batch =
-          std::min(pageTableBlocks, coresCap);
+          std::min(pageTableBlocks, overrideCap);
     } else if (isBlackhole) {
       // Preserve the pre-existing Blackhole causal schedule
       // (k_chunk_size=0) with as many cores per head as the tree reduction
