@@ -48,27 +48,34 @@ deriveVirtualGridAttrs(Operation *anchorOp, ArrayRef<int64_t> selectedGrid,
   auto workerGridShape = device.getWorkerGrid().getShape();
   bool requiresVirtualization = ttmlir::d2m::utils::grids::requiresVirtualGrid(
       selectedGrid, workerGridShape);
-  if (!(requiresVirtualization || hasOffset)) {
+  if (!requiresVirtualization && !hasOffset) {
     return {mlir::AffineMapAttr(), mlir::AffineMapAttr()};
   }
-
-  SmallVector<int64_t> physicalGridShape;
+  AffineMap forwardMap;
+  AffineMap inverseMap;
   if (requiresVirtualization) {
-    physicalGridShape = utils::findLegalPhysicalGridForVolume(
-        ttmlir::utils::volume<int64_t>(selectedGrid), effectiveTargetGridShape);
+    SmallVector<int64_t> physicalGridShape =
+        utils::findLegalPhysicalGridForVolume(
+            ttmlir::utils::volume<int64_t>(selectedGrid),
+            effectiveTargetGridShape);
     TT_assertv(!physicalGridShape.empty(),
                "Unable to find 2D rect that can fit virtual grid {} within "
                "device grid {}",
                ttmlir::utils::formatIterable(selectedGrid, "x"),
                ttmlir::utils::formatIterable(effectiveTargetGridShape, "x"));
+    std::tie(forwardMap, inverseMap) =
+        ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            builder.getContext(), selectedGrid, physicalGridShape);
   } else {
-    // Offset-only remap: preserve the same local 2D grid shape and translate it
-    // into the effective target range by applying offset to the affine maps.
-    physicalGridShape = llvm::SmallVector<int64_t>(selectedGrid);
+    // Offset-only remap without virtualization: start from identity mappings.
+    TT_assertv(selectedGrid.size() == 2u,
+               "Expected 2D selected grid for offset-only remap");
+    unsigned rank = selectedGrid.size() * 2;
+    forwardMap = AffineMap::getMultiDimIdentityMap(rank, builder.getContext());
+    inverseMap =
+        ttmlir::utils::createIdentityGridInverseMap(builder.getContext());
   }
 
-  auto [forwardMap, inverseMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-      builder.getContext(), selectedGrid, physicalGridShape);
   if (hasOffset) {
     TT_assertv(effectiveTargetGridOffset.size() == 2u,
                "Expected 2D effective target grid offset");
