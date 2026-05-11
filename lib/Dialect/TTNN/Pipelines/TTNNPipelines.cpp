@@ -415,11 +415,8 @@ void createTTIRToTTNNCommonPipeline(
 
     // Bind distributed-op semaphores after the optimizer (core range derives
     // from the finalized input shard spec) and before trace hoisting (SSA
-    // values must be visible at the trace boundary). The CSE that follows
-    // folds identical create_global_semaphore ops across multiple distributed
-    // ops; on-device kernel reset makes sharing safe.
+    // values must be visible at the trace boundary).
     devicePm.addPass(createTTNNAllocateDistributedOpSemaphores());
-    devicePm.addPass(mlir::createCSEPass());
 
     // Trace hoisting must run before layout decomposition because it adjusts
     // layouts of function arguments (e.g. moving inputs to system_memory). It
