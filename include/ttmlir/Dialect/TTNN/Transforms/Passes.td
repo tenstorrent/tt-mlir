@@ -327,7 +327,7 @@ def TTNNCreateD2MSubgraphs: Pass<"ttnn-create-d2m-subgraphs", "::mlir::ModuleOp"
   let description = [{
     This pass identifies potential subgraphs that can be fused through D2M compilation,
     outlines each subgraph into a private function, and replaces the original ops
-    with a `ttnn.d2m_subgraph` op. Fusion through the D2M pipeline is done in D2MElementwiseFusion pass.
+    with a `ttnn.d2m_subgraph` op. Fusion through the D2M pipeline is done in D2MGenericFusion pass.
 
     Right now, this is limited to eltwise chains.
   }];

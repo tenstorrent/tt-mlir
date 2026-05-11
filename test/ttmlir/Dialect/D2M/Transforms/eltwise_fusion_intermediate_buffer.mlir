@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-elementwise-fusion %s | FileCheck %s
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-elementwise-fusion %s | FileCheck %s --check-prefix=UNIQUE12
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-elementwise-fusion %s | FileCheck %s --check-prefix=UNIQUE23
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-generic-fusion %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-generic-fusion %s | FileCheck %s --check-prefix=UNIQUE12
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --d2m-lower-to-layout --d2m-materialize-view-returns --d2m-generic-fusion %s | FileCheck %s --check-prefix=UNIQUE23
 
 module {
   func.func @three_op_chain(
