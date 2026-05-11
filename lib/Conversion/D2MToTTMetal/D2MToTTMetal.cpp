@@ -185,11 +185,10 @@ public:
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operandIndex = ioSize + i;
       auto operand = adaptor.getOperands()[operandIndex];
+      argMapping[operandIndex] = args.size();
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
-        argMapping[operandIndex] = args.size();
         args.push_back(operand);
       } else if (mlir::isa<ttmetal::LocalSemaphoreType>(operand.getType())) {
-        argMapping[operandIndex] = args.size();
         args.push_back(operand);
       } else if (auto memrefType =
                      mlir::dyn_cast_if_present<MemRefType>(operand.getType());
