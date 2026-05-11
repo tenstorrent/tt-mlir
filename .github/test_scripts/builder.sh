@@ -20,7 +20,7 @@ for flag in "${@:3}"; do
     [[ "$flag" == "require-opmodel" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-opmodel"
     if [[ "$flag" == split=*/* ]]; then
         group="${flag#split=}"
-        PYTEST_ARGS="$PYTEST_ARGS --splits ${group#*/} --group ${group%/*}"
+        PYTEST_ARGS="$PYTEST_ARGS --splits ${group#*/} --group ${group%/*} --durations-path .test_durations_${RUNS_ON}.json --splitting-algorithm least_duration"
     fi
 done
 
