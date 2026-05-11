@@ -959,6 +959,104 @@ def test_sdpa_decode_mask_broadcast_no_workaround(
 
 
 @pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        # concat [1993728, 3] + [1993728, 1] along last dim (dim=1, unaligned).
+        # 1993728 = 62304 * 32, so dim[0] is tile-aligned but last dims 3 and 1 are not.
+        # The internal ttnn.concat path untilizes → transpose(-2,-1) → concat → retilize.
+        # After transpose the new last dim becomes 1993728, so:
+        #   single_page_size = 4 * 1993728 * 2 ≈ 16 MB >> usable L1 (~1.5 MB).
+        ([(1993728, 3), (1993728, 1)], 1),
+    ],
+    ids=["2d_last_dim_1993728"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="ConcatOpRewritePattern: concat [1993728, 3] + [1993728, 1] along the last "
+    "dim=1 (unaligned) fails due to https://github.com/tenstorrent/tt-metal/issues/43371."
+)
+def test_concat_last_dim_unaligned_cb_exceeds_l1_without_workaround(
+    shapes: List[Shape],
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test concat with unaligned last dim whose CB overflows L1, workaround disabled.
+    Due to https://github.com/tenstorrent/tt-metal/issues/43371.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def concat_l1_cb_no_workaround_wrapper(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concat([in0, in1], dim=dim, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        # concat [1, 1993728, 3] + [1, 1993728, 1] along last dim (dim=2, unaligned).
+        # dim[-2] = 1993728 after the internal transpose, giving the same CB overflow
+        # as the 2D case: 4 * 1993728 * 2 ≈ 16 MB >> usable L1 (~1.5 MB).
+        # batch=1 is used to keep tensor size manageable (~23 MB + ~7.5 MB).
+        ([(1, 1993728, 3), (1, 1993728, 1)], 2),
+    ],
+    ids=["3d_last_dim_1993728"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="ConcatOpRewritePattern: concat [1, 1993728, 3] + [1, 1993728, 1] along the last dim=2 (unaligned) fails due to https://github.com/tenstorrent/tt-metal/issues/43371."
+)
+def test_concat_last_dim_unaligned_cb_exceeds_l1_3_dims_without_workaround(
+    shapes: List[Shape],
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test concat (3D) with unaligned last dim whose CB overflows L1, workaround disabled.
+    Due to https://github.com/tenstorrent/tt-metal/issues/43371.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def concat_l1_cb_3_dims_no_workaround_wrapper(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concat([in0, in1], dim=dim, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
+@pytest.mark.parametrize(
     "input_shape,begins,ends,step,output_shape",
     [
         # output last dim 258112: row_bytes * 2 = 258112 * 4 * 2 = 2064896 > ~1498112 (WH usable L1)
