@@ -1405,13 +1405,14 @@ class GroupNormOpConversionPattern
     : public OpConversionPattern<ttir::GroupNormOp> {
 private:
   // Compute a valid core grid for group_norm.
-  // This is mirror to tt-metal's computeGroupNormCoreGrid.
+  // This mirrors tt-metal's find_expected_dram_grid.
   // ttnn/cpp/ttnn/operations/normalization/groupnorm/groupnorm_grid_utils.cpp
   // metal issue: https://github.com/tenstorrent/tt-metal/issues/40916
   static std::pair<uint64_t, uint64_t>
   computeGroupNormCoreGrid(int64_t deviceGridX, int64_t deviceGridY,
                            int64_t numChannels, int64_t numGroups,
-                           int64_t inputNHW) {
+                           int64_t inputNHW, int64_t numBatches) {
+    assert(numBatches >= 1 && "group_norm numBatches must be >= 1");
     constexpr int64_t tileSize = ttcore::TileType::getDefaultShape()[0];
     int64_t Ht = llvm::divideCeil(inputNHW, tileSize);
 
@@ -1433,7 +1434,8 @@ private:
       int64_t maxGy = std::min(Ht / rowsPerY, deviceGridY);
       for (int64_t gy = maxGy; gy >= 1; --gy) {
         int64_t numVirtualRows = rowsPerY * gy;
-        if (Ht % numVirtualRows == 0) {
+        if (Ht % numVirtualRows == 0 &&
+            (numVirtualRows < numBatches || numVirtualRows % numBatches == 0)) {
           return {static_cast<uint64_t>(gx), static_cast<uint64_t>(gy)};
         }
       }
@@ -1523,6 +1525,7 @@ public:
     int64_t inputNHW = paddedGnShape[0] * paddedGnShape[1] * paddedGnShape[2];
     int64_t numChannels = paddedGnShape[3];
     int64_t numGroups = adaptor.getNumGroups();
+    int64_t numBatches = paddedGnShape[0];
 
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
     auto workerGridShape = deviceAttr.getWorkerGrid().getShape();
@@ -1531,7 +1534,7 @@ public:
     int64_t deviceGridY = workerGridShape[0];
 
     auto [gridX, gridY] = computeGroupNormCoreGrid(
-        deviceGridX, deviceGridY, numChannels, numGroups, inputNHW);
+        deviceGridX, deviceGridY, numChannels, numGroups, inputNHW, numBatches);
 
     auto coreGridAttr =
         ttnn::CoreCoordAttr::get(rewriter.getContext(), gridX, gridY);
