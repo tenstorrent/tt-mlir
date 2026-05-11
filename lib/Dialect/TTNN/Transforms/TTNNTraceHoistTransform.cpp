@@ -380,13 +380,14 @@ private:
           mlir::cast<RankedTensorType>(traceFuncArg.getType());
 
       // Device-resident arguments (constants, parameters, KV cache) bypass host
-      // transfer. These are already on device and will be used directly as
-      // trace input slots.
+      // transfer and are used directly as trace input slots.
+      // SystemMemory parameters (e.g. conv2d weights when
+      // TTNNPrepareConv2dWeightsAndBias is disabled) are also allowed here:
+      // they are passed through as-is; runtime weight caching
+      // (conv2dPrepareCache) populates the cache on the first warmup run so
+      // that the trace capture uses correctly prepared DRAM weights.
+      // (issue #7414 / trace workaround)
       if (shouldKeepArgOnDevice(traceFunc, i)) {
-        if (!utils::isTensorOnDevice(originalRankedTensorType)) {
-          return funcOp.emitError("Device-resident argument ")
-                 << i << " must already be in device memory";
-        }
         inputTypes.push_back(traceFuncArg.getType());
         traceInputSlotTypes.push_back(traceFuncArg.getType());
         continue;
@@ -463,7 +464,8 @@ private:
     // Create or reuse trace input slots on device, and build the operand list
     // for the inner func.call to the trace function.
     // - Device-resident tensor args (constants/parameters/KV cache): use
-    //   directly as slots.
+    //   directly as slots. SystemMemory parameters (e.g. conv2d weights when
+    //   TTNNPrepareConv2dWeightsAndBias is disabled) are also used directly.
     // - Regular tensor inputs: allocate new empty tensors on device for data
     //   transfer; these become persistent slots.
     // - Semaphores: pass-through into the inner call only, not slots.
@@ -503,6 +505,8 @@ private:
     }
 
     // Transfer host inputs to their corresponding device slots.
+    // Device-resident arguments (including SystemMemory parameters) are skipped
+    // implicitly — they are not added to hostToSlotTransfers above.
     for (auto [hostInput, deviceSlot] : hostToSlotTransfers) {
       builder.create<ttnn::WriteTensorOp>(runAndCaptureTraceFunc.getLoc(),
                                           hostInput, deviceSlot,
@@ -778,17 +782,19 @@ private:
           mlir::cast<RankedTensorType>(input.getType());
       auto layout = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
-      // Device-resident values (constants, parameters, KV cache) can be
-      // captured directly without moving to system memory.
+      // Device-resident values (constants, parameters, KV cache) are captured
+      // directly. SystemMemory parameters (e.g. conv2d weights when
+      // TTNNPrepareConv2dWeightsAndBias is disabled) are also allowed — they
+      // are passed through as-is and the runtime weight cache handles correct
+      // conv2d execution on the first warmup run. (issue #7414 / trace fix)
       if (keepOnDevice) {
-        if (layout.getBufferType() == ttnn::BufferType::SystemMemory) {
-          return funcOp.emitError(
-              "Device-resident input must be on device, but found on "
-              "system memory");
-        }
+        // SystemMemory parameters (e.g. conv2d weights when
+        // TTNNPrepareConv2dWeightsAndBias is disabled) are allowed here and
+        // passed through as-is; conv2dPrepareCache handles correct execution
+        // on the first warmup run. (issue #7414 / trace workaround)
         tensorInputs.push_back(input);
       }
-      // For inputs, convert them to system memory/row major if needed
+      // For device inputs, convert them to system memory/row major if needed
       else if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
         // Convert to system memory using ToLayoutOp
         RankedTensorType systemMemoryTileType =

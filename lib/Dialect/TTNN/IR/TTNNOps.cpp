@@ -5476,9 +5476,20 @@ void CaptureOrExecuteTraceOp::getEffects(
                            << "ranked tensors or global semaphores";
     }
     if (!utils::isTensorOnDevice(tensorType)) {
-      return emitOpError()
-             << "All input arguments of trace function must be on device."
-             << arg << " is not on device.";
+      // Allow SystemMemory parameter/constant args (e.g. conv2d weights when
+      // TTNNPrepareConv2dWeightsAndBias is disabled). Runtime weight caching
+      // (conv2dPrepareCache) ensures prepared weights are on DRAM during trace
+      // capture. (tt-mlir issue #7414 / trace workaround)
+      size_t argIdx = arg.getArgNumber();
+      bool isParamOrConst =
+          ::mlir::tt::ttcore::isConstantOrParameterArgumentType(traceFuncOp,
+                                                                argIdx) ||
+          ::mlir::tt::ttcore::isKVCacheArgument(traceFuncOp, argIdx);
+      if (!isParamOrConst) {
+        return emitOpError()
+               << "All input arguments of trace function must be on device."
+               << arg << " is not on device.";
+      }
     }
   }
 
@@ -5516,9 +5527,14 @@ void CaptureOrExecuteTraceOp::getEffects(
               return ::mlir::WalkResult::advance();
             }
 
-            // Make sure all input tensors are on device
+            // Make sure all input tensors are on device.
+            // Block arguments are checked in the argument loop above and may
+            // be SystemMemory for parameter/constant args (issue #7414).
             for (Value operand : op->getOperands()) {
               if (!::mlir::isa<RankedTensorType>(operand.getType())) {
+                continue;
+              }
+              if (::mlir::isa<BlockArgument>(operand)) {
                 continue;
               }
               auto tensorType =
