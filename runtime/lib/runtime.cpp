@@ -325,6 +325,24 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
+Tensor createUnsafeBorrowedHostTensor(Tensor ownedHostTensor) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createUnsafeBorrowedHostTensor(
+            std::move(ownedHostTensor));
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createUnsafeBorrowedHostTensor",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::createUnsafeBorrowedHostTensor(
+            ownedHostTensor);
+      });
+}
+
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
