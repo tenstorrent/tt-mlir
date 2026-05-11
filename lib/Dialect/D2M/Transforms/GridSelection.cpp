@@ -7,7 +7,6 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/GridAnalysis.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/SpatialOpNormalizeUtil.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -36,7 +35,7 @@ namespace mlir::tt::d2m {
 // ----------------------------------------------------------------------------
 
 static std::pair<mlir::AffineMapAttr, mlir::AffineMapAttr>
-deriveVirtualGridAttrs(Operation *anchorOp, ArrayRef<int64_t> selectedGrid,
+deriveVirtualGridAttrs(ArrayRef<int64_t> selectedGrid,
                        const EffectiveTargetGridRange &effectiveTargetGridRange,
                        OpBuilder &builder) {
   ArrayRef<int64_t> effectiveTargetGridShape = effectiveTargetGridRange.shape;
@@ -44,10 +43,8 @@ deriveVirtualGridAttrs(Operation *anchorOp, ArrayRef<int64_t> selectedGrid,
 
   bool hasOffset = llvm::any_of(effectiveTargetGridOffset,
                                 [](int64_t coord) { return coord != 0; });
-  auto device = ttcore::lookupDevice(anchorOp);
-  auto workerGridShape = device.getWorkerGrid().getShape();
   bool requiresVirtualization = ttmlir::d2m::utils::grids::requiresVirtualGrid(
-      selectedGrid, workerGridShape);
+      selectedGrid, effectiveTargetGridShape);
   if (!requiresVirtualization && !hasOffset) {
     return {mlir::AffineMapAttr(), mlir::AffineMapAttr()};
   }
@@ -135,8 +132,7 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
   // has its own grid/shard strategy. VGM for DMA addresses is traced through
   // the stream's input at DMA lowering time.
   auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-      deriveVirtualGridAttrs(toLayoutOp, optimalGrid, effectiveTargetGridRange,
-                             builder);
+      deriveVirtualGridAttrs(optimalGrid, effectiveTargetGridRange, builder);
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
       emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
@@ -495,8 +491,8 @@ applyEmptyOpUpdate(const OperandGridInfo &info,
   // TODO (#8301): Avoid creating placeholder EmptyOp VGMs before grid
   // selection so this rewrite does not need to repair stale mappings.
   auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-      deriveVirtualGridAttrs(emptyOp, info.selectedGrid,
-                             effectiveTargetGridRange, builder);
+      deriveVirtualGridAttrs(info.selectedGrid, effectiveTargetGridRange,
+                             builder);
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
       emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
