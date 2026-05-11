@@ -34,9 +34,8 @@ public:
   void lowerToUnicastFallback(RemoteLoadOp op,
                               PatternRewriter &rewriter) const {
     TT_assert(op.isImplicitForm());
-    rewriter.replaceOpWithNewOp<RemoteLoadOp>(op, op.getResult().getType(),
-                                              op.getLocalBuffer(),
-                                              op.getMemref(), op.getIndices());
+    rewriter.replaceOpWithNewOp<RemoteLoadOp>(
+        op, op.getLocalBuffer(), op.getMemref(), op.getIndices());
   }
 
   LogicalResult matchAndRewrite(RemoteLoadOp op,
@@ -225,8 +224,8 @@ public:
     // Create replacement RemoteLoadOp with low-level multicast form.
     TT_assert(op.isImplicitForm());
     rewriter.replaceOpWithNewOp<RemoteLoadOp>(
-        op, op.getResult().getType(), op.getLocalBuffer(), op.getMemref(),
-        op.getIndices(), mcastStartIndex, mcastShape);
+        op, op.getLocalBuffer(), op.getMemref(), op.getIndices(),
+        mcastStartIndex, mcastShape);
 
     return success();
   }

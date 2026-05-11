@@ -49,10 +49,10 @@ func.func @test_remote_load_with_result(
   %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
   // RemoteLoadOp with result (no CB)
-  // CHECK: %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
-  %result = d2m.remote_load %buffer %remote_src[%c0, %c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+  // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}>
+  d2m.remote_load %buffer %remote_src[%c0, %c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
 
-  return %result : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+  return %buffer : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 }
 
 // CHECK-LABEL: @test_remote_load_with_result_multicast
@@ -64,10 +64,10 @@ func.func @test_remote_load_with_result_multicast(
   %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
   // RemoteLoadOp with result and multicast (low-level multicast)
-  // CHECK: %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%{{.*}}, %{{.*}}] mshape[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
-  %result = d2m.remote_load %buffer %remote_src[%c0, %c1] mcore[%c0, %c0] mshape[%c1, %c2] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+  // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%{{.*}}, %{{.*}}] mshape[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}>
+  d2m.remote_load %buffer %remote_src[%c0, %c1] mcore[%c0, %c0] mshape[%c1, %c2] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
 
-  return %result : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+  return %buffer : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 }
 
 //===----------------------------------------------------------------------===//
@@ -83,8 +83,8 @@ func.func @test_remote_store_with_local_buffer(
 
   // RemoteStoreOp with local buffer (implicit form) - basic case
   // Result is required but must be unused when using memref types
-  // CHECK: %{{.*}} = d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
-  %result = d2m.remote_store %remote_dst[%c0, %c1] %local_buffer : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
+  // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : memref<{{.*}}>, memref<{{.*}}>
+  d2m.remote_store %remote_dst[%c0, %c1] %local_buffer : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
   return
 }

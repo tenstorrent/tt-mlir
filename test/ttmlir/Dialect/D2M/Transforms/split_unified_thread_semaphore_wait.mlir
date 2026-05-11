@@ -71,14 +71,14 @@ module attributes {ttcore.system_desc = #system_desc} {
         scf.for %arg2 = %c0 to %c1 step %c1 {
           %0 = arith.addi %core0, %arg1 : index
           %1 = arith.addi %core1, %arg2 : index
-          %2 = d2m.remote_load %cb_in %stream[%0, %1] : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+          d2m.remote_load %cb_in %stream[%0, %1] : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
           d2m.semaphore_wait %sem0, %c1 : !d2m.local_semaphore
           linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%cb_in : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) outs(%cb_out : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %3 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             linalg.yield %3 : !ttcore.tile<32x32, f32>
           }
-          %4 = d2m.remote_store %alloc[%0, %1] %cb_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          d2m.remote_store %alloc[%0, %1] %cb_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }
@@ -130,13 +130,13 @@ module attributes {ttcore.system_desc = #system_desc} {
       scf.for %arg1 = %c0 to %c1 step %c1 {
         scf.for %arg2 = %c0 to %c1 step %c1 {
           d2m.semaphore_wait %sem0, %c1 : !d2m.local_semaphore
-          %0 = d2m.remote_load %cb_in %arg0[%c0, %c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          d2m.remote_load %cb_in %arg0[%c0, %c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
           linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%cb_in : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) outs(%cb_out : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %1 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             linalg.yield %1 : !ttcore.tile<32x32, f32>
           }
-          %2 = d2m.remote_store %alloc[%c0, %c0] %cb_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          d2m.remote_store %alloc[%c0, %c0] %cb_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }

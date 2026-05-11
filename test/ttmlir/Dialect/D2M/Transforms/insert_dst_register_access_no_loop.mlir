@@ -24,7 +24,7 @@ module {
       %alloc_cb = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>
       // Verify ordering: remote_load must come BEFORE acquire_dst
       // CHECK: d2m.remote_load
-      %0 = d2m.remote_load %alloc_cb %in[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard, #l1_> -> memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>
+      d2m.remote_load %alloc_cb %in[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard, #l1_>
       %alloc_out = memref.alloc() {alignment = 64 : i64, d2m.alias_for_operand = 1 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       // CHECK: d2m.fill_arange_tile
       d2m.fill_arange_tile to %alloc_cb : memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>
@@ -55,7 +55,7 @@ module {
       memref.store %result, %alloc_out[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %core0_store = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
       %core1_store = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
-      %6 = d2m.remote_store %out[%core0_store, %core1_store] %alloc_out : memref<1x4x1x1x!ttcore.tile<32x32, f32>, #shard, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      d2m.remote_store %out[%core0_store, %core1_store] %alloc_out : memref<1x4x1x1x!ttcore.tile<32x32, f32>, #shard, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
     }
     return
   }

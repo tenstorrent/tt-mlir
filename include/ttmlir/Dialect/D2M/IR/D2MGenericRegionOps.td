@@ -1878,6 +1878,23 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
                      "ValueRange":$mcastDims),
       [{
         build($_builder, $_state, resultType, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), mcastDims);
+      }]>,
+      // Memref form, no result (post-bufferization DPS form)
+      OpBuilder<(ins "Value":$localBuffer, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), ValueRange());
+      }]>,
+      // Memref form with low-level multicast, no result
+      OpBuilder<(ins "Value":$localBuffer, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, localBuffer, memref, indices, /*cb=*/Value{}, mcastStartIndex, mcastShape, ValueRange());
+      }]>,
+      // Memref form with high-level multicast, no result
+      OpBuilder<(ins "Value":$localBuffer, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastDims),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), mcastDims);
       }]>
     ];
 
@@ -1971,8 +1988,15 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       /// Returns the affine map operands (the grid indices).
       Operation::operand_range getMapOperands() { return getIndices(); }
 
-      /// Returns the value read by this operation.
-      Value getValue() { return getResult(); }
+      /// Returns the value read by this operation. In tensor form this is
+      /// the SSA result; in the post-bufferization memref form (no result),
+      /// the destination localBuffer plays that role.
+      Value getValue() {
+        if (Value result = getResult()) {
+          return result;
+        }
+        return getLocalBuffer();
+      }
 
       /// Returns an AffineMapAttr wrapping the affine map for this operation.
       AffineMapAttr getAffineMapAttr() {
@@ -2095,6 +2119,11 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       [{
         build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, startDevice, deviceMcastShape, semaphore, semaphoreIndices);
       }]>
+      // Implicit memref form (no result, DPS form) does not have a dedicated
+      // convenience builder because its C++ signature would overlap with the
+      // existing CB-form builder above (both are (Value, ValueRange, Value)).
+      // Callers should use the raw build() entry point with an explicit
+      // TypeRange{} for results.
     ];
 
     let assemblyFormat = [{
