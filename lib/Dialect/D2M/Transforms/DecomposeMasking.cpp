@@ -2,9 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
@@ -77,6 +79,37 @@ static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
     return builder.getIntegerAttr(IntegerType::get(builder.getContext(), w), v);
   }
   llvm_unreachable("unsupported element type for OOB fill");
+}
+
+static Value createCoreIndex(OpBuilder &builder, Location loc, int64_t dim,
+                             AffineMap physicalToVirtMap) {
+  if (physicalToVirtMap.isEmpty()) {
+    return builder.create<CoreIndexOp>(loc, dim);
+  }
+  return builder.create<CoreIndexOp>(loc, dim, physicalToVirtMap);
+}
+
+static ttcore::GridAttr getMaskGridAttr(OpBuilder &builder, Value output,
+                                        ArrayRef<int64_t> gridShape) {
+  auto invMap = utils::getVirtualGridInverseMapping(output);
+  auto fwdMap = utils::getVirtualGridForwardMapping(output);
+  if (!invMap || !fwdMap) {
+    return ttcore::GridAttr::get(builder.getContext(), gridShape);
+  }
+
+  AffineMap gridFwdMap = *fwdMap;
+  size_t rank = gridShape.size();
+  gridFwdMap = ttmlir::utils::affineMapDropBackResults(gridFwdMap, rank);
+  for (int64_t i = static_cast<int64_t>(rank) - 1; i >= 0; --i) {
+    unsigned dimToDrop = static_cast<unsigned>(rank + static_cast<size_t>(i));
+    gridFwdMap = ttmlir::utils::dropDim(gridFwdMap, dimToDrop);
+  }
+  gridFwdMap =
+      gridFwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()),
+                              /*resultPos=*/0);
+
+  return ttcore::GridAttr::get(builder.getContext(), gridShape, gridFwdMap,
+                               *invMap);
 }
 
 /// Decompose MaskOp with multi-core support.
@@ -174,7 +207,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     int64_t logicalRows = logicalShape[logicalShape.size() - 2];
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
-    auto gridAttr = ttcore::GridAttr::get(rewriter.getContext(), gridShape);
+    auto gridAttr = getMaskGridAttr(rewriter, globalOutput, gridShape);
+    AffineMap physicalToVirtMap = gridAttr.getPhysicalToVirtMap();
     ArrayAttr emptyArray = rewriter.getArrayAttr({});
     ArrayAttr threads = rewriter.getArrayAttr(
         rewriter.getAttr<ThreadAttr>(ThreadType::Unified));
@@ -207,9 +241,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     SmallVector<Value> remoteIndices;
     remoteIndices.reserve(gridShape.size());
     for (size_t dim = 0; dim < gridShape.size(); ++dim) {
-      remoteIndices.push_back(rewriter.create<CoreIndexOp>(
-          loc, rewriter.getIndexType(),
-          rewriter.getI64IntegerAttr(static_cast<int64_t>(dim)), nullptr));
+      remoteIndices.push_back(createCoreIndex(
+          rewriter, loc, static_cast<int64_t>(dim), physicalToVirtMap));
     }
 
     rewriter.create<RemoteLoadOp>(loc, inputType, input, globalInput,
@@ -252,11 +285,13 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     Value fillScalar =
         rewriter.create<arith::ConstantOp>(loc, fillAttr.getType(), fillAttr);
 
-    // Get this core's coordinates.
-    Value coreY = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0), nullptr);
-    Value coreX = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(1), nullptr);
+    // Get this core's coordinates for the two tiled dimensions that masking
+    // applies to. Higher-rank shards may have leading dimensions before the
+    // tiled row/col dimensions.
+    int64_t rowGridDim = static_cast<int64_t>(gridShape.size()) - 2;
+    int64_t colGridDim = static_cast<int64_t>(gridShape.size()) - 1;
+    Value coreY = createCoreIndex(rewriter, loc, rowGridDim, physicalToVirtMap);
+    Value coreX = createCoreIndex(rewriter, loc, colGridDim, physicalToVirtMap);
 
     // Write the mask tiles.
     Value validRowsVal =
@@ -274,16 +309,30 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
       return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
     };
 
-    auto emitPassthrough = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
-      rewriter.create<memref::StoreOp>(loc, inputTile.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+    auto buildLocalIndices = [&](ArrayRef<Value> leadingIndices,
+                                 Value localRowIdx, Value localColIdx) {
+      SmallVector<Value> indices;
+      indices.reserve(inputType.getRank());
+      indices.append(leadingIndices.begin(), leadingIndices.end());
+      indices.push_back(localRowIdx);
+      indices.push_back(localColIdx);
+      return indices;
     };
 
-    auto emitRowMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+    auto emitPassthrough = [&](ArrayRef<Value> leadingIndices,
+                               Value localRowIdx, Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
+      auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
+      rewriter.create<memref::StoreOp>(loc, inputTile.getResult(), output,
+                                       indices);
+    };
+
+    auto emitRowMasked = [&](ArrayRef<Value> leadingIndices, Value localRowIdx,
+                             Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
+      auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill = createTileFill();
       auto rowMaskTile = rewriter.create<memref::LoadOp>(
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
@@ -291,12 +340,14 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
                                        inputTile.getResult(), tileFill);
       rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+                                       indices);
     };
 
-    auto emitColMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+    auto emitColMasked = [&](ArrayRef<Value> leadingIndices, Value localRowIdx,
+                             Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
+      auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill = createTileFill();
       auto colMaskTile = rewriter.create<memref::LoadOp>(
           loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
@@ -304,12 +355,14 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
                                        inputTile.getResult(), tileFill);
       rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+                                       indices);
     };
 
-    auto emitCornerMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+    auto emitCornerMasked = [&](ArrayRef<Value> leadingIndices,
+                                Value localRowIdx, Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
+      auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill1 = createTileFill();
       auto rowMaskTile = rewriter.create<memref::LoadOp>(
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
@@ -323,38 +376,67 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
                                        rowMaskedResult.getResult(), tileFill2);
       rewriter.create<memref::StoreOp>(loc, finalResult.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+                                       indices);
     };
 
-    auto emitFill = [&](Value localRowIdx, Value localColIdx) {
+    auto emitFill = [&](ArrayRef<Value> leadingIndices, Value localRowIdx,
+                        Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
       auto tileFill = createTileFill();
-      rewriter.create<memref::StoreOp>(loc, tileFill, output,
-                                       ValueRange{localRowIdx, localColIdx});
+      rewriter.create<memref::StoreOp>(loc, tileFill, output, indices);
     };
 
     // Helper to create a nested loop over local coordinates.
-    auto createLocalLoop = [&](Value rowStart, Value rowEnd, Value colStart,
-                               Value colEnd,
-                               std::function<void(Value, Value)> emitBody) {
-      auto outerLoop =
-          rewriter.create<scf::ForOp>(loc, rowStart, rowEnd, oneIdx);
-      rewriter.setInsertionPointToStart(outerLoop.getBody());
+    auto createLocalLoop =
+        [&](Value rowStart, Value rowEnd, Value colStart, Value colEnd,
+            std::function<void(ArrayRef<Value>, Value, Value)> emitBody) {
+          SmallVector<Value> leadingIndices;
+          Operation *outermostLoop = nullptr;
 
-      auto innerLoop =
-          rewriter.create<scf::ForOp>(loc, colStart, colEnd, oneIdx);
-      // Mark the INNER loop as the compute root, since that's where
-      // the actual compute operations are emitted. This ensures DST
-      // syncs are placed inside the inner loop body, not the outer.
-      // Since we emit an scf.for directly, we must tag this here
-      // since linalg-to-affine and d2m-op-scheduler won't process this.
-      innerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
-      innerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
-      rewriter.setInsertionPointToStart(innerLoop.getBody());
+          std::function<Operation *(unsigned)> buildLoopNest =
+              [&](unsigned dim) -> Operation * {
+            if (dim == inputType.getRank() - 2) {
+              auto rowLoop =
+                  rewriter.create<scf::ForOp>(loc, rowStart, rowEnd, oneIdx);
+              if (!outermostLoop) {
+                outermostLoop = rowLoop;
+              }
+              rewriter.setInsertionPointToStart(rowLoop.getBody());
 
-      emitBody(outerLoop.getInductionVar(), innerLoop.getInductionVar());
+              auto colLoop =
+                  rewriter.create<scf::ForOp>(loc, colStart, colEnd, oneIdx);
+              // Mark the INNER loop as the compute root, since that's where
+              // the actual compute operations are emitted. This ensures DST
+              // syncs are placed inside the inner loop body, not the outer.
+              // Since we emit an scf.for directly, we must tag this here
+              // since linalg-to-affine and d2m-op-scheduler won't process this.
+              colLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+              colLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
+              rewriter.setInsertionPointToStart(colLoop.getBody());
 
-      return outerLoop;
-    };
+              emitBody(leadingIndices, rowLoop.getInductionVar(),
+                       colLoop.getInductionVar());
+              return rowLoop;
+            }
+
+            Value loopEnd =
+                rewriter.create<arith::ConstantIndexOp>(loc, inputShape[dim]);
+            auto loop =
+                rewriter.create<scf::ForOp>(loc, zeroIdx, loopEnd, oneIdx);
+            if (!outermostLoop) {
+              outermostLoop = loop;
+            }
+            leadingIndices.push_back(loop.getInductionVar());
+            rewriter.setInsertionPointToStart(loop.getBody());
+            buildLoopNest(dim + 1);
+            leadingIndices.pop_back();
+            return loop;
+          };
+
+          buildLoopNest(/*dim=*/0);
+          return outermostLoop;
+        };
 
     OpBuilder::InsertionGuard guard(rewriter);
     Operation *insertionPoint = &region.front().back();

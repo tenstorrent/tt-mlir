@@ -6,6 +6,7 @@
 
 #l1 = #ttcore.memory_space<l1>
 #shard_2x2 = #ttcore.shard<8192x4096, 1>
+#shard_3d = #ttcore.shard<4096x4096x4096, 1>
 #shard_4x4 = #ttcore.shard<32768x8192, 1>
 #system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux-gnu"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 1024, erisc_l1_unreserved_base = 1024, dram_unreserved_base = 1024, dram_unreserved_end = 1073741824, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_physical_size_tiles = 16, num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2, dram_grid = 1x12, dram_bank_to_logical_worker_noc0 = [(7, 3), (0, 0), (3, 0), (4, 0), (0, 4), (7, 7), (1, 4), (6, 4), (5, 4), (2, 6), (3, 4), (4, 4)], dram_bank_to_logical_worker_noc1 = [(7, 3), (0, 0), (3, 0), (4, 0), (0, 4), (7, 7), (1, 4), (6, 4), (5, 4), (2, 6), (3, 4), (4, 4)]}], [0], [1 : i32], [ 0x0x0x0]>
 
@@ -96,6 +97,22 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: scf.for
     // CHECK: d2m.remote_store
     %0 = d2m.mask %arg0, %arg1 logical_shape = [100, 100] fill_value = <zero> : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #shard_4x4, #l1> into memref<1x1x4x4x!ttcore.tile<32x32, f32>, #shard_4x4, #l1> -> memref<1x1x4x4x!ttcore.tile<32x32, f32>, #shard_4x4, #l1>
+    return
+  }
+
+  // CHECK-LABEL: func.func @decompose_mask_rank3_shard
+  // CHECK: grid = #ttcore.grid<2x1x2, virt_to_physical_map =
+  // CHECK: d2m.core_index(2) {phys_to_virt_map =
+  // CHECK-NOT: memref.load %{{[^[]*}}[%{{[^,]*}}, %{{[^,]*}}] : memref<1x1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: memref.load %{{[^[]*}}[%{{[^,]*}}, %{{[^,]*}}, %{{[^]]*}}] : memref<1x1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK-NOT: memref.load %{{[^[]*}}[%{{[^,]*}}, %{{[^,]*}}] : memref<1x1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: memref.store %{{[^,]*}}, %{{[^[]*}}[%{{[^,]*}}, %{{[^,]*}}, %{{[^]]*}}] : memref<1x1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK-NOT: memref.store %{{[^,]*}}, %{{[^[]*}}[%{{[^,]*}}, %{{[^,]*}}] : memref<1x1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: return
+  func.func @decompose_mask_rank3_shard() {
+    %input = memref.alloc() {d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3, d4, d5) -> ((d2 floordiv 2 + d1 + d0) mod 2, d2 mod 2, d3, d4, d5)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, (d1 floordiv 2 + d0) mod 2, 0, d1 mod 2)>} : memref<2x1x2x1x1x1x!ttcore.tile<32x32, f32>, #shard_3d, #l1>
+    %output = memref.alloc() {d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3, d4, d5) -> ((d2 floordiv 2 + d1 + d0) mod 2, d2 mod 2, d3, d4, d5)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, (d1 floordiv 2 + d0) mod 2, 0, d1 mod 2)>} : memref<2x1x2x1x1x1x!ttcore.tile<32x32, f32>, #shard_3d, #l1>
+    %0 = d2m.mask %input, %output logical_shape = [2, 4, 64] fill_value = <zero> : memref<2x1x2x1x1x1x!ttcore.tile<32x32, f32>, #shard_3d, #l1> into memref<2x1x2x1x1x1x!ttcore.tile<32x32, f32>, #shard_3d, #l1> -> memref<2x1x2x1x1x1x!ttcore.tile<32x32, f32>, #shard_3d, #l1>
     return
   }
 }
