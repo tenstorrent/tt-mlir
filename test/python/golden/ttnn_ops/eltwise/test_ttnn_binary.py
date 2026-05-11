@@ -218,6 +218,19 @@ def test_add_dram_sharded(
     """
 
     def module(builder: TTNNBuilder):
+        ctx = builder._ctx
+        bank_count = grid_shape[0] * grid_shape[1]
+        core_range_set = ttnn.ir.CoreRangeSetAttr.get(
+            ctx,
+            [
+                ttnn.ir.CoreRangeAttr.get(
+                    ctx,
+                    ttnn.ir.CoreCoordAttr.get(ctx, 0, 0),
+                    ttnn.ir.CoreCoordAttr.get(ctx, bank_count - 1, 0),
+                )
+            ],
+        )
+
         @builder.func([shape, shape], [dtype, dtype])
         def add_dram_sharded(
             in0: Operand,
@@ -230,6 +243,7 @@ def test_add_dram_sharded(
                 buffer_type=ttnn.BufferType.DRAM,
                 tensor_memory_layout=memory_layout,
                 grid_shape=grid_shape,
+                core_range_set=core_range_set,
             )
             sharded_a = builder.to_layout(in0, **shard_kwargs)
             sharded_b = builder.to_layout(in1, **shard_kwargs)

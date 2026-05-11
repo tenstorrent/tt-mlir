@@ -125,8 +125,9 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
     }
     if (bufferType == BufferType::DRAM &&
         memLayoutAttr.getValue() == TensorMemoryLayout::BlockSharded) {
-      return emitError() << "BlockSharded layout is not supported for DRAM "
-                            "buffer type; use WidthSharded or HeightSharded";
+      return emitError()
+             << "BlockSharded layout is not supported for DRAM "
+                "buffer type; use WidthSharded, HeightSharded or Interleaved";
     }
   } else if (bufferType != BufferType::SystemMemory) {
     return emitError()

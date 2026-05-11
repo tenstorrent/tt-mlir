@@ -2,7 +2,7 @@
 
 // Verify that DRAM-sharded TTNN layouts parse, verify, and round-trip cleanly.
 
-// Width-sharded across 12 DRAM banks (Blackhole-style dram grid).
+// Width-sharded across 12 DRAM banks (Wormhole-style dram grid).
 
 #dram = #ttnn.buffer_type<dram>
 #dram_width_sharded = #ttnn.ttnn_layout<
