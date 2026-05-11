@@ -16,6 +16,7 @@ module {
     %2 = "ttir.reshape"(%1) <{shape = [4 : i32, 8 : i32]}> : (tensor<4x1x8xf32>) -> tensor<4x8xf32>
     return %2 : tensor<4x8xf32>
   }
+
   // [1, A] – leading unit dimension.
   func.func @embedding_1xa(%input: tensor<4xi32>, %weight: tensor<10x8xf32>) -> tensor<4x8xf32> {
     // CHECK-LABEL: func.func @embedding_1xa
@@ -27,7 +28,8 @@ module {
     %2 = "ttir.reshape"(%1) <{shape = [4 : i32, 8 : i32]}> : (tensor<1x4x8xf32>) -> tensor<4x8xf32>
     return %2 : tensor<4x8xf32>
   }
-  // Large realistic dimensions – same pattern applies.
+
+  // Large dimensions from customer model.
   func.func @embedding_ax1_large(%input: tensor<1836732xi64>, %weight: tensor<1993728x80xf32>) -> tensor<1836732x80xf32> {
     // CHECK-LABEL: func.func @embedding_ax1_large
     // CHECK-NOT:   "ttir.reshape"
@@ -50,7 +52,8 @@ module {
     %2 = "ttir.reshape"(%1) <{shape = [2 : i32, 2 : i32, 8 : i32]}> : (tensor<4x8xf32>) -> tensor<2x2x8xf32>
     return %2 : tensor<2x2x8xf32>
   }
-  // Indices does not come from reshape, output does not go to reshape, pattern must NOT fire.
+
+  // Indices do not come from reshape, output does not go to reshape, pattern must NOT fire.
   func.func @embedding_1d_no_canonicalize_reshapes(%input: tensor<4x1xi32>, %weight: tensor<10x8xf32>) -> tensor<4x1x8xf32> {
     // CHECK-LABEL: func.func @embedding_1d_no_canonicalize_reshapes
     // CHECK-NOT:   "ttir.reshape"
@@ -71,7 +74,4 @@ module {
     %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 8 : i32]}> : (tensor<1x1x8xf32>) -> tensor<1x8xf32>
     return %2 : tensor<1x8xf32>
   }
-
-
-
 }

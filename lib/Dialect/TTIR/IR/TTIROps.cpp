@@ -3727,17 +3727,19 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 // Squeeze unit dimensions out of the index tensor before the embedding lookup,
 // then reshape the result back to the original output shape.
 //
-// This applies regardless of which dimensions are 1 and is not restricted to
-// 2-D index tensors.  Examples:
+//   Examples:
 //   Embedding([A,1],   [N,B]) -> Reshape(Embedding([A],   [N,B]), [A,1,B])
 //   Embedding([1,A],   [N,B]) -> Reshape(Embedding([A],   [N,B]), [1,A,B])
 //   Embedding([1,A,1], [N,B]) -> Reshape(Embedding([A],   [N,B]), [1,A,1,B])
 //
 // The pattern does not run when:
 //   - The input has no unit dimensions (nothing to squeeze).
-//   - Squeezing all unit dims would produce a rank-0 (scalar) index tensor.
 //   - The input is not produced by a ReshapeOp or the output is not connected
 //   to a ReshapeOp.
+//
+// If index tensor is all unit dimensions, it is reshaped to a scalar index
+// tensor.
+//   Embedding([1,1,1], [N,B]) -> Reshape(Embedding([1], [N,B]), [1,B])
 //
 void mlir::tt::ttir::EmbeddingOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
