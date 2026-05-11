@@ -23,6 +23,8 @@ jobs:
           fetch-depth: 0
           # ref: main
       - uses: actions/setup-python@v6
+        with:
+          python-version: 3.12
       - name: Process test durations from latest workflows
         id: get-test-durations
         env:
