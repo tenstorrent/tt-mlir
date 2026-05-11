@@ -12,6 +12,7 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
+// Temporary fix for https://github.com/tenstorrent/tt-metal/issues/43371.
 // Rewrites a ConcatOp that would overflow the circular buffer in L1.
 //
 // This pattern handles the case where:
