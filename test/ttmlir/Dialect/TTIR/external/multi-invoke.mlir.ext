@@ -1,0 +1,9 @@
+// This file is meant to be injected with a `ttir.invoke_external` op; the
+// `.ext` extension suffix prevents llvm-lit from parsing it directly.
+
+module {
+  func.func @foo() -> tensor<2x3x4xi16> {
+    %0 = "ttir.constant"() <{value = dense<1> : tensor<2x3x4xi16>}> : () -> tensor<2x3x4xi16>
+    return %0 : tensor<2x3x4xi16>
+  }
+}
