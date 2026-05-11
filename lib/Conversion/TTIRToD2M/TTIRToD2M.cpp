@@ -264,16 +264,16 @@ protected:
     }
   }
 
-  Value createMaskOpIfNeeded(Value value, d2m::EmptyOp layoutEmpty,
-                             ttcore::OOBVal fillValue,
-                             mlir::ConversionPatternRewriter &rewriter) const {
+  bool createMaskOpIfNeeded(Value &value, d2m::EmptyOp layoutEmpty,
+                            ttcore::OOBVal fillValue,
+                            mlir::ConversionPatternRewriter &rewriter) const {
     if (fillValue == ttcore::OOBVal::Undef) {
-      return value;
+      return false;
     }
 
     auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(value.getType());
     if (!tensorType || !ttcore::isTiled(tensorType)) {
-      return value;
+      return false;
     }
 
     auto maskOutput = rewriter.create<d2m::EmptyOp>(
@@ -285,10 +285,11 @@ protected:
         tensorType.getEncoding());
     ArrayRef<int64_t> logicalShape =
         layout ? layout.getLogicalShape() : tensorType.getShape();
-    return rewriter
-        .create<d2m::MaskOp>(value.getLoc(), value, maskOutput, logicalShape,
-                             fillValue)
-        .getResult();
+    value = rewriter
+                .create<d2m::MaskOp>(value.getLoc(), value, maskOutput,
+                                     logicalShape, fillValue)
+                .getResult();
+    return true;
   }
 
   // Create a ToLayout operation for a value using the provided layout
@@ -413,8 +414,9 @@ protected:
 
     auto toLayoutOp =
         rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp);
-    return createMaskOpIfNeeded(toLayoutOp.getResult(0), emptyOp, oobVal,
-                                rewriter);
+    Value layoutResult = toLayoutOp.getResult(0);
+    createMaskOpIfNeeded(layoutResult, emptyOp, oobVal, rewriter);
+    return layoutResult;
   }
 
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,

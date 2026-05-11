@@ -114,8 +114,8 @@ func.func @keep_generic_add_one_one_result_mask(
   return %3 : tensor<4x4x!tile_f32>
 }
 
-// CHECK-LABEL: func.func @remove_generic_mul_zero_untracked_result_mask
-func.func @remove_generic_mul_zero_untracked_result_mask(
+// CHECK-LABEL: func.func @keep_generic_mul_zero_untracked_result_mask
+func.func @keep_generic_mul_zero_untracked_result_mask(
   %arg0: tensor<4x4x!tile_f32>,
   %arg1: tensor<4x4x!tile_f32>
 ) -> tensor<4x4x!tile_f32> {
@@ -125,7 +125,8 @@ func.func @remove_generic_mul_zero_untracked_result_mask(
   // CHECK: d2m.mask {{.*}} fill_value = <zero>
   %0 = d2m.mask %arg0, %out0 logical_shape = [50, 50] fill_value = <zero> : tensor<4x4x!tile_f32> into tensor<4x4x!tile_f32> -> tensor<4x4x!tile_f32>
   // CHECK: d2m.generic
-  // CHECK-NOT: d2m.mask
+  // CHECK: d2m.tile_mul
+  // CHECK: d2m.mask {{.*}} fill_value = <zero>
   // CHECK: return
   %1 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>,
       indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel],

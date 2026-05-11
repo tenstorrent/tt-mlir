@@ -470,29 +470,56 @@ public:
         ->getResult(0);
   }
 
-  Value createEmptyLike(PatternRewriter &rewriter, Location loc,
-                        RankedTensorType type, Value previousOutput) const {
-    AffineMapAttr invAttr = nullptr;
-    AffineMapAttr fwdAttr = nullptr;
-    if (auto empty = previousOutput.getDefiningOp<d2m::EmptyOp>()) {
-      invAttr = empty.getVirtualGridInverseMappingAttr();
-      fwdAttr = empty.getVirtualGridForwardMappingAttr();
+  static bool matchesOutputSpec(Value value, const OutputBufferSpec &spec) {
+    if (!value || value.getType() != spec.type) {
+      return false;
     }
 
+    AffineMap currentForward =
+        utils::getVirtualGridForwardMapping(value).value_or(AffineMap());
+    AffineMap currentInverse =
+        utils::getVirtualGridInverseMapping(value).value_or(AffineMap());
+    // View remappings are semantic view metadata. Do not reuse such values as
+    // generic outs buffers, even when their type and VGM match the spec.
+    if (utils::getAssociatedRemapping(value)) {
+      return false;
+    }
+    return currentForward == spec.vgmForward &&
+           currentInverse == spec.vgmInverse;
+  }
+
+  Value createEmpty(PatternRewriter &rewriter, Location loc,
+                    const OutputBufferSpec &spec, Value reusableOutput = {},
+                    bool allowReuse = true) const {
+    if (allowReuse && matchesOutputSpec(reusableOutput, spec)) {
+      return reusableOutput;
+    }
+
+    AffineMapAttr invAttr =
+        spec.vgmInverse ? AffineMapAttr::get(spec.vgmInverse) : nullptr;
+    AffineMapAttr fwdAttr =
+        spec.vgmForward ? AffineMapAttr::get(spec.vgmForward) : nullptr;
     if (!invAttr && !fwdAttr) {
       if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-              type.getEncoding())) {
+              spec.type.getEncoding())) {
         return rewriter
-            .create<d2m::EmptyOp>(loc, type.getShape(), type.getElementType(),
-                                  layout, targetGridShape)
+            .create<d2m::EmptyOp>(loc, spec.type.getShape(),
+                                  spec.type.getElementType(), layout,
+                                  targetGridShape)
             .getResult();
       }
     }
 
-    return rewriter.create<d2m::EmptyOp>(loc, type, invAttr, fwdAttr)
+    return rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr)
         .getResult();
   }
 
+  // `d2m.mask` is created before LowerToLayout, so its input and output types
+  // initially match the pre-lowered ToLayout result. Lowering may replace that
+  // input with a value that has a different concrete physical shape, for
+  // example after tilization chooses a tile-aligned buffer. Since MaskOp
+  // requires input/output/result to have the same shape, rebuild the mask
+  // output while preserving the old output's virtual-grid metadata.
   void repairMaskAfterInputRewrite(PatternRewriter &rewriter,
                                    MaskOp mask) const {
     auto inputType =
@@ -504,9 +531,18 @@ public:
     Value oldOutput = mask.getOutput();
     d2m::EmptyOp oldOutputEmpty = oldOutput.getDefiningOp<d2m::EmptyOp>();
 
+    OutputBufferSpec outputSpec{inputType};
+    if (oldOutputEmpty) {
+      if (auto attr = oldOutputEmpty.getVirtualGridForwardMappingAttr()) {
+        outputSpec.vgmForward = attr.getValue();
+      }
+      if (auto attr = oldOutputEmpty.getVirtualGridInverseMappingAttr()) {
+        outputSpec.vgmInverse = attr.getValue();
+      }
+    }
+
     rewriter.setInsertionPoint(mask);
-    Value newOutput =
-        createEmptyLike(rewriter, mask.getLoc(), inputType, oldOutput);
+    Value newOutput = createEmpty(rewriter, mask.getLoc(), outputSpec);
     auto newMask =
         rewriter.create<MaskOp>(mask.getLoc(), mask.getInput(), newOutput,
                                 mask.getLogicalShape(), mask.getFillValue());
@@ -536,73 +572,37 @@ public:
     Value currentValue = op.getInput();
     Location loc = op.getLoc();
 
-    auto matchesOutputSpec = [&](Value value,
-                                 const OutputBufferSpec &spec) -> bool {
-      if (value.getType() != spec.type) {
-        return false;
-      }
-      AffineMap currentForward =
-          utils::getVirtualGridForwardMapping(value).value_or(AffineMap());
-      AffineMap currentInverse =
-          utils::getVirtualGridInverseMapping(value).value_or(AffineMap());
-      // View remappings are semantic view metadata. Do not reuse such values as
-      // generic outs buffers, even when their type and VGM match the spec.
-      if (utils::getAssociatedRemapping(value)) {
-        return false;
-      }
-      return currentForward == spec.vgmForward &&
-             currentInverse == spec.vgmInverse;
-    };
-
-    auto createEmpty = [&](const OutputBufferSpec &spec,
-                           bool allowReuse = true) -> Value {
-      if (allowReuse && matchesOutputSpec(op.getOutput(), spec)) {
-        return op.getOutput();
-      }
-      AffineMapAttr invAttr =
-          spec.vgmInverse ? AffineMapAttr::get(spec.vgmInverse) : nullptr;
-      AffineMapAttr fwdAttr =
-          spec.vgmForward ? AffineMapAttr::get(spec.vgmForward) : nullptr;
-      if (!invAttr && !fwdAttr) {
-        if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-                spec.type.getEncoding())) {
-          return rewriter
-              .create<d2m::EmptyOp>(loc, spec.type.getShape(),
-                                    spec.type.getElementType(), layout,
-                                    targetGridShape)
-              .getResult();
-        }
-      }
-      return rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr)
-          .getResult();
+    auto createStepOutput = [&](const OutputBufferSpec &spec,
+                                bool allowReuse = true) -> Value {
+      return this->createEmpty(rewriter, loc, spec, op.getOutput(), allowReuse);
     };
 
     for (const Step &step : plan) {
       if (const auto *s = std::get_if<HostToDeviceStep>(&step)) {
-        currentValue = lowerSystemLayoutChange(rewriter, currentValue,
-                                               createEmpty(s->output), loc);
+        currentValue = lowerSystemLayoutChange(
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<DeviceToHostStep>(&step)) {
         currentValue = lowerSystemLayoutChange(
             rewriter, currentValue,
-            createEmpty(OutputBufferSpec{s->outputType}), loc);
+            createStepOutput(OutputBufferSpec{s->outputType}), loc);
       } else if (const auto *s = std::get_if<L1ToDRAMStep>(&step)) {
-        currentValue = lowerDatamovementGeneric(rewriter, currentValue,
-                                                createEmpty(s->output), loc);
+        currentValue = lowerDatamovementGeneric(
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<DRAMToL1Step>(&step)) {
-        currentValue = lowerDatamovementGeneric(rewriter, currentValue,
-                                                createEmpty(s->output), loc);
+        currentValue = lowerDatamovementGeneric(
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<TilizeStep>(&step)) {
         currentValue = lowerFormatConversionGeneric(
-            rewriter, currentValue, createEmpty(s->output), loc);
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<UntilizeStep>(&step)) {
         currentValue = lowerFormatConversionGeneric(
-            rewriter, currentValue, createEmpty(s->output), loc);
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<RebufferStep>(&step)) {
-        currentValue = lowerDatamovementGeneric(rewriter, currentValue,
-                                                createEmpty(s->output), loc);
+        currentValue = lowerDatamovementGeneric(
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<ReshardStep>(&step)) {
         currentValue = lowerMappingChange(rewriter, currentValue,
-                                          createEmpty(s->output), loc);
+                                          createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<RemapStep>(&step)) {
         currentValue = rewriter
                            .create<ViewLayoutOp>(loc, s->outputType,
@@ -628,6 +628,9 @@ public:
       return success();
     }
 
+    // Capture direct mask users before replacing the ToLayout result. The
+    // replacement updates the mask input in-place, and that can leave the mask
+    // output/result type stale until repaired below.
     SmallVector<MaskOp> maskUsers;
     for (OpOperand &use : op.getResult(0).getUses()) {
       if (use.getOperandNumber() == 0) {

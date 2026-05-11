@@ -25,9 +25,7 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Absence from the table is an untracked state. For compatibility checks this
-// collapses to undef: it is safe for an undef target but not for a concrete
-// required OOB value.
+// Tracks values whose padded elements are known in the OOB lattice.
 using OOBStateMap = llvm::DenseMap<Value, ttcore::OOBVal>;
 
 static bool isConcreteOOBVal(ttcore::OOBVal value) {
@@ -104,10 +102,13 @@ static ttcore::OOBVal getStateOrUndef(const OOBStateMap &states, Value value) {
     return it->second;
   }
 
+  // Constants do not need explicit state entries.
   if (auto constant = value.getDefiningOp<arith::ConstantOp>()) {
     return getConstantOOBVal(constant.getValue());
   }
 
+  // Absence from the state map is untracked. For compatibility checks this
+  // collapses to undef: safe for an undef target, unsafe for a concrete fill.
   return ttcore::OOBVal::Undef;
 }
 
@@ -470,6 +471,9 @@ static ttcore::OOBVal nonPositivePredicateOOBVal(ttcore::OOBVal value) {
   llvm_unreachable("unknown OOB value");
 }
 
+// Keep IEEE-invalid or target-sensitive combinations as undef. Examples include
+// `inf + -inf`, `inf - inf`, and `0 * inf`; preserving undef keeps explicit
+// masks in place until OOB arithmetic can be made target-specific.
 static ttcore::OOBVal addOOBVals(ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
   if (lhs == ttcore::OOBVal::Zero) {
     return rhs;
@@ -516,10 +520,18 @@ static ttcore::OOBVal subOOBVals(ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
 }
 
 static ttcore::OOBVal mulOOBVals(ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
-  // Treat zero as absorbing. This matches the padding use-case and is the
-  // useful conservative fold even though exact hardware NaN behavior can vary.
   if (lhs == ttcore::OOBVal::Zero || rhs == ttcore::OOBVal::Zero) {
-    return ttcore::OOBVal::Zero;
+    ttcore::OOBVal other = lhs == ttcore::OOBVal::Zero ? rhs : lhs;
+
+    // Do not let zero absorb unknown or infinite padding. IEEE 754 defines
+    // zero times infinity as NaN, and TT hardware behavior may vary by target
+    // or data format. Until this is made target-specific, only claim the
+    // product is definitely zero when the other OOB value is representably
+    // finite in this lattice; otherwise preserve undef so a later explicit
+    // mask is not optimized away.
+    return other == ttcore::OOBVal::Zero || other == ttcore::OOBVal::One
+               ? ttcore::OOBVal::Zero
+               : ttcore::OOBVal::Undef;
   }
   if (lhs == ttcore::OOBVal::One) {
     return rhs;
@@ -901,6 +913,7 @@ static ttcore::OOBVal clampOOBVal(ttcore::OOBVal value, Attribute minAttr,
 
 static ttcore::OOBVal inferElementwiseOOBVal(Operation *op,
                                              const OOBStateMap &states) {
+  // Model each supported op as a transfer function over the OOB lattice.
   if (auto selectOp = dyn_cast<arith::SelectOp>(op)) {
     return selectOOBVals(getStateOrUndef(states, selectOp.getCondition()),
                          getStateOrUndef(states, selectOp.getTrueValue()),
@@ -1098,6 +1111,8 @@ static void propagateLinalgGeneric(linalg::GenericOp linalgOp,
     return;
   }
 
+  // Scan the body with operands mapped to block args, then copy yielded states
+  // back to the linalg results.
   OOBStateMap bodyStates = states;
   unsigned blockArgIndex = 0;
   for (Value input : linalgOp.getInputs()) {
@@ -1180,6 +1195,8 @@ static void seedGenericBlockArgs(GenericOp genericOp, Region &region,
 }
 
 static void propagateGenericOp(GenericOp genericOp, OOBStateMap &states) {
+  // Each region gets a local state map seeded from the generic operands and
+  // block args. Region yields become candidate states for the op results.
   SmallVector<SmallVector<ttcore::OOBVal>> regionStates;
   for (Region &region : genericOp->getRegions()) {
     OOBStateMap localStates = states;
@@ -1201,6 +1218,8 @@ static void propagateGenericOp(GenericOp genericOp, OOBStateMap &states) {
   }
 
   for (auto [resultIndex, result] : llvm::enumerate(genericOp.getResults())) {
+    // If multiple regions yield different OOB states for the same result, the
+    // merged result is unknown.
     ttcore::OOBVal merged = ttcore::OOBVal::Undef;
     bool initialized = false;
     for (ArrayRef<ttcore::OOBVal> perRegionStates : regionStates) {
@@ -1243,6 +1262,7 @@ static void propagateRegionOp(Operation *op, OOBStateMap &states) {
     return;
   }
 
+  // Unhandled result-producing ops become undef through the elementwise table.
   ttcore::OOBVal resultState = inferElementwiseOOBVal(op, states);
   for (Value result : op->getResults()) {
     states[result] = resultState;
@@ -1262,6 +1282,7 @@ static bool hasNoMaskablePadding(ShapedType shapedType,
   }
 
   if (auto metalLayout = dyn_cast<ttcore::MetalLayoutAttr>(layout)) {
+    // Metal layouts expose per-logical-dim alignments directly.
     ArrayRef<int64_t> dimAlignments = metalLayout.getDimAlignments();
     if (logicalShape.size() != dimAlignments.size()) {
       return false;
@@ -1282,6 +1303,11 @@ static bool hasNoMaskablePadding(ShapedType shapedType,
   }
 
   ArrayRef<int64_t> tileShape = tileType.getShape();
+  // For generic device layouts, only the innermost tile matrix dimensions can
+  // introduce maskable padding here.
+  // The last two physical dimensions are logical matrix rows/cols:
+  //   rows = gridY * shardRows * tileRows
+  //   cols = gridX * shardCols * tileCols
   int64_t physicalRows = gridShape[gridShape.size() - 2] *
                          shardShape[shardShape.size() - 2] * tileShape[0];
   int64_t physicalCols = gridShape[gridShape.size() - 1] *
@@ -1312,6 +1338,8 @@ public:
     OOBStateMap states;
     SmallVector<MaskOp> masksToErase;
 
+    // Pre-order scan: producer ops update `states`; each mask is checked
+    // against the state known for its input at that point.
     getOperation()->walk<WalkOrder::PreOrder>([&](Operation *op) -> WalkResult {
       if (auto maskOp = dyn_cast<MaskOp>(op)) {
         ttcore::OOBVal required = maskOp.getFillValue();

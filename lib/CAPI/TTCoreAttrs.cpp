@@ -143,18 +143,16 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
       chipCapabilitiesUnwrapped, chipCoordsUnwrapped, chipChannelsUnwrapped));
 }
 
-MlirAttribute ttmlirTTMetalLayoutAttrGet(
-    MlirContext ctx, intptr_t logicalRank, const int64_t *logicalShape,
-    intptr_t gridRank, const int64_t *gridShape, MlirType elementType,
-    intptr_t tileRank, const int64_t *tileShape, unsigned memorySpace) {
-  (void)gridRank;
-  (void)gridShape;
-  (void)elementType;
-  (void)tileRank;
-  (void)tileShape;
-
+MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, intptr_t logicalRank,
+                                         const int64_t *logicalShape, intptr_t,
+                                         const int64_t *, MlirType, intptr_t,
+                                         const int64_t *, unsigned,
+                                         unsigned memorySpace) {
   llvm::ArrayRef<int64_t> logicalShapeRef(logicalShape, logicalRank);
 
+  // Preserve the existing C API shape, but do not encode padding here.
+  // Out-of-bounds values are represented by explicit d2m.mask ops now, so the
+  // legacy grid/tile/oob arguments are ignored by this layout constructor.
   return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef,
                                    static_cast<MemorySpace>(memorySpace),
                                    TensorMemoryLayout::Sharded));

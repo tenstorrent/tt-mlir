@@ -787,6 +787,43 @@ def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
     `d2m.generic` that loads one shard, writes row/column mask tiles in L1,
     and emits tile loops for interior, edge, corner, and fully OOB regions.
 
+    The decomposition uses row/column mask tiles with `d2m.tile_where`, rather
+    than multiply-by-zero blending, so infinite fill values do not depend on
+    target-specific zero-times-infinity behavior.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %masked = d2m.mask %input, %output
+        logical_shape = [50, 50] fill_value = <zero>
+        : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
+          into memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
+          -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
+
+    // After (schematic):
+    d2m.generic {grid = #ttcore.grid<1x1>, threads = [#d2m.thread<unified>]}
+        ins(%input : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>)
+        outs(%output : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>) {
+      %localInput = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %localOutput = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %rowMask = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #cb, #l1>
+      %colMask = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #cb, #l1>
+      d2m.remote_load %localInput, %input[%coreY, %coreX] : ...
+      d2m.write_row_mask_tile(%validRows) to %rowMask : ...
+      d2m.write_col_mask_tile(%validCols) to %colMask : ...
+      scf.for %row = %rowStart to %rowEnd {
+        scf.for %col = %colStart to %colEnd {
+          %tile = memref.load %localInput[%row, %col] : ...
+          %mask = memref.load %rowMask[%c0, %c0] : ...
+          %fill = d2m.tile_fill %fillScalar : ...
+          %result = d2m.tile_where %mask, %tile, %fill : ...
+          memref.store %result, %localOutput[%row, %col] : ...
+        }
+      }
+      d2m.remote_store %output[%coreY, %coreX], %localOutput : ...
+    }
+    ```
+
     This pass should run after bufferization/generic loop generation and before
     allocation.
   }];

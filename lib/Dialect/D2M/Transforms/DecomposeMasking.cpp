@@ -206,8 +206,7 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
 
     SmallVector<Value> remoteIndices;
     remoteIndices.reserve(gridShape.size());
-    for (auto [dim, unused] : llvm::enumerate(gridShape)) {
-      (void)unused;
+    for (size_t dim = 0; dim < gridShape.size(); ++dim) {
       remoteIndices.push_back(rewriter.create<CoreIndexOp>(
           loc, rewriter.getIndexType(),
           rewriter.getI64IntegerAttr(static_cast<int64_t>(dim)), nullptr));

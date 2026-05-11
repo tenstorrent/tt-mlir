@@ -86,6 +86,50 @@ deriveVirtualGridAttrs(ArrayRef<int64_t> selectedGrid,
   return {AffineMapAttr::get(inverseMap), AffineMapAttr::get(forwardMap)};
 }
 
+static void recordGenericConsumer(Operation *user,
+                                  d2m::GenericOp &parentGeneric) {
+  d2m::GenericOp useGeneric = dyn_cast<d2m::GenericOp>(user);
+  if (!useGeneric) {
+    useGeneric = user->getParentOfType<d2m::GenericOp>();
+  }
+
+  TT_assertv(useGeneric,
+             "ToLayout result must be used by a single GenericOp, a single "
+             "ViewLayout, or a single MaskOp feeding a single GenericOp");
+
+  if (!parentGeneric) {
+    parentGeneric = useGeneric;
+    return;
+  }
+
+  TT_assertv(parentGeneric == useGeneric,
+             "ToLayout should only be used within one GenericOp");
+}
+
+static void verifySingleGenericConsumerThroughViewsAndMasks(Value root) {
+  d2m::GenericOp parentGeneric = nullptr;
+  SmallVector<Value> worklist{root};
+
+  while (!worklist.empty()) {
+    Value value = worklist.pop_back_val();
+    for (auto &use : value.getUses()) {
+      Operation *user = use.getOwner();
+      if (auto viewLayoutOp = dyn_cast<d2m::ViewLayoutOp>(user)) {
+        worklist.push_back(viewLayoutOp.getResult());
+        continue;
+      }
+      if (auto maskOp = dyn_cast<d2m::MaskOp>(user)) {
+        worklist.push_back(maskOp.getResult());
+        continue;
+      }
+      if (isa<d2m::SpatialOp>(user)) {
+        continue;
+      }
+      recordGenericConsumer(user, parentGeneric);
+    }
+  }
+}
+
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
 // recreating the MetalLayoutAttr with the given grid and proper dimension
 // alignments.
@@ -166,71 +210,7 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
   // A d2m.mask may also sit between the ToLayout and the GenericOp; in that
   // case the mask is the materialized padding contract and should not hide the
   // stream that still needs grid optimization.
-  d2m::GenericOp parentGeneric = nullptr;
-  auto recordGenericUser = [&](mlir::Operation *user) {
-    d2m::GenericOp useGeneric = mlir::dyn_cast<d2m::GenericOp>(user);
-    if (!useGeneric) {
-      useGeneric = user->getParentOfType<d2m::GenericOp>();
-    }
-
-    TT_assertv(useGeneric,
-               "ToLayout result must be used by a single GenericOp, a single "
-               "ViewLayout, or a single MaskOp feeding a single GenericOp");
-
-    if (!parentGeneric) {
-      parentGeneric = useGeneric;
-    } else if (parentGeneric != useGeneric) {
-      TT_assertv(false, "ToLayout should only be used within one GenericOp");
-    }
-  };
-  auto recordGenericUsersOf = [&](Value root) {
-    SmallVector<Value> worklist{root};
-    while (!worklist.empty()) {
-      Value value = worklist.pop_back_val();
-      for (auto &use : value.getUses()) {
-        mlir::Operation *user = use.getOwner();
-        if (auto viewLayoutOp = mlir::dyn_cast<d2m::ViewLayoutOp>(user)) {
-          worklist.push_back(viewLayoutOp.getResult());
-          continue;
-        }
-        if (auto maskOp = mlir::dyn_cast<d2m::MaskOp>(user)) {
-          worklist.push_back(maskOp.getResult());
-          continue;
-        }
-        if (mlir::isa<d2m::SpatialOp>(user)) {
-          continue;
-        }
-        recordGenericUser(user);
-      }
-    }
-  };
-
-  for (auto &use : toLayoutOp.getResult(0).getUses()) {
-    mlir::Operation *user = use.getOwner();
-
-    // Check if this use is by a view_layout operation (e.g., tensor
-    // manipulation ops that express data rearrangement as a view).
-    if (auto viewLayoutOp = mlir::dyn_cast<d2m::ViewLayoutOp>(user)) {
-      recordGenericUsersOf(viewLayoutOp.getResult());
-      continue;
-    }
-
-    if (auto maskOp = mlir::dyn_cast<d2m::MaskOp>(user)) {
-      recordGenericUsersOf(maskOp.getResult());
-      continue;
-    }
-
-    // Skip Spatial: it only lists the tensor on ins/outs. The real use is
-    // inside the nested d2m.generic, which we handle in the next block.
-    if (mlir::isa<d2m::SpatialOp>(user)) {
-      continue;
-    }
-
-    // Find the parent GenericOp for this use. The user might be the GenericOp
-    // itself (if it's an operand), or it might be an operation nested within
-    // the GenericOp's regions.
-    recordGenericUser(user);
-  }
+  verifySingleGenericConsumerThroughViewsAndMasks(toLayoutOp.getResult(0));
   toLayoutOp.getResult(0).replaceAllUsesWith(view.getResult());
 
   toLayoutOp.erase();

@@ -103,8 +103,8 @@ using Plan = llvm::SmallVector<Step>;
 Plan canonicalize(const PlanState &src, const PlanState &tgt,
                   llvm::ArrayRef<int64_t> targetGridShape, MLIRContext *ctx);
 
-// Simplify a lowering plan by applying cancellation, fusion, and commutation
-// rules until fixpoint.
+// Simplify a lowering plan by applying cancellation and fusion rules until
+// fixpoint.
 Plan minimize(Plan plan);
 
 } // namespace mlir::tt::d2m
