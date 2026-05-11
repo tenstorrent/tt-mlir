@@ -34,7 +34,7 @@ TEST(EngineCompileTest, ThrowsOnParseError) {
     try {
         tt::kurbla::compile_ttir_to_ttnn_flatbuffer("not valid mlir");
         FAIL() << "expected ParseError";
-    } catch (const tt::kurbla::ParseError& e) {
+    } catch (const tt::kurbla::ParseError &e) {
         EXPECT_NE(std::string_view(e.what()).find_first_not_of(' '), std::string_view::npos);
     } catch (...) {
         FAIL() << "expected ParseError, got a different exception";
@@ -57,10 +57,9 @@ TEST(EngineCompileTest, ReusesEngineAcrossCalls) {
 // text into the shared MLIRContext; a real producer would construct the IR
 // via mlir::OpBuilder instead, but the compile call site is identical.
 TEST(EngineCompileTest, CompilesPreBuiltModule) {
-    mlir::MLIRContext& ctx = tt::kurbla::mlir_context();
+    mlir::MLIRContext &ctx = tt::kurbla::mlir_context();
 
-    mlir::OwningOpRef<mlir::ModuleOp> module =
-        mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
+    mlir::OwningOpRef<mlir::ModuleOp> module = mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
     ASSERT_TRUE(module);
 
     tt::kurbla::CompileOptions opts;

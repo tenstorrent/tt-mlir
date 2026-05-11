@@ -37,7 +37,7 @@ struct EngineState {
     }
 };
 
-EngineState& engine_state() {
+EngineState &engine_state() {
     static EngineState state;
     return state;
 }
@@ -52,7 +52,7 @@ mlir::tt::ttcore::Arch to_ttcore_arch(CompileOptions::MockArch arch) {
     return mlir::tt::ttcore::Arch::WormholeB0;
 }
 
-std::string make_error_message(std::string_view fallback, const std::string& captured) {
+std::string make_error_message(std::string_view fallback, const std::string &captured) {
     if (captured.empty()) {
         return std::string(fallback);
     }
@@ -63,9 +63,8 @@ std::string make_error_message(std::string_view fallback, const std::string& cap
 // Assumes the caller has already installed a ScopedDiagnosticHandler that
 // writes captured diagnostics into `diag_buffer`. The module is mutated in
 // place; on success it contains TTNN ops.
-CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module,
-                                          const CompileOptions& options,
-                                          const std::string& diag_buffer) {
+CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module, const CompileOptions &options,
+                                          const std::string &diag_buffer) {
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
     pm_opts.optimizationLevel = options.optimization_level;
     pm_opts.systemDescPath = options.system_desc_path;
@@ -88,16 +87,16 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module,
 
 } // namespace
 
-mlir::MLIRContext& mlir_context() {
+mlir::MLIRContext &mlir_context() {
     return engine_state().context;
 }
 
-CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module, const CompileOptions& options) {
-    mlir::MLIRContext* ctx = module.getContext();
+CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module, const CompileOptions &options) {
+    mlir::MLIRContext *ctx = module.getContext();
 
     std::string diag_buffer;
     llvm::raw_string_ostream diag_stream(diag_buffer);
-    mlir::ScopedDiagnosticHandler diag_handler(ctx, [&](mlir::Diagnostic& diag) -> mlir::LogicalResult {
+    mlir::ScopedDiagnosticHandler diag_handler(ctx, [&](mlir::Diagnostic &diag) -> mlir::LogicalResult {
         diag.print(diag_stream);
         diag_stream << "\n";
         return mlir::success();
@@ -106,12 +105,12 @@ CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module, const Com
     return run_ttir_to_ttnn_and_emit(module, options, diag_buffer);
 }
 
-CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions& options) {
-    mlir::MLIRContext& ctx = engine_state().context;
+CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options) {
+    mlir::MLIRContext &ctx = engine_state().context;
 
     std::string diag_buffer;
     llvm::raw_string_ostream diag_stream(diag_buffer);
-    mlir::ScopedDiagnosticHandler diag_handler(&ctx, [&](mlir::Diagnostic& diag) -> mlir::LogicalResult {
+    mlir::ScopedDiagnosticHandler diag_handler(&ctx, [&](mlir::Diagnostic &diag) -> mlir::LogicalResult {
         diag.print(diag_stream);
         diag_stream << "\n";
         return mlir::success();

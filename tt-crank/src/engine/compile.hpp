@@ -42,7 +42,7 @@ struct TT_KURBLA_API CompileOptions {
 // Use this when building TTIR modules programmatically (e.g. lowering from
 // framework IR like PyTorch FX) — the resulting ModuleOp must live in this
 // context for the ModuleOp-based compile overload to work.
-TT_KURBLA_API mlir::MLIRContext& mlir_context();
+TT_KURBLA_API mlir::MLIRContext &mlir_context();
 
 // Compile TTIR text through the ttir-to-ttnn runtime pipeline and emit a TTNN
 // flatbuffer. Throws CompileError (ParseError / PipelineError) on failure with
@@ -52,7 +52,7 @@ TT_KURBLA_API mlir::MLIRContext& mlir_context();
 // MLIRContext is a process-wide singleton without internal locking. Callers
 // must serialize.
 TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir,
-                                                              const CompileOptions& options = {});
+                                                              const CompileOptions &options = {});
 
 // Compile a pre-built TTIR ModuleOp. The module must live in mlir_context()
 // and is mutated in place — on success it holds TTNN ops, not TTIR.
@@ -62,7 +62,7 @@ TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view t
 //
 // Same threading caveat as the string overload: serialize calls.
 TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module,
-                                                              const CompileOptions& options = {});
+                                                              const CompileOptions &options = {});
 
 // Exception types are class-annotated so their typeinfo is exported with
 // default visibility. Without this, `catch (CompileError&)` in a consumer

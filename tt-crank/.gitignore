@@ -3,6 +3,9 @@
 /build-*/
 /out/
 
+# Python venv (dev tooling — pre-commit, etc.)
+/.venv/
+
 # Compile commands (when symlinked or copied into source tree)
 /compile_commands.json
 

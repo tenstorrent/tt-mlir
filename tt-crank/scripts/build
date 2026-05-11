@@ -5,9 +5,10 @@
 #   ./scripts/build dev          # any preset name from CMakePresets.json
 #   PRESET=san ./scripts/build   # same effect via env var
 #
-# Handles the two pieces of friction that a raw `cmake --preset` invocation can't:
-# (1) lazy `git submodule update --init --recursive` if third_party/tt-mlir is empty;
-# (2) `source third_party/tt-mlir/env/activate` so $TTMLIR_TOOLCHAIN_DIR is set
+# Handles the pieces of friction that a raw `cmake --preset` invocation can't:
+# (1) one-shot bootstrap of `.venv` for dev tooling (pre-commit hooks);
+# (2) lazy `git submodule update --init --recursive` if third_party/tt-mlir is empty;
+# (3) `source third_party/tt-mlir/env/activate` so $TTMLIR_TOOLCHAIN_DIR is set
 #     before the tt-mlir external-project configures itself.
 #
 # Users who already have the env activated can skip this wrapper and run
@@ -16,6 +17,16 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+# Dev venv: hosts pre-commit and future tooling. Idempotent — only runs on first build.
+# To refresh dev tooling, `rm -rf .venv` and re-run.
+if [[ ! -d .venv ]]; then
+    echo "==> bootstrapping .venv (dev tooling)"
+    python3 -m venv .venv
+    .venv/bin/pip install --quiet --upgrade pip
+    .venv/bin/pip install --quiet -r requirements-dev.txt
+    .venv/bin/pre-commit install
+fi
 
 if [[ ! -f third_party/tt-mlir/CMakeLists.txt ]]; then
     echo "==> third_party/tt-mlir missing; initializing submodules"

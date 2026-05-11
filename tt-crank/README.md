@@ -19,8 +19,10 @@ The first build builds the LLVM/MLIR toolchain that `tt-mlir` depends on — mul
 ```sh
 git clone --recurse-submodules <repo> tt-kurbla
 cd tt-kurbla
-./scripts/build      # init submodules → source env/activate → configure → build → test
+./scripts/build      # bootstrap .venv → init submodules → source env/activate → configure → build → test
 ```
+
+`scripts/build` also creates a project-local `.venv` and installs the pre-commit git hook on first run. See [Dev tooling](#dev-tooling).
 
 ## Daily build
 
@@ -74,6 +76,16 @@ tt-kurbla/
 ```
 
 Headers live alongside their `.cpp` under `src/<component>/...` — no separate `include/` tree. Internal/downstream callers include as `"engine/foo.hpp"`.
+
+## Dev tooling
+
+`scripts/build` bootstraps `.venv/` and installs the `pre-commit` git hook on first run.
+
+```sh
+.venv/bin/pre-commit run --all-files    # run all hooks across the tree
+.venv/bin/pre-commit uninstall          # remove the git hook
+rm -rf .venv                            # refresh dev tooling on next ./scripts/build
+```
 
 ## Status
 
