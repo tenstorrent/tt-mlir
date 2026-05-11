@@ -392,6 +392,9 @@ void CommandExecutor::execute(
   uint64_t sourceGlobalId = command->source_tensor_global_id();
   uint64_t outputGlobalId = command->output_global_id();
 
+  LOG_ASSERT(tensorPool_.contains(sourceGlobalId),
+             "Source tenso with global id ", sourceGlobalId, " not found in tensor pool");
+
   ::tt::runtime::Tensor sourceTensor = tensorPool_.at(sourceGlobalId);
   ::tt::runtime::Tensor borrowedTensor =
       ::tt::runtime::createUnsafeBorrowedHostTensor(sourceTensor);
