@@ -64,7 +64,7 @@ jobs:
           }
 
           # get test results from the last successful push
-          get_test_results_from_wf "push-main.yml" "success" "push"
+          get_test_results_from_wf "on-push.yml" "success" "push"
 
           python .github/scripts/python/get_test_duration_from_junit_xmls.py ${{runner.temp}}/reports .test_durations
           echo "" >> .test_durations
