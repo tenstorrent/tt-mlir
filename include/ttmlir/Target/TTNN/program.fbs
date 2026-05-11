@@ -95,6 +95,7 @@ union OpType {
   MaxPool2dWithIndicesOp,
   MeshPartitionOp,
   MoeExpertTokenRemapOp,
+  MoeGptOp,
   CumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
