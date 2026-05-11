@@ -368,7 +368,6 @@ static void
 applyCompositeViewUpdate(const OperandGridInfo &info,
                          EffectiveTargetGridRange effectiveTargetGrid,
                          bool ttnnMode, OpBuilder &builder) {
-  ArrayRef<int64_t> effectiveTargetGridShape = effectiveTargetGrid.shape;
   auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
   const int32_t concatDim = compositeView.getDim();
   auto outType =
@@ -389,6 +388,7 @@ applyCompositeViewUpdate(const OperandGridInfo &info,
     }
 
     RankedTensorType newInputType;
+    llvm::SmallVector<int64_t> inputOptimalGrid;
     if (isTiled) {
       // Use the grid-aligned output type's dim alignments for the inputs, as
       // they should mostly match on non-concat dimensions.
@@ -416,7 +416,7 @@ applyCompositeViewUpdate(const OperandGridInfo &info,
           inputAlignments);
 
       auto inputPhysShape = newLayout.getPhysicalShape(tileShape);
-      auto inputOptimalGrid =
+      inputOptimalGrid =
           utils::computeOptimalGrid(inputType, inputPhysShape, info.targetGrid);
 
       auto deviceShape = newLayout.getDeviceShape(inputOptimalGrid, tileShape);
@@ -429,7 +429,7 @@ applyCompositeViewUpdate(const OperandGridInfo &info,
       // shard shapes.
       auto inputPhysShape =
           utils::computePhysicalShape(input, info.targetGrid, ttnnMode);
-      auto inputOptimalGrid =
+      inputOptimalGrid =
           utils::computeOptimalGrid(inputType, inputPhysShape, info.targetGrid);
       newInputType = utils::tensorWithOptimalGrid(inputType, info.targetGrid,
                                                   ttnnMode, inputOptimalGrid);
@@ -443,11 +443,13 @@ applyCompositeViewUpdate(const OperandGridInfo &info,
         toLayoutOp && input.hasOneUse()) {
       auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
       if (emptyOp) {
+        auto [virtualGridInverseMapping, virtualGridForwardMapping] =
+            deriveVirtualGridAttrs(inputOptimalGrid, effectiveTargetGrid,
+                                   builder);
         builder.setInsertionPoint(emptyOp);
         auto newEmptyOp = builder.create<d2m::EmptyOp>(
-            emptyOp.getLoc(), newInputType.getShape(),
-            newInputType.getElementType(), newInputType.getEncoding(),
-            effectiveTargetGridShape);
+            emptyOp.getLoc(), newInputType, virtualGridInverseMapping,
+            virtualGridForwardMapping);
         builder.setInsertionPoint(toLayoutOp);
         auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
             toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
