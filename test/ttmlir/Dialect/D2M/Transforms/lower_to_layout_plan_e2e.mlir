@@ -6,6 +6,8 @@
 #oob_dst = #ttcore.metal_layout<logical_shape = 1x1x32x33, dim_alignments = 1x1x32x32, collapsed_intervals = dense<[[0, 3], [3, 4]]> : tensor<2x2xi64>, l1, sharded>
 #vgm_layout = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #remap_reblock_layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#mask_retype_src = #ttcore.metal_layout<logical_shape = 60x60, dim_alignments = 128x128, collapsed_intervals = dense<[[0, 1]]> : tensor<1x2xi64>, l1, sharded>
+#mask_retype_aligned = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // CHECK-LABEL: func.func @remap_only_uses_view_layout
 // CHECK: %[[RESULT:.*]] = d2m.view_layout %arg0 remapping = #map : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout>
@@ -59,4 +61,20 @@ func.func @vgm_only_change_rebuffers_without_view() -> tensor<1x64x1x1x!ttcore.t
   %1 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 4, d1 + 5, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 4, d1 - 5)>} : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #vgm_layout>
   %2 = d2m.to_layout %0, %1 : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #vgm_layout> into tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #vgm_layout> -> tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #vgm_layout>
   return %2 : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #vgm_layout>
+}
+
+// CHECK-LABEL: func.func @mask_output_retyped_after_tilize
+// CHECK: %[[TILIZED:.*]] = d2m.generic
+// CHECK: %[[MASK_OUT:.*]] = d2m.empty() : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
+// CHECK: %[[MASKED:.*]] = d2m.mask %[[TILIZED]], %[[MASK_OUT]] logical_shape = [60, 60] fill_value = <one> : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}> into tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}> -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
+// CHECK: d2m.view_layout %[[MASKED]]
+func.func @mask_output_retyped_after_tilize(%arg0: tensor<60x60xf32>) -> tensor<128x128xf32> {
+  %0 = d2m.empty() : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #mask_retype_src>
+  %1 = d2m.to_layout %arg0, %0 : tensor<60x60xf32> into tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #mask_retype_src> -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #mask_retype_src>
+  %2 = d2m.empty() : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #mask_retype_src>
+  %3 = d2m.mask %1, %2 logical_shape = [60, 60] fill_value = <one> : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #mask_retype_src> into tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #mask_retype_src> -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #mask_retype_src>
+  %4 = d2m.view_layout %3 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> {reinterpretLayout = true} : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #mask_retype_src> -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #mask_retype_aligned>
+  %5 = d2m.empty() : tensor<128x128xf32>
+  %6 = d2m.to_layout %4, %5 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #mask_retype_aligned> into tensor<128x128xf32> -> tensor<128x128xf32>
+  return %6 : tensor<128x128xf32>
 }

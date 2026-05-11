@@ -16,6 +16,9 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/DenseMap.h"
 
+#include <limits>
+#include <optional>
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MOPTIMIZEMASKS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -27,13 +30,35 @@ namespace {
 // required OOB value.
 using OOBStateMap = llvm::DenseMap<Value, ttcore::OOBVal>;
 
+static bool isConcreteOOBVal(ttcore::OOBVal value) {
+  return value != ttcore::OOBVal::Undef;
+}
+
 static ttcore::OOBVal getConstantOOBVal(Attribute attr) {
+  if (!attr) {
+    return ttcore::OOBVal::Undef;
+  }
+
+  if (auto denseAttr = dyn_cast<DenseElementsAttr>(attr)) {
+    if (!denseAttr.isSplat()) {
+      return ttcore::OOBVal::Undef;
+    }
+    return getConstantOOBVal(denseAttr.getSplatValue<Attribute>());
+  }
+
   if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
-    if (intAttr.getValue().isZero()) {
+    APInt value = intAttr.getValue();
+    if (value.isZero()) {
       return ttcore::OOBVal::Zero;
     }
-    if (intAttr.getValue().isOne()) {
+    if (value.isOne()) {
       return ttcore::OOBVal::One;
+    }
+    if (value == APInt::getSignedMinValue(value.getBitWidth())) {
+      return ttcore::OOBVal::NegInf;
+    }
+    if (value == APInt::getSignedMaxValue(value.getBitWidth())) {
+      return ttcore::OOBVal::Inf;
     }
     return ttcore::OOBVal::Undef;
   }
@@ -53,6 +78,26 @@ static ttcore::OOBVal getConstantOOBVal(Attribute attr) {
   return ttcore::OOBVal::Undef;
 }
 
+static std::optional<double> getConstantAsDouble(Attribute attr) {
+  if (!attr) {
+    return std::nullopt;
+  }
+
+  if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
+    APInt value = intAttr.getValue();
+    if (value.getBitWidth() > 63) {
+      return std::nullopt;
+    }
+    return static_cast<double>(value.getSExtValue());
+  }
+
+  if (auto floatAttr = dyn_cast<FloatAttr>(attr)) {
+    return floatAttr.getValue().convertToDouble();
+  }
+
+  return std::nullopt;
+}
+
 static ttcore::OOBVal getStateOrUndef(const OOBStateMap &states, Value value) {
   auto it = states.find(value);
   if (it != states.end()) {
@@ -64,6 +109,36 @@ static ttcore::OOBVal getStateOrUndef(const OOBStateMap &states, Value value) {
   }
 
   return ttcore::OOBVal::Undef;
+}
+
+static std::optional<double> getOOBValAsDouble(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return 0.0;
+  case ttcore::OOBVal::One:
+    return 1.0;
+  case ttcore::OOBVal::Inf:
+    return std::numeric_limits<double>::infinity();
+  case ttcore::OOBVal::NegInf:
+    return -std::numeric_limits<double>::infinity();
+  case ttcore::OOBVal::Undef:
+    return std::nullopt;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static std::optional<bool> getOOBValAsBool(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return false;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+  case ttcore::OOBVal::NegInf:
+    return true;
+  case ttcore::OOBVal::Undef:
+    return std::nullopt;
+  }
+  llvm_unreachable("unknown OOB value");
 }
 
 static ttcore::OOBVal negateOOBVal(ttcore::OOBVal value) {
@@ -89,6 +164,306 @@ static ttcore::OOBVal absOOBVal(ttcore::OOBVal value) {
     return value;
   case ttcore::OOBVal::NegInf:
     return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+// These transfer functions intentionally stay in the five-value OOB lattice.
+// If an operation produces a real value we cannot represent exactly, such as
+// -1, 0.5, or 2, it collapses to undef rather than inventing a new state.
+static ttcore::OOBVal recipOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::One:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::Inf:
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal expOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal expm1OOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal logOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::NegInf;
+  case ttcore::OOBVal::One:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal log1pOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal sqrtOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+    return value;
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal rsqrtOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::One:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal squareOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::One:
+    return value;
+  case ttcore::OOBVal::Inf:
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal sinOOBVal(ttcore::OOBVal value) {
+  return value == ttcore::OOBVal::Zero ? ttcore::OOBVal::Zero
+                                       : ttcore::OOBVal::Undef;
+}
+
+static ttcore::OOBVal cosOOBVal(ttcore::OOBVal value) {
+  return value == ttcore::OOBVal::Zero ? ttcore::OOBVal::One
+                                       : ttcore::OOBVal::Undef;
+}
+
+static ttcore::OOBVal acosOOBVal(ttcore::OOBVal value) {
+  return value == ttcore::OOBVal::One ? ttcore::OOBVal::Zero
+                                      : ttcore::OOBVal::Undef;
+}
+
+static ttcore::OOBVal tanhOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal sigmoidOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal reluOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+    return value;
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal geluOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal seluOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Inf;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal signOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal signbitOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal fracOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::One:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Inf:
+  case ttcore::OOBVal::NegInf:
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal positivePredicateOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal nonNegativePredicateOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal negativePredicateOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Zero;
+  case ttcore::OOBVal::Undef:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal nonPositivePredicateOOBVal(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+  case ttcore::OOBVal::NegInf:
+    return ttcore::OOBVal::One;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+    return ttcore::OOBVal::Zero;
   case ttcore::OOBVal::Undef:
     return ttcore::OOBVal::Undef;
   }
@@ -162,12 +537,13 @@ static ttcore::OOBVal divOOBVals(ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
   if (rhs == ttcore::OOBVal::One) {
     return lhs;
   }
-  if (lhs == ttcore::OOBVal::Zero && rhs != ttcore::OOBVal::Zero &&
-      rhs != ttcore::OOBVal::Undef) {
+  if (lhs == ttcore::OOBVal::Zero && isConcreteOOBVal(rhs) &&
+      rhs != ttcore::OOBVal::Zero) {
     return ttcore::OOBVal::Zero;
   }
-  if (lhs == ttcore::OOBVal::One && rhs == ttcore::OOBVal::One) {
-    return ttcore::OOBVal::One;
+  if (lhs == ttcore::OOBVal::One &&
+      (rhs == ttcore::OOBVal::Inf || rhs == ttcore::OOBVal::NegInf)) {
+    return ttcore::OOBVal::Zero;
   }
   return ttcore::OOBVal::Undef;
 }
@@ -208,55 +584,506 @@ static ttcore::OOBVal minOOBVals(ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
              : ttcore::OOBVal::One;
 }
 
+static ttcore::OOBVal powOOBVals(ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
+  if (rhs == ttcore::OOBVal::Zero) {
+    return ttcore::OOBVal::One;
+  }
+  if (rhs == ttcore::OOBVal::One) {
+    return lhs;
+  }
+  if (lhs == ttcore::OOBVal::One) {
+    return ttcore::OOBVal::One;
+  }
+  return ttcore::OOBVal::Undef;
+}
+
+static ttcore::OOBVal bitwiseAndOOBVals(ttcore::OOBVal lhs,
+                                        ttcore::OOBVal rhs) {
+  if (lhs == ttcore::OOBVal::Zero || rhs == ttcore::OOBVal::Zero) {
+    return ttcore::OOBVal::Zero;
+  }
+  if (lhs == ttcore::OOBVal::One && rhs == ttcore::OOBVal::One) {
+    return ttcore::OOBVal::One;
+  }
+  return ttcore::OOBVal::Undef;
+}
+
+static ttcore::OOBVal bitwiseOrOOBVals(ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
+  if (lhs == ttcore::OOBVal::Zero) {
+    return rhs;
+  }
+  if (rhs == ttcore::OOBVal::Zero) {
+    return lhs;
+  }
+  if (lhs == ttcore::OOBVal::One && rhs == ttcore::OOBVal::One) {
+    return ttcore::OOBVal::One;
+  }
+  return ttcore::OOBVal::Undef;
+}
+
+static ttcore::OOBVal bitwiseXorOOBVals(ttcore::OOBVal lhs,
+                                        ttcore::OOBVal rhs) {
+  if (lhs == ttcore::OOBVal::Zero) {
+    return rhs;
+  }
+  if (rhs == ttcore::OOBVal::Zero) {
+    return lhs;
+  }
+  if (lhs == ttcore::OOBVal::One && rhs == ttcore::OOBVal::One) {
+    return ttcore::OOBVal::Zero;
+  }
+  return ttcore::OOBVal::Undef;
+}
+
+static ttcore::OOBVal shiftOOBVals(ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
+  if (lhs == ttcore::OOBVal::Zero) {
+    return ttcore::OOBVal::Zero;
+  }
+  if (rhs == ttcore::OOBVal::Zero) {
+    return lhs;
+  }
+  return ttcore::OOBVal::Undef;
+}
+
+enum class KnownZero {
+  Unknown,
+  Zero,
+  NonZero,
+};
+
+static KnownZero getConstantKnownZero(Attribute attr) {
+  if (!attr) {
+    return KnownZero::Unknown;
+  }
+
+  if (auto denseAttr = dyn_cast<DenseElementsAttr>(attr)) {
+    if (!denseAttr.isSplat()) {
+      return KnownZero::Unknown;
+    }
+    return getConstantKnownZero(denseAttr.getSplatValue<Attribute>());
+  }
+
+  if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
+    return intAttr.getValue().isZero() ? KnownZero::Zero : KnownZero::NonZero;
+  }
+
+  if (auto floatAttr = dyn_cast<FloatAttr>(attr)) {
+    APFloat value = floatAttr.getValue();
+    if (value.isNaN()) {
+      return KnownZero::Unknown;
+    }
+    return value.isZero() ? KnownZero::Zero : KnownZero::NonZero;
+  }
+
+  return KnownZero::Unknown;
+}
+
+static KnownZero getKnownZero(ttcore::OOBVal value) {
+  switch (value) {
+  case ttcore::OOBVal::Zero:
+    return KnownZero::Zero;
+  case ttcore::OOBVal::One:
+  case ttcore::OOBVal::Inf:
+  case ttcore::OOBVal::NegInf:
+    return KnownZero::NonZero;
+  case ttcore::OOBVal::Undef:
+    return KnownZero::Unknown;
+  }
+  llvm_unreachable("unknown OOB value");
+}
+
+static ttcore::OOBVal getZeroPredicateOOBVal(KnownZero knownZero) {
+  switch (knownZero) {
+  case KnownZero::Zero:
+    return ttcore::OOBVal::One;
+  case KnownZero::NonZero:
+    return ttcore::OOBVal::Zero;
+  case KnownZero::Unknown:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown zero state");
+}
+
+static ttcore::OOBVal getNonZeroPredicateOOBVal(KnownZero knownZero) {
+  switch (knownZero) {
+  case KnownZero::Zero:
+    return ttcore::OOBVal::Zero;
+  case KnownZero::NonZero:
+    return ttcore::OOBVal::One;
+  case KnownZero::Unknown:
+    return ttcore::OOBVal::Undef;
+  }
+  llvm_unreachable("unknown zero state");
+}
+
+static KnownZero inferKnownZero(Value value, const OOBStateMap &states,
+                                unsigned depth = 0);
+
+static KnownZero inferAddKnownZero(KnownZero lhsZero, KnownZero rhsZero,
+                                   ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
+  if (lhsZero == KnownZero::Zero) {
+    return rhsZero;
+  }
+  if (rhsZero == KnownZero::Zero) {
+    return lhsZero;
+  }
+
+  if (lhsZero != KnownZero::NonZero || rhsZero != KnownZero::NonZero ||
+      !isConcreteOOBVal(lhs) || !isConcreteOOBVal(rhs)) {
+    return KnownZero::Unknown;
+  }
+
+  if ((lhs == ttcore::OOBVal::Inf && rhs == ttcore::OOBVal::NegInf) ||
+      (lhs == ttcore::OOBVal::NegInf && rhs == ttcore::OOBVal::Inf)) {
+    return KnownZero::Unknown;
+  }
+  return KnownZero::NonZero;
+}
+
+static KnownZero inferSubKnownZero(KnownZero lhsZero, KnownZero rhsZero,
+                                   ttcore::OOBVal lhs, ttcore::OOBVal rhs) {
+  if (rhsZero == KnownZero::Zero) {
+    return lhsZero;
+  }
+  if (lhsZero == KnownZero::Zero) {
+    return rhsZero == KnownZero::NonZero ? KnownZero::NonZero
+                                         : KnownZero::Unknown;
+  }
+
+  if (lhs == ttcore::OOBVal::One && rhs == ttcore::OOBVal::One) {
+    return KnownZero::Zero;
+  }
+  if (lhs == ttcore::OOBVal::Inf) {
+    return rhs == ttcore::OOBVal::Inf ? KnownZero::Unknown : KnownZero::NonZero;
+  }
+  if (lhs == ttcore::OOBVal::NegInf) {
+    return rhs == ttcore::OOBVal::NegInf ? KnownZero::Unknown
+                                         : KnownZero::NonZero;
+  }
+  if (rhs == ttcore::OOBVal::Inf || rhs == ttcore::OOBVal::NegInf) {
+    return lhs == ttcore::OOBVal::Undef ? KnownZero::Unknown
+                                        : KnownZero::NonZero;
+  }
+
+  return KnownZero::Unknown;
+}
+
+static KnownZero inferMulKnownZero(KnownZero lhsZero, KnownZero rhsZero) {
+  if (lhsZero == KnownZero::Zero || rhsZero == KnownZero::Zero) {
+    return KnownZero::Zero;
+  }
+  if (lhsZero == KnownZero::NonZero && rhsZero == KnownZero::NonZero) {
+    return KnownZero::NonZero;
+  }
+  return KnownZero::Unknown;
+}
+
+static KnownZero inferSelectKnownZero(KnownZero conditionZero,
+                                      KnownZero trueValueZero,
+                                      KnownZero falseValueZero) {
+  if (conditionZero == KnownZero::Zero) {
+    return falseValueZero;
+  }
+  if (conditionZero == KnownZero::NonZero) {
+    return trueValueZero;
+  }
+  return trueValueZero == falseValueZero ? trueValueZero : KnownZero::Unknown;
+}
+
+static KnownZero inferKnownZero(Value value, const OOBStateMap &states,
+                                unsigned depth) {
+  ttcore::OOBVal state = getStateOrUndef(states, value);
+  KnownZero knownZero = getKnownZero(state);
+  if (knownZero != KnownZero::Unknown) {
+    return knownZero;
+  }
+
+  Operation *op = value.getDefiningOp();
+  if (!op) {
+    return KnownZero::Unknown;
+  }
+
+  if (auto constant = dyn_cast<arith::ConstantOp>(op)) {
+    return getConstantKnownZero(constant.getValue());
+  }
+
+  if (depth >= 4) {
+    return KnownZero::Unknown;
+  }
+
+  if (isa<TileLogicalNotOp, TileEqzOp>(op)) {
+    return getKnownZero(getZeroPredicateOOBVal(
+        inferKnownZero(op->getOperand(0), states, depth + 1)));
+  }
+  if (isa<TileNezOp>(op)) {
+    return getKnownZero(getNonZeroPredicateOOBVal(
+        inferKnownZero(op->getOperand(0), states, depth + 1)));
+  }
+
+  if (auto selectOp = dyn_cast<arith::SelectOp>(op)) {
+    return inferSelectKnownZero(
+        inferKnownZero(selectOp.getCondition(), states, depth + 1),
+        inferKnownZero(selectOp.getTrueValue(), states, depth + 1),
+        inferKnownZero(selectOp.getFalseValue(), states, depth + 1));
+  }
+
+  if (op->getNumOperands() < 2) {
+    return KnownZero::Unknown;
+  }
+
+  KnownZero lhsZero = inferKnownZero(op->getOperand(0), states, depth + 1);
+  KnownZero rhsZero = inferKnownZero(op->getOperand(1), states, depth + 1);
+  ttcore::OOBVal lhs = getStateOrUndef(states, op->getOperand(0));
+  ttcore::OOBVal rhs = getStateOrUndef(states, op->getOperand(1));
+
+  if (isa<TileAddOp, arith::AddFOp, arith::AddIOp>(op)) {
+    return inferAddKnownZero(lhsZero, rhsZero, lhs, rhs);
+  }
+  if (isa<TileSubOp, arith::SubFOp, arith::SubIOp>(op)) {
+    return inferSubKnownZero(lhsZero, rhsZero, lhs, rhs);
+  }
+  if (isa<TileMulOp, arith::MulFOp, arith::MulIOp>(op)) {
+    return inferMulKnownZero(lhsZero, rhsZero);
+  }
+  if (isa<TileWhereOp>(op)) {
+    return inferSelectKnownZero(
+        lhsZero, rhsZero, inferKnownZero(op->getOperand(2), states, depth + 1));
+  }
+
+  return KnownZero::Unknown;
+}
+
+static ttcore::OOBVal selectOOBVals(ttcore::OOBVal trueValue,
+                                    ttcore::OOBVal falseValue) {
+  return trueValue == falseValue ? trueValue : ttcore::OOBVal::Undef;
+}
+
+static ttcore::OOBVal selectOOBVals(ttcore::OOBVal condition,
+                                    ttcore::OOBVal trueValue,
+                                    ttcore::OOBVal falseValue) {
+  if (std::optional<bool> conditionValue = getOOBValAsBool(condition)) {
+    return *conditionValue ? trueValue : falseValue;
+  }
+  return selectOOBVals(trueValue, falseValue);
+}
+
+static ttcore::OOBVal clampOOBVal(ttcore::OOBVal value, Attribute minAttr,
+                                  Attribute maxAttr) {
+  std::optional<double> maybeValue = getOOBValAsDouble(value);
+  std::optional<double> maybeMin = getConstantAsDouble(minAttr);
+  std::optional<double> maybeMax = getConstantAsDouble(maxAttr);
+  if (!maybeValue || !maybeMin || !maybeMax) {
+    return ttcore::OOBVal::Undef;
+  }
+
+  double clamped = *maybeValue;
+  if (clamped < *maybeMin) {
+    clamped = *maybeMin;
+  }
+  if (clamped > *maybeMax) {
+    clamped = *maybeMax;
+  }
+
+  if (clamped == 0.0) {
+    return ttcore::OOBVal::Zero;
+  }
+  if (clamped == 1.0) {
+    return ttcore::OOBVal::One;
+  }
+  if (clamped == std::numeric_limits<double>::infinity()) {
+    return ttcore::OOBVal::Inf;
+  }
+  if (clamped == -std::numeric_limits<double>::infinity()) {
+    return ttcore::OOBVal::NegInf;
+  }
+  return ttcore::OOBVal::Undef;
+}
+
 static ttcore::OOBVal inferElementwiseOOBVal(Operation *op,
                                              const OOBStateMap &states) {
-  if (isa<TileTypecastOp>(op)) {
-    return getStateOrUndef(states, op->getOperand(0));
+  if (auto selectOp = dyn_cast<arith::SelectOp>(op)) {
+    return selectOOBVals(getStateOrUndef(states, selectOp.getCondition()),
+                         getStateOrUndef(states, selectOp.getTrueValue()),
+                         getStateOrUndef(states, selectOp.getFalseValue()));
   }
-  if (isa<TileNegativeOp>(op)) {
-    return negateOOBVal(getStateOrUndef(states, op->getOperand(0)));
+
+  if (op->getNumOperands() == 0) {
+    return ttcore::OOBVal::Undef;
+  }
+
+  ttcore::OOBVal input = getStateOrUndef(states, op->getOperand(0));
+  if (isa<TileTypecastOp, TileBcastOp, TileTransposeOp, DstReinterpretCastOp>(
+          op)) {
+    return input;
+  }
+  if (isa<TileNegativeOp, arith::NegFOp>(op)) {
+    return negateOOBVal(input);
   }
   if (isa<TileAbsOp>(op)) {
-    return absOOBVal(getStateOrUndef(states, op->getOperand(0)));
+    return absOOBVal(input);
+  }
+  if (isa<TileRecipOp>(op)) {
+    return recipOOBVal(input);
+  }
+  if (isa<TileExpOp, TileExp2Op>(op)) {
+    return expOOBVal(input);
+  }
+  if (isa<TileExpm1Op>(op)) {
+    return expm1OOBVal(input);
+  }
+  if (isa<TileLogOp>(op)) {
+    return logOOBVal(input);
+  }
+  if (isa<TileLog1pOp>(op)) {
+    return log1pOOBVal(input);
+  }
+  if (isa<TileSqrtOp>(op)) {
+    return sqrtOOBVal(input);
+  }
+  if (isa<TileRsqrtOp>(op)) {
+    return rsqrtOOBVal(input);
+  }
+  if (isa<TileSquareOp>(op)) {
+    return squareOOBVal(input);
+  }
+  if (isa<TileSinOp, TileTanOp, TileAtanOp, TileAsinOp>(op)) {
+    return sinOOBVal(input);
+  }
+  if (isa<TileCosOp>(op)) {
+    return cosOOBVal(input);
+  }
+  if (isa<TileAcosOp>(op)) {
+    return acosOOBVal(input);
+  }
+  if (isa<TileTanhOp>(op)) {
+    return tanhOOBVal(input);
+  }
+  if (isa<TileSigmoidOp, TileHardsigmoidOp>(op)) {
+    return sigmoidOOBVal(input);
+  }
+  if (isa<TileReluOp>(op)) {
+    return reluOOBVal(input);
+  }
+  if (isa<TileGeluOp, TileSiluOp>(op)) {
+    return geluOOBVal(input);
+  }
+  if (isa<TileSeluOp>(op)) {
+    return seluOOBVal(input);
+  }
+  if (isa<TileSoftsignOp, TileErfOp>(op)) {
+    return tanhOOBVal(input);
+  }
+  if (isa<TileErfcOp>(op)) {
+    if (input == ttcore::OOBVal::Zero) {
+      return ttcore::OOBVal::One;
+    }
+    if (input == ttcore::OOBVal::Inf) {
+      return ttcore::OOBVal::Zero;
+    }
+    return ttcore::OOBVal::Undef;
+  }
+  if (isa<TileSignOp>(op)) {
+    return signOOBVal(input);
+  }
+  if (isa<TileSignbitOp>(op)) {
+    return signbitOOBVal(input);
+  }
+  if (isa<TileCeilOp, TileFloorOp, TileTruncOp>(op)) {
+    return input;
+  }
+  if (isa<TileFracOp>(op)) {
+    return fracOOBVal(input);
+  }
+  if (isa<TileLogicalNotOp, TileEqzOp>(op)) {
+    return getZeroPredicateOOBVal(inferKnownZero(op->getOperand(0), states));
+  }
+  if (isa<TileNezOp>(op)) {
+    return getNonZeroPredicateOOBVal(inferKnownZero(op->getOperand(0), states));
+  }
+  if (isa<TileGtzOp>(op)) {
+    return positivePredicateOOBVal(input);
+  }
+  if (isa<TileGezOp>(op)) {
+    return nonNegativePredicateOOBVal(input);
+  }
+  if (isa<TileLtzOp>(op)) {
+    return negativePredicateOOBVal(input);
+  }
+  if (isa<TileLezOp>(op)) {
+    return nonPositivePredicateOOBVal(input);
+  }
+  if (isa<TileClampScalarOp>(op)) {
+    return clampOOBVal(input, op->getAttr("min"), op->getAttr("max"));
   }
   if (isa<TileFillOp>(op)) {
-    return getStateOrUndef(states, op->getOperand(0));
+    return input;
   }
 
   if (op->getNumOperands() < 2) {
     return ttcore::OOBVal::Undef;
   }
 
-  ttcore::OOBVal lhs = getStateOrUndef(states, op->getOperand(0));
+  ttcore::OOBVal lhs = input;
   ttcore::OOBVal rhs = getStateOrUndef(states, op->getOperand(1));
-  if (isa<TileAddOp>(op)) {
+  if (isa<TileAddOp, arith::AddFOp, arith::AddIOp>(op)) {
     return addOOBVals(lhs, rhs);
   }
-  if (isa<TileSubOp>(op)) {
+  if (isa<TileSubOp, arith::SubFOp, arith::SubIOp>(op)) {
     return subOOBVals(lhs, rhs);
   }
-  if (isa<TileMulOp>(op)) {
+  if (isa<TileMulOp, arith::MulFOp, arith::MulIOp>(op)) {
     return mulOOBVals(lhs, rhs);
   }
-  if (isa<TileDivOp>(op)) {
+  if (isa<TileDivOp, arith::DivFOp, arith::DivSIOp, arith::DivUIOp>(op)) {
     return divOOBVals(lhs, rhs);
   }
-  if (isa<TileMaximumOp>(op)) {
+  if (isa<TilePowOp>(op)) {
+    return powOOBVals(lhs, rhs);
+  }
+  if (isa<TileMaximumOp, arith::MaximumFOp, arith::MaxNumFOp, arith::MaxSIOp,
+          arith::MaxUIOp>(op)) {
     return maxOOBVals(lhs, rhs);
   }
-  if (isa<TileMinimumOp>(op)) {
+  if (isa<TileMinimumOp, arith::MinimumFOp, arith::MinNumFOp, arith::MinSIOp,
+          arith::MinUIOp>(op)) {
     return minOOBVals(lhs, rhs);
   }
+  if (isa<TileBitwiseAndOp>(op)) {
+    return bitwiseAndOOBVals(lhs, rhs);
+  }
+  if (isa<TileBitwiseOrOp>(op)) {
+    return bitwiseOrOOBVals(lhs, rhs);
+  }
+  if (isa<TileBitwiseXorOp>(op)) {
+    return bitwiseXorOOBVals(lhs, rhs);
+  }
+  if (isa<TileLogicalLeftShiftOp, TileLogicalRightShiftOp, TileRightShiftOp>(
+          op)) {
+    return shiftOOBVals(lhs, rhs);
+  }
   if (isa<TileWhereOp>(op)) {
-    ttcore::OOBVal trueValue = getStateOrUndef(states, op->getOperand(1));
-    ttcore::OOBVal falseValue = getStateOrUndef(states, op->getOperand(2));
-    return trueValue == falseValue ? trueValue : ttcore::OOBVal::Undef;
+    return selectOOBVals(lhs, getStateOrUndef(states, op->getOperand(1)),
+                         getStateOrUndef(states, op->getOperand(2)));
   }
   if (isa<TileMatmulOp>(op)) {
     ttcore::OOBVal accumulator = getStateOrUndef(states, op->getOperand(2));
     return (lhs == ttcore::OOBVal::Zero || rhs == ttcore::OOBVal::Zero)
                ? accumulator
                : ttcore::OOBVal::Undef;
+  }
+  if (isa<TileReduceSumOp, TileReduceMeanOp>(op)) {
+    ttcore::OOBVal accumulator = getStateOrUndef(states, op->getOperand(2));
+    return addOOBVals(mulOOBVals(lhs, rhs), accumulator);
+  }
+  if (isa<TileReduceMaxOp>(op)) {
+    ttcore::OOBVal accumulator = getStateOrUndef(states, op->getOperand(2));
+    return maxOOBVals(mulOOBVals(lhs, rhs), accumulator);
+  }
+  if (isa<TileSFPUReduceSumOp>(op)) {
+    return addOOBVals(lhs, rhs);
+  }
+  if (isa<TileSFPUReduceMaxOp>(op)) {
+    return maxOOBVals(lhs, rhs);
   }
 
   return ttcore::OOBVal::Undef;
@@ -485,7 +1312,7 @@ public:
     OOBStateMap states;
     SmallVector<MaskOp> masksToErase;
 
-    getOperation()->walk<WalkOrder::PreOrder>([&](Operation *op) {
+    getOperation()->walk<WalkOrder::PreOrder>([&](Operation *op) -> WalkResult {
       if (auto maskOp = dyn_cast<MaskOp>(op)) {
         ttcore::OOBVal required = maskOp.getFillValue();
 
@@ -506,23 +1333,24 @@ public:
         } else {
           states[maskOp.getResult()] = required;
         }
-        return;
+        return WalkResult::advance();
       }
 
       if (auto genericOp = dyn_cast<GenericOp>(op)) {
         propagateGenericOp(genericOp, states);
-        return;
+        return WalkResult::skip();
       }
 
       if (auto viewLayout = dyn_cast<ViewLayoutOp>(op)) {
         states[viewLayout.getResult()] =
             getStateOrUndef(states, viewLayout.getInput());
-        return;
+        return WalkResult::advance();
       }
 
       if (auto toLayout = dyn_cast<ToLayoutOp>(op)) {
         states[toLayout.getResult(0)] = ttcore::OOBVal::Undef;
       }
+      return WalkResult::advance();
     });
 
     for (MaskOp maskOp : masksToErase) {

@@ -470,6 +470,53 @@ public:
         ->getResult(0);
   }
 
+  Value createEmptyLike(PatternRewriter &rewriter, Location loc,
+                        RankedTensorType type, Value previousOutput) const {
+    AffineMapAttr invAttr = nullptr;
+    AffineMapAttr fwdAttr = nullptr;
+    if (auto empty = previousOutput.getDefiningOp<d2m::EmptyOp>()) {
+      invAttr = empty.getVirtualGridInverseMappingAttr();
+      fwdAttr = empty.getVirtualGridForwardMappingAttr();
+    }
+
+    if (!invAttr && !fwdAttr) {
+      if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+              type.getEncoding())) {
+        return rewriter
+            .create<d2m::EmptyOp>(loc, type.getShape(), type.getElementType(),
+                                  layout, targetGridShape)
+            .getResult();
+      }
+    }
+
+    return rewriter.create<d2m::EmptyOp>(loc, type, invAttr, fwdAttr)
+        .getResult();
+  }
+
+  void repairMaskAfterInputRewrite(PatternRewriter &rewriter,
+                                   MaskOp mask) const {
+    auto inputType =
+        mlir::dyn_cast<RankedTensorType>(mask.getInput().getType());
+    if (!inputType || mask.getOutput().getType() == inputType) {
+      return;
+    }
+
+    Value oldOutput = mask.getOutput();
+    d2m::EmptyOp oldOutputEmpty = oldOutput.getDefiningOp<d2m::EmptyOp>();
+
+    rewriter.setInsertionPoint(mask);
+    Value newOutput =
+        createEmptyLike(rewriter, mask.getLoc(), inputType, oldOutput);
+    auto newMask =
+        rewriter.create<MaskOp>(mask.getLoc(), mask.getInput(), newOutput,
+                                mask.getLogicalShape(), mask.getFillValue());
+    rewriter.replaceOp(mask, newMask.getResult());
+
+    if (oldOutputEmpty && oldOutput.use_empty()) {
+      rewriter.eraseOp(oldOutputEmpty);
+    }
+  }
+
   // Pull the planning-relevant metadata off a Value: its type plus any
   // remapping / virtual-grid-mapping attached via producing view/empty ops.
   static PlanState extractPlanState(Value v) {
@@ -580,8 +627,21 @@ public:
       rewriter.replaceOp(op, op.getInput());
       return success();
     }
+
+    SmallVector<MaskOp> maskUsers;
+    for (OpOperand &use : op.getResult(0).getUses()) {
+      if (use.getOperandNumber() == 0) {
+        if (auto mask = dyn_cast<MaskOp>(use.getOwner())) {
+          maskUsers.push_back(mask);
+        }
+      }
+    }
+
     Value result = emit(rewriter, op, plan);
     rewriter.replaceOp(op, result);
+    for (MaskOp mask : maskUsers) {
+      repairMaskAfterInputRewrite(rewriter, mask);
+    }
     return success();
   }
 
