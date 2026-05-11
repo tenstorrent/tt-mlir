@@ -186,7 +186,22 @@ static void insertEntryBoundaryReshapes(func::FuncOp funcOp) {
 /// op (rank>=2 -> original rank) and rewire the op to read from the demote.
 /// For each rank<minRank result we insert a "promote" reshape just after the
 /// op (original rank -> rank>=2) and replace all other uses of the result
-/// with the promoted value.
+/// with the promoted value -- except when an immediate consumer is itself
+/// rank-strict, in which case we leave that consumer reading the original
+/// rank<minRank value so its own call to this routine can insert a demote
+/// reshape against the unpromoted operand. Without this exception, walking
+/// a rank-strict producer first would silently rewire a rank-strict
+/// consumer's operand to the rank>=2 promote, so by the time the consumer
+/// is visited its operand type is already rank>=minRank and the demote-
+/// insertion branch below short-circuits (`continue`s). The op then keeps
+/// its rank<minRank declared signature (e.g. `ttir.mesh_partition` with
+/// `dim = 0`) consuming a rank>=2 SSA value, which is a verifier-invariant
+/// invisible to the verifier (operand type matches the value's type) but
+/// makes the op's `dim`/`dim_arg` attributes index a different axis than
+/// the op was constructed against. For `ttir.mesh_partition` this surfaces
+/// at runtime as
+/// "input shape Shape([1, N]) must be divisible by cluster axis size K"
+/// after `dim = 0` ends up pointing at the prepended unit dim.
 ///
 /// At the time we insert these reshapes the producers/consumers may still be
 /// rank<minRank; once Phase 2 promotes them, the reshape's input/output ranks
@@ -225,7 +240,14 @@ static void insertRankStrictOpBoundaries(Operation *op) {
     auto promote = builder.create<ttir::ReshapeOp>(
         op->getLoc(), promotedType, result, builder.getI32ArrayAttr(shape));
     promote->setAttr(kBoundaryReshapeAttr, builder.getUnitAttr());
-    result.replaceAllUsesExcept(promote.getResult(), promote);
+    SmallPtrSet<Operation *, 4> excepted;
+    excepted.insert(promote);
+    for (Operation *user : result.getUsers()) {
+      if (user != promote && hasRankStrictOperandInvariants(user)) {
+        excepted.insert(user);
+      }
+    }
+    result.replaceAllUsesExcept(promote.getResult(), excepted);
   }
 }
 

@@ -867,3 +867,140 @@ func.func public @boundary_func_mesh_partition_rank1(%arg0: tensor<2560xf32>) ->
   %0 = "ttir.mesh_partition"(%arg0) <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
   return %0 : tensor<320xf32>
 }
+
+// =============================================================================
+// Chained rank-strict producer -> rank-strict consumer regression tests
+// =============================================================================
+//
+// Background: When a rank-strict producer (e.g. `ttir.mesh_shard`) feeds a
+// rank-strict consumer (e.g. `ttir.mesh_partition`), insertRankStrictOpBoundaries
+// must NOT rewire the consumer's operand through the producer's result-promote
+// reshape. If it does, the consumer is later walked with a rank>=minRank
+// operand, the demote branch short-circuits, and the consumer ends up reading
+// a rank>=2 SSA value while its declared signature -- and dim/dim_arg
+// attributes -- still describe the original rank<2 shape. For
+// ttir.mesh_partition with dim = 0 this silently re-targets dim at the
+// prepended unit dim and surfaces at TTNN runtime as
+//   "input shape Shape([1, N]) must be divisible by cluster axis size K"
+// from MeshPartitionDeviceOperation::validate_on_program_cache_miss.
+//
+// The fix excludes rank-strict users from the result-promote
+// replaceAllUsesExcept call inside insertRankStrictOpBoundaries. Each
+// rank-strict consumer then inserts its own demote reshape against the
+// unpromoted producer result, preserving its operand rank and the
+// dim/dim_arg invariants. Mirrors the EasyDeL/Shardy lowering of
+// RMSNorm-style parameter sharding followed by an sdy.all_slice on the
+// same axis (replicate-then-slice on the model axis).
+// =============================================================================
+
+// Test: chained_mesh_shard_then_mesh_partition_rank1 (private)
+// Pre-fix this regressed to a `ttir.mesh_partition` reading a `<1x2560xf32>`
+// SSA value with `dim = 0` (i.e. partitioning the unit dim across 8 chips),
+// which is the exact runtime assert above. Post-fix the partition keeps its
+// rank-1 operand and `dim = 0` continues to target the 2560-element axis.
+// The signature is promoted in place; the body has a mesh_shard demote, the
+// mesh_shard itself, an unused mesh_shard promote (DCE'd by canonicalize),
+// the critical mesh_partition demote reading mesh_shard's rank-1 result, the
+// mesh_partition, and its promote feeding the rank-2 return.
+// CHECK-LABEL: func.func private @chained_mesh_shard_then_mesh_partition_rank1
+// CHECK-SAME: (%arg0: tensor<1x2560xf32>) -> tensor<1x320xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[S:.*]] = "ttir.mesh_shard"
+// CHECK-SAME: (tensor<2560xf32>) -> tensor<2560xf32>
+// Critical post-fix invariant: the rank-strict consumer's demote reshape
+// reads the rank-1 mesh_shard result, NOT the rank-2 mesh_shard promote.
+// CHECK: %[[D:.*]] = "ttir.reshape"(%[[S]]) <{shape = [2560 : i32]}> {ttir.boundary_reshape} : (tensor<2560xf32>) -> tensor<2560xf32>
+// CHECK: %[[P:.*]] = "ttir.mesh_partition"(%[[D]])
+// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+// CHECK: "ttir.reshape"(%[[P]]) <{shape = [1 : i32, 320 : i32]}> {ttir.boundary_reshape} : (tensor<320xf32>) -> tensor<1x320xf32>
+//
+// After canonicalize the identity reshapes and the dead mesh_shard promote
+// fold away, leaving a clean rank-1 chain inside the rank-2 boundary.
+// CHECK-CANON-LABEL: func.func private @chained_mesh_shard_then_mesh_partition_rank1
+// CHECK-CANON-SAME: (%arg0: tensor<1x2560xf32>) -> tensor<1x320xf32>
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// CHECK-CANON: %[[D:.*]] = "ttir.reshape"(%arg0) <{shape = [2560 : i32]}> {ttir.boundary_reshape} : (tensor<1x2560xf32>) -> tensor<2560xf32>
+// CHECK-CANON: %[[S:.*]] = "ttir.mesh_shard"(%[[D]])
+// CHECK-CANON-SAME: (tensor<2560xf32>) -> tensor<2560xf32>
+// CHECK-CANON: %[[P:.*]] = "ttir.mesh_partition"(%[[S]])
+// CHECK-CANON-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+// CHECK-CANON: %[[R:.*]] = "ttir.reshape"(%[[P]]) <{shape = [1 : i32, 320 : i32]}> {ttir.boundary_reshape} : (tensor<320xf32>) -> tensor<1x320xf32>
+// CHECK-CANON: return %[[R]] : tensor<1x320xf32>
+func.func private @chained_mesh_shard_then_mesh_partition_rank1(%arg0: tensor<2560xf32>) -> tensor<320xf32> {
+  %0 = "ttir.mesh_shard"(%arg0) <{
+    shard_direction = #ttcore.shard_direction<full_to_shard>,
+    shard_dims = array<i64: -1>,
+    shard_shape = array<i64: 1>,
+    shard_type = #ttcore.shard_type<replicate>}> : (tensor<2560xf32>) -> tensor<2560xf32>
+  %1 = "ttir.mesh_partition"(%0) <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+  return %1 : tensor<320xf32>
+}
+
+// Test: boundary_func_chained_mesh_shard_then_mesh_partition_rank1 (public)
+// JIT-style public boundary mirroring the actual EasyDeL entry point: a rank-1
+// RMSNorm gamma parameter is mesh_sharded and then mesh_partitioned along the
+// model axis. The signature stays rank-1; the body chain matches the private
+// test above with an outer entry/exit boundary pair (folded away by
+// canonicalize down to a clean rank-1 chain directly on %arg0).
+// CHECK-LABEL: func.func public @boundary_func_chained_mesh_shard_then_mesh_partition_rank1
+// CHECK-SAME: (%arg0: tensor<2560xf32>) -> tensor<320xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[S:.*]] = "ttir.mesh_shard"
+// CHECK-SAME: (tensor<2560xf32>) -> tensor<2560xf32>
+// Critical: the partition's demote reads the rank-1 mesh_shard result.
+// CHECK: %[[D:.*]] = "ttir.reshape"(%[[S]]) <{shape = [2560 : i32]}> {ttir.boundary_reshape} : (tensor<2560xf32>) -> tensor<2560xf32>
+// CHECK: %[[P:.*]] = "ttir.mesh_partition"(%[[D]])
+// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+//
+// CHECK-CANON-LABEL: func.func public @boundary_func_chained_mesh_shard_then_mesh_partition_rank1
+// CHECK-CANON-SAME: (%arg0: tensor<2560xf32>) -> tensor<320xf32>
+// CHECK-CANON-NOT: ttir.reshape
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// CHECK-CANON: %[[S:.*]] = "ttir.mesh_shard"(%arg0)
+// CHECK-CANON-SAME: (tensor<2560xf32>) -> tensor<2560xf32>
+// CHECK-CANON: %[[P:.*]] = "ttir.mesh_partition"(%[[S]])
+// CHECK-CANON-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+// CHECK-CANON: return %[[P]] : tensor<320xf32>
+func.func public @boundary_func_chained_mesh_shard_then_mesh_partition_rank1(%arg0: tensor<2560xf32>) -> tensor<320xf32> {
+  %0 = "ttir.mesh_shard"(%arg0) <{
+    shard_direction = #ttcore.shard_direction<full_to_shard>,
+    shard_dims = array<i64: -1>,
+    shard_shape = array<i64: 1>,
+    shard_type = #ttcore.shard_type<replicate>}> : (tensor<2560xf32>) -> tensor<2560xf32>
+  %1 = "ttir.mesh_partition"(%0) <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+  return %1 : tensor<320xf32>
+}
+
+// Test: chained_sum_rank1_then_mesh_partition_rank1 (private)
+// Cross-family check: a reduction producer (rank-2 -> rank-1) feeds a
+// rank-strict mesh_partition consumer (rank-1, dim=0). Both ops are
+// rank-strict; without the fix, the reduction's result-promote
+// `replaceAllUsesExcept` would silently rewire mesh_partition to read the
+// rank-2 promote, mesh_partition's own demote-insertion would short-circuit,
+// and `dim = 0` would end up pointing at the prepended unit dim. Post-fix
+// each rank-strict op inserts its own boundary reshapes and mesh_partition
+// keeps its rank-1 operand with `dim = 0` pointing at the data axis.
+// CHECK-LABEL: func.func private @chained_sum_rank1_then_mesh_partition_rank1
+// CHECK-SAME: (%arg0: tensor<8x2560xf32>) -> tensor<1x320xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// Reduction stays rank-2 -> rank-1; its result-promote is dead (no rank-strict
+// consumer reads it post-fix), and the rank-strict mesh_partition reads the
+// rank-1 sum result directly via its own demote reshape.
+// CHECK: %[[S:.*]] = "ttir.sum"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<8x2560xf32>) -> tensor<2560xf32>
+// CHECK: %[[D:.*]] = "ttir.reshape"(%[[S]]) <{shape = [2560 : i32]}> {ttir.boundary_reshape} : (tensor<2560xf32>) -> tensor<2560xf32>
+// CHECK: %[[P:.*]] = "ttir.mesh_partition"(%[[D]])
+// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+// CHECK: %[[R:.*]] = "ttir.reshape"(%[[P]]) <{shape = [1 : i32, 320 : i32]}> {ttir.boundary_reshape} : (tensor<320xf32>) -> tensor<1x320xf32>
+// CHECK: return %[[R]] : tensor<1x320xf32>
+//
+// After canonicalize the dead sum-promote folds away, leaving sum -> partition.
+// CHECK-CANON-LABEL: func.func private @chained_sum_rank1_then_mesh_partition_rank1
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// CHECK-CANON: %[[S:.*]] = "ttir.sum"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<8x2560xf32>) -> tensor<2560xf32>
+// CHECK-CANON: %[[P:.*]] = "ttir.mesh_partition"(%[[S]])
+// CHECK-CANON-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+func.func private @chained_sum_rank1_then_mesh_partition_rank1(%arg0: tensor<8x2560xf32>) -> tensor<320xf32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<8x2560xf32>) -> tensor<2560xf32>
+  %1 = "ttir.mesh_partition"(%0) <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+  return %1 : tensor<320xf32>
+}
