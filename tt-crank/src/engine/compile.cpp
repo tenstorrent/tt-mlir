@@ -13,6 +13,7 @@
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Support/LogicalResult.h>
 
+#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 #include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
 #include <ttmlir/RegisterAll.h>
 #include <ttmlir/Target/TTNN/TTNNToFlatbuffer.h>
@@ -65,9 +66,23 @@ std::string make_error_message(std::string_view fallback, const std::string &cap
 // place; on success it contains TTNN ops.
 CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module, const CompileOptions &options,
                                           const std::string &diag_buffer) {
+    // Pre-attach lets TTCoreRegisterDevicePass take the mockArch branch and
+    // keep our attr; the path overload would overwrite it.
+    if (options.system_desc.has_value()) {
+        auto diag_fn = [&]() -> mlir::InFlightDiagnostic { return module->emitOpError(); };
+        auto attr_or = mlir::tt::ttcore::SystemDescAttr::getFromBuffer(module.getContext(),
+                                                                       options.system_desc->handle.get(), diag_fn);
+        if (mlir::failed(attr_or)) {
+            throw PipelineError(make_error_message("failed to attach in-memory system desc", diag_buffer));
+        }
+        // FailureOr hides has_value()/operator bool, so clang-tidy can't see the gate above.
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        module->setAttr(mlir::tt::ttcore::SystemDescAttr::name, attr_or.value());
+    }
+
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
     pm_opts.optimizationLevel = options.optimization_level;
-    pm_opts.systemDescPath = options.system_desc_path;
+    pm_opts.systemDescPath = options.system_desc.has_value() ? std::string{} : options.system_desc_path;
     pm_opts.mockSystemDescArch = to_ttcore_arch(options.mock_arch);
 
     mlir::PassManager pm(module.getContext(), mlir::ModuleOp::getOperationName());

@@ -27,7 +27,7 @@ TEST(EngineCompileTest, CompilesTrivialModule) {
 
     tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
 
-    EXPECT_GE(program.binary.getNumPrograms(), 1U);
+    EXPECT_GE(program.num_programs(), 1U);
 }
 
 TEST(EngineCompileTest, ThrowsOnParseError) {
@@ -48,8 +48,8 @@ TEST(EngineCompileTest, ReusesEngineAcrossCalls) {
     auto program_a = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
     auto program_b = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
 
-    EXPECT_GE(program_a.binary.getNumPrograms(), 1U);
-    EXPECT_GE(program_b.binary.getNumPrograms(), 1U);
+    EXPECT_GE(program_a.num_programs(), 1U);
+    EXPECT_GE(program_b.num_programs(), 1U);
 }
 
 // Exercises the ModuleOp overload — the entry point in-memory TTIR producers
@@ -67,5 +67,5 @@ TEST(EngineCompileTest, CompilesPreBuiltModule) {
 
     tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module.get(), opts);
 
-    EXPECT_GE(program.binary.getNumPrograms(), 1U);
+    EXPECT_GE(program.num_programs(), 1U);
 }
