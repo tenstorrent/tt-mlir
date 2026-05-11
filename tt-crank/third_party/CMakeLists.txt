@@ -6,8 +6,9 @@
 #   - tt-mlir's configure is slow; isolating it keeps incremental builds of
 #     tt-kurbla fast.
 #
-# Downstream consumes the installed shared lib + headers via an IMPORTED target
-# `tt_mlir::compiler`.
+# Downstream consumes the installed shared libs + headers via IMPORTED targets
+# `tt_mlir::compiler` (libTTMLIRCompiler.so) and `tt_mlir::runtime`
+# (libTTMLIRRuntime.so). Both share the same install include tree.
 
 include(ExternalProject)
 
@@ -36,6 +37,7 @@ endif()
 
 set(_TTMLIR_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/tt-mlir-install")
 set(_TTMLIR_COMPILER_LIB "${_TTMLIR_INSTALL_DIR}/lib/libTTMLIRCompiler.so")
+set(_TTMLIR_RUNTIME_LIB  "${_TTMLIR_INSTALL_DIR}/lib/libTTMLIRRuntime.so")
 
 # CMake requires INTERFACE_INCLUDE_DIRECTORIES paths on IMPORTED targets to exist
 # at configure time. The directory will be populated by tt-mlir's install step.
@@ -67,7 +69,9 @@ ExternalProject_Add(tt-mlir-ep
         -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF
     # Declare the install outputs we consume so Ninja can wire the dependency
     # graph; without this it errors with "no known rule to make" on link.
-    BUILD_BYPRODUCTS "${_TTMLIR_COMPILER_LIB}"
+    BUILD_BYPRODUCTS
+        "${_TTMLIR_COMPILER_LIB}"
+        "${_TTMLIR_RUNTIME_LIB}"
     BUILD_ALWAYS FALSE
     USES_TERMINAL_BUILD TRUE
     LOG_CONFIGURE ON
@@ -83,7 +87,7 @@ set(_TTMLIR_INCLUDE_DIRS
     "$ENV{TTMLIR_TOOLCHAIN_DIR}/include"
 )
 
-# IMPORTED target wrapping the installed shared library.
+# IMPORTED targets wrapping the installed shared libraries.
 add_library(tt_mlir::compiler SHARED IMPORTED GLOBAL)
 add_dependencies(tt_mlir::compiler tt-mlir-ep)
 set_target_properties(tt_mlir::compiler PROPERTIES
@@ -91,6 +95,15 @@ set_target_properties(tt_mlir::compiler PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${_TTMLIR_INCLUDE_DIRS}"
 )
 
+add_library(tt_mlir::runtime SHARED IMPORTED GLOBAL)
+add_dependencies(tt_mlir::runtime tt-mlir-ep)
+set_target_properties(tt_mlir::runtime PROPERTIES
+    IMPORTED_LOCATION "${_TTMLIR_RUNTIME_LIB}"
+    INTERFACE_INCLUDE_DIRECTORIES "${_TTMLIR_INCLUDE_DIRS}"
+)
+
 # Treat tt-mlir + MLIR headers as SYSTEM so our warnings/clang-tidy don't fire on them.
-set_property(TARGET tt_mlir::compiler APPEND PROPERTY
-    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_TTMLIR_INCLUDE_DIRS}")
+foreach(_tgt tt_mlir::compiler tt_mlir::runtime)
+    set_property(TARGET ${_tgt} APPEND PROPERTY
+        INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_TTMLIR_INCLUDE_DIRS}")
+endforeach()
