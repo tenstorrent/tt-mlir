@@ -137,7 +137,57 @@ func.func @packing_non_conflicting() {
   return
 }
 
-// --- Test 4: Generic without scratch_init is unchanged ---
+// --- Test 4: Allocation between in-place read and write ---
+// Slot 0 is read, then slot 1 is allocated before slot 0 is written in place.
+// The two equal-sized slots cannot share storage because slot 0 remains live
+// across slot 1's allocation.
+// Tie-breaking by slot id makes slot 0 offset 0 and slot 1 offset 2.
+
+// CHECK-LABEL: func.func @allocation_between_in_place_read_write
+func.func @allocation_between_in_place_read_write() {
+  %in = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+  %out = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+  d2m.generic {
+    block_factors = [1, 1], grid = #ttcore.grid<1x1>,
+    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
+    iterator_types = [#parallel, #parallel],
+    threads = [#d2m.thread<unified>]
+  }
+  ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+  outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+  ^bb0():
+    %alloc_cb13 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK-NOT: d2m.scratch_init
+    %scratch = memref.alloc() : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
+    d2m.scratch_init %scratch : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
+    %c0 = arith.constant 0 : index
+
+    // CHECK: %[[SV0:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 2] [1, 1]
+    // CHECK-SAME: to memref<2x!ttcore.tile<32x32, f32>
+    %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<2x!ttcore.tile<32x32, f32>, #l1>
+
+    %producer_value = memref.load %alloc_cb13[%c0, %c0] : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: memref.store %{{.*}}, %[[SV0]][%{{.*}}]
+    memref.store %producer_value, %s0[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+
+    // CHECK: %[[TILE:.*]] = memref.load %[[SV0]][%{{.*}}]
+    %tile = memref.load %s0[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+
+    // CHECK: %[[SV1:.*]] = memref.subview %[[SCRATCH]][0, 2] [1, 2] [1, 1]
+    // CHECK-SAME: to memref<2x!ttcore.tile<32x32, f32>
+    %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<2x!ttcore.tile<32x32, f32>, #l1>
+
+    // CHECK: memref.store %[[TILE]], %[[SV0]][%{{.*}}]
+    // CHECK: memref.store %[[TILE]], %[[SV1]][%{{.*}}]
+    memref.store %tile, %s0[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %tile, %s1[%c0] : memref<2x!ttcore.tile<32x32, f32>, #l1>
+  }
+  // CHECK-NOT: d2m.scratch_allocate
+  return
+}
+
+// --- Test 5: Generic without scratch_init is unchanged ---
 
 // CHECK-LABEL: func.func @no_scratch_noop
 func.func @no_scratch_noop() {
@@ -160,7 +210,7 @@ func.func @no_scratch_noop() {
   return
 }
 
-// --- Test 5: Scratch with bf16 tiles ---
+// --- Test 6: Scratch with bf16 tiles ---
 
 // CHECK-LABEL: func.func @scratch_bf16
 func.func @scratch_bf16() {

@@ -11,7 +11,7 @@ module {
 func.func @scratch_overflow() {
   %in = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
   %out = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-  // CHECK: error: 'd2m.generic' op total scratch allocations (10 elements) exceed scratch buffer capacity (8 elements)
+  // CHECK: error: 'd2m.generic' op peak scratch usage (10 elements) exceed scratch buffer capacity (8 elements)
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
     indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
