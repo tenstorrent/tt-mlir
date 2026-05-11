@@ -1,0 +1,96 @@
+# Build tt-mlir as a separate, isolated CMake invocation (ExternalProject_Add)
+# rather than add_subdirectory'ing it. Two reasons:
+#   - tt-mlir's CMakeLists.txt forces CMAKE_C/CXX_COMPILER=clang and requires
+#     TTMLIR_ENV_ACTIVATED at configure time; embedding it would constrain our
+#     parent build.
+#   - tt-mlir's configure is slow; isolating it keeps incremental builds of
+#     tt-kurbla fast.
+#
+# Downstream consumes the installed shared lib + headers via an IMPORTED target
+# `tt_mlir::compiler`.
+
+include(ExternalProject)
+
+set(TTMLIR_SOURCE_DIR_OVERRIDE "" CACHE PATH
+    "Path to an external tt-mlir source tree (overrides the submodule). Useful when iterating on tt-mlir in a sibling checkout.")
+
+if(TTMLIR_SOURCE_DIR_OVERRIDE)
+    set(_TTMLIR_SRC "${TTMLIR_SOURCE_DIR_OVERRIDE}")
+else()
+    set(_TTMLIR_SRC "${CMAKE_CURRENT_SOURCE_DIR}/tt-mlir")
+endif()
+
+if(NOT EXISTS "${_TTMLIR_SRC}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "tt-mlir source not found at ${_TTMLIR_SRC}. "
+        "Run `git submodule update --init --recursive` "
+        "or pass `-DTTMLIR_SOURCE_DIR_OVERRIDE=<path>`.")
+endif()
+
+if(NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
+    message(FATAL_ERROR
+        "TTMLIR_TOOLCHAIN_DIR is not set in the environment. "
+        "Run `source third_party/tt-mlir/env/activate` from tt-mlir's root "
+        "(or use ./scripts/build) before configuring tt-kurbla.")
+endif()
+
+set(_TTMLIR_INSTALL_DIR "${CMAKE_CURRENT_BINARY_DIR}/tt-mlir-install")
+set(_TTMLIR_COMPILER_LIB "${_TTMLIR_INSTALL_DIR}/lib/libTTMLIRCompiler.so")
+
+# CMake requires INTERFACE_INCLUDE_DIRECTORIES paths on IMPORTED targets to exist
+# at configure time. The directory will be populated by tt-mlir's install step.
+file(MAKE_DIRECTORY "${_TTMLIR_INSTALL_DIR}/include")
+
+ExternalProject_Add(tt-mlir-ep
+    SOURCE_DIR  "${_TTMLIR_SRC}"
+    PREFIX      "${CMAKE_CURRENT_BINARY_DIR}/tt-mlir-prefix"
+    INSTALL_DIR "${_TTMLIR_INSTALL_DIR}"
+    CMAKE_GENERATOR Ninja
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_C_COMPILER=clang
+        -DCMAKE_CXX_COMPILER=clang++
+        # Forward ccache (or whichever launcher our outer build picked) so the
+        # tt-mlir compile lands in the same cache as tt-kurbla's. Empty when unset.
+        -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
+        -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+        -DTTMLIR_ENABLE_RUNTIME=ON
+        -DTTMLIR_ENABLE_SHARED_LIB=ON
+        -DTTMLIR_ENABLE_STABLEHLO=OFF
+        -DTTMLIR_ENABLE_TESTS=OFF
+        -DTTMLIR_ENABLE_TOOLS=OFF
+        -DTTMLIR_ENABLE_TTRT=OFF
+        -DTTMLIR_ENABLE_OPMODEL_TESTS=OFF
+        -DTTMLIR_ENABLE_EXPLORER=OFF
+        -DTTMLIR_ENABLE_ALCHEMIST=OFF
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF
+    # Declare the install outputs we consume so Ninja can wire the dependency
+    # graph; without this it errors with "no known rule to make" on link.
+    BUILD_BYPRODUCTS "${_TTMLIR_COMPILER_LIB}"
+    BUILD_ALWAYS FALSE
+    USES_TERMINAL_BUILD TRUE
+    LOG_CONFIGURE ON
+    LOG_BUILD ON
+    LOG_INSTALL ON
+)
+
+# tt-mlir's installed headers transitively include `<mlir-c/...>` headers, which
+# live in the LLVM/MLIR toolchain prefix — not in tt-mlir's own install dir.
+# Surface both on the IMPORTED target so consumers see them with one link.
+set(_TTMLIR_INCLUDE_DIRS
+    "${_TTMLIR_INSTALL_DIR}/include"
+    "$ENV{TTMLIR_TOOLCHAIN_DIR}/include"
+)
+
+# IMPORTED target wrapping the installed shared library.
+add_library(tt_mlir::compiler SHARED IMPORTED GLOBAL)
+add_dependencies(tt_mlir::compiler tt-mlir-ep)
+set_target_properties(tt_mlir::compiler PROPERTIES
+    IMPORTED_LOCATION "${_TTMLIR_COMPILER_LIB}"
+    INTERFACE_INCLUDE_DIRECTORIES "${_TTMLIR_INCLUDE_DIRS}"
+)
+
+# Treat tt-mlir + MLIR headers as SYSTEM so our warnings/clang-tidy don't fire on them.
+set_property(TARGET tt_mlir::compiler APPEND PROPERTY
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_TTMLIR_INCLUDE_DIRS}")

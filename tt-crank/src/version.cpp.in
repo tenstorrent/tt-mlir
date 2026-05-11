@@ -1,0 +1,9 @@
+#include "version.hpp"
+
+namespace tt::kurbla {
+
+std::string_view version() noexcept {
+    return "@PROJECT_VERSION@";
+}
+
+} // namespace tt::kurbla
