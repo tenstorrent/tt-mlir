@@ -21,7 +21,7 @@ include(GoogleTest)
 
 add_executable(tt_kurbla_unit_tests
     version_test.cpp
-    engine_mlir_smoke_test.cpp
+    engine_compile_test.cpp
 )
 
 target_link_libraries(tt_kurbla_unit_tests
