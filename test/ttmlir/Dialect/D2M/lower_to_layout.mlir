@@ -65,21 +65,40 @@ func.func @untilize(%arg0: tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>) ->
   return %1 : tensor<1024x1024xf32>
 }
 
-// Test untilize from DRAM to host stages through L1 before d2m.to_host.
-func.func @untilize_dram_to_host_stages_l1(%arg0: tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout_dram>) -> tensor<1024x1024xf32> {
+func.func @tilize_dram_to_l1(%arg0: tensor<8x8x128x128xf32, #layout_dram>) -> tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> {
+  // CHECK-LABEL: @tilize_dram_to_l1
+  // CHECK: %[[L1_TILED:.*]] = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #[[L1_LAYOUT:.*]]>
+  // CHECK: %[[L1_SCALAR:.*]] = d2m.empty() : tensor<8x8x128x128xf32, #[[L1_LAYOUT]]>
+  // CHECK: %[[DRAM_TO_L1:.*]] = d2m.generic
+  // CHECK-NEXT: ins(%arg0 : tensor<8x8x128x128xf32, #[[DRAM_LAYOUT:.*]]>)
+  // CHECK-NEXT: outs(%[[L1_SCALAR]] : tensor<8x8x128x128xf32, #[[L1_LAYOUT]]>)
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store %[[L1_SCALAR]]
+  // CHECK: %[[TILIZE_L1:.*]] = d2m.generic
+  // CHECK-NEXT: ins(%[[DRAM_TO_L1]] : tensor<8x8x128x128xf32, #[[L1_LAYOUT]]>)
+  // CHECK-NEXT: outs(%[[L1_TILED]] : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #[[L1_LAYOUT]]>)
+  // CHECK: d2m.remote_load %{{.+}} %[[DRAM_TO_L1]]
+  // CHECK: d2m.tile_tilize_block
+  // CHECK: d2m.remote_store %[[L1_TILED]]
+  %0 = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
+  %1 = d2m.to_layout %arg0, %0 : tensor<8x8x128x128xf32, #layout_dram> into tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> -> tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
+  return %1 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
+}
+
+// Test untilize from DRAM to host is a direct transfer.
+func.func @untilize_dram_to_host(%arg0: tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout_dram>) -> tensor<1024x1024xf32> {
   %0 = d2m.empty() : tensor<1024x1024xf32>
 
-  // CHECK-LABEL: @untilize_dram_to_host_stages_l1
-  // CHECK: %[[L1_TILED:.*]] = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>
-  // CHECK: %[[DRAM_TO_L1:.*]] = d2m.generic
-  // CHECK-NEXT: ins(%arg0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>)
-  // CHECK-NEXT: outs(%[[L1_TILED]] : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>)
+  // CHECK-LABEL: @untilize_dram_to_host
+  // CHECK: %[[DRAM_SCALAR:.*]] = d2m.empty() : tensor<8x8x128x128xf32, #[[DRAM_LAYOUT:.*]]>
+  // CHECK: %[[DRAM_TO_DRAM:.*]] = d2m.generic
+  // CHECK-NEXT: ins(%arg0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #[[DRAM_LAYOUT]]>)
+  // CHECK-NEXT: outs(%[[DRAM_SCALAR]] : tensor<8x8x128x128xf32, #[[DRAM_LAYOUT]]>)
+  // CHECK-NOT: d2m.generic
   // CHECK: d2m.remote_load
-  // CHECK: d2m.remote_store %[[L1_TILED]]
-  // CHECK: %[[L1_SCALAR:.*]] = d2m.generic
-  // CHECK-NEXT: ins(%[[DRAM_TO_L1]] : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout{{[0-9]*}}>)
   // CHECK: d2m.tile_untilize_block
-  // CHECK: d2m.to_host %[[L1_SCALAR]]
+  // CHECK: d2m.remote_store %[[DRAM_SCALAR]]
+  // CHECK: d2m.to_host %[[DRAM_TO_DRAM]]
   %1 = d2m.to_layout %arg0, %0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout_dram> into tensor<1024x1024xf32>
     -> tensor<1024x1024xf32>
 
