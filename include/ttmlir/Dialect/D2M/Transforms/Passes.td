@@ -1261,6 +1261,38 @@ def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::Module
   ];
 }
 
+def D2MDistributeComputeThreads :
+    Pass<"d2m-distribute-compute-threads", "::mlir::ModuleOp"> {
+  let summary = "Distribute matmul work across compute threads via scf.forall.";
+  let description = [{
+    Tiles the inner linalg.generic of matmul-shaped d2m.generic compute
+    regions by `num-compute-threads` along the chosen iterator (`m` or `n`).
+    Uses upstream MLIR scf::tileUsingSCF with LoopType::ForallOp to produce
+    an scf.forall whose iv iterates threads, body operates on per-thread
+    memref subviews, and mapping carries a #d2m.compute_thread<num=N>
+    attribute. The resulting forall is later lowered to SPMD form by
+    D2MMaterializeComputeThreadForall.
+
+    v1 scope: only applies to d2m.generic compute regions containing a
+    single matmul-shaped linalg.generic (3 loops with parallel/parallel/
+    reduction iterators and 2 inputs + 1 output). Other generics are left
+    untouched.
+  }];
+  let options = [
+    Option<"numComputeThreads", "num-compute-threads", "int64_t", "4",
+           "Number of compute threads to distribute across.">,
+    Option<"splitDim", "split-dim", "std::string", "\"m\"",
+           "Matmul iterator to distribute across threads: 'm' or 'n'.">,
+  ];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::scf::SCFDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::linalg::LinalgDialect"
+  ];
+}
+
 def D2MMaterializeComputeThreadForall :
     Pass<"d2m-materialize-compute-thread-forall", "::mlir::ModuleOp"> {
   let summary = "Lower scf.forall with #d2m.compute_thread mapping to SPMD form.";
