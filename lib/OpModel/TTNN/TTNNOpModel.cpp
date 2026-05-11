@@ -6101,8 +6101,9 @@ llvm::Expected<OpConstraints> OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
-                   detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
@@ -6142,8 +6143,9 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
-                   detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
@@ -7630,8 +7632,9 @@ llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
   llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
                                              inputIndicesShape[1]};
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec valuesSpec,
-                   detail::convertToTensorSpec(device, values4D, inputValuesLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valuesSpec,
+      detail::convertToTensorSpec(device, values4D, inputValuesLayout));
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec indicesSpec,
       detail::convertToTensorSpec(device, indices4D, inputIndicesLayout));
@@ -7673,8 +7676,9 @@ llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
   llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
                                              inputIndicesShape[1]};
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec valuesSpec,
-                   detail::convertToTensorSpec(device, values4D, inputValuesLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valuesSpec,
+      detail::convertToTensorSpec(device, values4D, inputValuesLayout));
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec indicesSpec,
       detail::convertToTensorSpec(device, indices4D, inputIndicesLayout));
