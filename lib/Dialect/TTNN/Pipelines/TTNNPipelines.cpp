@@ -116,11 +116,14 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
+    bool prepareConv2dEnabled = options.enablePrepareConv2dWeightsAndBias;
+
     if (!options.enableGreedyOptimizer) {
       // Default: chain-based TTNNOptimizer.
       ttnn::TTNNOptimizerOptions optimizerOptions(options);
       pm.addPass(createDevicePassesWrapper(
-          [optimizerOptions, validationOptions](OpPassManager &innerPm) {
+          [optimizerOptions, validationOptions,
+           prepareConv2dEnabled](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
             innerPm.addPass(
@@ -131,8 +134,10 @@ void createTTNNPipelineAnalysisPasses(
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+            if (prepareConv2dEnabled) {
+              innerPm.addPass(
+                  mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+            }
           },
           wrapperOptions));
     } else {
@@ -157,7 +162,7 @@ void createTTNNPipelineAnalysisPasses(
       bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
       pm.addPass(createDevicePassesWrapper(
           [propagationOptions, spillOptions, validationOptions,
-           memLayoutEnabled](OpPassManager &innerPm) {
+           memLayoutEnabled, prepareConv2dEnabled](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
             innerPm.addPass(
@@ -173,8 +178,10 @@ void createTTNNPipelineAnalysisPasses(
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+            if (prepareConv2dEnabled) {
+              innerPm.addPass(
+                  mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+            }
           },
           wrapperOptions));
     }
