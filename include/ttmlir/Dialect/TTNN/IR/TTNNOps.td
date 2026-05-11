@@ -89,7 +89,7 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let hasVerifier = 1;
 }
 
-def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
+def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Bitcast_convert op.";
     let description = [{
       This op reinterprets the bits of each element in
@@ -97,16 +97,8 @@ def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTCore_DataTypeAttr:$dtype,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         TTCore_DataTypeAttr:$dtype);
     let results = (outs AnyRankedTensor:$result);
-
-    let builders = [
-      OpBuilder<(ins "Type": $resultType, "Value": $input, "ttcore::DataTypeAttr": $dtype),
-      [{
-        build($_builder, $_state, resultType, input, dtype, /*memory_config=*/nullptr);
-      }]>
-    ];
 
     let hasVerifier = 1;
 }
@@ -1634,7 +1626,6 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [O
                          AnyRankedTensor:$expert_mapping,
                          I64Attr:$num_devices,
                          I64Attr:$cluster_axis,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_CoreCoordAttr>:$drain_core);
 
     let results = (outs AnyRankedTensor:$dispatched,
@@ -2357,8 +2348,6 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
         - epsilon: Small constant added to the denominator for numerical
             stability. Defaults to 1e-12.
         - sub_device_id: Optional sub-device targeting for kernel placement.
-        - memory_config: Output memory configuration. Typically matches the
-            input's width-sharded shard spec.
         - num_links: Optional number of links for the all-gather
             communication.
         - topology: CCL topology for all-gather (Linear or Ring).
@@ -2696,14 +2685,13 @@ def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
 
     Example:
       %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-      %1 = "ttnn.rand"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, high = 1.000000e+00 : f32, layout = #ttnn.layout<tile>, low = 0.000000e+00 : f32, memory_config = #ttnn.memory_config<#dram, <interleaved>>, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
+      %1 = "ttnn.rand"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, high = 1.000000e+00 : f32, layout = #ttnn.layout<tile>, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout1>
 
     Attributes:
       - `size` (TTNN_ShapeAttr): The shape of the tensor to create.
       - `device` (TTNN_Device): The device where the trace was captured.
       - `dtype` (mlir:Type): Data type of the returned tensor.
       - `layout` (TTNN_LayoutAttr): The layout for the output tensor.
-      - `memory_config` (TTNN_MemoryConfigAttr): The memory configuration for the output tensor.
       - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
       - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
       - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
@@ -2738,7 +2726,6 @@ def TTNN_DropoutOp : TTNN_Op<"dropout", [TTCore_NonCacheableTrait]> {
       - `scale` (Float): Scale factor applied to non-zeroed elements. Typically 1/(1-prob) [Default: 1.0].
       - `seed` (Integer): Seed for the random number generator [Default: 0].
       - `use_per_device_seed` (Bool): Whether to use a different seed per device [Default: true].
-      - `memory_config` (MemoryConfig): Memory configuration for the output tensor.
 
     Inputs:
       - `input` (Tensor): The input tensor.
@@ -3465,7 +3452,7 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Comput
       Example:
       ```mlir
       %result = ttnn.rotary_embedding_llama(%input, %cos_cache, %sin_cache, %trans_mat)
-        {is_decode_mode = false, memory_config = #ttnn.memory_config<interleaved>}
+        {is_decode_mode = false}
         : tensor<1x32x128xbf16>, tensor<1x32x128xbf16>, tensor<1x32x128xbf16>,
         tensor<1x1x32x32xbf16> -> tensor<1x32x128xbf16>
       ```
@@ -3494,7 +3481,6 @@ def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_ComputeKernelConf
     Example:
       ```mlir
       %result = ttnn.rotary_embedding(%input, %cos_cache, %sin_cache)
-        {memory_config = #ttnn.memory_config<interleaved>}
         : tensor<1x32x1024x64xf16>, tensor<1x1x1024x64xf16>, tensor<1x1x1024x64xf16>
         -> tensor<1x32x1024x64xf16>
       ```
@@ -3613,8 +3599,6 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
           attention_sink (AnyRankedTensor, optional): `[Hq x 32]`, single tile
               wide.
           scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
-          memory_config (MemoryConfigAttr, optional): Memory configuration.
-              Defaults to `None`.
 
       Returns:
           AnyRankedTensor: `[1 x B x Hq x D]` (same type as `query`).
@@ -3690,7 +3674,7 @@ def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_lat
                        Optional<AnyRankedTensor>:$attention_mask,
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
-                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<F32Attr>:$scale);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3767,8 +3751,7 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
     ```mlir
     %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
-    %result = "ttnn.global_avg_pool2d"(%input) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>,
-                                                           dtype = #ttcore.supportedDataTypes<bf16>}>
+    %result = "ttnn.global_avg_pool2d"(%input) <{dtype = #ttcore.supportedDataTypes<bf16>}>
               : (tensor<1x128x128x32xbf16>) -> tensor<1x1x1x32xbf16>
     ```
 

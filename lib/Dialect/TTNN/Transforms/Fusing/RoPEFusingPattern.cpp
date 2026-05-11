@@ -901,7 +901,6 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
   auto validationResult = validator.validateOp<RotaryEmbeddingOp>(
       srcOp, srcOp->getLoc(), {x.getType()}, x, cos, sin,
       /*token_index=*/nullptr,
-      /*memory_config=*/MemoryConfigAttr(),
       /*compute_config=*/computeConfig);
 
   if (!validationResult.isSuccess()) {

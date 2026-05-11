@@ -94,29 +94,6 @@ def TTNN_MemoryConfigOpInterface : OpInterface<"TTNNMemoryConfigOpInterface"> {
         return getMemoryConfigFromResult($_op.getOperation());
       }]
     >,
-    InterfaceMethod<
-      /*desc=*/[{
-        }],
-      /*retTy=*/"void",
-      /*methodName=*/"setMemoryConfigAttr",
-      /*args=*/(ins "MemoryConfigAttr": $memoryConfigAttr),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        setMemoryConfigOnResult($_op.getOperation(), memoryConfigAttr);
-      }]
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        Compatibility setter that forwards to setMemoryConfigAttr().
-      }],
-      /*retTy=*/"void",
-      /*methodName=*/"setMemoryConfig",
-      /*args=*/(ins "MemoryConfigAttr": $memoryConfigAttr),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        setMemoryConfigOnResult($_op.getOperation(), memoryConfigAttr);
-      }]
-    >,
   ];
 
   let verify = [{

@@ -1781,9 +1781,14 @@ ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
 
+  TTNNLayoutAttr outputLayout =
+      opConfig.outputLayout
+          ? opConfig.outputLayout
+          : mlir::cast<TTNNLayoutAttr>(getResult().getType().getEncoding());
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ToMemoryConfigOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], opConfig.outputLayout);
+      inputShape, inputs[0], outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1793,9 +1798,14 @@ ToMemoryConfigOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
+  TTNNLayoutAttr outputLayout =
+      opConfig.outputLayout
+          ? opConfig.outputLayout
+          : mlir::cast<TTNNLayoutAttr>(getResult().getType().getEncoding());
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ToMemoryConfigOp>::getOpRuntime, *this, inputShape,
-      inputs[0], opConfig.outputLayout);
+      inputs[0], outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

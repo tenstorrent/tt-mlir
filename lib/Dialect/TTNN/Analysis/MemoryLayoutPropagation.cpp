@@ -617,11 +617,9 @@ bool MemoryLayoutPropagation::validateReshard(
     return false;
   }
 
-  MemoryConfigAttr memConfig = MemoryConfigAttr::get(reshardLayout);
-
   auto result = op_constraint_validation::validateOperation<ToMemoryConfigOp>(
       consumerOp, /*additionalL1Usage=*/0, deviceAttr.getWorkerGrid(),
-      inputShape, producerOutputLayout, memConfig, reshardLayout);
+      inputShape, producerOutputLayout, reshardLayout);
 
   bool valid = result.isSuccess();
 
@@ -1395,12 +1393,6 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     dtypeOp.setDtypeAttr(newDataTypeAttr);
   }
 
-  // Handle existing ToLayoutOp memory config alignment.
-  if (isa<ttnn::ToLayoutOp>(op)) {
-    ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
-    toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(chosenLayout));
-  }
-
   applyOpSpecificAttrs(op, candidate);
 
   // Attach L1 usage annotation for spill management.
@@ -1460,14 +1452,12 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
 
-  MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(reshardLayout);
-
   OpBuilder builder(consumerOp);
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                      "_mem_reconfig");
 
-  ToMemoryConfigOp memoryReconfigOp = builder.create<ToMemoryConfigOp>(
-      loc, newTensorType, operand, outputMemConfigAttr);
+  ToMemoryConfigOp memoryReconfigOp =
+      builder.create<ToMemoryConfigOp>(loc, newTensorType, operand);
 
   consumerOp->setOperand(operandIndex, memoryReconfigOp->getResult(0));
 

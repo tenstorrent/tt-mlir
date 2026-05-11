@@ -821,17 +821,10 @@ private:
             utils::RankedTensorTypeFactory::create(
                 tensorType, ttnn::BufferType::SystemMemory);
 
-        // Create memory config for system memory
-        auto memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-            context, nullptr,
-            ttnn::BufferTypeAttr::get(context, ttnn::BufferType::SystemMemory),
-            /*shard_spec=*/nullptr);
-
         auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
             funcOp.getLoc(), systemMemoryTileType, input,
             /*layout=*/LayoutAttr::get(context, layout.getLayout()),
-            /*dtype=*/ttcore::DataTypeAttr::get(context, layout.getDataType()),
-            /*memory_config=*/memoryConfigAttr);
+            /*dtype=*/ttcore::DataTypeAttr::get(context, layout.getDataType()));
         captureOrExecuteTraceOpInputs.push_back(toLayoutOp.getResult());
       } else {
         // Already on system memory

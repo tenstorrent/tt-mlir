@@ -218,52 +218,21 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       dtypeOp.setDtypeAttr(updatedDataTypeAttr);
     }
 
-    TTNNMemoryConfigOpInterface memoryConfigOp =
-        mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op.getOperation());
-    if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
-         outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
-        memoryConfigOp) {
-
-      MemoryConfigAttr currentMemoryConfig =
-          mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-              memoryConfigOp.getOperation())
-              .getMemoryConfigAttr();
-
-      MemoryConfigAttr updatedMemoryConfig =
-          MemoryConfigAttr::Builder(currentMemoryConfig)
-              .setBufferType(
-                  outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-              .setTensorMemoryLayout(
-                  outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
-
-      // Update the changed memory config attribute.
-      mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-          memoryConfigOp.getOperation())
-          .setMemoryConfigAttr(updatedMemoryConfig);
-
-      TTNNDeviceOperandInterface deviceOperandOp =
-          mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());
-
-      // If the target value for buffer type is SystemMemory, we need to remove
-      // the device operand from the operation.
-      if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
-          outputWorkaroundResults.tensorBufferTypeResult.targetValue ==
-              BufferType::SystemMemory &&
-          deviceOperandOp) {
-        // Remove the device operand from the operation.
+    // The buffer type / memory layout changes are already encoded in the
+    // result tensor's TTNNLayoutAttr (set above).
+    TTNNDeviceOperandInterface deviceOperandOp =
+        mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());
+    if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
+        deviceOperandOp) {
+      BufferType targetBufferType =
+          outputWorkaroundResults.tensorBufferTypeResult.targetValue;
+      if (targetBufferType == BufferType::SystemMemory) {
+        // Moving to host: drop the device operand.
         deviceOperandOp.setDevice(nullptr);
-      }
-
-      // If the target value for buffer type is not SystemMemory and the
-      // operation has a required device operand, we need to set the device
-      // operand to a default device if it is not already set.
-      if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
-          outputWorkaroundResults.tensorBufferTypeResult.targetValue !=
-              BufferType::SystemMemory &&
-          deviceOperandOp && !deviceOperandOp.getDevice()) {
-        // Set the device operand to a default device.
-        Value device = utils::getOrInsertDevice(rewriter, op);
-        deviceOperandOp.setDevice(device);
+      } else if (!deviceOperandOp.getDevice()) {
+        // Moving to a device buffer type and no device operand is set yet:
+        // attach a default one.
+        deviceOperandOp.setDevice(utils::getOrInsertDevice(rewriter, op));
       }
     }
   });
@@ -629,8 +598,7 @@ public:
     // %raw = ttnn.gather(input, %safe_u32, dim)
     auto rawGather = rewriter.create<ttnn::GatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_safe_gather"), outputType,
-        op.getInput(), safeIdxU32.getResult(), op.getDimAttr(),
-        op.getMemoryConfigAttr());
+        op.getInput(), safeIdxU32.getResult(), op.getDimAttr());
 
     //   - float => NaN
     //   - int   => int32_min (for unsigned this makes a large positive number,

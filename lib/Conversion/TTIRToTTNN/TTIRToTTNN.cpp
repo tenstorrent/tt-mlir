@@ -1140,6 +1140,7 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
         adaptor.getTransposeB(),
+        /*matmul_program_config=*/nullptr,
         /*activation=*/nullptr, /*compute_config=*/nullptr);
     if (auto attr = op->getAttr("ttcore.weight_dtype")) {
       newOp->setAttr("ttcore.weight_dtype", attr);
@@ -1188,8 +1189,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::BatchNormInferenceOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getEpsilonAttr().getValue(), adaptor.getScale(),
-        adaptor.getOffset());
+        adaptor.getEpsilon(), adaptor.getScale(), adaptor.getOffset());
     return success();
   }
 };
@@ -1217,9 +1217,8 @@ public:
 
     auto batchNormTrainingOp = rewriter.create<ttnn::BatchNormTrainingOp>(
         op.getLoc(), resultType, adaptor.getOperand(), adaptor.getRunningMean(),
-        adaptor.getRunningVariance(), adaptor.getEpsilonAttr().getValue(),
-        adaptor.getMomentumAttr().getValue(), adaptor.getScale(),
-        adaptor.getOffset());
+        adaptor.getRunningVariance(), adaptor.getEpsilon(),
+        adaptor.getMomentum(), adaptor.getScale(), adaptor.getOffset());
 
     // TTIR expects the running mean and variance to be returned as separate
     // results.
@@ -1264,7 +1263,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::RMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getEpsilonAttr().getValue());
+        adaptor.getEpsilon());
     return success();
   }
 };
@@ -1746,15 +1745,13 @@ public:
       auto shapeAttr = rewriter.getI32ArrayAttr(
           {static_cast<int32_t>(D), static_cast<int32_t>(E)});
       expertMapping = rewriter.create<ttnn::ReshapeOp>(
-          op.getLoc(), reshapedType, expertMapping, shapeAttr,
-          /*memory_config=*/nullptr);
+          op.getLoc(), reshapedType, expertMapping, shapeAttr);
     }
 
     rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
         op, dispatched3D, indices3D, scores3D, adaptor.getInputTensor(),
         adaptor.getExpertIndices(), adaptor.getExpertScores(), expertMapping,
         op.getNumDevicesAttr(), op.getClusterAxisAttr(),
-        /*memory_config=*/nullptr,
         /*drain_core=*/nullptr);
     return success();
   }
@@ -2586,7 +2583,6 @@ public:
         adaptor.getInput(), adaptor.getReduceType(),
         static_cast<uint32_t>(adaptor.getClusterAxis()),
         /*sub_device_id=*/nullptr,
-        /*memory_config=*/nullptr,
         /*num_links=*/nullptr,
         /*topology=*/nullptr);
 
@@ -3068,8 +3064,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::GatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getIndex(),
-        rewriter.getI32IntegerAttr(adaptor.getDim()),
-        /*memory_config=*/nullptr);
+        rewriter.getI32IntegerAttr(adaptor.getDim()));
     return success();
   }
 };

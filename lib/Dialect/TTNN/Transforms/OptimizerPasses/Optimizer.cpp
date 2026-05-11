@@ -490,23 +490,6 @@ public:
             } else {
               emptyOp.setLayout(ttnn::Layout::RowMajor);
             }
-
-            mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-                emptyOp.getOperation())
-                .setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(layoutAttr));
-          }
-          // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Align
-          // MemoryConfigAttr with layout attribute of its output tensor. This
-          // redundant info should be removed or made consistent as part of temp
-          // ToLayoutOp decomposition pass.
-          //
-          else if (isa<ttnn::ToLayoutOp>(op)) {
-            // Update the device op with the new tensor type.
-            //
-            ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
-            mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-                toLayoutOp.getOperation())
-                .setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(layoutAttr));
           }
 
           // Set specific Conv(Transpose)2d Op configuration if it is exists.
@@ -778,9 +761,6 @@ private:
           producerOpTensorShape, producerOpTensorType.getElementType(),
           reshardOpLayout);
 
-      MemoryConfigAttr outputMemConfigAttr =
-          MemoryConfigAttr::get(reshardOpLayout);
-
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
       // toLayoutOp, insert a toLayoutOp in between producerOp
@@ -789,9 +769,6 @@ private:
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
         toLayoutOp.setLayout(reshardOpLayout.getLayout());
-        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-            toLayoutOp.getOperation())
-            .setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {
         OpBuilder builder(consumerOp);

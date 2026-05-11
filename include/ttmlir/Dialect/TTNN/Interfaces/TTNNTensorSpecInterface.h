@@ -29,69 +29,12 @@ inline MemoryConfigAttr getMemoryConfigFromResult(mlir::Operation *op) {
   return llvm::TypeSwitch<mlir::Attribute, MemoryConfigAttr>(
              output.getEncoding())
       .Case<TTNNLayoutAttr>([&](TTNNLayoutAttr layoutAttr) {
-        // Look up the device to get the physical worker grid for shard spec
-        // computation. When no device is registered (e.g. cpu_module),
-        // return nullptr since memory config cannot be derived.
-        auto deviceOp = ttcore::lookupDeviceOp(op);
-        if (!deviceOp) {
-          return MemoryConfigAttr();
-        }
-
-        auto deviceGrid = deviceOp.getDeviceAttr().getWorkerGrid();
-        return layoutAttr.getMemoryConfigAttr(deviceGrid);
+        return layoutAttr.getMemoryConfigAttr();
       })
       .Case<TTNNNDLayoutAttr>([](TTNNNDLayoutAttr layoutAttr) {
         return layoutAttr.getMemoryConfigAttr();
       })
       .Default([&](mlir::Attribute) { return MemoryConfigAttr(); });
-}
-
-inline void setMemoryConfigOnResult(mlir::Operation *op,
-                                    MemoryConfigAttr memoryConfigAttr) {
-  if (!memoryConfigAttr || op->getNumResults() == 0) {
-    return;
-  }
-
-  Value result = op->getResult(0);
-  auto output = mlir::dyn_cast<RankedTensorType>(result.getType());
-  if (!output) {
-    return;
-  }
-
-  mlir::Attribute encoding = output.getEncoding();
-  if (!encoding) {
-    return;
-  }
-  if (auto layoutAttr = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
-    TTNNLayoutAttr updatedLayout =
-        layoutAttr.withBufferType(memoryConfigAttr.getBufferType().getValue());
-    if (auto tensorMemoryLayout = memoryConfigAttr.getTensorMemoryLayout()) {
-      updatedLayout = updatedLayout.withMemoryLayout(tensorMemoryLayout);
-    }
-    if (auto shardSpec = memoryConfigAttr.getShardSpec()) {
-      updatedLayout = updatedLayout.withShardShape(
-          llvm::SmallVector<int64_t>(shardSpec->getShape().getShape()));
-    }
-    result.setType(RankedTensorType::get(
-        output.getShape(), output.getElementType(), updatedLayout));
-    return;
-  }
-
-  if (auto layoutAttr = mlir::dyn_cast<TTNNNDLayoutAttr>(encoding)) {
-    auto tensorMemoryLayout = memoryConfigAttr.getTensorMemoryLayout()
-                                  ? memoryConfigAttr.getTensorMemoryLayout()
-                                  : layoutAttr.getMemLayout();
-    auto memref =
-        MemRefType::get(layoutAttr.getMemref().getShape(),
-                        layoutAttr.getMemref().getElementType(), AffineMap(),
-                        memoryConfigAttr.getBufferType());
-    TTNNNDLayoutAttr updatedLayout = TTNNNDLayoutAttr::get(
-        op->getContext(), layoutAttr.getGrid(), memref, tensorMemoryLayout,
-        layoutAttr.getShardOrientation(),
-        layoutAttr.getShardDistributionStrategy());
-    result.setType(RankedTensorType::get(
-        output.getShape(), output.getElementType(), updatedLayout));
-  }
 }
 
 // Verifies the TTNNDtypeOpInterface

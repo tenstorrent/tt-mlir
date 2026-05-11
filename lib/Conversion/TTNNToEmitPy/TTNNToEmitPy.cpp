@@ -2142,9 +2142,7 @@ public:
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getIndex()),
         emitter.emit(/*sparse_grad=*/false, "sparse_grad"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3564,9 +3562,7 @@ public:
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emit(srcOp.getReduceType(), "math_op"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3826,9 +3822,7 @@ public:
         emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getProgramConfig()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getUse_2dCoreGrid(), "use_2d_core_grid"),
     };
 
@@ -3951,9 +3945,7 @@ public:
         emitter.emit(srcOp.getResidualInput(), "residual_input_tensor"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getRecip(), "recip_tensor"),
     };
 
@@ -3989,9 +3981,7 @@ public:
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
         emitter.emit(srcOp.getWeight(), "weight"),
         emitter.emit(srcOp.getBias(), "bias"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
         emitter.emit(srcOp.getDtype(), "dtype"),
@@ -4362,9 +4352,7 @@ public:
         emitter.emit(srcOp.getAttentionSink(), "attention_sink"),
         emitter.emit(srcOp.getScale(), "scale"),
         emitter.emit(std::nullopt, "sliding_window_size"),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 

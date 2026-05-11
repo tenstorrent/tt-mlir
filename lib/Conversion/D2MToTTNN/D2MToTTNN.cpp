@@ -1007,8 +1007,7 @@ static LogicalResult convertSingleSpatial(d2m::SpatialOp spatialOp,
   rewriter.setInsertionPoint(spatialOp);
   rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
       spatialOp, remapTable.getUnifiedIO(),
-      remapTable.getUnifiedAdditionalArgs(), mergedProgram,
-      ttnn::MemoryConfigAttr());
+      remapTable.getUnifiedAdditionalArgs(), mergedProgram);
   return success();
 }
 

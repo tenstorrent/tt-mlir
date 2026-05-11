@@ -43,41 +43,6 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
-getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
-                                      Value tensor) {
-  auto tensorType = mlir::cast<RankedTensorType>(tensor.getType());
-  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-  ttnn::BufferType bufferType = layoutAttr.getBufferType();
-
-  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
-  if (isDeviceBufferType(bufferType)) {
-    auto memoryConfigAttr = ttnn::MemoryConfigAttr::get(layoutAttr);
-    memoryConfig = toFlatbuffer(cache, memoryConfigAttr);
-  }
-
-  return memoryConfig;
-}
-
-// Returns the memory config for an op, using the op's memory_config attribute
-// if present, otherwise deriving it from the given result tensor type.
-// Use this overload for multi-result ops where a specific result must be
-// specified.
-template <typename OpType>
-static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
-getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op, Value result) {
-  return op.getMemoryConfig()
-             ? toFlatbuffer(cache, *op.getMemoryConfig())
-             : getMemoryConfigFromTensorTypeIfNeeded(cache, result);
-}
-
-// Convenience overload for single-result ops.
-template <typename OpType>
-static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
-getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
-  return getMemoryConfigIfNeeded(cache, op, op.getResult());
-}
-
 static bool isCpuHoistedFuncCall(func::CallOp op) {
   return op->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
 }
@@ -280,7 +245,7 @@ createOp(FlatbufferObjectCache &cache, BitcastConvertOp op) {
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   return ::tt::target::ttnn::CreateBitcastConvertOp(*cache.fbb, input, dtype,
                                                     memoryConfig, output);
@@ -1320,7 +1285,7 @@ createOp(FlatbufferObjectCache &cache, GatherOp op) {
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
   return ::tt::target::ttnn::CreateGatherOp(*cache.fbb, input, index, output,
                                             op.getDim(), memoryConfig);
 }
@@ -1645,7 +1610,7 @@ createOp(FlatbufferObjectCache &cache, LayerNormPreAllGatherOp op) {
     dtype = toFlatbuffer(cache, op.getDtype().value());
   }
 
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   std::optional<
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
@@ -1687,7 +1652,7 @@ createOp(FlatbufferObjectCache &cache, LayerNormPostAllGatherOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   std::optional<
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
@@ -3669,7 +3634,7 @@ createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
 
                                   /*local_shape*/ std::nullopt);
 
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
 
   return ::tt::target::ttnn::CreateNLPCreateQKVHeadsDecodeOp(
       *cache.fbb, in, outQuery, outKey, outValue, numHeads, numKVHeads,

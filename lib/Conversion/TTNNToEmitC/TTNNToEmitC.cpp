@@ -228,7 +228,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC)),
         rewriter.getAttr<emitc::OpaqueAttr>(
-            "::ttnn::operations::unary::Sigmoid::SigmoidMode::ACCURATE"),
+            "::ttnn::operations::unary::SigmoidMode::ACCURATE"),
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
@@ -3025,7 +3025,7 @@ public:
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getIndex()),
         emitter.emit(/*sparse_grad=*/false),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(/*optional_output_tensor=*/std::nullopt),
         emitter.emit(/*sub_core_grids=*/std::nullopt),
     };
@@ -3416,7 +3416,7 @@ public:
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(srcOp.getScale()),
         emitter.emit(srcOp.getSlidingWindowSize()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(/*program_config=*/std::nullopt),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
     };
@@ -3591,7 +3591,7 @@ public:
         emitter.emit(srcOp.getResidual()),
         emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(srcOp.getProgramConfig()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getUse_2dCoreGrid()),
     };
 
@@ -3663,8 +3663,7 @@ public:
         emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
         emitter.emit(/* dtype= */ std::nullopt),
         emitter.emit(srcOp.getComputeConfig()),
-        emitter.emit(srcOp.getMemoryConfig()) |
-            emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfig()),
         residualIndexAttr,
         emitter.emit(srcOp.getEpsilon()),
         weightIndexAttr,
@@ -3739,7 +3738,7 @@ public:
         emitter.emit(srcOp.getResidualInput()),
         emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(srcOp.getProgramConfig()),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getRecip()),
     };
 
@@ -3775,8 +3774,7 @@ public:
         emitter.emit(srcOp.getEpsilon()),
         emitter.emit(srcOp.getWeight()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(srcOp.getMemoryConfig()) |
-            emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getComputeConfig()),
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(srcOp.getDtype()),

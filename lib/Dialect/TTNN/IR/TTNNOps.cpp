@@ -1332,9 +1332,6 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
       return emitOpError("Data type mismatch between op and layoutAttr.");
     }
 
-    // Memory config is now derived directly from the output layout encoding,
-    // so there is no independent op attribute to cross-validate here.
-
     return success();
   };
 
@@ -2087,15 +2084,6 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
   if (!op.getDtype()) {
     op.setDtypeAttr(producerOp.getDtypeAttr());
   }
-  if (!mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-           op.getOperation())
-           .getMemoryConfig()) {
-    mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(op.getOperation())
-        .setMemoryConfigAttr(
-            mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-                producerOp.getOperation())
-                .getMemoryConfigAttr());
-  }
   op.getInputMutable().set(producerOp.getInput());
 
   return op.getResult();
@@ -2167,19 +2155,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     tensorSpecOp.setDtypeAttr(targetDataTypeAttr);
     tensorSpecOp.setLayoutAttr(targetLayoutAttr);
-    mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-        tensorSpecOp.getOperation())
-        .setMemoryConfigAttr(targetMemoryConfigAttr);
 
-    BufferTypeAttr newBufferType = nullptr;
-    if (mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-            tensorSpecOp.getOperation())
-            .getMemoryConfigAttr()) {
-      newBufferType = mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-                          tensorSpecOp.getOperation())
-                          .getMemoryConfigAttr()
-                          .getBufferType();
-    }
+    BufferTypeAttr newBufferType = targetMemoryConfigAttr
+                                       ? targetMemoryConfigAttr.getBufferType()
+                                       : nullptr;
 
     TTNNDeviceOperandInterface deviceOperandInterface =
         mlir::cast<TTNNDeviceOperandInterface>(creationOp);
@@ -4162,10 +4141,9 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
     llvm::SmallVector<int32_t> newShape(outShape.begin(), outShape.end());
 
     auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
-    auto memCfg = op.getMemoryConfigAttr();
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
-        op, resultType, op.getInput(), shapeAttr, memCfg);
+        op, resultType, op.getInput(), shapeAttr);
 
     return mlir::success();
   });

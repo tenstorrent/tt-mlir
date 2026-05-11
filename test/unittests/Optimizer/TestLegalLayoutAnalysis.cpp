@@ -117,9 +117,8 @@ protected:
         mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile));
 
     // Use that tensor in a ReluOp so we have a relevant op with a tensor result
-    auto relu = builder.create<mlir::tt::ttnn::ReluOp>(
-        builder.getUnknownLoc(), empty.getResult().getType(),
-        empty.getResult());
+    auto relu = builder.create<mlir::tt::ttnn::ReluOp>(builder.getUnknownLoc(),
+                                                       empty.getResult());
 
     // Add return op
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),

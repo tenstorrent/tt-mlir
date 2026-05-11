@@ -61,8 +61,7 @@ static Value squeezeToOriginalRank(Value v, RankedTensorType originalType,
   SmallVector<int32_t> shapeAttr(originalType.getShape().begin(),
                                  originalType.getShape().end());
   return rewriter
-      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr),
-                         /*memory_config=*/MemoryConfigAttr())
+      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr))
       .getResult();
 }
 
@@ -513,8 +512,7 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
     SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
     return rewriter
         .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, v,
-                           rewriter.getI32ArrayAttr(shapeAttr),
-                           /*memory_config=*/MemoryConfigAttr())
+                           rewriter.getI32ArrayAttr(shapeAttr))
         .getResult();
   };
 

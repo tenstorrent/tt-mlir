@@ -31,7 +31,6 @@ module attributes {} {
         // CHECK-NEXT: %[[TYPECAST_U32:.*]] = "ttnn.typecast"(%[[TO_LAYOUT]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
         // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST_U32]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK-NEXT: %[[TYPECAST_U16:.*]] = "ttnn.typecast"(%[[TO_MEM_CONFIG]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u16>
         // CHECK-NEXT: return %[[TYPECAST_U16]]
@@ -46,13 +45,11 @@ module attributes {} {
     func.func @device_l1_hs_rm_bf16_nontile_to_tile_inserts_pad_slice_workaround(%arg0: tensor<32x4xbf16, #ttnn_layout_l1_hs_rm_bf16_nontile>) -> tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile> {
         // CHECK-LABEL: func.func @device_l1_hs_rm_bf16_nontile_to_tile_inserts_pad_slice_workaround
         // CHECK: %[[UNSHARD:.*]] = "ttnn.to_memory_config"(%arg0)
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK-NEXT: %[[PAD:.*]] = "ttnn.pad"(%[[UNSHARD]])
         // CHECK-NEXT: %[[TILIZE:.*]] = "ttnn.to_layout"(%[[PAD]])
         // CHECK-SAME: layout = #ttnn.layout<tile>
         // CHECK-NEXT: %[[SLICE:.*]] = "ttnn.slice_static"(%[[TILIZE]])
         // CHECK-NEXT: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[SLICE]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#l1, <height_sharded>
         // CHECK-NEXT: return %[[RESHARD]]
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>, <32x4>, <row_major>>>}> : (tensor<32x4xbf16, #ttnn_layout_l1_hs_rm_bf16_nontile>) -> tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
         return %0 : tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
