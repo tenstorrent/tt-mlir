@@ -857,7 +857,13 @@ class Builder(metaclass=BuilderMeta):
             return self.parse_call_op(parsed_op, global_dict)
 
         parsed_function = self.get_parser_from_opview(type(parsed_op))
-        return parsed_function(self, parsed_op, global_dict)
+        new_op, op_map_dictionary = parsed_function(self, parsed_op, global_dict)
+
+        # Copy attributes from parsed_op to new_op
+        for attr in parsed_op.attributes:
+            new_op.attributes[attr.name] = attr.attr
+
+        return new_op, op_map_dictionary
 
     def get_input_types(self, func_op: func.FuncOp):
         inputs_types = []
