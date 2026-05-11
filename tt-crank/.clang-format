@@ -1,0 +1,20 @@
+---
+BasedOnStyle: LLVM
+ColumnLimit: 120
+IndentWidth: 4
+ContinuationIndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+
+# Mandatory braces around all single-statement control flow.
+InsertBraces: true
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+# Trivial inline functions may stay on one line; tighten to None if it bites.
+AllowShortFunctionsOnASingleLine: Inline
+
+# Keep LLVM defaults for BreakBeforeBraces (Attach) and PointerAlignment (Right).
+# Naming (PascalCase vs snake_case) is enforced by clang-tidy, not here.

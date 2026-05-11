@@ -1,0 +1,17 @@
+# Build directories
+/build/
+/build-*/
+/out/
+
+# Compile commands (when symlinked or copied into source tree)
+/compile_commands.json
+
+# IDE
+.vscode/
+.idea/
+.cache/
+*.swp
+*~
+
+# OS
+.DS_Store

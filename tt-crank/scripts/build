@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# tt-kurbla one-shot build wrapper.
+#
+#   ./scripts/build              # uses the "default" preset
+#   ./scripts/build dev          # any preset name from CMakePresets.json
+#   PRESET=san ./scripts/build   # same effect via env var
+#
+# Handles the two pieces of friction that a raw `cmake --preset` invocation can't:
+# (1) lazy `git submodule update --init --recursive` if third_party/tt-mlir is empty;
+# (2) `source third_party/tt-mlir/env/activate` so $TTMLIR_TOOLCHAIN_DIR is set
+#     before the tt-mlir external-project configures itself.
+#
+# Users who already have the env activated can skip this wrapper and run
+# `cmake --preset <p>` / `cmake --build --preset <p>` / `ctest --preset <p>` directly.
+
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+if [[ ! -f third_party/tt-mlir/CMakeLists.txt ]]; then
+    echo "==> third_party/tt-mlir missing; initializing submodules"
+    git submodule update --init --recursive
+fi
+
+# Idempotent: subsequent invocations just set env vars; the first run also builds
+# the LLVM/MLIR toolchain (slow, multi-GB — one time per machine).
+# env/activate uses $(pwd) for TT_MLIR_HOME etc., so source it from tt-mlir's root.
+# It also reads several env vars without `:-` defaults, so relax `-u` for the duration.
+pushd third_party/tt-mlir > /dev/null
+set +u
+# shellcheck disable=SC1091
+source env/activate
+set -u
+popd > /dev/null
+
+PRESET="${1:-${PRESET:-default}}"
+
+cmake --preset "$PRESET"
+cmake --build --preset "$PRESET"
+ctest --preset "$PRESET"
