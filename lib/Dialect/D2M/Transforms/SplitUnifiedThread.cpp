@@ -112,6 +112,18 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
   // they haven't been lowered yet into non-synchronized ops
   OpBuilder::InsertionGuard guard(rewriter);
+
+  // Collect the blocks that contain remote_load/store ops at their immediate
+  // level. These delimit the scope where compute is synchronized: the
+  // outermost compute ancestor sits in such a block alongside the loads/stores
+  // that bound it.
+  DenseSet<Block *> blocksWithRemoteOps;
+  genericOp.getRegion(0).walk([&](Operation *op) {
+    if (isa<RemoteLoadOp, RemoteStoreOp>(op)) {
+      blocksWithRemoteOps.insert(op->getBlock());
+    }
+  });
+
   DenseSet<Operation *> outermostOps;
   bool walkFailed = false;
   genericOp.getRegion(0).walk([&](Operation *op) {
@@ -119,14 +131,11 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       return WalkResult::advance();
     }
 
-    // Go up loops until we reach one of the two as a parent:
-    // generic op or scf.for tagged as d2m.blocking_loop
+    // Walk up loops until we reach the generic op as a parent, or a block
+    // that contains a remote_load/store at the same level.
     Operation *outermostOp = op;
-    auto isBlockingLoop = [](Operation *op) {
-      return mlir::isa<scf::ForOp>(op) && op->hasAttr("d2m.blocking_loop");
-    };
     while (outermostOp->getParentOp() != genericOp.getOperation() &&
-           !isBlockingLoop(outermostOp->getParentOp())) {
+           !blocksWithRemoteOps.contains(outermostOp->getBlock())) {
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {
