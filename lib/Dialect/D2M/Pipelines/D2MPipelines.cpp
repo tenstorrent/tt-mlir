@@ -175,6 +175,15 @@ void createD2MBackendPipeline(OpPassManager &pm,
                               const D2MPipelineOptions &options) {
   pm.addPass(d2m::createD2MDecomposeArange());
 
+  // Introduce compute-thread distribution before DST-capacity tiling so the
+  // downstream DST tiling sees per-thread sliced operands.
+  if (options.enableComputeThreadTiling) {
+    d2m::D2MDistributeComputeThreadsOptions distributeOptions;
+    distributeOptions.numComputeThreads = options.numComputeThreads;
+    distributeOptions.splitDim = options.computeThreadSplitDim;
+    pm.addPass(d2m::createD2MDistributeComputeThreads(distributeOptions));
+  }
+
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
   {
     tileComputeLoopsOptions.maxDstPhysicalSizeTiles =
@@ -258,6 +267,13 @@ void createD2MBackendPipeline(OpPassManager &pm,
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
+
+  // Materialize any remaining #d2m.compute_thread scf.forall ops to SPMD
+  // form. Runs immediately before GenericRegionsToFuncs so the outliner
+  // sees normal SPMD code.
+  if (options.enableComputeThreadTiling) {
+    pm.addPass(d2m::createD2MMaterializeComputeThreadForall());
+  }
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }

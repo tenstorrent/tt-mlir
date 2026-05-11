@@ -226,6 +226,28 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::desc("Disable L1 accumulation (force reloading from L1 to DST "
                      "instead of accumulating partials in L1)."),
       llvm::cl::init(false)};
+
+  // Gates both D2MDistributeComputeThreads (introduce scf.forall with
+  // #d2m.compute_thread mapping) and D2MMaterializeComputeThreadForall
+  // (lower to single-program SPMD via d2m.my_thread_id). Off by default;
+  // intended for future hardware with multiple compute threads per L1
+  // region.
+  Option<bool> enableComputeThreadTiling{
+      *this, "enable-compute-thread-tiling",
+      llvm::cl::desc("Distribute matmul work across compute threads via "
+                     "scf.forall with #d2m.compute_thread mapping."),
+      llvm::cl::init(false)};
+
+  Option<int64_t> numComputeThreads{
+      *this, "num-compute-threads",
+      llvm::cl::desc("Number of compute threads per L1 region."),
+      llvm::cl::init(4)};
+
+  Option<std::string> computeThreadSplitDim{
+      *this, "compute-thread-split-dim",
+      llvm::cl::desc("Matmul iterator to distribute across threads: 'm' or "
+                     "'n'."),
+      llvm::cl::init("m")};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm,
