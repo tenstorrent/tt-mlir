@@ -8,12 +8,14 @@
 #include <mlir/IR/MLIRContext.h>
 #include <tt/runtime/types.h>
 
+#include "tt_kurbla_export.hpp"
+
 namespace tt::kurbla {
 
 // Output of a successful compile. Wraps tt::runtime::Binary so we can attach
 // tt-kurbla-specific metadata later (compile stats, source identity, cache
 // key) without changing the public function signature.
-struct CompiledProgram {
+struct TT_KURBLA_API CompiledProgram {
     tt::runtime::Binary binary;
 };
 
@@ -21,7 +23,7 @@ struct CompiledProgram {
 // because every field maps to tt-mlir's TTIRToTTNNCommonPipelineOptions base.
 // Per-pipeline option splits arrive only when a future pipeline grows a knob
 // the others don't have.
-struct CompileOptions {
+struct TT_KURBLA_API CompileOptions {
     // Mock arch used when system_desc_path is empty.
     enum class MockArch { WormholeB0, Blackhole };
 
@@ -40,7 +42,7 @@ struct CompileOptions {
 // Use this when building TTIR modules programmatically (e.g. lowering from
 // framework IR like PyTorch FX) — the resulting ModuleOp must live in this
 // context for the ModuleOp-based compile overload to work.
-mlir::MLIRContext& mlir_context();
+TT_KURBLA_API mlir::MLIRContext& mlir_context();
 
 // Compile TTIR text through the ttir-to-ttnn runtime pipeline and emit a TTNN
 // flatbuffer. Throws CompileError (ParseError / PipelineError) on failure with
@@ -49,7 +51,8 @@ mlir::MLIRContext& mlir_context();
 // Not safe to call from multiple threads concurrently in v1 — the underlying
 // MLIRContext is a process-wide singleton without internal locking. Callers
 // must serialize.
-CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions& options = {});
+TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir,
+                                                              const CompileOptions& options = {});
 
 // Compile a pre-built TTIR ModuleOp. The module must live in mlir_context()
 // and is mutated in place — on success it holds TTNN ops, not TTIR.
@@ -58,19 +61,23 @@ CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const Com
 // than serializing it to text first (e.g. a PyTorch FX → TTIR lowering).
 //
 // Same threading caveat as the string overload: serialize calls.
-CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module, const CompileOptions& options = {});
+TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module,
+                                                              const CompileOptions& options = {});
 
-class CompileError : public std::runtime_error {
+// Exception types are class-annotated so their typeinfo is exported with
+// default visibility. Without this, `catch (CompileError&)` in a consumer
+// can silently fail to match throws originating inside libtt_kurbla.so.
+class TT_KURBLA_API CompileError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
 
-class ParseError : public CompileError {
+class TT_KURBLA_API ParseError : public CompileError {
 public:
     using CompileError::CompileError;
 };
 
-class PipelineError : public CompileError {
+class TT_KURBLA_API PipelineError : public CompileError {
 public:
     using CompileError::CompileError;
 };
