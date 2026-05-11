@@ -16,5 +16,8 @@ AllowShortCaseLabelsOnASingleLine: false
 # Trivial inline functions may stay on one line; tighten to None if it bites.
 AllowShortFunctionsOnASingleLine: Inline
 
+# Indent `case` labels one level inside `switch { ... }` — overrides the LLVM default.
+IndentCaseLabels: true
+
 # Keep LLVM defaults for BreakBeforeBraces (Attach) and PointerAlignment (Right).
 # Naming (PascalCase vs snake_case) is enforced by clang-tidy, not here.
