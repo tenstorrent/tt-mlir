@@ -781,3 +781,89 @@ func.func public @boundary_func_dot_general_outer_product_rank1_rank1(%arg0: ten
   %0 = "ttir.dot_general"(%arg0, %arg1) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64>, contract_dims_rhs = array<i64>}> : (tensor<40960xf32>, tensor<64xf32>) -> tensor<40960x64xf32>
   return %0 : tensor<40960x64xf32>
 }
+
+// =============================================================================
+// mesh_partition rank-strict regression tests
+//
+// Background: `ttir.mesh_partition` carries a `dim : si32` attribute that
+// indexes into the operand's shape. The op verifier accepts any `dim` in
+// `[-rank, rank)`, so RankNormalization promoting a rank-1 operand to rank-2
+// by prepending `1` would silently shift what `dim = 0` refers to (it would
+// then point at the prepended unit dim instead of the original data dim).
+// The TTNN runtime catches this only at execution time with
+//   "input shape Shape([1, N]) must be divisible by cluster axis size K"
+// from MeshPartitionDeviceOperation::validate_on_program_cache_miss.
+//
+// EasyDeL/Shardy emits `sdy.all_slice` composites on rank-1 norm/scale
+// parameters (e.g. RMSNorm gamma of shape <2560>); the SHLO->TTIR composite
+// legalizer lowers these to `ttir.mesh_partition %x {dim = 0}`. The tests
+// below lock in that the pass wraps mesh_partition with boundary reshapes
+// (preserving its original rank-1 operand and `dim` value) and leaves any
+// already-rank>=2 mesh_partition untouched.
+// =============================================================================
+
+// Test: mesh_partition_rank1_dim0 (private)
+// Rank-1 operand, dim=0 partitions the only data axis across cluster_axis=0.
+// The pass must keep the op's rank-1 operand/result types and dim/cluster_axis
+// attributes intact, with demote/promote boundary reshapes around it.
+// CHECK-LABEL: func.func private @mesh_partition_rank1_dim0
+// CHECK-SAME: (%arg0: tensor<1x2560xf32>) -> tensor<1x320xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: "ttir.mesh_partition"
+// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+//
+// CHECK-CANON-LABEL: func.func private @mesh_partition_rank1_dim0
+// CHECK-CANON-SAME: (%arg0: tensor<1x2560xf32>) -> tensor<1x320xf32>
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// CHECK-CANON: %[[D:.*]] = "ttir.reshape"(%arg0) <{shape = [2560 : i32]}> {ttir.boundary_reshape} : (tensor<1x2560xf32>) -> tensor<2560xf32>
+// CHECK-CANON: %[[M:.*]] = "ttir.mesh_partition"(%[[D]])
+// CHECK-CANON-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+// CHECK-CANON: %[[P:.*]] = "ttir.reshape"(%[[M]]) <{shape = [1 : i32, 320 : i32]}> {ttir.boundary_reshape} : (tensor<320xf32>) -> tensor<1x320xf32>
+// CHECK-CANON: return %[[P]] : tensor<1x320xf32>
+func.func private @mesh_partition_rank1_dim0(%arg0: tensor<2560xf32>) -> tensor<320xf32> {
+  %0 = "ttir.mesh_partition"(%arg0) <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+  return %0 : tensor<320xf32>
+}
+
+// Test: mesh_partition_already_rank2_unchanged (private)
+// Regression guard: rank>=2 operands must not trigger any boundary reshape.
+// CHECK-LABEL: func.func private @mesh_partition_already_rank2_unchanged
+// CHECK-SAME: (%arg0: tensor<4x32xbf16>) -> tensor<4x16xbf16>
+// CHECK-NOT: ttir.reshape
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[M:.*]] = "ttir.mesh_partition"(%arg0)
+// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 1 : si32}> : (tensor<4x32xbf16>) -> tensor<4x16xbf16>
+// CHECK: return %[[M]] : tensor<4x16xbf16>
+//
+// CHECK-CANON-LABEL: func.func private @mesh_partition_already_rank2_unchanged
+// CHECK-CANON-NOT: ttir.reshape
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// CHECK-CANON: "ttir.mesh_partition"(%arg0)
+// CHECK-CANON-SAME: (tensor<4x32xbf16>) -> tensor<4x16xbf16>
+func.func private @mesh_partition_already_rank2_unchanged(%arg0: tensor<4x32xbf16>) -> tensor<4x16xbf16> {
+  %0 = "ttir.mesh_partition"(%arg0) <{cluster_axis = 0 : ui32, dim = 1 : si32}> : (tensor<4x32xbf16>) -> tensor<4x16xbf16>
+  return %0 : tensor<4x16xbf16>
+}
+
+// Test: boundary_func_mesh_partition_rank1 (public)
+// JIT-style public boundary: rank-1 mesh_partition inside a public function.
+// The signature stays rank-1; the entry-promote / Phase 1a-demote pair
+// cancels in canonicalize, leaving the partition directly on the rank-1
+// block argument with dim=0 still pointing at the 2560 axis.
+// CHECK-LABEL: func.func public @boundary_func_mesh_partition_rank1
+// CHECK-SAME: (%arg0: tensor<2560xf32>) -> tensor<320xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: "ttir.mesh_partition"
+// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+//
+// CHECK-CANON-LABEL: func.func public @boundary_func_mesh_partition_rank1
+// CHECK-CANON-SAME: (%arg0: tensor<2560xf32>) -> tensor<320xf32>
+// CHECK-CANON-NOT: ttir.reshape
+// CHECK-CANON-NOT: unrealized_conversion_cast
+// CHECK-CANON: %[[M:.*]] = "ttir.mesh_partition"(%arg0)
+// CHECK-CANON-SAME: <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+// CHECK-CANON: return %[[M]] : tensor<320xf32>
+func.func public @boundary_func_mesh_partition_rank1(%arg0: tensor<2560xf32>) -> tensor<320xf32> {
+  %0 = "ttir.mesh_partition"(%arg0) <{cluster_axis = 0 : ui32, dim = 0 : si32}> : (tensor<2560xf32>) -> tensor<320xf32>
+  return %0 : tensor<320xf32>
+}

@@ -97,13 +97,33 @@ static bool needsRankExpansion(Type type) {
 /// materialization that remained live after conversion". Wrapping with
 /// boundary reshapes keeps the op's operand and result types exactly as
 /// SHLO->TTIR declared them.
+///
+/// `ttir.mesh_partition` is included because its `dim : si32` attribute
+/// references a position in the operand's shape. The op verifier accepts
+/// any `dim` in range `[-rank, rank)`, so promoting the operand from rank
+/// N to N+k by prepending k unit dims silently shifts what dim 0..k-1
+/// refer to (they now point at the prepended ones instead of the original
+/// data dims). The verifier still passes, the compiler still produces a
+/// flatbuffer, and the divisibility check
+/// `input_shape[dim] % cluster_axis_size == 0` only fails at runtime
+/// inside `MeshPartitionDeviceOperation::validate_on_program_cache_miss`,
+/// with the misleading message "input shape Shape([1, N]) must be
+/// divisible by cluster axis size K". EasyDeL/Shardy emits `sdy.all_slice`
+/// composites on rank-1 norm/scale parameters (e.g. RMSNorm gamma of
+/// shape <2560>) that the SHLO->TTIR composite legalizer lowers to
+/// `ttir.mesh_partition %x {dim = 0}`; once RankNormalization promotes
+/// the operand to `<1x2560>`, `dim = 0` now points to the unit dim and
+/// the runtime hits the assert. Wrapping mesh_partition like mesh_shard
+/// keeps the op's rank-1 operand and original `dim` value intact while
+/// the surrounding IR still gets promoted to rank>=2.
 static bool hasRankStrictOperandInvariants(Operation *op) {
   return isa<ttir::PagedUpdateCacheOp, ttir::PagedFillCacheOp,
              ttir::ScaledDotProductAttentionDecodeOp,
              ttir::PagedScaledDotProductAttentionDecodeOp,
-             ttir::MeshShardOp, ttir::SumOp, ttir::MeanOp, ttir::MaxOp,
-             ttir::MinOp, ttir::ProdOp, ttir::ReduceAndOp, ttir::ReduceOrOp,
-             ttir::ArgMaxOp, ttir::DotGeneralOp>(op);
+             ttir::MeshShardOp, ttir::MeshPartitionOp, ttir::SumOp,
+             ttir::MeanOp, ttir::MaxOp, ttir::MinOp, ttir::ProdOp,
+             ttir::ReduceAndOp, ttir::ReduceOrOp, ttir::ArgMaxOp,
+             ttir::DotGeneralOp>(op);
 }
 
 /// Public, defined functions are the module's external boundary (e.g. JAX's
