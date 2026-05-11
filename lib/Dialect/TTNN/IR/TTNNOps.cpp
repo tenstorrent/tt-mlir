@@ -1368,6 +1368,10 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
 // ConcatOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::ConcatOp::verify() {
   mlir::OperandRange inputs = getInputs();
+  if (inputs.empty()) {
+    return emitOpError() << "At least one input tensor is required.";
+  }
+
   int32_t dim = getDim();
   mlir::RankedTensorType firstTensor =
       mlir::cast<mlir::RankedTensorType>(inputs.front().getType());
