@@ -2,8 +2,6 @@
 // RUN: FileCheck %s --check-prefix=CHECK-MAX --input-file=%t.max
 // RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t.auto %s
 // RUN: FileCheck %s --check-prefix=CHECK-AUTO --input-file=%t.auto
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608 test-allow-aliased-eltwise-blocking=false" -o %t.override %s
-// RUN: FileCheck %s --check-prefix=CHECK-OVERRIDE --input-file=%t.override
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -11,6 +9,7 @@
 #mapR = affine_map<(d0, d1, d2) -> (d2, d1)>
 #mapO = affine_map<(d0, d1, d2) -> (d0, d1)>
 #eltwise = affine_map<(d0, d1) -> (d0, d1)>
+#eltwisePermuted = affine_map<(d0, d1) -> (d1, d0)>
 #eltwise3d = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #tail3d = affine_map<(d0, d1, d2) -> (d1, d2)>
 #broadcast = affine_map<(d0, d1) -> (0, 0)>
@@ -140,13 +139,10 @@ module {
     return %out : memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #dram>
   }
 
-  // Default (allowAliasedEltwiseBlocking=true) reblocks to [8, 2].
-  // Override with false preserves aliased output at [1, 1].
+  // Auto reblocks to [8, 2] while preserving the L1 output alias.
   // CHECK-AUTO-LABEL: func.func @eltwise_auto_preserves_aliased_output_by_default()
   // CHECK-AUTO: d2m.generic {block_factors = [8, 2], grid = #ttcore.grid<1x1>
-  // CHECK-AUTO-COUNT-3: memref.alloc(){{.*}} : memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
-  // CHECK-OVERRIDE-LABEL: func.func @eltwise_auto_preserves_aliased_output_by_default()
-  // CHECK-OVERRIDE: d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>
+  // CHECK-AUTO-COUNT-2: memref.alloc(){{.*}} : memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
   func.func @eltwise_auto_preserves_aliased_output_by_default() -> memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #l1> {
     %lhs = memref.alloc() : memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #l1>
     %rhs = memref.alloc() : memref<1x1x8x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x32768, 1>, #l1>
