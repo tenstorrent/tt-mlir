@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access-unscheduled --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Tests verifying that f32 tile_add / tile_sub / tile_mul are classified as
@@ -16,7 +16,7 @@
 // ---------------------------------------------------------------------------
 // Test: f32 tile_add (SFPU) fused with tile_recip in one linalg.generic body.
 //
-// After d2m-linalg-to-affine + d2m-insert-dst-register-access the body is
+// After d2m-linalg-to-affine + d2m-insert-dst-register-access-unscheduled/scheduled the body is
 // split into three linalg_root loop nests that share one d2m.acquire_dst:
 //
 //   Linalg-root 1 (load phase):

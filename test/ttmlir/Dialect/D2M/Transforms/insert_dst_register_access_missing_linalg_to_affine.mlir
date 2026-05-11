@@ -1,8 +1,15 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access %s -split-input-file -verify-diagnostics
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// Both passes share the same `--d2m-linalg-to-affine` precondition, so run
+// each one over the same IR and verify the same diagnostic.
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-unscheduled %s -split-input-file -verify-diagnostics
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-scheduled %s -split-input-file -verify-diagnostics
 
 #l1_ = #ttcore.memory_space<l1>
 
-// expected-error@below {{found linalg.generic operations that were not converted to affine loops. Please run --d2m-linalg-to-affine before the --d2m-insert-dst-register-access pass.}}
+// expected-error@below {{found linalg.generic operations that were not converted to affine loops. Please run --d2m-linalg-to-affine before the d2m-insert-dst-register-access-unscheduled / d2m-insert-dst-register-access-scheduled passes.}}
 module {
   func.func @test_missing_linalg_to_affine(%in0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                            %out0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1_>) {

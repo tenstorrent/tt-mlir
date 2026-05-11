@@ -1,4 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-unscheduled --d2m-insert-dst-register-access-scheduled %s | FileCheck %s
+// (The no-`linalg_root` fallback is owned by the scheduled pass, so the scheduled invocation does the work; the unscheduled one is a no-op here but is included for parity with the production pipeline order.)
 
 // Test the fallback path where there's no d2m.linalg_root loop
 // but compute ops exist. The pass should still insert
