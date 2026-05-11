@@ -475,3 +475,216 @@ func.func public @public_mesh_shard_rank2_unchanged(%arg0: tensor<2560x32xf32>) 
     shard_type = #ttcore.shard_type<replicate>}> : (tensor<2560x32xf32>) -> tensor<2560x32xf32>
   return %0 : tensor<2560x32xf32>
 }
+
+// =============================================================================
+// Reduction op tests: result rank is determined by input rank, dim_arg, and
+// keep_dim. The pass must NOT promote the reduction's result type in place,
+// because that would leave dim_arg/keep_dim out of sync with the new rank
+// and trigger the verifier's "Expected output shape (...), got (...)" error.
+// Instead, the reduction op is wrapped with boundary reshapes (demote on any
+// rank<minRank operand, promote on any rank<minRank result) and left
+// untouched, like other rank-strict ops.
+// =============================================================================
+
+// Reducing all dims of a rank-2 input produces a rank-0 result. The op stays
+// rank-2 -> rank-0; a promote reshape rewires downstream consumers.
+// This is the case that broke the SHLO->TTIR pipeline before the fix.
+// CHECK-LABEL: func.func private @sum_rank2_to_scalar
+// CHECK-SAME: (%arg0: tensor<2x4xf32>) -> tensor<1x1xf32>
+// Reduction op is untouched (operand and dim_arg/keep_dim/result type intact).
+// CHECK: %[[S:.*]] = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+// Promote reshape lifts the rank-0 result to rank-2 for downstream/return.
+// CHECK: %[[P:.*]] = "ttir.reshape"(%[[S]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// CHECK: return %[[P]] : tensor<1x1xf32>
+func.func private @sum_rank2_to_scalar(%arg0: tensor<2x4xf32>) -> tensor<f32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+  return %0 : tensor<f32>
+}
+
+// Reducing the only dim of a rank-1 input via a public boundary func. The
+// public signature stays rank-1, the entry boundary reshape promotes the arg
+// to rank-2 for the body, the demote reshape squeezes back to rank-1 for the
+// reduction (which stays rank-1 -> rank-0), and the promote reshape lifts the
+// scalar result back to rank-2 for the body's exit reshape.
+// CHECK-LABEL: func.func public @public_sum_rank1_to_scalar
+// CHECK-SAME: (%arg0: tensor<8xf32>) -> tensor<f32>
+// CHECK: %[[E:.*]] = "ttir.reshape"(%arg0) <{shape = [1 : i32, 8 : i32]}> {ttir.boundary_reshape} : (tensor<8xf32>) -> tensor<1x8xf32>
+// CHECK: %[[D:.*]] = "ttir.reshape"(%[[E]]) <{shape = [8 : i32]}> {ttir.boundary_reshape} : (tensor<1x8xf32>) -> tensor<8xf32>
+// CHECK: %[[S:.*]] = "ttir.sum"(%[[D]]) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<8xf32>) -> tensor<f32>
+// CHECK: %[[P:.*]] = "ttir.reshape"(%[[S]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// CHECK: %[[X:.*]] = "ttir.reshape"(%[[P]]) <{shape = []}> {ttir.boundary_reshape} : (tensor<1x1xf32>) -> tensor<f32>
+// CHECK: return %[[X]] : tensor<f32>
+func.func public @public_sum_rank1_to_scalar(%arg0: tensor<8xf32>) -> tensor<f32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<8xf32>) -> tensor<f32>
+  return %0 : tensor<f32>
+}
+
+// Partial reduction: rank-3 -> rank-2. Both operand and result are already
+// rank>=minRank, so the reduction op is left fully unchanged and no
+// boundary reshapes are inserted around it.
+// CHECK-LABEL: func.func private @sum_rank3_partial_unchanged
+// CHECK-SAME: (%arg0: tensor<2x3x4xf32>) -> tensor<2x4xf32>
+// CHECK-NOT: ttir.boundary_reshape
+// CHECK: %[[S:.*]] = "ttir.sum"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<2x3x4xf32>) -> tensor<2x4xf32>
+// CHECK: return %[[S]] : tensor<2x4xf32>
+func.func private @sum_rank3_partial_unchanged(%arg0: tensor<2x3x4xf32>) -> tensor<2x4xf32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<2x3x4xf32>) -> tensor<2x4xf32>
+  return %0 : tensor<2x4xf32>
+}
+
+// Partial reduction with rank-1 result: rank-2 -> rank-1. The result is
+// rank<minRank, so a promote reshape is inserted after the op. The operand
+// stays rank-2 (already >= minRank).
+// CHECK-LABEL: func.func private @mean_rank2_to_rank1
+// CHECK-SAME: (%arg0: tensor<3x5xf32>) -> tensor<1x5xf32>
+// CHECK: %[[M:.*]] = "ttir.mean"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<3x5xf32>) -> tensor<5xf32>
+// CHECK: %[[P:.*]] = "ttir.reshape"(%[[M]]) <{shape = [1 : i32, 5 : i32]}> {ttir.boundary_reshape} : (tensor<5xf32>) -> tensor<1x5xf32>
+// CHECK: return %[[P]] : tensor<1x5xf32>
+func.func private @mean_rank2_to_rank1(%arg0: tensor<3x5xf32>) -> tensor<5xf32> {
+  %0 = "ttir.mean"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<3x5xf32>) -> tensor<5xf32>
+  return %0 : tensor<5xf32>
+}
+
+// Reducing all dims of a rank-3 input -> rank-0 result. Operand is already
+// rank>=minRank so no demote; only a promote reshape after the op.
+// CHECK-LABEL: func.func private @sum_rank3_to_scalar
+// CHECK-SAME: (%arg0: tensor<2x3x4xf32>) -> tensor<1x1xf32>
+// CHECK-NOT: "ttir.reshape"(%arg0)
+// CHECK: %[[S:.*]] = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32, 2 : i32], keep_dim = false}> : (tensor<2x3x4xf32>) -> tensor<f32>
+// CHECK: %[[P:.*]] = "ttir.reshape"(%[[S]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// CHECK: return %[[P]] : tensor<1x1xf32>
+func.func private @sum_rank3_to_scalar(%arg0: tensor<2x3x4xf32>) -> tensor<f32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32, 2 : i32], keep_dim = false}> : (tensor<2x3x4xf32>) -> tensor<f32>
+  return %0 : tensor<f32>
+}
+
+// max with keep_dim=true: result is already rank>=minRank, op is left
+// untouched, and no boundary reshapes are inserted.
+// CHECK-LABEL: func.func private @max_keep_dim_unchanged
+// CHECK-SAME: (%arg0: tensor<2x3x4xf32>) -> tensor<2x3x1xf32>
+// CHECK-NOT: ttir.boundary_reshape
+// CHECK: %[[M:.*]] = "ttir.max"(%arg0) <{dim_arg = [2 : i32], keep_dim = true}> : (tensor<2x3x4xf32>) -> tensor<2x3x1xf32>
+// CHECK: return %[[M]] : tensor<2x3x1xf32>
+func.func private @max_keep_dim_unchanged(%arg0: tensor<2x3x4xf32>) -> tensor<2x3x1xf32> {
+  %0 = "ttir.max"(%arg0) <{dim_arg = [2 : i32], keep_dim = true}> : (tensor<2x3x4xf32>) -> tensor<2x3x1xf32>
+  return %0 : tensor<2x3x1xf32>
+}
+
+// Reduction sandwiched between rank-promoted producer and consumer: producer
+// (`ttir.abs`) and consumer (`ttir.neg`) both run on rank-2 tensors. The
+// reduction stays rank-2 -> rank-0; only a promote reshape is needed (the
+// operand is already rank>=minRank).
+// CHECK-LABEL: func.func private @sum_with_neighbors
+// CHECK-SAME: (%arg0: tensor<2x4xf32>) -> tensor<1x1xf32>
+// CHECK: %[[A:.*]] = "ttir.abs"(%arg0) : (tensor<2x4xf32>) -> tensor<2x4xf32>
+// CHECK: %[[S:.*]] = "ttir.sum"(%[[A]]) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+// CHECK: %[[P:.*]] = "ttir.reshape"(%[[S]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// CHECK: %[[N:.*]] = "ttir.neg"(%[[P]]) : (tensor<1x1xf32>) -> tensor<1x1xf32>
+// CHECK: return %[[N]] : tensor<1x1xf32>
+func.func private @sum_with_neighbors(%arg0: tensor<2x4xf32>) -> tensor<f32> {
+  %0 = "ttir.abs"(%arg0) : (tensor<2x4xf32>) -> tensor<2x4xf32>
+  %1 = "ttir.sum"(%0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+  %2 = "ttir.neg"(%1) : (tensor<f32>) -> tensor<f32>
+  return %2 : tensor<f32>
+}
+
+// Public boundary with a reduction to scalar inside: the public signature is
+// preserved (rank-0 in / rank-0 out), the reduction is left rank-2 -> rank-0,
+// and boundary reshapes glue the rank-0 op to the rank-2 body.
+// CHECK-LABEL: func.func public @public_sum_to_scalar
+// CHECK-SAME: (%arg0: tensor<2x4xf32>) -> tensor<f32>
+// Reduction op stays on its declared types.
+// CHECK: %[[S:.*]] = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+// Promote reshape lifts rank-0 -> rank-2 for the rank-2 body world.
+// CHECK: %[[P:.*]] = "ttir.reshape"(%[[S]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// Exit boundary reshape squeezes back to rank-0 for the unchanged signature.
+// CHECK: %[[X:.*]] = "ttir.reshape"(%[[P]]) <{shape = []}> {ttir.boundary_reshape} : (tensor<1x1xf32>) -> tensor<f32>
+// CHECK: return %[[X]] : tensor<f32>
+func.func public @public_sum_to_scalar(%arg0: tensor<2x4xf32>) -> tensor<f32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+  return %0 : tensor<f32>
+}
+
+// =============================================================================
+// Materialization-cast regression tests: when a rank-strict reduction result
+// and a rank-0 constant both feed a non-rank-strict op, the conversion
+// framework must bridge the rank gap. Previously it inserted an
+// `unrealized_conversion_cast` which survived past legalization and caused
+// "failed to legalize operation 'builtin.unrealized_conversion_cast'".
+// After the fix, `materializeCast` emits a real `ttir.reshape` instead.
+// =============================================================================
+
+// Test: masked_cross_entropy_chain (private)
+// Mirrors the failing JAX pattern: two ttir.sum reductions -> ttir.maximum
+// (with a rank-0 constant) -> ttir.div. All non-rank-strict ops must be
+// promoted to rank-2 with no leftover casts.
+// CHECK-LABEL: func.func private @masked_cross_entropy_chain
+// CHECK-SAME: (%arg0: tensor<2x4xf32>, %arg1: tensor<2x4xf32>) -> tensor<1x1xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// Sum results are rank-0 with promote reshapes to rank-2.
+// CHECK: %[[S1:.*]] = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+// CHECK: %[[P1:.*]] = "ttir.reshape"(%[[S1]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// CHECK: %[[S2:.*]] = "ttir.sum"(%arg1) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+// CHECK: %[[P2:.*]] = "ttir.reshape"(%[[S2]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// Constant is promoted to rank-2.
+// CHECK: %[[C:.*]] = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<1x1xf32>}> : () -> tensor<1x1xf32>
+// maximum and div operate on rank-2 tensors.
+// CHECK: %[[MAX:.*]] = "ttir.maximum"(%[[P2]], %[[C]]) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
+// CHECK: %[[DIV:.*]] = "ttir.div"(%[[P1]], %[[MAX]]) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
+// CHECK: return %[[DIV]] : tensor<1x1xf32>
+func.func private @masked_cross_entropy_chain(%arg0: tensor<2x4xf32>, %arg1: tensor<2x4xf32>) -> tensor<f32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+  %1 = "ttir.sum"(%arg1) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+  %c = "ttir.constant"() <{value = dense<1.0> : tensor<f32>}> : () -> tensor<f32>
+  %2 = "ttir.maximum"(%1, %c) : (tensor<f32>, tensor<f32>) -> tensor<f32>
+  %3 = "ttir.div"(%0, %2) : (tensor<f32>, tensor<f32>) -> tensor<f32>
+  return %3 : tensor<f32>
+}
+
+// Test: materialize_const_into_promoted_op (private)
+// Minimal repro: rank-0 constant + rank-strict reduction result feeding a
+// non-rank-strict op (ttir.add). Ensures the constant is promoted via a
+// reshape rather than an unrealized_conversion_cast.
+// CHECK-LABEL: func.func private @materialize_const_into_promoted_op
+// CHECK-SAME: (%arg0: tensor<3x4xf32>) -> tensor<1x1xf32>
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[S:.*]] = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<3x4xf32>) -> tensor<f32>
+// CHECK: %[[P:.*]] = "ttir.reshape"(%[[S]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// CHECK: %[[C:.*]] = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<1x1xf32>}> : () -> tensor<1x1xf32>
+// CHECK: %[[A:.*]] = "ttir.add"(%[[P]], %[[C]]) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
+// CHECK: return %[[A]] : tensor<1x1xf32>
+func.func private @materialize_const_into_promoted_op(%arg0: tensor<3x4xf32>) -> tensor<f32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<3x4xf32>) -> tensor<f32>
+  %c = "ttir.constant"() <{value = dense<2.0> : tensor<f32>}> : () -> tensor<f32>
+  %1 = "ttir.add"(%0, %c) : (tensor<f32>, tensor<f32>) -> tensor<f32>
+  return %1 : tensor<f32>
+}
+
+// Test: boundary_func_masked_cross_entropy_chain (public)
+// Same masked_cross_entropy chain inside a public/JIT-style function.
+// Confirms public-boundary path also stays cast-free with the exit reshape
+// inserted exactly once.
+// CHECK-LABEL: func.func public @boundary_func_masked_cross_entropy_chain
+// CHECK-SAME: (%arg0: tensor<2x4xf32>, %arg1: tensor<2x4xf32>) -> tensor<f32>
+// CHECK-NOT: unrealized_conversion_cast
+// Sum results with promote reshapes.
+// CHECK: %[[S1:.*]] = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+// CHECK: %[[P1:.*]] = "ttir.reshape"(%[[S1]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// CHECK: %[[S2:.*]] = "ttir.sum"(%arg1) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+// CHECK: %[[P2:.*]] = "ttir.reshape"(%[[S2]]) <{shape = [1 : i32, 1 : i32]}> {ttir.boundary_reshape} : (tensor<f32>) -> tensor<1x1xf32>
+// Constant promoted to rank-2.
+// CHECK: %[[C:.*]] = "ttir.constant"() <{value = dense<1.000000e+00> : tensor<1x1xf32>}> : () -> tensor<1x1xf32>
+// maximum and div on rank-2.
+// CHECK: %[[MAX:.*]] = "ttir.maximum"(%[[P2]], %[[C]]) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
+// CHECK: %[[DIV:.*]] = "ttir.div"(%[[P1]], %[[MAX]]) : (tensor<1x1xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
+// Exit boundary reshape squeezes back to rank-0 for the public return.
+// CHECK: %[[X:.*]] = "ttir.reshape"(%[[DIV]]) <{shape = []}> {ttir.boundary_reshape} : (tensor<1x1xf32>) -> tensor<f32>
+// CHECK: return %[[X]] : tensor<f32>
+func.func public @boundary_func_masked_cross_entropy_chain(%arg0: tensor<2x4xf32>, %arg1: tensor<2x4xf32>) -> tensor<f32> {
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+  %1 = "ttir.sum"(%arg1) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<2x4xf32>) -> tensor<f32>
+  %c = "ttir.constant"() <{value = dense<1.0> : tensor<f32>}> : () -> tensor<f32>
+  %2 = "ttir.maximum"(%1, %c) : (tensor<f32>, tensor<f32>) -> tensor<f32>
+  %3 = "ttir.div"(%0, %2) : (tensor<f32>, tensor<f32>) -> tensor<f32>
+  return %3 : tensor<f32>
+}

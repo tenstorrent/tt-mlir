@@ -56,9 +56,10 @@ static bool needsRankExpansion(Type type) {
   return false;
 }
 
-/// Some ops have operand-rank invariants (e.g. require a 1D tensor) that this
-/// pass would break by promoting to rank 2. Treat those ops as legal so the
-/// rewriter leaves them and their operands/results untouched.
+/// Some ops have rank invariants (e.g. require a 1D tensor, or have a verifier
+/// that ties result rank/shape to other attributes) that this pass would break
+/// by promoting to rank 2. Treat those ops as legal so the rewriter leaves
+/// them and their operands/results untouched.
 ///
 /// `ttir.mesh_shard` is included because its folder returns `getInput()` when
 /// the shard volume is 1. MLIR's dialect conversion framework runs
@@ -70,11 +71,21 @@ static bool needsRankExpansion(Type type) {
 /// the fold call entirely; we instead wrap each rank-strict op with explicit
 /// `ttir.reshape` ops in `insertRankStrictOpBoundaries` so the rest of the
 /// body can still operate on rank>=2.
+///
+/// TTIR reduction ops (Sum, Mean, Max, Min, Prod, ReduceAnd, ReduceOr,
+/// ArgMax) are included because their verifier derives the expected output
+/// shape from the input rank, `dim_arg`, and `keep_dim`. Naively promoting
+/// just the result type to rank>=2 (without also adjusting `dim_arg` indices
+/// and/or flipping `keep_dim`) produces a verifier failure of the form
+/// "Expected output shape (...), got (...)". Wrapping with boundary reshapes
+/// preserves all three quantities together.
 static bool hasRankStrictOperandInvariants(Operation *op) {
   return isa<ttir::PagedUpdateCacheOp, ttir::PagedFillCacheOp,
              ttir::ScaledDotProductAttentionDecodeOp,
              ttir::PagedScaledDotProductAttentionDecodeOp,
-             ttir::MeshShardOp>(op);
+             ttir::MeshShardOp, ttir::SumOp, ttir::MeanOp, ttir::MaxOp,
+             ttir::MinOp, ttir::ProdOp, ttir::ReduceAndOp, ttir::ReduceOrOp,
+             ttir::ArgMaxOp>(op);
 }
 
 /// Public, defined functions are the module's external boundary (e.g. JAX's
@@ -243,7 +254,30 @@ private:
   static Value materializeCast(OpBuilder &builder, Type type, ValueRange inputs,
                                Location loc) {
     assert(inputs.size() == 1 && "Expected single input.");
-    return builder.create<UnrealizedConversionCastOp>(loc, type, inputs.front())
+    Value input = inputs.front();
+    auto inputTensor = dyn_cast<RankedTensorType>(input.getType());
+    auto outputTensor = dyn_cast<RankedTensorType>(type);
+
+    // When both sides are tensors with the same element type and element
+    // count (i.e. only leading 1-dims differ -- exactly what `expandRank`
+    // produces), emit a `ttir.reshape` instead of an
+    // `unrealized_conversion_cast`.  Casts inserted by the framework to
+    // bridge rank-strict ops and their rank-promoted neighbors can survive
+    // past legalization and cause a fatal "failed to legalize operation
+    // 'builtin.unrealized_conversion_cast'" error.  A reshape is a legal
+    // TTIR op that the rest of the pipeline understands.
+    if (inputTensor && outputTensor &&
+        inputTensor.getElementType() == outputTensor.getElementType() &&
+        inputTensor.getNumElements() == outputTensor.getNumElements()) {
+      SmallVector<int32_t> shape(outputTensor.getShape().begin(),
+                                 outputTensor.getShape().end());
+      auto reshape = builder.create<ttir::ReshapeOp>(
+          loc, outputTensor, input, builder.getI32ArrayAttr(shape));
+      reshape->setAttr(kBoundaryReshapeAttr, builder.getUnitAttr());
+      return reshape.getResult();
+    }
+
+    return builder.create<UnrealizedConversionCastOp>(loc, type, input)
         .getResult(0);
   }
 };
