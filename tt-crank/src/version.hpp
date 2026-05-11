@@ -2,8 +2,10 @@
 
 #include <string_view>
 
+#include "tt_kurbla_export.hpp"
+
 namespace tt::kurbla {
 
-std::string_view version() noexcept;
+TT_KURBLA_API std::string_view version() noexcept;
 
 } // namespace tt::kurbla
