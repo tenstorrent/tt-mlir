@@ -419,6 +419,30 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
       .addOutputOperandWorkaround(typeWorkarounds);
 }
 
+// Factory method to create a set of workarounds for repeat operation operands.
+// ttnn::repeat (RepeatDeviceOperation) rejects UInt8 inputs — see
+// repeat_device_operation.cpp validation: only UINT16/UINT32/INT32/BFLOAT16/
+// FLOAT32 are accepted. PyTorch bool tensors lower to ui8 (e.g. vLLM's
+// multimodal merge `inputs_embeds.masked_scatter_(is_multimodal.unsqueeze(-1),
+// ...)` broadcasts a bool mask, which lowers to repeat). Force ui8 -> int32
+// so the inserted typecast is materialized at compile time rather than
+// crashing at runtime.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createRepeatOpOperandsWorkarounds(
+    RankedTensorType inputType) {
+  mlir::Type inputElementType = inputType.getElementType();
+  TTNNOperandWorkarounds typeWorkarounds;
+  mlir::tt::ttcore::DataType dataType =
+      mlir::tt::ttcore::elementTypeToDataType(inputElementType);
+  if (dataType == mlir::tt::ttcore::DataType::UInt8) {
+    typeWorkarounds.tensorDataTypeWorkaround =
+        mlir::tt::ttcore::DataType::Int32;
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkarounds)
+      .addOutputOperandWorkaround(typeWorkarounds);
+}
+
 // Factory method to create a set of workarounds for UpdateCache operation
 // operands. Update index of UpdateCacheOp must be unsigned
 TTNNOperandsWorkarounds

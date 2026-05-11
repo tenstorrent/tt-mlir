@@ -285,6 +285,9 @@ public:
   static TTNNOperandsWorkarounds
   createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
 
+  static TTNNOperandsWorkarounds
+  createRepeatOpOperandsWorkarounds(RankedTensorType inputType);
+
   static TTNNOperandsWorkarounds createDropoutOpOperandsWorkarounds();
 
   static TTNNOperandsWorkarounds

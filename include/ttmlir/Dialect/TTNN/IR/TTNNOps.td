@@ -1420,6 +1420,14 @@ def TTNN_RepeatOp : TTNN_Op<"repeat", [TTNN_MemoryConfigOpInterface]> {
     ];
 
     let hasVerifier = 1;
+
+    // Include workaround for ui8 repeat operation.
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        RankedTensorType inputType = getInput().getType();
+        return wa::TTNNOperandsWorkaroundsFactory::createRepeatOpOperandsWorkarounds(inputType);
+      }
+    }];
 }
 
 def TTNN_PadOp: TTNN_Op<"pad"> {
