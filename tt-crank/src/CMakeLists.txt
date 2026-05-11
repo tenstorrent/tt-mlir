@@ -9,6 +9,7 @@ configure_file(
 add_library(tt_kurbla SHARED
     ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
     engine/compile.cpp
+    engine/execution_payload.cpp
 )
 add_library(tt_kurbla::tt_kurbla ALIAS tt_kurbla)
 

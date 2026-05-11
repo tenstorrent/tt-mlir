@@ -1,8 +1,11 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/MLIRContext.h>
@@ -17,6 +20,15 @@ namespace tt::kurbla {
 // key) without changing the public function signature.
 struct TT_KURBLA_API CompiledProgram {
     tt::runtime::Binary binary;
+
+    std::uint32_t num_programs() const { return binary.getNumPrograms(); }
+    std::string program_name(std::uint32_t program_index) const { return binary.getProgramName(program_index); }
+    std::vector<tt::runtime::TensorDesc> input_descs(std::uint32_t program_index) const {
+        return binary.getProgramInputs(program_index);
+    }
+    std::vector<tt::runtime::TensorDesc> output_descs(std::uint32_t program_index) const {
+        return binary.getProgramOutputs(program_index);
+    }
 };
 
 // Options for TTIR-starting pipelines. Shared across all current pipelines
@@ -24,7 +36,6 @@ struct TT_KURBLA_API CompiledProgram {
 // Per-pipeline option splits arrive only when a future pipeline grows a knob
 // the others don't have.
 struct TT_KURBLA_API CompileOptions {
-    // Mock arch used when system_desc_path is empty.
     enum class MockArch { WormholeB0, Blackhole };
 
     // 0=all optimizer passes off (fastest), 1=optimizer on without sharding,
@@ -32,9 +43,9 @@ struct TT_KURBLA_API CompileOptions {
     // TTIRToTTNNCommonPipelineOptions for the precise mapping.
     int optimization_level = 0;
 
-    // Path to a system descriptor flatbuffer. If empty, mock_arch is used.
+    // Precedence: system_desc > system_desc_path > mock_arch.
+    std::optional<tt::runtime::SystemDesc> system_desc;
     std::string system_desc_path;
-
     MockArch mock_arch = MockArch::WormholeB0;
 };
 
