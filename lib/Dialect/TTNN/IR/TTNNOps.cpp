@@ -14,7 +14,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
@@ -3152,33 +3151,26 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
   ttcore::DataType statsDataType =
       fp32DestAccEn ? ttcore::DataType::Float32 : ttcore::DataType::BFloat16;
 
-  auto physicalGrid =
-      ttcore::getCurrentScopeSystemDesc(*this).getChipDescs()[0].getGrid();
-  auto [virtToPhysicalMap, physicalToVirtMap] =
-      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-          rewriter.getContext(), TensorMemoryLayout::WidthSharded,
-          physicalGrid);
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(*this);
 
   // One tile (32x32) per device, width-sharded on core (0,0) in L1. The fused
   // kernel writes partial RMS statistics here and exchanges them across
   // devices via the all-gather.
-  SmallVector<int64_t> statsGridShape = {1, 1};
-  auto statsGrid = ttcore::GridAttr::get(rewriter.getContext(), statsGridShape,
-                                         virtToPhysicalMap, physicalToVirtMap);
-  auto statsMemLayoutAttr = TensorMemoryLayoutAttr::get(
-      rewriter.getContext(), TensorMemoryLayout::WidthSharded);
-
   SmallVector<int64_t> statsShape = {1, 1, 32, 32};
+  SmallVector<int64_t> statsGridShape = {1, 1};
   TTNNLayoutAttr statsLayout =
-      TTNNLayoutAttr::get(rewriter.getContext(), statsShape,
-                          ttcore::TileType::get(statsElementType),
-                          BufferType::L1, statsGrid, statsMemLayoutAttr);
+      TTNNLayoutAttr::Builder(rewriter.getContext(), statsShape,
+                              ttcore::TileType::get(statsElementType))
+          .setBufferType(BufferType::L1)
+          .setMemoryLayout(TensorMemoryLayout::WidthSharded)
+          .setGridShape(statsGridShape)
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   auto statsShapeAttr = ShapeAttr::get(rewriter.getContext(), statsShape);
   auto statsDtypeAttr =
       ttcore::DataTypeAttr::get(rewriter.getContext(), statsDataType);
   auto statsLayoutAttr = LayoutAttr::get(rewriter.getContext(), Layout::Tile);
-  auto statsMemConfig = MemoryConfigAttr::get(statsLayout, statsGrid);
+  auto statsMemConfig = MemoryConfigAttr::get(statsLayout);
 
   RankedTensorType statsResultType =
       RankedTensorType::get(statsShape, statsElementType, statsLayout);
