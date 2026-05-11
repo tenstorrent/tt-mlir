@@ -3046,6 +3046,7 @@ def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
