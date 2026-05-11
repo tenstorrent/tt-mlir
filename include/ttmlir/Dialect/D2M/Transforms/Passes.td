@@ -1261,4 +1261,37 @@ def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::Module
   ];
 }
 
+def D2MMaterializeComputeThreadForall :
+    Pass<"d2m-materialize-compute-thread-forall", "::mlir::ModuleOp"> {
+  let summary = "Lower scf.forall with #d2m.compute_thread mapping to SPMD form.";
+  let description = [{
+    For each scf.forall whose `mapping` array contains a
+    `#d2m.compute_thread` attribute, lower it to single-program SPMD form:
+    insert a `d2m.my_thread_id` op, replace the forall induction variable
+    with that op's result, inline the body into the parent block, and erase
+    the forall.
+
+    Fails if any `#d2m.compute_thread` forall remains after the pass — this
+    pass is the single materialization boundary.
+
+    Example:
+    ```mlir
+    // Before:
+    scf.forall (%tid) in (4) {
+      %off = affine.apply affine_map<(d0) -> (d0 * 2)>(%tid)
+      ...
+    } {mapping = [#d2m.compute_thread<num = 4>]}
+
+    // After:
+    %tid = d2m.my_thread_id : index
+    %off = affine.apply affine_map<(d0) -> (d0 * 2)>(%tid)
+    ...
+    ```
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 #endif
