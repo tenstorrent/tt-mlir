@@ -1,4 +1,4 @@
-name: Build Wheels
+name: Update Test Durations
 
 # This workflow updates (builder) test durations based on the latest push workflow runs.
 # It processes the JUnit XML reports from the last successful push workflows,
