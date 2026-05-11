@@ -67,9 +67,15 @@ jobs:
           get_test_results_from_wf "on-push.yml" "success" "push"
 
           python .github/scripts/python/get_test_duration_from_junit_xmls.py ${{runner.temp}}/reports .test_durations
-          echo "" >> .test_durations
-          echo "----- NEW DURATIONS"
-          cat .test_durations
+
+          echo "New test durations:"
+          for file in .test_durations/*; do
+            if [ -f "$file" ]; then
+              echo "" >> $file
+              echo "----- $(basename $file)"
+              cat "$file"
+            fi
+          done
 
           echo "TODAY=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
 
