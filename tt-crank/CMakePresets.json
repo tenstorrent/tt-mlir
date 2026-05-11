@@ -93,6 +93,16 @@
                 "TT_KURBLA_ENABLE_ASAN": "ON",
                 "TT_KURBLA_ENABLE_UBSAN": "ON"
             }
+        },
+        {
+            "name": "sim",
+            "displayName": "Release + ttsim runtime tests (gcc)",
+            "description": "Routes runtime tests through tenstorrent/ttsim instead of opening a physical device",
+            "inherits": "_gcc-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "TT_KURBLA_ENABLE_SIMULATOR": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -101,7 +111,8 @@
         {"name": "debug",         "configurePreset": "debug"},
         {"name": "clang-release", "configurePreset": "clang-release"},
         {"name": "clang-debug",   "configurePreset": "clang-debug"},
-        {"name": "san",           "configurePreset": "san"}
+        {"name": "san",           "configurePreset": "san"},
+        {"name": "sim",           "configurePreset": "sim"}
     ],
     "testPresets": [
         {"name": "default",       "configurePreset": "default",       "output": {"outputOnFailure": true}},
@@ -109,6 +120,7 @@
         {"name": "debug",         "configurePreset": "debug",         "output": {"outputOnFailure": true}},
         {"name": "clang-release", "configurePreset": "clang-release", "output": {"outputOnFailure": true}},
         {"name": "clang-debug",   "configurePreset": "clang-debug",   "output": {"outputOnFailure": true}},
-        {"name": "san",           "configurePreset": "san",           "output": {"outputOnFailure": true}}
+        {"name": "san",           "configurePreset": "san",           "output": {"outputOnFailure": true}},
+        {"name": "sim",           "configurePreset": "sim",           "output": {"outputOnFailure": true}}
     ]
 }

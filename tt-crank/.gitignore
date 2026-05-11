@@ -18,3 +18,6 @@
 
 # OS
 .DS_Store
+
+# Generated files
+generated/

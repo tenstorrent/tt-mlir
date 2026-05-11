@@ -21,6 +21,7 @@ include(cmake/Cache.cmake)
 include(cmake/CompilerWarnings.cmake)
 include(cmake/Sanitizers.cmake)
 include(cmake/StaticAnalyzers.cmake)
+include(cmake/Ttsim.cmake)
 
 add_subdirectory(third_party)
 add_subdirectory(src)
