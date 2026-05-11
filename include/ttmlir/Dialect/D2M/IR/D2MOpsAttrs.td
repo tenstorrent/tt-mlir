@@ -6,6 +6,7 @@
 #define TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSATTRS_TD
 
 include "mlir/IR/AttrTypeBase.td"
+include "mlir/Dialect/SCF/IR/DeviceMappingInterface.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.td"
 include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 
@@ -56,5 +57,23 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
 }
 
 def D2M_ThreadArrayAttr : TypedArrayAttrBase<D2M_ThreadAttr, "">;
+
+def D2M_ComputeThreadMappingAttr : AttrDef<D2M_Dialect, "ComputeThreadMapping",
+    [DeclareAttrInterfaceMethods<DeviceMappingAttrInterface>], "::mlir::Attribute"> {
+  let mnemonic = "compute_thread";
+  let summary = "scf.forall mapping attribute for D2M compute threads.";
+  let description = [{
+    Marks an scf.forall as describing parallelism across N D2M compute
+    threads sharing one L1 region. The `num` parameter is the number of
+    compute threads the forall is distributed across.
+
+    D2MMaterializeComputeThreadForall recognizes this attribute and lowers
+    the enclosing scf.forall to single-program SPMD form by substituting
+    the forall induction variable with d2m.my_thread_id and inlining the
+    body. No other pass should consume this attribute.
+  }];
+  let parameters = (ins "int64_t":$num);
+  let assemblyFormat = "`<` `num` `=` $num `>`";
+}
 
 #endif // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSATTRS_TD

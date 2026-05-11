@@ -120,6 +120,17 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
   printer << ">";
 }
 
+//===----------------------------------------------------------------------===//
+// ComputeThreadMappingAttr - DeviceMappingAttrInterface methods.
+//===----------------------------------------------------------------------===//
+
+// We model compute-thread distribution as a single linear mapping kind. There
+// is one ComputeThreadMappingAttr per scf.forall, so the mapping id and
+// relative index are trivially constant.
+int64_t ComputeThreadMappingAttr::getMappingId() const { return 0; }
+bool ComputeThreadMappingAttr::isLinearMapping() const { return true; }
+int64_t ComputeThreadMappingAttr::getRelativeIndex() const { return 0; }
+
 #include "ttmlir/Dialect/D2M/IR/D2MOpsDialect.cpp.inc"
 
 struct D2MDialectFoldInterface : public DialectFoldInterface {
