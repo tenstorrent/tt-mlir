@@ -17,26 +17,34 @@ from conftest import clear_device_cache, get_request_kwargs
 
 pytestmark = [pytest.mark.frontend("ttir")]
 
-MLIR_SNIPPETS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "mlir_snippets/models/gpt_oss_20b",
-)
-GPT_OSS_20B_SNIPPETS = [
-    "gate_up",
-    "rope_embedding",
-    "gate_up_eltwise_tail",
+SNIPPETS_BASE_DIR = os.path.join(os.path.dirname(__file__), "../mlir_snippets")
+
+# Each entry is a path under SNIPPETS_BASE_DIR (without the .mlir extension).
+# Pytest auto-derives test IDs from these strings, so they double as the
+# parametrize IDs. Use pytest.param(..., marks=...) to attach xfail/skip marks.
+SNIPPETS = [
+    "models/gpt_oss_20b/swiglu_prefill",
+    "models/gpt_oss_20b/swiglu_decode",
+    "models/gpt_oss_20b/attention_mask_prefill",
+    "models/gpt_oss_20b/attention_mask_decode",
+    "models/gpt_oss_20b/rope_sin_prefill",
+    "models/gpt_oss_20b/rope_sin_decode",
+    "models/gpt_oss_20b/rope_cos_prefill",
+    "models/gpt_oss_20b/rope_cos_decode",
+    "ttir/d2m_optimizer_two_d2m_subgraphs/unary_matmul_unary",
+    "ttir/d2m_optimizer_two_d2m_subgraphs/eltwise_matmul_eltwise",
 ]
 
 
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("snippet", GPT_OSS_20B_SNIPPETS)
+@pytest.mark.parametrize("snippet", SNIPPETS)
 def test_d2m_fusion_with_optimizer(request, target, snippet):
     """E2E: TTIR with D2M fusion (optimization-level=1, enable-create-d2m-subgraphs) -> flatbuffer -> run.
 
     Compilation runs with no device open so the pipeline can use mock/simulator
     context for opmodel; device is opened only after compile for execute_fb.
     """
-    mlir_path = os.path.join(MLIR_SNIPPETS_DIR, f"{snippet}.mlir")
+    mlir_path = os.path.join(SNIPPETS_BASE_DIR, f"{snippet}.mlir")
     if not os.path.exists(mlir_path):
         pytest.skip(f"MLIR not found: {mlir_path}")
 
@@ -47,7 +55,7 @@ def test_d2m_fusion_with_optimizer(request, target, snippet):
     output_root = kwargs.get("output_root", ".")
     save_artifacts = kwargs.get("save_artifacts", False)
     artifact_dir = get_artifact_dir(
-        output_root, f"model_snippets/gpt_oss_20b_{snippet}", "ttnn", save_artifacts
+        output_root, f"d2m_fusion/{snippet.replace('/', '_')}", target, save_artifacts
     )
 
     with open(mlir_path, "r") as f:
