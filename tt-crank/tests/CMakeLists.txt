@@ -33,4 +33,14 @@ target_link_libraries(tt_kurbla_unit_tests
         GTest::gtest_main
 )
 
+# When ttsim is enabled (see cmake/Ttsim.cmake), this TU sets TT_METAL_SIMULATOR
+# + friends at static-init time so the runtime opens ttsim instead of a device.
+if(TT_KURBLA_ENABLE_SIMULATOR)
+    target_sources(tt_kurbla_unit_tests PRIVATE sim_test_env.cpp)
+    target_compile_definitions(tt_kurbla_unit_tests PRIVATE
+        TT_KURBLA_SIM_DIR="${TT_KURBLA_SIM_DIR}"
+        TT_KURBLA_TT_METAL_HOME="${TT_KURBLA_TT_METAL_HOME}"
+    )
+endif()
+
 gtest_discover_tests(tt_kurbla_unit_tests)
