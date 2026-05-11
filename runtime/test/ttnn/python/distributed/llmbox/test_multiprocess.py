@@ -250,9 +250,7 @@ def test_create_unsafe_borrowed_host_tensor(shape, dtype):
     ttrt.runtime.memcpy(owned_tensor, updated_owned_tensor)
 
     output_from_borrowed_after_update = torch.zeros(shape, dtype=dtype)
-    ttrt.runtime.memcpy(
-        output_from_borrowed_after_update.data_ptr(), borrowed_tensor
-    )
+    ttrt.runtime.memcpy(output_from_borrowed_after_update.data_ptr(), borrowed_tensor)
 
     assert torch.allclose(output_from_borrowed_after_update, updated_torch_tensor)
 
