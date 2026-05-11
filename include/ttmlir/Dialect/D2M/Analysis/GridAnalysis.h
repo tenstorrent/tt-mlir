@@ -30,14 +30,22 @@ struct OperandGridInfo {
   llvm::SmallVector<int64_t> viewSourceGrid;
 };
 
+/// Effective target grid range for a GenericOp.
+/// Shape is the 2D extent, offset is the 2D start coordinate on device grid.
+struct EffectiveTargetGridRange {
+  // The shape is always expected to be 2D.
+  llvm::SmallVector<int64_t> shape;
+  // Offset defaults to origin when the target range is the full device grid.
+  llvm::SmallVector<int64_t> offset = {0, 0};
+};
+
 /// Per-GenericOp analysis result containing all grid decisions.
 struct GenericGridAnalysisResult {
   llvm::SmallVector<OperandGridInfo, 4> operandInfos;
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids;
-  // The effective target grid for this generic: the full device grid by
-  // default, or the range scoped by an enclosing d2m.spatial region. Used
-  // as the 2D placement bound for virtual grid physical mapping.
-  llvm::SmallVector<int64_t> effectiveTargetGrid;
+  // The effective target grid range for this generic: full device grid by
+  // default, or the range scoped by an enclosing d2m.spatial region.
+  EffectiveTargetGridRange effectiveTargetGridRange;
 };
 
 /// Module-level analysis that computes optimal grid assignments for all
@@ -63,12 +71,11 @@ struct GridAnalysis {
 
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.
-  GenericGridAnalysisResult analyzeGenericOp(GenericOp genericOp,
-                                             ArrayRef<int64_t> targetGridShape);
+  void analyzeGenericOp(GenericOp genericOp, GenericGridAnalysisResult &result);
 
-  /// Compute the target grid shape for a generic, accounting for spatial
-  /// region grid ranges.
-  llvm::SmallVector<int64_t> getTargetGridShape(GenericOp genericOp) const;
+  /// Compute the effective target grid range for a generic, accounting for
+  /// spatial region grid ranges.
+  EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp) const;
 
   /// Normalize operand grids within a generic to ensure consistency across
   /// operands sharing loop dimensions. Physical shapes are required to ensure
