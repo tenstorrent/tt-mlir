@@ -2049,6 +2049,9 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
         }
 
         // Only works on tensor types (pre-bufferization).
+        // Since generic op is DPS, we can check if the number of results is
+        // zero to determine if we're in a non-tensor-bufferized form, and skip
+        // this pattern in that case.
         if (op->getNumResults() == 0) {
           return mlir::failure();
         }
