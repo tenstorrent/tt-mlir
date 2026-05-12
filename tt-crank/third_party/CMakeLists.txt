@@ -43,30 +43,46 @@ set(_TTMLIR_RUNTIME_LIB  "${_TTMLIR_INSTALL_DIR}/lib/libTTMLIRRuntime.so")
 # at configure time. The directory will be populated by tt-mlir's install step.
 file(MAKE_DIRECTORY "${_TTMLIR_INSTALL_DIR}/include")
 
+# CMAKE_ARGS lifted out of ExternalProject_Add because we override
+# CONFIGURE_COMMAND below (which would otherwise silently drop them).
+set(_TTMLIR_CMAKE_ARGS
+    -DCMAKE_INSTALL_PREFIX=${_TTMLIR_INSTALL_DIR}
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_C_COMPILER=clang
+    -DCMAKE_CXX_COMPILER=clang++
+    # Forward ccache (or whichever launcher our outer build picked) so the
+    # tt-mlir compile lands in the same cache as tt-kurbla's. Empty when unset.
+    -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
+    -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+    -DTTMLIR_ENABLE_RUNTIME=ON
+    -DTTMLIR_ENABLE_SHARED_LIB=ON
+    -DTTMLIR_ENABLE_STABLEHLO=OFF
+    -DTTMLIR_ENABLE_TESTS=OFF
+    -DTTMLIR_ENABLE_TOOLS=OFF
+    -DTTMLIR_ENABLE_TTRT=OFF
+    -DTTMLIR_ENABLE_OPMODEL_TESTS=OFF
+    -DTTMLIR_ENABLE_EXPLORER=OFF
+    -DTTMLIR_ENABLE_ALCHEMIST=OFF
+    -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF
+)
+
+# Inject env/activate's variables (collected by cmake/MlirEnv.cmake) into
+# every tt-mlir-ep subprocess. set(ENV{}) at our configure time only affects
+# the parent cmake process; tt-mlir's own cmake invocation runs as a
+# subprocess at build time, inheriting env from ninja — which doesn't see
+# anything we set. `cmake -E env KEY=VAL ... cmd args...` is the per-call fix.
 ExternalProject_Add(tt-mlir-ep
     SOURCE_DIR  "${_TTMLIR_SRC}"
     PREFIX      "${CMAKE_CURRENT_BINARY_DIR}/tt-mlir-prefix"
     INSTALL_DIR "${_TTMLIR_INSTALL_DIR}"
     CMAKE_GENERATOR Ninja
-    CMAKE_ARGS
-        -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-        -DCMAKE_BUILD_TYPE=Release
-        -DCMAKE_C_COMPILER=clang
-        -DCMAKE_CXX_COMPILER=clang++
-        # Forward ccache (or whichever launcher our outer build picked) so the
-        # tt-mlir compile lands in the same cache as tt-kurbla's. Empty when unset.
-        -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
-        -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
-        -DTTMLIR_ENABLE_RUNTIME=ON
-        -DTTMLIR_ENABLE_SHARED_LIB=ON
-        -DTTMLIR_ENABLE_STABLEHLO=OFF
-        -DTTMLIR_ENABLE_TESTS=OFF
-        -DTTMLIR_ENABLE_TOOLS=OFF
-        -DTTMLIR_ENABLE_TTRT=OFF
-        -DTTMLIR_ENABLE_OPMODEL_TESTS=OFF
-        -DTTMLIR_ENABLE_EXPLORER=OFF
-        -DTTMLIR_ENABLE_ALCHEMIST=OFF
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
+        ${CMAKE_COMMAND} -GNinja ${_TTMLIR_CMAKE_ARGS}
+        -S <SOURCE_DIR> -B <BINARY_DIR>
+    BUILD_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
+        ${CMAKE_COMMAND} --build <BINARY_DIR>
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E env ${TT_KURBLA_MLIR_ENV}
+        ${CMAKE_COMMAND} --install <BINARY_DIR>
     # Declare the install outputs we consume so Ninja can wire the dependency
     # graph; without this it errors with "no known rule to make" on link.
     BUILD_BYPRODUCTS
