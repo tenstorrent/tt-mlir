@@ -8,7 +8,6 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Operation.h"
 
 #include <variant>
 
@@ -69,12 +68,6 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
 // expressions including binary operations (add, mul, floordiv, ceildiv, mod).
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                     AffineMap indexingMap);
-
-// Annotate d2m.core_index ops with the physical-to-virtual map from their
-// immediately enclosing d2m.generic. This establishes the invariant that
-// core_index results are in the generic grid's virtual coordinate space even
-// when kernel execution is over the mapped physical worker grid.
-void annotateCoreIndexOpsWithPhysicalToVirtualMaps(Operation *root);
 
 // Gets the underlying physical grid shape corresponding to the tensor or
 // memref. For views/streams, this 'physical' grid corresponds to the compute

@@ -247,23 +247,6 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
   return indices;
 }
 
-void annotateCoreIndexOpsWithPhysicalToVirtualMaps(Operation *root) {
-  root->walk([](GenericOp genericOp) {
-    AffineMap physicalToVirtualMap = genericOp.getGrid().getPhysicalToVirtMap();
-    if (!physicalToVirtualMap || physicalToVirtualMap.isEmpty()) {
-      return;
-    }
-
-    genericOp.walk([&](CoreIndexOp coreIndexOp) {
-      if (coreIndexOp->getParentOfType<GenericOp>() != genericOp) {
-        return;
-      }
-      coreIndexOp.setPhysToVirtMapAttr(
-          AffineMapAttr::get(physicalToVirtualMap));
-    });
-  });
-}
-
 static llvm::SmallVector<int64_t>
 getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
                                     AffineMap map) {
