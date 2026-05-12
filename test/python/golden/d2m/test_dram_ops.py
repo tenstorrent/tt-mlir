@@ -19,6 +19,11 @@ DRAM_PIPELINE_OPTIONS = [
     "default-output-memspace=dram",
 ]
 
+DRAM_FUSION_PIPELINE_OPTIONS = [
+    *DRAM_PIPELINE_OPTIONS,
+    "enable-elementwise-fusion=true",
+]
+
 DRAM_SHAPES = [
     (1, 16),
     (16, 16),
@@ -83,6 +88,11 @@ DRAM_NUMERIC_CASES = [
     )
 ]
 
+DRAM_FUSION_CASES = [
+    shape_dtype_param((32, 32), torch.float32),
+    shape_dtype_param((128, 128), torch.bfloat16),
+]
+
 
 def get_add_scalar_value(dtype: torch.dtype):
     return 5 if dtype == torch.int32 else 5.0 if dtype == torch.bfloat16 else 2.5
@@ -99,6 +109,16 @@ def compile_dram_test(module, request, device, target: str):
         target=target,
         device=device,
         pipeline_options=list(DRAM_PIPELINE_OPTIONS),
+    )
+
+
+def compile_dram_fusion_test(module, request, device, target: str):
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=list(DRAM_FUSION_PIPELINE_OPTIONS),
     )
 
 
@@ -133,6 +153,48 @@ def test_dram_binary_add(
             return builder.add(in0, in1, unit_attrs=unit_attrs)
 
     compile_dram_test(module, request, device, target)
+
+
+@pytest.mark.parametrize("shape,dtype", DRAM_FUSION_CASES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_fuse_add_relu_multiply(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
+        def add_relu_multiply(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[list[str]] = None,
+        ):
+            sum_result = builder.add(in0, in1, unit_attrs=unit_attrs)
+            relu_result = builder.relu(sum_result, unit_attrs=unit_attrs)
+            return builder.multiply(relu_result, in2, unit_attrs=unit_attrs)
+
+    compile_dram_fusion_test(module, request, device, target)
+
+
+@pytest.mark.parametrize("shape,dtype", DRAM_FUSION_CASES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_fuse_converging_branches(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
+        def converging_branches(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[list[str]] = None,
+        ):
+            lhs = builder.relu(in0, unit_attrs=unit_attrs)
+            rhs = builder.add(in1, in2, unit_attrs=unit_attrs)
+            return builder.multiply(lhs, rhs, unit_attrs=unit_attrs)
+
+    compile_dram_fusion_test(module, request, device, target)
 
 
 @pytest.mark.parametrize("shape,dtype", DRAM_NUMERIC_CASES)
