@@ -178,29 +178,32 @@ class D2MBuilder(Builder):
         input_type = self._get_type(input)
         rank = len(input_type.shape)
 
-        if len(shard_shape) != len(shard_dims):
-            raise ValueError(
-                f"shard_shape/shard_dims length mismatch: "
-                f"{len(shard_shape)} != {len(shard_dims)}"
-            )
-
         output_shape = list(input_type.shape)
-        for factor, dim in zip(shard_shape, shard_dims):
-            if factor <= 0:
-                raise ValueError(f"invalid shard factor: {factor}")
-            if dim < 0:
-                continue
-            if dim >= rank:
-                raise ValueError(f"shard dim out of range: dim={dim}, rank={rank}")
-            if shard_direction == MeshShardDirection.FullToShard:
-                if output_shape[dim] % factor != 0:
-                    raise ValueError(
-                        f"non-divisible shard: dim_size={output_shape[dim]}, "
-                        f"factor={factor}, dim={dim}"
-                    )
-                output_shape[dim] //= factor
-            else:
-                output_shape[dim] *= factor
+        if shard_type == MeshShardType.Replicate:
+            if shard_dims != [-1]:
+                raise ValueError(f"replicate shard_dims must be [-1], got {shard_dims}")
+        else:
+            if len(shard_shape) != len(shard_dims):
+                raise ValueError(
+                    f"shard_shape/shard_dims length mismatch: "
+                    f"{len(shard_shape)} != {len(shard_dims)}"
+                )
+            for factor, dim in zip(shard_shape, shard_dims):
+                if factor <= 0:
+                    raise ValueError(f"invalid shard factor: {factor}")
+                if dim < 0:
+                    continue
+                if dim >= rank:
+                    raise ValueError(f"shard dim out of range: dim={dim}, rank={rank}")
+                if shard_direction == MeshShardDirection.FullToShard:
+                    if output_shape[dim] % factor != 0:
+                        raise ValueError(
+                            f"non-divisible shard: dim_size={output_shape[dim]}, "
+                            f"factor={factor}, dim={dim}"
+                        )
+                    output_shape[dim] //= factor
+                else:
+                    output_shape[dim] *= factor
 
         output_encoding = None
         if shard_direction == MeshShardDirection.FullToShard:
