@@ -417,6 +417,10 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
 
+    // Workarounds pass and Layout decompositions can leave behind redundant
+    // typecast->typecast chains. Canonicalize them away to save memory.
+    devicePm.addPass(mlir::createCanonicalizerPass());
+
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 
