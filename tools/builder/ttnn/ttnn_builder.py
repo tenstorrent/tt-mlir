@@ -200,51 +200,9 @@ class TTNNBuilder(Builder):
         This method creates a TTNN tensor with encoding information.
         For simplicity we will always create DRAM/Interleaved tiled tensor.
         """
-        if isinstance(element_type, torch.dtype):
-            element_type = self._get_type_from_torch_dtype(element_type)
-        with self._ctx, self._loc:
-            if layout == ttnn.Layout.Tile:
-                data_type = util.element_type_to_data_type(element_type)
-                layout_element_type = ttcore.ir.TileType.get(
-                    self._ctx, 32, 32, data_type
-                )
-            elif layout == ttnn.Layout.RowMajor:
-                layout_element_type = element_type
-            else:
-                raise ValueError(f"Unsupported layout: {layout}")
-
-            if buffer_type == ttnn.BufferType.SystemMemory:
-                tensor_memory_layout = None
-            elif buffer_type == ttnn.BufferType.L1:
-                tensor_memory_layout = ttnn.TensorMemoryLayout.WidthSharded
-            else:
-                tensor_memory_layout = ttnn.TensorMemoryLayout.Interleaved
-
-            grid_shape = [1, 1]
-
-            core_range_set = None
-            is_sharded = (
-                tensor_memory_layout is not None
-                and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
-            )
-
-            if is_sharded:
-                start = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
-                end = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
-                core_range_set = ttnn.ir.CoreRangeSetAttr.get(
-                    self._ctx,
-                    [ttnn.ir.CoreRangeAttr.get(self._ctx, start, end)],
-                )
-
-            return ttnn.ir.TTNNLayoutAttr.get(
-                self._ctx,
-                shape,
-                layout_element_type,
-                buffer_type,
-                grid_shape,
-                core_range_set,
-                tensor_memory_layout,
-            )
+        return self._create_ttnn_tensor_encoding(
+            shape, element_type, layout, buffer_type
+        )
 
     def create_ttnn_tensor(
         self,

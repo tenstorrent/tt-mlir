@@ -12,6 +12,7 @@ import os
 from collections import OrderedDict
 
 from ttmlir.ir import *
+from ttmlir import util
 from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn, debug
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function, apply_sharding
@@ -747,6 +748,66 @@ class Builder(metaclass=BuilderMeta):
     ) -> ttnn.ir.TTNNLayoutAttr:
         raise NotImplementedError("Subclasses must implement create_tensor_encoding")
 
+    # ----- Private TTNN Tensor Generation Helpers -----
+
+    def _create_ttnn_tensor_encoding(
+        self,
+        shape: Shape,
+        element_type: Union[torch.dtype, TypeInfo],
+        layout: ttnn.ir.LayoutAttr = ttnn.Layout.Tile,
+        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        """
+        TTNN tensors require that encoding information is present.
+        This method creates a TTNN tensor with encoding information.
+        For simplicity we will always create DRAM/Interleaved tiled tensor.
+        """
+        if isinstance(element_type, torch.dtype):
+            element_type = self._get_type_from_torch_dtype(element_type)
+        with self._ctx, self._loc:
+            if layout == ttnn.Layout.Tile:
+                data_type = util.element_type_to_data_type(element_type)
+                layout_element_type = ttcore.ir.TileType.get(
+                    self._ctx, 32, 32, data_type
+                )
+            elif layout == ttnn.Layout.RowMajor:
+                layout_element_type = element_type
+            else:
+                raise ValueError(f"Unsupported layout: {layout}")
+
+            if buffer_type == ttnn.BufferType.SystemMemory:
+                tensor_memory_layout = None
+            elif buffer_type == ttnn.BufferType.L1:
+                tensor_memory_layout = ttnn.TensorMemoryLayout.WidthSharded
+            else:
+                tensor_memory_layout = ttnn.TensorMemoryLayout.Interleaved
+
+            grid_shape = [1, 1]
+
+            core_range_set = None
+            is_sharded = (
+                tensor_memory_layout is not None
+                and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
+            )
+
+            if is_sharded:
+                start = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
+                end = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
+                core_range_set = ttnn.ir.CoreRangeSetAttr.get(
+                    self._ctx,
+                    [ttnn.ir.CoreRangeAttr.get(self._ctx, start, end)],
+                )
+
+            return ttnn.ir.TTNNLayoutAttr.get(
+                self._ctx,
+                shape,
+                layout_element_type,
+                buffer_type,
+                grid_shape,
+                core_range_set,
+                tensor_memory_layout,
+            )
+
     # ----- Shared Metal Tensor Layout -----
 
     def get_metal_tensor_layout(
@@ -1346,9 +1407,18 @@ class Builder(metaclass=BuilderMeta):
 
     # ----- Helper decorator functions ----
 
-    def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
-        def wrapper(fn):
+    def func(
+        self,
+        input_shapes: List[List[int]],
+        input_types: List[torch.dtype],
+        ttnn_inputs: bool = False,
+    ):
+        if ttnn_inputs:
+            encoding_fn = self._create_ttnn_tensor_encoding
+        else:
             encoding_fn = self.create_tensor_encoding
+
+        def wrapper(fn):
             fn_input_types = [
                 self._create_ranked_tensor_type(
                     shape,

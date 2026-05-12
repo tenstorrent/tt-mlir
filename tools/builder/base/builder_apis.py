@@ -1304,7 +1304,15 @@ def compile_ttir_module_to_flatbuffer(
         target_extension = "py"
         pipeline_options.append("split-files=false")
     elif target == "ttnn-mode":
-        pass
+        pipeline_options.append("ttnn-mode=true")
+        pipeline_fn = (
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_ttmetal_backend_pipeline)
+        )
+        to_target = ttnn_to_flatbuffer_bin
+        to_file = ttnn_to_flatbuffer_file
+        target_extension = "ttnn"
     else:
         raise ValueError("Unsupported target: " + target)
 
