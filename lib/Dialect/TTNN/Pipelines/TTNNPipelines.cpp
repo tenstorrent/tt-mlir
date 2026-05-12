@@ -328,6 +328,12 @@ void createTTIRToTTNNDevicePipeline(
   {
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
+    if (options.cpuHoistTargetX280) {
+      // For CPU-hoisted functions targeting X280, we convert calls to
+      // destination passing style to avoid memory allocations on the CPU side.
+      devicePm.addPass(ttnn::createTTNNConvertCPUHoistedFunctionCallsToDPS());
+    }
+
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);

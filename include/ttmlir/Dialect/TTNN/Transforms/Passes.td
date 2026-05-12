@@ -666,4 +666,13 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
   ];
 }
 
+def TTNNConvertCPUHoistedFunctionCallsToDPS : Pass<"ttnn-convert-cpu-hoisted-function-calls-to-dps", "::mlir::ModuleOp"> {
+  let summary = "Convert calls to CPU-hoisted functions to use destination passing style.";
+  let description = [{
+    This pass converts calls to CPU-hoisted functions to use destination
+    passing style (DPS), so that the function doesn't have to allocate the
+    output tensor.
+  }];
+}
+
 #endif

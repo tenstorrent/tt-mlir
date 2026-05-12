@@ -43,6 +43,7 @@
 #include "mlir/Dialect/Linalg/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/MLProgram/IR/MLProgram.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/Transforms/AllocationOpInterfaceImpl.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
@@ -135,6 +136,7 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   registerAllToLLVMIRTranslations(registry);
   tensor::registerSubsetOpInterfaceExternalModels(registry);
   linalg::registerSubsetOpInterfaceExternalModels(registry);
+  mlir::memref::registerAllocationOpInterfaceExternalModels(registry);
 }
 
 void mlir::tt::registerAllPasses() {
