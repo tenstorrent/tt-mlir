@@ -242,6 +242,9 @@ void createD2MBackendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MScheduleDMA());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
+  // After this point, all remaining core_index ops should carry their
+  // enclosing generic grid's physical-to-virtual map.
+  pm.addPass(d2m::createD2MAnnotateCoreIndexMaps());
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
   pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());

@@ -1,19 +1,10 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-preallocate-mcast-semaphores --d2m-lower-load-store-ops-to-dma %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-preallocate-mcast-semaphores --d2m-lower-load-store-ops-to-dma --d2m-annotate-core-index-maps %s | FileCheck %s
 
-// Exercise d2m-lower-load-store-ops-to-dma on a multicast d2m.remote_load when the
-// enclosing d2m.generic uses a 2x2 grid with virt_to_physical_map and
-// physical_to_virt_map (virtual (d0,d1) maps to device id 0 and physical core
-// (d0+1, d1+1)).
-//
-// After lowering, multicast d2m.dma_write and d2m.semaphore_set must use physical
-// core coordinates. Here the multicast anchor is virtual (0,0), which becomes
-// physical (1,1), so those ops use index constants %c1 for both core axes.
-// Constant operands are often folded, so the lowered sender path may not show
-// affine.apply even though the map was applied.
-//
-// On the receiver path, the lowered code mixes a constant virtual multicast index
-// with a d2m.core_index value, so an affine.apply typically remains immediately
-// before d2m.semaphore_inc.
+// Exercise d2m-lower-load-store-ops-to-dma on a low-level multicast
+// d2m.remote_load when the enclosing d2m.generic uses a virtualized grid.
+// The pass should attach the generic grid's physical-to-virtual map to
+// d2m.core_index ops instead of eagerly converting multicast core operands
+// through the virtual-to-physical map.
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -26,15 +17,14 @@
 module attributes {ttcore.system_desc = #system_desc} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
 
-  // CHECK-LABEL: func.func @mcast_remote_load_virt_to_physical
-  func.func @mcast_remote_load_virt_to_physical(%arg0: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
+  // CHECK-LABEL: func.func @mcast_remote_load_core_index_mapping
+  func.func @mcast_remote_load_core_index_mapping(%arg0: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
-    // Multicast write uses physical core (1,1), not virtual (0,0), for core[...].
-    // CHECK: d2m.dma_write %{{.*}}, %{{.*}} core[%c1, %c1] mcast[%c1, %c2]
-    // CHECK-NOT: d2m.dma_write %{{.*}}, %{{.*}} core[%c0, %c0] mcast
-    // CHECK: d2m.semaphore_set %{{.*}}, %c1, core[%c1, %c1] mcast[%c1, %c2]
-    // Receiver signals readiness at the mapped physical sender core.
-    // CHECK: d2m.semaphore_inc
+    // CHECK: %[[CORE0:.*]] = d2m.core_index(0) {phys_to_virt_map = {{.*}}} : index
+    // CHECK: %[[CORE1:.*]] = d2m.core_index(1) {phys_to_virt_map = {{.*}}} : index
+    // CHECK: d2m.dma_write %{{.*}}, %{{.*}} core[%[[CORE0]], %c0] mcast[%c1, %c2]
+    // CHECK: d2m.semaphore_set %{{.*}}, %c1, core[%[[CORE0]], %c0] mcast[%c1, %c2]
+    // CHECK: d2m.semaphore_inc %{{.*}}, %c1, core[%[[CORE0]], %c0]
     d2m.generic {block_factors = [1, 1], grid = #grid_v2p, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>)  {
@@ -49,7 +39,7 @@ module attributes {ttcore.system_desc = #system_desc} {
         scf.for %arg2 = %c0 to %c1 step %c1 {
           %0 = arith.addi %core0, %arg1 : index
           %1 = arith.addi %core1, %arg2 : index
-          d2m.remote_load %arg0[%0, %1] into %cb0 mcore[%c0, %c0] mshape[%c1, %c2] : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.remote_load %arg0[%0, %1] into %cb0 mcore[%core0, %c0] mshape[%c1, %c2] : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {

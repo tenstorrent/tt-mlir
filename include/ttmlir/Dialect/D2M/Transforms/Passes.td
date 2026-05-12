@@ -1131,6 +1131,20 @@ def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir:
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MAnnotateCoreIndexMaps : Pass<"d2m-annotate-core-index-maps", "::mlir::ModuleOp"> {
+  let summary = "Annotate core index ops with generic grid physical-to-virtual maps.";
+  let description = [{
+    This pass attaches the immediately enclosing d2m.generic op's
+    physical_to_virt_map to d2m.core_index ops. After this pass, core_index
+    results are explicitly in the generic grid's virtual coordinate space even
+    though the kernel executes over the mapped physical worker grid.
+
+    Run this after passes that create or clone core_index ops and before
+    conversion to TTKernel.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MExpandDMAReadCompositeView : Pass<"d2m-expand-dma-read-composite-view", "::mlir::ModuleOp"> {
   let summary = "Expand shard-level DMA reads that act on composite views.";
   let description = [{
