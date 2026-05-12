@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
@@ -90,6 +91,14 @@ public:
           // share types/deltas across unrelated control-flow paths and must
           // not be unified.
           if (!blockArg || blockArg.getOwner() != &funcOp.getBody().front()) {
+            return false;
+          }
+          // Require the arg to be marked as a cumulative_length by an upstream
+          // inference pass. This is what proves the lockstep invariant holds
+          // for this argument; without it, two independent counters with the
+          // same delta could be miscompiled into one.
+          if (!funcOp.getArgAttr(blockArg.getArgNumber(),
+                                 ttcore::g_cumulativeLengthAttrName)) {
             return false;
           }
           if (!scalarIntKey(maybeDelta).has_value()) {
