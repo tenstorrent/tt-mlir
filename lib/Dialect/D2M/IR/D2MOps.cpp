@@ -2064,7 +2064,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           }
 
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
-          if (!origDefiningOp || mlir::isa<EmptyOp>(origDefiningOp)) {
+          if (!origDefiningOp ||
+              mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
             return false;
           }
 
