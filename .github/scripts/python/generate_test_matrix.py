@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+from pathlib import Path
 import sys
 import test_common
 from itertools import product
@@ -171,6 +172,24 @@ def civ2_offload(test_matrix):
     return test_matrix
 
 
+def calc_test_duration(arch):
+    durations_file = Path(".test_durations") / f"{arch}.json"
+    if not durations_file.exists():
+        if arch == "llmbox":
+            arch = "n300-llmbox"
+        elif arch == "p150":
+            arch = "p150b"
+        durations_file = Path(".test_durations") / f"{arch}.json"
+        if not durations_file.exists():
+            print(f"Durations file not found: {durations_file}", file=sys.stderr)
+            return 0
+
+    with durations_file.open() as f:
+        durations = json.load(f)
+
+    return sum(durations.values())
+
+
 def main(input_filename, target_duration, component_filter):
     # Load the input JSON file
     with open(input_filename, "r") as f:
@@ -233,9 +252,34 @@ def main(input_filename, target_duration, component_filter):
         }
         hash, hash_string = test_common.compute_hash(test_copy, runs_on, image)
         duration = durations.get(hash, default_duration)
-        test_copy["duration"] = duration
-        test_matrix[key]["tests"].append(test_copy)
-        test_matrix[key]["total_duration"] += duration
+        if test_copy.get("autosplit", None) is not None:
+            duration = calc_test_duration(runs_on)
+            td = (
+                target_duration * 0.9
+            )  # pytest-split can be a bit imprecise, so we use a slightly lower target to avoid overshooting
+            split_into_groups = int((duration + td - 1.0) / td)
+            print(
+                f"Autosplitting group {key} with total duration {duration:.2f}s into {split_into_groups} batches of {td:.2f}s"
+            )
+            split_into_groups = int(split_into_groups)
+            test_copy.pop("autosplit")
+            if split_into_groups > 1:
+                for m in range(1, split_into_groups + 1):
+                    split_copy = test_copy.copy()
+                    split_copy["args"] = list(split_copy.get("args", [])) + [
+                        f"split={m}/{split_into_groups}"
+                    ]
+                    split_copy["duration"] = duration / split_into_groups
+                    test_matrix[key]["tests"].append(split_copy)
+                test_matrix[key]["total_duration"] += duration
+            else:
+                test_copy["duration"] = duration
+                test_matrix[key]["tests"].append(test_copy)
+                test_matrix[key]["total_duration"] += duration
+        else:
+            test_copy["duration"] = duration
+            test_matrix[key]["tests"].append(test_copy)
+            test_matrix[key]["total_duration"] += duration
         if shrun:
             test_matrix[key]["sh-run"] = True
         if runs_on == "builder":

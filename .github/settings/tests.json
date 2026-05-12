@@ -19,19 +19,9 @@
 
     { "runs-on": "n150",   "image": "tracy",  "script": "pytest.sh", "args": "tools/explorer/test/run_tests.py", "reqs": "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" },
 
-    { "runs-on": ["n150","p150"],
+    { "runs-on": ["llmbox","n300","n150","p150"],
           "image": "tracy",
-              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt", "split=1/3"] },
-    { "runs-on": ["n150","p150"],
-          "image": "tracy",
-              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt", "split=2/3"] },
-    { "runs-on": ["n150","p150"],
-          "image": "tracy",
-              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt", "split=3/3"] },
-
-    { "runs-on": ["llmbox","n300"],
-          "image": "tracy",
-              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt"] },
+              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt"], "autosplit": "builder" },
 
     { "runs-on": "n150",   "image": "tracy",  "script": "op_model_ttrt.sh", "args": "perf" },
     { "runs-on": "n150",   "image": "speedy",  "script": "op_model_ttrt.sh", "args": "run" },
