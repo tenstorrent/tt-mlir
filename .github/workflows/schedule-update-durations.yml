@@ -53,14 +53,14 @@ jobs:
 
                 # Exit if the counter reaches $num
                 if [ $counter -ge $num ]; then
-                  echo "ERROR: Did not found good workflow within last $num. Exiting."
+                  echo "ERROR: Did not found good workflow within the last $num. Exiting."
                   exit 1
                 fi
               fi
             done
             curr_wf_id=$(jq -r ".[$counter].databaseId" runs.json)
             curr_wf_att=$(jq -r ".[$counter].attempt" runs.json)
-            echo "curr_$3_wf_link=\"https://github.com/$repo/actions/runs/$curr_wf_id/attempts/$curr_wf_att\"" >> "$GITHUB_OUTPUT"
+            echo "curr_$3_wf_link=https://github.com/$repo/actions/runs/$curr_wf_id/attempts/$curr_wf_att" >> "$GITHUB_OUTPUT"
             rm -f runs.json
 
             gh run download $curr_wf_id --pattern "test-reports-*" -R $repo -D ${{runner.temp}}/reports

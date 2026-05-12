@@ -21,10 +21,10 @@ def extract_test_case_info(xml_file):
     Returns:
         dict: A dictionary with test case names as keys and their execution time in seconds as values.
     """
+    test_cases_info = {}
     try:
         tree = ET.parse(xml_file)
         root = tree.getroot()
-        test_cases_info = {}
 
         for testsuite in root.findall("testsuite"):
             # Iterate over all <testcase> elements within the current <testsuite>
@@ -78,7 +78,7 @@ def process_directory(directory):
 def main():
     if len(sys.argv) != 3:
         print(
-            "Usage: python .github/scripts/get_test_duration_from_junit_xmls.py <reports_directory> <json_output_directory>"
+            "Usage: python .github/scripts/python/get_test_duration_from_junit_xmls.py <reports_directory> <json_output_directory>"
         )
         sys.exit(1)
 
