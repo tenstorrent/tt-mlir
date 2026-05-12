@@ -275,6 +275,10 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
 
+  Option<bool> ttnnDecompositionEnabled{
+      *this, "enable-ttnn-decomposition-pass",
+      llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};
+
   Option<bool> implicitBroadcastFoldingEnabled{
       *this, "enable-implicit-broadcast-folding-pass",
       llvm::cl::desc("Enable implicit broadcast folding pass."),

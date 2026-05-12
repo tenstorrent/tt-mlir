@@ -4909,8 +4909,13 @@ def ttir_topk_golden(
     sorted = unpack_mlir_attr(sorted_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
+    # Always produce sorted output for golden comparison. When sorted=False,
+    # the order of returned elements is implementation-defined, so both torch
+    # and the hardware are free to return any ordering. The golden comparison
+    # uses element-wise PCC which requires positional correspondence, so we
+    # must normalize the order.
     values, indices = torch.topk(
-        input_tensor, k=k, dim=dim, largest=largest, sorted=sorted
+        input_tensor, k=k, dim=dim, largest=largest, sorted=True
     )
 
     return values.to(output_dtype), indices.to(torch.uint16)

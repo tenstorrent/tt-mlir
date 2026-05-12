@@ -324,26 +324,28 @@ void createTTIRToTTNNCommonPipeline(
     createTTNNFusingPass(devicePm, options);
 
     // Create TTNN decomposition pass, optionally with op-model validation.
+    if (options.ttnnDecompositionEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-    if (options.optimizerPassEnabled) {
-      DevicePassesWrapperOptions decompWrapperOptions;
-      decompWrapperOptions.devicePtr = options.devicePtr;
-      decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+      if (options.optimizerPassEnabled) {
+        DevicePassesWrapperOptions decompWrapperOptions;
+        decompWrapperOptions.devicePtr = options.devicePtr;
+        decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
-      uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
-      devicePm.addPass(createDevicePassesWrapper(
-          [decompFallbackAttempts](OpPassManager &innerPm) {
-            TTNNDecompositionOptions decompOptions;
-            decompOptions.enableOpConstraints = true;
-            decompOptions.maxFallbackAttempts = decompFallbackAttempts;
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNDecomposition(decompOptions));
-          },
-          decompWrapperOptions));
-    } else
+        uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
+        devicePm.addPass(createDevicePassesWrapper(
+            [decompFallbackAttempts](OpPassManager &innerPm) {
+              TTNNDecompositionOptions decompOptions;
+              decompOptions.enableOpConstraints = true;
+              decompOptions.maxFallbackAttempts = decompFallbackAttempts;
+              innerPm.addPass(
+                  mlir::tt::ttnn::createTTNNDecomposition(decompOptions));
+            },
+            decompWrapperOptions));
+      } else
 #endif
-    {
-      devicePm.addPass(createTTNNDecomposition());
+      {
+        devicePm.addPass(createTTNNDecomposition());
+      }
     }
 
     if (options.dramSpaceSavingOptimizationEnabled) {
