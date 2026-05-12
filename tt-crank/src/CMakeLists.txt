@@ -64,3 +64,7 @@ target_link_libraries(tt_kurbla
         tt_kurbla_warnings
         tt_kurbla_sanitizers
 )
+
+if(TT_KURBLA_BUILD_PYTHON_EXT)
+    add_subdirectory(torch)
+endif()

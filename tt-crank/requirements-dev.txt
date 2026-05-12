@@ -1,1 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 pre-commit>=4.0,<5
+torch==2.10.0+cpu
+
+# Build deps for `uv pip install -e .`. Live in the venv (not just
+# build-system.requires) because we disable PEP 517 build isolation in
+# pyproject.toml — torch is too heavy to re-download into a sandboxed build env.
+scikit-build-core>=0.10
+nanobind>=2.2
+uv
+
+pytest
