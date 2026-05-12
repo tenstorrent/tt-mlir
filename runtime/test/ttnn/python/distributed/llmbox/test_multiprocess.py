@@ -210,9 +210,7 @@ def test_tensor_refcount_deallocation_asymmetry():
     # Query worker stats and print them
     stats = ttrt.runtime.get_worker_debug_stats()
     for worker_stat in stats:
-        print(f"\nWorker: {worker_stat.hostname}")
-        for key, value in sorted(worker_stat.stats.items()):
-            print(f"  {key}: {value}")
+        print(worker_stat)
 
         # Allocation is tracked on worker
         assert worker_stat.stats.get(f"allocate_{global_id}", 0) == 1
