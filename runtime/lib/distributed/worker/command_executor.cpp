@@ -163,8 +163,8 @@ void CommandExecutor::execute(uint64_t commandId,
   stats["__worker_pid"] = static_cast<std::int64_t>(getpid());
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
-      buildResponse(ResponseFactory::buildGetWorkerDebugStatsResponse, commandId,
-                    getWorkerHostname(), stats);
+      buildResponse(ResponseFactory::buildGetWorkerDebugStatsResponse,
+                    commandId, getWorkerHostname(), stats);
 
   responseQueue_.push(std::move(responseBuilder));
 }

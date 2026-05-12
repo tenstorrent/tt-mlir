@@ -1034,9 +1034,8 @@ void Controller::handleGetWorkerDebugStatsResponse(
         workerStats[entry->key()->str()] = entry->value();
       }
     }
-    workerDebugStatsHandle->push_back(
-        ::tt::runtime::WorkerDebugStatsEntry{std::move(hostname),
-                                             std::move(workerStats)});
+    workerDebugStatsHandle->push_back(::tt::runtime::WorkerDebugStatsEntry{
+        std::move(hostname), std::move(workerStats)});
   }
 
   awaitingPromise->set_value();
