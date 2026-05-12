@@ -2060,7 +2060,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                     ttcore::DeviceAttr device) {
     // A tighter size calculation is possible for memrefs that don't map to
     // CBs which we don't attempt here except to ignore `buffers` multiplier.
-    return device.getMemrefSizeBytes(bufferType, 0, false);
+    int64_t shardSizeBytes = device.getMemrefSizeBytes(bufferType, 0, false);
+
+    if (ttcore::getMemorySpace(bufferType) == MemorySpace::DeviceDRAM) {
+      if (auto shardLayout =
+              mlir::dyn_cast<ttcore::ShardLayoutAttr>(bufferType.getLayout())) {
+        int64_t gridVolume =
+            ttmlir::utils::volume(shardLayout.getGridShape(bufferType));
+        int64_t numDramBanks = ttmlir::utils::volume(
+            llvm::to_vector(device.getDramGrid().getShape()));
+        int64_t shardsPerBank =
+            ttmlir::utils::alignUp(gridVolume, numDramBanks) / numDramBanks;
+        return shardSizeBytes * shardsPerBank;
+      }
+    }
+
+    return shardSizeBytes;
   }
 
   /// @return aligned allocation sizes for a `type` buffer for different
