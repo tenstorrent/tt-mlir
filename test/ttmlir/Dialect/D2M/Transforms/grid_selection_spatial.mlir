@@ -128,6 +128,59 @@ module attributes {ttcore.device = #any_device} {
 }
 
 // -----
+// Two regions with direct empty outs (no view_layout in between): verify VGM
+// on non-origin region output is preserved on generic grid mapping.
+#any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+#layout_1x1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#vgm_11_inv = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>
+#vgm_11_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>
+// CHECK-LABEL: func.func @spatial_multi_region_two_ranges_direct_empty
+module attributes {ttcore.device = #any_device} {
+  func.func @spatial_multi_region_two_ranges_direct_empty()
+      -> (tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>,
+          tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) {
+    %0 = d2m.empty() : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>
+    %1 = d2m.empty() {virtualGridInverseMapping = #vgm_11_inv, virtualGridForwardMapping = #vgm_11_fwd} : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+    // CHECK: d2m.spatial
+    // CHECK-SAME: grid_ranges = [#ttcore.core_range<(0,0), (0,0)>, #ttcore.core_range<(1,1), (2,2)>]
+    %2:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (2, 2)>]}
+        ins() outs(%0, %1 : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) {
+      ^region_0:
+        %3 = d2m.generic {
+          block_factors = [1, 1],
+          grid = #ttcore.grid<1x1>,
+          indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
+          iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+          threads = [#d2m.thread<unified>]
+        } ins() outs(%0 : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>) {
+          %out = tensor.empty() : tensor<4x4x!ttcore.tile<32x32, f32>>
+          d2m.yield %out : (tensor<4x4x!ttcore.tile<32x32, f32>>)
+        } : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>
+        d2m.spatial_yield %3 : (tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>)
+      }, {
+      ^region_1:
+        %4 = d2m.generic {
+          block_factors = [1, 1],
+          grid = #ttcore.grid<2x2>,
+          indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>],
+          iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+          threads = [#d2m.thread<unified>]
+        } ins() outs(%1 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>) {
+          %out = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
+          d2m.yield %out : (tensor<2x2x!ttcore.tile<32x32, f32>>)
+        } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+        d2m.spatial_yield %4 : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>)
+    } : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+    // CHECK: d2m.generic
+    // CHECK-SAME: grid = #ttcore.grid<1x1>,
+    // CHECK: d2m.generic
+    // CHECK-SAME: grid = #ttcore.grid<2x2, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>,
+    return %2#0, %2#1 : tensor<1x1x4x4x!ttcore.tile<32x32, f32>, #layout_1x1>, tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
+  }
+}
+
+// -----
 // Four regions on an 8x8 device: each grid_range is a 4x4 square (quadrant).
 // Exercises spatial with more than two regions; each generic keeps grid 4x4.
 // Non-origin quadrants use d2m.empty VGM (offset from physical (y,x) to virtual 0..3).
@@ -224,6 +277,53 @@ module attributes {ttcore.device = #any_device} {
     // CHECK: d2m.generic
     // CHECK-SAME: grid = #ttcore.grid<4x4, virt_to_physical_map = (d0, d1) -> (0, d0 + 4, d1 + 4), physical_to_virt_map = (d0, d1) -> (0, d0 - 4, d1 - 4)>,
     return %4#0, %4#1, %4#2, %4#3 : tensor<4x4x1x1x!ttcore.tile<32x32, f32>, #layout_4x4>, tensor<4x4x1x1x!ttcore.tile<32x32, f32>, #layout_4x4>, tensor<4x4x1x1x!ttcore.tile<32x32, f32>, #layout_4x4>, tensor<4x4x1x1x!ttcore.tile<32x32, f32>, #layout_4x4>
+  }
+}
+
+// -----
+// CompositeView fast-path in GridSelection rewrites single-use to_layout inputs.
+// In non-origin spatial ranges, the recreated to_layout output empties must
+// keep offset-aware VGM even when selected grid is 1x1 (no virtualization).
+#any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+#layout_in_1x1 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_out_1x1 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+// CHECK-DAG: #[[FWD:map[0-9]*]] = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1 + 2, d2, d3)>
+// CHECK-DAG: #[[INV:map[0-9]*]] = affine_map<(d0, d1) -> (0, d0 - 2, d1 - 2)>
+// CHECK-LABEL: func.func @spatial_non_origin_composite_view_tlayout_single_use
+module attributes {ttcore.device = #any_device} {
+  func.func @spatial_non_origin_composite_view_tlayout_single_use(
+      %arg0: tensor<64x64xf32>, %arg1: tensor<64x64xf32>)
+      -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1> {
+    %0 = d2m.empty() : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_in_1x1>
+    %1 = d2m.to_layout %arg0, %0 : tensor<64x64xf32> into tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_in_1x1> -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_in_1x1>
+    %2 = d2m.empty() : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_in_1x1>
+    %3 = d2m.to_layout %arg1, %2 : tensor<64x64xf32> into tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_in_1x1> -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_in_1x1>
+    %4 = "d2m.composite_view"(%1, %3) <{dim = 1 : si32}> : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_in_1x1>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_in_1x1>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>
+    %5 = d2m.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>
+    %6 = d2m.spatial {
+      grid_ranges = [#ttcore.core_range<(2, 2), (2, 2)>]
+    } ins(%4 : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>) outs(%5 : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>) {
+    ^region_0:
+      %7 = d2m.generic {
+        block_factors = [1, 1],
+        grid = #ttcore.grid<1x1>,
+        indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>,
+                         affine_map<(d0, d1) -> (d0, d1)>],
+        iterator_types = [#ttcore.iterator_type<parallel>,
+                          #ttcore.iterator_type<parallel>],
+        threads = [#d2m.thread<unified>]
+      } ins(%4 : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>)
+        outs(%5 : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>) {
+        %out = tensor.empty() : tensor<2x4x!ttcore.tile<32x32, f32>>
+        d2m.yield %out : (tensor<2x4x!ttcore.tile<32x32, f32>>)
+      } : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>
+      d2m.spatial_yield %7 : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>)
+    } : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>
+    // CHECK: d2m.empty() {virtualGridForwardMapping = #[[FWD]], virtualGridInverseMapping = #[[INV]]}
+    // CHECK: d2m.to_layout %arg0
+    // CHECK: d2m.empty() {virtualGridForwardMapping = #[[FWD]], virtualGridInverseMapping = #[[INV]]}
+    // CHECK: d2m.to_layout %arg1
+    return %6 : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_out_1x1>
   }
 }
 
