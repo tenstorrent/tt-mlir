@@ -10,6 +10,9 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Visitors.h"
+
+#include <limits>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERSCRATCHALLOCATE
@@ -109,8 +112,7 @@ private:
       return a.slotId < b.slotId;
     });
 
-    Block &block = region.front();
-    computeLiveness(allocations, block);
+    computeLiveness(allocations, region);
     int64_t peakUsage = assignOffsets(allocations);
 
     // Verify allocations fit in the scratch buffer.
@@ -139,33 +141,50 @@ private:
 
   // Compute liveness ranges for scratch allocations.
   //
-  // Each allocation's live range spans from its definition to its last use.
+  // Each allocation's live range is the textual span of its uses inside the
+  // generic's region. Two things matter for getting useful ranges:
+  //
+  // 1. Positions are assigned by a pre-order walk over the entire region, so
+  //    ops nested inside loops/blocks (e.g. affine.store/affine.load inside
+  //    a `scratch_space_loop` nest) receive distinct sequential positions.
+  //    A previous block-level numbering collapsed every nested store/load
+  //    onto the position of its outer `scf.for` and made every allocation
+  //    appear to overlap with every other one.
+  //
+  // 2. The live range is taken over uses, not the definition op. The
+  //    `d2m.scratch_allocate` op itself is a pure type annotation -- its
+  //    physical lifetime starts at the first store into the buffer and
+  //    ends at the last load. Long fused chains tend to batch every
+  //    `scratch_allocate` at the top of the enclosing loop before any
+  //    `scratch_space_loop` runs, so seeding `startPosition` from the
+  //    definition would clamp it before every use and prevent reuse
+  //    between intermediates with disjoint use spans (e.g. alternating
+  //    producers/consumers in a unary chain).
   void computeLiveness(SmallVectorImpl<ScratchAllocationInfo> &allocations,
-                       Block &block) {
-    // Assign sequential position indices to top-level operations in the block.
+                       Region &region) {
     DenseMap<Operation *, int64_t> opPositions;
     int64_t pos = 0;
-    for (Operation &op : block) {
-      opPositions[&op] = pos++;
-    }
-
-    auto getTopLevelOp = [&](Operation *op) -> Operation * {
-      return block.findAncestorOpInBlock(*op);
-    };
+    region.walk<WalkOrder::PreOrder>(
+        [&](Operation *op) { opPositions[op] = pos++; });
 
     for (auto &info : allocations) {
-      Operation *topLevelDef = getTopLevelOp(info.op.getOperation());
-      assert(opPositions.contains(topLevelDef) &&
-             "scratch allocation must have a top-level position");
-      info.startPosition = opPositions[topLevelDef];
-      info.endPosition = info.startPosition;
+      Operation *defOp = info.op.getOperation();
+      assert(opPositions.contains(defOp) &&
+             "scratch allocation must have a position");
 
+      info.startPosition = std::numeric_limits<int64_t>::max();
+      info.endPosition = std::numeric_limits<int64_t>::min();
       for (OpOperand &use : info.op.getResult().getUses()) {
-        Operation *topLevelUser = getTopLevelOp(use.getOwner());
-        assert(opPositions.contains(topLevelUser) &&
-               "scratch allocation user must have a top-level position");
-        int64_t userPos = opPositions[topLevelUser];
-        info.endPosition = std::max(info.endPosition, userPos);
+        auto it = opPositions.find(use.getOwner());
+        assert(it != opPositions.end() &&
+               "scratch allocation user must have a position");
+        info.startPosition = std::min(info.startPosition, it->second);
+        info.endPosition = std::max(info.endPosition, it->second);
+      }
+      if (info.startPosition > info.endPosition) {
+        // No users: collapse the live range to the definition position so the
+        // allocation still gets a valid (and trivially packable) offset.
+        info.startPosition = info.endPosition = opPositions[defOp];
       }
     }
   }

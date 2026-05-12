@@ -38,7 +38,7 @@ namespace {
 // D2MLowerScratchAllocate (PR #7395) the per-producer slots can collapse and
 // this cap can drop back. Issue #7796 (subview offsets lost in DMA->CB
 // lowering) is a related latent bug that becomes observable once #7395 lands.
-constexpr size_t kFallbackScratchSizeBytes = 192 * 1024; // 192KB
+constexpr size_t kFallbackScratchSizeBytes = 128 * 1024; // 128KB!!
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {

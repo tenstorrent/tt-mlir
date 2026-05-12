@@ -560,28 +560,41 @@ func.func @outer_scf_loops_get_fused(
 }
 
 // ---------------------------------------------------------------------------
-// Test: dependence-related sibling scratch_space_loop nests with a matching
-//       affine prefix are fused under one shared prefix before spill insertion.
-//       Scratch shapes must omit that shared row dimension, and inter-loop
-//       unpack_stall_on_pack ordering must be preserved inside the fused loop.
+// Test: dependence-related sibling scratch_space_loop nests at the top of a
+//       generic body (no enclosing scf.for) are NOT fused at the affine level.
+//       Each producer keeps its own outer affine loop, the scratch shape
+//       retains the full row dimension, and the original unpack_stall_on_pack
+//       between producers and consumer is preserved as-is.
+//
+// Affine-level sibling fusion was previously driven from this pass as a
+// capacity-saving rewrite, but it was fragile (partial fusion left producer
+// and consumer scratch shapes with different ranks, breaking
+// `getConsumerScratchAccessMap`). Capacity is now enforced in
+// `D2MLowerScratchAllocate`, which packs slots with use-based liveness and
+// emits a clean diagnostic if peak demand actually exceeds the scratch
+// buffer. The scf.for-level fusion below (`outer_scf_loops_get_fused`) still
+// shares the outer iteration space across nests, which is what production
+// pipelines rely on.
 // ---------------------------------------------------------------------------
 
-// CHECK-LABEL: func.func @dependent_sibling_scratch_loops_get_fused
-// CHECK-DAG:   %[[SCRATCH_A:.*]] = d2m.scratch_allocate {slot = 0 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
-// CHECK-DAG:   %[[SCRATCH_B:.*]] = d2m.scratch_allocate {slot = 1 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
-// CHECK-NOT:   memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+// CHECK-LABEL: func.func @dependent_sibling_scratch_loops_not_fused_at_affine_level
+// CHECK-DAG:   %[[SCRATCH_A:.*]] = d2m.scratch_allocate {slot = 0 : i64} : memref<2x1x1x!ttcore.tile<32x32, bf16>, #l1>
+// CHECK-DAG:   %[[SCRATCH_B:.*]] = d2m.scratch_allocate {slot = 1 : i64} : memref<2x1x1x!ttcore.tile<32x32, bf16>, #l1>
 // CHECK:       affine.for {{.*}} = 0 to 2
 // CHECK:       "d2m.tile_exp"
 // CHECK:       affine.store {{.*}}, %[[SCRATCH_A]]
+// CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
+// CHECK:       affine.for {{.*}} = 0 to 2
 // CHECK:       "d2m.tile_sin"
 // CHECK:       affine.store {{.*}}, %[[SCRATCH_B]]
+// CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
 // CHECK:       d2m.unpack_stall_on_pack
-// CHECK-NOT:   d2m.unpack_stall_on_pack
+// CHECK:       affine.for {{.*}} = 0 to 2
 // CHECK:       affine.load %[[SCRATCH_A]]
 // CHECK:       affine.load %[[SCRATCH_B]]
 // CHECK:       "d2m.tile_add"
 // CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
-func.func @dependent_sibling_scratch_loops_get_fused(
+func.func @dependent_sibling_scratch_loops_not_fused_at_affine_level(
     %in0  : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
     %in1  : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
     %out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
