@@ -49,7 +49,7 @@ from builder.d2m.d2m_builder import D2MBuilder
 
 def _compile_and_execute(
     compile_fn: Callable,
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"],
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"],
     pcc: float,
     atol: float,
     rtol: float,
@@ -71,7 +71,8 @@ def _compile_and_execute(
         assert target in [
             "ttnn",
             "ttmetal",
-        ], f"DeferredDevice is only supported for ttnn/ttmetal targets, got {target}"
+            "ttnn-mode",
+        ], f"DeferredDevice is only supported for ttnn/ttmetal/ttnn-mode targets, got {target}"
         deferred = device
         deferred.prepare()
         device = None
@@ -101,7 +102,7 @@ def _compile_and_execute(
 
         # Execute the flatbuffer, closing deferred devices after execution so that
         # the next test's compilation can use a mock device without conflict.
-        if target in ["ttnn", "ttmetal"]:
+        if target in ["ttnn", "ttmetal", "ttnn-mode"]:
             execute_fb(
                 compiled_bin,
                 pcc=pcc,
@@ -262,7 +263,7 @@ def compile_and_execute_d2m(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
@@ -304,7 +305,7 @@ def compile_and_execute_d2m(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -372,7 +373,7 @@ def compile_and_execute_shlo(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
@@ -416,7 +417,7 @@ def compile_and_execute_shlo(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -603,7 +604,7 @@ def compile_and_execute_ttir(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
@@ -645,7 +646,7 @@ def compile_and_execute_ttir(
         Base name for dumped files
     output_root : str
         Path to dump all generated files
-    target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
+    target : Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"]
         Target backend to use
     mesh_name : str
         Name of the mesh to be used
@@ -713,7 +714,7 @@ def compile_ttir_to_flatbuffer(
     fn: Callable,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     artifact_dir: str = ".",
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
@@ -750,8 +751,8 @@ def compile_ttir_to_flatbuffer(
     output_root : str
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
-    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy"]*
-        Either "ttnn", "ttmetal", or "emitc". This controls which backend to use.
+    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"]*
+        Either "ttnn", "ttmetal", "emitc", "emitpy", or "ttnn-mode". This controls which backend to use.
     mesh_name : *str*, optional
         Name of the mesh to be used in the module. Default is "mesh".
     mesh_dict : *OrderedDict[str, int]*, optional
@@ -834,7 +835,7 @@ def compile_ttnn_to_flatbuffer(
     fn: Callable,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     artifact_dir: str = ".",
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
@@ -863,7 +864,7 @@ def compile_ttnn_to_flatbuffer(
         The string to be used as the test_base name for dumped files
     output_root : str, optional
         The path to dump all generated files under
-    target : *Literal["ttnn", "ttmetal", "emitc"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"]*, optional
         The target backend to use. Default is "ttnn"
     mesh_name : str, optional
         Name of the mesh to be used in the module
@@ -920,7 +921,7 @@ def compile_d2m_to_flatbuffer(
     fn: Callable,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     artifact_dir: str = ".",
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
@@ -957,8 +958,8 @@ def compile_d2m_to_flatbuffer(
     output_root : str
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
-    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy"]*
-        Either "ttnn", "ttmetal", or "emitc". This controls which backend to use.
+    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"]*
+        Either "ttnn", "ttmetal", "emitc", "emitpy", or "ttnn-mode". This controls which backend to use.
     mesh_name : *str*, optional
         Name of the mesh to be used in the module. Default is "mesh".
     mesh_dict : *OrderedDict[str, int]*, optional
@@ -1020,7 +1021,7 @@ def compile_stablehlo_to_flatbuffer(
     fn: Callable,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     artifact_dir: str = ".",
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
@@ -1053,7 +1054,7 @@ def compile_stablehlo_to_flatbuffer(
         The string to be used as the test_base name for dumped files
     output_root : str, optional
         The path to dump all generated files under
-    target : *Literal["ttnn", "ttmetal", "emitpy", "emitc"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"]*, optional
         The target backend to use. Default is "ttnn"
     mesh_name : str, optional
         Name of the mesh to be used in the module
@@ -1165,7 +1166,7 @@ def compile_ttir_module_to_flatbuffer(
     builder: Builder,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     artifact_dir: str = ".",
-    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"] = "ttnn",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
     argument_types_string: Optional[str] = None,
@@ -1182,7 +1183,7 @@ def compile_ttir_module_to_flatbuffer(
 
     This decorator takes an existing TTIR MLIR module and compiles it through
     the backend pipeline to generate a flatbuffer file. It supports multiple
-    targets including TTNN, TTMetal, emitc, and emitpy. It is mainly a wrapper around the following functions, with
+    targets including TTNN, TTMetal, emitc, emitpy, and ttnn-mode. It is mainly a wrapper around the following functions, with
     each next function called on the output of the last:
 
     1. `run_ttir_pipeline`
@@ -1200,7 +1201,7 @@ def compile_ttir_module_to_flatbuffer(
         The string to be used as the test_base name for dumped files.
     output_root : str, optional
         The path to dump all generated files under
-    target : *Literal["ttnn", "ttmetal", "emitpy", "emitc"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitc", "emitpy", "ttnn-mode"]*, optional
         The target backend to use. Default is "ttnn"
     mesh_dict : *OrderedDict[str, int]*, optional
         Dictionary that defines the mesh shape.
@@ -1302,6 +1303,8 @@ def compile_ttir_module_to_flatbuffer(
         to_target = emitpy_to_executable
         target_extension = "py"
         pipeline_options.append("split-files=false")
+    elif target == "ttnn-mode":
+        pass
     else:
         raise ValueError("Unsupported target: " + target)
 
@@ -1347,7 +1350,7 @@ def compile_ttir_module_to_flatbuffer(
         if target == "emitpy":
             with open(output_file_bin, "w") as f:
                 f.write(compiled_bin)
-        elif target in ["ttnn", "ttmetal"]:
+        elif target in ["ttnn", "ttmetal", "ttnn-mode"]:
             to_file(module, output_file_bin, {}, [])
 
     return compiled_bin, input_output_goldens, intermediate_goldens
