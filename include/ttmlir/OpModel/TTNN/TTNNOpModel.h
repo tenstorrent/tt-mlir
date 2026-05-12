@@ -752,7 +752,9 @@ struct OpModel<PagedScaledDotProductAttentionDecodeOp> {
       std::optional<TTNNLayoutAttr> attentionSinkLayout,
       std::optional<llvm::APFloat> scale,
       std::optional<uint32_t> slidingWindowSize,
-      std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout);
+      std::optional<CoreCoordAttr> coreGrid,
+      std::optional<SDPAProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -767,7 +769,9 @@ struct OpModel<PagedScaledDotProductAttentionDecodeOp> {
       std::optional<TTNNLayoutAttr> attentionSinkLayout,
       std::optional<llvm::APFloat> scale,
       std::optional<uint32_t> slidingWindowSize,
-      std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout);
+      std::optional<CoreCoordAttr> coreGrid,
+      std::optional<SDPAProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

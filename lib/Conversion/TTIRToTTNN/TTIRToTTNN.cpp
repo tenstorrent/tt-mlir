@@ -3431,7 +3431,8 @@ public:
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(),
         /*memory_config=*/nullptr,
-        /*core_grid=*/nullptr);
+        /*core_grid=*/nullptr,
+        /*program_config=*/nullptr);
     return success();
   }
 };

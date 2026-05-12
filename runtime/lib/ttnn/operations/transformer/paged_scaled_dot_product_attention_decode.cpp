@@ -4,6 +4,7 @@
 
 #include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
 
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -49,7 +50,14 @@ static void runPagedScaledDotProductAttentionDecodeOp(
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig = std::nullopt;
-  if (!isCausal) {
+  if (op->program_config()) {
+    // Compile-time path (see PagedScaledDotProductAttentionDecodeProgramConfig
+    // RewritePattern): when the workaround pass has baked an explicit
+    // program_config into the IR (large-head_dim shapes that would overflow
+    // per-core L1 under the default schedule), use it verbatim and skip the
+    // runtime heuristics below.
+    programConfig = utils::createSDPAProgramConfig(op->program_config());
+  } else if (!isCausal) {
     programConfig.emplace();
     programConfig->k_chunk_size = 32; // Required for non-causal
     programConfig->compute_with_storage_grid_size = computeGrid;

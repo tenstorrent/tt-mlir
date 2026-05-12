@@ -2815,7 +2815,9 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
     std::optional<llvm::APFloat> scale,
     std::optional<uint32_t> slidingWindowSize,
-    std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout) {
+    std::optional<CoreCoordAttr> coreGrid,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2858,9 +2860,12 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  // Prefer an explicit program_config attribute (set by the workaround pass
+  // for large-head_dim shapes). Otherwise, fall back to the core-grid-driven
+  // default that mirrors the runtime's existing schedule.
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      sdpaProgramConfig = std::nullopt;
-  if (coreGrid) {
+      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+  if (!sdpaProgramConfig && coreGrid) {
     sdpaProgramConfig.emplace();
     sdpaProgramConfig->compute_with_storage_grid_size =
         ::tt::tt_metal::CoreCoord{coreGrid->getX(), coreGrid->getY()};
@@ -2902,7 +2907,9 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
     std::optional<llvm::APFloat> scale,
     std::optional<uint32_t> slidingWindowSize,
-    std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout) {
+    std::optional<CoreCoordAttr> coreGrid,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2948,8 +2955,8 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      sdpaProgramConfig = std::nullopt;
-  if (coreGrid) {
+      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+  if (!sdpaProgramConfig && coreGrid) {
     sdpaProgramConfig.emplace();
     sdpaProgramConfig->compute_with_storage_grid_size =
         ::tt::tt_metal::CoreCoord{coreGrid->getX(), coreGrid->getY()};
