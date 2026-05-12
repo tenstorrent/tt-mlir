@@ -43,11 +43,11 @@ module attributes {ttcore.system_desc = #system_desc} {
       %buf1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %buf2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %buf3 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %0 = d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %1 = d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %2 = d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %4 = "d2m.block_mask"(%0, %buf3, %1, %2, %c50, %c64) <{fill_value = #ttcore.oob_val<inf>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %5 = d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
+      d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
+      d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>
+      d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>
+      %4 = "d2m.block_mask"(%buf0, %buf3, %buf1, %buf2, %c50, %c64) <{fill_value = #ttcore.oob_val<inf>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>
     }
     return
   }
@@ -102,11 +102,11 @@ module attributes {ttcore.system_desc = #system_desc} {
       %buf1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %buf2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %buf3 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %0 = d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %1 = d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %2 = d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %4 = "d2m.block_mask"(%0, %buf3, %1, %2, %c50, %c50) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %5 = d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
+      d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
+      d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>
+      d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>
+      %4 = "d2m.block_mask"(%buf0, %buf3, %buf1, %buf2, %c50, %c50) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>
     }
     return
   }
@@ -134,11 +134,11 @@ module attributes {ttcore.system_desc = #system_desc} {
       %buf1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %buf2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %buf3 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %0 = d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %1 = d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %2 = d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %4 = "d2m.block_mask"(%0, %buf3, %1, %2, %c50, %c50) <{fill_value = #ttcore.oob_val<neginf>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %5 = d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
+      d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
+      d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>
+      d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>
+      %4 = "d2m.block_mask"(%buf0, %buf3, %buf1, %buf2, %c50, %c50) <{fill_value = #ttcore.oob_val<neginf>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>
     }
     return
   }
@@ -166,11 +166,11 @@ module attributes {ttcore.system_desc = #system_desc} {
       %buf1 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %buf2 = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
       %buf3 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %0 = d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %1 = d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %2 = d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-      %4 = "d2m.block_mask"(%0, %buf3, %1, %2, %c64, %c64) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
-      %5 = d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
+      d2m.remote_load %buf0 %arg0[%c0, %c0] : memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>
+      d2m.remote_load %buf1 %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>
+      d2m.remote_load %buf2 %arg3[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard_1x1, #l1>
+      %4 = "d2m.block_mask"(%buf0, %buf3, %buf1, %buf2, %c64, %c64) <{fill_value = #ttcore.oob_val<zero>, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1>}> : (memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, index, index) -> memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      d2m.remote_store %arg1[%c0, %c0] %4 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #shard_2x2, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>
     }
     return
   }
