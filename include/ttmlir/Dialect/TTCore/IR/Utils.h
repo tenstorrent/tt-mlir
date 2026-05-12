@@ -18,6 +18,8 @@
 namespace mlir::tt::ttcore {
 
 constexpr inline llvm::StringLiteral g_kvCacheAttrName = "ttcore.kv_cache";
+constexpr inline llvm::StringLiteral g_cumulativeLengthAttrName =
+    "ttcore.cumulative_length";
 
 class DeviceOp;
 class DeviceAttr;
