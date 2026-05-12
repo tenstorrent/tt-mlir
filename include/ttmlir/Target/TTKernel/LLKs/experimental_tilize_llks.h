@@ -21,10 +21,19 @@ ALWI void llk_unpack_tilize(uint32_t operand, uint32_t tile_index,
                                 1; // Remove header size added by descriptor
 
   WAYPOINT("UPTW");
+#ifdef ARCH_BLACKHOLE
   _llk_unpack_tilize_(base_address + (start_tile_index * page_bytes),
                       tile_index, unpack_src_format[operand_id],
                       unpack_dst_format[operand_id], face_r_dim, num_faces,
                       narrow_tile);
+#else
+  // Wormhole's _llk_unpack_tilize_ still takes block_ct_dim (tt-metal #43780
+  // only removed it on Blackhole).
+  _llk_unpack_tilize_(base_address + (start_tile_index * page_bytes),
+                      tile_index, unpack_src_format[operand_id],
+                      unpack_dst_format[operand_id], block_ct_dim, face_r_dim,
+                      num_faces, narrow_tile);
+#endif
   WAYPOINT("UPTD");
 }
 
