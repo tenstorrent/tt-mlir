@@ -524,7 +524,7 @@ def TTIRConsolidateStaticCacheUpdates
     - Multiple return operands match [mesh_shard(] add(blockArg, const_delta) [)]
     - The add result has exactly one use: the return operand.
     - All matched adds share the same constant delta value and the same
-      blockArg element type (grouped by these two keys).
+      blockArg type (grouped by these two keys).
     - The blockArg type matches the add result type (no broadcasting).
 
     Relies on the lockstep decode invariant: all per-layer cumulative_length

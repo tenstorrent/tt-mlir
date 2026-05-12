@@ -42,53 +42,53 @@ module {
   }
 }
 
-// Positive case: TP-style per-layer pattern with different block args and
-// ttir.constant delta.  The pass unifies %cl0 and %cl1 → %cl2 (canonical).
+// Positive case: TP-style per-layer pattern with different block args.
+// The pass unifies %arg0 and %arg1 → %arg2 (canonical).
 // CSE then deduplicates the 3 identical adds to 1.  Safe because all per-layer
 // cumulative_lengths hold equal values at function entry (lockstep invariant).
 module {
-  // CHECK-LABEL: func.func @consolidate_per_layer_constant
-  func.func @consolidate_per_layer_constant(
-      %cl0: tensor<1xi64>,
-      %cl1: tensor<1xi64>,
-      %cl2: tensor<1xi64>
-  ) -> (tensor<1xi64>, tensor<1xi64>, tensor<1xi64>) {
-    %delta = "ttir.constant"() <{value = dense<1> : tensor<1xi64>}> : () -> tensor<1xi64>
-    %a0 = "ttir.add"(%cl0, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
-    %a1 = "ttir.add"(%cl1, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
-    %a2 = "ttir.add"(%cl2, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
+  // CHECK-LABEL: func.func @consolidate_per_layer
+  func.func @consolidate_per_layer(
+      %arg0: tensor<1xi32>,
+      %arg1: tensor<1xi32>,
+      %arg2: tensor<1xi32>
+  ) -> (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>) {
+    %delta = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
+    %a0 = "ttir.add"(%arg0, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    %a1 = "ttir.add"(%arg1, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    %a2 = "ttir.add"(%arg2, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
     // CHECK:     [[ADD:%.+]] = "ttir.add"
     // CHECK-NOT: "ttir.add"
     // CHECK: return [[ADD]], [[ADD]], [[ADD]]
-    return %a0, %a1, %a2 : tensor<1xi64>, tensor<1xi64>, tensor<1xi64>
+    return %a0, %a1, %a2 : tensor<1xi32>, tensor<1xi32>, tensor<1xi32>
   }
 }
 
 // Positive case: per-layer block args with internal uses.  The pass replaces
-// all uses of %cl0 and %cl1 with canonical %cl2.  CSE collapses the 3
-// identical write-back adds to 1.  The internal add uses %cl2 after unification.
+// all uses of %arg0 and %arg1 with canonical %arg2.  CSE collapses the 3
+// identical write-back adds to 1.  The internal add uses %arg2 after unification.
 module {
   // CHECK-LABEL: func.func @consolidate_block_args_internal_uses
   func.func @consolidate_block_args_internal_uses(
-      %cl0: tensor<1xi64>,
-      %cl1: tensor<1xi64>,
-      %cl2: tensor<1xi64>,
-      %other: tensor<1xi64>
-  ) -> (tensor<1xi64>, tensor<1xi64>, tensor<1xi64>, tensor<1xi64>) {
-    %delta = "ttir.constant"() <{value = dense<1> : tensor<1xi64>}> : () -> tensor<1xi64>
-    %a0 = "ttir.add"(%cl0, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
-    %a1 = "ttir.add"(%cl1, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
-    %a2 = "ttir.add"(%cl2, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
-    // Internal use of %cl0 — the pass replaces %cl0 (%arg0) with the
-    // canonical %cl2 (%arg2), so this add becomes add(%arg2, %arg3).
-    %internal = "ttir.add"(%cl0, %other) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
+      %arg0: tensor<1xi32>,
+      %arg1: tensor<1xi32>,
+      %arg2: tensor<1xi32>,
+      %arg3: tensor<1xi32>
+  ) -> (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>) {
+    %delta = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
+    %a0 = "ttir.add"(%arg0, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    %a1 = "ttir.add"(%arg1, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    %a2 = "ttir.add"(%arg2, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    // Internal use of %arg0 — the pass replaces %arg0 with the canonical
+    // %arg2, so this add becomes add(%arg2, %arg3).
+    %internal = "ttir.add"(%arg0, %arg3) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
     // After arg unification + CSE: one write-back add survives, %arg0/%arg1 gone.
     // CHECK:     [[KEPT:%.+]] = "ttir.add"(%arg2,
     // CHECK-NOT: "ttir.add"(%arg0,
     // CHECK-NOT: "ttir.add"(%arg1,
     // CHECK:     [[INT:%.+]] = "ttir.add"(%arg2, %arg3)
     // CHECK:     return [[KEPT]], [[KEPT]], [[KEPT]], [[INT]]
-    return %a0, %a1, %a2, %internal : tensor<1xi64>, tensor<1xi64>, tensor<1xi64>, tensor<1xi64>
+    return %a0, %a1, %a2, %internal : tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>
   }
 }
 
