@@ -371,8 +371,17 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_ro("stats", &tt::runtime::WorkerDebugStatsEntry::stats)
       .def("__repr__", [](const tt::runtime::WorkerDebugStatsEntry &entry) {
         std::ostringstream oss;
-        oss << "WorkerDebugStatsEntry(hostname='" << entry.hostname
-            << "', num_stats=" << entry.stats.size() << ")";
+        oss << "Worker: " << entry.hostname << "\n";
+        // Sort keys for consistent output
+        std::vector<std::string> keys;
+        keys.reserve(entry.stats.size());
+        for (const auto &[key, value] : entry.stats) {
+          keys.push_back(key);
+        }
+        std::sort(keys.begin(), keys.end());
+        for (const auto &key : keys) {
+          oss << "  " << key << ": " << entry.stats.at(key) << "\n";
+        }
         return oss.str();
       });
   m.def("get_worker_debug_stats", &tt::runtime::getWorkerDebugStats,
