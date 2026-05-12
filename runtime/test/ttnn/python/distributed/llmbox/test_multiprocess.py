@@ -185,6 +185,45 @@ def test_get_worker_debug_stats():
     shutdown_distributed_runtime()
 
 
+def test_tensor_refcount_deallocation_asymmetry():
+    """
+    Demonstrates that controller tensor destruction via refcount
+    is NOT reflected to workers.
+
+    Expected behavior (showing the current limitation):
+    - Worker shows: tensor_allocations=N, allocate_<UID>=1
+    - Worker does NOT show: tensor_deallocations or deallocate_<UID>
+    """
+    launch_distributed_runtime()
+
+    # Create tensor in a scope and let it be destroyed by refcount
+    def create_tensor_in_scope():
+        tensor = get_runtime_tensor_from_torch(
+            torch.randn(32, 32), storage=Storage.Owned
+        )
+        global_id = tensor.get_global_id()
+        return global_id
+
+    # Tensor is created and destroyed via Python refcount when scope exits
+    global_id = create_tensor_in_scope()
+
+    # Query worker stats and print them
+    stats = ttrt.runtime.get_worker_debug_stats()
+    for worker_stat in stats:
+        print(f"\nWorker: {worker_stat.hostname}")
+        for key, value in sorted(worker_stat.stats.items()):
+            print(f"  {key}: {value}")
+
+        # Allocation is tracked on worker
+        assert worker_stat.stats.get(f"allocate_{global_id}", 0) == 1
+
+        # Deallocation is NOT tracked on worker (demonstrating the asymmetry)
+        # The tensor was destroyed on controller via refcount, but worker never received deallocation
+        assert worker_stat.stats.get(f"deallocate_{global_id}", 0) == 0
+
+    shutdown_distributed_runtime()
+
+
 @pytest.mark.parametrize("mesh_shape", ["1x8"])
 def test_get_mesh_shape(mesh_shape):
     launch_distributed_runtime()
