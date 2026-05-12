@@ -328,6 +328,20 @@ class Builder(metaclass=BuilderMeta):
         # Generate new multi-device golden if it's presharded
         self._set_golden_tensor(operand, sharded_golden_tensor)
 
+        # A presharded arg's MLIR type is its per-device (local) shape. The
+        # decorator builds the func at the user-facing global shape, so we
+        # retype the block arg and the func signature here. Must run before
+        # any op consumes this operand.
+        local_shape = tuple(sharded_golden_tensor.shape)
+        element_type = self._get_type(operand).element_type
+        local_arg_type = RankedTensorType.get(local_shape, element_type)
+        operand.set_type(local_arg_type)
+        func_op = operand.owner.owner
+        input_types = list(func_op.type.inputs)
+        input_types[operand.arg_number] = local_arg_type
+        new_func_type = FunctionType.get(input_types, list(func_op.type.results))
+        func_op.attributes["function_type"] = TypeAttr.get(new_func_type)
+
         shard_status_attr = ttcore.ir.ShardStatusAttr.get(
             self._ctx, ttcore.ir.ShardStatus.Presharded
         )
@@ -1375,6 +1389,16 @@ class Builder(metaclass=BuilderMeta):
                 return process_multi_return_result(result)
 
             new_func_op = decorated_func.func_op
+            # preshard_arg may have retyped block args to their per-device
+            # local shape, but the upstream func.func decorator rebuilds
+            # function_type from the original (global) input shapes after the
+            # body runs. Resync function_type from the current block arg types
+            # so the func signature matches.
+            current_arg_types = [arg.type for arg in new_func_op.entry_block.arguments]
+            if list(new_func_op.type.inputs) != current_arg_types:
+                new_func_op.attributes["function_type"] = TypeAttr.get(
+                    FunctionType.get(current_arg_types, list(new_func_op.type.results))
+                )
             self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
             self._func_name_to_op[new_func_op.name.value] = new_func_op
             return new_func_op

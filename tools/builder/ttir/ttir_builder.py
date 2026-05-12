@@ -1041,16 +1041,13 @@ class TTIRBuilder(Builder):
                     golden_output = self._get_golden_tensor(old_op.result)
                     mesh_shard_builder._set_golden_tensor(in0, input0)
                     mesh_shard_builder._set_golden_tensor(new_op_result, golden_output)
-                    shard_type = ttcore.ir.MeshShardTypeAttr.maybe_downcast(
-                        old_op.shard_type
-                    ).value
                     shard_direction = ttcore.ir.MeshShardDirectionAttr.maybe_downcast(
                         old_op.shard_direction
                     ).value
-                    if shard_direction == ttcore.ir.MeshShardDirection.ShardToFull or (
-                        shard_direction == ttcore.ir.MeshShardDirection.FullToShard
-                        and shard_type == ttcore.ir.MeshShardType.Identity
-                    ):
+                    # ShardToFull consumes a per-device local tensor; the split
+                    # module's func arg therefore needs the presharded marker.
+                    # (FullToShard's input is global, so it stays unsharded.)
+                    if shard_direction == ttcore.ir.MeshShardDirection.ShardToFull:
                         mesh_shard_builder._annotate_presharded_arg(in0)
                     ordered_inputs.append(in0)
                     ordered_outputs.append(new_op_result)
