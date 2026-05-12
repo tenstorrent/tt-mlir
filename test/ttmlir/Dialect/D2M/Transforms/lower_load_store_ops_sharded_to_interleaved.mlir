@@ -35,8 +35,8 @@ module attributes {ttcore.system_desc = #system_desc} {
       %core0 = d2m.core_index(0) {phys_to_virt_map = #phys_to_virt} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = #phys_to_virt} : index
 
-      %0 = d2m.remote_load %cb_alias %arg0[%core0, %core1] : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
-      %1 = d2m.remote_store %view[%core0, %core1] %cb_alias : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1> -> memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
+      d2m.remote_load %cb_alias %arg0[%core0, %core1] : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>
+      d2m.remote_store %view[%core0, %core1] %cb_alias : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
     }
     return
   }

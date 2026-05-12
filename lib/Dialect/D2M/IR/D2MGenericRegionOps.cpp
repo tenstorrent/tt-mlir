@@ -579,8 +579,24 @@ bool LocalCopyOp::hasTensorSemantics() {
         "explicit CB form cannot have a result; result must only be present in "
         "implicit form.");
   }
-  if (hasLocalBuffer && !hasResultValue) {
-    return emitOpError("implicit form (with localBuffer) must have a result.");
+
+  // In implicit form, result presence is tied to the localBuffer's type:
+  //   - tensor localBuffer (pre-bufferization): result required (tensor SSA
+  //     value for downstream consumers).
+  //   - memref localBuffer (post-bufferization, DPS form): result absent; the
+  //     localBuffer itself is the destination.
+  if (hasLocalBuffer) {
+    bool localBufferIsTensor =
+        mlir::isa<RankedTensorType>(localBuffer.getType());
+    if (localBufferIsTensor && !hasResultValue) {
+      return emitOpError(
+          "implicit tensor form (with tensor localBuffer) must have a result.");
+    }
+    if (!localBufferIsTensor && hasResultValue) {
+      return emitOpError(
+          "implicit memref form (with memref localBuffer) must not have a "
+          "result; the localBuffer is the destination (DPS form).");
+    }
   }
 
   // Verify that tensor parameters are not allowed in explicit CB form
@@ -802,17 +818,31 @@ void WriteColMaskTileOp::getEffects(
         "present");
   }
 
-  // Verify result presence constraints (mirror RemoteLoadOp)
+  // Verify result presence constraints (mirror RemoteLoadOp).
   // Explicit CB form: CB present, localBuffer absent, result must NOT be
-  // present Implicit form: localBuffer present, CB absent, result MUST be
-  // present
+  // present.
+  // Implicit form: localBuffer present, CB absent. Result presence is tied
+  // to the destination memref's type:
+  //   - tensor memref (pre-bufferization): result required (tensor SSA value
+  //     consumed by yield).
+  //   - memref destination (post-bufferization, DPS form): result absent; the
+  //     destination memref itself is the result.
   if (hasCbOperand && hasResultValue) {
     return emitOpError(
         "explicit CB form cannot have a result; result must only be present in "
         "implicit form.");
   }
-  if (hasLocalBufferOperand && !hasResultValue) {
-    return emitOpError("implicit form (with localBuffer) must have a result.");
+  if (hasLocalBufferOperand) {
+    bool memrefIsTensor = mlir::isa<RankedTensorType>(getMemref().getType());
+    if (memrefIsTensor && !hasResultValue) {
+      return emitOpError(
+          "implicit tensor form (with tensor destination) must have a result.");
+    }
+    if (!memrefIsTensor && hasResultValue) {
+      return emitOpError(
+          "implicit memref form (with memref destination) must not have a "
+          "result; the destination memref is the result (DPS form).");
+    }
   }
 
   // Verify that tensor parameters are not allowed in explicit CB form
@@ -941,24 +971,13 @@ void WriteColMaskTileOp::getEffects(
     }
   }
 
-  // Verify result type matches memref type if result is present and in tensor
-  // mode
+  // Verify result type matches memref type (result only present in tensor
+  // form per the earlier presence check).
   if (hasResultValue) {
     Type memrefType = getMemref().getType();
-
-    // Only verify result type in tensor mode
-    if (mlir::isa<RankedTensorType>(memrefType)) {
-      Type resultType = getResult().getType();
-      // Result should match the destination memref type
-      if (resultType != memrefType) {
-        return emitOpError("result type must match memref type");
-      }
-    } else {
-      // In memref mode, result should be unused
-      if (!getResult().use_empty()) {
-        return emitOpError(
-            "result must be unused when memref operand has memref type");
-      }
+    Type resultType = getResult().getType();
+    if (resultType != memrefType) {
+      return emitOpError("result type must match memref type");
     }
   }
 
@@ -1419,43 +1438,23 @@ mlir::LogicalResult RemoteLoadOp::bufferize(
     return localBufferBuffer;
   }
 
-  // Convert result type to memref type
-  Type resultBufferType =
-      ttcore::getBufferType(result.getType(), /*isView=*/false);
-
-  // RemoteLoadOp always loads into L1 memory, so ensure the result type has
-  // L1 memory space. If the result type is a memref without memory space,
-  // add the L1 memory space attribute.
-  if (auto memrefType = mlir::dyn_cast<MemRefType>(resultBufferType)) {
-    if (!memrefType.getMemorySpace()) {
-      auto l1Attr = ttcore::MemorySpaceAttr::get(getContext(),
-                                                 ttcore::MemorySpace::DeviceL1);
-      resultBufferType =
-          MemRefType::get(memrefType.getShape(), memrefType.getElementType(),
-                          memrefType.getLayout(), l1Attr);
-    }
-  }
-
-  // Create a new RemoteLoadOp with bufferized operands (no CB, with result)
-  // Preserve the multicast form - either high-level (mcastDims) or low-level
-  // (mcastStartIndex/mcastShape)
-  RemoteLoadOp newOp;
+  // Create a new RemoteLoadOp with bufferized operands in DPS memref form
+  // (no CB, no result; the localBuffer is the destination). Preserve the
+  // multicast form - either high-level (mcastDims) or low-level
+  // (mcastStartIndex/mcastShape).
   if (isHighLevelMcast()) {
-    // High-level mcast form: use mcastDims builder
-    newOp = rewriter.create<RemoteLoadOp>(getLoc(), resultBufferType,
-                                          *localBufferBuffer, *memrefBuffer,
-                                          getIndices(), getMcastDims());
+    rewriter.create<RemoteLoadOp>(getLoc(), *localBufferBuffer, *memrefBuffer,
+                                  getIndices(), getMcastDims());
   } else {
-    // Low-level mcast form or no mcast: use mcastStartIndex/mcastShape builder
-    newOp = rewriter.create<RemoteLoadOp>(
-        getLoc(), resultBufferType, *localBufferBuffer, *memrefBuffer,
-        getIndices(), getMcastStartIndex(), getMcastShape());
+    rewriter.create<RemoteLoadOp>(getLoc(), *localBufferBuffer, *memrefBuffer,
+                                  getIndices(), getMcastStartIndex(),
+                                  getMcastShape());
   }
 
   // Create a ToTensorOp wrapper to maintain tensor semantics for downstream
-  // ops. This ensures that operations like linalg.generic still see tensors
-  // until they are bufferized. When they call getBuffer() during bufferization,
-  // they'll get the underlying memref (*localBufferBuffer).
+  // ops that still see the old tensor result. When they call getBuffer()
+  // during their own bufferization, they'll trace back to the underlying
+  // memref (*localBufferBuffer).
   auto toTensor = rewriter.create<bufferization::ToTensorOp>(
       getLoc(), result.getType(), *localBufferBuffer);
   rewriter.replaceAllUsesWith(result, toTensor.getResult());
@@ -1596,21 +1595,27 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
     localBufferBufferized = *localBufferMaybe;
   }
 
-  // Convert result type to memref type
-  // In implicit form (localBuffer present), result is always required
+  // Pre-bufferization implicit form must carry a tensor result (yield value).
   Value result = getResult();
   if (!result) {
     return emitOpError("Expected result in implicit form during bufferization");
   }
 
-  Type resultBufferType =
-      ttcore::getBufferType(result.getType(), /*isView=*/false);
+  // Create a new RemoteStoreOp in DPS memref form (no result; destination
+  // memref is the result). Use the raw build() entry point so we can pass
+  // all the variadic operands.
+  rewriter.create<RemoteStoreOp>(
+      getLoc(), /*resultTypes=*/TypeRange{}, *memrefBuffer, getIndices(),
+      localBufferBufferized, /*cb=*/Value{}, getStartDevice(),
+      getDeviceMcastShape(), getSemaphore(), getSemaphoreIndices());
 
-  // Create a new RemoteStoreOp with bufferized operands and result
-  mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
-      rewriter, *this, resultBufferType, *memrefBuffer, getIndices(),
-      localBufferBufferized, getStartDevice(), getDeviceMcastShape(),
-      getSemaphore(), getSemaphoreIndices());
+  // Create a ToTensorOp wrapper to maintain tensor semantics for the old
+  // tensor result. The only user is `d2m.yield`, which will erase itself
+  // during its own bufferization, so this wrapper is short-lived.
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *memrefBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
 
   return mlir::success();
 }
