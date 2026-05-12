@@ -15,6 +15,7 @@ from test_utils import Marks, shape_str, shapes_list_str, SkipIf
 pytestmark = pytest.mark.frontend("ttir")
 
 
+# Example test for usage of ttnn-mode to verify simple builder functionality
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
