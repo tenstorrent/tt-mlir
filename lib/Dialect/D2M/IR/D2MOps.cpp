@@ -3083,17 +3083,26 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
 
   GenericOp generic = region.getParentOfType<GenericOp>();
 
-  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops,
-  // stepping into blocking loops only. Do NOT walk into compute loops
-  // (scf.for without d2m.blocking_loop) — allocs inside those are local
-  // working buffers, not operand allocations.
+  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops.
+  //
+  // Descent into nested scf.for/affine.for is unconditional, but matching
+  // rules differ by context:
+  //  - At the top level or inside a blocking loop (tagged `d2m.blocking_loop`):
+  //    allocs match either by remote_load/remote_store association
+  //    (`assoc.hasRemoteUse`) or by positional declaration order.
+  //  - Inside a compute loop (scf.for/affine.for without `d2m.blocking_loop`):
+  //    only allocs with a direct remote_load/remote_store association are
+  //    considered operand allocs. Positional matching is disabled because
+  //    declaration order inside a compute loop has no relation to operand
+  //    declaration order; allocs without remote use there are local working
+  //    buffers, not operand allocations.
   //
   // d2m.get_cb ops are matched by operand_index when present, otherwise by
-  // their remote_load/remote_store binding. tensor.empty/memref.alloc ops are
-  // matched by positional order.
+  // their remote_load/remote_store binding.
   Value result;
   unsigned idx = 0;
-  std::function<void(Block &)> scanBlock = [&](Block &block) {
+  std::function<void(Block &, bool)> scanBlock = [&](Block &block,
+                                                     bool insideComputeLoop) {
     for (Operation &op : block) {
       if (result) {
         return;
@@ -3102,14 +3111,14 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
         LocalBufferAssociation assoc = analyzeLocalBufferAssociation(
             emptyOp.getResult(),
             generic ? generic.getOutputs().front() : Value());
-        if (assoc.hasRemoteUse || assoc.operand) {
+        if (assoc.hasRemoteUse || (assoc.operand && !insideComputeLoop)) {
           if (generic && assoc.operand &&
               generic.getOperandIndex(assoc.operand) ==
                   static_cast<int64_t>(operandIndex)) {
             result = emptyOp.getResult();
             return;
           }
-        } else {
+        } else if (!insideComputeLoop) {
           if (idx == operandIndex) {
             result = emptyOp.getResult();
             return;
@@ -3134,7 +3143,7 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
             result = allocOp.getResult();
             return;
           }
-        } else {
+        } else if (!insideComputeLoop) {
           if (idx == operandIndex) {
             result = allocOp.getResult();
             return;
@@ -3142,17 +3151,15 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
           ++idx;
         }
       } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          scanBlock(*forOp.getBody());
-        }
+        bool isBlocking = forOp->hasAttr("d2m.blocking_loop");
+        scanBlock(*forOp.getBody(), insideComputeLoop || !isBlocking);
       } else if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          scanBlock(*forOp.getBody());
-        }
+        bool isBlocking = forOp->hasAttr("d2m.blocking_loop");
+        scanBlock(*forOp.getBody(), insideComputeLoop || !isBlocking);
       }
     }
   };
-  scanBlock(region.front());
+  scanBlock(region.front(), /*insideComputeLoop=*/false);
 
   return result;
 }
