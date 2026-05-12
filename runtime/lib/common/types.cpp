@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/types.h"
-#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/utils.h"
@@ -208,17 +207,7 @@ std::uint32_t Device::nextDeviceGlobalId() {
 
 std::uint64_t Tensor::nextTensorGlobalId() {
   static std::atomic<std::uint64_t> globalId = 0;
-  std::uint64_t id = globalId.fetch_add(1, std::memory_order_relaxed);
-  ::tt::runtime::debug::Stats::get().incrementStat("tensor_allocations");
-  ::tt::runtime::debug::Stats::get().incrementStat("allocate_" +
-                                                   std::to_string(id));
-  return id;
-}
-
-Tensor::~Tensor() {
-  ::tt::runtime::debug::Stats::get().incrementStat("tensor_deallocations");
-  ::tt::runtime::debug::Stats::get().incrementStat("deallocate_" +
-                                                   std::to_string(globalId));
+  return globalId.fetch_add(1, std::memory_order_relaxed);
 }
 
 std::uint64_t GlobalSemaphore::nextGlobalSemaphoreGlobalId() {
