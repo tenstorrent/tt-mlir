@@ -51,6 +51,16 @@ ctest --preset <preset>
 | `clang-debug`   | Debug          | clang    |                                                         |
 | `san`           | RelWithDebInfo | gcc      | ASan + UBSan on first-party code (tt-mlir unsanitized)  |
 
+### Running tests through ttsim
+
+Every build already stages `tenstorrent/ttsim` alongside its SoC descriptor — no separate configure flag. To route the unit-test runtime through the simulator instead of opening a physical device, opt in at test time:
+
+```sh
+./scripts/build sim                     # builds with `default`, then ctest --preset sim
+ctest --preset sim                      # if you already have a default build
+TT_KURBLA_USE_SIMULATOR=1 ctest --preset dev   # any build dir works — the env var is the actual switch
+```
+
 Override the source tree of `tt-mlir` without editing the submodule:
 
 ```sh
