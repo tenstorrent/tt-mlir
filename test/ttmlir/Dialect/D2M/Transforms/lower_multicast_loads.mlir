@@ -30,9 +30,9 @@ module {
       // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
       // CHECK-DAG: %[[C4:.*]] = arith.constant 4 : index
       // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0)
-      // CHECK: %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[CORE0]], %[[C0]]] mshape[%[[C1]], %[[C4]]]
+      // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[CORE0]], %[[C0]]] mshape[%[[C1]], %[[C4]]]
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-      %load_result = d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
     }
     return
   }
@@ -59,9 +59,9 @@ module {
       // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
       // CHECK-DAG: %[[C4:.*]] = arith.constant 4 : index
       // CHECK-DAG: %[[CORE1:.*]] = d2m.core_index(1)
-      // CHECK: %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[C0]], %[[CORE1]]] mshape[%[[C4]], %[[C1]]]
+      // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[C0]], %[[CORE1]]] mshape[%[[C4]], %[[C1]]]
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-      %load_result = d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
     }
     return
   }
@@ -84,11 +84,11 @@ module {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       // High-level mcast form on dim 0 with grid size 1 - should become unicast
-      // CHECK: %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] :
+      // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] :
       // CHECK-NOT: mcore[
       // CHECK-NOT: mshape[
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-      %load_result = d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
     }
     return
   }

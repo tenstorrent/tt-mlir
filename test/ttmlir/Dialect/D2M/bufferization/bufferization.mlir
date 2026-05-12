@@ -61,9 +61,9 @@ func.func @dma_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layo
     %iter1 = d2m.block_index(1) : index
     // CHECK: %[[BUFFER:.*]] = memref.alloc
     %buffer = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
-    // CHECK: d2m.remote_load %{{.*}} %[[VIEW]][{{.*}}, {{.*}}] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: d2m.remote_load %{{.*}} %[[VIEW]][{{.*}}, {{.*}}] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     %load_result = d2m.remote_load %buffer %view[%iter0, %iter1] : tensor<1x1x!ttcore.tile<32x32, f32>>, tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view> -> tensor<1x1x!ttcore.tile<32x32, f32>>
-    // CHECK: d2m.remote_store %[[ALLOC1]][{{.*}}, {{.*}}] {{.*}} : memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>> -> memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK: d2m.remote_store %[[ALLOC1]][{{.*}}, {{.*}}] {{.*}} : memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>>
     %store_result = d2m.remote_store %output[%iter0, %iter1] %load_result : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>, tensor<1x1x!ttcore.tile<32x32, f32>> -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>
 
     // CHECK: %[[DST_BUFFER:.*]] = memref.alloc
