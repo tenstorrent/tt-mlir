@@ -82,13 +82,9 @@ getMeshShapeFromMeshAttr(mlir::sdy::MeshAttr meshAttr) {
 
 // Insert a new mesh into the module.
 void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
-                     std::string firstAxisName, std::string secondAxisName,
-                     int64_t firstAxisSize, int64_t secondAxisSize) {
+                     MeshMap meshMap) {
   MLIRContext *context = module.getContext();
   mlir::OpBuilder builder(context);
-  shardy_utils::MeshMap meshMap;
-  meshMap[firstAxisName] = firstAxisSize;
-  meshMap[secondAxisName] = secondAxisSize;
   mlir::sdy::MeshAttr sdyMeshAttr =
       shardy_utils::createMeshAttrFromMeshMap(context, meshMap);
   builder.setInsertionPoint(&(module.getBody()->front()));
@@ -96,8 +92,17 @@ void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
       builder.getUnknownLoc(), builder.getStringAttr(meshName), sdyMeshAttr);
 }
 
-// Normalize a 1D mesh to 2D by prepending an axis of size 1.
-mlir::LogicalResult normalize1DMeshTo2D(mlir::ModuleOp &module) {
+void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
+                     std::string firstAxisName, std::string secondAxisName,
+                     int64_t firstAxisSize, int64_t secondAxisSize) {
+  shardy_utils::MeshMap meshMap;
+  meshMap[firstAxisName] = firstAxisSize;
+  meshMap[secondAxisName] = secondAxisSize;
+  addMeshToModule(module, meshName, meshMap);
+}
+
+// Normalize a 0D or 1D mesh to 2D. 0D meshes get {1,1}, 1D meshes get {1,N}.
+mlir::LogicalResult normalizeMeshTo2D(mlir::ModuleOp &module) {
   auto meshOps = getMeshOps(module);
   if (meshOps.empty()) {
     return mlir::success();
@@ -111,19 +116,26 @@ mlir::LogicalResult normalize1DMeshTo2D(mlir::ModuleOp &module) {
   auto meshShape = getMeshShapeFromMeshAttr(meshOps[0].getMeshAttr());
   size_t meshRank = meshShape.size();
   if (meshRank > 2) {
-    module.emitError("Pass expects a 1D or 2D mesh, got ") << meshRank << "D";
+    module.emitError("Pass expects a 0D, 1D, or 2D mesh, got ")
+        << meshRank << "D";
     return mlir::failure();
   }
 
-  if (meshRank != 1) {
+  if (meshRank == 2) {
     return mlir::success();
   }
 
-  std::string axisName = meshOps[0].getMeshAttr().getAxes()[0].getName().str();
+  // For 1D, use existing axis name; for 0D, use "default".
+  std::string axisName = "default";
+  int64_t axisSize = 1;
+  if (meshRank == 1) {
+    axisName = meshOps[0].getMeshAttr().getAxes()[0].getName().str();
+    axisSize = meshShape[0];
+  }
   std::string auxAxisName = axisName + "_aux";
   std::string meshSymName = meshOps[0].getSymName().str();
   removeMeshOps(module);
-  addMeshToModule(module, meshSymName, auxAxisName, axisName, 1, meshShape[0]);
+  addMeshToModule(module, meshSymName, auxAxisName, axisName, 1, axisSize);
 
   return mlir::success();
 }
