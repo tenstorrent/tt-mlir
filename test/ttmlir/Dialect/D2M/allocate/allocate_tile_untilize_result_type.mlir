@@ -27,12 +27,12 @@ module {
       affine.for %i = 0 to %bf0 {
         affine.for %j = 0 to %bf1 {
           %tile = memref.alloc() {alignment = 64 : i64} : memref<1x1x!ttcore.tile<32x32, f32>>
-          %loaded = d2m.remote_load %tile %arg0[%i, %j] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+          d2m.remote_load %tile %arg0[%i, %j] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
 
           %scalar = memref.alloc() {alignment = 64 : i64} : memref<32x32xf32>
           %untilized = "d2m.tile_untilize_block"(%tile, %scalar) : (memref<1x1x!ttcore.tile<32x32, f32>>, memref<32x32xf32>) -> memref<32x32xf32>
 
-          d2m.remote_store %arg1[%i, %j] %scalar : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #dram>, memref<32x32xf32> -> memref<32x32xf32>
+          d2m.remote_store %arg1[%i, %j] %scalar : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #dram>, memref<32x32xf32>
         } {d2m.blocking_loop = 1 : i64}
       } {d2m.blocking_loop = 0 : i64}
     }
