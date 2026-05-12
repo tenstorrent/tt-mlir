@@ -539,6 +539,36 @@ auto getOpSymbol() {
   }
 }
 
+// Returns true if the matmul program config already carries a fused
+// activation.
+inline bool programCarriesFusedActivation(
+    const std::optional<::ttnn::operations::matmul::MatmulProgramConfig> &pc) {
+  if (!pc) {
+    return false;
+  }
+  return std::visit(
+      [](const auto &cfg) -> bool {
+        using T = std::decay_t<decltype(cfg)>;
+        if constexpr (
+            std::is_same_v<T, ::ttnn::operations::matmul::
+                                  MatmulMultiCoreReuseMultiCastProgramConfig> ||
+            std::is_same_v<T,
+                           ::ttnn::operations::matmul::
+                               MatmulMultiCoreReuseMultiCast1DProgramConfig> ||
+            std::is_same_v<
+                T, ::ttnn::operations::matmul::
+                       MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig> ||
+            std::is_same_v<
+                T,
+                ::ttnn::operations::matmul::
+                    MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig>) {
+          return cfg.fused_activation.has_value();
+        }
+        return false;
+      },
+      *pc);
+}
+
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -2814,8 +2844,7 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
     std::optional<llvm::APFloat> scale,
-    std::optional<uint32_t> slidingWindowSize,
-    std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout) {
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2858,17 +2887,6 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      sdpaProgramConfig = std::nullopt;
-  if (coreGrid) {
-    sdpaProgramConfig.emplace();
-    sdpaProgramConfig->compute_with_storage_grid_size =
-        ::tt::tt_metal::CoreCoord{coreGrid->getX(), coreGrid->getY()};
-    sdpaProgramConfig->q_chunk_size = 0;
-    sdpaProgramConfig->k_chunk_size = 0;
-    sdpaProgramConfig->max_cores_per_head_batch =
-        coreGrid->getX() * coreGrid->getY();
-  }
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
@@ -2876,7 +2894,7 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfig,
+        /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -2901,8 +2919,7 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
     std::optional<llvm::APFloat> scale,
-    std::optional<uint32_t> slidingWindowSize,
-    std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout) {
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2947,25 +2964,13 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
 
-  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      sdpaProgramConfig = std::nullopt;
-  if (coreGrid) {
-    sdpaProgramConfig.emplace();
-    sdpaProgramConfig->compute_with_storage_grid_size =
-        ::tt::tt_metal::CoreCoord{coreGrid->getX(), coreGrid->getY()};
-    sdpaProgramConfig->q_chunk_size = 0;
-    sdpaProgramConfig->k_chunk_size = 0;
-    sdpaProgramConfig->max_cores_per_head_batch =
-        coreGrid->getX() * coreGrid->getY();
-  }
-
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfig,
+        /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -4549,14 +4554,15 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Convert activation string to optional
-  std::optional<std::string> activationStr =
-      activation ? std::make_optional(activation->str()) : std::nullopt;
-
   // Convert program config attribute
   auto programConfig =
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
+
+  std::optional<std::string> activationStr;
+  if (activation && !detail::programCarriesFusedActivation(programConfig)) {
+    activationStr = activation->str();
+  }
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =
@@ -4667,14 +4673,15 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Convert activation string to optional
-  std::optional<std::string> activationStr =
-      activation ? std::make_optional(activation->str()) : std::nullopt;
-
   // Convert program config attribute
   auto programConfig =
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
+
+  std::optional<std::string> activationStr;
+  if (activation && !detail::programCarriesFusedActivation(programConfig)) {
+    activationStr = activation->str();
+  }
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =

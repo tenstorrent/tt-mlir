@@ -3,7 +3,7 @@
 #ttnn_layout_host_row_major = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xbf16, #system_memory>>
 #ttnn_layout_host_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, bf16>, #system_memory>>
 #ttnn_layout_host_tile_shard = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #system_memory>>
-#ttnn_layout_device_tile_sharded = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>>
+#ttnn_layout_device_tile_sharded = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
 #ttnn_layout_device_tile_interleaved = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
 module attributes {} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = 2x4, chipIds = [0, 1, 2, 3, 4, 5, 6, 7]>
@@ -77,9 +77,11 @@ module attributes {} {
 
     // Get CB write pointers
     %cb0 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-    %src_ptr = emitc.call_opaque "get_write_ptr"(%cb0) : (!emitc.opaque<"::tt::CB">) -> i32
+    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %cb0 : !emitc.opaque<"::tt::CB">
+    %src_ptr = emitc.literal "cb_ctarg_0.get_write_ptr()" : i32
     %cb1 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-    %dst_ptr = emitc.call_opaque "get_write_ptr"(%cb1) : (!emitc.opaque<"::tt::CB">) -> i32
+    emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %cb1 : !emitc.opaque<"::tt::CB">
+    %dst_ptr = emitc.literal "cb_ctarg_1.get_write_ptr()" : i32
 
     // Get NOC address
     %noc_addr = emitc.call_opaque "get_noc_addr"(%translated_x, %translated_y, %dst_ptr) : (!emitc.size_t, !emitc.size_t, i32) -> i64

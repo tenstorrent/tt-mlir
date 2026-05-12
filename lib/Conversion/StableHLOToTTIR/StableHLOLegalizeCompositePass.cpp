@@ -726,10 +726,25 @@ public:
   }
 };
 
-// Special handling for tenstorrent.scaled_dot_product_attention ->
-// ttir.scaled_dot_product_attention
-// Extracts is_causal, scale from composite attributes and sets
-// operandSegmentSizes for AttrSizedOperandSegments
+// Lowers `stablehlo.composite "tenstorrent.scaled_dot_product_attention"` to
+// `ttir.scaled_dot_product_attention`. The composite is emitted by the
+// frontend (tt-xla) wrapper around
+// `torch.nn.functional.scaled_dot_product_attention`.
+//
+// Operand/attribute mapping:
+//   - Operands: [query, key, value] or [query, key, value, attention_mask].
+//     Shapes are passed through unchanged; the TTIR generic verifier enforces
+//     [B, Hq, Sq, D] / [B, Hkv, Sk, D] / [1|B, 1|Hq, Sq, Sk] layouts.
+//   - Attributes: only `is_causal` and `scale` are forwarded from the
+//     composite. Other attributes that PyTorch SDPA may set
+//     (e.g. `sliding_window_size`, `enable_gqa`) are not propagated.
+//
+// Policy decisions baked in below:
+//   1. The 4th operand (`attention_mask`) is forwarded only when
+//      `is_causal == false`, matching the kernel's mutual-exclusivity rule.
+//   2. `attention_sink` is hard-coded to operand-segment size 0; the frontend
+//      cannot supply it yet. Tracked by
+//      https://github.com/tenstorrent/tt-xla/issues/4030.
 class TenstorrentScaledDotProductAttentionConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 

@@ -489,17 +489,22 @@ getMissingConsumerPrefixLoops(ScratchLoopInfo &producer,
 }
 
 /// Build an access map for a consumer loading from a scratch buffer that was
-/// shaped by a producer with a potentially different inner loop step.
+/// shaped by a producer with a potentially different loop step.
 ///
-/// The scratch buffer layout is determined by the producer's allLoops[0] step
-/// (the outer column-batching loop inside scratch_space_loop). When a consumer
-/// has a different allLoops[0] step, the absolute tile column index
-/// (allLoops[0]_IV + allLoops[-1]_IV) must be decomposed using the producer's
-/// step to correctly address the scratch buffer.
+/// Two cross-step cases are handled:
 ///
-/// Example: producer allLoops[0] step=4 shapes scratch as [1,3,1,4].
-///   Producer stores at [arg10, arg11/4, arg12, arg13] for arg11 in {0,4,8}.
-/// Consumer allLoops[0] step=6 must access as:
+/// Column cross-step: the outer column loop (allLoops[0]) has a different
+/// step between producer and consumer. The absolute tile column index
+/// (allLoops[0]_IV + allLoops[-1]_IV) is decomposed using the producer's step.
+///
+/// Row cross-step: the outer row loop (scratchLoop) has a different step
+/// between producer and consumer (e.g. eltwise step=1 fused with reduction
+/// step=2). The absolute row index (scratchLoop_IV + inner_row_IVs) is
+/// decomposed using the producer's scratchLoop step.
+///
+/// Column cross-step example: producer allLoops[0] step=4 shapes scratch as
+/// [1,3,1,4]. Producer stores at [arg10, arg11/4, arg12, arg13] for arg11 in
+/// {0,4,8}. Consumer allLoops[0] step=6 must access as:
 ///   [arg10, (arg11+arg13)/4, arg12, (arg11+arg13)%4]
 /// instead of the wrong: [arg10, arg11/6, arg12, arg13].
 static FailureOr<std::pair<AffineMap, SmallVector<Value>>>
@@ -512,19 +517,22 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
   }
   SmallVector<affine::AffineForOp> &prefixLoops = *prefixLoopsOr;
 
-  // Cross-step handling is needed when the first inner loop (column-batching
-  // loop, allLoops[0]) has a different step between producer and consumer.
-  // The scratchLoop itself typically has step=1 for both, so we must compare
-  // allLoops[0] steps rather than scratchLoop steps.
+  // Column cross-step: allLoops[0] (outer column loop) has a different step.
   size_t targetRank = producer.scratchShape.size();
   size_t consumerRank = 1 + consumer.allLoops.size();
-  bool needsCrossStep = prefixLoops.empty() && targetRank == consumerRank &&
-                        consumer.allLoops.size() >= 2 &&
-                        !producer.allLoops.empty() &&
-                        producer.allLoops.front().getStepAsInt() !=
-                            consumer.allLoops.front().getStepAsInt();
+  bool needsColCrossStep = prefixLoops.empty() && targetRank == consumerRank &&
+                           consumer.allLoops.size() >= 2 &&
+                           !producer.allLoops.empty() &&
+                           producer.allLoops.front().getStepAsInt() !=
+                               consumer.allLoops.front().getStepAsInt();
 
-  if (!needsCrossStep) {
+  // Row cross-step: scratchLoop (outer row loop) has a different step.
+  // Requires middle loops (inner row) to compute the absolute row index.
+  bool needsRowCrossStep =
+      consumer.allLoops.size() >= 3 && producer.scratchLoop.getStepAsInt() !=
+                                           consumer.scratchLoop.getStepAsInt();
+
+  if (!needsColCrossStep && !needsRowCrossStep) {
     SmallVector<AffineExpr> exprs;
     SmallVector<Value> operands;
     unsigned dimIdx = 0;
@@ -559,9 +567,81 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
     return std::make_pair(AffineMap::get(dimIdx, 0, exprs, ctx), operands);
   }
 
-  // Cross-step case: consumer batches tile columns in different sizes than the
-  // producer. Compute the absolute column tile index and decompose it into the
-  // producer's scratch layout.
+  // Row cross-step (without column cross-step): consumer's scratchLoop spans
+  // multiple producer scratch rows per iteration. Combine scratchLoop_IV and
+  // inner-row IVs into an absolute row index, then decompose with the
+  // producer's scratchLoop step.
+  //
+  // Example: producer step=1 shapes scratch as [4,1,1,4]. Consumer step=2 with
+  // an inner row loop 0..2 accesses
+  //   [scratchIV + innerRowIV, outerCol/step, 0, innerCol].
+  if (needsRowCrossStep && !needsColCrossStep) {
+    int64_t prodRowStep = producer.scratchLoop.getStepAsInt();
+
+    SmallVector<AffineExpr> exprs;
+    SmallVector<Value> operands;
+    unsigned dimIdx = 0;
+
+    // Scratch loop: raw IV (not normalized by step).
+    operands.push_back(consumer.scratchLoop.getInductionVar());
+    AffineExpr dScratchRow = getAffineDimExpr(dimIdx++, ctx);
+    {
+      int64_t lb = consumer.scratchLoop.getConstantLowerBound();
+      if (lb != 0) {
+        dScratchRow = dScratchRow - lb;
+      }
+    }
+
+    auto addNormalizedLoop = [&](affine::AffineForOp loop) -> AffineExpr {
+      operands.push_back(loop.getInductionVar());
+      AffineExpr dim = getAffineDimExpr(dimIdx++, ctx);
+      int64_t lb = loop.getConstantLowerBound();
+      int64_t step = loop.getStepAsInt();
+      if (lb != 0) {
+        dim = dim - lb;
+      }
+      if (step != 1) {
+        dim = dim.floorDiv(step);
+      }
+      return dim;
+    };
+
+    // Outer col loop (allLoops[0]): normalized pass-through.
+    AffineExpr outerColExpr = addNormalizedLoop(consumer.allLoops.front());
+
+    // Middle loops (inner row): collect raw IVs for absolute row computation.
+    AffineExpr innerRowSum = getAffineConstantExpr(0, ctx);
+    for (size_t i = 1; i + 1 < consumer.allLoops.size(); ++i) {
+      operands.push_back(consumer.allLoops[i].getInductionVar());
+      AffineExpr d = getAffineDimExpr(dimIdx++, ctx);
+      int64_t lb = consumer.allLoops[i].getConstantLowerBound();
+      if (lb != 0) {
+        d = d - lb;
+      }
+      innerRowSum = innerRowSum + d;
+    }
+
+    // Inner col loop (allLoops[-1]): normalized pass-through.
+    AffineExpr innerColExpr = addNormalizedLoop(consumer.allLoops.back());
+
+    // Absolute row = scratchLoop_IV_raw + inner_row_IVs_raw.
+    AffineExpr absRow = dScratchRow + innerRowSum;
+
+    // Build expressions matching producer's scratch shape:
+    //   [absRow / prodRowStep, outerCol, absRow % prodRowStep, innerCol]
+    exprs.push_back(absRow.floorDiv(prodRowStep));
+    exprs.push_back(outerColExpr);
+    for (size_t i = 1; i + 1 < consumer.allLoops.size(); ++i) {
+      exprs.push_back(absRow % prodRowStep);
+    }
+    exprs.push_back(innerColExpr);
+
+    return std::make_pair(AffineMap::get(dimIdx, 0, exprs, ctx), operands);
+  }
+
+  // Column cross-step case: consumer batches tile columns in different sizes
+  // than the producer. Compute the absolute column tile index and decompose
+  // it into the producer's scratch layout.
   //
   // absolute_col = allLoops[0]_IV_raw + allLoops[-1]_IV_raw
   //   (allLoops[0] gives the batch start, allLoops[-1] gives offset in batch)
@@ -1254,37 +1334,50 @@ private:
         rewriter.eraseOp(storeOp);
       }
 
-      // Update loads in all consumer loops.
+      // Rewrite loads in all consumer loops. Loads within the
+      // producer's own loop (e.g. a reduction reading its own accumulator) use
+      // the producer's map; loads in external loops use the cross-step-aware
+      // consumer map and require an UNPACK/PACK stall guard.
       for (auto &consumerEntry : allocInfo.consumers) {
+        AffineMap loadMap;
+        SmallVector<Value> loadOperands;
+
         if (consumerEntry.loop == allocInfo.producer) {
-          continue;
-        }
-        size_t consumerIdx =
-            static_cast<size_t>(consumerEntry.loop - scratchLoops.data());
-        if (consumerIdx > allocInfo.lastConsumerIndex) {
-          continue;
-        }
+          auto producerSelfMap =
+              getScratchAccessMapAndOperands(producer, &getContext());
+          loadMap = producerSelfMap.first;
+          loadOperands = std::move(producerSelfMap.second);
+        } else {
+          // Skip consumers past the writer-bounded range; their scratch
+          // contents may already be overwritten by a later producer.
+          size_t consumerIdx =
+              static_cast<size_t>(consumerEntry.loop - scratchLoops.data());
+          if (consumerIdx > allocInfo.lastConsumerIndex) {
+            continue;
+          }
 
-        ScratchLoopInfo &consumer = *consumerEntry.loop;
-        ensureUnpackStallBeforeConsumer(producer, consumer, rewriter,
-                                        guardedScratchConsumers);
+          ScratchLoopInfo &consumer = *consumerEntry.loop;
+          ensureUnpackStallBeforeConsumer(producer, consumer, rewriter,
+                                          guardedScratchConsumers);
 
-        // Use producer-aware map so that consumers with a different linalgRoot
-        // step size correctly address the scratch buffer (which is laid out
-        // according to the producer's step).
-        FailureOr<std::pair<AffineMap, SmallVector<Value>>> consumerMapOr =
-            getConsumerScratchAccessMap(producer, consumer, &getContext());
-        if (failed(consumerMapOr)) {
-          return genericOp.emitOpError()
-                 << "cannot build static scratch access map for consumer";
+          // Use the producer-aware map so that consumers with a different
+          // linalgRoot step correctly address the scratch buffer (which is
+          // laid out according to the producer's step).
+          FailureOr<std::pair<AffineMap, SmallVector<Value>>> consumerMapOr =
+              getConsumerScratchAccessMap(producer, consumer, &getContext());
+          if (failed(consumerMapOr)) {
+            return genericOp.emitOpError()
+                   << "cannot build static scratch access map for consumer";
+          }
+          loadMap = consumerMapOr->first;
+          loadOperands = std::move(consumerMapOr->second);
         }
-        auto &[consumerMap, consumerOperands] = *consumerMapOr;
 
         for (auto loadOp : consumerEntry.loads) {
           rewriter.setInsertionPoint(loadOp);
 
           Value reloaded = rewriter.create<affine::AffineLoadOp>(
-              loadOp.getLoc(), scratchBuf, consumerMap, consumerOperands);
+              loadOp.getLoc(), scratchBuf, loadMap, loadOperands);
 
           rewriter.replaceOp(loadOp, reloaded);
         }

@@ -4,15 +4,14 @@
 #layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 256x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #layout2 = #ttcore.metal_layout<logical_shape = 256x768, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
-// Test that verifies the NEW behavior: distribute to 8x8 grid first, then tilize
+// Distribute to the target grid before tilization.
 func.func @tilize(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> {
   %0 = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK-LABEL: @tilize
-  // Verify the operation creates intermediate 8x8 distributed tensor
   // CHECK: %[[TILED:.*]] = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
   // CHECK: %[[INTERMEDIATE:.*]] = d2m.empty() : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
-  // Host-to-device transfer now uses dedicated d2m.to_device op
+  // Host-to-device transfer uses d2m.to_device.
   // CHECK: %[[TO_DEVICE:.*]] = d2m.to_device %arg0, %[[INTERMEDIATE]] layout = #layout{{[0-9]*}} : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout{{[0-9]*}}> -> tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
   // CHECK-SAME: threads = [#d2m.thread<unified>]
@@ -56,7 +55,7 @@ func.func @untilize(%arg0: tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>) ->
   // CHECK: %[[UNTILIZED:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
   // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK: d2m.tile_untilize_block
-  // Device-to-host transfer now uses dedicated d2m.to_host op
+  // Device-to-host transfer uses d2m.to_host.
   // CHECK: d2m.to_host %[[UNTILIZED]], %[[HOST]] layout = #layout{{[0-9]*}} : tensor<8x8x128x128xf32, #layout{{[0-9]*}}> into tensor<1024x1024xf32>
 
   %1 = d2m.to_layout %arg0, %0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> into tensor<1024x1024xf32>
@@ -72,13 +71,13 @@ func.func @compound(%arg0: tensor<256x768xf32>) -> tensor<256x768xf32> {
 
   // CHECK-LABEL: @compound
   // CHECK: d2m.empty() : tensor<8x8x32x96xf32, #layout{{[0-9]*}}>
-  // Host-to-device transfer uses d2m.to_device
+  // Host-to-device transfer uses d2m.to_device.
   // CHECK: d2m.to_device %arg0, %{{.*}} layout = #layout{{[0-9]*}} : tensor<256x768xf32> into tensor<8x8x32x96xf32, #layout{{[0-9]*}}>
   // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>{{.*}}threads = [#d2m.thread<unified>]
   // CHECK: d2m.tile_tilize_block
   // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>{{.*}}threads = [#d2m.thread<unified>]
   // CHECK: d2m.tile_untilize_block
-  // Device-to-host transfer uses d2m.to_host
+  // Device-to-host transfer uses d2m.to_host.
   // CHECK: d2m.to_host %{{.*}} layout = #layout{{[0-9]*}} : tensor<8x8x32x96xf32, #layout{{[0-9]*}}> into tensor<256x768xf32>
 
   %2 = d2m.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout2>
@@ -90,21 +89,13 @@ func.func @compound(%arg0: tensor<256x768xf32>) -> tensor<256x768xf32> {
   return %3 : tensor<256x768xf32>
 }
 
-// Test case showing what the OLD behavior would look like (for documentation purposes)
-// This is what we're moving AWAY from
+// Preserve the distributed tilize lowering path.
 func.func @old_behavior_example(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> {
   %0 = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
 
   // CHECK-LABEL: @old_behavior_example
-  // The OLD behavior that we DON'T want would have:
-  // 1. Move to 1x1 core: tensor<1024x1024xf32> -> tensor<1x1x1024x1024xf32>
-  // 2. Tilize on 1x1: tensor<1x1x1024x1024xf32> -> tensor<1x1x32x32x!ttcore.tile<32x32, f32>>
-  // 3. View as 8x8: tensor<1x1x32x32x!ttcore.tile<32x32, f32>> -> tensor<8x8x4x4x!ttcore.tile<32x32, f32>>
-  // 4. Distribute with datamovement threads
-
-  // But the new implementation should produce the same output as distributed_tilize:
   // CHECK: d2m.empty() : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
-  // Host-to-device transfer uses d2m.to_device
+  // Host-to-device transfer uses d2m.to_device.
   // CHECK: d2m.to_device %arg0, %{{.*}} layout = #layout{{[0-9]*}} : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
   // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>{{.*}}threads = [#d2m.thread<unified>]
 
@@ -158,14 +149,14 @@ func.func @compound_reblock_pad(%arg0: tensor<4x2x32x32xf32, #layout_src_compoun
 
 // Test masking with non-undef OOBVal and padding
 // logical_shape = 50x50 doesn't align to dim_alignments = 32x32, so padding exists
-// OOBVal = zero (not undef) should trigger masking
+// OOBVal = zero triggers masking when padding is present.
 #layout_mask = #ttcore.metal_layout<logical_shape = 50x50, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, zero, l1, sharded>
 
 func.func @tilize_with_masking(%arg0: tensor<50x50xf32>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask> {
   %0 = d2m.empty() : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
 
   // CHECK-LABEL: @tilize_with_masking
-  // After tilization, masking should be applied due to non-undef OOBVal + padding
+  // Masking runs after tilization.
   // CHECK: d2m.tile_tilize_block
   // CHECK: d2m.block_mask
   // CHECK-SAME: <zero>
@@ -177,20 +168,17 @@ func.func @tilize_with_masking(%arg0: tensor<50x50xf32>) -> tensor<1x1x2x2x!ttco
 }
 
 // Test masking with non-undef OOBVal and >2D grid (no collapse).
-// This exercises the case where collapsed_intervals is empty, producing >2
-// physical dimensions.  The mask scratch tensors must have the same grid rank
-// as the main operands; a prior bug only appended [1,1] shard dims (always
-// producing a 2D-grid mask) which crashed the verifier when gridRank > 2.
+// Mask scratch tensors must keep the same grid rank as the main operands.
 #layout_mask_4d = #ttcore.metal_layout<logical_shape = 2x2x50x50, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, zero, l1, sharded>
 
 func.func @masking_no_collapse_4d(%arg0: tensor<2x2x50x50xf32>) -> tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d> {
   %0 = d2m.empty() : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
 
   // CHECK-LABEL: @masking_no_collapse_4d
-  // Virtual-grid intermediates must carry VGM attrs (regression guard).
-  // CHECK: d2m.empty() {virtualGridForwardMapping = #map
-  // CHECK-SAME: virtualGridInverseMapping = #map
-  // Tilize then mask with zero OOBVal on a >2D grid (no collapse)
+  // Scratch work keeps the same uncollapsed 4D grid rank as the main operands.
+  // CHECK: d2m.generic
+  // CHECK-SAME: grid = #ttcore.grid<1x1x1x1>
+  // Tilize, then mask with zero OOBVal on a >2D grid.
   // CHECK: d2m.tile_tilize_block
   // CHECK: d2m.block_mask
   // CHECK-SAME: <zero>
@@ -222,14 +210,15 @@ func.func @chained_view(%arg0: tensor<2x4x32x32xf32, #layout_base_view>) -> tens
   return %1 : tensor<4x2x32x32xf32, #layout_with_view>
 }
 
-// Always use interleaved DRAM bounce for tensors on virtual grids
+// Host transfers for virtual grids stay on the native virtual L1 layout.
 
 #layout_virtual_dram_aligned = #ttcore.metal_layout<logical_shape = 4x32x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
 
 func.func @test_virtual_dram_bounce_aligned(%arg0: tensor<4x32x32xf32>) -> tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned> {
   // CHECK-LABEL: @test_virtual_dram_bounce_aligned
-  // CHECK: %{{.*}} = d2m.empty() : tensor<1x1x128x32xf32, #layout[[DRAM_LAYOUT_ALIGNED:[0-9]*]]
-  // CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT_ALIGNED]]
+  // CHECK-NOT: tensor<1x1x128x32xf32
+  // CHECK: %[[DST:.*]] = d2m.empty() : tensor<4x1x1x1x32x32xf32, #layout[[VIRTUAL_LAYOUT_ALIGNED:[0-9]*]]
+  // CHECK: d2m.to_device %arg0, %[[DST]] layout = #layout[[VIRTUAL_LAYOUT_ALIGNED]]
   %0 = d2m.empty() : tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
   %1 = d2m.to_layout %arg0, %0 : tensor<4x32x32xf32> into tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned> -> tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
   return %1 : tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
@@ -239,8 +228,9 @@ func.func @test_virtual_dram_bounce_aligned(%arg0: tensor<4x32x32xf32>) -> tenso
 
 func.func @test_virtual_dram_bounce_unaligned(%arg0: tensor<4x128x32xf32>) -> tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned> {
   // CHECK-LABEL: @test_virtual_dram_bounce_unaligned
-  // CHECK: %{{.*}} = d2m.empty() : tensor<1x1x512x32xf32, #layout[[DRAM_LAYOUT_UNALIGNED:[0-9]*]]
-  // CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT_UNALIGNED]]
+  // CHECK-NOT: tensor<1x1x512x32xf32
+  // CHECK: %[[DST:.*]] = d2m.empty() : tensor<4x4x1x1x32x32xf32, #layout[[VIRTUAL_LAYOUT_UNALIGNED:[0-9]*]]
+  // CHECK: d2m.to_device %arg0, %[[DST]] layout = #layout[[VIRTUAL_LAYOUT_UNALIGNED]]
   %0 = d2m.empty() : tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
   %1 = d2m.to_layout %arg0, %0 : tensor<4x128x32xf32> into tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned> -> tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
   return %1 : tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
@@ -250,15 +240,14 @@ func.func @test_virtual_dram_bounce_unaligned(%arg0: tensor<4x128x32xf32>) -> te
 
 func.func @test_uncollapsed_indivisible_bounce_grid(%arg0: tensor<1x5x1x19x32x32xbf16, #layout_indivisible_bounce_grid>) -> tensor<19x160x32xbf16> {
   // CHECK-LABEL: @test_uncollapsed_indivisible_bounce_grid
-  // CHECK: d2m.view_layout {{.*}} -> tensor<5x1x608x32xbf16
-  // CHECK: d2m.to_host {{.*}} tensor<5x1x608x32xbf16, #{{.*}}> into tensor<19x160x32xbf16> -> tensor<19x160x32xbf16>
+  // CHECK-NOT: d2m.view_layout
+  // CHECK: d2m.to_host {{.*}} tensor<1x5x1x19x32x32xbf16, #{{.*}}> into tensor<19x160x32xbf16> -> tensor<19x160x32xbf16>
   %0 = d2m.empty() : tensor<19x160x32xbf16>
   %1 = d2m.to_layout %arg0, %0 : tensor<1x5x1x19x32x32xbf16, #layout_indivisible_bounce_grid> into tensor<19x160x32xbf16> -> tensor<19x160x32xbf16>
   return %1 : tensor<19x160x32xbf16>
 }
 
-// Complex tiled mapping on an uncollapsed (>2D) grid should not collapse the intermediate untilized tensor to 2D.
-// The format conversion generic requires matching shard structure on input/output.
+// Keep uncollapsed grids intact across tiled format conversion.
 #layout_tm_src = #ttcore.metal_layout<logical_shape = 5x1024x64, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
 #layout_tm_dst = #ttcore.metal_layout<logical_shape = 5x1024x64, dim_alignments = 1x256x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
 
@@ -271,11 +260,30 @@ func.func @complex_tiled_mapping_preserves_untilize_shape(%arg0: tensor<1x1x1x5x
   return %1 : tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst>
 }
 
+#rank6_vgm_forward = affine_map<(d0, d1, d2, d3, d4, d5) -> (0, 0, d3, d4, d5)>
+#rank6_vgm_inverse = affine_map<(d0, d1) -> (0, 0, 0, 0)>
+#rank8_view = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, d2, d3, (d4 * 524288 + d5 * 4096 + d6 * 128 + d7) floordiv 524288, ((d4 * 524288 + d5 * 4096 + d6 * 128 + d7) mod 524288) floordiv 4096, (d4 * 524288 + d5 * 4096 + d6 * 128 + d7) mod 4096)>
+#rank_incompatible_vgm_src = #ttcore.metal_layout<logical_shape = 1x128x4096, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#rank_incompatible_vgm_view = #ttcore.metal_layout<logical_shape = 1x128x32x128, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#rank_incompatible_vgm_dst = #ttcore.metal_layout<logical_shape = 1x128x32x128, dim_alignments = 256x1x32x32, collapsed_intervals = dense<[[0, 3], [3, 4]]> : tensor<2x2xi64>, undef, l1, sharded>
+
+func.func @tilize_ignores_rank_incompatible_input_vgm() -> tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst> {
+  // CHECK-LABEL: @tilize_ignores_rank_incompatible_input_vgm
+  // CHECK: d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x1x1x128x4096xf32, #layout{{[0-9]+}}>
+  // CHECK: d2m.empty() : tensor<8x4x512x32xf32, #layout{{[0-9]+}}>
+  // CHECK: d2m.tile_tilize_block
+  %0 = d2m.empty() {virtualGridForwardMapping = #rank6_vgm_forward, virtualGridInverseMapping = #rank6_vgm_inverse} : tensor<1x1x1x1x128x4096xf32, #rank_incompatible_vgm_src>
+  %view = d2m.view_layout %0 remapping = #rank8_view : tensor<1x1x1x1x128x4096xf32, #rank_incompatible_vgm_src> -> tensor<1x1x1x1x1x128x32x128xf32, #rank_incompatible_vgm_view>
+  %1 = d2m.empty() : tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst>
+  %2 = d2m.to_layout %view, %1 : tensor<1x1x1x1x1x128x32x128xf32, #rank_incompatible_vgm_view> into tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst> -> tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst>
+  return %2 : tensor<8x4x16x1x!ttcore.tile<32x32, f32>, #rank_incompatible_vgm_dst>
+}
+
 
 #layer_tile_with_vgm_dst = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 func.func @tilize_with_vgm(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> {
   // CHECK-LABEL: @tilize_with_vgm
-  // Output VGM should be propagated to createEmpty host->device intermediate.
+  // Propagate output VGM to the host-to-device intermediate.
   // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
   // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<32x32xbf16> into tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
   %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
@@ -285,7 +293,7 @@ func.func @tilize_with_vgm(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.
 
 func.func @tilize_without_vgm(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> {
   // CHECK-LABEL: @tilize_without_vgm
-  // Without source/output VGM, host->device intermediate empty uses fallback.
+  // Without source/output VGM, use the fallback EmptyOp path.
   // CHECK: %[[MID:.*]] = d2m.empty() : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
   // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<32x32xbf16> into tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
   // CHECK: d2m.tile_tilize_block
@@ -306,8 +314,7 @@ func.func @tilize_with_vgm_custom_map(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1
 
 func.func @tilize_output_only_vgm_fallback(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> {
   // CHECK-LABEL: @tilize_output_only_vgm_fallback
-  // Input is host tensor (no VGM on source), output has VGM attrs.
-  // createEmpty should use output VGM for host->device intermediate.
+  // Output VGM seeds the host-to-device intermediate.
   // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
   // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<32x32xbf16> into tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
   %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 4, d1 + 5, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 4, d1 - 5)>} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
@@ -317,8 +324,7 @@ func.func @tilize_output_only_vgm_fallback(%arg0: tensor<32x32xbf16>) -> tensor<
 
 func.func @untilize_input_only_vgm_fallback() -> tensor<32x32xbf16> {
   // CHECK-LABEL: @untilize_input_only_vgm_fallback
-  // Input has VGM attrs, output is host tensor (no VGM on target).
-  // createEmpty should use input VGM for untilize intermediate.
+  // Input VGM seeds the untilize intermediate.
   // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
   // CHECK: outs(%[[MID]] : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>)
   // CHECK: d2m.tile_untilize_block

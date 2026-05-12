@@ -30,6 +30,10 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr);
 
 ::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout);
 
+CoreRangeSetAttr
+getCoreRangeSet(MLIRContext *context,
+                const ::tt::tt_metal::CoreRangeSet &coreRangeSet);
+
 ::tt::tt_metal::ShardOrientation
 getShardOrientation(const ShardOrientationAttr &shardOrientationAttr);
 

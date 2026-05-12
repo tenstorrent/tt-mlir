@@ -4,19 +4,22 @@ add_mlir_dialect_library(MLIRD2MTransforms
         DecomposeArange.cpp
         DecomposeMasking.cpp
         GenericApplyInterchange.cpp
+        GenericFusion.cpp
         GenericLinearizeMemref.cpp
         GenericRegionsToFuncs.cpp
         HoistCBAllocs.cpp
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
         GridSelection.cpp
-        InsertDstRegisterAccess.cpp
+        InsertDstRegisterAccessShared.cpp
+        InsertDstRegisterAccessUnscheduled.cpp
+        InsertDstRegisterAccessScheduled.cpp
         InsertTileMatmulBlock.cpp
         LinalgToAffine.cpp
         LowerScratchAllocate.cpp
-        LowerToLayout.cpp
+        LowerToLayout/LowerToLayout.cpp
+        LowerToLayout/Plan.cpp
         MaterializeViewReturns.cpp
-        ElementwiseFusion.cpp
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
         InsertScratchBuffers.cpp

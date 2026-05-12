@@ -30,7 +30,7 @@ func.func @sharded_to_interleaved() -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>,
 #l1_sharded_2 = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 #dram_interleaved_2 = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram, interleaved>
 
-#ttnn_dram_interleaved_2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x64x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>, exactGrid = true>
+#ttnn_dram_interleaved_2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x64x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>
 
 // CHECK-LABEL: func.func @sharded_to_interleaved_reblock
 func.func @sharded_to_interleaved_reblock() -> tensor<32x2048xbf16, #ttnn_dram_interleaved_2> {

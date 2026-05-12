@@ -421,6 +421,21 @@ public:
     return success();
   }
 };
+
+// Rewrites `sdy.return` to use dialect-converted operand values (same role as
+// `populateReturnOpTypeConversionPattern` for `func.return`).
+class ShardyReturnOpTypeConversionPattern
+    : public OpConversionPattern<mlir::sdy::ReturnOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::sdy::ReturnOp op, mlir::sdy::ReturnOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<mlir::sdy::ReturnOp>(op, adaptor.getOperands());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -488,6 +503,7 @@ struct StableHLOComplexDataTypeConversionPass
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
         ShardyManualComputationComplexConversionPattern,
+        ShardyReturnOpTypeConversionPattern,
         StablehloComplexToDecomposedPattern,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
@@ -502,6 +518,8 @@ struct StableHLOComplexDataTypeConversionPass
     populateReturnOpTypeConversionPattern(patterns, typeConverter);
     target.addDynamicallyLegalOp<func::ReturnOp>(
         [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
+    target.addDynamicallyLegalOp<mlir::sdy::ReturnOp>(
+        [&](mlir::sdy::ReturnOp op) { return typeConverter.isLegal(op); });
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns)))) {

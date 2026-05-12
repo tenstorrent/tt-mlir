@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import math
+
 import pytest
 import torch
 from collections import OrderedDict
@@ -885,33 +887,19 @@ def test_sdpa_with_mask_no_workaround(
 @pytest.mark.parametrize(
     "shapes",
     [
-        # Decode with mask num_heads=1 (broadcast needed)
+        # Decode with mask num_heads=1 (broadcast needed).
         # Q: [1, batch, num_heads, head_dim], K/V: [batch, kv_heads, kv_seq, head_dim]
-        # Mask: [1, batch, 1, kv_seq] - heads=1 needs broadcast to num_heads
+        # Mask: [batch, 1, 1, kv_seq] - heads=1 needs broadcast to num_heads.
         pytest.param(
             [
                 (1, 32, 32, 64),  # query (decode shape)
                 (32, 32, 128, 64),  # key
                 (32, 32, 128, 64),  # value
                 (32,),  # cur_pos_tensor
-                (1, 32, 1, 128),  # attention mask with heads=1
+                (32, 1, 1, 128),  # attention mask with heads=1
             ],
             marks=pytest.mark.xfail(
                 reason="SDPA decode requires mask[2] == num_heads. Metal issue: https://github.com/tenstorrent/tt-metal/issues/39910"
-            ),
-        ),
-        # Decode with mask batch=1 (broadcast needed)
-        # Mask: [1, 1, num_heads, kv_seq] - batch=1 needs broadcast to query batch
-        pytest.param(
-            [
-                (1, 32, 32, 64),  # query (decode shape)
-                (32, 32, 128, 64),  # key
-                (32, 32, 128, 64),  # value
-                (32,),  # cur_pos_tensor
-                (1, 1, 32, 128),  # attention mask with batch=1
-            ],
-            marks=pytest.mark.xfail(
-                reason="SDPA decode requires mask[1] == query batch. Metal issue: https://github.com/tenstorrent/tt-metal/issues/39910"
             ),
         ),
     ],
@@ -926,8 +914,9 @@ def test_sdpa_decode_mask_broadcast_no_workaround(
     shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
 ):
     """
-    Test that SDPA decode with a mask requiring batch or num_heads broadcast
-    fails without the workaround.
+    Test that SDPA decode with a mask requiring num_heads broadcast fails
+    without the workaround. Batch broadcast is handled natively by tt-metal,
+    so only the heads dimension needs the workaround.
     """
     batch = shapes[0][1]
     kv_seq = shapes[1][2]
@@ -966,6 +955,104 @@ def test_sdpa_decode_mask_broadcast_no_workaround(
         **get_request_kwargs(request),
         device=device,
         pipeline_options=["disable-workarounds=true"],
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        # concat [1993728, 3] + [1993728, 1] along last dim (dim=1, unaligned).
+        # 1993728 = 62304 * 32, so dim[0] is tile-aligned but last dims 3 and 1 are not.
+        # The internal ttnn.concat path untilizes → transpose(-2,-1) → concat → retilize.
+        # After transpose the new last dim becomes 1993728, so:
+        #   single_page_size = 4 * 1993728 * 2 ≈ 16 MB >> usable L1 (~1.5 MB).
+        ([(1993728, 3), (1993728, 1)], 1),
+    ],
+    ids=["2d_last_dim_1993728"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="ConcatOpRewritePattern: concat [1993728, 3] + [1993728, 1] along the last "
+    "dim=1 (unaligned) fails due to https://github.com/tenstorrent/tt-metal/issues/43371."
+)
+def test_concat_last_dim_unaligned_cb_exceeds_l1_without_workaround(
+    shapes: List[Shape],
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test concat with unaligned last dim whose CB overflows L1, workaround disabled.
+    Due to https://github.com/tenstorrent/tt-metal/issues/43371.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def concat_l1_cb_no_workaround_wrapper(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concat([in0, in1], dim=dim, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        # concat [1, 1993728, 3] + [1, 1993728, 1] along last dim (dim=2, unaligned).
+        # dim[-2] = 1993728 after the internal transpose, giving the same CB overflow
+        # as the 2D case: 4 * 1993728 * 2 ≈ 16 MB >> usable L1 (~1.5 MB).
+        # batch=1 is used to keep tensor size manageable (~23 MB + ~7.5 MB).
+        ([(1, 1993728, 3), (1, 1993728, 1)], 2),
+    ],
+    ids=["3d_last_dim_1993728"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="ConcatOpRewritePattern: concat [1, 1993728, 3] + [1, 1993728, 1] along the last dim=2 (unaligned) fails due to https://github.com/tenstorrent/tt-metal/issues/43371."
+)
+def test_concat_last_dim_unaligned_cb_exceeds_l1_3_dims_without_workaround(
+    shapes: List[Shape],
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test concat (3D) with unaligned last dim whose CB overflows L1, workaround disabled.
+    Due to https://github.com/tenstorrent/tt-metal/issues/43371.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def concat_l1_cb_3_dims_no_workaround_wrapper(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concat([in0, in1], dim=dim, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )
 
 

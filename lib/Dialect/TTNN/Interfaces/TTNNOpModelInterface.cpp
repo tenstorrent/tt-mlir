@@ -2251,7 +2251,6 @@ struct PagedScaledDotProductAttentionDecodeArgs {
   std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
   std::optional<llvm::APFloat> scale = std::nullopt;
   std::optional<uint32_t> slidingWindowSize = std::nullopt;
-  std::optional<CoreCoordAttr> coreGrid = std::nullopt;
 };
 
 static PagedScaledDotProductAttentionDecodeArgs
@@ -2273,7 +2272,6 @@ unpackPagedScaledDotProductAttentionDecodeArgs(
   ret.isCausal = op.getIsCausal();
   ret.scale = op.getScale();
   ret.slidingWindowSize = op.getSlidingWindowSize();
-  ret.coreGrid = op.getCoreGrid();
 
   TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
   TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
@@ -2318,20 +2316,15 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
          "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
          "7 input tensors");
 
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
   PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
       unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
-  ttcore::GridAttr deviceGrid;
-  if (pagedSdpaArgs.coreGrid) {
-    deviceGrid = ttcore::GridAttr::get(
-        getContext(), {static_cast<int64_t>(pagedSdpaArgs.coreGrid->getX()),
-                       static_cast<int64_t>(pagedSdpaArgs.coreGrid->getY())});
-  } else {
-    llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-    if (!check) {
-      return check.takeError();
-    }
-    deviceGrid = ttcore::lookupDevice(getOperation()).getWorkerGrid();
-  }
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<
@@ -2344,7 +2337,7 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
       pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize,
-      pagedSdpaArgs.coreGrid, opConfig.outputLayout);
+      opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -2357,14 +2350,13 @@ llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
          "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
          "7 input tensors");
 
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
   PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
       unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
-  if (!pagedSdpaArgs.coreGrid) {
-    llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-    if (!check) {
-      return check.takeError();
-    }
-  }
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime,
@@ -2376,7 +2368,7 @@ llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
       pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize,
-      pagedSdpaArgs.coreGrid, opConfig.outputLayout);
+      opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -3239,24 +3231,6 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShapeA = getA().getType().getShape();
   const auto inputShapeB = getB().getType().getShape();
-
-  // Skip getOpConstraints for matmul with block sharded first operand if height
-  // or width is less than tile size
-  // TODO (mvasiljevic): remove once the fix in metal is merged and uplifted:
-  // https://github.com/tenstorrent/tt-metal/pull/33777
-  if (!inputs.empty() && inputs[0].getMemLayout() &&
-      inputs[0].getMemLayout().getValue() == TensorMemoryLayout::BlockSharded &&
-      inputShapeA.size() >= 2) {
-    int64_t height = inputShapeA[inputShapeA.size() - 2];
-    int64_t width = inputShapeA[inputShapeA.size() - 1];
-    if (height < static_cast<int64_t>(TILE_HEIGHT) ||
-        width < static_cast<int64_t>(TILE_WIDTH)) {
-      return llvm::createStringError(
-          llvm::inconvertibleErrorCode(),
-          "Matmul with block sharded first operand having logical "
-          "shape less than tile size is not supported");
-    }
-  }
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {

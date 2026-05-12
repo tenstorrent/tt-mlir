@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -869,6 +870,29 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
                            ArrayRef<int64_t> outPermutation,
                            DeviceComputeKernelConfigAttr computeConfig,
                            const FusionValidationConfig &validationConfig) {
+  // The metal rotary_embedding kernel indexes into cos/sin along the sequence
+  // dimension (dim -2) for each input position — it does not broadcast.
+  // If cos/sin have fewer sequence positions than the input, the kernel reads
+  // tile padding garbage for positions beyond the cos/sin cache size.
+  // Bail out and keep the decomposed form which broadcasts correctly.
+  // This guard can be removed once RoPE fusion is moved before the
+  // EraseInverseOps pass (https://github.com/tenstorrent/tt-mlir/issues/8341).
+  auto xType = mlir::cast<RankedTensorType>(x.getType());
+  auto cosType = mlir::cast<RankedTensorType>(cos.getType());
+  int64_t xRank = xType.getRank();
+  int64_t cosRank = cosType.getRank();
+  if (xRank >= 2 && cosRank >= 2) {
+    int64_t inputSeq = xType.getShape()[xRank - 2];
+    int64_t cosSeq = cosType.getShape()[cosRank - 2];
+    if (cosSeq < inputSeq) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+                   "RoPE fusion rejected: cos/sin seq dim ({0}) < input seq "
+                   "dim ({1}) — kernel would read padding garbage",
+                   cosSeq, inputSeq);
+      return failure();
+    }
+  }
+
   op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp);
 
   // Validate in an isolated module before committing to fusion.
@@ -918,11 +942,11 @@ std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
 
   SmallVector<int64_t> cosFullShape(cosType.getShape());
   cosFullShape[concatDim] *= 2;
-  Attribute cosEncoding = nullptr;
+  TTNNLayoutAttr cosEncoding = nullptr;
   if (auto layout =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(cosType.getEncoding())) {
-    cosEncoding =
-        layout.withElementType(cosType.getElementType(), cosFullShape);
+    cosEncoding = TTNNLayoutAttr::Builder(layout, cosFullShape)
+                      .setElementType(cosType.getElementType());
   }
   auto cosFullType = RankedTensorType::get(
       cosFullShape, cosType.getElementType(), cosEncoding);
@@ -932,8 +956,8 @@ std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
   Attribute sinEncoding = nullptr;
   if (auto layout =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(sinType.getEncoding())) {
-    sinEncoding =
-        layout.withElementType(sinType.getElementType(), sinFullShape);
+    sinEncoding = TTNNLayoutAttr::Builder(layout, sinFullShape)
+                      .setElementType(sinType.getElementType());
   }
   auto sinFullType = RankedTensorType::get(
       sinFullShape, sinType.getElementType(), sinEncoding);

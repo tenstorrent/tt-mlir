@@ -325,6 +325,24 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
+Tensor createUnsafeBorrowedHostTensor(Tensor ownedHostTensor) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createUnsafeBorrowedHostTensor(
+            std::move(ownedHostTensor));
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createUnsafeBorrowedHostTensor",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::createUnsafeBorrowedHostTensor(
+            ownedHostTensor);
+      });
+}
+
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
@@ -417,6 +435,22 @@ Tensor createEmptyTensor(Device device, Layout layout,
       [&]() -> RetType {
         detail::fatalNotImplemented("createEmptyTensor",
                                     DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createEmptyTensor",
+                                    HostRuntime::Distributed);
+      });
+}
+
+Tensor createScalarTensor(Scalar scalar) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createEmptyTensor", DeviceRuntime::TTNN);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::createScalarTensor(scalar);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("createEmptyTensor",
@@ -1070,42 +1104,79 @@ getOpOutputTensor(OpContext opContextHandle,
       });
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
-               CallbackContext programContextHandle) {
-
-  using RetType = std::optional<tt::runtime::TensorRef>;
-  return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType,
-      [&]() -> RetType {
-        return ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
-                                                   programContextHandle);
-      },
-      [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getOpOutputRef(opContextHandle,
-                                                      programContextHandle);
-      },
-      [&]() -> RetType {
-        detail::fatalNotImplemented("getOpOutputRef", HostRuntime::Distributed);
-      });
-}
-
-std::vector<tt::runtime::TensorRef>
-getOpInputRefs(OpContext opContextHandle,
-               CallbackContext programContextHandle) {
+std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   using RetType = std::vector<tt::runtime::TensorRef>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getOpInputRefs(opContextHandle,
-                                                   programContextHandle);
+        return ::tt::runtime::ttnn::getOpOutputRefs(opContextHandle);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getOpInputRefs(opContextHandle,
-                                                      programContextHandle);
+        detail::fatalNotImplemented("getOpOutputRefs", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getOpOutputRefs",
+                                    HostRuntime::Distributed);
+      });
+}
+
+std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
+  using RetType = std::vector<tt::runtime::TensorRef>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getOpInputRefs(opContextHandle);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getOpInputRefs", DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("getOpInputRefs", HostRuntime::Distributed);
+      });
+}
+
+std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef) {
+  using RetType = std::vector<uint32_t>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() -> RetType { return ttnn::getTensorRefShape(tensorRef); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefShape",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefShape",
+                                    HostRuntime::Distributed);
+      });
+}
+
+::tt::target::DataType getTensorRefDataType(TensorRef tensorRef) {
+  using RetType = ::tt::target::DataType;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ttnn::getTensorRefDataType(tensorRef); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefDataType",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefDataType",
+                                    HostRuntime::Distributed);
+      });
+}
+
+void walkProgram(Binary executableHandle, uint32_t programIndex,
+                 const OpWalkFn &cb) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        ::tt::runtime::ttnn::walkProgram(executableHandle, programIndex, cb);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("walkProgram", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("walkProgram", HostRuntime::Distributed);
       });
 }
 
@@ -1144,6 +1215,22 @@ void updateTensorInPool(CallbackContext programContextHandle,
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("updateTensorInPool",
+                                    HostRuntime::Distributed);
+      });
+}
+
+size_t getProgramIndex(CallbackContext programContextHandle) {
+  using RetType = size_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getProgramIndex(programContextHandle);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getProgramIndex", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getProgramIndex",
                                     HostRuntime::Distributed);
       });
 }

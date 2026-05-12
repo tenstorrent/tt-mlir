@@ -44,10 +44,11 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-enable-decomposition-workaround-pass",
              "bool", /*default=*/"true",
              "TTNN Decompsition Workarounds Pass">,
-      Option<"optimizerEnabled",
-             "ttnn-is-optimizer-enabled",
-             "bool", /*default=*/"false",
-             "flag specifying if optimizer is enabled">,
+      Option<"optimizationLevel",
+             "ttnn-optimization-level",
+             "int", /*default=*/"0",
+             "Optimization level forwarded from the pipeline; controls which "
+             "workarounds are active.">,
   ];
 }
 
@@ -178,6 +179,37 @@ def TTNNCreateMainForTest: Pass<"ttnn-create-main-for-test", "::mlir::ModuleOp">
   }];
 }
 
+def TTNNSplitForwardFuncArgsByType : Pass<"ttnn-split-forward-func-args-by-type", "::mlir::ModuleOp"> {
+  let summary = "Split forward function arguments into activations tuple and weights dictionary.";
+  let description = [{
+    This pass rewrites each forward function of device module by separating its tensor arguments into activations and weights.
+    Activation arguments are packed into a tuple, while weight arguments are packed into a dictionary.
+
+    Given a forward function like this:
+
+    ```mlir
+    func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                       %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>})
+        -> tensor<32x32xbf16> {
+      ...
+    }
+    ```
+
+    The pass will produce:
+
+    ```mlir
+    func.func @forward(%arg0: tuple<tensor<32x32xbf16>>,
+                       %arg1: !ttcore.dict)
+        -> tensor<32x32xbf16>
+        attributes {ttcore.original_argument_types = [...]} {
+      %input0 = ttcore.get_tuple_element %arg0[0] : ...
+      %weight0 = ttcore.get_key_value %arg1["weight_0"] : ...
+      ...
+    }
+    ```
+  }];
+}
+
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
@@ -295,7 +327,7 @@ def TTNNCreateD2MSubgraphs: Pass<"ttnn-create-d2m-subgraphs", "::mlir::ModuleOp"
   let description = [{
     This pass identifies potential subgraphs that can be fused through D2M compilation,
     outlines each subgraph into a private function, and replaces the original ops
-    with a `ttnn.d2m_subgraph` op. Fusion through the D2M pipeline is done in D2MElementwiseFusion pass.
+    with a `ttnn.d2m_subgraph` op. Fusion through the D2M pipeline is done in D2MGenericFusion pass.
 
     Right now, this is limited to eltwise chains.
   }];
@@ -568,7 +600,7 @@ def TTNNPrepareConstEvalCaching : Pass<"ttnn-prepare-const-eval-caching", "::mli
   let description = [{
     Packs the results of all LoadCachedOps into a single global caching
     dictionary per forward function.  For each forward function containing
-    LoadCachedOps it creates a global dictionary (e.g. `_cached_forward`),
+    LoadCachedOps it creates a global dictionary (e.g. `ce_cache_forward`),
     retrieves it at the top of the function body, and stores each
     LoadCachedOp result under its callee name.
   }];

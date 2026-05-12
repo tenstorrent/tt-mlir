@@ -95,6 +95,11 @@ constexpr inline llvm::StringLiteral kImportedDeclarationValue =
 
 /// Attribute name for the source file of an imported declaration.
 constexpr inline llvm::StringLiteral kImportedFromAttrName = "tt.imported_from";
+
+/// Attribute name marking whether a forward device function arguments were
+/// split into activations and weights by TTNNSplitForwardFuncArgsByType.
+constexpr inline llvm::StringLiteral kSplitForwardFuncArgsByTypeAttrName =
+    "tt.has_split_func_args_by_type";
 } // namespace detail
 
 /// Returns the string value for the given function type.
@@ -198,13 +203,25 @@ inline void clearFunctionType(mlir::func::FuncOp funcOp) {
   funcOp->removeAttr(detail::kFunctionTypeAttrName);
 }
 
+/// Removes the split forward function arguments attribute from the given
+/// function.
+inline void clearSplitForwardFuncArgsByType(mlir::func::FuncOp funcOp) {
+  funcOp->removeAttr(detail::kSplitForwardFuncArgsByTypeAttrName);
+}
+
 //===----------------------------------------------------------------------===//
 // Convenience query functions
 //===----------------------------------------------------------------------===//
 
-/// Returns true if the function is marked as a forward device function.
+/// Returns true if the function is a forward device function.
 inline bool isForwardDeviceFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::ForwardDevice);
+}
+
+/// Returns true if the function's arguments were split into activations and
+/// weights.
+inline bool hasSplitForwardFuncArgsByType(mlir::func::FuncOp funcOp) {
+  return funcOp->hasAttr(detail::kSplitForwardFuncArgsByTypeAttrName);
 }
 
 /// Returns true if the function is marked as a forward CPU function.
@@ -274,6 +291,16 @@ inline void setImportedFrom(mlir::func::FuncOp funcOp,
                             llvm::StringRef fileName) {
   funcOp->setAttr(detail::kImportedFromAttrName,
                   mlir::StringAttr::get(funcOp->getContext(), fileName));
+}
+
+/// Marks a forward device function as having split inputs by
+/// TTNNSplitForwardFuncArgsByType.
+inline void setSplitForwardFuncArgsByType(mlir::func::FuncOp funcOp) {
+  assert(isForwardDeviceFunc(funcOp) &&
+         "can only set split forward function arguments by type attribute on "
+         "forward device functions");
+  funcOp->setAttr(detail::kSplitForwardFuncArgsByTypeAttrName,
+                  mlir::UnitAttr::get(funcOp->getContext()));
 }
 
 /// Gets the source file attribute from an imported declaration function.
