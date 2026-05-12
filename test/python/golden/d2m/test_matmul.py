@@ -152,16 +152,6 @@ def test_matmul_ttnn_shapes_single_buffered(
     device,
 ):
     pcc = 0.99 if dtype == torch.float32 else 0.96
-    if (
-        dtype == torch.bfloat16
-        and not enable_l1_acc
-        and shape
-        in (
-            (2048, 2048, 2048),
-            (1024, 2048, 2048),
-        )
-    ):
-        pytest.xfail(reason="bf16 PCC below threshold for these shapes")
 
     lhs = (
         shape[0],
@@ -223,17 +213,6 @@ def test_matmul_ttnn_shapes_double_buffered(
     pcc = 0.99 if dtype == torch.float32 else 0.96
     if dtype == torch.float32 and shape == (2048, 2048, 2048):
         pytest.xfail(reason="Too large for f32.")
-
-    if (
-        dtype == torch.bfloat16
-        and not enable_l1_acc
-        and shape
-        in (
-            (2048, 2048, 2048),
-            (1024, 2048, 2048),
-        )
-    ):
-        pytest.xfail(reason="bf16 PCC below threshold for these shapes")
 
     lhs = (
         shape[0],
