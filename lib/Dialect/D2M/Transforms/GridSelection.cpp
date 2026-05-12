@@ -366,7 +366,7 @@ static void applyTTNNTensorUpdate(const OperandGridInfo &info,
 
 static void
 applyCompositeViewUpdate(const OperandGridInfo &info,
-                         EffectiveTargetGridRange effectiveTargetGrid,
+                         const EffectiveTargetGridRange &effectiveTargetGrid,
                          bool ttnnMode, OpBuilder &builder) {
   auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
   const int32_t concatDim = compositeView.getDim();
