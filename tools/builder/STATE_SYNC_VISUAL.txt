@@ -1,0 +1,257 @@
+```
+State Synchronization Issues in Option 1 (Composite Builder)
+=============================================================
+
+
+ARCHITECTURE: Option 1 (Separate State)
+========================================
+
+┌─────────────────────────────────────────────────────────────┐
+│              MultiDialectBuilder Instance                   │
+│  ┌────────────────────────────────────────────────┐         │
+│  │         Own State (Incomplete)                 │         │
+│  │  • _ctx: Context                               │         │
+│  │  • _goldens: {}        ← Usually empty!        │         │
+│  │  • _func_ops_generated: {}                     │         │
+│  └────────────────────────────────────────────────┘         │
+│                                                             │
+│  ┌─────────────────────┐      ┌─────────────────────┐      │
+│  │  self.ttir          │      │  self.ttnn          │      │
+│  │                     │      │                     │      │
+│  │  TTIRBuilder        │      │  TTNNBuilder        │      │
+│  │  ┌───────────────┐  │      │  ┌───────────────┐  │      │
+│  │  │ Separate State│  │      │  │ Separate State│  │      │
+│  │  │               │  │      │  │               │  │      │
+│  │  │ _goldens: {   │  │      │  │ _goldens: {   │  │      │
+│  │  │   x -> G1     │  │      │  │   y -> G2     │  │      │
+│  │  │ }             │  │      │  │ }             │  │      │
+│  │  │               │  │      │  │               │  │      │
+│  │  │ _operand_to_  │  │      │  │ _operand_to_  │  │      │
+│  │  │   loc: {      │  │      │  │   loc: {      │  │      │
+│  │  │   x -> "L1"   │  │      │  │   y -> "L2"   │  │      │
+│  │  │ }             │  │      │  │ }             │  │      │
+│  │  └───────────────┘  │      │  └───────────────┘  │      │
+│  └─────────────────────┘      └─────────────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+         ↑                              ↑
+         │                              │
+    Isolated state!              Isolated state!
+    Can't see each other!
+
+
+PROBLEM 1: Cross-Dialect Data Flow
+===================================
+
+Code:
+  x = builder.ttir.sigmoid(input)
+  y = builder.ttnn.add(x, input)
+
+Execution Flow:
+
+Step 1: Create x with TTIR
+┌─────────────────────────────────────┐
+│  TTIRBuilder._goldens               │
+│  ┌──────────────────────────────┐   │
+│  │  x (OpResult) -> Golden_X    │   │  ← Golden stored here
+│  └──────────────────────────────┘   │
+└─────────────────────────────────────┘
+
+Step 2: TTNN tries to use x
+┌─────────────────────────────────────┐
+│  TTNNBuilder._goldens               │
+│  ┌──────────────────────────────┐   │
+│  │  (empty)                      │   │  ← x's golden NOT here!
+│  └──────────────────────────────┘   │
+└─────────────────────────────────────┘
+        ↓
+   KeyError when trying to compute golden for y!
+   Runtime will fail: "Golden not found for operand x"
+
+
+PROBLEM 2: Golden Map Generation
+=================================
+
+When building golden map for runtime:
+
+┌────────────────────────────────────────────────────────────┐
+│ builder.golden_map (from which builder?)                   │
+└────────────────────────────────────────────────────────────┘
+         │
+         ├─ MultiDialectBuilder._goldens = {}  (empty!)
+         │
+         ├─ builder.ttir._goldens = {x: G1, z: G3}
+         │  └─ Only TTIR ops
+         │
+         └─ builder.ttnn._goldens = {y: G2, w: G4}
+            └─ Only TTNN ops
+
+Result: Incomplete golden map! ❌
+  - If we use parent's golden_map: Missing x, y, z, w
+  - If we use ttir's golden_map: Missing y, w (TTNN ops)
+  - If we use ttnn's golden_map: Missing x, z (TTIR ops)
+  - Need manual aggregation from all builders
+
+
+PROBLEM 3: Function Input/Output Tracking
+==========================================
+
+Code:
+  @builder.func([(32, 32)], [torch.float32])
+  def fn(input, builder):
+      x = builder.ttir.relu(input)
+      y = builder.ttnn.multiply(x, x)
+      return y
+
+What gets tracked:
+
+┌─────────────────────────────────────────────────────────────┐
+│ MultiDialectBuilder._func_ops_generated                     │
+│ {                                                            │
+│   func_op: [[input], []]  ← Empty outputs! Where's y?       │
+│ }                                                            │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ TTIRBuilder._func_ops_generated                             │
+│ {                                                            │
+│   (empty) ← Doesn't know about the function!                │
+│ }                                                            │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ TTNNBuilder._func_ops_generated                             │
+│ {                                                            │
+│   (empty) ← Doesn't know about the function!                │
+│ }                                                            │
+└─────────────────────────────────────────────────────────────┘
+
+Result: Return value 'y' is lost! ❌
+
+
+PROBLEM 4: Insertion Point Conflicts
+=====================================
+
+Scenario: Both builders try to manage insertion points
+
+Initial state:
+┌──────────────────────────────────────────────────────┐
+│ module.body (MLIR Module's body block)               │
+│   ▲                                                  │
+│   │ Current insertion point                          │
+└──────────────────────────────────────────────────────┘
+
+After TTIR op:
+┌──────────────────────────────────────────────────────┐
+│ module.body                                          │
+│   ttir.sigmoid                                       │
+│   ▲                                                  │
+│   │ TTIRBuilder._current_module_insertion_point      │
+└──────────────────────────────────────────────────────┘
+
+After TTNN op:
+┌──────────────────────────────────────────────────────┐
+│ module.body                                          │
+│   ttir.sigmoid                                       │
+│   ▲                                                  │
+│   │ TTIRBuilder thinks we're here                    │
+│   │                                                  │
+│   ttnn.add                                           │
+│   ▲                                                  │
+│   │ TTNNBuilder thinks we're here                    │
+└──────────────────────────────────────────────────────┘
+
+Both builders have different views of where to insert!
+Next TTIR op might insert in wrong location.
+
+
+MANUAL SYNCHRONIZATION OVERHEAD
+================================
+
+To make Option 1 work, you'd need to sync after EVERY operation:
+
+x = builder.ttir.sigmoid(input)
+builder._sync_state()              ← Expensive!
+
+y = builder.ttnn.add(x, input)
+builder._sync_state()              ← Expensive!
+
+z = builder.ttir.multiply(y, y)
+builder._sync_state()              ← Expensive!
+
+Each sync must:
+┌────────────────────────────────────────────────────┐
+│ Copy _goldens (10s-1000s of entries)               │
+│ Copy _operand_to_loc (10s-1000s of entries)        │
+│ Copy _loc_to_operand (10s-1000s of entries)        │
+│ Update _func_ops_generated                         │
+│ Sync insertion points                              │
+│ Update _global_id counter                          │
+│ Copy _bypass_ops list                              │
+│ Update _deallocated_goldens                        │
+│ Sync _op_deallocations                             │
+│ ... and more ...                                   │
+└────────────────────────────────────────────────────┘
+  = O(N) operation where N = number of operands
+  = Called M times where M = number of ops
+  = O(N×M) total overhead! ❌
+
+
+COMPARISON: Option 1 vs Option 6
+=================================
+
+Option 1 (Composite - Separate State):
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ Parent       │    │ TTIRBuilder  │    │ TTNNBuilder  │
+│ State A      │    │ State B      │    │ State C      │
+└──────────────┘    └──────────────┘    └──────────────┘
+       ↓                    ↓                    ↓
+  Need constant synchronization! ❌
+
+      A ←──sync──→ B
+      ↕            ↕
+      └──sync──→ C ←──sync──┘
+
+
+Option 6 (Delegation - Shared State):
+┌─────────────────────────────────────────────────────┐
+│              Shared State (One __dict__)            │
+│  • _ctx: Context                                    │
+│  • _goldens: Dict[Operand, GoldenMapTensor]        │
+│  • _operand_to_loc: Dict[Operand, str]             │
+│  • _func_ops_generated: Dict[...]                  │
+│  • _current_module_insertion_point: Block          │
+│  • ... (all other state)                            │
+└─────────────────────────────────────────────────────┘
+         ▲                    ▲                    ▲
+         │                    │                    │
+         │                    │                    │
+┌────────┴────────┐  ┌────────┴────────┐  ┌────────┴────────┐
+│ Parent.__dict__ │  │ TTIRBuilder     │  │ TTNNBuilder     │
+│ points here     │  │ .__dict__       │  │ .__dict__       │
+└─────────────────┘  │ points here     │  │ points here     │
+                     └─────────────────┘  └─────────────────┘
+
+   All point to the SAME memory! ✅
+   No synchronization needed! ✅
+
+
+REAL-WORLD IMPACT
+=================
+
+For a typical model with 100 ops across 2 dialects:
+
+Option 1 (Composite):
+  - 100 operations × 2 sync calls each = 200 syncs
+  - Each sync copies ~100 entries (avg) = 20,000 dict operations
+  - Plus method call overhead
+  - Plus risk of bugs if sync is forgotten
+  - Plus maintenance burden
+
+Option 6 (Delegation):
+  - 0 syncs needed
+  - 0 overhead
+  - 0 risk of sync bugs
+  - 0 maintenance burden
+
+Winner: Option 6 ✅
+```

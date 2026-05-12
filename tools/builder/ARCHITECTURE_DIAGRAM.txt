@@ -1,0 +1,176 @@
+```
+Option 6: Delegation Pattern - Architecture Diagram
+=====================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                     User Code                               │
+│                                                             │
+│  builder = MultiDialectBuilder(ctx, loc,                   │
+│                dialects=["ttir", "ttnn"])                   │
+│                                                             │
+│  x = builder.sigmoid(input)  # Calls TTIR op               │
+│  y = builder.add(x, input)   # Calls TTIR or TTNN op       │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│             MultiDialectBuilder Instance                    │
+│  ┌────────────────────────────────────────────────┐         │
+│  │            Shared State (__dict__)             │         │
+│  │  • _ctx: Context                               │         │
+│  │  • _loc: Location                              │         │
+│  │  • _goldens: Dict[Operand, GoldenMapTensor]   │         │
+│  │  • _func_ops_generated: Dict[...]             │         │
+│  │  • _mesh_shape: Tuple[int, ...]               │         │
+│  │  • ... (all other Builder attributes)          │         │
+│  └────────────────────────────────────────────────┘         │
+│                           │                                 │
+│  ┌────────────────────────┼────────────────────────┐        │
+│  │  _dialect_builders     │                        │        │
+│  │                        │                        │        │
+│  │  ┌─────────────────────▼─────┐  ┌─────────────▼─────┐  │
+│  │  │   TTIRBuilder instance    │  │ TTNNBuilder inst  │  │
+│  │  │   __dict__ ───────────────┼──┼──▶ Points to     │  │
+│  │  │   (shares parent's dict)  │  │    shared state   │  │
+│  │  │                           │  │                   │  │
+│  │  │  Methods:                 │  │  Methods:         │  │
+│  │  │  • sigmoid()              │  │  • add()          │  │
+│  │  │  • relu()                 │  │  • multiply()     │  │
+│  │  │  • matmul()               │  │  • conv2d()       │  │
+│  │  │  • ...                    │  │  • ...            │  │
+│  │  └───────────────────────────┘  └───────────────────┘  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                             │
+│  __getattr__(name):                                        │
+│    for builder in _dialect_builders.values():              │
+│      if hasattr(builder, name):                            │
+│        return getattr(builder, name) ◄─ Delegation!       │
+└─────────────────────────────────────────────────────────────┘
+
+
+Call Flow Example: builder.sigmoid(x)
+======================================
+
+1. User calls: builder.sigmoid(x)
+                    │
+                    ▼
+2. Python looks for 'sigmoid' attribute on MultiDialectBuilder instance
+                    │
+                    ▼
+3. Not found, so Python calls: MultiDialectBuilder.__getattr__('sigmoid')
+                    │
+                    ▼
+4. __getattr__ iterates through _dialect_builders:
+   - Check ttir_builder: hasattr(ttir_builder, 'sigmoid')? ✓ YES
+                    │
+                    ▼
+5. Return: getattr(ttir_builder, 'sigmoid')
+   This returns a bound method that operates on the shared state
+                    │
+                    ▼
+6. Method executes: ttir_builder.sigmoid(x)
+   - Uses shared _ctx (MLIR Context)
+   - Stores results in shared _goldens map
+   - Tracks ops in shared _func_ops_generated
+   - Everything synchronized!
+
+
+State Sharing Visualization
+============================
+
+Before state sharing (traditional separate builders):
+┌──────────────────┐     ┌──────────────────┐
+│  TTIRBuilder     │     │  TTNNBuilder     │
+│  ┌────────────┐  │     │  ┌────────────┐  │
+│  │  _ctx: A   │  │     │  │  _ctx: B   │  │ ← Different contexts!
+│  │  _goldens  │  │     │  │  _goldens  │  │ ← Separate golden maps!
+│  └────────────┘  │     │  └────────────┘  │
+└──────────────────┘     └──────────────────┘
+      Problem: Can't easily share data between dialects!
+
+
+After state sharing (Option 6):
+┌──────────────────────────────────────────┐
+│       Shared State (__dict__)            │
+│  ┌────────────────────────────────────┐  │
+│  │  _ctx: Context (shared)            │◄─┼─┐
+│  │  _goldens: Dict (shared)           │◄─┼─┼─┐
+│  │  _func_ops_generated: Dict (shared)│◄─┼─┼─┼─┐
+│  └────────────────────────────────────┘  │ │ │ │
+└──────────────────────────────────────────┘ │ │ │
+         ▲                    ▲               │ │ │
+         │                    │               │ │ │
+    ┌────┴──────────┐   ┌────┴──────────┐    │ │ │
+    │ TTIRBuilder   │   │ TTNNBuilder   │    │ │ │
+    │ __dict__ ─────┼───┼───────────────┼────┘ │ │
+    │               │   │ __dict__ ─────┼──────┘ │
+    └───────────────┘   └───────────────┼────────┘
+                                        ▲
+                        All point to the same state!
+
+
+Method Resolution Order
+=======================
+
+When you call builder.some_method():
+
+┌─────────────────────────────────────┐
+│ 1. Look in MultiDialectBuilder      │
+│    (only has __init__, __getattr__) │
+└────────────┬────────────────────────┘
+             │ Not found
+             ▼
+┌─────────────────────────────────────┐
+│ 2. __getattr__ is called            │
+└────────────┬────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────┐
+│ 3. Search _dialect_builders dict:  │
+│                                     │
+│    for name, builder in items():   │
+│      ├─ "ttir": TTIRBuilder        │
+│      │   hasattr? Check methods... │
+│      │   ├─ sigmoid ✓              │
+│      │   ├─ relu ✓                 │
+│      │   └─ add ✓                  │
+│      │                              │
+│      ├─ "ttnn": TTNNBuilder        │
+│      │   hasattr? Check methods... │
+│      │   ├─ add ✓                  │
+│      │   └─ multiply ✓             │
+│      │                              │
+│      └─ Return first match found   │
+└─────────────────────────────────────┘
+
+
+Comparison: Option 1 vs Option 6
+=================================
+
+Option 1 (Composite):
+  builder.ttir.sigmoid(x)     ← Must specify dialect
+  builder.ttnn.add(x, y)      ← Explicit namespace
+
+Option 6 (Delegation):
+  builder.sigmoid(x)          ← Automatic resolution
+  builder.add(x, y)           ← Cleaner API
+
+
+Key Implementation Detail: __new__ vs __init__
+===============================================
+
+Normal instantiation:
+  builder = TTIRBuilder(ctx, loc)
+      1. __new__ creates instance
+      2. __init__ sets up state
+      3. Instance has its own __dict__
+
+State-sharing instantiation:
+  builder = TTIRBuilder.__new__(TTIRBuilder)  ← Only create, don't init!
+  builder.__dict__ = parent.__dict__           ← Share parent's state!
+
+This is why it works:
+  - No separate state is created
+  - All attributes read/write to the same dict
+  - Changes in one builder affect all others
+```
