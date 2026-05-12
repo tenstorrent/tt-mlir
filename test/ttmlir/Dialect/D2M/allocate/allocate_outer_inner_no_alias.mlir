@@ -40,12 +40,12 @@ module {
           affine.for %j = 0 to %v {
             affine.for %k = 0 to %w {
               %l = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-              %x = d2m.remote_load %l %a[%i, %k] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+              d2m.remote_load %l %a[%i, %k] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
               %r = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-              %y = d2m.remote_load %r %b[%k, %j] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+              d2m.remote_load %r %b[%k, %j] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
               %o = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-              "d2m.tile_matmul_block"(%x, %y, %o) : (memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> ()
-              d2m.remote_store %c[%i, %j] %o : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
+              "d2m.tile_matmul_block"(%l, %r, %o) : (memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> ()
+              d2m.remote_store %c[%i, %j] %o : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>
             } {d2m.blocking_loop = 2}
           } {d2m.blocking_loop = 1}
         } {d2m.blocking_loop = 0}

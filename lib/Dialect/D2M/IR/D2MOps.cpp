@@ -2369,8 +2369,14 @@ static void repairParallelizedRegionTypes(d2m::GenericOp genericOp,
       }
     } else if (auto remoteLoadOp =
                    mlir::dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
-      if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
-        remoteLoadOp.getResult().setType(localBuffer.getType());
+      // Only propagate type to the result in the tensor form (where a
+      // result is present). In the post-bufferization memref form there
+      // is no result and the localBuffer's defining op handles its own
+      // type retyping (e.g. the memref.alloc case above).
+      if (remoteLoadOp.hasResultForm()) {
+        if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
+          remoteLoadOp.getResult().setType(localBuffer.getType());
+        }
       }
     } else if (auto remoteStoreOp =
                    mlir::dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {

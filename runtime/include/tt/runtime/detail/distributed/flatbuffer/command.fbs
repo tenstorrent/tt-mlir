@@ -77,6 +77,13 @@ table CreateMultiDeviceHostTensorFromShardsCommand {
   mesh_shape: [uint32];
 }
 
+// Worker looks up `source_tensor_global_id` in the tensor pool and registers a
+// borrowed host tensor as `output_global_id`. No tensor bytes are sent.
+table CreateUnsafeBorrowedHostTensorCommand {
+  source_tensor_global_id: uint64;
+  output_global_id: uint64;
+}
+
 table IsTensorAllocatedCommand {
   tensor_global_id: uint64;
 }
@@ -191,6 +198,7 @@ union CommandType {
   HasLayoutCommand,
   IsProgramCacheEnabledCommand,
   ClearProgramCacheCommand,
+  CreateUnsafeBorrowedHostTensorCommand,
 }
 
 table Command {

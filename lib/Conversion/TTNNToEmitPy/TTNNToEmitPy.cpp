@@ -1381,9 +1381,9 @@ public:
         emitter.emit(namedFullOp.getDtype(), "dtype"),
         emitter.emit(namedFullOp.getLayout(), "layout"),
         emitter.emit(namedFullOp.getDevice(), "device"),
-        /*  emitter.emit(namedFullOp.getMemoryConfig() |
-                          emitter.getMemoryConfig(namedFullOp.getResult()),
-                      "memory_config"), */
+        emitter.emit(namedFullOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(namedFullOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);

@@ -762,6 +762,8 @@ class Builder(metaclass=BuilderMeta):
         This method creates a TTNN tensor with encoding information.
         For simplicity we will always create DRAM/Interleaved tiled tensor.
         """
+        if grid_shape is None:
+            grid_shape = [1, 1]
         if isinstance(element_type, torch.dtype):
             element_type = self._get_type_from_torch_dtype(element_type)
         with self._ctx, self._loc:
@@ -777,25 +779,17 @@ class Builder(metaclass=BuilderMeta):
 
             if buffer_type == ttnn.BufferType.SystemMemory:
                 tensor_memory_layout = None
-            elif buffer_type == ttnn.BufferType.L1:
-                tensor_memory_layout = ttnn.TensorMemoryLayout.WidthSharded
-            else:
-                tensor_memory_layout = ttnn.TensorMemoryLayout.Interleaved
 
-            grid_shape = [1, 1]
-
-            core_range_set = None
             is_sharded = (
                 tensor_memory_layout is not None
                 and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
             )
 
-            if is_sharded:
-                start = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
-                end = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
-                core_range_set = ttnn.ir.CoreRangeSetAttr.get(
-                    self._ctx,
-                    [ttnn.ir.CoreRangeAttr.get(self._ctx, start, end)],
+            if is_sharded and core_range_set is None:
+                raise ValueError(
+                    "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
+                    "the builder does not synthesize one because the canonical "
+                    "placement depends on the target arch's worker/DRAM grid."
                 )
 
             return ttnn.ir.TTNNLayoutAttr.get(

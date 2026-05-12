@@ -14,7 +14,12 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize(
-    "shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]], ids=shapes_list_str
+    "shapes",
+    [
+        pytest.param([(1, 32, 64, 512), (1, 32, 1, 512), (1,)], id="single_user"),
+        # Multi-user decoder pattern: num_input_users == num_users > 1.
+        pytest.param([(8, 4, 16, 32), (1, 4, 8, 32), (1,)], id="multi_user"),
+    ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32, torch.float32, torch.int32]])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])

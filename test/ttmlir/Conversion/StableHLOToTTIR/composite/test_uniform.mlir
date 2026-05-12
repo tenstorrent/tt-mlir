@@ -3,7 +3,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module @jit__normal attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {
-  sdy.mesh @empty_mesh = <["default_updated"=1, "default"=1]>
+  sdy.mesh @empty_mesh = <["default_aux"=1, "default"=1]>
   func.func public @main(%arg0: tensor<2xui32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) -> (tensor<50xf32> {jax.result_info = "result", ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
     %cst = stablehlo.constant dense<1.000000e+00> : tensor<f32>
     %cst_0 = stablehlo.constant dense<-0.99999994> : tensor<f32>

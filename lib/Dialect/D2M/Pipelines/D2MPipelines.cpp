@@ -125,11 +125,11 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MLowerToLayout());
   pm.addPass(d2m::createD2MMaterializeViewReturns());
 
-  if (options.enableElementwiseFusion) {
-    d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
-    elementwiseFusionOptions.maxDstPhysicalSizeTiles =
-        options.maxDstPhysicalSizeTiles;
-    pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
+  if (options.enableElementwiseFusion || options.enableEltwiseReductionFusion) {
+    d2m::D2MGenericFusionOptions fusionOptions;
+    fusionOptions.enableEltwiseReductionFusion =
+        options.enableEltwiseReductionFusion;
+    pm.addPass(d2m::createD2MGenericFusion(fusionOptions));
   }
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
