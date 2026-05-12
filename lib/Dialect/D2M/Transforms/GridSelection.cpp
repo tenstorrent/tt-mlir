@@ -121,6 +121,10 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
   }
 
   if (!needsOptimization) {
+    // A selected 1x1 grid does not require producer-side redistribution.
+    // In non-origin spatial regions, offset-aware mapping is materialized on
+    // the output path: applyEmptyOpUpdate updates the outs EmptyOp VGM, and
+    // deriveGridAttrForOutput rebuilds the generic grid mapping from it.
     return;
   }
 
@@ -364,10 +368,10 @@ static void applyTTNNTensorUpdate(const OperandGridInfo &info,
   }
 }
 
-static void
-applyCompositeViewUpdate(const OperandGridInfo &info,
-                         const EffectiveTargetGridRange &effectiveTargetGrid,
-                         bool ttnnMode, OpBuilder &builder) {
+static void applyCompositeViewUpdate(
+    const OperandGridInfo &info,
+    const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
+    OpBuilder &builder) {
   auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
   const int32_t concatDim = compositeView.getDim();
   auto outType =
@@ -444,7 +448,7 @@ applyCompositeViewUpdate(const OperandGridInfo &info,
       auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
       if (emptyOp) {
         auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-            deriveVirtualGridAttrs(inputOptimalGrid, effectiveTargetGrid,
+            deriveVirtualGridAttrs(inputOptimalGrid, effectiveTargetGridRange,
                                    builder);
         builder.setInsertionPoint(emptyOp);
         auto newEmptyOp = builder.create<d2m::EmptyOp>(
