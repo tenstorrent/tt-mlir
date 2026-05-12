@@ -321,7 +321,7 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
         hasTargetDeviceLayout ? tgt.vgmInverse : current.vgmInverse;
     auto output = makeOutputSpec(l1Type, outputVgmForward, outputVgmInverse);
     plan.push_back(DRAMToL1Step{output, AffineMap()});
-    updateStateFromOutput(current, output);
+    updateStateFromOutput(current, output, bounceRemapping);
   }
 
   // TILIZE with the current layout so subsequent mapping changes operate on

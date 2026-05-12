@@ -208,7 +208,9 @@ def test_dram_binary_add_scalar(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[list[str]] = None
         ):
             scalar_value = get_add_scalar_value(dtype)
-            scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
+            scalar = builder.full(
+                list(shape), dtype, scalar_value, unit_attrs=unit_attrs
+            )
             return builder.add(in0, scalar, unit_attrs=unit_attrs)
 
     compile_dram_test(module, request, device, target)
