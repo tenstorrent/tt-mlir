@@ -44,8 +44,12 @@ module {
               %r = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
               d2m.remote_load %r %b[%k, %j] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
               %o = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-              "d2m.tile_matmul_block"(%l, %r, %o) : (memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> ()
-              d2m.remote_store %c[%i, %j] %o : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+              linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%l, %r : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%o : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+              ^bb0(%lhs: !ttcore.tile<32x32, f32>, %rhs: !ttcore.tile<32x32, f32>, %out_elem: !ttcore.tile<32x32, f32>):
+                %9 = "d2m.tile_matmul"(%lhs, %rhs, %out_elem) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+                linalg.yield %9 : !ttcore.tile<32x32, f32>
+              }
+              d2m.remote_store %c[%i, %j] %o : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
             } {d2m.blocking_loop = 2}
           } {d2m.blocking_loop = 1}
         } {d2m.blocking_loop = 0}

@@ -142,8 +142,7 @@ ShapedType reblockShapedType(ShapedType oldType,
                          oldMemRefType.getMemorySpace());
 }
 
-Type cloneWithShardShape(Value referenceOperand, Type typeToRetype,
-                         std::optional<uint32_t> numStreamBuffers) {
+Type cloneWithShardShape(Value referenceOperand, Type typeToRetype) {
   auto operandShapedType =
       mlir::dyn_cast<ShapedType>(referenceOperand.getType());
   if (!operandShapedType) {
@@ -161,12 +160,9 @@ Type cloneWithShardShape(Value referenceOperand, Type typeToRetype,
   }
   if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(typeToRetype)) {
     MemRefLayoutAttrInterface layout;
-    if (numStreamBuffers) {
-      layout = ttcore::CBLayoutAttr::get(
-          oldMemRefType.getContext(), shardShape,
-          ttcore::getElementSizeBytes(oldMemRefType.getElementType()),
-          *numStreamBuffers);
-    }
+    layout = ttcore::CBLayoutAttr::get(
+        oldMemRefType.getContext(), shardShape,
+        ttcore::getElementSizeBytes(oldMemRefType.getElementType()));
     return MemRefType::get(shardShape, oldMemRefType.getElementType(), layout,
                            oldMemRefType.getMemorySpace());
   }

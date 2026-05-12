@@ -2446,16 +2446,8 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
              "tensor::EmptyOp");
       // Get number of stream buffers from the exisitng buffer layout if it's
       // set
-      std::optional<uint32_t> numStreamBuffers = std::nullopt;
-      if (mlir::isa<memref::AllocOp>(localBufferDefiningOp)) {
-        auto allocOp = mlir::cast<memref::AllocOp>(localBufferDefiningOp);
-        numStreamBuffers = mlir::dyn_cast<ttcore::CBLayoutAttr>(
-                               allocOp.getResult().getType().getLayout())
-                               .getBuffers();
-      }
       Type newLocalBufferType = d2m::utils::cloneWithShardShape(
-          newMemref, localBufferDefiningOp->getResult(0).getType(),
-          numStreamBuffers);
+          newMemref, localBufferDefiningOp->getResult(0).getType());
       llvm::errs() << "updating localbuffer type to " << newLocalBufferType
                    << "\n";
       if (newLocalBufferType != localBufferDefiningOp->getResult(0).getType()) {
@@ -2479,16 +2471,8 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
              "tensor::EmptyOp");
       // Get number of stream buffers from the exisitng buffer layout if it's
       // set
-      std::optional<uint32_t> numStreamBuffers = std::nullopt;
-      if (mlir::isa<memref::AllocOp>(localBufferDefiningOp)) {
-        auto allocOp = mlir::cast<memref::AllocOp>(localBufferDefiningOp);
-        numStreamBuffers = mlir::dyn_cast<ttcore::CBLayoutAttr>(
-                               allocOp.getResult().getType().getLayout())
-                               .getBuffers();
-      }
       Type newLocalBufferType = d2m::utils::cloneWithShardShape(
-          newMemref, localBufferDefiningOp->getResult(0).getType(),
-          numStreamBuffers);
+          newMemref, localBufferDefiningOp->getResult(0).getType());
       if (newLocalBufferType != localBufferDefiningOp->getResult(0).getType()) {
         localBufferDefiningOp->getResult(0).setType(newLocalBufferType);
       }

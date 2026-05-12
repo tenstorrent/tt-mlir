@@ -30,8 +30,9 @@ public:
   }
 
 private:
-  void attachCBLayoutAttribute(IRRewriter &rewriter, memref::AllocOp allocOp,
-                               int32_t numBuffers) {
+  memref::AllocOp attachCBLayoutAttribute(IRRewriter &rewriter,
+                                          memref::AllocOp allocOp,
+                                          int32_t numBuffers) {
     auto buffer = allocOp->getResult(0);
     auto bufferType = mlir::cast<MemRefType>(buffer.getType());
     auto shardShape = bufferType.getShape();
@@ -49,6 +50,7 @@ private:
     for (auto attr : allocOp->getAttrs()) {
       newAllocOp->setAttr(attr.getName(), attr.getValue());
     }
+    return newAllocOp;
   }
 
   void hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
@@ -65,16 +67,16 @@ private:
         } else if (allocOp->getAttr("d2m.scratch_buffer")) {
           assert(allocOp->getAttrOfType<IntegerAttr>("address") &&
                  "scratch buffer must have address attribute");
-          attachCBLayoutAttribute(rewriter, allocOp, 1);
-          allocsToHoist.push_back(allocOp);
+          auto newAllocOp = attachCBLayoutAttribute(rewriter, allocOp, 1);
+          allocsToHoist.push_back(newAllocOp);
         } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
           assert(allocOp->getAttrOfType<IntegerAttr>("address") &&
                  "synchronized buffer must have address attribute");
-          attachCBLayoutAttribute(
+          auto newAllocOp = attachCBLayoutAttribute(
               rewriter, allocOp,
               allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
                   .getInt());
-          allocsToHoist.push_back(allocOp);
+          allocsToHoist.push_back(newAllocOp);
         } else {
           // We should allow this in the future but asserting for now to check
           // it's not used

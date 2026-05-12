@@ -28,6 +28,18 @@ namespace {
 // Helpers
 // ---------------------------------------------------------------------------
 
+bool isAliasedStore(RemoteStoreOp storeOp) {
+  auto operandAliasOp =
+      mlir::dyn_cast<OperandAliasOp>(storeOp.getLocalBuffer().getDefiningOp());
+  return operandAliasOp && operandAliasOp.getMemref() == storeOp.getMemref();
+}
+
+bool isAliasedLoad(RemoteLoadOp loadOp) {
+  auto operandAliasOp =
+      mlir::dyn_cast<OperandAliasOp>(loadOp.getLocalBuffer().getDefiningOp());
+  return operandAliasOp && operandAliasOp.getMemref() == loadOp.getMemref();
+}
+
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
   while (value) {
     // Check if its a cb (hoisted generic arg with cb layout attr).
@@ -233,7 +245,7 @@ static LogicalResult processSharedBufferPairs(
     // The streaming half stays as a remote_load/store for DMA.
     if (mlir::isa<RemoteLoadOp>(producer) &&
         mlir::isa<RemoteStoreOp>(consumer) &&
-        mlir::cast<RemoteStoreOp>(consumer)->hasAttr("d2m.aliased_store")) {
+        isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
       Location loc = producer->getLoc();
       unsigned cbOperandIdx =
           producer->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
@@ -246,8 +258,7 @@ static LogicalResult processSharedBufferPairs(
       rewriter.create<PopOp>(loc, cb);
     } else if (mlir::isa<RemoteLoadOp>(producer) &&
                mlir::isa<RemoteStoreOp>(consumer) &&
-               mlir::cast<RemoteLoadOp>(producer)->hasAttr(
-                   "d2m.aliased_load")) {
+               isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
       Location loc = consumer->getLoc();
       unsigned cbOperandIdx =
           consumer->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
@@ -296,8 +307,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
               computeBlock, cbOperandIdx);
 
           if (mlir::isa<RemoteLoadOp>(associatedProducer) &&
-              mlir::cast<RemoteLoadOp>(associatedProducer)
-                  ->hasAttr("d2m.aliased_load")) {
+              isAliasedLoad(mlir::cast<RemoteLoadOp>(associatedProducer))) {
             rewriter.create<ReserveOp>(loc, cb);
             rewriter.create<PushOp>(loc, cb);
           }
@@ -336,8 +346,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
           rewriter.create<PushOp>(loc, cb);
           // TODO: change isAliased to inherent attribute???
           if (mlir::isa<RemoteStoreOp>(associatedConsumer) &&
-              mlir::cast<RemoteStoreOp>(associatedConsumer)
-                  ->hasAttr("d2m.aliased_store")) {
+              isAliasedStore(mlir::cast<RemoteStoreOp>(associatedConsumer))) {
             rewriter.create<WaitOp>(loc, cb);
             rewriter.create<PopOp>(loc, cb);
           }
@@ -371,11 +380,10 @@ static LogicalResult eraseAliasedLoadStoreOps(
     auto *consumer = usageInfo.consumers.front();
 
     if (mlir::isa<RemoteStoreOp>(consumer) &&
-        mlir::cast<RemoteStoreOp>(consumer)->hasAttr("d2m.aliased_store")) {
+        isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
       rewriter.eraseOp(consumer);
     } else if (mlir::isa<RemoteLoadOp>(producer) &&
-               mlir::cast<RemoteLoadOp>(producer)->hasAttr(
-                   "d2m.aliased_load")) {
+               isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
       rewriter.eraseOp(producer);
     }
   }
