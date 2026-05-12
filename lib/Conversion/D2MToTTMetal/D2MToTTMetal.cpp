@@ -218,6 +218,7 @@ public:
         }
       } else if (mlir::isa<IntegerType, IndexType, FloatType>(
                      operand.getType())) {
+        argMapping[operandIndex] = args.size();
         args.push_back(operand);
       } else {
         op.emitOpError(
