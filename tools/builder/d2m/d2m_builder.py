@@ -6,7 +6,7 @@ from __future__ import annotations
 import inspect
 import functools
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence, get_args
 import torch
 from enum import Enum, auto
 import re
@@ -449,6 +449,18 @@ class D2MBuilder(Builder):
             assert isinstance(block_factors[0], tuple)
             block_factors = [b for bs in block_factors for b in bs]
 
+        assert not isinstance(
+            additional_args, (str, bytes)
+        ), "additional_args must be a sequence of MLIR values or None"
+        assert isinstance(
+            additional_args, Sequence
+        ), "additional_args must be a sequence of MLIR values or None"
+        additional_args = list(additional_args)
+        operand_types = get_args(Operand)
+        assert all(
+            isinstance(arg, operand_types) for arg in additional_args
+        ), "additional_args elements must be MLIR operands"
+
         inputs = operands[:-1]
         outputs = operands[-1:]
         assert len(outputs) == 1
@@ -530,6 +542,8 @@ class D2MBuilder(Builder):
                 nonlocal fabric_connection_config
 
                 additional_args = kwargs.pop("additional_args", [])
+                if additional_args is None:
+                    additional_args = []
                 generic = self._create_generic(
                     args,
                     additional_args,
