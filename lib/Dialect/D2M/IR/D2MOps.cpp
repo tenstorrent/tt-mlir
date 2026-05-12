@@ -694,23 +694,6 @@ static bool hasNoMaskablePadding(ShapedType shapedType,
          logicalShape[logicalShape.size() - 1] == physicalCols;
 }
 
-static bool haveCompatibleMaskTypes(ShapedType inputType,
-                                    ShapedType outputType) {
-  if (!llvm::equal(inputType.getShape(), outputType.getShape()) ||
-      inputType.getElementType() != outputType.getElementType()) {
-    return false;
-  }
-
-  auto inputMemref = dyn_cast<MemRefType>(inputType);
-  auto outputMemref = dyn_cast<MemRefType>(outputType);
-  if (inputMemref || outputMemref) {
-    return inputMemref && outputMemref &&
-           inputMemref.getMemorySpace() == outputMemref.getMemorySpace();
-  }
-
-  return isa<RankedTensorType>(inputType) && isa<RankedTensorType>(outputType);
-}
-
 mlir::OpFoldResult MaskOp::fold(FoldAdaptor) {
   if (!isa<RankedTensorType>(getResult().getType())) {
     return {};
@@ -741,14 +724,8 @@ mlir::OpFoldResult MaskOp::fold(FoldAdaptor) {
     return emitOpError("input, output, and result must be shaped types");
   }
 
-  if (outputType != resultType) {
-    return emitOpError("output and result must have the same type");
-  }
-
-  if (!haveCompatibleMaskTypes(inputType, outputType)) {
-    return emitOpError(
-        "input must have the same shape, element type, and memory space as "
-        "the output");
+  if (inputType != outputType || outputType != resultType) {
+    return emitOpError("input, output, and result must have identical types");
   }
 
   if (getLogicalShape().size() < 2) {

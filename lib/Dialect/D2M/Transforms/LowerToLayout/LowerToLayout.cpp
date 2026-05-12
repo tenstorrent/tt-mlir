@@ -518,8 +518,9 @@ public:
   // initially match the pre-lowered ToLayout result. Lowering may replace that
   // input with a value that has a different concrete physical shape, for
   // example after tilization chooses a tile-aligned buffer. Since MaskOp
-  // requires input/output/result to have the same shape, rebuild the mask
-  // output while preserving the old output's virtual-grid metadata.
+  // requires input/output/result to have identical types, rebuild the mask
+  // output to match the rewritten input while preserving the old output's
+  // virtual-grid metadata.
   void repairMaskAfterInputRewrite(PatternRewriter &rewriter,
                                    MaskOp mask) const {
     auto inputType =
