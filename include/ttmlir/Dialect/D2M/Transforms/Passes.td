@@ -1132,15 +1132,15 @@ def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir:
 }
 
 def D2MAnnotateCoreIndexMaps : Pass<"d2m-annotate-core-index-maps", "::mlir::ModuleOp"> {
-  let summary = "Annotate core index ops with generic grid physical-to-virtual maps.";
+  let summary = "Attach generic grid physical-to-virtual maps to d2m.core_index ops.";
   let description = [{
-    This pass attaches the immediately enclosing d2m.generic op's
-    physical_to_virt_map to d2m.core_index ops. After this pass, core_index
-    results are explicitly in the generic grid's virtual coordinate space even
-    though the kernel executes over the mapped physical worker grid.
+    This pass annotates every d2m.core_index op with the physical-to-virtual
+    map from its immediately enclosing d2m.generic, when such a map exists.
 
-    Run this after passes that create or clone core_index ops and before
-    conversion to TTKernel.
+    The pass owns the invariant that d2m.core_index is interpreted in the
+    virtual coordinate space of the enclosing generic grid. Lowering passes can
+    therefore create plain d2m.core_index ops without also resolving virtual
+    grid mapping locally.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }

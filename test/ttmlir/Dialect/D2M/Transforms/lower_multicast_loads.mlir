@@ -8,8 +8,8 @@
 #reduction = #ttcore.iterator_type<reduction>
 #grid_v2p = #ttcore.grid<2x2, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>
 
-module {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+module attributes {} {
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
 
   // Test lowering of high-level multicast form (mcast[dims]) to low-level form (core[...] mcast[...])
   // Grid: 2x4 with iterator types [parallel, reduction]
@@ -96,26 +96,25 @@ module {
     return
   }
 
-  // Test virtual grid handling while lowering high-level multicast.  Core
+  // Test virtual grid handling while lowering high-level multicast. Core
   // indices carry the generic grid's physical-to-virtual map instead of being
   // eagerly converted through the virtual-to-physical map.
   // CHECK-LABEL: func.func @test_multicast_virtual_grid_core_index_mapping
-  // CHECK-NOT: affine.apply
   func.func @test_multicast_virtual_grid_core_index_mapping(%arg0: memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
-    %stream = d2m.view_layout %arg0 remapping = #map4 : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %alloc = memref.alloc() {alignment = 64 : i64, d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    %stream = d2m.view_layout %arg0 remapping = #map4 : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
 
     d2m.generic {block_factors = [1, 1], grid = #grid_v2p, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<unified>]}
-        ins(%stream : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
-        outs(%alloc : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+        ins(%stream : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>)
+        outs(%alloc : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^unified0:
-      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
       // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
       // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
       // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0) {phys_to_virt_map = {{.*}}} : index
+      // CHECK-NOT: affine.apply
       // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[CORE0]], %[[C0]]] mshape[%[[C1]], %[[C2]]]
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       %load_result = d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>

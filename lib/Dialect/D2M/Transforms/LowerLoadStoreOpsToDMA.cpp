@@ -62,10 +62,6 @@ public:
     Value cb = remoteLoad.getCb();
     Value remoteMemref = remoteLoad.getMemref();
 
-    // Get parent generic op for grid mapping (needed for CoreIndexOp).
-    auto genericOp = remoteLoad->getParentOfType<GenericOp>();
-    TT_assertv(genericOp, "RemoteLoad must be inside a GenericOp");
-
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
@@ -92,7 +88,8 @@ public:
     // Determine if this core is the sender.
     // The sender is at position mcastStartIndex[i] for each multicast
     // dimension. We need to check that ALL multicast dimensions have core_index
-    // == mcastStartIndex.
+    // == mcastStartIndex. CoreIndexOp grid mapping is attached by the
+    // d2m-annotate-core-index-maps pass.
     Value isSender = nullptr;
     ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
     for (auto [i, mcastIdx] : llvm::enumerate(mcastStartIndex)) {
@@ -135,13 +132,13 @@ public:
           // ReserveOp) as both source and destination - this is the Producer
           // buffer that was just filled by the DMA read above.
           Value mcastTx = builder.create<DMAWriteOp>(
-              loc, localMemref, localMemref, remoteLoad.getMcastStartIndex(),
+              loc, localMemref, localMemref, mcastStartIndex,
               remoteLoad.getMcastShape());
           builder.create<DMAWaitOp>(loc, mcastTx);
 
           // Signal receivers that sender is finished.
           builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
-                                         remoteLoad.getMcastStartIndex(),
+                                         mcastStartIndex,
                                          remoteLoad.getMcastShape(),
                                          /*startDevice=*/ValueRange(),
                                          /*deviceMcastShape=*/ValueRange());
@@ -150,7 +147,7 @@ public:
         },
         [&](OpBuilder &builder, Location loc) {
           builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
-                                         remoteLoad.getMcastStartIndex());
+                                         mcastStartIndex);
           builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
                                           zero);
 

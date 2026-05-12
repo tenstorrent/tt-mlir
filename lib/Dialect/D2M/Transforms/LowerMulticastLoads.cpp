@@ -227,10 +227,12 @@ public:
     }
 
     if (coreVirtMap) {
-      // Project out the shard layout dims and results from the forward
-      // map since we are only concerned with the grid dimensions.
-      AffineMap projectedMap =
-          getProjectedGridForwardMap(coreVirtMap, mcastShapeInt64.size());
+      // Project out shard layout dims and results from the forward map since
+      // multicast shape only describes grid dimensions. Core index operands
+      // stay in virtual grid space; d2m-annotate-core-index-maps establishes
+      // that via phys_to_virt_map on the generated core_index ops.
+      AffineMap projectedMap = getProjectedGridForwardMap(
+          coreVirtMap, static_cast<unsigned>(mcastShapeInt64.size()));
       mcastShapeInt64 = ttmlir::utils::evalShape(projectedMap, mcastShapeInt64);
     }
 

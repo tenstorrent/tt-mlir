@@ -81,14 +81,6 @@ static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
   llvm_unreachable("unsupported element type for OOB fill");
 }
 
-static Value createCoreIndex(OpBuilder &builder, Location loc, int64_t dim,
-                             AffineMap physicalToVirtMap) {
-  if (physicalToVirtMap.isEmpty()) {
-    return builder.create<CoreIndexOp>(loc, dim);
-  }
-  return builder.create<CoreIndexOp>(loc, dim, physicalToVirtMap);
-}
-
 static ttcore::GridAttr getMaskGridAttr(OpBuilder &builder, Value output,
                                         ArrayRef<int64_t> gridShape) {
   auto invMap = utils::getVirtualGridInverseMapping(output);
@@ -208,7 +200,6 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
     auto gridAttr = getMaskGridAttr(rewriter, globalOutput, gridShape);
-    AffineMap physicalToVirtMap = gridAttr.getPhysicalToVirtMap();
     ArrayAttr emptyArray = rewriter.getArrayAttr({});
     ArrayAttr threads = rewriter.getArrayAttr(
         rewriter.getAttr<ThreadAttr>(ThreadType::Unified));
@@ -241,8 +232,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     SmallVector<Value> remoteIndices;
     remoteIndices.reserve(gridShape.size());
     for (size_t dim = 0; dim < gridShape.size(); ++dim) {
-      remoteIndices.push_back(createCoreIndex(
-          rewriter, loc, static_cast<int64_t>(dim), physicalToVirtMap));
+      remoteIndices.push_back(
+          rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(dim)));
     }
 
     rewriter.create<RemoteLoadOp>(loc, input, globalInput, remoteIndices);
@@ -289,8 +280,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     // tiled row/col dimensions.
     int64_t rowGridDim = static_cast<int64_t>(gridShape.size()) - 2;
     int64_t colGridDim = static_cast<int64_t>(gridShape.size()) - 1;
-    Value coreY = createCoreIndex(rewriter, loc, rowGridDim, physicalToVirtMap);
-    Value coreX = createCoreIndex(rewriter, loc, colGridDim, physicalToVirtMap);
+    Value coreY = rewriter.create<CoreIndexOp>(loc, rowGridDim);
+    Value coreX = rewriter.create<CoreIndexOp>(loc, colGridDim);
 
     // Write the mask tiles.
     Value validRowsVal =

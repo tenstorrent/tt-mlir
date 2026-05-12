@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-decompose-masking -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-decompose-masking --d2m-annotate-core-index-maps -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Test d2m-decompose-masking pass: decompose top-level d2m.mask ops into

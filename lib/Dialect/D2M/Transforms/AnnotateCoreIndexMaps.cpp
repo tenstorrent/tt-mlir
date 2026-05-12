@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 namespace mlir::tt::d2m {
@@ -11,7 +10,6 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-
 class D2MAnnotateCoreIndexMaps
     : public impl::D2MAnnotateCoreIndexMapsBase<D2MAnnotateCoreIndexMaps> {
 public:
@@ -22,7 +20,6 @@ public:
     utils::annotateCoreIndexOpsWithPhysicalToVirtualMaps(getOperation());
   }
 };
-
 } // namespace
 
 } // namespace mlir::tt::d2m
