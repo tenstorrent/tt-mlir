@@ -245,8 +245,7 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter, loc, static_cast<int64_t>(dim), physicalToVirtMap));
     }
 
-    rewriter.create<RemoteLoadOp>(loc, inputType, input, globalInput,
-                                  remoteIndices);
+    rewriter.create<RemoteLoadOp>(loc, input, globalInput, remoteIndices);
 
     ArrayRef<int64_t> inputShape = inputType.getShape();
     auto tileType = cast<ttcore::TileType>(inputType.getElementType());
@@ -534,8 +533,11 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     }
 
     rewriter.setInsertionPointAfter(insertionPoint);
-    rewriter.create<RemoteStoreOp>(loc, globalOutput.getType(), globalOutput,
-                                   remoteIndices, output);
+    rewriter.create<RemoteStoreOp>(
+        loc, /*resultTypes=*/TypeRange{}, globalOutput, remoteIndices, output,
+        /*cb=*/Value{}, /*startDevice=*/ValueRange{},
+        /*deviceMcastShape=*/ValueRange{}, /*semaphore=*/Value{},
+        /*semaphoreIndices=*/ValueRange{});
 
     rewriter.replaceOp(op, op.getOutput());
     return success();
