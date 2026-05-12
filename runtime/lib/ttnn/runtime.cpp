@@ -1275,10 +1275,6 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->out()};
     break;
   }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRefs = {opContext.type_as_MeshShardOp()->out()};
-    break;
-  }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
     tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
     break;
@@ -1850,10 +1846,6 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRefs = {opContext.type_as_MeshShardOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {

@@ -328,16 +328,11 @@ class Builder(metaclass=BuilderMeta):
         # Generate new multi-device golden if it's presharded
         self._set_golden_tensor(operand, sharded_golden_tensor)
 
-        local_shape = sharded_golden_tensor.shape
-        element_type = self._get_type(operand).element_type
-        local_shape_rtt = RankedTensorType.get(local_shape, element_type)
-        local_shape_attr = ttcore.ir.LocalShapeAttr.get(self._ctx, local_shape_rtt)
         shard_status_attr = ttcore.ir.ShardStatusAttr.get(
             self._ctx, ttcore.ir.ShardStatus.Presharded
         )
 
         self.set_arg_attribute(operand, "ttcore.shard_status", shard_status_attr)
-        self.set_arg_attribute(operand, "ttcore.local_shape", local_shape_attr)
 
     # ----- Private methods -----
 

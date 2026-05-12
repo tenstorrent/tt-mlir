@@ -3361,35 +3361,6 @@ public:
 };
 } // namespace
 
-// MeshShardOp conversion pattern
-//
-// NOTE: This legacy mesh_shard path only handles the "identity" type.
-// All non-identity behavior has been split out to distribute_tensor /
-// aggregate_tensor. It remains because current TTIR lowering still generates
-// identity mesh_shard for shape tracking.
-namespace {
-class MeshShardOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::MeshShardOp> {
-public:
-  using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::MeshShardOp>::TTNNToEmitPyBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MeshShardOp srcOp,
-                  mlir::tt::ttnn::MeshShardOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    // Identity mesh_shard has no backend behavior, so we just forward the input
-    // tensor to the output without generating any function call.
-    assert(adaptor.getShardType() ==
-               mlir::tt::ttcore::MeshShardType::Identity &&
-           "ttnn.mesh_shard op with non-identity shard type is not supported");
-    rewriter.replaceOp(srcOp, adaptor.getInput());
-
-    return success();
-  }
-};
-} // namespace
-
 // DistributeTensorOp conversion pattern
 //
 namespace {
@@ -5278,7 +5249,6 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                AllReduceAsyncOpConversionPattern,
                PointToPointOpConversionPattern,
                MeshPartitionOpConversionPattern,
-               MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
                AggregateTensorOpConversionPattern,
                TopKOpConversionPattern,

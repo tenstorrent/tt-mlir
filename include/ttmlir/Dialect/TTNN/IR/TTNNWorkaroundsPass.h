@@ -247,10 +247,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for mesh shard op operands.
-  static TTNNOperandsWorkarounds
-  createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
-
   // Create workarounds for mesh partition op operands. The input and output
   // tensors are always in row-major layout.
   // TODO (hshah): Remove once

@@ -1242,8 +1242,6 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
           meshShardType = ::tt::target::MeshShardType::Replicate;
         } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
           meshShardType = ::tt::target::MeshShardType::Devices;
-        } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
-          meshShardType = ::tt::target::MeshShardType::Identity;
         } else {
           llvm_unreachable("unhandled mesh_shard type");
         }

@@ -20,7 +20,6 @@
 #include "operations/ccl/all_to_all_dispatch_metadata.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
-#include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/moe_expert_token_remap.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
@@ -530,9 +529,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
     return operations::ccl::run(op->type_as_MoeExpertTokenRemapOp(),
                                 getContext());
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    return operations::ccl::run(op->type_as_MeshShardOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), getContext());

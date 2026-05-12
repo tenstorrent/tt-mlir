@@ -60,9 +60,7 @@ public:
     //
     //
     // Follow aliasing chains until we reach the true final user.
-    // Today we model:
-    //  1) DPS init operands (tensor flows into tied result)
-    //  2) Identity mesh_shard (input/result alias for shape tracking)
+    // Today we model DPS init operands (tensor flows into tied result).
     while (true) {
       if (opOperandIter != endOp->getOpOperands().end() &&
           isa<DestinationStyleOpInterface>(endOp) &&
@@ -72,19 +70,6 @@ public:
             cast<DestinationStyleOpInterface>(endOp).getTiedOpResult(
                 &(*opOperandIter));
         currentValue = result;
-        endOp = livenessInfo->getEndOperation(currentValue, endOp);
-        opOperandIter =
-            llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
-              return opOperand.is(currentValue);
-            });
-        continue;
-      }
-
-      if (auto meshShardOp = dyn_cast<ttnn::MeshShardOp>(endOp);
-          meshShardOp &&
-          meshShardOp.getShardType() == ttcore::MeshShardType::Identity &&
-          meshShardOp.getInput() == currentValue) {
-        currentValue = meshShardOp.getResult();
         endOp = livenessInfo->getEndOperation(currentValue, endOp);
         opOperandIter =
             llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
@@ -226,14 +211,6 @@ public:
       // ttnn::EmptyOp.
       func->walk([&](Operation *op) {
         if (isa<DestinationStyleOpInterface>(op)) {
-          return;
-        }
-
-        // Identity mesh_shard is an alias-only op (no new storage ownership),
-        // so its result must not receive a separate deallocate.
-        if (auto meshShardOp = dyn_cast<ttnn::MeshShardOp>(op);
-            meshShardOp &&
-            meshShardOp.getShardType() == ttcore::MeshShardType::Identity) {
           return;
         }
 
