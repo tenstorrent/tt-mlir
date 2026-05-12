@@ -71,7 +71,9 @@ struct GridAnalysis {
 
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.
-  void analyzeGenericOp(GenericOp genericOp, GenericGridAnalysisResult &result);
+  GenericGridAnalysisResult
+  analyzeGenericOp(GenericOp genericOp,
+                   const EffectiveTargetGridRange &effectiveTargetGridRange);
 
   /// Compute the effective target grid range for a generic, accounting for
   /// spatial region grid ranges.

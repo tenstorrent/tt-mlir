@@ -153,8 +153,11 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   return normalizedOperandGrids;
 }
 
-void GridAnalysis::analyzeGenericOp(GenericOp genericOp,
-                                    GenericGridAnalysisResult &result) {
+GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
+    GenericOp genericOp,
+    const EffectiveTargetGridRange &effectiveTargetGridRange) {
+  GenericGridAnalysisResult result;
+  result.effectiveTargetGridRange = effectiveTargetGridRange;
   ArrayRef<int64_t> targetGridShape = result.effectiveTargetGridRange.shape;
 
   // Build per-operand target grids. When a loop dimension maps to different
@@ -288,7 +291,7 @@ void GridAnalysis::analyzeGenericOp(GenericOp genericOp,
     }
   }
 
-  return;
+  return result;
 }
 
 EffectiveTargetGridRange
@@ -327,9 +330,8 @@ GridAnalysis::GridAnalysis(Operation *moduleOp,
     }
 
     EffectiveTargetGridRange targetGridRange = getTargetGridRange(genericOp);
-    GenericGridAnalysisResult result;
-    result.effectiveTargetGridRange = std::move(targetGridRange);
-    analyzeGenericOp(genericOp, result);
+    GenericGridAnalysisResult result =
+        analyzeGenericOp(genericOp, targetGridRange);
     results[genericOp.getOperation()] =
         std::make_unique<GenericGridAnalysisResult>(std::move(result));
   });
