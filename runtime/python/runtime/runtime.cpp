@@ -241,9 +241,12 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
              return tt::runtime::hasLayout(self, layout);
            })
-      .def("get_layout", [](tt::runtime::Tensor self) {
-        return tt::runtime::getTensorLayout(self);
-      });
+      .def("get_layout",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorLayout(self);
+           })
+      .def("get_global_id",
+           [](tt::runtime::Tensor self) { return self.getGlobalId(); });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef")
       .def(

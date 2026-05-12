@@ -11,9 +11,9 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <variant>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #pragma clang diagnostic push
@@ -419,6 +419,8 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(eventHandle.value_or(nullptr), runtime),
         globalId(nextTensorGlobalId()) {}
+
+  ~Tensor();
 
   void setGlobalId(std::uint64_t id) { globalId = id; }
   std::uint64_t getGlobalId() const { return globalId; }
