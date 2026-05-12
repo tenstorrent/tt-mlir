@@ -1488,24 +1488,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 }
 
                 if (operandIndex) {
-                  // Update the result type so the load result matches the
-                  // stream type now associated with the operand.
+                  // Update the localBuffer (destination) type so the load
+                  // matches the stream type now associated with the operand.
                   auto typeIt = operandCBTypeByIndex.find(*operandIndex);
                   if (typeIt != operandCBTypeByIndex.end()) {
                     Type newShardType = typeIt->second;
-                    op.getResult().setType(newShardType);
                     updateLocalBufferType(op, newShardType);
                     return;
                   }
                 }
 
-                if (Value localBuffer = op.getLocalBuffer()) {
-                  Type localBufferType = localBuffer.getType();
-                  if (localBufferType != op.getResult().getType()) {
-                    op.getResult().setType(localBufferType);
-                    updateLocalBufferType(op, localBufferType);
-                    return;
-                  }
+                // If a localBuffer is already typed (its defining op assigned
+                // a memref type), trust that and don't override it with the
+                // generic L1 shard type below. This preserves layouts like
+                // #ttcore.cb_layout<...> that were set up by upstream logic.
+                if (op.getLocalBuffer()) {
+                  return;
                 }
 
                 if (op.isImplicitForm()) {
@@ -1520,7 +1518,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                         shardShape, shapedType.getElementType(), nullptr,
                         rewriter.getAttr<ttcore::MemorySpaceAttr>(
                             ttcore::MemorySpace::DeviceL1));
-                    op.getResult().setType(newShardType);
                     updateLocalBufferType(op, newShardType);
                   }
                 }
