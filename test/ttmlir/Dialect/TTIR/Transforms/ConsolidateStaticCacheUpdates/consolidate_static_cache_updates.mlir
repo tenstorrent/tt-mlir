@@ -10,7 +10,7 @@
 module {
   // CHECK-LABEL: func.func @consolidate_three_to_one
   func.func @consolidate_three_to_one(
-      %cumlen: tensor<1xi32>,
+      %cumlen: tensor<1xi32> {ttcore.cumulative_length},
       %other: tensor<4x4xbf16>
   ) -> (tensor<1xi32>, tensor<4x4xbf16>, tensor<1xi32>, tensor<1xi32>) {
     %d0 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
@@ -30,7 +30,7 @@ module {
 module {
   // CHECK-LABEL: func.func @no_consolidate_different_deltas
   func.func @no_consolidate_different_deltas(
-      %cumlen: tensor<1xi32>
+      %cumlen: tensor<1xi32> {ttcore.cumulative_length}
   ) -> (tensor<1xi32>, tensor<1xi32>) {
     %d0 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
     %d1 = "ttir.full"() <{shape = array<i32: 1>, fill_value = 2 : i32}> : () -> tensor<1xi32>
@@ -49,9 +49,9 @@ module {
 module {
   // CHECK-LABEL: func.func @consolidate_per_layer
   func.func @consolidate_per_layer(
-      %arg0: tensor<1xi32>,
-      %arg1: tensor<1xi32>,
-      %arg2: tensor<1xi32>
+      %arg0: tensor<1xi32> {ttcore.cumulative_length},
+      %arg1: tensor<1xi32> {ttcore.cumulative_length},
+      %arg2: tensor<1xi32> {ttcore.cumulative_length}
   ) -> (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>) {
     %delta = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
     %a0 = "ttir.add"(%arg0, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
@@ -70,9 +70,9 @@ module {
 module {
   // CHECK-LABEL: func.func @consolidate_block_args_internal_uses
   func.func @consolidate_block_args_internal_uses(
-      %arg0: tensor<1xi32>,
-      %arg1: tensor<1xi32>,
-      %arg2: tensor<1xi32>,
+      %arg0: tensor<1xi32> {ttcore.cumulative_length},
+      %arg1: tensor<1xi32> {ttcore.cumulative_length},
+      %arg2: tensor<1xi32> {ttcore.cumulative_length},
       %arg3: tensor<1xi32>
   ) -> (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>) {
     %delta = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
@@ -98,7 +98,7 @@ module {
 module {
   // CHECK-LABEL: func.func @no_consolidate_type_mismatch
   func.func @no_consolidate_type_mismatch(
-      %cumlen: tensor<1xi32>
+      %cumlen: tensor<1xi32> {ttcore.cumulative_length}
   ) -> (tensor<2xi32>, tensor<2xi32>) {
     %d0 = "ttir.full"() <{shape = array<i32: 2>, fill_value = 1 : i32}> : () -> tensor<2xi32>
     %d1 = "ttir.full"() <{shape = array<i32: 2>, fill_value = 2 : i32}> : () -> tensor<2xi32>
@@ -109,5 +109,24 @@ module {
     // CHECK: "ttir.add"
     // CHECK: "ttir.add"
     return %a0, %a1 : tensor<2xi32>, tensor<2xi32>
+  }
+}
+
+// Negative case: args without ttcore.cumulative_length attribute. Two
+// independent counters with the same delta — without the attribute, the pass
+// must NOT unify them.
+module {
+  // CHECK-LABEL: func.func @no_consolidate_unmarked_args
+  func.func @no_consolidate_unmarked_args(
+      %arg0: tensor<1xi32>,
+      %arg1: tensor<1xi32>
+  ) -> (tensor<1xi32>, tensor<1xi32>) {
+    %delta = "ttir.full"() <{shape = array<i32: 1>, fill_value = 1 : i32}> : () -> tensor<1xi32>
+    %a0 = "ttir.add"(%arg0, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    %a1 = "ttir.add"(%arg1, %delta) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
+    // CHECK:     [[A0:%.+]] = "ttir.add"(%arg0,
+    // CHECK:     [[A1:%.+]] = "ttir.add"(%arg1,
+    // CHECK:     return [[A0]], [[A1]]
+    return %a0, %a1 : tensor<1xi32>, tensor<1xi32>
   }
 }
