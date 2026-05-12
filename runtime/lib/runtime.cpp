@@ -284,8 +284,7 @@ WorkerDebugStats getWorkerDebugStats() {
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        detail::fatalNotImplemented("getWorkerDebugStats",
-                                    DeviceRuntime::TTNN);
+        detail::fatalNotImplemented("getWorkerDebugStats", DeviceRuntime::TTNN);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("getWorkerDebugStats",

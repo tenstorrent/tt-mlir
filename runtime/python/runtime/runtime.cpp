@@ -373,7 +373,8 @@ void registerRuntimeBindings(nb::module_ &m) {
         return oss.str();
       });
   m.def("get_worker_debug_stats", &tt::runtime::getWorkerDebugStats,
-        "Get per-worker runtime debug stats (hostname and counter map per worker)");
+        "Get per-worker runtime debug stats (hostname and counter map per "
+        "worker)");
   m.def(
       "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
