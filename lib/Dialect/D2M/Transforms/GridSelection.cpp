@@ -338,21 +338,23 @@ static void applyBehindViewToLayoutUpdate(
                        ttnnMode, info.viewSourceGrid, builder);
 }
 
-static void applyMaskUpdate(const OperandGridInfo &info,
-                            ArrayRef<int64_t> effectiveTargetGrid,
-                            bool ttnnMode, OpBuilder &builder) {
+static void
+applyMaskUpdate(const OperandGridInfo &info,
+                const EffectiveTargetGridRange &effectiveTargetGridRange,
+                bool ttnnMode, OpBuilder &builder) {
   auto maskOp = info.operand.getDefiningOp<d2m::MaskOp>();
   if (!maskOp) {
     return;
   }
 
   if (auto toLayoutOp = maskOp.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
-    optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGrid,
+    optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
                          ttnnMode, info.selectedGrid, builder);
   } else if (auto view = maskOp.getInput().getDefiningOp<d2m::ViewLayoutOp>()) {
     if (auto toLayoutOp = view.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
-      optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGrid,
-                           ttnnMode, info.selectedGrid, builder);
+      optimizeToLayoutGrid(toLayoutOp, info.targetGrid,
+                           effectiveTargetGridRange, ttnnMode,
+                           info.selectedGrid, builder);
     }
   }
 
@@ -376,7 +378,7 @@ static void applyMaskUpdate(const OperandGridInfo &info,
   }
 
   auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-      deriveVirtualGridAttrs(maskOp, info.selectedGrid, effectiveTargetGrid,
+      deriveVirtualGridAttrs(info.selectedGrid, effectiveTargetGridRange,
                              builder);
   auto newOutput = builder.create<d2m::EmptyOp>(maskOp.getLoc(), newResultType,
                                                 virtualGridInverseMapping,
@@ -770,7 +772,7 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
       applyToLayoutUpdate(info, effectiveTargetGridRange, ttnnMode, builder);
       break;
     case Kind::Mask:
-      applyMaskUpdate(info, effectiveTargetGrid, ttnnMode, builder);
+      applyMaskUpdate(info, effectiveTargetGridRange, ttnnMode, builder);
       break;
     case Kind::Empty:
       applyEmptyOpUpdate(info, effectiveTargetGridRange, ttnnMode, builder);
