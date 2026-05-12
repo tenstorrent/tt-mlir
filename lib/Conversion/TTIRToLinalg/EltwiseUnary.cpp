@@ -602,6 +602,8 @@ void populateTTIRToLinalgEltwiseUnaryPatterns(MLIRContext *ctx,
       ElementwiseUnaryOpToMathConversionPattern<ttir::Expm1Op, math::ExpM1Op>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::Log1pOp, math::Log1pOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::RsqrtOp, math::RsqrtOp>,
+      ElementwiseUnaryOpToTosaConversionPattern<ttir::RoundOp,
+                                                math::RoundEvenOp>,
       ElementwiseUnaryOpToMathConversionPattern<ttir::TanOp, math::TanOp>>(
       typeConverter, ctx);
 

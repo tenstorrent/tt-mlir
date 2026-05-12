@@ -8569,6 +8569,10 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
 
   patterns.add<StableHLOToTTIROpRoundOpConversionPattern>(typeConverter, ctx);
+
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::RoundNearestEvenOp, mlir::tt::ttir::RoundOp>>(
+      typeConverter, ctx);
 }
 
 static void
