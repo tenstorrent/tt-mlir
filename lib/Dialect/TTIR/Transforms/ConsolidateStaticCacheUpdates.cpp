@@ -8,6 +8,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRCONSOLIDATESTATICCACHEUPDATES
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -20,20 +22,15 @@ struct WritebackInfo {
 };
 
 // Return the scalar integer value of a constant delta operand.
-// Accepts ttir.full (FillValue attr) and ttir.constant (dense splat).
+// Splat ConstantOps canonicalize to FullOp upstream, so we only need to match
+// FullOp here.
 static std::optional<int64_t> scalarIntKey(Value v) {
-  if (auto fullOp = v.getDefiningOp<FullOp>()) {
-    if (auto ia = dyn_cast<IntegerAttr>(fullOp.getFillValue())) {
-      return ia.getInt();
-    }
+  auto fullOp = v.getDefiningOp<FullOp>();
+  if (!fullOp) {
     return std::nullopt;
   }
-  if (auto constOp = v.getDefiningOp<ConstantOp>()) {
-    auto dense = dyn_cast<DenseIntOrFPElementsAttr>(constOp.getValue());
-    if (dense && dense.isSplat() && dense.getElementType().isInteger()) {
-      return dense.getSplatValue<APInt>().getSExtValue();
-    }
-    return std::nullopt;
+  if (auto ia = dyn_cast<IntegerAttr>(fullOp.getFillValue())) {
+    return ia.getInt();
   }
   return std::nullopt;
 }
@@ -89,7 +86,10 @@ public:
           } else {
             blockArg = llvm::dyn_cast<BlockArgument>(maybeArgSide);
           }
-          if (!blockArg || blockArg.getOwner()->getParentOp() != funcOp) {
+          // Only match entry-block arguments. CFG join-block arguments could
+          // share types/deltas across unrelated control-flow paths and must
+          // not be unified.
+          if (!blockArg || blockArg.getOwner() != &funcOp.getBody().front()) {
             return false;
           }
           if (!scalarIntKey(maybeDelta).has_value()) {
@@ -109,7 +109,7 @@ public:
         }
       }
 
-      // Group candidates by (delta scalar key, blockArg element type).
+      // Group candidates by (delta scalar key, blockArg type).
       // Two write-backs belong to the same group when they apply the same
       // constant increment to arguments of the same type, so that keeping one
       // result and broadcasting it to all return slots is value-equivalent.
