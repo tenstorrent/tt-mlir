@@ -20,7 +20,7 @@ from ttmlir.ir import (
 
 
 # Ops not executable as goldens (device, I/O, control flow).
-CHISEL_NON_EXECUTABLE_OPS: set = {
+_CHISEL_NON_EXECUTABLE_OPS: set = {
     ttnn.GetDeviceOp,
     ttnn.LoadTensorOp,
     ttcore.LoadCachedOp,
@@ -30,8 +30,9 @@ CHISEL_NON_EXECUTABLE_OPS: set = {
 # Op class -> operand role names mutated via `Arg<..., [MemWrite]>` in ODS.
 # Goldens return SSA results first, then one tensor per *provided* memwrite
 # operand (absent Optional operands are skipped - see get_provided_inplace_vals).
-# Hand-maintained; TODO: derive from ODS (see python_op_schema_codegen.py).
-CHISEL_INPLACE_OPS: dict[type, tuple[str, ...]] = {
+# Hand-maintained;
+# TODO(ndrakulic, #8385): derive from ODS via python_op_schema_codegen.py.
+_CHISEL_INPLACE_OPS: dict[type, tuple[str, ...]] = {
     ttnn.UpdateCacheOp: ("cache",),
     ttnn.PagedUpdateCacheOp: ("cache",),
     ttnn.FillCacheOp: ("cache",),
@@ -45,11 +46,11 @@ CHISEL_INPLACE_OPS: dict[type, tuple[str, ...]] = {
 
 
 def is_non_executable_op(op_class: type) -> bool:
-    return op_class in CHISEL_NON_EXECUTABLE_OPS
+    return op_class in _CHISEL_NON_EXECUTABLE_OPS
 
 
 def get_inplace_operands(op_class: type) -> tuple[str, ...]:
-    return CHISEL_INPLACE_OPS.get(op_class, ())
+    return _CHISEL_INPLACE_OPS.get(op_class, ())
 
 
 def is_tensor_value(val) -> bool:

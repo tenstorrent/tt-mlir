@@ -3,12 +3,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Golden function mappings for TTIR and StableHLO operations.
+Golden function mappings for TTIR, StableHLO, TTNN, and related dialects.
 
-This module provides a centralized mapping between TTIR and StableHLO operations and their
-corresponding PyTorch golden reference implementations. Each golden function
-serves as a reference implementation that produces the expected output for
-comparison with TTIR or StableHLO operation results.
+Two registries live here, split by calling convention rather than by dialect:
+
+- ``GOLDEN_MAPPINGS`` — keyed by op class across all supported dialects
+  (TTIR, StableHLO, TTNN, D2M, SDY, Debug). Goldens take torch values plus raw
+  MLIR attributes; consumed by the builders in ``tools/builder/`` while
+  constructing IR.
+- ``CHISEL_GOLDEN_MAPPINGS`` — keyed by TTNN op class. Goldens take
+  ``(op, inputs: Dict[str, GoldenMapTensor])`` and return one tensor per SSA
+  result followed by one per provided in-place operand; consumed by
+  ``tools/chisel/chisel/executor.py`` when replaying flatbuffers.
+
+Each golden function is a PyTorch reference implementation that produces the
+expected output for comparison with the corresponding op's result.
 """
 
 from __future__ import annotations
@@ -1474,12 +1483,12 @@ def ttir_all_to_all_dispatch_metadata_golden(
     """Cross-shard golden for all_to_all_dispatch_metadata.
 
     Mirrors tt-metal's gen_tensors_for_metadata_op / get_output_tensor:
-    - Dispatched: sparse routing - for each token and each of its K selected
+    - Dispatched: sparse routing — for each token and each of its K selected
       experts, the token is placed on the device that owns that expert.
       Non-routed slots are filled with zeros.
-    - Indices (metadata): all-gathered - every ring device gets the full set
+    - Indices (metadata): all-gathered — every ring device gets the full set
       of expert indices from all ring devices.
-    - Scores: all-gathered - same as indices.
+    - Scores: all-gathered — same as indices.
 
     expert_mapping has new format [1, 1, D, E] where entry [0, 0, d, e] is
     the linearized device ID that owns expert e (same for all d).
@@ -1494,11 +1503,11 @@ def ttir_all_to_all_dispatch_metadata_golden(
     grouped_indices = expert_indices.group_by_axis(cluster_axis)
     grouped_scores = expert_scores.group_by_axis(cluster_axis)
 
-    # expert_mapping is replicated - get from any device
+    # expert_mapping is replicated — get from any device
     mapping_tensor = list(expert_mapping._shard_map.values())[0]
-    # Shape is [1, 1, D, E] - squeeze to [D, E], use row 0 since all rows identical
+    # Shape is [1, 1, D, E] — squeeze to [D, E], use row 0 since all rows identical
     mapping_2d = mapping_tensor.reshape(-1, mapping_tensor.shape[-1])  # [D, E]
-    mapping_row = mapping_2d[0]  # [E] - mapping_row[e] = device_id owning expert e
+    mapping_row = mapping_2d[0]  # [E] — mapping_row[e] = device_id owning expert e
 
     out_dispatched = {}
     out_indices = {}
@@ -6855,7 +6864,7 @@ def ttnn_layer_norm_post_all_gather_golden(
     # then applies standard layer normalization.  Rather than replicating the
     # kernel's tiled-reduce logic (which depends on tile width, device count
     # and a bfloat16 scaler), we compute the reference output directly using
-    # the input tensor - exactly as tt-metal's own test does.
+    # the input tensor — exactly as tt-metal's own test does.
     del stats
 
     epsilon = unpack_mlir_attr(epsilon)
@@ -7387,13 +7396,7 @@ def ttir_sdpa_golden(
         seq_len_q = qk.shape[-2]
         seq_len_k = qk.shape[-1]
         causal_mask = torch.triu(
-            torch.full(
-                (seq_len_q, seq_len_k),
-                float("-inf"),
-                dtype=qk.dtype,
-                device=qk.device,
-            ),
-            diagonal=1,
+            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
         )
         qk = torch.add(qk, causal_mask)
 
@@ -7766,7 +7769,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
     ttir.GatherOp: ttir_gather_golden,
-    # Layout operations (identity functions) - accept and ignore extra kwargs like reinterpretLayout
+    # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
@@ -8008,18 +8011,6 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     assert False, f"No golden function found for TTIR operation: {ttir_op_class}"
 
 
-def ttnn_assign_golden(
-    input_tensor: GoldenMapTensor, output_type_mlir: Type
-) -> GoldenMapTensor:
-    return input_tensor.clone().to(mlir_type_to_torch_dtype(output_type_mlir))
-
-
-def ttnn_to_memory_config_golden(
-    input_tensor: GoldenMapTensor, output_type_mlir: Type
-) -> GoldenMapTensor:
-    return input_tensor.clone().to(mlir_type_to_torch_dtype(output_type_mlir))
-
-
 # Chisel golden interface: fn(op, inputs: Dict[str, GoldenMapTensor]) -> GoldenMapTensor | tuple
 
 
@@ -8152,14 +8143,14 @@ def chisel_debug_region_end(op, inputs):
 
 
 def chisel_ttnn_assign(op, inputs):
-    return ttnn_assign_golden(
-        input_tensor=inputs["input"], output_type_mlir=op.results[0].type.element_type
+    return inputs["input"].clone().to(
+        mlir_type_to_torch_dtype(op.results[0].type.element_type)
     )
 
 
 def chisel_ttnn_to_memory_config(op, inputs):
-    return ttnn_to_memory_config_golden(
-        input_tensor=inputs["input"], output_type_mlir=op.results[0].type.element_type
+    return inputs["input"].clone().to(
+        mlir_type_to_torch_dtype(op.results[0].type.element_type)
     )
 
 
@@ -8207,17 +8198,6 @@ def chisel_ttnn_layer_norm_post_all_gather(op, inputs):
         stats=inputs["stats"],
         weight=inputs["weight"],
         bias=inputs["bias"],
-        epsilon=op.attributes["epsilon"],
-        output_type_mlir=op.results[0].type.element_type,
-    )
-
-
-def chisel_ttnn_group_norm(op, inputs):
-    return ttnn_group_norm_golden(
-        input=inputs["input"],
-        weight=inputs["input_mask"],
-        bias=inputs["weight"],
-        num_groups=op.attributes["num_groups"],
         epsilon=op.attributes["epsilon"],
         output_type_mlir=op.results[0].type.element_type,
     )
@@ -8637,17 +8617,18 @@ def chisel_ttnn_conv3d(op, inputs):
     input_width = unpack_mlir_attr(op.attributes["input_width"])
     in_channels = unpack_mlir_attr(op.attributes["in_channels"])
     out_channels = unpack_mlir_attr(op.attributes["out_channels"])
+    groups = unpack_mlir_attr(op.attributes["groups"])
     kernel_size = unpack_mlir_attr(op.attributes["kernel_size"])
     input_ndhwc = inputs["input"].reshape(
         batch_size, input_depth, input_height, input_width, in_channels
     )
-    # TTNN weight is [K_D*K_H*K_W*C_in, C_out]; reshape to [C_out, C_in, K_D, K_H, K_W].
+    # TTNN weight is [K_D*K_H*K_W*(C_in/groups), C_out]; reshape to OIDHW for torch conv3d.
     kd, kh, kw = kernel_size
+    in_channels_per_group = in_channels // groups
     weight_ncdhw = (
         inputs["weight"]
-        .transpose(0, 1)
-        .reshape(out_channels, kd, kh, kw, in_channels)
-        .permute(0, 4, 1, 2, 3)
+        .reshape(kd, kh, kw, in_channels_per_group, out_channels)
+        .permute(4, 3, 0, 1, 2)
     )
     result_ndhwc = conv3d_golden(
         input_tensor=input_ndhwc,
@@ -8707,9 +8688,8 @@ def chisel_ttnn_prepare_conv2d_weights(op, inputs):
 
 
 def chisel_ttnn_prepare_conv2d_bias(op, inputs):
-    return ttnn_assign_golden(
-        input_tensor=inputs["bias_tensor"],
-        output_type_mlir=op.results[0].type.element_type,
+    return inputs["bias_tensor"].clone().to(
+        mlir_type_to_torch_dtype(op.results[0].type.element_type)
     )
 
 
@@ -8722,9 +8702,8 @@ def chisel_ttnn_prepare_conv_transpose2d_weights(op, inputs):
 
 
 def chisel_ttnn_prepare_conv_transpose2d_bias(op, inputs):
-    return ttnn_assign_golden(
-        input_tensor=inputs["bias_tensor"],
-        output_type_mlir=op.results[0].type.element_type,
+    return inputs["bias_tensor"].clone().to(
+        mlir_type_to_torch_dtype(op.results[0].type.element_type)
     )
 
 
@@ -8757,7 +8736,6 @@ def chisel_ttnn_batch_norm_training(op, inputs):
         mean_output_type_mlir=op.results[0].type.element_type,
         variance_output_type_mlir=op.results[0].type.element_type,
     )
-    # SSA result, then provided memwrite operands (see CHISEL_INPLACE_OPS).
     returns = [out]
     if rm is not None:
         returns.append(urm)
@@ -9145,7 +9123,6 @@ CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LayerNormOp: chisel_ttnn_layer_norm,
     ttnn.LayerNormPreAllGatherOp: chisel_ttnn_layer_norm_pre_all_gather,
     ttnn.LayerNormPostAllGatherOp: chisel_ttnn_layer_norm_post_all_gather,
-    ttnn.GroupNormOp: chisel_ttnn_group_norm,
     ttnn.RMSNormOp: chisel_ttnn_rms_norm,
     # CCL ops
     ttnn.DistributeTensorOp: chisel_ttnn_distribute_tensor,

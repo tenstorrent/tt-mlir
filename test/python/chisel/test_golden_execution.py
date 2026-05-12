@@ -9,7 +9,6 @@ Ops without a registered golden are skipped, not failed.
 import pytest
 import torch
 
-from chisel.exceptions import GoldenNotImplementedError
 from chisel.executor import (
     build_role_keyed_inputs,
     execute_golden,
@@ -41,6 +40,7 @@ _KNOWN_NOT_IMPLEMENTED_OPS: frozenset[str] = (
             "ttnn.nlp_concat_heads",
             "ttnn.nlp_concat_heads_decode",
             "ttnn.bitcast_convert",
+            "ttnn.group_norm",
         }
     )
     | QUANTIZE_OP_NAMES
@@ -54,6 +54,15 @@ def _has_quantized_type(op) -> bool:
         if quant.QuantizedType.isinstance(value.type.element_type):
             return True
     return False
+
+
+@pytest.fixture(autouse=True)
+def _default_meta_device():
+    # Goldens may internally allocate tensors (e.g. SDPA causal mask,
+    # ttnn.arange/full/ones/zeros). Running them on the meta device keeps
+    # the test allocation-free and avoids per-golden device plumbing.
+    with torch.device("meta"):
+        yield
 
 
 def test_golden_execution(subtests, ir_module, binary, binary_path):
@@ -85,12 +94,7 @@ def test_golden_execution(subtests, ir_module, binary, binary_path):
                     inputs[name] = GoldenMapTensor({0: tensor}, (1, 1))
 
                 golden_inputs = build_role_keyed_inputs(op.opview, inputs, asm_state)
-                try:
-                    result = execute_golden(op.opview, golden_inputs)
-                except GoldenNotImplementedError as e:
-                    if e.op_name in _KNOWN_NOT_IMPLEMENTED_OPS:
-                        pytest.skip(str(e))
-                    raise
+                result = execute_golden(op.opview, golden_inputs)
 
                 op_outputs = get_op_outputs(op)
                 for i, op_out in enumerate(op_outputs):

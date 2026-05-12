@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
@@ -57,6 +57,25 @@ def build_role_keyed_inputs(
     return role_inputs
 
 
+def get_provided_inplace_vals(
+    op: Operation, roles: Iterable[str]
+) -> list[tuple[str, Value]]:
+    """Return (role, value) pairs for in-place operands present on `op`.
+
+    Absent Optional operands are skipped; OpOperandList is expanded.
+    """
+    vals: list[tuple[str, Value]] = []
+    for role in roles:
+        accessor = getattr(op, role, None)
+        if accessor is None:
+            continue
+        if isinstance(accessor, OpOperandList):
+            vals.extend((role, v) for v in accessor)
+        else:
+            vals.append((role, accessor))
+    return vals
+
+
 def execute_golden(
     op: Operation,
     golden_inputs: Dict[str, object],
@@ -96,22 +115,3 @@ def execute_golden(
         f"then one tensor per provided in-place operand"
     )
     return tensors
-
-
-def get_provided_inplace_vals(
-    op: Operation, roles: Iterable[str]
-) -> list[tuple[str, Value]]:
-    """Return (role, value) pairs for in-place operands present on `op`.
-
-    Absent Optional operands are skipped; OpOperandList is expanded.
-    """
-    vals: list[tuple[str, Value]] = []
-    for role in roles:
-        accessor = getattr(op, role, None)
-        if accessor is None:
-            continue
-        if isinstance(accessor, OpOperandList):
-            vals.extend((role, v) for v in accessor)
-        else:
-            vals.append((role, accessor))
-    return vals
