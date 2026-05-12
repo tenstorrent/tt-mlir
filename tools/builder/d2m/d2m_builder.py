@@ -573,7 +573,7 @@ class D2MBuilder(Builder):
         self,
         output: Optional[Operand] = None,
         output_type: Optional[RankedTensorType] = None,
-        value: int = 0,
+        value: Optional[int] = None,
         unit_attrs: Optional[List[str]] = None,
         loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
@@ -581,6 +581,11 @@ class D2MBuilder(Builder):
         resolved_output_type, output_create_fn = self._resolve_output_spec(
             output=output, output_type=output_type
         )
+        d2m_kwargs = {
+            "results": [d2m.ir.GlobalSemaphoreType.get(self._ctx)],
+        }
+        if value is not None:
+            d2m_kwargs["value"] = value
         return self._op_proxy(
             d2m.CreateGlobalSemaphoreOp,
             [],
@@ -589,9 +594,6 @@ class D2MBuilder(Builder):
             output_type=resolved_output_type,
             output_shape=resolved_output_type.shape,
             output_create_fn=output_create_fn,
-            d2m_kwargs={
-                "value": value,
-                "results": [d2m.ir.GlobalSemaphoreType.get(self._ctx)],
-            },
+            d2m_kwargs=d2m_kwargs,
             loc=loc,
         )
