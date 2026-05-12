@@ -420,8 +420,6 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
         event(eventHandle.value_or(nullptr), runtime),
         globalId(nextTensorGlobalId()) {}
 
-  ~Tensor();
-
   void setGlobalId(std::uint64_t id) { globalId = id; }
   std::uint64_t getGlobalId() const { return globalId; }
 
