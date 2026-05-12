@@ -27,23 +27,71 @@ FLATBUFFER_BASE_PATH = (
     f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/llmbox/binary/Output"
 )
 
-RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
+# Rank binding name to path mapping
+RANK_BINDING_PATHS = {
+    "2x4_multiprocess": f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml",
+    "dual_exabox_galaxy": f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/tt_metal/distributed/config/16x4_dual_bh_galaxy_rank_bindings.yaml",
+}
+
+# Default rank binding
+DEFAULT_RANK_BINDING = "2x4_multiprocess"
 
 
 def launch_distributed_runtime():
+    # Get rank binding path from env or use default
+    rank_binding_name = os.environ.get(
+        "TT_DISTRIBUTED_RANK_BINDING", DEFAULT_RANK_BINDING
+    )
+    if rank_binding_name in RANK_BINDING_PATHS:
+        rank_binding_path = RANK_BINDING_PATHS[rank_binding_name]
+    else:
+        # Assume it's a direct path
+        rank_binding_path = rank_binding_name
+
     assert os.path.exists(
-        RANK_BINDING_PATH
-    ), f"Rank binding path not found: {RANK_BINDING_PATH}"
+        rank_binding_path
+    ), f"Rank binding path not found: {rank_binding_path}"
 
     ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
     ttrt.runtime.set_metal_home(TT_METAL_RUNTIME_ROOT_EXTERNAL)
 
-    mp_args = ttrt.runtime.MultiProcessArgs.create(RANK_BINDING_PATH)
+    mp_args = ttrt.runtime.MultiProcessArgs.create(rank_binding_path)
     mp_args.with_allow_run_as_root(True)
+
+    # Configure TCP interface if specified
+    tcp_iface = os.environ.get("TT_DISTRIBUTED_TCP_IFACE")
+    if tcp_iface:
+        mp_args.with_tcp_interface(tcp_iface)
+
+    # Configure controller hostname if specified
+    controller_hostname = os.environ.get("TT_DISTRIBUTED_CONTROLLER_HOST_NAME")
+    if controller_hostname:
+        mp_args.with_controller_hostname(controller_hostname)
+
+    # Configure hosts list if specified
+    hosts_list = os.environ.get("TT_DISTRIBUTED_HOSTS_LIST")
+    if hosts_list:
+        hosts = [h.strip() for h in hosts_list.split(",") if h.strip()]
+        if hosts:
+            mp_args.with_hosts(hosts)
+
+    # Configure MCA options (including plm_rsh_agent)
+    mca_options = {}
+    plm_rsh_agent = os.environ.get("TT_DISTRIBUTED_PLM_RSH_AGENT")
+    if plm_rsh_agent:
+        mca_options["plm_rsh_agent"] = plm_rsh_agent
+    if mca_options:
+        mp_args.with_mca_options(mca_options)
 
     distributed_options = ttrt.runtime.DistributedOptions()
     distributed_options.mode = ttrt.runtime.DistributedMode.MultiProcess
     distributed_options.multi_process_args = mp_args
+
+    # Configure worker path if specified
+    worker_path = os.environ.get("TT_DISTRIBUTED_WORKER_PATH")
+    if worker_path:
+        distributed_options.worker_path = worker_path
+
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
     ttrt.runtime.launch_distributed_runtime(distributed_options)
 
