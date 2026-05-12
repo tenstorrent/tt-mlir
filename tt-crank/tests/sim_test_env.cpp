@@ -1,12 +1,15 @@
-// Sets ttsim-related env vars before main(), so the tt-mlir runtime opens the
-// simulator instead of looking for a physical device. CMake injects the dir
-// paths via TT_KURBLA_SIM_DIR / TT_KURBLA_TT_METAL_HOME (see cmake/Ttsim.cmake).
+// Optionally points the tt-mlir runtime at ttsim before main(), so test cases
+// that would otherwise need a physical device run against the simulator
+// instead.
 //
-// Compile-time only — this TU is added to tt_kurbla_unit_tests iff
-// TT_KURBLA_ENABLE_SIMULATOR is ON. Env contract mirrors what tt-metal's own
-// .github/workflows/ttsim.yaml sets up.
+// Opt-in via the TT_KURBLA_USE_SIMULATOR env var ("1" / "true" / "on"). When
+// unset, this TU is inert and tests run against whatever physical device the
+// runtime can find. CMake injects the dir paths via TT_KURBLA_SIM_DIR /
+// TT_KURBLA_TT_METAL_HOME (see cmake/Ttsim.cmake). The env contract mirrors
+// what tt-metal's own .github/workflows/ttsim.yaml sets up.
 
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -16,8 +19,20 @@
 
 namespace {
 
+bool env_flag_is_set(const char *name) {
+    const char *raw = std::getenv(name);
+    if (raw == nullptr) {
+        return false;
+    }
+    return std::strcmp(raw, "1") == 0 || std::strcmp(raw, "true") == 0 || std::strcmp(raw, "on") == 0;
+}
+
 struct SimEnvSetter {
     SimEnvSetter() {
+        if (!env_flag_is_set("TT_KURBLA_USE_SIMULATOR")) {
+            return;
+        }
+
         const std::string sim_lib = std::string(TT_KURBLA_SIM_DIR) + "/libttsim.so";
 
         // Overwrite=1 — a stale env var from the parent shell would otherwise
@@ -37,8 +52,8 @@ struct SimEnvSetter {
     }
 };
 
-// File-scope constant — initializes before main, after which env vars are set
-// for the rest of the process. The variable is unused; only the side effect matters.
+// File-scope constant — runs before main, after which env vars are set for the
+// rest of the process. The variable is unused; only the side effect matters.
 [[maybe_unused]] const SimEnvSetter g_sim_env_setter{};
 
 } // namespace

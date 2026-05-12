@@ -1,6 +1,7 @@
 // The inner getNumAvailableDevices() guard skips cleanly on card-less hosts.
-// When tt-kurbla is built with TT_KURBLA_ENABLE_SIMULATOR=ON, sim_test_env.cpp
-// points the runtime at ttsim, so these run without a physical device.
+// Running with TT_KURBLA_USE_SIMULATOR=1 (e.g. `ctest --preset sim`) routes the
+// runtime through ttsim via sim_test_env.cpp, so these execute without a
+// physical device.
 
 #include "engine/compile.hpp"
 #include "engine/execution_payload.hpp"

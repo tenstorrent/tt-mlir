@@ -46,6 +46,15 @@ popd > /dev/null
 
 PRESET="${1:-${PRESET:-default}}"
 
-cmake --preset "$PRESET"
-cmake --build --preset "$PRESET"
-ctest --preset "$PRESET"
+# `sim` is a test-only preset — there's no separate configure/build for it.
+# Build with `default`, then have ctest set TT_KURBLA_USE_SIMULATOR=1 via the
+# sim test preset so the unit-test binary routes the runtime through ttsim.
+if [[ "$PRESET" == "sim" ]]; then
+    cmake --preset default
+    cmake --build --preset default
+    ctest --preset sim
+else
+    cmake --preset "$PRESET"
+    cmake --build --preset "$PRESET"
+    ctest --preset "$PRESET"
+fi

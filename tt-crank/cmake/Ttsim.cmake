@@ -3,20 +3,18 @@
 # soc_descriptor.yaml). Mirrors what tt-mlir's call-test-ttsim.yml workflow
 # does in shell.
 #
-# Exposes (parent scope) when TT_KURBLA_ENABLE_SIMULATOR=ON:
+# Always builds the staging. Whether the test binary actually opens ttsim is a
+# runtime decision driven by the TT_KURBLA_USE_SIMULATOR env var — see
+# tests/sim_test_env.cpp and the `sim` test preset in CMakePresets.json.
+#
+# Exposes (parent scope):
 #   TT_KURBLA_SIM_DIR          staged sim home dir
 #   TT_KURBLA_TT_METAL_HOME    tt-metal source tree the runtime needs at TT_METAL_RUNTIME_ROOT
-
-option(TT_KURBLA_ENABLE_SIMULATOR
-    "Download ttsim and route runtime tests through the simulator instead of opening a physical device"
-    OFF)
+#   tt_kurbla_ttsim_stage      custom target — depend on this from anything that
+#                              needs the staged dir to be populated at build time
 
 set(TT_KURBLA_TTSIM_VERSION "v1.5.1" CACHE STRING
     "ttsim release tag (https://github.com/tenstorrent/ttsim/releases)")
-
-if(NOT TT_KURBLA_ENABLE_SIMULATOR)
-    return()
-endif()
 
 set(TT_KURBLA_SIM_ARCH "wh" CACHE STRING "Simulator arch (wh|bh)")
 set_property(CACHE TT_KURBLA_SIM_ARCH PROPERTY STRINGS wh bh)
@@ -31,13 +29,10 @@ endif()
 
 # tt-metal source tree, vendored under tt-mlir's submodule. Source — not the
 # install dir — because tt-mlir's ExternalProject doesn't install the runtime
-# data files (soc descriptors, firmware sources) that ttsim needs.
+# data files (soc descriptors, firmware sources) that ttsim needs. Populated
+# by tt-mlir-ep's build step, so the descriptor copy is deferred to build time.
 set(TT_KURBLA_TT_METAL_HOME "${CMAKE_SOURCE_DIR}/third_party/tt-mlir/third_party/tt-metal/src/tt-metal")
 set(_soc_src "${TT_KURBLA_TT_METAL_HOME}/tt_metal/soc_descriptors/${_soc_filename}")
-if(NOT EXISTS "${_soc_src}")
-    message(FATAL_ERROR "Missing SoC descriptor ${_soc_src}. "
-        "Run `git submodule update --init --recursive` and a full build first to populate tt-metal.")
-endif()
 
 set(TT_KURBLA_SIM_DIR "${CMAKE_BINARY_DIR}/ttsim_home")
 file(MAKE_DIRECTORY "${TT_KURBLA_SIM_DIR}")
@@ -58,6 +53,18 @@ if(NOT EXISTS "${_lib_cache}")
     endif()
 endif()
 
-# Re-run on cache change; copies under the names tt-metal expects.
-configure_file("${_lib_cache}" "${TT_KURBLA_SIM_DIR}/libttsim.so"          COPYONLY)
-configure_file("${_soc_src}"   "${TT_KURBLA_SIM_DIR}/soc_descriptor.yaml" COPYONLY)
+# libttsim.so has no build-tree dependency — stage at configure time.
+configure_file("${_lib_cache}" "${TT_KURBLA_SIM_DIR}/libttsim.so" COPYONLY)
+
+# The SoC descriptor lives in tt-metal's source tree (downloaded by tt-mlir-ep
+# at build time), so we can't copy it at configure time on a fresh clone.
+# Defer to a build-time custom command that depends on tt-mlir-ep having run.
+set(_soc_staged "${TT_KURBLA_SIM_DIR}/soc_descriptor.yaml")
+add_custom_command(
+    OUTPUT "${_soc_staged}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_soc_src}" "${_soc_staged}"
+    DEPENDS tt-mlir-ep
+    COMMENT "Staging ttsim SoC descriptor (${TT_KURBLA_SIM_ARCH})"
+    VERBATIM
+)
+add_custom_target(tt_kurbla_ttsim_stage DEPENDS "${_soc_staged}")
