@@ -451,7 +451,7 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
-      auto loop =
+      auto *loop =
           createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitPassthrough);
       insertionPoint = loop;
     }
@@ -466,7 +466,7 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
-      auto loop =
+      auto *loop =
           createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitRowMasked);
       insertionPoint = loop;
     }
@@ -481,7 +481,7 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
-      auto loop =
+      auto *loop =
           createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitColMasked);
       insertionPoint = loop;
     }
@@ -497,7 +497,7 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
-      auto loop =
+      auto *loop =
           createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitCornerMasked);
       insertionPoint = loop;
     }
@@ -512,7 +512,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter, loc, lastValidRow + 1, totalTileRows, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, 0, totalTileCols, coreX, shardTileCols);
-      auto loop = createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+      auto *loop =
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
       insertionPoint = loop;
     }
 
@@ -527,7 +528,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           rewriter, loc, 0, lastValidRow + 1, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, lastValidCol + 1, totalTileCols, coreX, shardTileCols);
-      auto loop = createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+      auto *loop =
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
       insertionPoint = loop;
     }
 
