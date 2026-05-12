@@ -93,6 +93,10 @@ namespace prim {
 struct LayerNormShardedMultiCoreProgramConfig;
 } // namespace prim
 
+namespace operations::transformer {
+struct SDPAProgramConfig;
+} // namespace operations::transformer
+
 namespace experimental::prim {
 struct Conv3dConfig;
 } // namespace experimental::prim
@@ -187,6 +191,11 @@ template <>
 struct TypeName<::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
   inline static const std::string value =
       "ttnn.LayerNormShardedMultiCoreProgramConfig";
+};
+
+template <>
+struct TypeName<::ttnn::operations::transformer::SDPAProgramConfig> {
+  inline static const std::string value = "ttnn.SDPAProgramConfig";
 };
 
 template <typename T>
@@ -1958,6 +1967,36 @@ struct EmitPyTypeConverter<
   }
 };
 
+// Specialization for SDPAProgramConfig
+template <>
+struct EmitPyTypeConverter<::ttnn::operations::transformer::SDPAProgramConfig> {
+  static std::optional<std::string> convert(ttnn::SDPAProgramConfigAttr attr) {
+    if (!attr) {
+      return std::nullopt;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::operations::transformer::SDPAProgramConfig> << "(";
+
+    auto gridSize = attr.getComputeWithStorageGridSize();
+    rso << "compute_with_storage_grid_size=ttnn.CoreCoord(" << gridSize.getX()
+        << ", " << gridSize.getY() << ")";
+    rso << ", q_chunk_size=" << attr.getQChunkSize();
+    rso << ", k_chunk_size=" << attr.getKChunkSize();
+    if (auto expApproxMode = attr.getExpApproxMode()) {
+      rso << ", exp_approx_mode="
+          << (expApproxMode.getValue() ? "True" : "False");
+    }
+    if (auto maxCores = attr.getMaxCoresPerHeadBatch()) {
+      rso << ", max_cores_per_head_batch=" << *maxCores;
+    }
+
+    rso << ")";
+    return buf;
+  }
+};
+
 // This template struct retrieves the most relevant C++ type with a one-to-one
 // Python type correspondence for a given template type.
 template <typename T>
@@ -2061,6 +2100,11 @@ struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr> {
   using type = ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::SDPAProgramConfigAttr> {
+  using type = ::ttnn::operations::transformer::SDPAProgramConfig;
 };
 
 // Marker type for matmul program config union (AnyAttrOf<[...]>)

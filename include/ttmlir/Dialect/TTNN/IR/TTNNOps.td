@@ -3640,7 +3640,8 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
                        OptionalAttr<F32Attr>:$scale,
-                       OptionalAttr<UI32Attr>:$sliding_window_size);
+                       OptionalAttr<UI32Attr>:$sliding_window_size,
+                       OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
 
   let results = (outs AnyRankedTensor:$result);
 

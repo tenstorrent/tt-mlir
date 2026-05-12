@@ -110,6 +110,10 @@ struct Conv2dConfig;
 struct Conv2dSliceConfig;
 } // namespace conv::conv2d
 
+namespace transformer {
+struct SDPAProgramConfig;
+} // namespace transformer
+
 } // namespace operations
 } // namespace ttnn
 
@@ -255,6 +259,12 @@ template <>
 struct TypeName<::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
   inline static const std::string value =
       "::ttnn::prim::LayerNormShardedMultiCoreProgramConfig";
+};
+
+template <>
+struct TypeName<::ttnn::operations::transformer::SDPAProgramConfig> {
+  inline static const std::string value =
+      "::ttnn::operations::transformer::SDPAProgramConfig";
 };
 
 // Marker type for MatmulMultiCoreReuseMultiCast1DProgramConfig (used by
@@ -1391,6 +1401,48 @@ struct EmitCTypeConverter<::ttnn::CoreRangeSet> {
   }
 };
 
+// Specialization for SDPAProgramConfig
+template <>
+struct EmitCTypeConverter<::ttnn::operations::transformer::SDPAProgramConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    auto configAttr =
+        mlir::dyn_cast_if_present<ttnn::SDPAProgramConfigAttr>(attr);
+    if (!configAttr) {
+      return {};
+    }
+    return convert(configAttr);
+  }
+
+  static std::string convert(ttnn::SDPAProgramConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::operations::transformer::SDPAProgramConfig> << "{";
+
+    rso << ".compute_with_storage_grid_size = "
+        << EmitCTypeConverter<::ttnn::CoreCoord>::convert(
+               attr.getComputeWithStorageGridSize());
+    if (auto subCoreGrids = attr.getSubCoreGrids()) {
+      rso << ", .sub_core_grids = "
+          << EmitCTypeConverter<::ttnn::CoreRangeSet>::convert(subCoreGrids);
+    }
+    rso << ", .q_chunk_size = "
+        << EmitCTypeConverter<uint32_t>::convert(attr.getQChunkSize());
+    rso << ", .k_chunk_size = "
+        << EmitCTypeConverter<uint32_t>::convert(attr.getKChunkSize());
+    if (auto expApproxMode = attr.getExpApproxMode()) {
+      rso << ", .exp_approx_mode = "
+          << (expApproxMode.getValue() ? "true" : "false");
+    }
+    if (auto maxCores = attr.getMaxCoresPerHeadBatch()) {
+      rso << ", .max_cores_per_head_batch = "
+          << EmitCTypeConverter<uint32_t>::convert(*maxCores);
+    }
+
+    rso << "}";
+    return buf;
+  }
+};
+
 template <>
 struct EmitCTypeConverter<::ttnn::ShardSpec> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
@@ -1901,6 +1953,11 @@ struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr> {
   using type = ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::SDPAProgramConfigAttr> {
+  using type = ::ttnn::operations::transformer::SDPAProgramConfig;
 };
 
 template <typename T>

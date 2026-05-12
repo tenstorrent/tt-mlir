@@ -4,6 +4,7 @@
 
 #include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
 
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -46,18 +47,24 @@ static void runPagedScaledDotProductAttentionDecodeOp(
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig = std::nullopt;
-  if (!isCausal) {
+  if (op->program_config()) {
+    programConfig = utils::createSDPAProgramConfig(op->program_config());
+  } else if (!isCausal) {
     programConfig.emplace();
     programConfig->k_chunk_size = 32; // Required for non-causal
     programConfig->compute_with_storage_grid_size = computeGrid;
   } else if (query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
-    // Preserve the existing causal decode scheduling while disabling the
-    // approximate exponential path on Blackhole.
     programConfig.emplace();
     programConfig->q_chunk_size = 0;
     programConfig->k_chunk_size = 0;
     programConfig->compute_with_storage_grid_size = computeGrid;
     programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
+  }
+
+  // Blackhole's SDPA decode default approx-exp path fails SFPI compile
+  // (tt-metal #40301).
+  if (programConfig.has_value() &&
+      query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
     programConfig->exp_approx_mode = false;
   }
 
