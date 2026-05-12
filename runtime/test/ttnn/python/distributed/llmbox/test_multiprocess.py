@@ -93,8 +93,8 @@ def launch_distributed_runtime():
         distributed_options.worker_path = worker_path
 
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
-    ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.FABRIC_2D)
     ttrt.runtime.launch_distributed_runtime(distributed_options)
+    ttrt.runtime.set_fabric_config(ttrt.runtime.FabricConfig.FABRIC_2D)
 
 
 def shutdown_distributed_runtime():
