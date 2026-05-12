@@ -46,7 +46,7 @@ jobs:
 
     name: Build ${{ matrix.build.name }} Release
 
-    runs-on: ${{ inputs.sh_builder && inputs.runner || fromJson(format('["{0}", "in-service"]',inputs.runner)) }}
+    runs-on: ${{ inputs.sh_builder && inputs.runner || fromJson(format('["{0}", "provision-testing"]',inputs.runner)) }}
 
     container:
       image: ${{ inputs.sh_builder && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
