@@ -6,7 +6,7 @@
 #
 # Rebases tt-mlir HEAD onto tt-xla's pinned SHA in a throwaway worktree, pushes
 # the rebased branch to 'origin' (must be tenstorrent/tt-mlir), then invokes
-# tt-xla/scripts/generate_single_layer_tests.sh. The sibling update_models.sh
+# tt-xla/tests/benchmark/single_layer/regen.sh. The sibling update_models.sh
 # copies the regenerated TTIRs into test/ttmlir/models/single_blocks_and_layers/.
 # Lit test files are NOT touched here — use the sibling update_lit_tests.sh.
 #
@@ -47,8 +47,8 @@ Refreshes model fixtures only. To add lit test files for new fixtures, run
 (e.g. mistral_7b_1lyr_bs1_decode) — the basename of a file under
 test/ttmlir/models/single_blocks_and_layers/.
 
-HF_TOKEN is read from the environment; if unset, generate_single_layer_tests.sh
-prompts (interactive only).
+HF_TOKEN is read from the environment; if unset, tt-xla's regen.sh prompts
+(interactive only).
 EOF
             exit 0 ;;
         *) echo "Unknown arg: $1" >&2; exit 2 ;;
@@ -159,12 +159,12 @@ fi
 TT_MLIR_COMMIT_OVERRIDE="$REBASED_SHA" \
 TT_MLIR_LOCAL_PATH="$TT_MLIR_LOCAL_PATH_ARG" \
 SUBSET="$SUBSET" \
-"$TTXLA_DIR/scripts/generate_single_layer_tests.sh"
+"$TTXLA_DIR/tests/benchmark/single_layer/regen.sh"
 BUILD_RC=$?
-(( BUILD_RC == 0 )) || echo "WARNING: generate_single_layer_tests.sh exited $BUILD_RC."
+(( BUILD_RC == 0 )) || echo "WARNING: tt-xla regen.sh exited $BUILD_RC."
 
 # Copy refreshed TTIRs into the tt-mlir models tree.
-TTIRS_DIR="$TTXLA_DIR/tests/benchmark/single_layer_tests_${REBASED_SHA:0:8}"
+TTIRS_DIR="$TTXLA_DIR/tests/benchmark/single_layer/generated_${REBASED_SHA:0:8}/ttir"
 "$SCRIPT_DIR/update_models.sh" "$TTIRS_DIR" \
     || echo "WARNING: update_models.sh exited non-zero."
 

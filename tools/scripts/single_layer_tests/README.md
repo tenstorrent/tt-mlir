@@ -73,7 +73,7 @@ tools/scripts/single_layer_tests/update_lit_tests.sh --status
 If you already have a tt-xla output dir on disk (a previous `regen.sh` run, a colleague's artefact, a partial sweep) and just want the fixtures copied across:
 
 ```bash
-tools/scripts/single_layer_tests/update_models.sh /path/to/single_layer_tests_<sha>/
+tools/scripts/single_layer_tests/update_models.sh /path/to/single_layer/generated_<sha>/ttir/
 ```
 
 This is exactly what `regen.sh` calls at step 4. It accepts `*_1lyr_*` (current tt-xla naming) plus legacy `*_block` / `*_layer`; everything else is silently skipped. Relative paths resolve against the tt-mlir repo root.

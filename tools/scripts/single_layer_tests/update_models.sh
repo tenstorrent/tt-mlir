@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Copy single-block / single-layer model TTIR fixtures from a regenerated
-# directory (typically tt-xla's tests/benchmark/single_layer_tests_<sha>/)
-# into test/ttmlir/models/single_blocks_and_layers/.
+# directory (typically tt-xla's
+# tests/benchmark/single_layer/generated_<sha>/ttir/) into
+# test/ttmlir/models/single_blocks_and_layers/.
 #
 # Accepts every *.mlir matching tt-xla's *_1lyr_* naming or legacy *_block /
 # *_layer; all other files are silently skipped.
