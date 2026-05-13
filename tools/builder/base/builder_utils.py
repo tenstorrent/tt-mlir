@@ -58,7 +58,7 @@ class GridShapes:
 
 
 def load_grid_shapes_from_system_desc(
-    system_desc_path: Optional[str] = None,
+    system_desc_path: str,
 ) -> GridShapes:
     """
     Load worker and DRAM grid shapes from a system descriptor file.
@@ -68,48 +68,42 @@ def load_grid_shapes_from_system_desc(
 
     Parameters
     ----------
-    system_desc_path : Optional[str]
-        Path to system descriptor file. If None, uses default grids.
+    system_desc_path : str
+        Path to system descriptor file. Must be provided.
 
     Returns
     -------
     GridShapes
         Object containing worker_grid_shape and dram_grid_shape as [rows, cols] lists
+
+    Raises
+    ------
+    FileNotFoundError
+        If the system descriptor file does not exist
+    ValueError
+        If the system descriptor cannot be parsed or does not contain required grid information
     """
-    # Default grids if no system descriptor
-    worker_grid_shape = [8, 8]
-    dram_grid_shape = [1, 12]
+    if not os.path.exists(system_desc_path):
+        raise FileNotFoundError(f"System descriptor file not found: {system_desc_path}")
 
-    if system_desc_path and os.path.exists(system_desc_path):
-        try:
-            # Load system descriptor from file
-            system_desc_fbs = tt_runtime.binary.load_system_desc_from_path(
-                system_desc_path
-            )
+    try:
+        system_desc_fbs = tt_runtime.binary.load_system_desc_from_path(system_desc_path)
+        system_desc_json = json.loads(system_desc_fbs.as_json())
+        chip_descs = system_desc_json["system_desc"]["chip_descs"]
+        chip_desc = chip_descs[0]
 
-            # Parse the flatbuffer and get the first chip descriptor
-            system_desc_json = json.loads(system_desc_fbs.as_json())
+        # Get worker grid dimensions
+        compute_grid = chip_desc["compute_grid"]
+        worker_grid_shape = [compute_grid["rows"], compute_grid["cols"]]
 
-            # Extract grid information from the first chip
-            if (
-                "system_desc" in system_desc_json
-                and "chip_descs" in system_desc_json["system_desc"]
-            ):
-                chip_descs = system_desc_json["system_desc"]["chip_descs"]
-                if len(chip_descs) > 0:
-                    chip_desc = chip_descs[0]
-                    # Get worker and DRAM grid dimensions
-                    # Chip desc contains the grid as [y, x] (rows, cols)
-                    if "compute_grid" in chip_desc:
-                        compute_grid = chip_desc["compute_grid"]
-                        worker_grid_shape = [compute_grid["rows"], compute_grid["cols"]]
+        # Get DRAM grid dimensions
+        dram_grid = chip_desc["dram_grid"]
+        dram_grid_shape = [dram_grid["rows"], dram_grid["cols"]]
 
-                    if "dram_grid" in chip_desc:
-                        dram_grid = chip_desc["dram_grid"]
-                        dram_grid_shape = [dram_grid["rows"], dram_grid["cols"]]
-        except Exception as e:
-            # If loading fails, fall back to defaults
-            pass
+    except Exception as e:
+        raise RuntimeError(
+            f"Unexpected error loading system descriptor from {system_desc_path}: {e}"
+        )
 
     return GridShapes(
         worker_grid_shape=worker_grid_shape,
