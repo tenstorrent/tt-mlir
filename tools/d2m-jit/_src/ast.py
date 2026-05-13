@@ -12,7 +12,6 @@ from ttmlir.dialects import (
     func,
     scf,
     arith,
-    memref,
     emitc,
 )
 from ttmlir.dialects._ods_common import get_default_loc_context
@@ -264,8 +263,6 @@ class D2MCompiler(ast.NodeVisitor):
         # Statements
         ast.Pass,
         ast.Assign,
-        ast.AugAssign,
-        ast.AnnAssign,
         ast.Return,
         # Function/module
         ast.Module,
@@ -398,12 +395,7 @@ class D2MCompiler(ast.NodeVisitor):
             if_cond = if_cond.result
 
         cond_type = None
-        if hasattr(if_cond, "type") and isinstance(if_cond.type, memref.MemRefType):
-            if_cond = memref.LoadOp(
-                if_cond, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            ).result
-            cond_type = if_cond.type
-        elif hasattr(if_cond, "type") and isinstance(if_cond.type, IntegerType):
+        if hasattr(if_cond, "type") and isinstance(if_cond.type, IntegerType):
             cond_type = if_cond.type
         elif isinstance(if_cond, arith.ConstantOp):
             cond_type = if_cond.type
@@ -446,17 +438,6 @@ class D2MCompiler(ast.NodeVisitor):
             lower_bound = self.visit(node.iter.args[0])
             upper_bound = self.visit(node.iter.args[1])
             step = self.visit(node.iter.args[2])
-
-        def _load_if_memref(v):
-            if isinstance(v.type, memref.MemRefType):
-                return memref.LoadOp(
-                    v, arith.ConstantOp(IndexType.get(self.ctx), 0)
-                ).result
-            return v
-
-        lower_bound = _load_if_memref(lower_bound)
-        upper_bound = _load_if_memref(upper_bound)
-        step = _load_if_memref(step)
 
         def _to_index(v):
             if isinstance(v.type, IndexType):
@@ -509,98 +490,21 @@ class D2MCompiler(ast.NodeVisitor):
 
     def visit_Assign(self, node):
         assert len(node.targets) == 1, "Only single assignments supported"
-
-        var = self.visit(node.targets[0])
-        value = self.visit(node.value)
-        sym_table = self.symbol_tables[-1]
-
-        if isinstance(node.targets[0], ast.Subscript):
-            memref.StoreOp(value, var.memref, var.indices)
-            return
-
-        var_name = node.targets[0].id
-        if hasattr(var, "type") and isinstance(var.type, MemRefType):
-            memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
-        else:
-            sym_table[var_name] = value
-
-    def visit_AnnAssign(self, node):
-        var = self.visit(node.target)
-        value = self.visit(node.value)
-        sym_table = self.symbol_tables[-1]
-        var_name = node.target.id
-
-        if isinstance(node.annotation, ast.List):
-            if not len(node.annotation.elts) >= 2 or not isinstance(
-                node.annotation.elts[0], ast.Name
-            ):
-                raise ValueError(
-                    "Array initialization must follow [dtype, *shape] syntax."
-                )
-            var_type = IntegerType.get_signless(32, self.ctx)
-            if all(isinstance(elt, ast.Constant) for elt in node.annotation.elts[1:]):
-                memref_type = MemRefType.get(
-                    [elt.value for elt in node.annotation.elts[1:]], var_type
-                )
-                sym_table[var_name] = memref.alloca(memref_type, [], [])
-                return
-            raise NotImplementedError("Dynamic dimensions are not supported.")
-
-        if hasattr(value, "type") and isinstance(value.type, MemRefType):
-            raise ValueError(
-                "Cannot AnnAssign to another AnnAssign'ed variable. "
-                "Workaround: add 0 to it first."
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            raise NotImplementedError(
+                f"Assign target {type(target).__name__} not supported"
             )
-
-        if not var:
-            memref_type = MemRefType.get([1], value.type)
-            var = memref.alloca(memref_type, [], [])
-            sym_table[var_name] = var
-        else:
-            assert isinstance(var, MemRefType), "Can only AnnAssign to memref types"
-
-        memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
-
-    def visit_AugAssign(self, node):
-        target = self.visit(node.target)
-        if not target:
-            raise ValueError("AugAssign target must already be defined")
-
-        value = self.visit(node.value)
-        if not isinstance(target.type, memref.MemRefType):
-            raise ValueError("Cannot AugAssign to non-memref types")
-
-        _target = memref.LoadOp(
-            target, arith.ConstantOp(IndexType.get(self.ctx), 0)
-        ).result
-
-        match node.op:
-            case ast.Add():
-                result = arith.AddIOp(_target, value)
-            case ast.Sub():
-                result = arith.SubIOp(_target, value)
-            case ast.Mult():
-                result = arith.MulIOp(_target, value)
-            case _:
-                raise NotImplementedError(
-                    f"AugAssign operation {type(node.op).__name__} not supported"
-                )
-
-        memref.StoreOp(result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
+        self.symbol_tables[-1][target.id] = self.visit(node.value)
 
     # --- Function calls ----------------------------------------------------
 
     def visit_Call(self, node):
-        def _load_func_arg(func_arg):
-            if not func_arg:
+        def _resolve(arg):
+            v = self.visit(arg)
+            if v is None:
                 raise ValueError(f"Function argument not found for {node.func.id}")
-            if hasattr(func_arg, "type") and isinstance(
-                func_arg.type, memref.MemRefType
-            ):
-                func_arg = memref.LoadOp(
-                    func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
-                )
-            return func_arg
+            return v
 
         if not isinstance(node.func, ast.Attribute):
             assert (
@@ -610,16 +514,16 @@ class D2MCompiler(ast.NodeVisitor):
             args_as_attr = [False] * len(node.args)
             if isinstance(fn, tuple):
                 fn, args_as_attr = fn
-            func_args = []
             assert len(node.args) == len(args_as_attr)
+            func_args = []
             for arg, as_attr in zip(node.args, args_as_attr):
                 arg._ttkernel_as_attr = as_attr
-                func_args.append(_load_func_arg(self.visit(arg)))
-            kwargs = {kw.arg: _load_func_arg(self.visit(kw.value)) for kw in node.keywords}
+                func_args.append(_resolve(arg))
+            kwargs = {kw.arg: _resolve(kw.value) for kw in node.keywords}
             return fn(*func_args, **kwargs)
 
-        func_args = [_load_func_arg(self.visit(arg)) for arg in node.args]
-        kwargs = {kw.arg: _load_func_arg(self.visit(kw.value)) for kw in node.keywords}
+        func_args = [_resolve(arg) for arg in node.args]
+        kwargs = {kw.arg: _resolve(kw.value) for kw in node.keywords}
         return self.visit(node.func, func_args=func_args, kwargs=kwargs)
 
     # --- Operators ---------------------------------------------------------
@@ -629,19 +533,14 @@ class D2MCompiler(ast.NodeVisitor):
 
         for i, value in enumerate(values):
             value_type = None
-            if hasattr(value, "type") and isinstance(value.type, memref.MemRefType):
-                value = memref.LoadOp(
-                    value, arith.ConstantOp(IndexType.get(self.ctx), 0)
-                ).result
-                value_type = value.type
-            elif hasattr(value, "type") and isinstance(value.type, IntegerType):
+            if hasattr(value, "type") and isinstance(value.type, IntegerType):
                 value_type = value.type
             elif isinstance(value, arith.ConstantOp):
                 value_type = value.type
 
             if value_type is None or not isinstance(value_type, IntegerType):
                 raise ValueError(
-                    "BoolOp values must be MemRef, ConstantOp, or IntegerType"
+                    "BoolOp values must be ConstantOp or IntegerType"
                 )
 
             if value_type.width != 1:
@@ -673,15 +572,6 @@ class D2MCompiler(ast.NodeVisitor):
             lhs = lhs.result
         if isinstance(rhs, OpView):
             rhs = rhs.result
-
-        if hasattr(lhs, "type") and isinstance(lhs.type, memref.MemRefType):
-            lhs = memref.LoadOp(
-                lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            ).result
-        if hasattr(rhs, "type") and isinstance(rhs.type, memref.MemRefType):
-            rhs = memref.LoadOp(
-                rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            ).result
 
         if lhs.type != rhs.type:
             rhs = _cast(rhs, lhs.type)
@@ -732,11 +622,6 @@ class D2MCompiler(ast.NodeVisitor):
         if not operand:
             raise ValueError("Unary operand not found")
 
-        if isinstance(operand.type, memref.MemRefType):
-            operand = memref.LoadOp(
-                operand, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            ).result
-
         mlir_type = _get_type_str(operand.type)
 
         def qualified_or(attr, otherwise, *args, **kwargs):
@@ -777,15 +662,6 @@ class D2MCompiler(ast.NodeVisitor):
         if not lhs or not rhs:
             raise ValueError("Compare operands not found")
 
-        if isinstance(lhs.type, memref.MemRefType):
-            lhs = memref.LoadOp(
-                lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            ).result
-        if isinstance(rhs.type, memref.MemRefType):
-            rhs = memref.LoadOp(
-                rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
-            ).result
-
         if lhs.type != rhs.type:
             rhs = _cast(rhs, lhs.type)
         assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
@@ -816,10 +692,8 @@ class D2MCompiler(ast.NodeVisitor):
             raise ValueError("Array doesn't exist.")
         arr = tbl[node.value.id]
 
-        if not hasattr(arr, "type") or not (
-            isinstance(arr.type, MemRefType) or isinstance(arr.type, RankedTensorType)
-        ):
-            raise ValueError("Can only subscript arrays")
+        if not hasattr(arr, "type") or not isinstance(arr.type, RankedTensorType):
+            raise ValueError("Can only subscript tensors")
 
         def _build_index(slice_, shape, bounds_check_idx):
             if hasattr(slice_, "value"):
@@ -849,8 +723,6 @@ class D2MCompiler(ast.NodeVisitor):
         else:
             idx = [_build_index(node.slice, arr.type.shape, 0)]
 
-        if isinstance(arr.type, MemRefType):
-            return memref.LoadOp(arr, idx)
         return (arr, idx)
 
     def visit_Attribute(self, node, func_args=[], kwargs={}):
