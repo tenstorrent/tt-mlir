@@ -26,27 +26,36 @@ from ._src.builder import (
 )
 
 
-@syntax("!tensor")
 class TensorBlock:
+    """The DSL-side host class for a tile-typed tensor block. Methods are
+    populated below from _UNARY_OPS / _BINARY_OPS tables, and the class is
+    registered into D2MCompiler._syntax via syntax("!tensor") afterwards."""
+
     def __init__(self, shape, dtype):
         self.shape = shape
         self.dtype = dtype
 
+    # Python operator dispatch. visit_BinOp/visit_UnaryOp in D2MCompiler
+    # look these up under '!tensor.__add__', '!tensor.__neg__', etc.
     def __add__(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
-        return arith.addf(ast_self, rhs)
+        return _eltwise_block(lambda l, r: d2m.tile_add(l.type, l, r), ast_self, rhs)
 
     def __sub__(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
-        return arith.subf(ast_self, rhs)
+        return _eltwise_block(lambda l, r: d2m.tile_sub(l.type, l, r), ast_self, rhs)
 
     def __mul__(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
-        return arith.mulf(ast_self, rhs)
-
-    def __neg__(ast_self: TensorBlock) -> TensorBlock:
-        return arith.negf(ast_self)
+        return _eltwise_block(lambda l, r: d2m.tile_mul(l.type, l, r), ast_self, rhs)
 
     def __truediv__(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
-        return arith.divf(ast_self, rhs)
+        return _eltwise_block(lambda l, r: d2m.tile_div(l.type, l, r), ast_self, rhs)
 
+    def __neg__(ast_self: TensorBlock) -> TensorBlock:
+        return _eltwise_block(lambda t: d2m.tile_negative(t.type, t), ast_self)
+
+    def __invert__(ast_self: TensorBlock) -> TensorBlock:
+        return _eltwise_block(lambda t: d2m.tile_bitwise_not(t.type, t), ast_self)
+
+    # @ (matmul) stays bespoke -- not elementwise.
     def __matmul__(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         lhs = ast_self
         assert isinstance(lhs.type, RankedTensorType)
@@ -112,223 +121,150 @@ def core_index(index):
 # --- Block-level eltwise helper -------------------------------------------
 
 
-def _eltwise_block(block, tile_op_fn):
-    """Wrap a per-tile op inside a `linalg.generic` over a tensor-of-tiles.
+def _eltwise_block(tile_op_fn, *blocks):
+    """Wrap an N-ary per-tile op inside a `linalg.generic` over tensors of
+    tiles.
 
-    `block` is a value of type `tensor<...x!ttcore.tile<...>>`. `tile_op_fn`
-    is called with the scalar (tile-typed) input element value and must
-    return the scalar (tile-typed) output value (or an OpView whose .result
-    is the value).
+    All `blocks` must have the same tensor type. `tile_op_fn` is called
+    with the scalar (tile-typed) values for each input and must return
+    the scalar output value (or an OpView whose .result is the value).
 
     Emits:
-        %out  = d2m.empty() : tensor<...x!ttcore.tile<...>>
-        %ret  = linalg.generic
-            { indexing_maps = [identity, identity],
+        %out = d2m.empty() : tensor<...x!ttcore.tile<...>>
+        %ret = linalg.generic
+            { indexing_maps = [identity] * (N+1),
               iterator_types = [parallel] * rank }
-            ins(%block) outs(%out) {
-          ^bb0(%t_in: !tile, %t_out: !tile):
-            %r = tile_op_fn(%t_in)
+            ins(%b0, ..., %b_{N-1}) outs(%out) {
+          ^bb0(%t0: !tile, ..., %t_{N-1}: !tile, %t_out: !tile):
+            %r = tile_op_fn(%t0, ..., %t_{N-1})
             linalg.yield %r : !tile
         } -> tensor<...x!ttcore.tile<...>>
     """
-    block_ty = block.type
+    if not blocks:
+        raise ValueError("_eltwise_block requires at least one input block")
+    block_ty = blocks[0].type
+    for b in blocks[1:]:
+        if b.type != block_ty:
+            raise ValueError(
+                f"_eltwise_block: input block type mismatch: {b.type} vs {block_ty}"
+            )
     rank = block_ty.rank
     elem_ty = block_ty.element_type
 
     output = d2m.empty(block_ty)
     identity = AffineMap.get_identity(rank)
-    indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)] * 2)
+    n_args = len(blocks) + 1  # one input map per block + one output map
+    indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)] * n_args)
     parallel = Attribute.parse("#linalg.iterator_type<parallel>")
     iterator_types = ArrayAttr.get([parallel] * rank)
 
     generic = linalg.GenericOp(
         [block_ty],
-        [block],
+        list(blocks),
         [output],
         indexing_maps,
         iterator_types,
     )
-    body = Block.create_at_start(
-        generic.regions[0],
-        [elem_ty, elem_ty],
-        [Location.unknown(), Location.unknown()],
-    )
+    body_arg_tys = [elem_ty] * n_args
+    body_arg_locs = [Location.unknown()] * n_args
+    body = Block.create_at_start(generic.regions[0], body_arg_tys, body_arg_locs)
     with InsertionPoint(body):
-        result = tile_op_fn(body.arguments[0])
+        result = tile_op_fn(*body.arguments[: len(blocks)])
         if hasattr(result, "result"):
             result = result.result
         linalg.yield_([result])
     return generic.result
 
 
-# --- Tile Unary Compute Ops ---
-
-
-@syntax("tile_recip")
-def tile_recip(input):
-    return d2m.tile_recip(input.type, input)
-
-
-@syntax("tile_exp")
-def tile_exp(input):
-    return d2m.tile_exp(input.type, input)
-
-
-@syntax("tile_log")
-def tile_log(input):
-    return d2m.tile_log(input.type, input)
-
-
-@syntax("tile_negative")
-def tile_negative(input):
-    return d2m.tile_negative(input.type, input)
-
-
-@syntax("tile_cos")
-def tile_cos(input):
-    return d2m.tile_cos(input.type, input)
-
-
-@syntax("tile_acos")
-def tile_acos(input):
-    return d2m.tile_acos(input.type, input)
-
-
-@syntax("tile_sin")
-def tile_sin(input):
-    return d2m.tile_sin(input.type, input)
-
-
-@syntax("tile_asin")
-def tile_asin(input):
-    return d2m.tile_asin(input.type, input)
-
-
-@syntax("tile_tan")
-def tile_tan(input):
-    return d2m.tile_tan(input.type, input)
-
-
-@syntax("tile_atan")
-def tile_atan(input):
-    return d2m.tile_atan(input.type, input)
-
-
-@syntax("tile_tanh")
-def tile_tanh(input):
-    return d2m.tile_tanh(input.type, input)
-
-
-@syntax("tile_sqrt")
-def tile_sqrt(input):
-    return d2m.tile_sqrt(input.type, input)
-
-
-@syntax("tile_rsqrt")
-def tile_rsqrt(input):
-    return d2m.tile_rsqrt(input.type, input)
-
-
-@syntax("tile_sigmoid")
-def tile_sigmoid(input):
-    return d2m.tile_sigmoid(input.type, input)
-
-
-@syntax("sigmoid")
-def sigmoid(input):
-    """Block-level sigmoid: applies d2m.tile_sigmoid elementwise via
-    linalg.generic over the tensor-of-tiles input."""
-    return _eltwise_block(input, lambda t: d2m.tile_sigmoid(t.type, t))
-
-
-@syntax("tile_hardsigmoid")
-def tile_hardsigmoid(input):
-    return d2m.tile_hardsigmoid(input.type, input)
-
-
-@syntax("tile_silu")
-def tile_silu(input):
-    return d2m.tile_silu(input.type, input)
-
-
-@syntax("tile_relu")
-def tile_relu(input):
-    return d2m.tile_relu(input.type, input)
-
-
-@syntax("tile_gelu")
-def tile_gelu(input):
-    return d2m.tile_gelu(input.type, input)
-
-
-@syntax("tile_erf")
-def tile_erf(input):
-    return d2m.tile_erf(input.type, input)
-
-
-@syntax("tile_erfc")
-def tile_erfc(input):
-    return d2m.tile_erfc(input.type, input)
-
-
-@syntax("tile_sign")
-def tile_sign(input):
-    return d2m.tile_sign(input.type, input)
-
-
-@syntax("tile_ceil")
-def tile_ceil(input):
-    return d2m.tile_ceil(input.type, input)
-
-
-@syntax("tile_floor")
-def tile_floor(input):
-    return d2m.tile_floor(input.type, input)
-
-
-@syntax("tile_abs")
-def tile_abs(input):
-    return d2m.tile_abs(input.type, input)
-
-
-@syntax("tile_bitwise_not")
-def tile_bitwise_not(input):
-    return d2m.tile_bitwise_not(input.type, input)
-
-
-@syntax("tile_logical_not")
-def tile_logical_not(input):
-    return d2m.tile_logical_not(input.type, input)
-
-
-@syntax("tile_eqz")
-def tile_eqz(input):
-    return d2m.tile_eqz(input.type, input)
-
-
-@syntax("tile_nez")
-def tile_nez(input):
-    return d2m.tile_nez(input.type, input)
-
-
-@syntax("tile_gtz")
-def tile_gtz(input):
-    return d2m.tile_gtz(input.type, input)
-
-
-@syntax("tile_gez")
-def tile_gez(input):
-    return d2m.tile_gez(input.type, input)
-
-
-@syntax("tile_ltz")
-def tile_ltz(input):
-    return d2m.tile_ltz(input.type, input)
-
-
-@syntax("tile_lez")
-def tile_lez(input):
-    return d2m.tile_lez(input.type, input)
+# --- Block-level elementwise op tables --------------------------------------
+#
+# Every entry below registers both a standalone @syntax(name) free function
+# and a TensorBlock method, both wired through _eltwise_block. The d2m.tile_*
+# builders are wrapped in a linalg.generic so the DSL operates on
+# tensor<...x!ttcore.tile<...>> values (blocks of tiles) while the d2m ops
+# themselves still see scalar tile operands inside the linalg body.
+
+_UNARY_OPS = {
+    "recip":       d2m.tile_recip,
+    "exp":         d2m.tile_exp,
+    "log":         d2m.tile_log,
+    "negative":    d2m.tile_negative,
+    "cos":         d2m.tile_cos,
+    "acos":        d2m.tile_acos,
+    "sin":         d2m.tile_sin,
+    "asin":        d2m.tile_asin,
+    "tan":         d2m.tile_tan,
+    "atan":        d2m.tile_atan,
+    "tanh":        d2m.tile_tanh,
+    "sqrt":        d2m.tile_sqrt,
+    "rsqrt":       d2m.tile_rsqrt,
+    "sigmoid":     d2m.tile_sigmoid,
+    "hardsigmoid": d2m.tile_hardsigmoid,
+    "silu":        d2m.tile_silu,
+    "relu":        d2m.tile_relu,
+    "gelu":        d2m.tile_gelu,
+    "erf":         d2m.tile_erf,
+    "erfc":        d2m.tile_erfc,
+    "sign":        d2m.tile_sign,
+    "ceil":        d2m.tile_ceil,
+    "floor":       d2m.tile_floor,
+    "abs":         d2m.tile_abs,
+    "bitwise_not": d2m.tile_bitwise_not,
+    "logical_not": d2m.tile_logical_not,
+    "eqz":         d2m.tile_eqz,
+    "nez":         d2m.tile_nez,
+    "gtz":         d2m.tile_gtz,
+    "gez":         d2m.tile_gez,
+    "ltz":         d2m.tile_ltz,
+    "lez":         d2m.tile_lez,
+}
+
+_BINARY_OPS = {
+    "add":         d2m.tile_add,
+    "sub":         d2m.tile_sub,
+    "mul":         d2m.tile_mul,
+    "div":         d2m.tile_div,
+    "pow":         d2m.tile_pow,
+    "maximum":     d2m.tile_maximum,
+    "minimum":     d2m.tile_minimum,
+    "bitwise_and": d2m.tile_bitwise_and,
+    "bitwise_or":  d2m.tile_bitwise_or,
+    "bitwise_xor": d2m.tile_bitwise_xor,
+}
+
+
+def _make_unary(builder):
+    def fn(ast_self):
+        return _eltwise_block(lambda t: builder(t.type, t), ast_self)
+    return fn
+
+
+def _make_binary(builder):
+    def fn(ast_self, rhs):
+        return _eltwise_block(lambda l, r: builder(l.type, l, r), ast_self, rhs)
+    return fn
+
+
+for _name, _b in _UNARY_OPS.items():
+    _fn = _make_unary(_b)
+    _fn.__name__ = _name
+    syntax(_name)(_fn)
+    setattr(TensorBlock, _name, _fn)
+
+for _name, _b in _BINARY_OPS.items():
+    _fn = _make_binary(_b)
+    _fn.__name__ = _name
+    syntax(_name)(_fn)
+    setattr(TensorBlock, _name, _fn)
+
+# Apply syntax("!tensor") AFTER the method-style entries are populated.
+TensorBlock = syntax("!tensor")(TensorBlock)
+
+
+# --- Non-elementwise tile ops ---------------------------------------------
+# These don't fit the simple _eltwise_block pattern (typecast changes
+# element type, transpose has intra-tile semantics). Left in place so they
+# can be migrated to their own bespoke builders later.
 
 
 @syntax("tile_typecast")
@@ -339,59 +275,6 @@ def tile_typecast(input, result_type):
 @syntax("tile_transpose")
 def tile_transpose(input):
     return d2m.tile_transpose(input.type, input)
-
-
-# --- Tile Binary Compute Ops ---
-
-
-@syntax("tile_add")
-def tile_add(lhs, rhs):
-    return d2m.tile_add(lhs.type, lhs, rhs)
-
-
-@syntax("tile_sub")
-def tile_sub(lhs, rhs):
-    return d2m.tile_sub(lhs.type, lhs, rhs)
-
-
-@syntax("tile_mul")
-def tile_mul(lhs, rhs):
-    return d2m.tile_mul(lhs.type, lhs, rhs)
-
-
-@syntax("tile_div")
-def tile_div(lhs, rhs):
-    return d2m.tile_div(lhs.type, lhs, rhs)
-
-
-@syntax("tile_pow")
-def tile_pow(lhs, rhs):
-    return d2m.tile_pow(lhs.type, lhs, rhs)
-
-
-@syntax("tile_maximum")
-def tile_maximum(lhs, rhs):
-    return d2m.tile_maximum(lhs.type, lhs, rhs)
-
-
-@syntax("tile_minimum")
-def tile_minimum(lhs, rhs):
-    return d2m.tile_minimum(lhs.type, lhs, rhs)
-
-
-@syntax("tile_bitwise_and")
-def tile_bitwise_and(lhs, rhs):
-    return d2m.tile_bitwise_and(lhs.type, lhs, rhs)
-
-
-@syntax("tile_bitwise_or")
-def tile_bitwise_or(lhs, rhs):
-    return d2m.tile_bitwise_or(lhs.type, lhs, rhs)
-
-
-@syntax("tile_bitwise_xor")
-def tile_bitwise_xor(lhs, rhs):
-    return d2m.tile_bitwise_xor(lhs.type, lhs, rhs)
 
 
 # --- Tile Ternary / Special Compute Ops ---

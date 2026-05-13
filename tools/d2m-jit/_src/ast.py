@@ -549,12 +549,24 @@ class D2MCompiler(ast.NodeVisitor):
         return (arr, idx)
 
     def visit_Attribute(self, node, func_args=[], kwargs={}):
-        mlir_value = self._var_exists(node.value.id)[node.value.id]
+        # node.value may be any expression (Name, Call, Attribute, ...) --
+        # support chained method calls like `a.add(b).sigmoid()`.
+        if isinstance(node.value, ast.Name):
+            sym_table = self._var_exists(node.value.id)
+            if not sym_table:
+                raise ValueError(f"unknown variable {node.value.id}")
+            mlir_value = sym_table[node.value.id]
+            receiver_repr = node.value.id
+        else:
+            mlir_value = self.visit(node.value)
+            if hasattr(mlir_value, "result"):
+                mlir_value = mlir_value.result
+            receiver_repr = type(node.value).__name__
         mlir_type = _get_type_str(mlir_value.type)
         fn = self._fn_map.get(f"{mlir_type}.{node.attr}", None)
         if fn is None:
             raise ValueError(
-                f"{node.value.id} of type {mlir_type} has no attribute {node.attr}"
+                f"{receiver_repr} of type {mlir_type} has no attribute {node.attr}"
             )
         return fn(mlir_value, *func_args, **kwargs)
 
