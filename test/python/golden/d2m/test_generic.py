@@ -60,7 +60,6 @@ def read_artifact(output_root: Path, test_base: str, filename: str) -> str:
     ],
 )
 @pytest.mark.parametrize("dtype", ["bf16"])
-@pytest.mark.parametrize("enable_l1_acc", [True])
 @pytest.mark.parametrize("use_tile_matmul", [False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_generic(
@@ -69,7 +68,6 @@ def test_generic(
     block_factors,
     interchange,
     dtype,
-    enable_l1_acc,
     use_tile_matmul,
     target: str,
     request,
@@ -204,7 +202,6 @@ def test_generic(
 
     options = [
         f"use-tile-matmul={use_tile_matmul}",
-        f"enable-l1-acc={enable_l1_acc}",
     ]
     compile_and_execute_d2m(
         generic_module,
@@ -341,7 +338,7 @@ def test_generic_allocator_reblock_policy(
         custom_pipeline=(
             "ttir-to-ttmetal-pipeline{"
             f"test-buffer-size-policy={buffer_policy} "
-            "use-tile-matmul=false enable-l1-acc=false}"
+            "use-tile-matmul=false disable-l1-acc=true}"
         ),
         check_pcc=True,
         print_ir=False,

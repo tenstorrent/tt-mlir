@@ -201,13 +201,13 @@ void createD2MBackendPipeline(OpPassManager &pm,
   d2m::D2MInsertDstRegisterAccessUnscheduledOptions unschedDstOpts;
   {
     unschedDstOpts.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
-    unschedDstOpts.enableL1Acc = options.enableL1Acc;
+    unschedDstOpts.disableL1Acc = options.disableL1Acc;
   }
   pm.addPass(d2m::createD2MInsertDstRegisterAccessUnscheduled(unschedDstOpts));
   d2m::D2MInsertDstRegisterAccessScheduledOptions schedDstOpts;
   {
     schedDstOpts.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
-    schedDstOpts.enableL1Acc = options.enableL1Acc;
+    schedDstOpts.disableL1Acc = options.disableL1Acc;
   }
   pm.addPass(d2m::createD2MInsertDstRegisterAccessScheduled(schedDstOpts));
   d2m::D2MInsertTileMatmulBlockOptions insertTileMatmulBlockOptions;

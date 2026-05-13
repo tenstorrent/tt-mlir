@@ -326,7 +326,7 @@ def D2MInsertDstRegisterAccessUnscheduled : Pass<"d2m-insert-dst-register-access
   ];
   let options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
-    Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
+    Option<"disableL1Acc", "disable-l1-acc", "bool", /*default=*/"false", "Disable accumulating partials in L1 (force reloading from L1 to DST instead).">,
   ];
 }
 
@@ -401,7 +401,7 @@ def D2MInsertDstRegisterAccessScheduled : Pass<"d2m-insert-dst-register-access-s
   ];
   let options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
-    Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
+    Option<"disableL1Acc", "disable-l1-acc", "bool", /*default=*/"false", "Disable accumulating partials in L1 (force reloading from L1 to DST instead).">,
   ];
 }
 
