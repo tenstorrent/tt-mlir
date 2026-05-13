@@ -40,6 +40,7 @@ struct CandidateScore {
   uint64_t cbBytes = 0;
 };
 
+// Beam-search state before a full candidate legality and CB cost evaluation.
 struct PartialCandidate {
   SmallVector<int64_t> dimScales;
   uint64_t blockingVolume = 1;
@@ -154,7 +155,7 @@ static SmallVector<int64_t> buildEltwiseScaleSearchOrder(int64_t shardFactor) {
   });
 
   SmallVector<int64_t> limited;
-  // Always include 1 in the search order.
+  // Always include scale factor 1 so bounded search can leave a dim unchanged.
   limited.reserve(std::min(factors.size(), kEltwiseScalesPerDim));
   for (int64_t factor : factors) {
     if (limited.size() == kEltwiseScalesPerDim) {
@@ -372,7 +373,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
                 ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-                bool useBoundedEltwiseSearch = true) {
+                bool useBoundedEltwiseSearch) {
   const SmallVector<int64_t> originalBlockFactors =
       genericOp.getBlockFactorsValue();
 
@@ -420,9 +421,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
     beam.push_back(
         PartialCandidate{SmallVector<int64_t>(currentDimScales), 1, 0});
 
-    for (std::size_t dimIndex = 0; dimIndex < config->candidateDims.size();
-         ++dimIndex) {
-      const std::size_t dim = config->candidateDims[dimIndex];
+    for (auto [dimIndex, dim] : llvm::enumerate(config->candidateDims)) {
       SmallVector<PartialCandidate> expanded;
       expanded.reserve(beam.size() * legalScales[dimIndex].size());
       for (const PartialCandidate &partial : beam) {
@@ -439,7 +438,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
     }
 
     for (const PartialCandidate &candidate : beam) {
-      auto score = evaluateCandidate(
+      std::optional<CandidateScore> score = evaluateCandidate(
           genericOp, config->candidateDims, indexingMaps, gridExtents,
           shardExtents, shardFactors, originalBlockFactors, candidate.dimScales,
           device, l1Attr, numBuffers);
