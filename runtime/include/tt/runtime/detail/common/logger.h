@@ -17,6 +17,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #if defined(UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT) &&                           \
@@ -167,10 +168,10 @@ public:
     (UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT == 1)
       pybind11::scoped_ostream_redirect stream(*fd);
 #endif
-      *fd << green << std::setw(23) << type_names[type] << reset_text_attrs
-          << " | " << bold << level_colors[static_cast<int>(level)]
-          << std::setw(8) << level_names[static_cast<int>(level)]
-          << reset_text_attrs << " | ";
+      *fd << get_process_prefix() << green << std::setw(23) << type_names[type]
+          << reset_text_attrs << " | " << bold
+          << level_colors[static_cast<int>(level)] << std::setw(8)
+          << level_names[static_cast<int>(level)] << reset_text_attrs << " | ";
       ((*fd << args), ...);
       *fd << std::endl;
     }
@@ -184,6 +185,23 @@ public:
   bool log_type_enabled(LogType type) const { return (1ULL << type) & mask; }
 
 private:
+  static std::string build_process_prefix() {
+    char hostname[256] = {};
+    std::string host = "unknown-host";
+    if (::gethostname(hostname, sizeof(hostname)) == 0 && hostname[0] != '\0') {
+      host = hostname;
+    }
+
+    std::stringstream ss;
+    ss << "[host=" << host << "] ";
+    return ss.str();
+  }
+
+  static const std::string &get_process_prefix() {
+    static const std::string processPrefix = build_process_prefix();
+    return processPrefix;
+  }
+
   Logger() {
     const char *env = std::getenv("TTMLIR_RUNTIME_LOGGER_TYPES");
     if (env) {

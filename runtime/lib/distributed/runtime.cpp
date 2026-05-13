@@ -178,6 +178,8 @@ submit(::tt::runtime::Device deviceHandle,
        ::tt::runtime::Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
   assertControllerLaunched();
+  LOG_INFO("Distributed submit API called for program ", programIndex, " with ",
+           inputs.size(), " input(s)");
   return ControllerSingleton::get().submit(deviceHandle, executableHandle,
                                            programIndex, inputs);
 }
