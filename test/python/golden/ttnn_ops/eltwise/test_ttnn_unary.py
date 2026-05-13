@@ -419,19 +419,6 @@ def test_relu_dram_sharded(
     """
 
     def module(builder: TTNNBuilder):
-        ctx = builder._ctx
-        bank_count = grid_shape[0] * grid_shape[1]
-        core_range_set = ttnn.ir.CoreRangeSetAttr.get(
-            ctx,
-            [
-                ttnn.ir.CoreRangeAttr.get(
-                    ctx,
-                    ttnn.ir.CoreCoordAttr.get(ctx, 0, 0),
-                    ttnn.ir.CoreCoordAttr.get(ctx, bank_count - 1, 0),
-                )
-            ],
-        )
-
         @builder.func([shape], [dtype])
         def relu_dram_sharded(
             in0: Operand,
@@ -443,8 +430,7 @@ def test_relu_dram_sharded(
                 layout=ttnn.Layout.Tile,
                 buffer_type=ttnn.BufferType.DRAM,
                 tensor_memory_layout=memory_layout,
-                # grid_shape=grid_shape,
-                # core_range_set=core_range_set,
+                grid_shape=grid_shape,
             )
             return builder.relu(sharded_in, unit_attrs=unit_attrs)
 

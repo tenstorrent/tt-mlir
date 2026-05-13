@@ -257,9 +257,28 @@ class TTNNBuilder(Builder):
                 f"got shape={shape}, grid_shape={grid_shape}."
             )
         if core_range_set is None:
-            raise ValueError(
-                "Sharded MemoryConfigAttr requires an explicit `core_range_set`."
+            # Get cached grid shapes
+            worker_grid_shape, dram_grid_shape = self._get_grid_shapes()
+
+            # Attempt to calculate the canonical core_range_set using cached grid shapes
+            core_range_set = derive_canonical_core_range_set(
+                self._ctx,
+                buffer_type,
+                tensor_memory_layout,
+                grid_shape,
+                worker_grid_shape=worker_grid_shape,
+                dram_grid_shape=dram_grid_shape,
             )
+
+            # If we still don't have a core_range_set, raise an error
+            if core_range_set is None:
+                raise ValueError(
+                    "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
+                    "the builder does not synthesize one because the canonical "
+                    "placement depends on the target arch's worker/DRAM grid. "
+                    "Either provide core_range_set explicitly or set system_desc_path "
+                    "when creating the builder."
+                )
         if shape[-2] % grid_shape[0] or shape[-1] % grid_shape[1]:
             raise ValueError(
                 f"Tensor shape {tuple(shape[-2:])} not evenly divisible by "

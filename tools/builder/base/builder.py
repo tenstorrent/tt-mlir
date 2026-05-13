@@ -64,6 +64,10 @@ class Builder(metaclass=BuilderMeta):
         self._system_desc_path = system_desc_path
         os.makedirs(self._deallocated_goldens_dir, exist_ok=True)
 
+        # Lazy-loaded grid shapes from system descriptor
+        self._worker_grid_shape: Optional[List[int]] = None
+        self._dram_grid_shape: Optional[List[int]] = None
+
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
         # ordered dict determines program order when comparing goldens during runtime
         # func_op: [[ordered_inputs], [ordered_outputs]]
@@ -172,6 +176,23 @@ class Builder(metaclass=BuilderMeta):
         return self.opview_to_split_map.get(opview)
 
     # ----- Public methods -----
+
+    def _get_grid_shapes(self) -> Tuple[List[int], List[int]]:
+        """
+        Lazily load and cache worker and DRAM grid shapes from system descriptor.
+
+        Returns
+        -------
+        Tuple[List[int], List[int]]
+            (worker_grid_shape, dram_grid_shape) as [rows, cols] lists
+        """
+        if self._worker_grid_shape is None or self._dram_grid_shape is None:
+            from builder.base.builder_utils import load_grid_shapes_from_system_desc
+
+            grid_shapes = load_grid_shapes_from_system_desc(self._system_desc_path)
+            self._worker_grid_shape = grid_shapes.worker_grid_shape
+            self._dram_grid_shape = grid_shapes.dram_grid_shape
+        return self._worker_grid_shape, self._dram_grid_shape
 
     @property
     def context(self) -> Context:
@@ -794,13 +815,17 @@ class Builder(metaclass=BuilderMeta):
             )
 
             if is_sharded and core_range_set is None:
-                # Attempt to calculate the canonical core_range_set using system descriptor
+                # Get cached grid shapes
+                worker_grid_shape, dram_grid_shape = self._get_grid_shapes()
+
+                # Attempt to calculate the canonical core_range_set using cached grid shapes
                 core_range_set = derive_canonical_core_range_set(
                     self._ctx,
                     buffer_type,
                     tensor_memory_layout,
                     grid_shape,
-                    self._system_desc_path,
+                    worker_grid_shape=worker_grid_shape,
+                    dram_grid_shape=dram_grid_shape,
                 )
 
                 # If we still don't have a core_range_set, raise an error

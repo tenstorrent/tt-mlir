@@ -46,7 +46,75 @@ class TypeInfo:
     zero_point: Optional[int] = None
 
 
+@dataclass
+class GridShapes:
+    """Container for worker and DRAM grid shapes."""
+
+    worker_grid_shape: List[int]
+    dram_grid_shape: List[int]
+
+
 # ----- Shared Helper Functions -----
+
+
+def load_grid_shapes_from_system_desc(
+    system_desc_path: Optional[str] = None,
+) -> GridShapes:
+    """
+    Load worker and DRAM grid shapes from a system descriptor file.
+
+    This function loads the system descriptor once and extracts the grid
+    information. The result can be cached to avoid repeated file I/O.
+
+    Parameters
+    ----------
+    system_desc_path : Optional[str]
+        Path to system descriptor file. If None, uses default grids.
+
+    Returns
+    -------
+    GridShapes
+        Object containing worker_grid_shape and dram_grid_shape as [rows, cols] lists
+    """
+    # Default grids if no system descriptor
+    worker_grid_shape = [8, 8]
+    dram_grid_shape = [1, 12]
+
+    if system_desc_path and os.path.exists(system_desc_path):
+        try:
+            # Load system descriptor from file
+            system_desc_fbs = tt_runtime.binary.load_system_desc_from_path(
+                system_desc_path
+            )
+
+            # Parse the flatbuffer and get the first chip descriptor
+            system_desc_json = json.loads(system_desc_fbs.as_json())
+
+            # Extract grid information from the first chip
+            if (
+                "system_desc" in system_desc_json
+                and "chip_descs" in system_desc_json["system_desc"]
+            ):
+                chip_descs = system_desc_json["system_desc"]["chip_descs"]
+                if len(chip_descs) > 0:
+                    chip_desc = chip_descs[0]
+                    # Get worker and DRAM grid dimensions
+                    # Chip desc contains the grid as [y, x] (rows, cols)
+                    if "compute_grid" in chip_desc:
+                        compute_grid = chip_desc["compute_grid"]
+                        worker_grid_shape = [compute_grid["rows"], compute_grid["cols"]]
+
+                    if "dram_grid" in chip_desc:
+                        dram_grid = chip_desc["dram_grid"]
+                        dram_grid_shape = [dram_grid["rows"], dram_grid["cols"]]
+        except Exception as e:
+            # If loading fails, fall back to defaults
+            pass
+
+    return GridShapes(
+        worker_grid_shape=worker_grid_shape,
+        dram_grid_shape=dram_grid_shape,
+    )
 
 
 def tag(name):
@@ -352,7 +420,8 @@ def derive_canonical_core_range_set(
     buffer_type: ttnn.ir.BufferTypeAttr,
     tensor_memory_layout: ttnn.ir.TensorMemoryLayoutAttr,
     grid_shape: List[int],
-    system_desc_path: Optional[str] = None,
+    worker_grid_shape: List[int],
+    dram_grid_shape: List[int],
 ) -> Optional[ttnn.ir.CoreRangeSetAttr]:
     """
     Derive the canonical CoreRangeSet for a sharded TTNN layout.
@@ -360,6 +429,9 @@ def derive_canonical_core_range_set(
     This function replicates the logic from TTNNLayoutAttr::Builder::buildWithCanonicalCorePlacement
     in the C++ codebase. It derives core placements based on the buffer type (L1 or DRAM) and
     memory layout (BlockSharded, HeightSharded, or WidthSharded).
+
+    This is a pure computation function that requires grid shapes to be provided by the caller.
+    Use Builder._get_grid_shapes() to obtain cached grid shapes from the system descriptor.
 
     Parameters
     ----------
@@ -371,61 +443,19 @@ def derive_canonical_core_range_set(
         Memory layout (Interleaved, BlockSharded, HeightSharded, WidthSharded)
     grid_shape : List[int]
         Grid shape as [height, width]
-    system_desc_path : Optional[str]
-        Path to system descriptor file. If None, uses default grids.
+    worker_grid_shape : List[int]
+        Worker grid shape as [rows, cols]. Required for L1-sharded layouts.
+    dram_grid_shape : List[int]
+        DRAM grid shape as [rows, cols]. Required for DRAM-sharded layouts.
 
     Returns
     -------
     Optional[ttnn.ir.CoreRangeSetAttr]
-        The canonical CoreRangeSet, or None if not sharded or system_desc unavailable
+        The canonical CoreRangeSet, or None if not sharded
     """
     # Only calculate for sharded layouts
     if tensor_memory_layout == ttnn.TensorMemoryLayout.Interleaved:
         return None
-
-    # Load system descriptor and create DeviceAttr if path provided
-    device_attr = None
-    if system_desc_path and os.path.exists(system_desc_path):
-        try:
-            # Load system descriptor from file
-            system_desc_fbs = tt_runtime.binary.load_system_desc_from_path(
-                system_desc_path
-            )
-
-            # Parse the flatbuffer and get the first chip descriptor
-            import json
-
-            system_desc_json = json.loads(system_desc_fbs.as_json())
-
-            # Extract grid information from the first chip
-            if (
-                "system_desc" in system_desc_json
-                and "chip_descs" in system_desc_json["system_desc"]
-            ):
-                chip_descs = system_desc_json["system_desc"]["chip_descs"]
-                if len(chip_descs) > 0:
-                    chip_desc = chip_descs[0]
-                    # Get worker and DRAM grid dimensions
-                    # Chip desc contains the grid as [y, x] (rows, cols)
-                    if "compute_grid" in chip_desc:
-                        compute_grid = chip_desc["compute_grid"]
-                        worker_grid_shape = [compute_grid["rows"], compute_grid["cols"]]
-                    else:
-                        worker_grid_shape = [8, 8]  # Default fallback
-
-                    if "dram_grid" in chip_desc:
-                        dram_grid = chip_desc["dram_grid"]
-                        dram_grid_shape = [dram_grid["rows"], dram_grid["cols"]]
-                    else:
-                        dram_grid_shape = [1, 12]  # Default fallback
-        except Exception as e:
-            # If loading fails, fall back to None
-            worker_grid_shape = [8, 8]
-            dram_grid_shape = [1, 12]
-    else:
-        # Default grids if no system descriptor
-        worker_grid_shape = [8, 8]
-        dram_grid_shape = [1, 12]
 
     # Calculate CoreRangeSet based on buffer type and memory layout
     if buffer_type == ttnn.BufferType.DRAM:
