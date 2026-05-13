@@ -159,11 +159,8 @@ Type cloneWithShardShape(Value referenceOperand, Type typeToRetype) {
     return RankedTensorType::get(shardShape, oldTensorType.getElementType());
   }
   if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(typeToRetype)) {
-    MemRefLayoutAttrInterface layout;
-    layout = ttcore::CBLayoutAttr::get(
-        oldMemRefType.getContext(), shardShape,
-        ttcore::getElementSizeBytes(oldMemRefType.getElementType()));
-    return MemRefType::get(shardShape, oldMemRefType.getElementType(), layout,
+    return MemRefType::get(shardShape, oldMemRefType.getElementType(),
+                           MemRefLayoutAttrInterface{},
                            oldMemRefType.getMemorySpace());
   }
 
