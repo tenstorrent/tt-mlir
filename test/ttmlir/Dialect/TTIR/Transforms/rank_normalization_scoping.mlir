@@ -75,6 +75,18 @@ func.func private @cpu_hoisted_decl(tensor<32xf32>) -> tensor<32xf32>
     attributes {tt.function_type = "ForwardCPUDeclaration"}
 
 // =============================================================================
+// Non-const_eval function with no TTIR ops in its body but rank-1 tensors in
+// its signature must participate so the signature is promoted to rank-2.
+// =============================================================================
+
+// CHECK-LABEL: func.func @forward_rank1_no_ttir_op
+// CHECK-SAME: (%arg0: tensor<1x32xf32>) -> tensor<1x32xf32>
+// CHECK: return %{{.*}} : tensor<1x32xf32>
+func.func @forward_rank1_no_ttir_op(%arg0: tensor<32xf32>) -> tensor<32xf32> {
+  return %arg0 : tensor<32xf32>
+}
+
+// =============================================================================
 // Function with rank-2 TTIR ops which should be left untouched.
 // =============================================================================
 
