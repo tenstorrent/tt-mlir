@@ -4,15 +4,24 @@
 // -----
 
 // Basic case: scf.forall with #d2m.compute_thread mapping is replaced by
-// %tid = d2m.my_thread_id ; <inlined body using %tid>.
+// %tid = d2m.my_thread_id ; <inlined body using %tid>. The body ops appear
+// at the parent-block level in their original order with the IV-use rewired
+// through the my_thread_id result. The affine map and subview shape/strides
+// are propagated from the input unchanged.
+
+// CHECK: #[[$MAP:[^ ]+]] = affine_map<(d0) -> (d0 * 2)>
+// CHECK-LABEL: func.func @materialize_basic
+// CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<8x8xf32>)
+// CHECK-NEXT:    %[[TID:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
+// CHECK-NEXT:    %[[OFF:[A-Za-z0-9_]+]] = affine.apply #[[$MAP]](%[[TID]])
+// CHECK-NEXT:    %[[SUB:[A-Za-z0-9_]+]] = memref.subview %[[A]][%[[OFF]], 0] [2, 8] [1, 1] : memref<8x8xf32> to memref<2x8xf32, strided<[8, 1], offset: ?>>
+// CHECK-NEXT:    "use"(%[[SUB]]) : (memref<2x8xf32, strided<[8, 1], offset: ?>>) -> ()
+// CHECK-NEXT:    return
+// CHECK-NOT: scf.forall
+// CHECK-NOT: scf.in_parallel
+// CHECK-NOT: #d2m.compute_thread
 
 func.func @materialize_basic(%A: memref<8x8xf32>) {
-  // CHECK-LABEL: func.func @materialize_basic
-  // CHECK-NOT: scf.forall
-  // CHECK: %[[TID:.*]] = d2m.my_thread_id : index
-  // CHECK: %[[OFF:.*]] = affine.apply {{.*}}(%[[TID]])
-  // CHECK: %[[SUB:.*]] = memref.subview %{{.*}}[%[[OFF]], 0]
-  // CHECK: "use"(%[[SUB]])
   scf.forall (%tid) in (4) {
     %off = affine.apply affine_map<(d0) -> (d0 * 2)>(%tid)
     %sub = memref.subview %A[%off, 0][2, 8][1, 1]
@@ -24,16 +33,29 @@ func.func @materialize_basic(%A: memref<8x8xf32>) {
 
 // -----
 
-// Multiple compute-thread foralls in the same function are both lowered;
-// the second lowering inserts a second my_thread_id (one per forall).
+// Multiple compute-thread foralls in the same function are both lowered into
+// the parent block in their original order. Each forall gets its own
+// my_thread_id (TID0, TID1) and its body's IV-uses are rewired only through
+// its own my_thread_id — proven here by binding TID0/TID1 separately and
+// checking each affine.apply consumes the matching one.
+
+// CHECK: #[[$MAP:[^ ]+]] = affine_map<(d0) -> (d0 * 2)>
+// CHECK-LABEL: func.func @materialize_multiple
+// CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<8x8xf32>, %[[B:[A-Za-z0-9_]+]]: memref<8x8xf32>)
+// CHECK-NEXT:    %[[TID0:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
+// CHECK-NEXT:    %[[OFF0:[A-Za-z0-9_]+]] = affine.apply #[[$MAP]](%[[TID0]])
+// CHECK-NEXT:    %[[S0:[A-Za-z0-9_]+]] = memref.subview %[[A]][%[[OFF0]], 0] [2, 8] [1, 1] : memref<8x8xf32> to memref<2x8xf32, strided<[8, 1], offset: ?>>
+// CHECK-NEXT:    "use_a"(%[[S0]]) : (memref<2x8xf32, strided<[8, 1], offset: ?>>) -> ()
+// CHECK-NEXT:    %[[TID1:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
+// CHECK-NEXT:    %[[OFF1:[A-Za-z0-9_]+]] = affine.apply #[[$MAP]](%[[TID1]])
+// CHECK-NEXT:    %[[S1:[A-Za-z0-9_]+]] = memref.subview %[[B]][%[[OFF1]], 0] [2, 8] [1, 1] : memref<8x8xf32> to memref<2x8xf32, strided<[8, 1], offset: ?>>
+// CHECK-NEXT:    "use_b"(%[[S1]]) : (memref<2x8xf32, strided<[8, 1], offset: ?>>) -> ()
+// CHECK-NEXT:    return
+// CHECK-NOT: scf.forall
+// CHECK-NOT: scf.in_parallel
+// CHECK-NOT: #d2m.compute_thread
 
 func.func @materialize_multiple(%A: memref<8x8xf32>, %B: memref<8x8xf32>) {
-  // CHECK-LABEL: func.func @materialize_multiple
-  // CHECK-NOT: scf.forall
-  // CHECK: d2m.my_thread_id
-  // CHECK: "use_a"
-  // CHECK: d2m.my_thread_id
-  // CHECK: "use_b"
   scf.forall (%tid0) in (4) {
     %off0 = affine.apply affine_map<(d0) -> (d0 * 2)>(%tid0)
     %s0 = memref.subview %A[%off0, 0][2, 8][1, 1]
@@ -51,13 +73,21 @@ func.func @materialize_multiple(%A: memref<8x8xf32>, %B: memref<8x8xf32>) {
 
 // -----
 
-// scf.forall WITHOUT a #d2m.compute_thread mapping is left alone — this
-// pass only consumes foralls flagged with our specific mapping attribute.
+// scf.forall WITHOUT a #d2m.compute_thread mapping is left completely
+// untouched: same body, same IV use, no my_thread_id inserted anywhere.
+
+// CHECK: #[[$MAP:[^ ]+]] = affine_map<(d0) -> (d0 * 2)>
+// CHECK-LABEL: func.func @leave_unrelated_forall
+// CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<8x8xf32>)
+// CHECK-NEXT:    scf.forall (%[[TID:[A-Za-z0-9_]+]]) in (4) {
+// CHECK-NEXT:      %[[OFF:[A-Za-z0-9_]+]] = affine.apply #[[$MAP]](%[[TID]])
+// CHECK-NEXT:      %[[SUB:[A-Za-z0-9_]+]] = memref.subview %[[A]][%[[OFF]], 0] [2, 8] [1, 1] : memref<8x8xf32> to memref<2x8xf32, strided<[8, 1], offset: ?>>
+// CHECK-NEXT:      "use"(%[[SUB]]) : (memref<2x8xf32, strided<[8, 1], offset: ?>>) -> ()
+// CHECK-NEXT:    }
+// CHECK-NEXT:    return
+// CHECK-NOT: d2m.my_thread_id
 
 func.func @leave_unrelated_forall(%A: memref<8x8xf32>) {
-  // CHECK-LABEL: func.func @leave_unrelated_forall
-  // CHECK: scf.forall
-  // CHECK-NOT: d2m.my_thread_id
   scf.forall (%tid) in (4) {
     %off = affine.apply affine_map<(d0) -> (d0 * 2)>(%tid)
     %sub = memref.subview %A[%off, 0][2, 8][1, 1]
