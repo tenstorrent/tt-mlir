@@ -299,6 +299,10 @@ def view_layout(lt: LazyTensor, layout: Layout) -> LazyTensor:
     return LazyTensor(layout, val, b.generation)
 
 
+# Short alias.
+view = view_layout
+
+
 # --- Materialisation ---------------------------------------------------------
 
 

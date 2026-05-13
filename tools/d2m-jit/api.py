@@ -18,6 +18,7 @@ from ._src.builder import (
     to_layout,
     empty,
     view_layout,
+    view,
     to_host,
 )
 
