@@ -3407,8 +3407,7 @@ public:
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(),
-        /*memory_config=*/nullptr,
-        /*core_grid=*/nullptr);
+        /*memory_config=*/nullptr);
     return success();
   }
 };

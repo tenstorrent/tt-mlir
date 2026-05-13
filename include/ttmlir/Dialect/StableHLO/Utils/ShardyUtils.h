@@ -51,11 +51,13 @@ getMeshShapeFromMeshAttr(mlir::sdy::MeshAttr meshAttr);
 
 // Insert a mesh into the module.
 void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
+                     MeshMap meshMap);
+void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
                      std::string firstAxisName, std::string secondAxisName,
                      int64_t firstAxisSize, int64_t secondAxisSize);
 
-// Normalize a 1D mesh to 2D by prepending an axis of size 1.
-mlir::LogicalResult normalize1DMeshTo2D(mlir::ModuleOp &module);
+// Normalize a 0D or 1D mesh to 2D. 0D meshes get {1,1}, 1D meshes get {1,N}.
+mlir::LogicalResult normalizeMeshTo2D(mlir::ModuleOp &module);
 
 // Create a TTMeshAttr from a sdy::meshOp.
 mlir::tt::ttcore::MeshAttr

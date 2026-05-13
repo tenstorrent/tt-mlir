@@ -59,6 +59,7 @@ jobs:
           files: |
             docs/**
             .github/CODEOWNERS
+            .test_durations/**
             .gitignore
             LICENSE
             '*.md'

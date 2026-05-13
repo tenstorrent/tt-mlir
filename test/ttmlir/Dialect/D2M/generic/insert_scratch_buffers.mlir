@@ -31,9 +31,9 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
     %block0 = d2m.block_index(0) : index
     %block1 = d2m.block_index(1) : index
     %e0 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
-    %a = d2m.remote_load %e0 %arg0[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled -> memref<4x4x!tile_f32, #l1>
+    d2m.remote_load %e0 %arg0[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
     %e1 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
-    %b = d2m.remote_load %e1 %arg1[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled -> memref<4x4x!tile_f32, #l1>
+    d2m.remote_load %e1 %arg1[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
     // First add: tmp = a + b.
     %e2 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
     linalg.generic {
@@ -54,7 +54,7 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
       %s = "d2m.tile_add"(%in0, %in1) : (!tile_f32, !tile_f32) -> !tile_f32
       linalg.yield %s : !tile_f32
     }
-    %stored = d2m.remote_store %out[%block0, %block1] %e3 : !memref_tiled, memref<4x4x!tile_f32> -> !memref_tiled
+    d2m.remote_store %out[%block0, %block1] %e3 : !memref_tiled, memref<4x4x!tile_f32>
   }
   return
 }
@@ -79,9 +79,9 @@ func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) 
     %block0 = d2m.block_index(0) : index
     %block1 = d2m.block_index(1) : index
     %e0 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
-    %a = d2m.remote_load %e0 %arg0[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled -> memref<4x4x!tile_f32, #l1>
+    d2m.remote_load %e0 %arg0[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
     %e1 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
-    %b = d2m.remote_load %e1 %arg1[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled -> memref<4x4x!tile_f32, #l1>
+    d2m.remote_load %e1 %arg1[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
     // Add: tmp = a + b.
     %e2 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
     linalg.generic {
@@ -102,7 +102,7 @@ func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) 
       %s = "d2m.tile_mul"(%in0, %in1) : (!tile_f32, !tile_f32) -> !tile_f32
       linalg.yield %s : !tile_f32
     }
-    %stored = d2m.remote_store %out[%block0, %block1] %e3 : !memref_tiled, memref<4x4x!tile_f32> -> !memref_tiled
+    d2m.remote_store %out[%block0, %block1] %e3 : !memref_tiled, memref<4x4x!tile_f32>
   }
   return
 }
@@ -126,9 +126,9 @@ func.func @single_add_no_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
     %block0 = d2m.block_index(0) : index
     %block1 = d2m.block_index(1) : index
     %e0 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
-    %a = d2m.remote_load %e0 %arg0[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled -> memref<4x4x!tile_f32, #l1>
+    d2m.remote_load %e0 %arg0[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
     %e1 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
-    %b = d2m.remote_load %e1 %arg1[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled -> memref<4x4x!tile_f32, #l1>
+    d2m.remote_load %e1 %arg1[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
     %e2 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
     linalg.generic {
       indexing_maps = [#map, #map, #map],
@@ -138,7 +138,7 @@ func.func @single_add_no_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
       %s = "d2m.tile_add"(%in0, %in1) : (!tile_f32, !tile_f32) -> !tile_f32
       linalg.yield %s : !tile_f32
     }
-    %stored = d2m.remote_store %out[%block0, %block1] %e2 : !memref_tiled, memref<4x4x!tile_f32> -> !memref_tiled
+    d2m.remote_store %out[%block0, %block1] %e2 : !memref_tiled, memref<4x4x!tile_f32>
   }
   return
 }
@@ -180,7 +180,7 @@ func.func @generator_fused_generic_gets_scratch() {
       %sum = "d2m.tile_add"(%in, %in) : (!tile_f32, !tile_f32) -> !tile_f32
       linalg.yield %sum : !tile_f32
     }
-    %stored = d2m.remote_store %out[%block0, %block1] %result : !memref_tiled, memref<4x4x!tile_f32> -> !memref_tiled
+    d2m.remote_store %out[%block0, %block1] %result : !memref_tiled, memref<4x4x!tile_f32>
   }
   return
 }

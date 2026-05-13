@@ -17,6 +17,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -2047,88 +2048,49 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           return mlir::failure();
         }
 
-        auto replaceWithOutputAlloc =
-            [op](PatternRewriter &rewriter, Region &region, Operation *regionOp,
-                 OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+        // Only works on tensor types (pre-bufferization).
+        // Since generic op is DPS, we can check if the number of results is
+        // zero to determine if we're in a non-tensor-bufferized form, and skip
+        // this pattern in that case.
+        if (op->getNumResults() == 0) {
+          return mlir::failure();
+        }
+
+        auto replaceWithEmpty = [](PatternRewriter &rewriter, Region &region,
+                                   Operation *regionOp,
+                                   OpOperand &initOperand) -> bool {
+          if (!mlir::isa<RankedTensorType>(initOperand.get().getType())) {
+            return false;
+          }
+
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
-          if (origDefiningOp &&
-              !mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
+          if (!origDefiningOp ||
+              mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
             return false;
           }
 
-          // Find the output alloc by positional counting.
-          Value outputAlloc = GenericOp::getOperandAlloc(region, dpsIOBoundary);
-
-          if (!outputAlloc || outputAlloc.use_empty()) {
-            return false;
-          }
-
-          // Find a wait/reserve that dominates the DPS operation.
-          Operation *waitOrReserve = nullptr;
-
-          // Get the parent function to compute dominance.
-          Operation *parentOp = op->getParentOp();
-          while (parentOp && !mlir::isa<FunctionOpInterface>(parentOp)) {
-            parentOp = parentOp->getParentOp();
-          }
-
-          assert(parentOp && "d2m.generic must be nested within a function");
-
-          // Use DominanceInfo for cross-block dominance checking.
-          DominanceInfo domInfo(parentOp);
-          for (Operation *user : outputAlloc.getUsers()) {
-            if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
-              continue;
-            }
-            // Check if this wait/reserve dominates the regionOp.
-            if (domInfo.dominates(user, regionOp)) {
-              waitOrReserve = user;
-              break;
-            }
-          }
-
-          if (!waitOrReserve) {
-            return false;
-          }
-
-          rewriter.modifyOpInPlace(regionOp, [&]() {
-            initOperand.assign(waitOrReserve->getResult(0));
-          });
-
-          if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(
-                  origDefiningOp)) {
-            rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
-                                        initOperand.get());
-          }
+          rewriter.setInsertionPoint(regionOp);
+          auto empty = rewriter.create<EmptyOp>(regionOp->getLoc(),
+                                                initOperand.get().getType(),
+                                                nullptr, nullptr);
+          initOperand.assign(empty);
 
           return true;
         };
 
-        int64_t dpsIOBoundary = op.getNumDpsInputs();
         bool updated = false;
         for (Region &region : op->getRegions()) {
-          if (op.getRegionThreadType(region.getRegionNumber()) !=
-              ThreadType::Compute) {
-            continue;
-          }
-
           region.walk([&](Operation *regionOp) {
-            if (DestinationStyleOpInterface dps =
-                    mlir::dyn_cast<DestinationStyleOpInterface>(regionOp);
+            if (linalg::GenericOp dps =
+                    mlir::dyn_cast<linalg::GenericOp>(regionOp);
                 dps) {
               for (OpOperand &initOperand : dps.getDpsInitsMutable()) {
                 assert(op.getNumDpsInits() == dps.getNumDpsInits());
                 assert(op.getNumDpsInits() == 1);
 
-                updated |= replaceWithOutputAlloc(rewriter, region, regionOp,
-                                                  initOperand, dpsIOBoundary);
+                updated |=
+                    replaceWithEmpty(rewriter, region, regionOp, initOperand);
               }
-            } else if (TileMatmulBlockOp tmb =
-                           mlir::dyn_cast<TileMatmulBlockOp>(regionOp);
-                       tmb) {
-              updated |=
-                  replaceWithOutputAlloc(rewriter, region, regionOp,
-                                         tmb.getOutputMutable(), dpsIOBoundary);
             }
           });
         }
@@ -2369,8 +2331,14 @@ static void repairParallelizedRegionTypes(d2m::GenericOp genericOp,
       }
     } else if (auto remoteLoadOp =
                    mlir::dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
-      if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
-        remoteLoadOp.getResult().setType(localBuffer.getType());
+      // Only propagate type to the result in the tensor form (where a
+      // result is present). In the post-bufferization memref form there
+      // is no result and the localBuffer's defining op handles its own
+      // type retyping (e.g. the memref.alloc case above).
+      if (remoteLoadOp.hasResultForm()) {
+        if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
+          remoteLoadOp.getResult().setType(localBuffer.getType());
+        }
       }
     } else if (auto remoteStoreOp =
                    mlir::dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {
@@ -3115,17 +3083,26 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
 
   GenericOp generic = region.getParentOfType<GenericOp>();
 
-  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops,
-  // stepping into blocking loops only. Do NOT walk into compute loops
-  // (scf.for without d2m.blocking_loop) — allocs inside those are local
-  // working buffers, not operand allocations.
+  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops.
+  //
+  // Descent into nested scf.for/affine.for is unconditional, but matching
+  // rules differ by context:
+  //  - At the top level or inside a blocking loop (tagged `d2m.blocking_loop`):
+  //    allocs match either by remote_load/remote_store association
+  //    (`assoc.hasRemoteUse`) or by positional declaration order.
+  //  - Inside a compute loop (scf.for/affine.for without `d2m.blocking_loop`):
+  //    only allocs with a direct remote_load/remote_store association are
+  //    considered operand allocs. Positional matching is disabled because
+  //    declaration order inside a compute loop has no relation to operand
+  //    declaration order; allocs without remote use there are local working
+  //    buffers, not operand allocations.
   //
   // d2m.get_cb ops are matched by operand_index when present, otherwise by
-  // their remote_load/remote_store binding. tensor.empty/memref.alloc ops are
-  // matched by positional order.
+  // their remote_load/remote_store binding.
   Value result;
   unsigned idx = 0;
-  std::function<void(Block &)> scanBlock = [&](Block &block) {
+  std::function<void(Block &, bool)> scanBlock = [&](Block &block,
+                                                     bool insideComputeLoop) {
     for (Operation &op : block) {
       if (result) {
         return;
@@ -3134,14 +3111,14 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
         LocalBufferAssociation assoc = analyzeLocalBufferAssociation(
             emptyOp.getResult(),
             generic ? generic.getOutputs().front() : Value());
-        if (assoc.hasRemoteUse || assoc.operand) {
+        if (assoc.hasRemoteUse || (assoc.operand && !insideComputeLoop)) {
           if (generic && assoc.operand &&
               generic.getOperandIndex(assoc.operand) ==
                   static_cast<int64_t>(operandIndex)) {
             result = emptyOp.getResult();
             return;
           }
-        } else {
+        } else if (!insideComputeLoop) {
           if (idx == operandIndex) {
             result = emptyOp.getResult();
             return;
@@ -3166,7 +3143,7 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
             result = allocOp.getResult();
             return;
           }
-        } else {
+        } else if (!insideComputeLoop) {
           if (idx == operandIndex) {
             result = allocOp.getResult();
             return;
@@ -3174,17 +3151,15 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
           ++idx;
         }
       } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          scanBlock(*forOp.getBody());
-        }
+        bool isBlocking = forOp->hasAttr("d2m.blocking_loop");
+        scanBlock(*forOp.getBody(), insideComputeLoop || !isBlocking);
       } else if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          scanBlock(*forOp.getBody());
-        }
+        bool isBlocking = forOp->hasAttr("d2m.blocking_loop");
+        scanBlock(*forOp.getBody(), insideComputeLoop || !isBlocking);
       }
     }
   };
-  scanBlock(region.front());
+  scanBlock(region.front(), /*insideComputeLoop=*/false);
 
   return result;
 }
