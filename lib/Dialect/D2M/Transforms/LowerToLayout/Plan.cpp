@@ -293,20 +293,35 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     updateStateFromOutput(current, output);
   }
 
-  // DRAM → L1: DMA the tensor into an L1 buffer with the target's layout.
-  if (current.hasLayout() && current.isDRAM() && tgt.hasLayout() &&
-      !tgt.isDRAM()) {
+  // DRAM → L1: DMA the tensor into an L1 buffer. For device-to-device layout
+  // changes, use the target layout. For device-to-host, mirror the
+  // host-to-device path by staging the current device layout through L1 before
+  // ToHostOp.
+  if (current.hasLayout() && current.isDRAM() &&
+      ((tgt.hasLayout() && !tgt.isDRAM()) || tgt.isSystem())) {
+    const bool hasTargetDeviceLayout = tgt.hasLayout();
+    ttcore::MetalLayoutAttr bounceLayout =
+        hasTargetDeviceLayout ? *tgt.getLayout() : *current.getLayout();
+    RankedTensorType bounceBaseType =
+        hasTargetDeviceLayout ? tgt.type : current.type;
+    AffineMap bounceRemapping =
+        hasTargetDeviceLayout ? AffineMap() : current.remapping;
     const bool isDRAMInterleaved = current.getLayout()->getMemoryLayout() ==
                                    ttcore::TensorMemoryLayout::Interleaved;
-    auto bounceGrid = llvm::to_vector(
-        isDRAMInterleaved ? tgt.getGridShape() : current.getGridShape());
+    auto bounceGrid = hasTargetDeviceLayout && isDRAMInterleaved
+                          ? llvm::to_vector(tgt.getGridShape())
+                          : llvm::to_vector(current.getGridShape());
     auto l1Type =
-        modifyDeviceType(ctx, tgt.type, *tgt.getLayout(), targetGridShape,
-                         AffineMap(), ttcore::MemorySpace::DeviceL1, bounceGrid,
-                         current.type.getElementType());
-    auto output = makeOutputSpec(l1Type, tgt.vgmForward, tgt.vgmInverse);
+        modifyDeviceType(ctx, bounceBaseType, bounceLayout, targetGridShape,
+                         bounceRemapping, ttcore::MemorySpace::DeviceL1,
+                         bounceGrid, current.type.getElementType());
+    AffineMap outputVgmForward =
+        hasTargetDeviceLayout ? tgt.vgmForward : current.vgmForward;
+    AffineMap outputVgmInverse =
+        hasTargetDeviceLayout ? tgt.vgmInverse : current.vgmInverse;
+    auto output = makeOutputSpec(l1Type, outputVgmForward, outputVgmInverse);
     plan.push_back(DRAMToL1Step{output, AffineMap()});
-    updateStateFromOutput(current, output);
+    updateStateFromOutput(current, output, bounceRemapping);
   }
 
   // TILIZE with the current layout so subsequent mapping changes operate on
