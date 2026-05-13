@@ -84,6 +84,30 @@ struct UnaryEltwiseWithFastApproxModeOpModel {
                                              TTNNLayoutAttr outputLayout);
 };
 
+template <typename OpT>
+struct UnaryCompositeEltwiseOpModel {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+template <typename OpT>
+struct UnaryCompositeEltwiseWithFastApproxModeOpModel {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
 template <>
 struct OpModel<ReluOp> : UnaryEltwiseOpModel<ReluOp> {};
 
@@ -114,9 +138,6 @@ template <>
 struct OpModel<AcosOp> : UnaryEltwiseOpModel<AcosOp> {};
 
 template <>
-struct OpModel<TanhOp> : UnaryEltwiseOpModel<TanhOp> {};
-
-template <>
 struct OpModel<LogOp> : UnaryEltwiseWithFastApproxModeOpModel<LogOp> {};
 
 template <>
@@ -144,7 +165,8 @@ template <>
 struct OpModel<AtanOp> : UnaryEltwiseOpModel<AtanOp> {};
 
 template <>
-struct OpModel<Log1pOp> : UnaryEltwiseWithFastApproxModeOpModel<Log1pOp> {};
+struct OpModel<Log1pOp>
+    : UnaryCompositeEltwiseWithFastApproxModeOpModel<Log1pOp> {};
 
 template <>
 struct OpModel<Expm1Op> : UnaryEltwiseOpModel<Expm1Op> {};
@@ -153,7 +175,7 @@ template <>
 struct OpModel<ReciprocalOp> : UnaryEltwiseOpModel<ReciprocalOp> {};
 
 template <>
-struct OpModel<CbrtOp> : UnaryEltwiseOpModel<CbrtOp> {};
+struct OpModel<CbrtOp> : UnaryCompositeEltwiseOpModel<CbrtOp> {};
 
 template <>
 struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
@@ -178,6 +200,22 @@ struct OpModel<ErfOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfOp> {};
 
 template <>
 struct OpModel<ErfcOp> : UnaryEltwiseOpModel<ErfcOp> {};
+
+//===----------------------------------------------------------------------===//
+// TanhOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<TanhOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
