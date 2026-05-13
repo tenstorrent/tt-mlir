@@ -461,8 +461,8 @@ def derive_canonical_core_range_set(
         )
 
     raise ValueError(
-        "Unsupported buffer type for sharded layout canonical core-range "
-        f"derivation: {buffer_type}"
+        f"Unsupported sharded buffer type {buffer_type!r}; expected one of "
+        f"{ttnn.BufferType.DRAM!r} or {ttnn.BufferType.L1!r}."
     )
 
 
