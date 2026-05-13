@@ -2,8 +2,8 @@
 // RUN: FileCheck %s --check-prefix=CHECK-MAX --input-file=%t.max
 // RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t.auto %s
 // RUN: FileCheck %s --check-prefix=CHECK-AUTO --input-file=%t.auto
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608 test-buffer-size-policy=exhaustive" -o %t.exhaustive %s
-// RUN: FileCheck %s --check-prefix=CHECK-EXHAUSTIVE --input-file=%t.exhaustive
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608 test-buffer-size-policy=bounded" -o %t.bounded %s
+// RUN: FileCheck %s --check-prefix=CHECK-BOUNDED --input-file=%t.bounded
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -228,15 +228,15 @@ module {
     return %out : memref<1x1x1x4x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x8192x8192, 1>, #dram>
   }
 
-  // Large all-parallel factor spaces should use the bounded eltwise search in
-  // auto mode, while exhaustive mode expands the full candidate space.
-  // CHECK-AUTO-LABEL: func.func @eltwise_auto_vs_exhaustive_large_search_space()
-  // CHECK-AUTO: d2m.generic {block_factors = [4, 2, 2, 2], grid = #ttcore.grid<1x1x1x1>
-  // CHECK-AUTO-COUNT-3: memref.alloc() {{.*}} : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<32768x16384x8192x4096, 2>, #l1>
-  // CHECK-EXHAUSTIVE-LABEL: func.func @eltwise_auto_vs_exhaustive_large_search_space()
-  // CHECK-EXHAUSTIVE: d2m.generic {block_factors = [4, 4, 4, 1], grid = #ttcore.grid<1x1x1x1>
-  // CHECK-EXHAUSTIVE-COUNT-3: memref.alloc() {{.*}} : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x16384x16384x4096, 2>, #l1>
-  func.func @eltwise_auto_vs_exhaustive_large_search_space() -> memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #dram> {
+  // Large all-parallel factor spaces use full search in auto mode, while
+  // bounded mode uses the restricted beam search.
+  // CHECK-AUTO-LABEL: func.func @eltwise_auto_vs_bounded_large_search_space()
+  // CHECK-AUTO: d2m.generic {block_factors = [4, 4, 4, 1], grid = #ttcore.grid<1x1x1x1>
+  // CHECK-AUTO-COUNT-3: memref.alloc() {{.*}} : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x16384x16384x4096, 2>, #l1>
+  // CHECK-BOUNDED-LABEL: func.func @eltwise_auto_vs_bounded_large_search_space()
+  // CHECK-BOUNDED: d2m.generic {block_factors = [4, 2, 2, 2], grid = #ttcore.grid<1x1x1x1>
+  // CHECK-BOUNDED-COUNT-3: memref.alloc() {{.*}} : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<32768x16384x8192x4096, 2>, #l1>
+  func.func @eltwise_auto_vs_bounded_large_search_space() -> memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #dram> {
     %lhs = memref.alloc() : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #l1>
     %rhs = memref.alloc() : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #l1>
     %out = memref.alloc() : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #dram>
