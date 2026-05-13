@@ -99,6 +99,10 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
       value = subviewOp.getSource();
       continue;
     }
+    if (auto castOp = mlir::dyn_cast<memref::CastOp>(definingOp)) {
+      value = castOp.getSource();
+      continue;
+    }
     return nullptr;
   }
   return nullptr;
@@ -116,15 +120,17 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   // Collect the ops that directly contain SynchronizableOpInterface ops.
   // These delimit the scope where compute is synchronized: the outermost
   // compute ancestor is a direct child of such an op, alongside the
-  // synchronizable ops that bound it.
+  // synchronizable ops that bound it. Multiple parents are allowed: each
+  // identifies an independent synchronized scope at its own nesting level
+  // (e.g. remote_loads in an accumulator loop bounding the matmul compute,
+  // while a remote_store in the enclosing loop bounds a separate compute
+  // region around the epilogue).
   DenseSet<Operation *> opsWithSynchronizableOps;
   genericOp.getRegion(0).walk([&](Operation *op) {
     if (dyn_cast<SynchronizableOpInterface>(op)) {
       opsWithSynchronizableOps.insert(op->getParentOp());
     }
   });
-  assert(opsWithSynchronizableOps.size() == 1 &&
-         "synchronized scope must be unambiguous");
 
   DenseSet<Operation *> outermostOps;
   bool walkFailed = false;
@@ -165,6 +171,48 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
   // Expand and merge compute regions until we hit a syncrhonizable op on both
   // ends.
+  //
+  // Beyond hitting a SynchronizableOpInterface op (which bounds the wrap),
+  // two additional stop conditions matter:
+  // (1) A sibling op already in `opsWithSynchronizableOps` hosts its own
+  //     synchronized scope at a deeper level; folding it in would nest
+  //     sync regions (e.g. an inner accumulator loop sitting next to a
+  //     remote_store in the outer loop's body).
+  // (2) Including an op whose result is consumed past the wrap would
+  //     violate `wrapInSynchronizedRegion`'s precondition: any op in
+  //     [start, end) whose operand chain reaches a non-pure op gets
+  //     erased after the wrap is created, so leaving an outside user
+  //     dangles. Check users unconditionally — an op like
+  //     `arith.index_cast` is itself Pure but is treated as non-pure
+  //     by the wrap utility once an ancestor like `arith.divsi` (which
+  //     can fault) enters the operand chain.
+  auto hasUserOutsideRange = [](Operation *op, Block::iterator s,
+                                Block::iterator e) {
+    Block *block = op->getBlock();
+    for (Value result : op->getResults()) {
+      for (Operation *user : result.getUsers()) {
+        Operation *userInBlock = user;
+        while (userInBlock && userInBlock->getBlock() != block) {
+          userInBlock = userInBlock->getParentOp();
+        }
+        if (!userInBlock) {
+          return true;
+        }
+        bool inRange = false;
+        for (auto it = s; it != e; ++it) {
+          if (&*it == userInBlock) {
+            inRange = true;
+            break;
+          }
+        }
+        if (!inRange) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   SmallVector<std::pair<Block::iterator, Block::iterator>> computeRegions;
   while (!outermostOps.empty()) {
     Operation *outermostOp = *outermostOps.begin();
@@ -173,8 +221,17 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     Block::iterator end = outermostOp->getIterator();
 
     // Expand above.
-    while (start != outermostOp->getBlock()->begin() &&
-           !dyn_cast<SynchronizableOpInterface>(std::prev(start))) {
+    while (start != outermostOp->getBlock()->begin()) {
+      Operation *prev = &*std::prev(start);
+      if (dyn_cast<SynchronizableOpInterface>(prev)) {
+        break;
+      }
+      if (opsWithSynchronizableOps.contains(prev)) {
+        break;
+      }
+      if (hasUserOutsideRange(prev, std::prev(start), std::next(end))) {
+        break;
+      }
       start--;
       if (outermostOps.contains(&*start)) {
         outermostOps.erase(&*start);
@@ -182,8 +239,20 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     }
 
     // Expand below.
-    while (std::next(end) != outermostOp->getBlock()->end() &&
-           !dyn_cast<SynchronizableOpInterface>(std::next(end))) {
+    while (std::next(end) != outermostOp->getBlock()->end()) {
+      Operation *next = &*std::next(end);
+      if (next->hasTrait<OpTrait::IsTerminator>()) {
+        break;
+      }
+      if (dyn_cast<SynchronizableOpInterface>(next)) {
+        break;
+      }
+      if (opsWithSynchronizableOps.contains(next)) {
+        break;
+      }
+      if (hasUserOutsideRange(next, start, std::next(end, 2))) {
+        break;
+      }
       end++;
       if (outermostOps.contains(&*end)) {
         outermostOps.erase(&*end);
@@ -313,6 +382,27 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
     if (dyn_cast<SynchronizableOpInterface>(op) &&
         !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
       auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
+
+      // The CB ops we emit must fire once per DMA partner activation, not
+      // once per compute iteration. When the DMA partner sits in an outer
+      // block (e.g. a matmul accumulator: remote_loads inside the K loop,
+      // remote_store outside it), placing wait/pop or reserve/push around
+      // `synchronizedOp` would emit N pairs against a single DMA op. Climb
+      // synchronizedOp's ancestors until we reach one whose parent block
+      // matches the partner's; that ancestor is the anchor for the CB ops.
+      auto anchorForPartner = [&](Operation *partner) -> Operation * {
+        Block *targetBlock = partner->getBlock();
+        Operation *anchor = synchronizedOp;
+        while (anchor->getBlock() != targetBlock) {
+          Operation *parent = anchor->getParentOp();
+          if (!parent) {
+            return synchronizedOp;
+          }
+          anchor = parent;
+        }
+        return anchor;
+      };
+
       // get consumers and insert wait+pop
       for (auto &operand : synchronizedOp->getOpOperands()) {
         if (synchronizedOp.isConsumer(operand)) {
@@ -328,7 +418,8 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                  cbUsageInfo[localBuffer].consumers.size() == 1 &&
                  "Expected exactly one producer and one consumer for CB");
           auto *associatedProducer = cbUsageInfo[localBuffer].producers.front();
-          rewriter.setInsertionPoint(synchronizedOp);
+          Operation *anchor = anchorForPartner(associatedProducer);
+          rewriter.setInsertionPoint(anchor);
           auto cb = d2m::getOrCreateCB(
               rewriter, synchronizedOp->getParentOfType<GenericOp>(),
               computeBlock, cbOperandIdx);
@@ -339,7 +430,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
             rewriter.create<PushOp>(loc, cb);
           }
           WaitOp waitOp = rewriter.create<WaitOp>(loc, cb);
-          rewriter.setInsertionPointAfter(synchronizedOp);
+          rewriter.setInsertionPointAfter(anchor);
           rewriter.create<PopOp>(loc, cb);
 
           // Replace uses of the local buffer in compute consumer
@@ -364,12 +455,13 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                  cbUsageInfo[localBuffer].producers.size() == 1 &&
                  "Expected exactly one producer and one consumer for CB");
           auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
-          rewriter.setInsertionPoint(synchronizedOp);
+          Operation *anchor = anchorForPartner(associatedConsumer);
+          rewriter.setInsertionPoint(anchor);
           auto cb = d2m::getOrCreateCB(
               rewriter, synchronizedOp->getParentOfType<GenericOp>(),
               computeBlock, cbOperandIdx);
           auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
-          rewriter.setInsertionPointAfter(synchronizedOp);
+          rewriter.setInsertionPointAfter(anchor);
           rewriter.create<PushOp>(loc, cb);
           if (mlir::isa<RemoteStoreOp>(associatedConsumer) &&
               isAliasedStore(mlir::cast<RemoteStoreOp>(associatedConsumer))) {
