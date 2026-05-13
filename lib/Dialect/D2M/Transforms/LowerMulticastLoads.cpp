@@ -22,6 +22,27 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+static AffineMap getProjectedGridForwardMap(AffineMap coreVirtMap,
+                                            unsigned gridRank) {
+  TT_assertv(coreVirtMap.getNumResults() >= gridRank,
+             "expected forward map to have at least {} grid results", gridRank);
+  unsigned shardRank = coreVirtMap.getNumResults() - gridRank;
+  TT_assertv(coreVirtMap.getNumDims() >= shardRank,
+             "expected forward map dims to cover {} shard dims", shardRank);
+
+  llvm::SmallBitVector projectedDims(coreVirtMap.getNumDims());
+  projectedDims.set(coreVirtMap.getNumDims() - shardRank,
+                    coreVirtMap.getNumDims());
+  AffineMap projectedMap = getProjectedMap(coreVirtMap, projectedDims);
+
+  SmallVector<int64_t> resultDropMask;
+  resultDropMask.reserve(shardRank);
+  for (unsigned i = gridRank; i < coreVirtMap.getNumResults(); ++i) {
+    resultDropMask.push_back(i);
+  }
+  return projectedMap.dropResults(resultDropMask);
+}
+
 // Pattern to convert high-level multicast RemoteLoadOp to low-level form.
 // High-level form uses mcast[dims] to specify which grid dimensions participate
 // in multicast. Low-level form uses mcore[...] mshape[...] to specify explicit
@@ -168,8 +189,8 @@ public:
         auto dimPos = *maybeDimPos;
         if (mcastDimSet.contains(dimPos)) {
           // for parallel dim specified by multicast, extent is 0
-          Value coreIdx = rewriter.create<CoreIndexOp>(
-              loc, static_cast<int64_t>(dim), grid.getPhysicalToVirtMap());
+          Value coreIdx =
+              rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(dim));
           mcastStartIndex.push_back(coreIdx);
           mcastShapeInt64.push_back(1);
         } else {
@@ -183,9 +204,11 @@ public:
     TT_assert(mcastStartIndex.size() == computeGridShape.size());
     TT_assert(mcastShapeInt64.size() == computeGridShape.size());
 
-    // Convert virtual multicast shape to physical shape if virtualization is
-    // present.  Use the stored forward map from the output EmptyOp when
-    // available, otherwise fall back to re-deriving from grid shape.
+    // Convert virtual multicast extents to physical extents if virtualization
+    // is present. The multicast start coordinates are already expressed in the
+    // same coordinate space as the surrounding generic grid.
+    // Use the stored forward map from the output EmptyOp when available,
+    // otherwise fall back to re-deriving from grid shape.
     TT_assert(genericOp.getOutputs().size() >= 1u);
     Value output = genericOp.getOutputs()[0];
     auto storedFwd = utils::getVirtualGridForwardMapping(output);
@@ -203,13 +226,10 @@ public:
     }
 
     if (coreVirtMap) {
-      // Project out the shard layout dims and results from the forward
-      // map since we are only concerned with the grid dimensions.
-      auto dimsToRemove = coreVirtMap.getNumResults() - mcastShapeInt64.size();
-      llvm::SmallBitVector projectedDims(coreVirtMap.getNumDims());
-      projectedDims.set(dimsToRemove, coreVirtMap.getNumDims());
-      auto projectedMap = getProjectedMap(coreVirtMap, projectedDims);
-      projectedMap = projectedMap.dropResults(projectedDims);
+      // Project out shard layout dims and results from the forward map since
+      // multicast shape only describes grid dimensions.
+      AffineMap projectedMap = getProjectedGridForwardMap(
+          coreVirtMap, static_cast<unsigned>(mcastShapeInt64.size()));
       mcastShapeInt64 = ttmlir::utils::evalShape(projectedMap, mcastShapeInt64);
     }
 

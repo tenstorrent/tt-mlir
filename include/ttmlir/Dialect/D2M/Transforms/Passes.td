@@ -479,7 +479,9 @@ def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::Mod
   let description = [{
     This pass moves the generic regions to top level functions. This is a useful prerequisite
     step before lowering because it enables us to better separate kernel program lowering from
-    host program lowering.
+    host program lowering. As the common exit point for generic regions, it also
+    resolves remaining virtual-grid metadata needed by kernel ops before
+    outlining.
 
     ```mlir
     func.func @main(/*...*/) {
