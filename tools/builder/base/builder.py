@@ -766,6 +766,11 @@ class Builder(metaclass=BuilderMeta):
         Tuple[List[int], List[int]]
             (worker_grid_shape, dram_grid_shape) as [rows, cols] lists
         """
+        if self._system_desc_path is None:
+            raise ValueError(
+                "system_desc_path must be provided before loading grid shapes."
+            )
+
         if self._worker_grid_shape is None or self._dram_grid_shape is None:
             from builder.base.builder_utils import load_grid_shapes_from_system_desc
 
