@@ -13,6 +13,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpInvoke/TTNN/conv/conv2dOp.h"
+#include "ttmlir/OpInvoke/TTNN/eltwise/binary/eltwiseBinaryCompositeOp.h"
+#include "ttmlir/OpInvoke/TTNN/eltwise/binary/eltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/eltwise/unary/eltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/eltwise/unary/eltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/matmul/matmulOp.h"
@@ -1470,6 +1472,29 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Binary Eltwise Ops
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseBinaryOpT
+buildEltwiseBinaryOpTFromMLIR(TTNNLayoutAttr outputLayout,
+                              ttcore::DataTypeAttr opDtypeAttr = nullptr) {
+  ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT;
+
+  eltwiseBinaryOpT.out = detail::getOutputTensorRefT(outputLayout);
+  if (eltwiseBinaryOpT.out) {
+    eltwiseBinaryOpT.output_dtype =
+        eltwiseBinaryOpT.out->desc->layout->memory_desc->data_type;
+  }
+  if (opDtypeAttr) {
+    eltwiseBinaryOpT.output_dtype = toNative(opDtypeAttr.getValue());
+    if (eltwiseBinaryOpT.out && eltwiseBinaryOpT.output_dtype.has_value()) {
+      eltwiseBinaryOpT.out->desc->layout->memory_desc->data_type =
+          eltwiseBinaryOpT.output_dtype.value();
+    }
+  }
+
+  return eltwiseBinaryOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
@@ -1489,19 +1514,21 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::DataType> outputDType =
-      detail::getNullableDataType(outputLayout);
-  if (!outputDType && opDtypeAttr) {
-    outputDType = conversion::getDataType(opDtypeAttr.getValue());
-  }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT =
+      buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout, opDtypeAttr);
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
-                                               device, inputSpecA, inputSpecB,
-                                               outputDType, outputMemoryConfig);
+    ttnn_op_invoke::EltwiseBinaryOpResult result =
+        ttnn_op_invoke::callEltwiseBinary(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, eltwiseBinaryOpT,
+            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from EltwiseBinaryOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -1528,16 +1555,21 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::DataType> outputDType =
-      detail::getNullableDataType(outputLayout);
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT =
+      buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
-                                           inputSpecA, inputSpecB, outputDType,
-                                           outputMemoryConfig);
+    ttnn_op_invoke::EltwiseBinaryOpResult result =
+        ttnn_op_invoke::callEltwiseBinary(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, eltwiseBinaryOpT,
+            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseBinaryOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
@@ -1545,6 +1577,18 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseBinaryCompositeOpT
+buildEltwiseBinaryCompositeOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT;
+
+  eltwiseBinaryCompositeOpT.out = detail::getOutputTensorRefT(outputLayout);
+
+  return eltwiseBinaryCompositeOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
@@ -1564,14 +1608,23 @@ llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT =
+      buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
-                                               device, inputSpecA, inputSpecB,
-                                               outputMemoryConfig);
+    ttnn_op_invoke::EltwiseBinaryOpResult result =
+        ttnn_op_invoke::callEltwiseBinaryComposite(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseBinaryCompositeOpT, detail::getOpSymbol<OpTy>(), inputSpecA,
+            inputSpecB, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+            result) &&
+        "Expected ConstraintQueryResponse from EltwiseBinaryCompositeOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -1598,14 +1651,22 @@ llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT =
+      buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
-                                           inputSpecA, inputSpecB,
-                                           outputMemoryConfig);
+    ttnn_op_invoke::EltwiseBinaryOpResult result =
+        ttnn_op_invoke::callEltwiseBinaryComposite(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            eltwiseBinaryCompositeOpT, detail::getOpSymbol<OpTy>(), inputSpecA,
+            inputSpecB, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseBinaryCompositeOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
@@ -1713,6 +1774,34 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PowScalar
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+static ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+buildEltwiseBinaryCompositeScalarOpTFromMLIR(mlir::Attribute exponent,
+                                             TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+      eltwiseBinaryCompositeScalarOpT;
+  eltwiseBinaryCompositeScalarOpT.type =
+      ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
+
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
+    ::tt::target::ttnn::FloatingPointTypeT fp;
+    fp.value = floatAttr.getValue().convertToFloat();
+    eltwiseBinaryCompositeScalarOpT.rhs.Set(fp);
+  } else if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
+    ::tt::target::ttnn::IntegralTypeT i32;
+    i32.value = static_cast<int32_t>(intAttr.getInt());
+    eltwiseBinaryCompositeScalarOpT.rhs.Set(i32);
+  } else {
+    LOG_FATAL("Invalid exponent");
+  }
+
+  eltwiseBinaryCompositeScalarOpT.out =
+      detail::getOutputTensorRefT(outputLayout);
+
+  return eltwiseBinaryCompositeScalarOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, mlir::Attribute exponent,
@@ -1726,30 +1815,27 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Helper lambda to create the query with any exponent value type.
-  auto powScalarQuery = [=](auto convertedExponent) {
-    return [=]() {
-      return QUERY_OP_CONSTRAINTS(
-          ::ttnn::pow, device, inputSpec, convertedExponent,
-          detail::getNullableMemoryConfig(outputLayout));
-    };
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+      eltwiseBinaryCompositeScalarOpT =
+          buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent, outputLayout);
+
+  // Create query closure
+  auto query = [=]() {
+    ttnn_op_invoke::EltwiseBinaryCompositeScalarOpResult result =
+        ttnn_op_invoke::callEltwiseBinaryCompositeScalar(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseBinaryCompositeScalarOpT, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from "
+           "EltwiseBinaryCompositeScalarOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
-  // The invoke function of PowScalarOp is templated over the exponent value
-  // type. That's why the following code is arranged in this way.
-  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
-    int32_t convertedExponent = static_cast<int32_t>(value.getInt());
-    auto query = powScalarQuery(convertedExponent);
-    return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                       query);
-  }
-  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
-    float convertedExponent = value.getValue().convertToFloat();
-    auto query = powScalarQuery(convertedExponent);
-    return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                       query);
-  }
-  return llvm::createStringError("Invalid exponent");
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -1767,28 +1853,26 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Helper lambda to create the query with any exponent value type.
-  auto powScalarQuery = [=](auto convertedExponent) {
-    return [=]() {
-      return QUERY_OP_RUNTIME(::ttnn::pow, device, inputSpec, convertedExponent,
-                              detail::getNullableMemoryConfig(outputLayout));
-    };
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+      eltwiseBinaryCompositeScalarOpT =
+          buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent, outputLayout);
+
+  // Create query closure
+  auto query = [=]() {
+    ttnn_op_invoke::EltwiseBinaryCompositeScalarOpResult result =
+        ttnn_op_invoke::callEltwiseBinaryCompositeScalar(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            eltwiseBinaryCompositeScalarOpT, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from "
+        "EltwiseBinaryCompositeScalarOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
-  // The invoke function of PowScalarOp is templated over the exponent value
-  // type. That's why the following code is arranged in this way.
-  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
-    int32_t convertedExponent = static_cast<int32_t>(value.getInt());
-    auto query = powScalarQuery(convertedExponent);
-    return operation::getOpRuntime(query);
-  }
-  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
-    float convertedExponent = value.getValue().convertToFloat();
-    auto query = powScalarQuery(convertedExponent);
-    return operation::getOpRuntime(query);
-  }
-
-  return llvm::createStringError("Invalid exponent");
+  return operation::getOpRuntime(query);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
