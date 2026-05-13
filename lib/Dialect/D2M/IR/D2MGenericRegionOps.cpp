@@ -40,6 +40,23 @@ bufferizeCBOp(OpTy op, mlir::RewriterBase &rewriter,
   return mlir::success();
 }
 
+// Parallel helper for DFB ops that take a DFB operand but no result
+// (DFBPushOp, DFBPopOp, DFBFinishOp). Same shape as bufferizeCBOp.
+template <typename OpTy>
+static mlir::LogicalResult
+bufferizeDFBOp(OpTy op, mlir::RewriterBase &rewriter,
+               const mlir::bufferization::BufferizationOptions &options) {
+  auto dfbBufferType =
+      mlir::cast<bufferization::TensorLikeType>(op.getDfbType())
+          .getBufferType(options, [&]() { return op.emitOpError(); });
+  assert(succeeded(dfbBufferType));
+  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
+      op.getLoc(), *dfbBufferType, op.getDfb());
+  mlir::bufferization::replaceOpWithNewBufferizedOp<OpTy>(rewriter, op,
+                                                          toBuffer.getResult());
+  return mlir::success();
+}
+
 void AcquireDstOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "dst");
@@ -2267,4 +2284,76 @@ PopOp::bufferize(mlir::RewriterBase &rewriter,
                  const mlir::bufferization::BufferizationOptions &options,
                  mlir::bufferization::BufferizationState &) {
   return bufferizeCBOp(*this, rewriter, options);
+}
+
+//===----------------------------------------------------------------------===//
+// DFBPushOp / DFBPopOp — DFB analogues of PushOp / PopOp.
+//===----------------------------------------------------------------------===//
+
+bool DFBPushOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool DFBPushOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::bufferization::AliasingValueList
+DFBPushOp::getAliasingValues(mlir::OpOperand &,
+                             const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+DFBPushOp::getBufferType(mlir::Value,
+                         const mlir::bufferization::BufferizationOptions &,
+                         const mlir::bufferization::BufferizationState &,
+                         ::llvm::SmallVector<mlir::Value> &) {
+  llvm_unreachable(
+      "intentionally unimplemented, this op can only accept block arguments "
+      "which should have already been converted");
+}
+
+mlir::LogicalResult
+DFBPushOp::bufferize(mlir::RewriterBase &rewriter,
+                     const mlir::bufferization::BufferizationOptions &options,
+                     mlir::bufferization::BufferizationState &) {
+  return bufferizeDFBOp(*this, rewriter, options);
+}
+
+bool DFBPopOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool DFBPopOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::bufferization::AliasingValueList
+DFBPopOp::getAliasingValues(mlir::OpOperand &,
+                            const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+DFBPopOp::getBufferType(mlir::Value,
+                        const mlir::bufferization::BufferizationOptions &,
+                        const mlir::bufferization::BufferizationState &,
+                        ::llvm::SmallVector<mlir::Value> &) {
+  llvm_unreachable(
+      "intentionally unimplemented, this op can only accept block arguments "
+      "which should have already been converted");
+}
+
+mlir::LogicalResult
+DFBPopOp::bufferize(mlir::RewriterBase &rewriter,
+                    const mlir::bufferization::BufferizationOptions &options,
+                    mlir::bufferization::BufferizationState &) {
+  return bufferizeDFBOp(*this, rewriter, options);
 }

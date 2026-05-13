@@ -2684,6 +2684,269 @@ def D2M_PopOp : D2M_GenericRegionOp<"pop",
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// D2M Dataflow Buffer (DFB) sync ops
+//
+// Parallel to the CB family above. DFBs are Quasar's MPMC replacement for
+// CBs; their synchronization vocabulary mirrors reserve/push/wait/pop with
+// one addition (`dfb_finish` for the explicit producer drain barrier) and
+// one extension to `get_dfb` (an optional `consumer_slot` SSA value that
+// carries the per-thread DFB consumer index — typically the result of
+// d2m.my_thread_id on the consumer side).
+//
+// The CB ops above are unchanged so Wormhole/Blackhole codegen is
+// bit-identical.
+//===----------------------------------------------------------------------===//
+
+class D2M_DFBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<mnemonic,
+  traits #
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "isNotConflicting"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       , "hasTensorSemantics"
+                                                       ]>
+  ]> {
+  let arguments = (ins D2M_DFB:$dfb);
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let builders =
+  [
+    OpBuilder<(ins "Value":$dfb),
+    [{
+      build($_builder, $_state, mlir::cast<DFBType>(dfb.getType()).getUnderlying(), dfb);
+    }]>
+  ];
+
+  let assemblyFormat = [{ $dfb attr-dict `:` type($dfb) `->` type($result) }];
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    DFBType getDfbType() {
+      return mlir::cast<DFBType>(getDfb().getType());
+    }
+
+    ShapedType getUnderlyingType() {
+      return getDfbType().getUnderlying();
+    }
+
+    MemRefType getMemRefType() {
+      return llvm::cast<MemRefType>(getUnderlyingType());
+    }
+
+    RankedTensorType getTensorType() {
+      return llvm::cast<RankedTensorType>(getUnderlyingType());
+    }
+  }];
+
+  let extraClassDefinition = [{
+    bool $cppClass::hasTensorSemantics() {
+      return getDfbType().hasTensorType();
+    }
+
+    bool $cppClass::bufferizesToMemoryRead(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool $cppClass::bufferizesToMemoryWrite(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool $cppClass::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
+                                 const mlir::bufferization::AnalysisState &) {
+      // Return true to avoid forcing out of place bufferization.
+      return true;
+    }
+
+    mlir::bufferization::AliasingValueList $cppClass::getAliasingValues(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      mlir::bufferization::AliasingValueList result;
+      return result;
+    }
+
+    mlir::FailureOr<mlir::bufferization::BufferLikeType> $cppClass::getBufferType(
+        mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+        const mlir::bufferization::BufferizationState &,
+        ::llvm::SmallVector<mlir::Value> &) {
+      llvm_unreachable("intentionally unimplemented, this op can only accept block arguments which should have already been converted");
+    }
+
+    mlir::LogicalResult $cppClass::bufferize(
+        mlir::RewriterBase &rewriter,
+        const mlir::bufferization::BufferizationOptions &options,
+        mlir::bufferization::BufferizationState &) {
+      auto dfbBufferType = mlir::cast<bufferization::TensorLikeType>(getDfbType()).getBufferType(options, [&] () {
+        return this->emitOpError();
+      });
+      assert(succeeded(dfbBufferType));
+      auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
+          this->getLoc(), *dfbBufferType, getDfb());
+      mlir::bufferization::replaceOpWithNewBufferizedOp<$cppClass>(
+          rewriter, *this, toBuffer.getResult());
+      return mlir::success();
+    }
+
+    mlir::LogicalResult $cppClass::verify() {
+      auto dfbType = llvm::cast<DFBType>(getDfbType());
+      if (dfbType.getUnderlying() != getResult().getType()) {
+        return emitOpError() << "result type does not match dataflow buffer's "
+                                "wrapped memref type";
+      }
+      return ::mlir::success();
+    }
+  }];
+}
+
+def D2M_DFBWaitOp : D2M_DFBOp<"dfb_wait"> {
+  let summary = "Wait from dataflow buffer (Quasar MPMC consumer-side acquire).";
+  let description = [{
+    Consumer-side acquire on a Quasar Dataflow Buffer. Analogue of d2m.wait
+    for the DFB type; blocks until a producer has made at least one entry
+    available on this consumer's tile counter.
+
+    The actual consumer slot index is selected at host-side bind time
+    (BindDataflowBufferToProducerConsumerKernels) — on the kernel side all
+    N compute consumers run the same binary; each picks its TC slot via
+    its hart id.
+
+    The resource is implicitly released at end of block scope, OR explicitly
+    released via d2m.dfb_pop.
+
+    Example:
+    ```mlir
+    %memref = d2m.dfb_wait %dfb : !d2m.dfb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    ```
+  }];
+}
+
+def D2M_DFBReserveOp : D2M_DFBOp<"dfb_reserve"> {
+  let summary = "Reserve from dataflow buffer (Quasar MPMC producer-side acquire).";
+  let description = [{
+    Producer-side acquire on a Quasar Dataflow Buffer. Analogue of
+    d2m.reserve for the DFB type; blocks until at least one free entry is
+    available across the configured consumer tile counters.
+
+    The resource is implicitly released at end of block scope, OR explicitly
+    released via d2m.dfb_push.
+
+    Example:
+    ```mlir
+    %memref = d2m.dfb_reserve %dfb : !d2m.dfb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    ```
+  }];
+}
+
+def D2M_DFBPushOp : D2M_GenericRegionOp<"dfb_push",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Push to dataflow buffer (signal producer done).";
+  let description = [{
+    Producer-side release on a Quasar Dataflow Buffer. Analogue of d2m.push
+    for the DFB type. Increments the `posted` count on every consumer's
+    tile counter (STRIDED rotates by one TC slot per push; BLOCKED with
+    broadcast_tc posts to all TCs each call).
+
+    Must be preceded by d2m.dfb_reserve in the same block.
+
+    Example:
+    ```mlir
+    %memref = d2m.dfb_reserve %dfb : !d2m.dfb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    // ... write data to %memref ...
+    d2m.dfb_push %dfb : !d2m.dfb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_DFB:$dfb);
+  let assemblyFormat = [{ $dfb attr-dict `:` type($dfb) }];
+
+  let extraClassDeclaration = [{
+    DFBType getDfbType() {
+      return mlir::cast<DFBType>(getDfb().getType());
+    }
+
+    bool hasTensorSemantics() { return getDfbType().hasTensorType(); }
+  }];
+}
+
+def D2M_DFBPopOp : D2M_GenericRegionOp<"dfb_pop",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Pop from dataflow buffer (signal consumer done).";
+  let description = [{
+    Consumer-side release on a Quasar Dataflow Buffer. Analogue of d2m.pop
+    for the DFB type. Increments the `acked` count on this consumer's
+    tile counter, freeing the entry for producer reuse.
+
+    Must be preceded by d2m.dfb_wait in the same block.
+
+    Example:
+    ```mlir
+    %memref = d2m.dfb_wait %dfb : !d2m.dfb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    // ... read data from %memref ...
+    d2m.dfb_pop %dfb : !d2m.dfb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_DFB:$dfb);
+  let assemblyFormat = [{ $dfb attr-dict `:` type($dfb) }];
+
+  let extraClassDeclaration = [{
+    DFBType getDfbType() {
+      return mlir::cast<DFBType>(getDfb().getType());
+    }
+
+    bool hasTensorSemantics() { return getDfbType().hasTensorType(); }
+  }];
+}
+
+def D2M_DFBFinishOp : D2M_GenericRegionOp<"dfb_finish",
+  [ MemoryEffects<[MemRead, MemWrite]> ]> {
+  let summary = "Drain barrier on a dataflow buffer.";
+  let description = [{
+    Wait for all outstanding posted entries on a Quasar Dataflow Buffer
+    to be acked by all consumers, then return. Equivalent to the device
+    API's `DataflowBuffer::finish()`. Used at the end of a producer-side
+    block to guarantee all pushed data has been consumed before the
+    producer function returns.
+
+    DFBs have no CB analogue for this op; failing to emit it on a
+    producer hangs Quasar silently.
+
+    Example:
+    ```mlir
+    d2m.dfb_finish %dfb : !d2m.dfb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_DFB:$dfb);
+  let assemblyFormat = [{ $dfb attr-dict `:` type($dfb) }];
+
+  let extraClassDeclaration = [{
+    DFBType getDfbType() {
+      return mlir::cast<DFBType>(getDfb().getType());
+    }
+
+    bool hasTensorSemantics() { return getDfbType().hasTensorType(); }
+  }];
+}
+
 def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
     MemoryEffects<[MemAlloc]>
   ]> {
@@ -2961,6 +3224,46 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
     let results = (outs D2M_CB:$result);
 
     let assemblyFormat = [{ `(` $cb_operand_idx `)` (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
+}
+
+def D2M_GetDFBOp : D2M_GenericRegionOp<"get_dfb", [Pure]> {
+    let summary = "Get a dataflow buffer for the given operand index.";
+    let description = [{
+      Obtain a DFB handle for the specified dfb operand in the generic.
+      Parallel to d2m.get_cb but produces a !d2m.dfb value.
+
+      `cb_operand_idx` (kept named for parity with d2m.get_cb so shared
+      utilities can locate the operand index uniformly) corresponds to the
+      parent generic op's operand index.
+
+      `consumer_slot` is an optional dynamic SSA value carrying this
+      thread's consumer index into the DFB's tile-counter array. On the
+      consumer-side compute kernel it is typically the result of
+      d2m.my_thread_id; the host-side bind sets up the slot assignment.
+      Producer-side get_dfb usages leave it absent.
+
+      `num_consumers` echoes the parent DFB layout's consumer cardinality
+      for downstream lowering / verification.
+
+      ```mlir
+      // 1P-1C consumer side
+      %dfb0 = d2m.get_dfb(0) : !d2m.dfb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+      %buf  = d2m.dfb_wait %dfb0 : !d2m.dfb<memref<...>> -> memref<...>
+
+      // 1P-4C consumer side: thread-id selects the TC slot
+      %tid  = d2m.my_thread_id : index
+      %dfb1 = d2m.get_dfb(1, %tid) {num_consumers = 4 : i64}
+              : !d2m.dfb<memref<...>>
+      ```
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$cb_operand_idx,
+                         Optional<Index>:$consumer_slot,
+                         OptionalAttr<ConfinedAttr<I64Attr, [IntMinValue<1>]>>:$num_consumers,
+                         OptionalAttr<D2M_ResolutionStageAttr>:$resolution_stage);
+    let results = (outs D2M_DFB:$result);
+
+    let assemblyFormat = [{ `(` $cb_operand_idx (`,` $consumer_slot^)? `)` (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
 }
 
 def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg", [Pure]> {
