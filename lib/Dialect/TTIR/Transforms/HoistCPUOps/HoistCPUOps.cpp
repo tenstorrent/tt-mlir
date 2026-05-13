@@ -376,8 +376,13 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
       builder.getI64ArrayAttr(getTensorRanks(descriptor.outputValues)));
 
   // Set the type of the function.
-  ttmlir::utils::setFunctionType(funcDefinition,
-                                 ttmlir::utils::FunctionType::ForwardCPU);
+  if (descriptor.role == ttcore::CPURole::Host) {
+    ttmlir::utils::setFunctionType(funcDefinition,
+                                   ttmlir::utils::FunctionType::ForwardCPU);
+  } else {
+    ttmlir::utils::setFunctionType(funcDefinition,
+                                   ttmlir::utils::FunctionType::ForwardX280CPU);
+  }
 
   // Finally, hash the function implementation and set the func_hash attribute.
   auto funcHash = hashFuncOp(funcDefinition);
@@ -404,8 +409,14 @@ static func::FuncOp createCPUHoistedFunctionDeclaration(
       func::FuncOp::create(loc, "temp_cpu_hoisted_func_decl", funcType);
 
   // Set the type of the function.
-  ttmlir::utils::setFunctionType(
-      funcDeclaration, ttmlir::utils::FunctionType::ForwardCPUDeclaration);
+  if (descriptor.role == ttcore::CPURole::Host) {
+    ttmlir::utils::setFunctionType(
+        funcDeclaration, ttmlir::utils::FunctionType::ForwardCPUDeclaration);
+  } else {
+    ttmlir::utils::setFunctionType(
+        funcDeclaration,
+        ttmlir::utils::FunctionType::ForwardX280CPUDeclaration);
+  }
 
   // Make the declaration private.
   funcDeclaration.setPrivate();

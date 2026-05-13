@@ -218,6 +218,13 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
       bufferization::LayoutMapOption::IdentityLayoutMap;
   manager.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
+
+  manager.addPass(mlir::bufferization::createBufferResultsToOutParamsPass());
+  mlir::bufferization::PromoteBuffersToStackPassOptions promoteToStackOptions;
+  promoteToStackOptions.maxAllocSizeInBytes = 1024 * 1024;
+  manager.addPass(mlir::bufferization::createPromoteBuffersToStackPass(
+      promoteToStackOptions));
+
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
                                                        deallocationOptions);
@@ -308,7 +315,7 @@ void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
   cpuPm.addPass(createTosaToArithPass());
 
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
-  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
+  // cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
 
 //===----------------------------------------------------------------------===//

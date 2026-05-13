@@ -69,6 +69,14 @@ enum class FunctionType {
   /// `from <file> import <func>` statements during the EmitPy conversion.
   /// The source file is stored in the "tt.imported_from" attribute.
   ImportedDeclaration,
+
+  /// Forward function for CPU execution - a function that has been hoisted
+  /// to execute on the CPU on the device.
+  ForwardX280CPU,
+
+  /// Forward CPU declaration - a declaration (prototype) for a X280 CPU-hoisted
+  /// function in the device module.
+  ForwardX280CPUDeclaration,
 };
 
 namespace detail {
@@ -92,6 +100,9 @@ constexpr inline llvm::StringLiteral kConstEvalWrapperValue =
 constexpr inline llvm::StringLiteral kMainValue = "main";
 constexpr inline llvm::StringLiteral kImportedDeclarationValue =
     "imported_declaration";
+constexpr inline llvm::StringLiteral kForwardX280CPUValue = "forward_x280_cpu";
+constexpr inline llvm::StringLiteral kForwardX280CPUDeclarationValue =
+    "forward_x280_cpu_declaration";
 
 /// Attribute name for the source file of an imported declaration.
 constexpr inline llvm::StringLiteral kImportedFromAttrName = "tt.imported_from";
@@ -124,6 +135,10 @@ inline llvm::StringRef getFunctionTypeValue(FunctionType type) {
     return detail::kMainValue;
   case FunctionType::ImportedDeclaration:
     return detail::kImportedDeclarationValue;
+  case FunctionType::ForwardX280CPU:
+    return detail::kForwardX280CPUValue;
+  case FunctionType::ForwardX280CPUDeclaration:
+    return detail::kForwardX280CPUDeclarationValue;
   }
   llvm_unreachable("Unknown FunctionType");
 }
@@ -166,6 +181,12 @@ parseFunctionTypeValue(llvm::StringRef value) {
   }
   if (value == detail::kImportedDeclarationValue) {
     return FunctionType::ImportedDeclaration;
+  }
+  if (value == detail::kForwardX280CPUValue) {
+    return FunctionType::ForwardX280CPU;
+  }
+  if (value == detail::kForwardX280CPUDeclarationValue) {
+    return FunctionType::ForwardX280CPUDeclaration;
   }
   return std::nullopt;
 }
@@ -267,6 +288,16 @@ inline bool isMainFunc(mlir::func::FuncOp funcOp) {
 /// Returns true if the function is marked as an imported declaration.
 inline bool isImportedDeclarationFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::ImportedDeclaration);
+}
+
+/// Returns true if the function is marked as a forward X280 CPU function.
+inline bool isForwardX280CPUFunc(mlir::func::FuncOp funcOp) {
+  return hasFunctionType(funcOp, FunctionType::ForwardX280CPU);
+}
+
+/// Returns true if the function is marked as a forward X280 CPU declaration.
+inline bool isForwardX280CPUDeclarationFunc(mlir::func::FuncOp funcOp) {
+  return hasFunctionType(funcOp, FunctionType::ForwardX280CPUDeclaration);
 }
 
 /// Sets the source file attribute on an imported declaration function.

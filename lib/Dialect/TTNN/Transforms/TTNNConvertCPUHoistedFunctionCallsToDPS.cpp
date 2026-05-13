@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -48,7 +49,7 @@ public:
     // Gathering hoisted function prototypes in the device module.
     llvm::SmallVector<func::FuncOp> hoistedFuncStubs;
     module.walk([&](func::FuncOp funcOp) {
-      if (funcOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
+      if (ttmlir::utils::isForwardX280CPUDeclarationFunc(funcOp)) {
         hoistedFuncStubs.push_back(funcOp);
       }
     });

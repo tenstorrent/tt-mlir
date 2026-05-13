@@ -309,27 +309,30 @@ public:
       return failure();
     }
 
-    // Create a FromDevice operation for each operand.
-    SmallVector<Value, 4> fromDeviceOperands;
-    size_t locIdx = 0;
-    for (auto operand : callOp.getOperands()) {
-      Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
-      std::optional<Value> optionalLayoutOp =
-          createToLayoutOp(rewriter, newLoc, operand, BufferType::SystemMemory,
-                           false /* tiled */);
-      fromDeviceOperands.push_back(
-          optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand);
+    func::FuncOp funcOp = dyn_cast<func::FuncOp>(
+        SymbolTable::lookupNearestSymbolFrom(callOp, callOp.getCalleeAttr()));
+
+    SmallVector<Value, 4> operands;
+    if (ttmlir::utils::isForwardX280CPUDeclarationFunc(funcOp)) {
+      operands.assign(callOp.getOperands().begin(), callOp.getOperands().end());
+    } else {
+      // Create a FromDevice operation for each operand.
+      size_t locIdx = 0;
+      for (auto operand : callOp.getOperands()) {
+        Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
+        std::optional<Value> optionalLayoutOp =
+            createToLayoutOp(rewriter, newLoc, operand,
+                             BufferType::SystemMemory, false /* tiled */);
+        operands.push_back(
+            optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand);
+      }
     }
 
     // Original CallOp defaults to device tensor return type now, we need to
     // replace with return types which TTNNLayoutFuncInputOutputTypeRewriter
     // updated.
-    func::FuncOp funcOp = dyn_cast<func::FuncOp>(
-        SymbolTable::lookupNearestSymbolFrom(callOp, callOp.getCalleeAttr()));
-    // Create the original CallOp with the new inputs on host.
     auto newCallOp = rewriter.create<func::CallOp>(
-        callOp.getLoc(), callOp.getCallee(), funcOp.getResultTypes(),
-        fromDeviceOperands);
+        callOp.getLoc(), callOp.getCallee(), funcOp.getResultTypes(), operands);
 
     newCallOp->setAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName,
                        mlir::UnitAttr::get(rewriter.getContext()));
@@ -535,7 +538,8 @@ private:
                     PatternRewriter &rewriter) const {
     // For CPU-hoisted declarations, all inputs should stay in the system
     // memory.
-    if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
+    if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp) ||
+        ttmlir::utils::isForwardX280CPUDeclarationFunc(funcOp)) {
       return false;
     }
     bool modified = false;
@@ -582,7 +586,8 @@ private:
                      PatternRewriter &rewriter) const {
     // For CPU-hoisted declarations, all outputs should stay in the system
     // memory.
-    if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
+    if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp) ||
+        ttmlir::utils::isForwardX280CPUDeclarationFunc(funcOp)) {
       return false;
     }
 
