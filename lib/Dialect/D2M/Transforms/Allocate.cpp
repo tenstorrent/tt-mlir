@@ -199,9 +199,6 @@ struct OperandContext {
   SmallVector<ChainRoot> chainRoots;
   // `true` is if this corresponds to a generic op output.
   bool isOutput = false;
-  // To be able to plan possible pressure on L1, this precomputes
-  // the type of the circular buffer this operand would have.
-  MemRefType bufferType;
 };
 
 // A map linking `OperandContext`s with their originating `Value`s (defined
@@ -401,6 +398,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     if (failed(markSynchronizedOpBuffers(funcOp))) {
       funcOp.emitOpError("Failed to mark synchronized op buffers");
+      return failure();
     }
 
     if (failed(analyzeGenericRegionAllocs(funcOp, analysis))) {
@@ -843,46 +841,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           allocOpGenericUsers.insert(chainRoot.defChain.begin(),
                                      chainRoot.defChain.end());
         }
-      }
-
-      if (haveIterationSpaceInfo) {
-        // To know the exact L1 memory pressure, we need to know the type/size
-        // of this operand's stream if one were to be inserted.
-
-        auto [gridShapeRescaled, shardShapeRescaled] =
-            getOperandGridAndShardExtents(genericOp, operandIndex, gridExtents,
-                                          shardExtents);
-
-        const auto operandType =
-            mlir::cast<MemRefType>(operand.get().getType());
-
-        operandCtx.bufferType = getCBBufferType(
-            gridShapeRescaled, shardShapeRescaled, operandType.getElementType(),
-            L1Attr, numStreamBuffers);
-        TT_ALLOC_TRACE("\t[operand #{}], would-be buffer "
-                       "type ({} byte(s)): {}",
-                       operandIndex,
-                       getCBBufferSizeBytes(operandCtx.bufferType, device),
-                       operandCtx.bufferType);
-        TT_debug(getCBBufferSizeBytes(operandCtx.bufferType, device) > 0);
-      } else {
-        // If no iteration info is available, generic op should be classified as
-        // explicit datamovement form.
-        TT_assert(genericCtx.isExplicitDatamovement);
-
-        // For explicit datamovement ops, the grid and shard shapes aren't
-        // reblockable, so use operand device shape as-is for CB buffer type
-        // computation.
-        auto operandValue = genericOp->getOperand(operandIndex);
-        auto gridShape = ttcore::getGridShape(operandValue);
-        auto shardShape = ttcore::getShardShape(operandValue);
-
-        const auto operandType =
-            mlir::cast<MemRefType>(operand.get().getType());
-
-        operandCtx.bufferType =
-            getCBBufferType(gridShape, shardShape, operandType.getElementType(),
-                            L1Attr, numStreamBuffers);
       }
 
       // Finally, insert `operandCtx` into `genericCtx`.
