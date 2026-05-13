@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Utils.h"
 
 #include "llvm/ADT/DenseMap.h"
 
@@ -55,7 +56,25 @@ bool OpRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
     }
     return count;
   };
-  return countShardedInputs(a) > countShardedInputs(b);
+  int64_t shardedA = countShardedInputs(a);
+  int64_t shardedB = countShardedInputs(b);
+  if (shardedA != shardedB) {
+    return shardedA > shardedB;
+  }
+  // Tied on sharded-input count: greedily prefer the candidate whose sharded
+  // inputs cover a larger total grid volume. This assumes ops benefit from
+  // inputs already distributed across more cores, not just sharded outputs.
+  auto shardedGridVolume = [](const BeamCandidate &c) -> int64_t {
+    int64_t total = 0;
+    for (const auto &layout : c.inputLayouts) {
+      auto ml = layout.getMemLayout();
+      if (ml && isShardedMemoryLayout(ml.getValue())) {
+        total += ttmlir::utils::volume(layout.getGridShape());
+      }
+    }
+    return total;
+  };
+  return shardedGridVolume(a) > shardedGridVolume(b);
 }
 
 //===----------------------------------------------------------------------===//
