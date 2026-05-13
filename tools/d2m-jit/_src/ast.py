@@ -13,9 +13,8 @@ from ttmlir.dialects import (
 )
 from ttmlir.dialects._ods_common import get_default_loc_context
 
-from pykernel._src.kernel_types import *
-from pykernel._src.utils import _discover_dialect_ops, _cast
-from pykernel._src.kernel_ast import TTCompilerBase
+from .utils import _discover_dialect_ops, _cast
+from .compiler import TTCompilerBase
 
 
 class TensorLayout:

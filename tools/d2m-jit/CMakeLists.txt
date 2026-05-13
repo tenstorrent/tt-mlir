@@ -9,6 +9,10 @@ declare_mlir_python_sources(TTD2MJitSources
         api.py
         _src/__init__.py
         _src/ast.py
+        _src/base_ast.py
+        _src/compiler.py
+        _src/kernel_types.py
+        _src/utils.py
 )
 
 add_mlir_python_modules(TTD2MJitModules
@@ -18,9 +22,6 @@ add_mlir_python_modules(TTD2MJitModules
 )
 
 add_dependencies(TTD2MJitModules TTMLIRPythonModules)
-# d2m-jit imports pykernel._src.{kernel_ast,utils,kernel_types}; ensure those
-# sources are installed before d2m-jit modules are exercised at test time.
-add_dependencies(TTD2MJitModules TTPykernelModules)
 
 add_custom_target(d2m-jit COMMENT "d2m-jit" DEPENDS TTD2MJitModules)
 

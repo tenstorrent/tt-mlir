@@ -32,7 +32,7 @@ from ttmlir.dialects import (
 )
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
-from pykernel._src.utils import (
+from ._src.utils import (
     _discover_dialect_ops,
     _asindex,
     _cleanup_source_code,
