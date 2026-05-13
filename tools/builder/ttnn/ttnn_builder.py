@@ -256,34 +256,19 @@ class TTNNBuilder(Builder):
                 "Sharded MemoryConfigAttr requires `shape` and `grid_shape`; "
                 f"got shape={shape}, grid_shape={grid_shape}."
             )
-        if core_range_set is None:
-            # Get cached grid shapes
-            worker_grid_shape, dram_grid_shape = self._get_grid_shapes()
 
-            # Attempt to calculate the canonical core_range_set using cached grid shapes
-            core_range_set = derive_canonical_core_range_set(
-                self._ctx,
+        if core_range_set is None:
+            core_range_set = self._get_core_range_set_for_sharded_layout(
                 buffer_type,
                 tensor_memory_layout,
                 grid_shape,
-                worker_grid_shape=worker_grid_shape,
-                dram_grid_shape=dram_grid_shape,
             )
 
-            # If we still don't have a core_range_set, raise an error
-            if core_range_set is None:
-                raise ValueError(
-                    "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
-                    "the builder does not synthesize one because the canonical "
-                    "placement depends on the target arch's worker/DRAM grid. "
-                    "Either provide core_range_set explicitly or set system_desc_path "
-                    "when creating the builder."
-                )
         if shape[-2] % grid_shape[0] or shape[-1] % grid_shape[1]:
             raise ValueError(
                 f"Tensor shape {tuple(shape[-2:])} not evenly divisible by "
-                f"shard grid {tuple(grid_shape)}; pass an explicit "
-                f"`core_range_set` and shard_spec for non-uniform shards."
+                f"shard grid {tuple(grid_shape)}. Non-uniform sharding requires "
+                f"an explicit `core_range_set` and shard_spec."
             )
         shard_h = shape[-2] // grid_shape[0]
         shard_w = shape[-1] // grid_shape[1]

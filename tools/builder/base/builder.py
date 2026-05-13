@@ -177,23 +177,6 @@ class Builder(metaclass=BuilderMeta):
 
     # ----- Public methods -----
 
-    def _get_grid_shapes(self) -> Tuple[List[int], List[int]]:
-        """
-        Lazily load and cache worker and DRAM grid shapes from system descriptor.
-
-        Returns
-        -------
-        Tuple[List[int], List[int]]
-            (worker_grid_shape, dram_grid_shape) as [rows, cols] lists
-        """
-        if self._worker_grid_shape is None or self._dram_grid_shape is None:
-            from builder.base.builder_utils import load_grid_shapes_from_system_desc
-
-            grid_shapes = load_grid_shapes_from_system_desc(self._system_desc_path)
-            self._worker_grid_shape = grid_shapes.worker_grid_shape
-            self._dram_grid_shape = grid_shapes.dram_grid_shape
-        return self._worker_grid_shape, self._dram_grid_shape
-
     @property
     def context(self) -> Context:
         return self._ctx
@@ -774,6 +757,51 @@ class Builder(metaclass=BuilderMeta):
 
     # ----- Private TTNN Tensor Generation Helpers -----
 
+    def _get_grid_shapes(self) -> Tuple[List[int], List[int]]:
+        """
+        Lazily load and cache worker and DRAM grid shapes from system descriptor.
+
+        Returns
+        -------
+        Tuple[List[int], List[int]]
+            (worker_grid_shape, dram_grid_shape) as [rows, cols] lists
+        """
+        if self._worker_grid_shape is None or self._dram_grid_shape is None:
+            from builder.base.builder_utils import load_grid_shapes_from_system_desc
+
+            grid_shapes = load_grid_shapes_from_system_desc(self._system_desc_path)
+            self._worker_grid_shape = grid_shapes.worker_grid_shape
+            self._dram_grid_shape = grid_shapes.dram_grid_shape
+        return self._worker_grid_shape, self._dram_grid_shape
+
+    def _get_core_range_set_for_sharded_layout(
+        self,
+        buffer_type: ttnn.ir.BufferType,
+        tensor_memory_layout: ttnn.ir.TensorMemoryLayout,
+        grid_shape: List[int],
+    ) -> ttnn.ir.CoreRangeSetAttr:
+        if self._system_desc_path is not None:
+            worker_grid_shape, dram_grid_shape = self._get_grid_shapes()
+
+            # Calculate the canonical core_range_set using cached grid shapes
+            return derive_canonical_core_range_set(
+                self._ctx,
+                buffer_type,
+                tensor_memory_layout,
+                grid_shape,
+                worker_grid_shape,
+                dram_grid_shape,
+            )
+        else:
+            # If no system_desc_path was provided, require explicit core_range_set
+            raise ValueError(
+                "Sharded layout requires either: "
+                "(1) a `system_desc_path` to be set when creating the builder, or "
+                "(2) an explicit `core_range_set` to be provided. "
+                "The builder cannot synthesize core placements without knowing "
+                "the target architecture's worker/DRAM grid shapes."
+            )
+
     def _create_ttnn_tensor_encoding(
         self,
         shape: Shape,
@@ -820,28 +848,11 @@ class Builder(metaclass=BuilderMeta):
             )
 
             if is_sharded and core_range_set is None:
-                # Get cached grid shapes
-                worker_grid_shape, dram_grid_shape = self._get_grid_shapes()
-
-                # Attempt to calculate the canonical core_range_set using cached grid shapes
-                core_range_set = derive_canonical_core_range_set(
-                    self._ctx,
+                core_range_set = self._get_core_range_set_for_sharded_layout(
                     buffer_type,
                     tensor_memory_layout,
                     grid_shape,
-                    worker_grid_shape=worker_grid_shape,
-                    dram_grid_shape=dram_grid_shape,
                 )
-
-                # If we still don't have a core_range_set, raise an error
-                if core_range_set is None:
-                    raise ValueError(
-                        "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
-                        "the builder does not synthesize one because the canonical "
-                        "placement depends on the target arch's worker/DRAM grid. "
-                        "Either provide core_range_set explicitly or set system_desc_path "
-                        "when creating the builder."
-                    )
 
             return ttnn.ir.TTNNLayoutAttr.get(
                 self._ctx,
