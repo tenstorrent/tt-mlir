@@ -7,6 +7,8 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/Eltwise/Ternary/EltwiseTernaryOp.h"
+#include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 
 namespace tt::runtime::ttnn::operations::eltwise::ternary {
 
@@ -20,16 +22,21 @@ runEltwiseTernaryWhereOp(const ::tt::target::ttnn::EltwiseTernaryWhereOp *op,
       tensorPool.getTTNNTensorAndValidate(op->second());
   const ::ttnn::Tensor &third =
       tensorPool.getTTNNTensorAndValidate(op->third());
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ::ttnn::where(first, second, third, outputMemoryConfig);
+  target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpNative;
+  op->UnPackTo(&eltwiseTernaryWhereOpNative);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::EltwiseTernaryOpResult result =
+      ttnn_op_invoke::callEltwiseTernary(
+          ttnn_op_invoke::CallType::EXECUTE, eltwiseTernaryWhereOpNative,
+          WRAP_OP(::ttnn::where), &first, &second, &third);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callEltwiseTernary execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::EltwiseTernaryWhereOp *op,
