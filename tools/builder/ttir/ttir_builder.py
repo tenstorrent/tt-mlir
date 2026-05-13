@@ -35,6 +35,7 @@ class TTIRBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
+        system_desc_path: Optional[str] = None,
     ):
         super().__init__(
             ctx,
@@ -43,6 +44,7 @@ class TTIRBuilder(Builder):
             mesh_dict,
             deallocate_goldens=deallocate_goldens,
             deallocated_goldens_dir=deallocated_goldens_dir,
+            system_desc_path=system_desc_path,
         )
 
     # ----- Private methods ----

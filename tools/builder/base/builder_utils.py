@@ -349,8 +349,8 @@ def affine_map_from_lambda(fn):
 
 def derive_canonical_core_range_set(
     ctx: Context,
-    buffer_type: ttnn.ir.BufferType,
-    tensor_memory_layout: ttnn.ir.TensorMemoryLayout,
+    buffer_type: ttnn.ir.BufferTypeAttr,
+    tensor_memory_layout: ttnn.ir.TensorMemoryLayoutAttr,
     grid_shape: List[int],
     system_desc_path: Optional[str] = None,
 ) -> Optional[ttnn.ir.CoreRangeSetAttr]:
@@ -444,7 +444,7 @@ def derive_canonical_core_range_set(
 
 def _derive_canonical_l1_core_range_set(
     ctx: Context,
-    mem_layout: ttnn.ir.TensorMemoryLayout,
+    mem_layout: ttnn.ir.TensorMemoryLayoutAttr,
     grid_shape: List[int],
     worker_grid_shape: List[int],
 ) -> ttnn.ir.CoreRangeSetAttr:
@@ -496,7 +496,7 @@ def _derive_canonical_l1_core_range_set(
 
 def _derive_canonical_dram_core_range_set(
     ctx: Context,
-    mem_layout: ttnn.ir.TensorMemoryLayout,
+    mem_layout: ttnn.ir.TensorMemoryLayoutAttr,
     grid_shape: List[int],
     dram_grid_shape: List[int],
 ) -> ttnn.ir.CoreRangeSetAttr:
