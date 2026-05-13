@@ -43,11 +43,12 @@ private:
 
     auto newMemRefType = MemRefType::get(shardShape, elementType, cbLayout,
                                          bufferType.getMemorySpace());
+    auto oldAttrs = llvm::to_vector(allocOp->getAttrs());
     rewriter.setInsertionPoint(allocOp);
     auto newAllocOp =
         rewriter.replaceOpWithNewOp<memref::AllocOp>(allocOp, newMemRefType);
     // transfer all attributes from the old alloc to the new alloc
-    for (auto attr : allocOp->getAttrs()) {
+    for (auto attr : oldAttrs) {
       newAllocOp->setAttr(attr.getName(), attr.getValue());
     }
 
