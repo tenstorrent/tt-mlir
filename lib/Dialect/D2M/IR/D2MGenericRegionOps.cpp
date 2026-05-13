@@ -203,11 +203,10 @@ static constexpr int64_t kIndexedRowCopyScratchPageElements = 1024;
 static MemRefType createIndexedRowCopyScratchType(MLIRContext *ctx,
                                                   ArrayRef<int64_t> shape,
                                                   Type elementType) {
-  auto cbLayout =
-      mlir::tt::ttcore::CBLayoutAttr::get(shape, elementType, /*buffers=*/1);
   auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
       ctx, mlir::tt::ttcore::MemorySpace::DeviceL1);
-  return MemRefType::get(shape, elementType, cbLayout, l1MemorySpace);
+  return MemRefType::get(shape, elementType, MemRefLayoutAttrInterface{},
+                         l1MemorySpace);
 }
 
 static bool isSupportedIndexedRowCopyElementType(Type type) {
@@ -363,7 +362,9 @@ getBufferIfTensor(Value value, RewriterBase &rewriter,
 
 static Value createEmbeddingScratch(EmbeddingOp op, MemRefType scratchType,
                                     RewriterBase &rewriter) {
-  return rewriter.create<memref::AllocOp>(op.getLoc(), scratchType).getResult();
+  auto allocOp = rewriter.create<memref::AllocOp>(op.getLoc(), scratchType);
+  allocOp->setAttr("d2m.synchronized_buffer", rewriter.getI32IntegerAttr(1));
+  return allocOp.getResult();
 }
 
 mlir::LogicalResult

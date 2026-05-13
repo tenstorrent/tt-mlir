@@ -652,7 +652,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   .getInt();
         } else {
           assert(false && "unexpected alloc op attribute");
-          // we should allow this but asserting for now to check it's not used
+          //  we should allow this but asserting for now to check it's not used
         }
         // TODO: check not of more than one type (or maybe add a
         // GenericAllocAttribute, which can convey the above types)
