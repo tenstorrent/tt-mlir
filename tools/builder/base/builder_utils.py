@@ -460,7 +460,10 @@ def derive_canonical_core_range_set(
             ctx, tensor_memory_layout, grid_shape, worker_grid_shape
         )
 
-    return None
+    raise ValueError(
+        "Unsupported buffer type for sharded layout canonical core-range "
+        f"derivation: {buffer_type}"
+    )
 
 
 def _derive_canonical_l1_core_range_set(
