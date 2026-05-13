@@ -83,10 +83,12 @@ def _get_device_for_target(
             and _current_fabric_config == fabric_config
         ):
             return _current_device
-        elif _current_device_target in ["ttnn", "ttnn-mode"] and target in [
-            "ttnn",
-            "ttnn-mode",
-        ]:
+        elif (
+            _current_device_target in ["ttnn", "ttnn-mode"]
+            and target in ["ttnn", "ttnn-mode"]
+            and _current_device_mesh_shape == mesh_shape
+            and _current_fabric_config == fabric_config
+        ):
             return _current_device
         elif _current_device_target == "emitpy":
             ttnn.close_mesh_device(_current_device)
