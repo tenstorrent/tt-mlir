@@ -2183,7 +2183,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   return outputTensors;
 }
 
-std::optional<Tensor>
+std::optional<std::vector<Tensor>>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize) {
   const auto &programContext =
@@ -2215,11 +2215,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
     return std::nullopt;
   }
 
-  if (hostTensors.size() != 1) {
-    LOG_FATAL("Multi device tensor not supported when retrieving tensor");
-  }
-
-  return hostTensors[0];
+  return hostTensors;
 }
 
 std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {

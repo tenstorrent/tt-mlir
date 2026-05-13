@@ -275,10 +275,12 @@ using OpWalkFn = std::function<void(tt::runtime::OpContext)>;
 void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
                  const OpWalkFn &cb);
 
-// Returns tensor to which tensorRef refers
-// In case that that tensor is not in the tensor pool, returns std::nullopt
-// For now only supports single device tensors
-std::optional<Tensor>
+// Returns the host tensors corresponding to tensorRef. The returned vector
+// contains one entry per device shard: single entry for single-device 
+// tensors. 
+// Returns std::nullopt if the tensor is not present in the pool or if the 
+// host transfer produces no tensors.
+std::optional<std::vector<Tensor>>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize);
 

@@ -1180,10 +1180,10 @@ void walkProgram(Binary executableHandle, uint32_t programIndex,
       });
 }
 
-std::optional<Tensor>
+std::optional<std::vector<Tensor>>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {
-  using RetType = std::optional<Tensor>;
+  using RetType = std::optional<std::vector<Tensor>>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {

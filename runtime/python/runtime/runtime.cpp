@@ -559,8 +559,9 @@ void registerRuntimeBindings(nb::module_ &m) {
       nb::arg("program_context_handle"), nb::arg("tensor_ref"),
       nb::arg("untilize") = true,
       R"(
-    Returns tensor from tensor pool to which tensor_ref refers
-    For now only supports single device tensors
+    Returns the host tensors from the tensor pool to which tensor_ref refers.
+    The returned list contains one entry per device shard (single entry for
+    single-device tensors).
 
     Parameters
     ----------
@@ -572,9 +573,10 @@ void registerRuntimeBindings(nb::module_ &m) {
 
     Returns
     -------
-    Optional[tt.runtime.Tensor]
-        The tensor corresponding to *tensor_ref*, or ``None`` if the
-        tensor is not present in the pool (e.g., it was deallocated).
+    Optional[List[tt.runtime.Tensor]]
+        A list with one host tensor per device shard, or ``None`` when the
+        tensor is not present in the pool (e.g., it was deallocated) or when
+        the host transfer produces no tensors.
     )");
 
   m.def(

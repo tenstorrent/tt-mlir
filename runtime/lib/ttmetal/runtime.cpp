@@ -782,7 +782,7 @@ getOpOutputTensor(OpContext opContextHandle,
   return {};
 }
 
-std::optional<Tensor>
+std::optional<std::vector<Tensor>>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {
   // Not implemented

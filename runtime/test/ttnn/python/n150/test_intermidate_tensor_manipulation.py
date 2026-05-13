@@ -63,11 +63,10 @@ def postop(binary, programContext, opContext):
         return
     tensor_ref: ttrt.runtime.TensorRef = output_refs[0]
 
-    tensor: ttrt.runtime.Tensor = ttrt.runtime.retrieve_tensor_from_pool(
-        programContext, tensor_ref
-    )
-    if tensor is None:
+    tensors = ttrt.runtime.retrieve_tensor_from_pool(programContext, tensor_ref)
+    if tensors is None:
         return
+    tensor: ttrt.runtime.Tensor = tensors[0]
 
     torch_tensor = get_torch_tensor(tensor)
 

@@ -161,7 +161,7 @@ std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle);
 
-std::optional<Tensor>
+std::optional<std::vector<Tensor>>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
 
