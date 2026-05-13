@@ -118,6 +118,33 @@ bool hasTileMatmul(Operation *op);
 // True iff `op` is any tile-level reduction op (FPU or SFPU variant).
 bool isTileReductionOp(Operation *op);
 
+// Returns true iff the packer hardware supports L1 accumulation when packing
+// into an output buffer of element type `dt`. The packer L1-acc path goes
+// through a fixed set of native formats; block-float (Bfp*) outputs are NOT
+// supported and would silently produce garbage results.
+//
+// Supported set follows tt-llk `PACK_L1_ACC_FORMATS`:
+//   Float32, Float16, BFloat16 (Float16_b), Int32, UInt8.
+bool isPackerL1AccumulationSupportedDataType(ttcore::DataType dt);
+
+// Returns true iff every `d2m.tile_matmul` in `loopOp` has a result tile
+// element type that is supported by the packer L1-accumulation path. Returns
+// true if there are no `d2m.tile_matmul` ops (caller is responsible for
+// gating on `hasTileMatmul`).
+bool allTileMatmulOutputsSupportPackerL1Acc(Operation *loopOp);
+
+// Find the outermost ancestor reduction loop IV of `acquireDst`, where
+// "reduction" means: no output store recorded in `copyInfos` depends on the
+// loop's induction variable. This is the loop whose iterations accumulate
+// into the same output L1 slot, and is therefore the correct trigger for
+// switching the packer to L1-acc mode.
+//
+// Returns nullptr if there is no such reduction loop, or if the candidate
+// reduction loop has a constant trip count <= 1 (in which case L1-acc is
+// not needed and the trigger comparison would never fire correctly).
+Value findOutermostReductionLoopIVForL1Acc(Operation *acquireDstOp,
+                                           const CopyInfoMap &copyInfos);
+
 // Stamp a pass-allocated scratch slice onto the op's `dst_scratch_index`
 // attribute for the TTKernel lowering to consume.  Today only supports ops
 // that need exactly one scratch slice.

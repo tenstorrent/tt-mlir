@@ -602,7 +602,12 @@ struct D2MInsertDstRegisterAccessScheduledRewriter final
         // Consume the scheduled attribute.
         loopOp->removeAttr("d2m.scheduled");
 
-        bool packerL1Acc = enableL1Acc && hasTileMatmul(loopOp);
+        // L1 accumulation requires (a) a tile_matmul that hits the packer
+        // L1-acc path, and (b) the matmul output element type to be one of
+        // the packer-supported native formats (block-float outputs like
+        // bfp_bf8 are not supported and would silently corrupt results).
+        bool packerL1Acc = enableL1Acc && hasTileMatmul(loopOp) &&
+                           allTileMatmulOutputsSupportPackerL1Acc(loopOp);
 
         auto [copyInfos, dstIntermediates] =
             collectDstAccessesScheduled(gOp, *loopRegion, loopOp, dstCapacity);
