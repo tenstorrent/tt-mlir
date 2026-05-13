@@ -9,6 +9,8 @@
 #include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
+#include "ttnn/global_semaphore.hpp"
+#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
@@ -30,6 +32,7 @@
 #include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/embedding_backward/embedding_backward.hpp"
+#include "ttnn/operations/experimental/ccl/rms_allgather/rms_allgather.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
@@ -122,6 +125,34 @@ extern "C" {
 void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
 }
 
+// Registry for all const-eval cache vectors.
+// Using a function-local static (Meyers singleton) ensures this is initialized
+// after DeviceGetter::getInstance() (which initializes the device), and thus
+// destroyed before the device during program exit. This prevents a
+// use-after-free crash when the global g_cached_result_* vectors (initialized
+// before main) try to destroy device-side tensors after the device and its
+// GraphTracker have already been closed.
+class ConstEvalCacheRegistry {
+public:
+  static ConstEvalCacheRegistry &instance() {
+    static ConstEvalCacheRegistry reg;
+    return reg;
+  }
+
+  void registerCache(std::vector<ttnn::Tensor> *cache) {
+    caches_.push_back(cache);
+  }
+
+  ~ConstEvalCacheRegistry() {
+    for (auto *cache : caches_) {
+      cache->clear();
+    }
+  }
+
+private:
+  std::vector<std::vector<ttnn::Tensor> *> caches_;
+};
+
 // Wrapper to abstract const-eval logic out of runtime funcs to keep them
 // cleaner.  Invokes constEvalFunc iff outputs is empty.
 void constEvalFuncWrapper(
@@ -131,6 +162,7 @@ void constEvalFuncWrapper(
     std::vector<ttnn::Tensor> *outputs) {
   if (outputs->empty()) {
     *outputs = constEvalFunc(inputs);
+    ConstEvalCacheRegistry::instance().registerCache(outputs);
   }
 }
 
@@ -166,6 +198,17 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
   }
 
   return loadedTensor;
+}
+
+// Helper for distributed RMS norm EmitC support.
+// TODO(amilovanovic): Remove this once the following issue is fixed in
+// tt-metal: https://github.com/tenstorrent/tt-metal/issues/38212
+::ttnn::GlobalSemaphore createGlobalSemaphore(const ::ttnn::Tensor &input) {
+  auto shardSpec = input.shard_spec();
+  assert(shardSpec.has_value() &&
+         "Input tensor must have shard spec for createGlobalSemaphore");
+  return ::ttnn::global_semaphore::create_global_semaphore(input.device(),
+                                                           shardSpec->grid, 0);
 }
 
 } // namespace ttnn

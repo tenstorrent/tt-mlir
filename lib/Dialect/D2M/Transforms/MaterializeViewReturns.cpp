@@ -98,7 +98,7 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                 .getResult();
         builder.create<d2m::YieldOp>(innerLoc, storeResult);
       },
-      ThreadType::Unified, grid, SmallVector<int64_t>{1, 1});
+      ThreadType::Unified, grid, SmallVector<int64_t>(rank, 1));
 
   return genericOp.getResult(0);
 }

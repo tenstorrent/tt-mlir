@@ -9,6 +9,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/OpImplementation.h"
@@ -129,20 +130,17 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 ::mlir::LogicalResult DMAReadOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
-  auto isRemote = [&](auto operand) {
-    return ttcore::hasDeviceLayout(operand);
+  auto isLocal = [](Value operand) {
+    return !ttcore::hasDeviceLayout(operand);
   };
-  auto isLocal = [&](auto operand) { return !isRemote(operand); };
-  if (!(isRemote(getSrc()) && isLocal(getDst()))) {
-    return emitOpError("For DMARead, src must be remote and dst must be local");
+  if (!isLocal(getDst())) {
+    return emitOpError("For DMARead, dst must be local");
   }
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMARead must have the same element type");
   }
-
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
-
   if (isShardLevel()) {
     if (numDstIndices != 0) {
       return emitOpError("Shard-level DMARead must have 0 dst indices");
@@ -150,8 +148,14 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   } else {
     constexpr int64_t kExpectedIndicesRemote = 3;
     constexpr int64_t kExpectedIndicesLocal = 1;
-    if (numSrcIndices != kExpectedIndicesRemote) {
-      return emitOpError("Must have 3 src indices for remote src operand");
+    if (isSrcLocal()) {
+      if (numSrcIndices != kExpectedIndicesLocal) {
+        return emitOpError("Must have 1 src index for local src operand");
+      }
+    } else {
+      if (numSrcIndices != kExpectedIndicesRemote) {
+        return emitOpError("Must have 3 src indices for remote src operand");
+      }
     }
     if (numDstIndices != kExpectedIndicesLocal) {
       return emitOpError("Must have 1 dst index for local dst operand");
@@ -191,6 +195,363 @@ void DMAWriteOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// Indexed row-copy operations
+//===----------------------------------------------------------------------===//
+
+static constexpr int64_t kIndexedRowCopyScratchPageElements = 1024;
+
+static MemRefType createIndexedRowCopyScratchType(MLIRContext *ctx,
+                                                  ArrayRef<int64_t> shape,
+                                                  Type elementType) {
+  auto cbLayout =
+      mlir::tt::ttcore::CBLayoutAttr::get(shape, elementType, /*buffers=*/1);
+  auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
+      ctx, mlir::tt::ttcore::MemorySpace::DeviceL1);
+  return MemRefType::get(shape, elementType, cbLayout, l1MemorySpace);
+}
+
+static bool isSupportedIndexedRowCopyElementType(Type type) {
+  if (mlir::isa<Float32Type, BFloat16Type>(type)) {
+    return true;
+  }
+  auto intType = mlir::dyn_cast<IntegerType>(type);
+  return intType && intType.getWidth() == 32;
+}
+
+static LogicalResult verifyIndexedRowCopyOperands(
+    Operation *op, Value indices, Value src, Value dst, int64_t numRows,
+    int64_t rowWidth, ArrayRef<int64_t> indicesShape, StringRef numRowsName,
+    StringRef rowWidthName, StringRef srcName, StringRef dstName) {
+  auto indicesType = mlir::cast<ShapedType>(indices.getType());
+  auto srcType = mlir::cast<ShapedType>(src.getType());
+  auto dstType = mlir::cast<ShapedType>(dst.getType());
+
+  if (!indicesType.getElementType().isInteger(32)) {
+    return op->emitOpError("indices must have 32-bit integer element type");
+  }
+
+  if (!isSupportedIndexedRowCopyElementType(srcType.getElementType()) ||
+      !isSupportedIndexedRowCopyElementType(dstType.getElementType())) {
+    return op->emitOpError("currently supports f32, bf16, or 32-bit integer ")
+           << srcName << " and " << dstName << " only";
+  }
+
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return op->emitOpError()
+           << srcName << " and " << dstName << " element types must match";
+  }
+
+  if (numRows <= 0) {
+    return op->emitOpError() << numRowsName << " must be positive";
+  }
+  if (rowWidth <= 0) {
+    return op->emitOpError() << rowWidthName << " must be positive";
+  }
+
+  if (indicesShape.empty()) {
+    return op->emitOpError("indices_shape must not be empty");
+  }
+
+  if (ttmlir::utils::volume(indicesShape) != static_cast<int64_t>(numRows)) {
+    return op->emitOpError() << "indices_shape must match " << numRowsName;
+  }
+
+  return success();
+}
+
+LogicalResult IndexedRowCopyOp::verify() {
+  return verifyIndexedRowCopyOperands(getOperation(), getIndices(), getSrc(),
+                                      getDst(), getNumRows(), getRowWidth(),
+                                      getIndicesShape(), "num_rows",
+                                      "row_width", "source", "destination");
+}
+
+void IndexedRowCopyOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getSrcMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getIndexScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getIndexScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getRowScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getRowScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
+// EmbeddingOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult EmbeddingOp::verify() {
+  if (getResult().getType() != getOutput().getType()) {
+    return emitOpError("result type must match output operand type");
+  }
+
+  return verifyIndexedRowCopyOperands(
+      getOperation(), getIndices(), getWeight(), getOutput(), getNumIndices(),
+      getEmbeddingDim(), getIndicesShape(), "num_indices", "embedding_dim",
+      "weight", "output");
+}
+
+void EmbeddingOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getWeightMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+bool EmbeddingOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getIndices() || operand.get() == getWeight();
+}
+
+bool EmbeddingOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput();
+}
+
+mlir::bufferization::AliasingValueList
+EmbeddingOp::getAliasingValues(mlir::OpOperand &operand,
+                               const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  if (operand.get() == getOutput()) {
+    aliasList.addAlias(
+        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+EmbeddingOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getResult()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+bool EmbeddingOp::hasTensorSemantics() { return true; }
+
+static FailureOr<Value>
+getBufferIfTensor(Value value, RewriterBase &rewriter,
+                  const bufferization::BufferizationOptions &options,
+                  bufferization::BufferizationState &state) {
+  if (!mlir::isa<RankedTensorType>(value.getType())) {
+    return value;
+  }
+  return bufferization::getBuffer(rewriter, value, options, state);
+}
+
+static Value createEmbeddingScratch(EmbeddingOp op, MemRefType scratchType,
+                                    RewriterBase &rewriter) {
+  return rewriter.create<memref::AllocOp>(op.getLoc(), scratchType).getResult();
+}
+
+mlir::LogicalResult
+EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  if (!hasTensorSemantics()) {
+    return mlir::failure();
+  }
+
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(getOperation());
+
+  FailureOr<Value> indices =
+      getBufferIfTensor(getIndices(), rewriter, options, state);
+  if (failed(indices)) {
+    return indices;
+  }
+  FailureOr<Value> weight =
+      getBufferIfTensor(getWeight(), rewriter, options, state);
+  if (failed(weight)) {
+    return weight;
+  }
+
+  FailureOr<Value> maybeOutput =
+      getBufferIfTensor(getOutput(), rewriter, options, state);
+  if (failed(maybeOutput)) {
+    return maybeOutput;
+  }
+  Value output = *maybeOutput;
+
+  Type indexScratchElementType =
+      mlir::cast<ShapedType>((*indices).getType()).getElementType();
+  MemRefType indexScratchType = createIndexedRowCopyScratchType(
+      getContext(), {1, kIndexedRowCopyScratchPageElements},
+      indexScratchElementType);
+  Value indexScratch =
+      createEmbeddingScratch(*this, indexScratchType, rewriter);
+
+  Type rowScratchElementType =
+      mlir::cast<ShapedType>(output.getType()).getElementType();
+  MemRefType rowScratchType = createIndexedRowCopyScratchType(
+      getContext(), {1, kIndexedRowCopyScratchPageElements},
+      rowScratchElementType);
+  Value rowScratch = createEmbeddingScratch(*this, rowScratchType, rewriter);
+
+  rewriter.create<IndexedRowCopyOp>(
+      getLoc(), *indices, *weight, output, indexScratch, rowScratch,
+      getNumIndicesAttr(), getEmbeddingDimAttr(), getIndicesShapeAttr());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, output);
+  return mlir::success();
+}
+
+::mlir::LogicalResult LocalCopyOp::verify() {
+  if (isImplicitForm() == isExplicitCBForm()) {
+    return emitOpError("must be either in one of implicit form or explicit CB "
+                       "form (not both, not neither)");
+  }
+  bool isImplicitForm = this->isImplicitForm();
+
+  // Locality checks only apply to memref operands (tensors don't carry
+  // device layout attributes).
+  auto isLocalMemref = [](Value operand) {
+    if (!mlir::isa<MemRefType>(operand.getType())) {
+      return true;
+    }
+    return !ttcore::hasDeviceLayout(operand);
+  };
+  if (isImplicitForm && !isLocalMemref(getSrc())) {
+    return emitOpError("src must be a local memref");
+  }
+  if (isImplicitForm && !isLocalMemref(getDst())) {
+    return emitOpError("dst must be a local memref");
+  }
+
+  ArrayRef<Attribute> maps = getIndexingMaps().getValue();
+  if (maps.size() != 2) {
+    return emitOpError("requires exactly 2 indexing maps");
+  }
+  ShapedType dstType = getDstShapedType();
+  int64_t dstRank = dstType.getRank();
+  for (auto [idx, mapAttr] : llvm::enumerate(maps)) {
+    auto affineMap = mlir::cast<AffineMapAttr>(mapAttr).getValue();
+    if (static_cast<int64_t>(affineMap.getNumDims()) != dstRank) {
+      return emitOpError("indexing map #")
+             << idx << " has " << affineMap.getNumDims()
+             << " dims but dst rank is " << dstRank;
+    }
+  }
+
+  ShapedType srcType = getSrcShapedType();
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError("source and destination element types must match");
+  }
+
+  bool hasTensors =
+      mlir::isa<RankedTensorType>(srcType) ||
+      (isImplicitForm && mlir::isa<RankedTensorType>(getDst().getType()));
+  if (hasTensors) {
+    if (!getResult()) {
+      return emitOpError("tensor form requires a result");
+    }
+  } else if (getResult()) {
+    if (!isImplicitForm) {
+      return emitOpError("explicit CB form must not have a result");
+    }
+    if (!mlir::isa<MemTxType>(getResult().getType())) {
+      return emitOpError("memref form result must be !d2m.mem_tx");
+    }
+  }
+
+  return success();
+}
+
+bool LocalCopyOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool LocalCopyOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  Value dst = getDst();
+  return dst && operand.get() == dst;
+}
+
+mlir::bufferization::AliasingValueList
+LocalCopyOp::getAliasingValues(mlir::OpOperand &operand,
+                               const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  Value dst = getDst();
+  Value resultValue = getResult();
+  if (dst && resultValue && operand.get() == dst) {
+    aliasList.addAlias(
+        {resultValue, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+LocalCopyOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+mlir::LogicalResult
+LocalCopyOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  if (getDstCb()) {
+    return emitOpError(
+        "LocalCopyOp with CB should not exist during bufferization");
+  }
+
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return failure();
+  }
+
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  if (failed(dstBuffer)) {
+    return failure();
+  }
+
+  // The memref-form LocalCopyOp has no result (unlike the tensor-form which
+  // returns the destination tensor). Create the new op and replace the old
+  // tensor result with the destination buffer directly.
+  rewriter.create<LocalCopyOp>(getLoc(), *srcBuffer, *dstBuffer,
+                               getIndexingMaps());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     ValueRange{*dstBuffer});
+  return success();
+}
+
+bool LocalCopyOp::hasTensorSemantics() {
+  if (getDstCb()) {
+    return false;
+  }
+  return mlir::isa<RankedTensorType>(getSrc().getType()) ||
+         (getDst() && mlir::isa<RankedTensorType>(getDst().getType()));
+}
+
+//===----------------------------------------------------------------------===//
 // Remote Load/Store Operations
 //===----------------------------------------------------------------------===//
 
@@ -218,8 +579,24 @@ void DMAWriteOp::getEffects(
         "explicit CB form cannot have a result; result must only be present in "
         "implicit form.");
   }
-  if (hasLocalBuffer && !hasResultValue) {
-    return emitOpError("implicit form (with localBuffer) must have a result.");
+
+  // In implicit form, result presence is tied to the localBuffer's type:
+  //   - tensor localBuffer (pre-bufferization): result required (tensor SSA
+  //     value for downstream consumers).
+  //   - memref localBuffer (post-bufferization, DPS form): result absent; the
+  //     localBuffer itself is the destination.
+  if (hasLocalBuffer) {
+    bool localBufferIsTensor =
+        mlir::isa<RankedTensorType>(localBuffer.getType());
+    if (localBufferIsTensor && !hasResultValue) {
+      return emitOpError(
+          "implicit tensor form (with tensor localBuffer) must have a result.");
+    }
+    if (!localBufferIsTensor && hasResultValue) {
+      return emitOpError(
+          "implicit memref form (with memref localBuffer) must not have a "
+          "result; the localBuffer is the destination (DPS form).");
+    }
   }
 
   // Verify that tensor parameters are not allowed in explicit CB form
@@ -441,17 +818,31 @@ void WriteColMaskTileOp::getEffects(
         "present");
   }
 
-  // Verify result presence constraints (mirror RemoteLoadOp)
+  // Verify result presence constraints (mirror RemoteLoadOp).
   // Explicit CB form: CB present, localBuffer absent, result must NOT be
-  // present Implicit form: localBuffer present, CB absent, result MUST be
-  // present
+  // present.
+  // Implicit form: localBuffer present, CB absent. Result presence is tied
+  // to the destination memref's type:
+  //   - tensor memref (pre-bufferization): result required (tensor SSA value
+  //     consumed by yield).
+  //   - memref destination (post-bufferization, DPS form): result absent; the
+  //     destination memref itself is the result.
   if (hasCbOperand && hasResultValue) {
     return emitOpError(
         "explicit CB form cannot have a result; result must only be present in "
         "implicit form.");
   }
-  if (hasLocalBufferOperand && !hasResultValue) {
-    return emitOpError("implicit form (with localBuffer) must have a result.");
+  if (hasLocalBufferOperand) {
+    bool memrefIsTensor = mlir::isa<RankedTensorType>(getMemref().getType());
+    if (memrefIsTensor && !hasResultValue) {
+      return emitOpError(
+          "implicit tensor form (with tensor destination) must have a result.");
+    }
+    if (!memrefIsTensor && hasResultValue) {
+      return emitOpError(
+          "implicit memref form (with memref destination) must not have a "
+          "result; the destination memref is the result (DPS form).");
+    }
   }
 
   // Verify that tensor parameters are not allowed in explicit CB form
@@ -580,24 +971,13 @@ void WriteColMaskTileOp::getEffects(
     }
   }
 
-  // Verify result type matches memref type if result is present and in tensor
-  // mode
+  // Verify result type matches memref type (result only present in tensor
+  // form per the earlier presence check).
   if (hasResultValue) {
     Type memrefType = getMemref().getType();
-
-    // Only verify result type in tensor mode
-    if (mlir::isa<RankedTensorType>(memrefType)) {
-      Type resultType = getResult().getType();
-      // Result should match the destination memref type
-      if (resultType != memrefType) {
-        return emitOpError("result type must match memref type");
-      }
-    } else {
-      // In memref mode, result should be unused
-      if (!getResult().use_empty()) {
-        return emitOpError(
-            "result must be unused when memref operand has memref type");
-      }
+    Type resultType = getResult().getType();
+    if (resultType != memrefType) {
+      return emitOpError("result type must match memref type");
     }
   }
 
@@ -974,13 +1354,13 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
   }
 
   // Create new op with memref operands.
-  auto newOp = rewriter.create<ArangeBlockOp>(
-      getLoc(), *maybeIndexTileBuffer, *maybeOutputBuffer, getNumElements(),
-      getStart(), getStep());
+  rewriter.create<ArangeBlockOp>(getLoc(), *maybeIndexTileBuffer,
+                                 *maybeOutputBuffer, getNumElements(),
+                                 getStart(), getStep());
 
   // Replace uses and erase (DPS pattern - result aliases output buffer).
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
-                                                     newOp.getResult());
+                                                     *maybeOutputBuffer);
   return mlir::success();
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -1058,43 +1438,23 @@ mlir::LogicalResult RemoteLoadOp::bufferize(
     return localBufferBuffer;
   }
 
-  // Convert result type to memref type
-  Type resultBufferType =
-      ttcore::getBufferType(result.getType(), /*isView=*/false);
-
-  // RemoteLoadOp always loads into L1 memory, so ensure the result type has
-  // L1 memory space. If the result type is a memref without memory space,
-  // add the L1 memory space attribute.
-  if (auto memrefType = mlir::dyn_cast<MemRefType>(resultBufferType)) {
-    if (!memrefType.getMemorySpace()) {
-      auto l1Attr = ttcore::MemorySpaceAttr::get(getContext(),
-                                                 ttcore::MemorySpace::DeviceL1);
-      resultBufferType =
-          MemRefType::get(memrefType.getShape(), memrefType.getElementType(),
-                          memrefType.getLayout(), l1Attr);
-    }
-  }
-
-  // Create a new RemoteLoadOp with bufferized operands (no CB, with result)
-  // Preserve the multicast form - either high-level (mcastDims) or low-level
-  // (mcastStartIndex/mcastShape)
-  RemoteLoadOp newOp;
+  // Create a new RemoteLoadOp with bufferized operands in DPS memref form
+  // (no CB, no result; the localBuffer is the destination). Preserve the
+  // multicast form - either high-level (mcastDims) or low-level
+  // (mcastStartIndex/mcastShape).
   if (isHighLevelMcast()) {
-    // High-level mcast form: use mcastDims builder
-    newOp = rewriter.create<RemoteLoadOp>(getLoc(), resultBufferType,
-                                          *localBufferBuffer, *memrefBuffer,
-                                          getIndices(), getMcastDims());
+    rewriter.create<RemoteLoadOp>(getLoc(), *localBufferBuffer, *memrefBuffer,
+                                  getIndices(), getMcastDims());
   } else {
-    // Low-level mcast form or no mcast: use mcastStartIndex/mcastShape builder
-    newOp = rewriter.create<RemoteLoadOp>(
-        getLoc(), resultBufferType, *localBufferBuffer, *memrefBuffer,
-        getIndices(), getMcastStartIndex(), getMcastShape());
+    rewriter.create<RemoteLoadOp>(getLoc(), *localBufferBuffer, *memrefBuffer,
+                                  getIndices(), getMcastStartIndex(),
+                                  getMcastShape());
   }
 
   // Create a ToTensorOp wrapper to maintain tensor semantics for downstream
-  // ops. This ensures that operations like linalg.generic still see tensors
-  // until they are bufferized. When they call getBuffer() during bufferization,
-  // they'll get the underlying memref (*localBufferBuffer).
+  // ops that still see the old tensor result. When they call getBuffer()
+  // during their own bufferization, they'll trace back to the underlying
+  // memref (*localBufferBuffer).
   auto toTensor = rewriter.create<bufferization::ToTensorOp>(
       getLoc(), result.getType(), *localBufferBuffer);
   rewriter.replaceAllUsesWith(result, toTensor.getResult());
@@ -1115,6 +1475,29 @@ bool RemoteLoadOp::hasTensorSemantics() {
   Value result = getResult();
   bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
   return memrefIsTensor || resultIsTensor;
+}
+
+bool RemoteLoadOp::isNotConflicting(
+    mlir::OpOperand *uRead, mlir::OpOperand *uConflictingWrite,
+    const mlir::bufferization::AnalysisState &) {
+  if (uRead->get() != getMemref()) {
+    return false;
+  }
+
+  auto *parentOp = (*this)->getParentOp();
+  if (!parentOp) {
+    return false;
+  }
+  auto parentGeneric = mlir::dyn_cast<d2m::GenericOp>(parentOp);
+  if (!parentGeneric) {
+    return false;
+  }
+
+  if (uConflictingWrite->getOwner() != parentGeneric.getOperation()) {
+    return false;
+  }
+
+  return llvm::is_contained(parentGeneric.getOutputs(), getMemref());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1212,20 +1595,27 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
     localBufferBufferized = *localBufferMaybe;
   }
 
-  // Convert result type to memref type
-  // In implicit form (localBuffer present), result is always required
+  // Pre-bufferization implicit form must carry a tensor result (yield value).
   Value result = getResult();
   if (!result) {
     return emitOpError("Expected result in implicit form during bufferization");
   }
 
-  Type resultBufferType =
-      ttcore::getBufferType(result.getType(), /*isView=*/false);
+  // Create a new RemoteStoreOp in DPS memref form (no result; destination
+  // memref is the result). Use the raw build() entry point so we can pass
+  // all the variadic operands.
+  rewriter.create<RemoteStoreOp>(
+      getLoc(), /*resultTypes=*/TypeRange{}, *memrefBuffer, getIndices(),
+      localBufferBufferized, /*cb=*/Value{}, getStartDevice(),
+      getDeviceMcastShape(), getSemaphore(), getSemaphoreIndices());
 
-  // Create a new RemoteStoreOp with bufferized operands and result
-  mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
-      rewriter, *this, resultBufferType, *memrefBuffer, getIndices(),
-      localBufferBufferized, /*cb=*/Value{});
+  // Create a ToTensorOp wrapper to maintain tensor semantics for the old
+  // tensor result. The only user is `d2m.yield`, which will erase itself
+  // during its own bufferization, so this wrapper is short-lived.
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *memrefBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
 
   return mlir::success();
 }
@@ -1586,6 +1976,61 @@ void TileUntilizeBlockOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
+// Verifier helpers for tile reduction ops.
+//
+// FPU (`tile_reduce_*`) ops require all float operands because they lower to
+// the `reduce_tile` kernel, which is float-only. Integer reductions must use
+// the matching `tile_sfpu_reduce_*` op instead.
+namespace {
+template <typename OpT>
+static mlir::LogicalResult verifyFPUTileReduce(OpT op) {
+  auto isFloatTile = [](mlir::Value v) {
+    return mlir::isa<mlir::FloatType>(
+        mlir::cast<mlir::tt::ttcore::TileType>(v.getType()).getElementType());
+  };
+  if (!isFloatTile(op.getA()) || !isFloatTile(op.getB()) ||
+      !isFloatTile(op.getC())) {
+    return op.emitOpError("requires float tile element types; use the matching "
+                          "tile_sfpu_reduce_* op for integer reductions");
+  }
+  return mlir::success();
+}
+
+template <typename OpT>
+static mlir::LogicalResult verifySFPUTileReduce(OpT op) {
+  // The SFPU reduce lowering uses signed i32-only TTKernel ops
+  // (fill_tile_int, binary_max_int32_tile, add_int_tile), so restrict this
+  // op to signed i32 tiles.
+  auto isSI32Tile = [](mlir::Value v) {
+    return mlir::cast<mlir::tt::ttcore::TileType>(v.getType())
+        .getElementType()
+        .isSignedInteger(32);
+  };
+  if (!isSI32Tile(op.getA()) || !isSI32Tile(op.getC())) {
+    return op.emitOpError("requires signed 32-bit integer tile element types; "
+                          "use the matching tile_reduce_* op for float "
+                          "reductions");
+  }
+  return mlir::success();
+}
+} // namespace
+
+mlir::LogicalResult TileReduceSumOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileReduceMaxOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileReduceMeanOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileSFPUReduceSumOp::verify() {
+  return verifySFPUTileReduce(*this);
+}
+mlir::LogicalResult TileSFPUReduceMaxOp::verify() {
+  return verifySFPUTileReduce(*this);
+}
+
 template <typename Pred>
 static mlir::OpFoldResult foldScalarIdentity(mlir::Operation *op,
                                              mlir::Attribute rhsAttr,
@@ -1829,6 +2274,34 @@ void BlockMaskOp::getEffects(
 //===----------------------------------------------------------------------===//
 // YieldOp / WaitOp / ReserveOp / PushOp / PopOp
 //===----------------------------------------------------------------------===//
+
+void WaitOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
+                                         mlir::MLIRContext *context) {
+  // A WaitOp whose result and cb has no uses is dead
+  patterns.add(+[](WaitOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getResult().use_empty()) {
+      return failure();
+    }
+    if (!op.getCb().hasOneUse()) {
+      return failure();
+    }
+    rewriter.eraseOp(op);
+    return success();
+  });
+}
+
+void UnpackStallOnPackOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](UnpackStallOnPackOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    if (!mlir::isa_and_nonnull<UnpackStallOnPackOp>(op->getPrevNode())) {
+      return mlir::failure();
+    }
+
+    rewriter.eraseOp(op);
+    return mlir::success();
+  });
+}
 
 mlir::LogicalResult YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();

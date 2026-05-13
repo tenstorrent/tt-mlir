@@ -11,4 +11,18 @@ module @SyncTensorsGraph.2210 attributes {mhlo.cross_program_prefetches = [], mh
         %3 = "ttir.minimum"(%2, %0) : (tensor<8x32x112x112xbf16>, tensor<8x32x112x112xbf16>) -> tensor<8x32x112x112xbf16>
         return %3 : tensor<8x32x112x112xbf16>
     }
+
+    // Test: scalar full -> reshape pattern (produced by broadcast_in_dim conversion of scalar constants)
+    func.func @relu6_scalar_reshape(%arg0: tensor<8x32x112x112xbf16>) -> tensor<8x32x112x112xbf16> {
+        // CHECK: "ttir.relu6"
+        // CHECK-NOT: "ttir.maximum"
+        // CHECK-NOT: "ttir.minimum"
+        %0 = "ttir.full"() <{fill_value = 0.000000e+00 : f32, shape = array<i32>}> : () -> tensor<bf16>
+        %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1x1x1xbf16>
+        %2 = "ttir.maximum"(%arg0, %1) : (tensor<8x32x112x112xbf16>, tensor<1x1x1x1xbf16>) -> tensor<8x32x112x112xbf16>
+        %3 = "ttir.full"() <{fill_value = 6.000000e+00 : f32, shape = array<i32>}> : () -> tensor<bf16>
+        %4 = "ttir.reshape"(%3) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1x1x1xbf16>
+        %5 = "ttir.minimum"(%2, %4) : (tensor<8x32x112x112xbf16>, tensor<1x1x1x1xbf16>) -> tensor<8x32x112x112xbf16>
+        return %5 : tensor<8x32x112x112xbf16>
+    }
 }

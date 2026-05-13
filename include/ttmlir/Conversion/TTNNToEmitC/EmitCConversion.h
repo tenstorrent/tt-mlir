@@ -355,7 +355,7 @@ struct TypeName<::ttnn::QueueId> {
 
 template <>
 struct TypeName<::ttnn::MathFidelity> {
-  inline static const std::string value = "::MathFidelity";
+  inline static const std::string value = "::tt::tt_metal::MathFidelity";
 };
 
 template <>
@@ -877,28 +877,28 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     rso << TypeNameV<::reduction_common::ReduceType> << "::";
     switch (attr) {
     case ttcore::ReduceType::Sum:
-      rso << "SUM";
+      rso << "Sum";
       return buf;
     case ttcore::ReduceType::Mean:
-      rso << "MEAN";
+      rso << "Mean";
       return buf;
     case ttcore::ReduceType::Max:
-      rso << "MAX";
+      rso << "Max";
       return buf;
     case ttcore::ReduceType::Min:
-      rso << "MIN";
+      rso << "Min";
       return buf;
     case ttcore::ReduceType::Std:
-      rso << "STD";
+      rso << "Std";
       return buf;
     case ttcore::ReduceType::Var:
-      rso << "VAR";
+      rso << "Var";
       return buf;
     case ttcore::ReduceType::Prod:
-      rso << "PROD";
+      rso << "Prod";
       return buf;
     case ttcore::ReduceType::Invalid:
-      rso << "INVALID";
+      rso << "Invalid";
       return buf;
     }
 
@@ -1384,7 +1384,7 @@ struct EmitCTypeConverter<::ttnn::CoreRangeSet> {
     llvm::raw_string_ostream rso(buf);
     rso << TypeNameV<::ttnn::CoreRangeSet>;
     rso << "{";
-    rso << EmitCTypeConverter<std::set<::ttnn::CoreRange>>::convert(
+    rso << EmitCTypeConverter<std::vector<::ttnn::CoreRange>>::convert(
         attr.getCoreRanges());
     rso << "}";
     return buf;
@@ -1920,6 +1920,11 @@ inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "::ttnn::getScalarFromTensor";
 
+// Name for the function that creates a GlobalSemaphore from a tensor's shard
+// spec.
+inline constexpr const char *kCreateGlobalSemaphoreFunctionName =
+    "::ttnn::createGlobalSemaphore";
+
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:
@@ -2289,6 +2294,34 @@ public:
       return loadOp.getResult();
     }
 
+    // TopKRouterGptOp returns a std::tuple<ttnn::Tensor, ttnn::Tensor>
+    // containing two elements: [0] = expert_indices, [1] = expert_weights.
+    // Extract both elements using std::get<i> to replace the original op.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::TopKRouterGptOp>) {
+      assert(op.getNumResults() == 2 &&
+             "Expected two outputs (expert_indices and expert_weights) for "
+             "TopKRouterGptOp.");
+      using ReturnTy = std::tuple<::ttnn::Tensor, ::ttnn::Tensor>;
+      auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, operands);
+
+      SmallVector<Value> results;
+      for (unsigned i = 0; i < op.getNumResults(); ++i) {
+        auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+            op.getLoc(),
+            rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+            "::std::get", /*args=*/nullptr,
+            rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+            callOp.getResult(0));
+        results.push_back(getTensorOp.getResult(0));
+      }
+
+      rewriter.replaceOp(op, results);
+      return callOp.getResult(0);
+    }
+
     // SortOp and TopKOp returns a std::vector<ttnn::Tensor> containing two
     // elements: [0] = values tensor, [1] = corresponding indices. Extract both
     // elements to replace the original Op.
@@ -2353,16 +2386,8 @@ public:
     auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
 
-    ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
-        layoutAttr.getContext(), layoutAttr.getBufferType());
-    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
-        ttnn::utils::createShardSpecIfNeeded(layoutAttr,
-                                             deviceAttr.getWorkerGrid()));
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(layoutAttr);
 
     return emit(memoryConfigAttr);
   }

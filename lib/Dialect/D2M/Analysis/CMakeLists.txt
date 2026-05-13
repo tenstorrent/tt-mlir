@@ -1,11 +1,11 @@
 add_subdirectory(Allocation)
 
 add_mlir_dialect_library(MLIRD2MAnalysis
-  AssociatedDMAWaits.cpp
   BlockFactorAnalysis.cpp
   GenericOpBufferAnalysis.cpp
   CBProducerConsumer.cpp
   GenericInterchangeAnalysis.cpp
+  GridAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -19,4 +19,5 @@ add_mlir_dialect_library(MLIRD2MAnalysis
     MLIRD2MAllocation
     MLIRD2MUtils
     MLIRTTCoreDialect
+    MLIRTTIRDialect
 )

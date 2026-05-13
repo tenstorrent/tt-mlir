@@ -1,8 +1,8 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=0" %s --mlir-print-local-scope | FileCheck %s --check-prefix=CHECKLEVEL0
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1" %s --mlir-print-local-scope | FileCheck %s --check-prefix=CHECKLEVEL1
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2" %s --mlir-print-local-scope | FileCheck %s --check-prefix=CHECKLEVEL2
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2 memory-layout-analysis-enabled=false" %s --mlir-print-local-scope | FileCheck %s --check-prefix=CHECKOVERRIDE
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1 enable-greedy-optimizer=false" %s --mlir-print-local-scope | FileCheck %s --check-prefix=CHECKLEVEL1
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2 enable-greedy-optimizer=false" %s --mlir-print-local-scope | FileCheck %s --check-prefix=CHECKLEVEL2
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2 enable-greedy-optimizer=false memory-layout-analysis-enabled=false" %s --mlir-print-local-scope | FileCheck %s --check-prefix=CHECKOVERRIDE
 
 // Test optimization_level option with conv2d to verify:
 // - Level 0: No optimizer (DRAM interleaved, no prepare_conv2d_weights)

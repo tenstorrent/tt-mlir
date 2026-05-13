@@ -154,7 +154,8 @@ private:
 
         // Check if the only difference is page layout.
         TTNNLayoutAttr modifiedArgTTNNLayout =
-            argTTNNLayout.withLayout(Layout::Tile, tensorType.getShape());
+            TTNNLayoutAttr::Builder(argTTNNLayout, tensorType.getShape())
+                .setLayout(Layout::Tile);
         if (modifiedArgTTNNLayout == targetLayout) {
           opsToRemove.push_back(toLayoutOp);
           TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
@@ -228,10 +229,10 @@ private:
     // original tensor element type. TTNNDecomposeLayouts requires TILE
     // layout for on-device dtype conversion; ROW_MAJOR would force a
     // host round-trip (from_device → typecast → to_device).
-    TTNNLayoutAttr correctedLayout = rmOutputLayout.withElementType(
-        tensorElementType, userResultType.getShape());
     TTNNLayoutAttr tileLayout =
-        correctedLayout.withLayout(Layout::Tile, userResultType.getShape());
+        TTNNLayoutAttr::Builder(rmOutputLayout, userResultType.getShape())
+            .setElementType(tensorElementType)
+            .setLayout(Layout::Tile);
 
     // Create toLayout op using TILE layout for dtype conversion
     auto toLayoutOp = utils::createToLayoutOp(

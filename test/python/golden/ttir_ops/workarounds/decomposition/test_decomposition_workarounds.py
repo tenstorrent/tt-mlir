@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import math
+
 import pytest
 import torch
 from collections import OrderedDict
@@ -885,16 +887,21 @@ def test_sdpa_with_mask_no_workaround(
 @pytest.mark.parametrize(
     "shapes",
     [
-        # Decode with mask num_heads=1 (broadcast needed)
+        # Decode with mask num_heads=1 (broadcast needed).
         # Q: [1, batch, num_heads, head_dim], K/V: [batch, kv_heads, kv_seq, head_dim]
-        # Mask: [batch, 1, 1, kv_seq] - heads=1 needs broadcast to num_heads
-        [
-            (1, 32, 32, 64),  # query (decode shape)
-            (32, 32, 128, 64),  # key
-            (32, 32, 128, 64),  # value
-            (32,),  # cur_pos_tensor
-            (32, 1, 1, 128),  # attention mask with heads=1
-        ],
+        # Mask: [batch, 1, 1, kv_seq] - heads=1 needs broadcast to num_heads.
+        pytest.param(
+            [
+                (1, 32, 32, 64),  # query (decode shape)
+                (32, 32, 128, 64),  # key
+                (32, 32, 128, 64),  # value
+                (32,),  # cur_pos_tensor
+                (32, 1, 1, 128),  # attention mask with heads=1
+            ],
+            marks=pytest.mark.xfail(
+                reason="SDPA decode requires mask[2] == num_heads. Metal issue: https://github.com/tenstorrent/tt-metal/issues/39910"
+            ),
+        ),
     ],
     ids=shapes_list_str,
 )
@@ -903,16 +910,13 @@ def test_sdpa_with_mask_no_workaround(
     [[torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.int32, torch.bfloat16]],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="SDPA decode with mask num_heads=1 fails without workaround. "
-    "tt-metal requires mask[2] == num_heads and does not support implicit broadcast."
-)
 def test_sdpa_decode_mask_broadcast_no_workaround(
     shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
 ):
     """
-    Test that SDPA decode with mask num_heads=1 fails without the workaround.
-    tt-metal requires mask[2] == num_heads for decode.
+    Test that SDPA decode with a mask requiring num_heads broadcast fails
+    without the workaround. Batch broadcast is handled natively by tt-metal,
+    so only the heads dimension needs the workaround.
     """
     batch = shapes[0][1]
     kv_seq = shapes[1][2]
@@ -954,32 +958,156 @@ def test_sdpa_decode_mask_broadcast_no_workaround(
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 1, 1)], ids=shape_str)
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        # concat [1993728, 3] + [1993728, 1] along last dim (dim=1, unaligned).
+        # 1993728 = 62304 * 32, so dim[0] is tile-aligned but last dims 3 and 1 are not.
+        # The internal ttnn.concat path untilizes → transpose(-2,-1) → concat → retilize.
+        # After transpose the new last dim becomes 1993728, so:
+        #   single_page_size = 4 * 1993728 * 2 ≈ 16 MB >> usable L1 (~1.5 MB).
+        ([(1993728, 3), (1993728, 1)], 1),
+    ],
+    ids=["2d_last_dim_1993728"],
+)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.xfail(
-    reason="Non-tile-aligned reduce(prod) along the last dimension pads only the reduced width dimension and leaves the non-reduced height dimension unchanged. Metal issue: https://github.com/tenstorrent/tt-metal/issues/40168"
+    reason="ConcatOpRewritePattern: concat [1993728, 3] + [1993728, 1] along the last "
+    "dim=1 (unaligned) fails due to https://github.com/tenstorrent/tt-metal/issues/43371."
 )
-def test_prod_last_dim_padding_no_workaround(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
+def test_concat_last_dim_unaligned_cb_exceeds_l1_without_workaround(
+    shapes: List[Shape],
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
 ):
     """
-    Test that non-tile-aligned reduce(prod) along the last dimension pads only
-    the reduced width dimension and leaves the non-reduced height dimension
-    unchanged.
+    Test concat with unaligned last dim whose CB overflows L1, workaround disabled.
+    Due to https://github.com/tenstorrent/tt-metal/issues/43371.
     """
 
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def prod_wrapper(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        @builder.func(shapes, [dtype] * len(shapes))
+        def concat_l1_cb_no_workaround_wrapper(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
         ):
-            return builder.prod(in0, dim_arg=[2], keep_dim=False, unit_attrs=unit_attrs)
+            return builder.concat([in0, in1], dim=dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
-        device=device,
         target=target,
-        pipeline_options=["disable-workarounds=true"],
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        # concat [1, 1993728, 3] + [1, 1993728, 1] along last dim (dim=2, unaligned).
+        # dim[-2] = 1993728 after the internal transpose, giving the same CB overflow
+        # as the 2D case: 4 * 1993728 * 2 ≈ 16 MB >> usable L1 (~1.5 MB).
+        # batch=1 is used to keep tensor size manageable (~23 MB + ~7.5 MB).
+        ([(1, 1993728, 3), (1, 1993728, 1)], 2),
+    ],
+    ids=["3d_last_dim_1993728"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="ConcatOpRewritePattern: concat [1, 1993728, 3] + [1, 1993728, 1] along the last dim=2 (unaligned) fails due to https://github.com/tenstorrent/tt-metal/issues/43371."
+)
+def test_concat_last_dim_unaligned_cb_exceeds_l1_3_dims_without_workaround(
+    shapes: List[Shape],
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test concat (3D) with unaligned last dim whose CB overflows L1, workaround disabled.
+    Due to https://github.com/tenstorrent/tt-metal/issues/43371.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def concat_l1_cb_3_dims_no_workaround_wrapper(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concat([in0, in1], dim=dim, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,begins,ends,step,output_shape",
+    [
+        # output last dim 258112: row_bytes * 2 = 258112 * 4 * 2 = 2064896 > ~1498112 (WH usable L1)
+        # Without the workaround, the circular buffer allocation exceeds L1 and crashes.
+        (
+            (6, 3, 258112),
+            [0, 2, 0],
+            [6, 3, 258112],
+            [1, 1, 1],
+            (6, 1, 258112),
+        ),
+    ],
+    ids=["3d_last_dim_258112"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="SliceStaticOpL1CBRewritePattern: output last dim 258112 causes circular "
+    "buffer allocation to exceed L1. Metal issue: https://github.com/tenstorrent/tt-metal/issues/42882"
+)
+def test_slice_l1_cb_workaround_disabled(
+    input_shape: Shape,
+    begins: List[int],
+    ends: List[int],
+    step: List[int],
+    output_shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test slice with the L1 circular buffer workaround disabled.
+    Workaround: SliceStaticOpL1CBRewritePattern - decomposes into
+    permute -> slice_static -> permute when output last dim exceeds L1.
+    Trigger condition: output_last_dim * sizeof(dtype) * 2 > usable_l1.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [dtype])
+        def slice_l1_cb_no_workaround(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )

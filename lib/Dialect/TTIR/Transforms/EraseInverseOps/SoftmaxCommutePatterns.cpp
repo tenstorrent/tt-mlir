@@ -13,58 +13,6 @@ namespace mlir::tt::ttir {
 
 namespace {
 
-int64_t
-findNewSoftmaxDimByStrideAndReductionLen(llvm::ArrayRef<int64_t> inputShape,
-                                         llvm::ArrayRef<int64_t> outputShape,
-                                         int64_t softmaxDim) {
-  // Stride of new softmax dim in new shape must match stride of old
-  // softmax dim in old shape, and same for length.
-  //
-  // Example 1 (Valid commute):
-  //   Input shape      = [2, 3, 4]
-  //   Softmax dim      = 2  (stride = 1, reduction length = 4)
-  //   Reshape          = [6, 4]
-  // The new softmax dim is 1, since output dim 1 still has stride = 1 and
-  // reduction length = 4.
-  //
-  // Example 2 (Invalid Commute)
-  //   Input shape      = [2, 3, 4]
-  //   Softmax dim      = 1  (stride = 4, reduction length = 3)
-  //   Reshape          = [2, 12]
-  //   output strides = [12, 1],  Hence, we can't apply softmax because no
-  //   dimension in output has stride 4 and reduction len = 3
-  int64_t inputDims = inputShape.size();
-  int64_t outputDims = outputShape.size();
-
-  if (softmaxDim < 0) {
-    softmaxDim += inputDims;
-  }
-
-  assert(softmaxDim >= 0 && softmaxDim < inputDims &&
-         "Invalid softmax Dimension");
-
-  int64_t softmaxReductionLength = inputShape[softmaxDim];
-  int64_t inputStride = 1;
-  for (int64_t i = softmaxDim + 1; i < inputDims; ++i) {
-    inputStride *= inputShape[i];
-  };
-
-  // Commute is valid if
-  // 1. Input Stride of softmax dimension is preserved in output, and
-  // 2. The number of elements the over which softmax normalizes/reduces should
-  // also match
-  int64_t outputStride = 1;
-  for (int64_t dim = outputDims - 1; dim >= 0; dim--) {
-    if (outputStride == inputStride &&
-        outputShape[dim] == softmaxReductionLength) {
-      return dim;
-    }
-    outputStride *= outputShape[dim];
-  };
-
-  return -1;
-}
-
 template <CommuteDirection commuteDirection>
 // <TMOp, Op, CommuteDirection>
 class TTIRCommuteReshapeThroughSoftmax
@@ -90,8 +38,11 @@ public:
     auto softmaxInputShape = softmaxInputType.getShape();
     auto outputReshapeShape = outputReshapeType.getShape();
     int64_t softmaxDim = static_cast<int64_t>(op.getDimension());
-    // We are mapping the softmax axis from softmax input to reshape user output
-    int64_t newSoftmaxDim = findNewSoftmaxDimByStrideAndReductionLen(
+    if (softmaxDim < 0) {
+      softmaxDim += softmaxInputShape.size();
+    }
+    // Map the softmax axis from softmax input to reshape user output.
+    int64_t newSoftmaxDim = utils::findMatchingDim(
         softmaxInputShape, outputReshapeShape, softmaxDim);
     assert(newSoftmaxDim != -1 &&
            "Invalid Softmax Dimension, isCommuteUpwardsFavorable should have "
@@ -144,9 +95,12 @@ public:
     auto reshapeOperandInputShape =
         reshapeOperand.getInput().getType().getShape();
     int64_t softmaxDim = static_cast<int64_t>(op.getDimension());
-    // We are mapping the softmax axis from reshape operand output to reshape
-    // operand input
-    int64_t newSoftmaxDim = findNewSoftmaxDimByStrideAndReductionLen(
+    if (softmaxDim < 0) {
+      softmaxDim += reshapeOperandOutputShape.size();
+    }
+    // Map the softmax axis from reshape operand output to reshape operand
+    // input.
+    int64_t newSoftmaxDim = utils::findMatchingDim(
         reshapeOperandOutputShape, reshapeOperandInputShape, softmaxDim);
     assert(newSoftmaxDim != -1 &&
            "Invalid Softmax Dimension, isCommuteDownwardsFavorable should have "
@@ -191,9 +145,12 @@ private:
     auto outputReshapeShape =
         cast<RankedTensorType>(reshapeUser.getResult().getType()).getShape();
     int64_t softmaxDim = static_cast<int64_t>(op.getDimension());
+    if (softmaxDim < 0) {
+      softmaxDim += softmaxInputShape.size();
+    }
 
-    // We are mapping the softmax axis from softmax input to reshape user output
-    int64_t newSoftmaxDim = findNewSoftmaxDimByStrideAndReductionLen(
+    // Map the softmax axis from softmax input to reshape user output.
+    int64_t newSoftmaxDim = utils::findMatchingDim(
         softmaxInputShape, outputReshapeShape, softmaxDim);
     if (newSoftmaxDim == -1) {
       return false;
@@ -227,10 +184,13 @@ private:
     auto reshapeOperandInputShape =
         reshapeOperand.getInput().getType().getShape();
     int64_t softmaxDim = static_cast<int64_t>(op.getDimension());
+    if (softmaxDim < 0) {
+      softmaxDim += reshapeOperandOutputShape.size();
+    }
 
-    // We are mapping the softmax axis from reshape operand output to reshape
-    // operand input
-    int64_t newSoftmaxDim = findNewSoftmaxDimByStrideAndReductionLen(
+    // Map the softmax axis from reshape operand output to reshape operand
+    // input.
+    int64_t newSoftmaxDim = utils::findMatchingDim(
         reshapeOperandOutputShape, reshapeOperandInputShape, softmaxDim);
     if (newSoftmaxDim == -1) {
       return false;

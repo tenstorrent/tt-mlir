@@ -133,6 +133,19 @@ module  {
     return %result : tensor<17x1024xf32>
   }
 
+  // Verify that ttcore.weight_dtype discardable attribute is preserved on the
+  // matmul op after LinearOp decomposition into matmul + add.
+  func.func @linear_decompose_preserves_weight_dtype(%arg0: tensor<2x33x1024xf32>, %arg1: tensor<2x1024x1024xf32>, %arg2: tensor<2x33x1024xf32>) -> tensor<2x33x1024xf32>{
+    // CHECK-LABEL: func.func @linear_decompose_preserves_weight_dtype
+    // CHECK: "ttnn.matmul"
+    // CHECK-SAME: ttcore.weight_dtype = "bfp_bf8"
+    // CHECK: "ttnn.add"
+    // CHECK-NOT: "ttnn.linear"
+    // CHECK: return
+    %result = "ttnn.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> {ttcore.weight_dtype = "bfp_bf8"} : (tensor<2x33x1024xf32>, tensor<2x1024x1024xf32>, tensor<2x33x1024xf32>) -> tensor<2x33x1024xf32>
+    return %result : tensor<2x33x1024xf32>
+  }
+
   func.func @linear_with_feature_broadcast_bias(%arg0: tensor<32x1024xf32>, %arg1: tensor<1024x1024xf32>, %arg2: tensor<1xf32>) -> tensor<32x1024xf32>{
     // CHECK-LABEL: func.func @linear_with_feature_broadcast_bias
     // CHECK: "ttnn.matmul"

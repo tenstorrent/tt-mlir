@@ -35,6 +35,21 @@ static std::string getMangledName(std::string_view funcName) {
   return mangledName;
 }
 
+// Read one line from a popen pipe & strip the trailing newline.
+// Returns true if a line was read (including empty lines before EOF), false on
+// EOF with no data. Handles arbitrarily long C++ mangled names.
+static bool readLine(FILE *pipe, std::string &line) {
+  line.clear();
+  int ch;
+  while ((ch = fgetc(pipe)) != EOF) {
+    if (ch == '\n') {
+      return true;
+    }
+    line += static_cast<char>(ch);
+  }
+  return !line.empty();
+}
+
 // The names of input creation functions are mangled unpredictably
 static std::string getCreateInputsMangledName(std::string_view funcName,
                                               std::string path) {
@@ -47,19 +62,21 @@ static std::string getCreateInputsMangledName(std::string_view funcName,
         "Failed to execute command to get mangled function name");
   }
 
-  char buffer[256];
-  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-    std::string funcNameBuffer = buffer;
-    // Remove newline
-    if (!funcNameBuffer.empty() && funcNameBuffer.back() == '\n') {
-      funcNameBuffer.pop_back();
-    }
+  std::string result;
+  std::string funcNameBuffer;
+  while (readLine(pipe, funcNameBuffer)) {
     if (funcNameBuffer.find("create_inputs_for_") != std::string::npos &&
         funcNameBuffer.find(funcName) != std::string::npos) {
-      return funcNameBuffer;
+      result = std::move(funcNameBuffer);
+      break;
     }
   }
-  throw std::runtime_error("Failed to find mangled function name");
+  pclose(pipe);
+
+  if (result.empty()) {
+    throw std::runtime_error("Failed to find mangled function name");
+  }
+  return result;
 }
 
 void *openSo(const std::string &path) {
@@ -83,8 +100,8 @@ void closeSo(void *handle) {
   int ret = dlclose(handle);
 
   if (ret != 0) {
-    std::cerr << "Failed to close shared object: " << dlerror() << std::endl;
-    exit(ret);
+    throw std::runtime_error(std::string("Failed to close shared object: ") +
+                             dlerror());
   }
 }
 
@@ -106,13 +123,8 @@ std::vector<std::string> getSoPrograms(void *so, std::string path) {
         "Failed to execute command to get mangled function names");
   }
 
-  char buffer[256];
-  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-    std::string funcName = buffer;
-    // Remove newline
-    if (!funcName.empty() && funcName.back() == '\n') {
-      funcName.pop_back();
-    }
+  std::string funcName;
+  while (readLine(pipe, funcName)) {
     if (!funcName.empty()) {
       functionNames.push_back(funcName);
     }
@@ -159,7 +171,6 @@ createInputs(void *so, std::string funcName, Device device, std::string path) {
   void *setDeviceSymbol = dlsym(so, "setDevice");
   const char *setDeviceError = dlerror();
   if (setDeviceError) {
-    dlclose(so);
     LOG_FATAL("Failed to find setDevice function in dylib.");
   }
   using SetDeviceFunction = void (*)(::ttnn::MeshDevice *);
@@ -175,7 +186,6 @@ createInputs(void *so, std::string funcName, Device device, std::string path) {
   void *createInputsSymbol = dlsym(so, mangledCreateInputsName.c_str());
   char *dlsymError = dlerror();
   if (dlsymError) {
-    dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsymError);
   }
   auto createInputsFunc =
@@ -213,7 +223,6 @@ runSoProgram(void *so, const std::string &funcName,
   void *setDeviceSymbol = dlsym(so, "setDevice");
   const char *setDeviceError = dlerror();
   if (setDeviceError) {
-    dlclose(so);
     LOG_FATAL("Failed to find setDevice function in dylib.");
   }
   using SetDeviceFunction = void (*)(::ttnn::MeshDevice *);
@@ -239,7 +248,6 @@ runSoProgram(void *so, const std::string &funcName,
   void *symbol = dlsym(so, mangledName.c_str());
   char *dlsymError = dlerror();
   if (dlsymError) {
-    dlclose(so);
     LOG_FATAL("Failed to load symbol: ", dlsymError);
   }
 

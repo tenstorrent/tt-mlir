@@ -2,9 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 module {
   func.func @test_repeat_interleave(%arg0: tensor<1x8x1x12x64xf32>) -> tensor<1x8x1x12x64xf32> {
-    // CHECK: "ttnn.repeat_interleave"
-    // CHECK-SAME: dim = 0 : si32
-    // CHECK-SAME: repeats = 1 : ui32
+    // CHECK: return %arg0
     %0 = "ttir.repeat_interleave"(%arg0) {repeats = 1 : ui32, dim = 0 : si32} : (tensor<1x8x1x12x64xf32>) -> tensor<1x8x1x12x64xf32>
     return %0 : tensor<1x8x1x12x64xf32>
   }

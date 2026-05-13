@@ -21,7 +21,6 @@
 namespace mlir::tt::ttnn {
 
 constexpr const char *kCacheDictAttr = "cache_dict";
-constexpr const char *kWrapperAttr = "consteval_wrapper";
 
 enum class FileSplitTarget { EmitPy, EmitC };
 

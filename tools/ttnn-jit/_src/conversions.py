@@ -14,8 +14,8 @@ This includes:
 - Buffer type conversions (string -> TTNN enum)
 - Memory layout conversions (string -> TTNN enum)
 """
-from ttmlir.ir import BF16Type, F32Type, IntegerType
-from ttmlir.dialects import ttcore
+from ttnn_jit.ttmlir.ir import BF16Type, F32Type, IntegerType
+from ttnn_jit.ttmlir.dialects import ttcore
 import ttnn
 
 

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from contextvars import ContextVar
+import gc
 import os
 import inspect
 import time
@@ -19,7 +20,7 @@ from ttmlir.dialects import func, ttcore, ttnn, ttir, sdy
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
-    ttir_to_ttnn_backend_pipeline,
+    ttir_to_ttnn_runtime_pipeline,
     ttir_to_ttmetal_backend_pipeline,
     translate_to_cpp,
     translate_to_python,
@@ -61,69 +62,111 @@ def _compile_and_execute(
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
     **compile_kwargs,
-) -> str:
-    builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
-        target=target,
-        **compile_kwargs,
-    )
+):
+    # Support deferred device: resolve after compilation so the optimizer
+    # pipeline can use OpModel's mock device without conflicting with a
+    # real device. Only supported for ttnn/ttmetal targets.
+    is_deferred = isinstance(device, DeferredDevice)
+    if is_deferred:
+        assert target in [
+            "ttnn",
+            "ttmetal",
+        ], f"DeferredDevice is only supported for ttnn/ttmetal targets, got {target}"
+        deferred = device
+        deferred.prepare()
+        device = None
 
-    if skip_exec:
-        raise TTBuilderRuntimeException("Manually skipped execution")
+    # Avoid GC while compiling/executing against the runtime so Python does not
+    # finalize wrappers in the middle of backend teardown. Force one collection
+    # only after the deferred device is closed and large references are dropped.
+    gc_was_enabled = gc.isenabled()
+    if gc_was_enabled:
+        gc.disable()
 
-    # Execute the flatbuffer
-    if target in ["ttnn", "ttmetal"]:
-        execute_fb(
-            compiled_bin,
-            pcc=pcc,
-            atol=atol,
-            rtol=rtol,
-            disable_golden=disable_golden,
-            device=device,
-            check_pcc=check_pcc,
-            check_atol=check_atol,
-            check_rtol=check_rtol,
-            input_output_goldens=input_output_goldens,
-            intermediate_goldens=intermediate_goldens,
-            bypass_ops=builder._bypass_ops,
-            enable_intermediate_verification=enable_intermediate_verification,
-            save_artifacts=compile_kwargs.get("save_artifacts", False),
-            artifact_dir=compile_kwargs.get("artifact_dir", "."),
-            dump_memory=dump_memory,
+    builder = None
+    compiled_bin = None
+    input_output_goldens = None
+    intermediate_goldens = None
+    try:
+        builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
+            target=target,
+            **compile_kwargs,
         )
 
-    elif target == "emitpy":
-        execute_py(
-            compiled_bin,
-            pcc=pcc,
-            atol=atol,
-            rtol=rtol,
-            disable_golden=disable_golden,
-            check_pcc=check_pcc,
-            check_atol=check_atol,
-            check_rtol=check_rtol,
-            input_output_goldens=input_output_goldens,
-            save_artifacts=compile_kwargs.get("save_artifacts", False),
-            artifact_dir=compile_kwargs.get("artifact_dir", "."),
-        )
+        if skip_exec:
+            raise TTBuilderRuntimeException("Manually skipped execution")
 
-    elif target == "emitc":
-        cpp_path = os.path.join(
-            compile_kwargs.get("artifact_dir", "."), "emitc_compiled.cpp"
-        )
-        execute_cpp(
-            cpp_path,
-            pcc=pcc,
-            atol=atol,
-            rtol=rtol,
-            disable_golden=disable_golden,
-            device=device,
-            check_pcc=check_pcc,
-            check_atol=check_atol,
-            check_rtol=check_rtol,
-            input_output_goldens=input_output_goldens,
-            save_artifacts=compile_kwargs.get("save_artifacts", False),
-            artifact_dir=compile_kwargs.get("artifact_dir", "."),
-        )
+        if is_deferred:
+            device = deferred.open()
+
+        # Execute the flatbuffer, closing deferred devices after execution so that
+        # the next test's compilation can use a mock device without conflict.
+        if target in ["ttnn", "ttmetal"]:
+            execute_fb(
+                compiled_bin,
+                pcc=pcc,
+                atol=atol,
+                rtol=rtol,
+                disable_golden=disable_golden,
+                device=device,
+                check_pcc=check_pcc,
+                check_atol=check_atol,
+                check_rtol=check_rtol,
+                input_output_goldens=input_output_goldens,
+                intermediate_goldens=intermediate_goldens,
+                bypass_ops=builder._bypass_ops,
+                enable_intermediate_verification=enable_intermediate_verification,
+                save_artifacts=compile_kwargs.get("save_artifacts", False),
+                artifact_dir=compile_kwargs.get("artifact_dir", "."),
+                dump_memory=dump_memory,
+            )
+
+        elif target == "emitpy":
+            execute_py(
+                compiled_bin,
+                pcc=pcc,
+                atol=atol,
+                rtol=rtol,
+                disable_golden=disable_golden,
+                check_pcc=check_pcc,
+                check_atol=check_atol,
+                check_rtol=check_rtol,
+                input_output_goldens=input_output_goldens,
+                save_artifacts=compile_kwargs.get("save_artifacts", False),
+                artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            )
+
+        elif target == "emitc":
+            cpp_path = os.path.join(
+                compile_kwargs.get("artifact_dir", "."), "emitc_compiled.cpp"
+            )
+            execute_cpp(
+                cpp_path,
+                pcc=pcc,
+                atol=atol,
+                rtol=rtol,
+                disable_golden=disable_golden,
+                device=device,
+                check_pcc=check_pcc,
+                check_atol=check_atol,
+                check_rtol=check_rtol,
+                input_output_goldens=input_output_goldens,
+                save_artifacts=compile_kwargs.get("save_artifacts", False),
+                artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            )
+    finally:
+        if is_deferred and device is not None:
+            deferred.close(device)
+            device = None
+
+        builder = None
+        compiled_bin = None
+        input_output_goldens = None
+        intermediate_goldens = None
+
+        if gc_was_enabled:
+            gc.enable()
+        gc.collect()
 
 
 def _compile(root_func: Callable, builder: Builder):
@@ -133,7 +176,7 @@ def _compile(root_func: Callable, builder: Builder):
 
     if isinstance(builder, StableHLOBuilder):
         new_module.body.append(builder._get_mesh())
-    elif isinstance(builder, TTIRBuilder):
+    elif isinstance(builder, TTIRBuilder) or isinstance(builder, TTNNBuilder):
         mesh = ttcore.ir.MeshAttr.get(
             builder._ctx, builder._mesh_name, builder._mesh_shape
         )
@@ -663,6 +706,7 @@ def compile_and_execute_ttir(
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
     )
+    return os.path.join(artifact_dir, f"{target}_compiled.mlir")
 
 
 def compile_ttir_to_flatbuffer(
@@ -803,7 +847,7 @@ def compile_ttnn_to_flatbuffer(
     Compiles a TTNN function to flatbuffer format.
 
     This helper function generates a TTNN mlir module runs the compilation
-    pipeline using ttir-to-ttnn-backend-pipeline and finally generates a flatbuffer.
+    pipeline using ttir-to-ttnn-runtime-pipeline and finally generates a flatbuffer.
 
     Parameters
     ----------
@@ -1226,7 +1270,7 @@ def compile_ttir_module_to_flatbuffer(
         pipeline_fn = (
             custom_pipeline
             if custom_pipeline
-            else wrap_pipeline_with_print_ir(ttir_to_ttnn_backend_pipeline)
+            else wrap_pipeline_with_print_ir(ttir_to_ttnn_runtime_pipeline)
         )
         to_target = ttnn_to_flatbuffer_bin
         to_file = ttnn_to_flatbuffer_file

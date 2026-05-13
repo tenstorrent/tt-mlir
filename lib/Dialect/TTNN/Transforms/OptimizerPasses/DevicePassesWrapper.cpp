@@ -10,6 +10,7 @@
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/ScopeExit.h"
 
@@ -74,8 +75,23 @@ public:
       unsetenv("TT_METAL_DISABLE_BACKTRACE");
     });
 
-    // Run the nested pipeline
-    if (failed(runPipeline(nestedPm, getOperation()))) {
+    // Install a scoped diagnostic handler to detect error diagnostics from
+    // nested passes. MLIR's OpToOpPassAdaptor runs passes on nested operations
+    // matching the pipeline's anchor type. When passes call signalPassFailure()
+    // inside these nested invocations, the failure may not propagate through
+    // runPipeline(). Catching error diagnostics provides a reliable fallback.
+    bool nestedPassEmittedError = false;
+    ScopedDiagnosticHandler diagHandler(
+        op->getContext(), [&](Diagnostic &diag) {
+          if (diag.getSeverity() == DiagnosticSeverity::Error) {
+            nestedPassEmittedError = true;
+          }
+          return failure();
+        });
+
+    // Run the nested pipeline.
+    auto pipelineResult = runPipeline(nestedPm, getOperation());
+    if (failed(pipelineResult) || nestedPassEmittedError) {
       signalPassFailure();
       return;
     }

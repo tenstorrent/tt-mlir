@@ -40,7 +40,9 @@ struct OpRuleBook {
   /// because resharding wouldn't improve the output — e.g., SDPA ops
   /// accept any input layout but always output DRAM-interleaved, so
   /// resharding inputs to sharded is wasted compile time with no benefit.
-  virtual LayoutFilterFn getInputLayoutFilter() const { return nullptr; }
+  virtual LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const {
+    return nullptr;
+  }
 
   /// Whether to generate reshard candidates for this op's inputs.
   /// This is a compile-time optimization: returning false skips
@@ -49,15 +51,43 @@ struct OpRuleBook {
   /// always outputs DRAM-interleaved regardless of input layout).
   virtual bool shouldExploreReshards() const { return true; }
 
+  /// Cross-product pruning: reject input layout combinations before expensive
+  /// backend validation. Default accepts all. Override for ops that require
+  /// homogeneous input layouts (e.g., concat requires all inputs to share the
+  /// same memory layout type).
+  virtual bool
+  isValidInputCombination(llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+    return true;
+  }
+
+  /// Cross-product pruning: reject output hint + input layout combinations
+  /// before expensive backend validation. Default accepts all. Override for
+  /// ops where certain output hints are known to be incompatible with certain
+  /// input layouts (e.g., concat requires sharded output to match input
+  /// memory layout type).
+  virtual bool isValidOutputHintForInputs(
+      const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+    return true;
+  }
+
   /// Apply op-specific attributes (Conv2dConfig, MatmulProgramConfig, etc.)
   /// from the chosen candidate to the IR op.
   virtual void applyOpSpecificAttrs(Operation *op,
                                     const BeamCandidate &candidate) const {}
 
   /// Tiebreaker when two candidates have equal LayoutScores.
+  /// Default: prefer more sharded inputs (fewer DRAM/L1-interleaved reads).
   virtual bool preferCandidate(Operation *op, const BeamCandidate &a,
-                               const BeamCandidate &b) const {
-    return false;
+                               const BeamCandidate &b) const;
+
+  /// Adjust a candidate's LayoutScore after the base scorer computed it.
+  /// Receives the output config, all operand input
+  /// layouts, and the reshard flag.
+  virtual LayoutScore adjustScore(Operation *op, LayoutScore base,
+                                  const OpConfig &config,
+                                  llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                                  bool requiresReshard) const {
+    return base;
   }
 };
 

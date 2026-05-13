@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -59,11 +60,12 @@ public:
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
-    return TTNNLayoutAttr::get(
-        &context, tensorShape, elementType, bufferType,
-        mlir::tt::ttcore::GridAttr::get(&context, gridShape),
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                    tensorMemoryLayout));
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+    return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(tensorMemoryLayout)
+        .setGridShape(gridShape)
+        .buildWithCanonicalCorePlacement(deviceAttr);
   }
 
   TTNNLayoutAttr
@@ -189,9 +191,6 @@ TEST_F(OpModelStrategyTest, DefaultOpNullOnlyInPrimaryHints) {
 
   OutputHints hints = getOutputHints(addOp, legalConfigs);
 
-  // Should have attemptL1Sharding = true.
-  EXPECT_TRUE(hints.attemptL1Sharding);
-
   // Primary hints should contain only the NULL hint.
   EXPECT_EQ(hints.hints.size(), 1u);
   EXPECT_FALSE(hints.hints[0].outputLayout);
@@ -227,8 +226,6 @@ TEST_F(OpModelStrategyTest, MatmulOpFiltersL1Interleaved) {
 
   OutputHints hints = getOutputHints(matmulOp, legalConfigs);
 
-  EXPECT_TRUE(hints.attemptL1Sharding);
-
   // L1-interleaved configs are filtered out for matmul (no program config
   // generated -> HiFi4 fallback). Remaining: DRAM + L1-sharded variants.
   EXPECT_LT(hints.hints.size(), legalConfigs.size());
@@ -251,9 +248,6 @@ TEST_F(OpModelStrategyTest, ReshapeOpSkipsL1Sharding) {
 
   OutputHints hints = getOutputHints(reshapeOp, legalConfigs);
 
-  // Should skip L1 sharding.
-  EXPECT_FALSE(hints.attemptL1Sharding);
-
   // All hints should be non-sharded (DRAM or L1-interleaved).
   for (const auto &hint : hints.hints) {
     if (hint.outputLayout && hint.outputLayout.getMemLayout()) {
@@ -270,7 +264,6 @@ TEST_F(OpModelStrategyTest, UnknownOpUsesDefaultStrategy) {
 
   OutputHints hints = getOutputHints(addOp, legalConfigs);
 
-  EXPECT_TRUE(hints.attemptL1Sharding);
   // First hint should be NULL.
   EXPECT_FALSE(hints.hints[0].outputLayout);
 }

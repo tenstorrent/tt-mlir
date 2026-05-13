@@ -9,9 +9,8 @@
 module {
   func.func @test_reshape_lhs_const_rhs(%arg0: tensor<32x2560xf32>) -> tensor<32x1x2560xf32> {
     // CHECK-LABEL: func.func @test_reshape_lhs_const_rhs
-    // CHECK: %[[CONST:.*]] = "ttir.constant"
-    // CHECK: %[[CONST_RESHAPE:.*]] = "ttir.reshape"(%[[CONST]])
-    // CHECK-SAME: shape = [32 : i32, 2560 : i32]
+    // CHECK: %[[CONST_RESHAPE:.*]] = "ttir.full"
+    // CHECK-SAME: shape = array<i32: 32, 2560>
     // CHECK: %[[POW:.*]] = "ttir.pow"(%arg0, %[[CONST_RESHAPE]])
     // CHECK-SAME: tensor<32x2560xf32>
     // CHECK: %[[OUT_RESHAPE:.*]] = "ttir.reshape"(%[[POW]])
@@ -28,9 +27,8 @@ module {
 module {
   func.func @test_add_reshape_to_constant(%arg0: tensor<64x128xf32>) -> tensor<64x1x128xf32> {
     // CHECK-LABEL: func.func @test_add_reshape_to_constant
-    // CHECK: %[[CONST:.*]] = "ttir.constant"
-    // CHECK: %[[CONST_RESHAPE:.*]] = "ttir.reshape"(%[[CONST]])
-    // CHECK-SAME: shape = [64 : i32, 128 : i32]
+    // CHECK: %[[CONST_RESHAPE:.*]] = "ttir.ones"
+    // CHECK-SAME: shape = array<i32: 64, 128>
     // CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[CONST_RESHAPE]])
     // CHECK: %[[OUT_RESHAPE:.*]] = "ttir.reshape"(%[[ADD]])
     // CHECK: return %[[OUT_RESHAPE]]
@@ -45,9 +43,8 @@ module {
 module {
   func.func @test_sub_reshape_to_constant(%arg0: tensor<16x32xf32>) -> tensor<1x16x32xf32> {
     // CHECK-LABEL: func.func @test_sub_reshape_to_constant
-    // CHECK: %[[CONST:.*]] = "ttir.constant"
-    // CHECK: %[[CONST_RESHAPE:.*]] = "ttir.reshape"(%[[CONST]])
-    // CHECK-SAME: shape = [16 : i32, 32 : i32]
+    // CHECK: %[[CONST_RESHAPE:.*]] = "ttir.full"
+    // CHECK-SAME: shape = array<i32: 16, 32>
     // CHECK: %[[SUB:.*]] = "ttir.subtract"(%arg0, %[[CONST_RESHAPE]])
     // CHECK: %[[OUT_RESHAPE:.*]] = "ttir.reshape"(%[[SUB]])
     // CHECK: return %[[OUT_RESHAPE]]

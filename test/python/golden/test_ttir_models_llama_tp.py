@@ -178,13 +178,7 @@ def golden_llama(
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 15], ids=["fp32"])
-@pytest.mark.parametrize(
-    "target",
-    [
-        "ttnn",
-        pytest.param("ttmetal", marks=pytest.mark.skip("TTMetal not supported yet")),
-    ],
-)
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("mesh_shape", [(1, 2), (1, 8), (2, 4)])
 def test_llama_attention_1xn_tp(
     shapes: List[Shape],

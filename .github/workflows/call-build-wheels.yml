@@ -69,7 +69,7 @@ jobs:
           config-file: "${{ steps.strings.outputs.work-dir }}/${{ matrix.build.path }}/pyproject.toml"
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.build.name }}-wheel
           path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
@@ -102,7 +102,7 @@ jobs:
           python-version: '3.12'
 
       - name: Download wheel
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.build.name }}-wheel
           path: ./dist

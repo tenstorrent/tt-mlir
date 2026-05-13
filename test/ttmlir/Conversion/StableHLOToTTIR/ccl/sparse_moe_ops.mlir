@@ -104,3 +104,4 @@ module @sparse_moe_ops attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
 // CHECK-SAME: cluster_axis = 0
 // CHECK-SAME: num_devices = 2
 // CHECK-SAME: num_experts_per_tok = 4
+// CHECK-SAME: output_shard_dim = 1

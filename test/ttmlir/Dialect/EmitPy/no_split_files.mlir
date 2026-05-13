@@ -21,14 +21,15 @@ module {
 // CHECK: module {
 // CHECK:   emitpy.import import "ttnn"
 // CHECK:   emitpy.import import "utils"
+// CHECK:   emitpy.import import "ttir_cpu"
 // CHECK-NOT: emitpy.file
 // CHECK:   func.func @cpu_hoisted_const_eval_{{.*}}
 // CHECK:   func.func private @forward_const_eval_0(
 // CHECK:     call @cpu_hoisted_const_eval_{{.*}}
 // CHECK-NOT: emitpy.file
-// CHECK:   emitpy.global @_cached_forward = #emitpy.opaque<"{}">
+// CHECK:   emitpy.global @ce_cache_forward = #emitpy.opaque<"{}">
 // CHECK:   func.func @forward(
-// CHECK:     emitpy.global_statement @_cached_forward
+// CHECK:     emitpy.global_statement @ce_cache_forward
 // CHECK:     call @consteval_forward
 // CHECK:     emitpy.call_opaque "ttnn.add"
 // CHECK:     emitpy.call_opaque "ttnn.add"

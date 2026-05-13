@@ -16,8 +16,10 @@
 #include "ttmlir/Utils.h"
 
 #include "flatbuffers/buffer.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
+#include <cstdint>
 #include <optional>
 #include <type_traits>
 
@@ -317,6 +319,11 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::Dim2d(tileSize.getY(), tileSize.getX());
 }
 
+inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
+                                        ttcore::CoreCoordAttr coreCoord) {
+  return ::tt::target::Dim2d(coreCoord.getY(), coreCoord.getX());
+}
+
 inline ::tt::target::ChipCapability
 toFlatbuffer(FlatbufferObjectCache &,
              ttcore::ChipCapabilityAttr capabilityAttr) {
@@ -413,6 +420,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
   auto coordTranslationOffsets =
       ::tt::target::Dim2d(chipDesc.getCoordTranslationOffsets()[0],
                           chipDesc.getCoordTranslationOffsets()[1]);
+  assert(chipDesc.getDramGrid().size() == 2 && "expected a 2D dram grid");
+  auto dramGridSize =
+      ::tt::target::Dim2d(chipDesc.getDramGrid()[0], chipDesc.getDramGrid()[1]);
   return ::tt::target::CreateChipDesc(
       *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
       &coordTranslationOffsets, chipDesc.getL1Size(),
@@ -424,7 +434,10 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
       chipDesc.getDstPhysicalSizeTiles(), chipDesc.getNumCBs(),
-      chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads());
+      chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads(),
+      &dramGridSize,
+      toFlatbuffer(cache, chipDesc.getDramBankToLogicalWorkerNoc0()),
+      toFlatbuffer(cache, chipDesc.getDramBankToLogicalWorkerNoc1()));
 }
 
 inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
@@ -948,8 +961,7 @@ inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
              ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
              ttnn::TensorMemoryLayoutAttr memLayoutAttr,
-             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid,
-             bool exactGrid) {
+             ttnn::CoreRangeSetAttr coreRangeSetAttr) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   ttcore::DataType dtype = ttcore::DataType::Float32;
@@ -986,42 +998,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       shape[0] *= tileShape.y();
       shape[1] *= tileShape.x();
 
-      ttnn::CoreRangeSetAttr coreRangeSetAttr;
-      // For TTNN JIT, the sharding core range has already been set by the user.
-      // This means that for height and width sharding, the grid in the
-      // TTNNLayoutAttr is not a virtual Mx1 or 1xN grid that would require
-      // collapsing. This is required to distinguish between 3x4 and 2x6 as
-      // sharding grids for height and width sharding.
-      // Note that the core coord is (X,Y) but the grid shape is (Y,X).
-      if (exactGrid) {
-        coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
-            ctx, ttnn::CoreRangeAttr::get(
-                     ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                     ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
-                                              shardGrid.getShape()[0] - 1)));
-      } else {
-        // When the layout's grid has a non-empty mapping, it is a virtual grid
-        // and we must use that mapping for virtual-to-physical core range.
-        // Otherwise use the default mapping from mem layout and device grid.
-        mlir::AffineMap mapping =
-            shardGrid.getVirtToPhysicalMap().isEmpty()
-                ? ttnn::optimizer_utils::
-                      createSingleDeviceVirtualToPhysicalAffineMaps(
-                          ctx, memLayoutAttr.getValue(), deviceGrid.getShape())
-                          .first
-                : shardGrid.getVirtToPhysicalMap();
-        coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
-            ctx,
-            llvm::map_to_vector(
-                ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping),
-                [ctx](const auto &range) {
-                  const auto [loc, size] = range;
-                  return ttnn::CoreRangeAttr::get(
-                      ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
-                      ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
-                                               loc[1] + size[1] - 1));
-                }));
-      }
+      assert(coreRangeSetAttr &&
+             "sharded TTNN layout must carry a CoreRangeSet");
+
       shardSpecAttr = ttnn::ShardSpecAttr::get(
           ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
           ttnn::ShardOrientationAttr::get(ctx,
@@ -1040,8 +1019,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 
 inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
 ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
-                           ttnn::TTNNLayoutAttr layoutAttr,
-                           ttcore::DeviceAttr deviceAttr) {
+                           ttnn::TTNNLayoutAttr layoutAttr) {
   // TODO (jnie): Memory reference alone is insufficient to determine LayoutDesc
   // uniquely. Using `cache.getOrCreate()` is unsafe because identical memory
   // references can produce different LayoutDesc objects.
@@ -1053,8 +1031,7 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
-                   layoutAttr.getGrid(), deviceAttr.getWorkerGrid(),
-                   layoutAttr.getExactGrid()));
+                   layoutAttr.getCoreRangeSet()));
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc> toFlatbuffer(
@@ -1207,25 +1184,25 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttmetal::NocIndex nocIndex) {
+                                           ttcore::NocIndex nocIndex) {
   switch (nocIndex) {
-  case ttmetal::NocIndex::Noc0:
+  case ttcore::NocIndex::Noc0:
     return ::tt::target::NocIndex::Noc0;
-  case ttmetal::NocIndex::Noc1:
+  case ttcore::NocIndex::Noc1:
     return ::tt::target::NocIndex::Noc1;
   }
   assert(false && "Unsupported NocIndex");
 }
 
-inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttnn::NocIndex nocIndex) {
-  switch (nocIndex) {
-  case ttnn::NocIndex::Noc0:
-    return ::tt::target::NocIndex::Noc0;
-  case ttnn::NocIndex::Noc1:
-    return ::tt::target::NocIndex::Noc1;
+inline ::tt::target::RoutingMode toFlatbuffer(FlatbufferObjectCache &cache,
+                                              ttcore::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttcore::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttcore::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
   }
-  assert(false && "Unsupported NocIndex");
+  assert(false && "Unsupported RoutingMode");
 }
 
 } // namespace mlir::tt

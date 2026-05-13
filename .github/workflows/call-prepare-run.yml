@@ -59,6 +59,7 @@ jobs:
           files: |
             docs/**
             .github/CODEOWNERS
+            .test_durations/**
             .gitignore
             LICENSE
             '*.md'
@@ -110,7 +111,7 @@ jobs:
           echo "sh_builder=$sh_builder" >> "$GITHUB_OUTPUT"
           echo sh_builder=$sh_builder
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 

@@ -41,7 +41,7 @@ static void runPagedScaledDotProductAttentionDecodeOp(
   }
 
   std::optional<float> scale = op->scale();
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+  std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
   const auto computeGrid = query.device()->compute_with_storage_grid_size();
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>

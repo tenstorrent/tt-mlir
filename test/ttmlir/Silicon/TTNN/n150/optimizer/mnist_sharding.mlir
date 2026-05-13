@@ -1,14 +1,14 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" -o mnist_sharding_ttnn.mlir -mlir-print-local-scope %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2 enable-greedy-optimizer=false" -o mnist_sharding_ttnn.mlir -mlir-print-local-scope %s
 // RUN: FileCheck %s --input-file=mnist_sharding_ttnn.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn mnist_sharding_ttnn.mlir
 
 // CHECK: %[[LINEAR1:.*]] = "ttnn.linear"
-// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>>>
+// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>{{(, core_ranges = (#ttnn\.core_range_set)?<\[[^]]*\]>)?}}>>
 // CHECK: %[[RELU:.*]] = "ttnn.relu"(%[[LINEAR1]]
-// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>>>
+// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>{{(, core_ranges = (#ttnn\.core_range_set)?<\[[^]]*\]>)?}}>>
 // CHECK: %[[LINEAR2:.*]] = "ttnn.linear"(%[[RELU]]
-// CHECK-SAME: -> tensor<1x10xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>>>
+// CHECK-SAME: -> tensor<1x10xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>{{(, core_ranges = (#ttnn\.core_range_set)?<\[[^]]*\]>)?}}>>
 
 #loc = loc("MNISTLinear":4294967295:0)
 module @"tt-forge-graph" attributes {} {

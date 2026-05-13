@@ -210,6 +210,53 @@ func.func @constant_1d_promoted() -> tensor<4xi64> {
 }
 
 // =============================================================================
+// 1D ttir.full - shape attr promoted to match result (verifier)
+// =============================================================================
+// ttir.full requires `shape` to match the result tensor shape; rank normalization
+// promotes tensor<1xsi32> to tensor<1x1xsi32> and must prepend 1 to `shape`.
+
+// CHECK-LABEL: func.func @full_1d_with_1d_arg
+// CHECK-SAME: (%arg0: tensor<1x1xsi32>) -> tensor<1x1xsi32>
+// CHECK: %[[F:.*]] = "ttir.full"() <{fill_value = 128 : i32, shape = array<i32: 1, 1>}> : () -> tensor<1x1xsi32>
+// CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[F]]) : (tensor<1x1xsi32>, tensor<1x1xsi32>) -> tensor<1x1xsi32>
+// CHECK: return %[[ADD]] : tensor<1x1xsi32>
+func.func @full_1d_with_1d_arg(%arg0: tensor<1xsi32>) -> tensor<1xsi32> {
+  %0 = "ttir.full"() <{fill_value = 128 : i32, shape = array<i32: 1>}> : () -> tensor<1xsi32>
+  %1 = "ttir.add"(%arg0, %0) : (tensor<1xsi32>, tensor<1xsi32>) -> tensor<1xsi32>
+  return %1 : tensor<1xsi32>
+}
+
+// =============================================================================
+// 1D ttir.zeros - shape attr promoted to match result
+// =============================================================================
+
+// CHECK-LABEL: func.func @zeros_1d_promoted
+// CHECK-SAME: (%arg0: tensor<1x64xf32>) -> tensor<1x64xf32>
+// CHECK: %[[Z:.*]] = "ttir.zeros"() <{shape = array<i32: 1, 64>}> : () -> tensor<1x64xf32>
+// CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[Z]]) : (tensor<1x64xf32>, tensor<1x64xf32>) -> tensor<1x64xf32>
+// CHECK: return %[[ADD]] : tensor<1x64xf32>
+func.func @zeros_1d_promoted(%arg0: tensor<64xf32>) -> tensor<64xf32> {
+  %0 = "ttir.zeros"() <{shape = array<i32: 64>}> : () -> tensor<64xf32>
+  %1 = "ttir.add"(%arg0, %0) : (tensor<64xf32>, tensor<64xf32>) -> tensor<64xf32>
+  return %1 : tensor<64xf32>
+}
+
+// =============================================================================
+// 1D ttir.ones - shape attr promoted to match result
+// =============================================================================
+
+// CHECK-LABEL: func.func @ones_1d_promoted
+// CHECK-SAME: (%arg0: tensor<1x128xbf16>) -> tensor<1x128xbf16>
+// CHECK: %[[O:.*]] = "ttir.ones"() <{shape = array<i32: 1, 128>}> : () -> tensor<1x128xbf16>
+// CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[O]]) : (tensor<1x128xbf16>, tensor<1x128xbf16>) -> tensor<1x128xbf16>
+// CHECK: return %[[ADD]] : tensor<1x128xbf16>
+func.func @ones_1d_promoted(%arg0: tensor<128xbf16>) -> tensor<128xbf16> {
+  %0 = "ttir.ones"() <{shape = array<i32: 128>}> : () -> tensor<128xbf16>
+  %1 = "ttir.add"(%arg0, %0) : (tensor<128xbf16>, tensor<128xbf16>) -> tensor<128xbf16>
+  return %1 : tensor<128xbf16>
+}
+
+// =============================================================================
 // Test 10c: 1D arange - result type promoted to 2D, arange_dimension 0 -> 1
 // =============================================================================
 // ttir.arange verifies result shape at arange_dimension equals (end-start)/step;
@@ -304,4 +351,19 @@ func.func @implicit_broadcast_1d_3d(%arg0: tensor<64xf32>, %arg1: tensor<2x32x64
 func.func @slice_static_1d(%arg0: tensor<128xf32>) -> tensor<64xf32> {
   %0 = "ttir.slice_static"(%arg0) <{begins = [1 : i32], ends = [128 : i32], step = [2 : i32]}> : (tensor<128xf32>) -> tensor<64xf32>
   return %0 : tensor<64xf32>
+}
+
+// =============================================================================
+// Test 17: Broadcast - 1D input and output
+// =============================================================================
+
+// CHECK-LABEL: func.func @broadcast_1d_promoted
+// CHECK-SAME: (%arg0: tensor<1x1xf32>) -> tensor<1x1200xf32>
+// CHECK: %[[R:.*]] = "ttir.reshape"(%arg0) <{shape = [1 : i32, 1 : i32]}> : (tensor<1x1xf32>) -> tensor<1x1xf32>
+// CHECK: %[[B:.*]] = "ttir.broadcast"(%[[R]]) <{broadcast_dimensions = array<i64: 1, 1200>}> : (tensor<1x1xf32>) -> tensor<1x1200xf32>
+// CHECK: return %[[B]] : tensor<1x1200xf32>
+func.func @broadcast_1d_promoted(%arg0: tensor<f32>) -> tensor<1200xf32> {
+  %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32]}> : (tensor<f32>) -> tensor<1xf32>
+  %1 = "ttir.broadcast"(%0) <{broadcast_dimensions = array<i64: 1200>}> : (tensor<1xf32>) -> tensor<1200xf32>
+  return %1 : tensor<1200xf32>
 }

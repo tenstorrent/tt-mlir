@@ -26,13 +26,13 @@ module {
     return %1 : tensor<1x16x16x30xf32, #layout_tile_interleaved_out>
   }
 
-  func.func @test_no_workarounds_needed(%arg0: tensor<1x16x16x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 16 + d2, d3), <16x1>, memref<16x32xbf16, #l1>, <height_sharded>>>) -> tensor<1x32x32x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <16x1>, memref<64x32xbf16, #l1>, <height_sharded>>> {
+  func.func @test_no_workarounds_needed(%arg0: tensor<1x16x16x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 16 + d2, d3), <16x1>, memref<16x32xbf16, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 1)>]>>>) -> tensor<1x32x32x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <16x1>, memref<64x32xbf16, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 1)>]>>> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: %[[UPSAMPLE:.*]] = "ttnn.upsample"(%arg0)
     // CHECK-SAME: mode = "bilinear"
     // CHECK-NOT: "ttnn.to_layout"
     // CHECK-NOT: "ttnn.pad"
-    %1 = "ttnn.upsample"(%arg0) <{mode = "bilinear", scale_factor = 2 : si32}> : (tensor<1x16x16x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 16 + d2, d3), <16x1>, memref<16x32xbf16, #l1>, <height_sharded>>>) -> tensor<1x32x32x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <16x1>, memref<64x32xbf16, #l1>, <height_sharded>>>
-    return %1 : tensor<1x32x32x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <16x1>, memref<64x32xbf16, #l1>, <height_sharded>>>
+    %1 = "ttnn.upsample"(%arg0) <{mode = "bilinear", scale_factor = 2 : si32}> : (tensor<1x16x16x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 16 + d2, d3), <16x1>, memref<16x32xbf16, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 1)>]>>>) -> tensor<1x32x32x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <16x1>, memref<64x32xbf16, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 1)>]>>>
+    return %1 : tensor<1x32x32x32xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <16x1>, memref<64x32xbf16, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 1)>]>>>
   }
 }

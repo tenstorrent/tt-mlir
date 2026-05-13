@@ -11,6 +11,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
 
 using namespace mlir;
@@ -227,7 +228,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto newResultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    rewriter.replaceOpWithNewOp<OpTy>(op, newResultType, adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<OpTy>(op, TypeRange{newResultType},
+                                      adaptor.getOperands(),
+                                      op.getProperties());
     return success();
   }
 };
@@ -286,6 +289,153 @@ public:
     return success();
   }
 };
+
+// Rewrites stablehlo::SliceOp with complex-typed tensor results by appending
+// a full-range slice (0:2:1) for the trailing real/imag dimension.
+class ComplexSliceOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SliceOp> {
+  using OpConversionPattern<mlir::stablehlo::SliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::SliceOp op,
+      OpConversionPattern<mlir::stablehlo::SliceOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    SmallVector<int64_t> newStartIndices(op.getStartIndices());
+    SmallVector<int64_t> newLimitIndices(op.getLimitIndices());
+    SmallVector<int64_t> newStrides(op.getStrides());
+
+    // adding [0:2:1] slice means "select all from the new trailing dimension"
+    newStartIndices.push_back(0);
+    newLimitIndices.push_back(2);
+    newStrides.push_back(1);
+
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::SliceOp>(
+        op, newResultType, adaptor.getOperand(),
+        rewriter.getDenseI64ArrayAttr(newStartIndices),
+        rewriter.getDenseI64ArrayAttr(newLimitIndices),
+        rewriter.getDenseI64ArrayAttr(newStrides));
+    return success();
+  }
+};
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Shardy sharding annotation helper
+// ---------------------------------------------------------------------------
+
+// When a complex-typed tensor gains a trailing dim of 2, its sharding
+// annotation needs an extra dimension entry: closed, unsharded.
+// Example: tensor<16x16xcomplex<f32>> with sharding [{}, {}]
+//       -> tensor<16x16x2xf32>       with sharding [{}, {}, {}]
+static mlir::sdy::TensorShardingPerValueAttr
+convertShardingsForComplexTypes(MLIRContext *ctx,
+                                mlir::sdy::TensorShardingPerValueAttr shardings,
+                                TypeRange originalTypes) {
+  SmallVector<mlir::sdy::TensorShardingAttr> newShardings;
+  for (auto [sharding, type] :
+       llvm::zip_equal(shardings.getShardings(), originalTypes)) {
+    auto rtt = mlir::dyn_cast<RankedTensorType>(type);
+    if (rtt && mlir::isa<ComplexType>(rtt.getElementType())) {
+      // Append "{}" to sharding spec
+      SmallVector<mlir::sdy::DimensionShardingAttr> dims(
+          sharding.getDimShardings().begin(), sharding.getDimShardings().end());
+      dims.push_back(mlir::sdy::DimensionShardingAttr::get(ctx, /*axes=*/{},
+                                                           /*isClosed=*/true));
+      newShardings.push_back(mlir::sdy::TensorShardingAttr::get(
+          ctx, sharding.getMeshOrRef(), dims, sharding.getReplicatedAxes(),
+          sharding.getUnreducedAxes()));
+    } else {
+      newShardings.push_back(sharding);
+    }
+  }
+  return mlir::sdy::TensorShardingPerValueAttr::get(ctx, newShardings);
+}
+
+// ---------------------------------------------------------------------------
+// Shardy ManualComputation complex type conversion
+// ---------------------------------------------------------------------------
+
+// Converts sdy.manual_computation ops that have complex-typed operands,
+// results, or region block arguments. Updates the op types, sharding
+// annotations, and converts block arg types so that the existing complex
+// decomposition patterns (ComplexOp, RealOp, ImagOp, etc.) can fire on
+// ops inside the region.
+namespace {
+class ShardyManualComputationComplexConversionPattern
+    : public OpConversionPattern<mlir::sdy::ManualComputationOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::sdy::ManualComputationOp op,
+                  mlir::sdy::ManualComputationOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Convert result types.
+    SmallVector<Type> newResultTypes;
+    for (auto type : op.getResultTypes()) {
+      Type converted = getTypeConverter()->convertType(type);
+      if (!converted) {
+        return failure();
+      }
+      newResultTypes.push_back(converted);
+    }
+
+    auto newInShardings = convertShardingsForComplexTypes(
+        op.getContext(), op.getInShardings(), op.getBody().getArgumentTypes());
+    auto newOutShardings = convertShardingsForComplexTypes(
+        op.getContext(), op.getOutShardings(), op.getResultTypes());
+
+    // Build via OperationState so no implicit block is auto-created;
+    // we then inline the original region and convert its block arg types.
+    OperationState state(op.getLoc(),
+                         mlir::sdy::ManualComputationOp::getOperationName());
+    state.addOperands(adaptor.getOperands());
+    state.addTypes(newResultTypes);
+    state.addAttribute(
+        mlir::sdy::ManualComputationOp::getInShardingsAttrName(state.name),
+        newInShardings);
+    state.addAttribute(
+        mlir::sdy::ManualComputationOp::getOutShardingsAttrName(state.name),
+        newOutShardings);
+    state.addAttribute(
+        mlir::sdy::ManualComputationOp::getManualAxesAttrName(state.name),
+        op.getManualAxesAttr());
+    Region *newRegion = state.addRegion();
+    rewriter.inlineRegionBefore(op.getBody(), *newRegion, newRegion->end());
+
+    Operation *newOpBase = rewriter.create(state);
+
+    // Convert block argument types (complex<f32> -> x2xf32).
+    auto newOp = cast<mlir::sdy::ManualComputationOp>(newOpBase);
+    if (failed(rewriter.convertRegionTypes(&newOp.getBody(),
+                                           *getTypeConverter()))) {
+      return failure();
+    }
+
+    rewriter.replaceOp(op, newOp.getResults());
+    return success();
+  }
+};
+
+// Rewrites `sdy.return` to use dialect-converted operand values (same role as
+// `populateReturnOpTypeConversionPattern` for `func.return`).
+class ShardyReturnOpTypeConversionPattern
+    : public OpConversionPattern<mlir::sdy::ReturnOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::sdy::ReturnOp op, mlir::sdy::ReturnOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<mlir::sdy::ReturnOp>(op, adaptor.getOperands());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -306,13 +456,26 @@ struct StableHLOComplexDataTypeConversionPass
       return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
     };
 
-    target.addDynamicallyLegalOp<mlir::stablehlo::ConstantOp,
-                                 mlir::stablehlo::ReshapeOp,
-                                 mlir::stablehlo::BroadcastInDimOp>(
-        isNotComplexType);
+    target.addDynamicallyLegalOp<
+        mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
+        mlir::stablehlo::SliceOp, mlir::stablehlo::ConcatenateOp,
+        mlir::stablehlo::BroadcastInDimOp>(isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
+
+    auto hasComplexType = [](TypeRange types) {
+      return llvm::any_of(types, [](Type t) {
+        auto rtt = mlir::dyn_cast<RankedTensorType>(t);
+        return rtt && mlir::isa<mlir::ComplexType>(rtt.getElementType());
+      });
+    };
+    target.addDynamicallyLegalOp<mlir::sdy::ManualComputationOp>(
+        [hasComplexType](mlir::sdy::ManualComputationOp op) {
+          return !hasComplexType(op.getOperandTypes()) &&
+                 !hasComplexType(op.getResultTypes()) &&
+                 !hasComplexType(op.getBody().front().getArgumentTypes());
+        });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
@@ -334,14 +497,17 @@ struct StableHLOComplexDataTypeConversionPass
         });
 
     RewritePatternSet patterns(&getContext());
-    patterns
-        .add<ComplexBroadcastInDimOpConversionPattern,
-             ComplexConstantOpConversionPattern,
-             ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
-             StablehloComplexToDecomposedPattern,
-             StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
-             StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
-            typeConverter, &getContext());
+    patterns.add<
+        ComplexBroadcastInDimOpConversionPattern,
+        ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
+        ShardyManualComputationComplexConversionPattern,
+        ShardyReturnOpTypeConversionPattern,
+        StablehloComplexToDecomposedPattern,
+        StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
+        StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
+        typeConverter, &getContext());
 
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
@@ -352,6 +518,8 @@ struct StableHLOComplexDataTypeConversionPass
     populateReturnOpTypeConversionPattern(patterns, typeConverter);
     target.addDynamicallyLegalOp<func::ReturnOp>(
         [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
+    target.addDynamicallyLegalOp<mlir::sdy::ReturnOp>(
+        [&](mlir::sdy::ReturnOp op) { return typeConverter.isLegal(op); });
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns)))) {

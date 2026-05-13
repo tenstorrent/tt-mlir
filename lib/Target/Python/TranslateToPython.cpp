@@ -521,25 +521,18 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 static LogicalResult printOperation(PythonEmitter &emitter, ModuleOp moduleOp) {
   PythonEmitter::Scope scope(emitter);
 
-  // When file ops exist, defer module-level imports so they appear inside
-  // each file section rather than before the first file label.
+  // When file ops exist, emit the content of a specified file if the fileId
+  // is present, otherwise emit each file's contents with a label separator.
   bool hasFileOps =
       llvm::any_of(moduleOp.getOps<FileOp>(), [](FileOp) { return true; });
 
   if (hasFileOps) {
-    llvm::SmallVector<ImportOp> moduleImports(moduleOp.getOps<ImportOp>());
-
     for (auto fileOp : moduleOp.getOps<FileOp>()) {
       if (!emitter.shouldEmitFile(fileOp)) {
         continue;
       }
       if (emitter.isEmittingMultipleFiles()) {
         emitter.emitFileLabel(fileOp);
-      }
-      for (auto importOp : moduleImports) {
-        if (failed(emitter.emitOperation(*importOp))) {
-          return failure();
-        }
       }
       if (failed(emitter.emitOperation(*fileOp))) {
         return failure();

@@ -8,6 +8,14 @@ func.func @test_abs(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %0 : tensor<64x128xf32>
 }
 
+// CHECK-LABEL: func.func @test_asinh
+func.func @test_asinh(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: linalg.generic
+  // CHECK: math.asinh
+  %0 = "ttir.asinh"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %0 : tensor<64x128xf32>
+}
+
 // CHECK-LABEL: func.func @test_atan
 func.func @test_atan(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: linalg.generic

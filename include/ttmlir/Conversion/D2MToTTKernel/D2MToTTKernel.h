@@ -5,7 +5,6 @@
 #ifndef TTMLIR_CONVERSION_D2MTOTTKERNEL_D2MTOTTKERNEL_H
 #define TTMLIR_CONVERSION_D2MTOTTKERNEL_D2MTOTTKERNEL_H
 
-#include "ttmlir/Dialect/D2M/Analysis/AssociatedDMAWaits.h"
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 
 #include "mlir/Pass/Pass.h"
@@ -21,7 +20,6 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::AssociatedDMAWaits &associatedDMAWaits,
     const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass();

@@ -1,8 +1,8 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --flatten-composite -o %t %s
+// RUN: ttmlir-opt --flatten-or-convert-composites -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Verify that FlattenCompositePass annotates result-producing ops with
+// Verify that FlattenOrConvertCompositesPass annotates result-producing ops with
 // reoutline.result_pos to preserve the original composite result order.
 
 module @FlattenCompositeOutputPos attributes {} {

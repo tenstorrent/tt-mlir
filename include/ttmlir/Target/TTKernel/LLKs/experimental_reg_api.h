@@ -11,13 +11,9 @@ namespace experimental {
 // committed to L1. Call this before unpacking data that was just packed
 // by the previous linalg.generic to guarantee L1 read-after-write ordering.
 ALWI void unpack_stall_on_pack() {
-  tile_regs_acquire();
-  tile_regs_commit();
-  tile_regs_wait();
-  tile_regs_release();
-  UNPACK(TTI_SEMWAIT(
-      p_stall::STALL_MATH | p_stall::STALL_SFPU | p_stall::STALL_SYNC,
-      semaphore::t6_sem(semaphore::MATH_PACK), p_stall::STALL_ON_MAX));
+  PACK(t6_semaphore_post<>(semaphore::PACK_DONE));
+  UNPACK(t6_semaphore_wait_on_zero<p_stall::STALL_SYNC>(semaphore::PACK_DONE));
+  UNPACK(t6_semaphore_get<>(semaphore::PACK_DONE));
 }
 
 } // namespace experimental

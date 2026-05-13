@@ -42,10 +42,11 @@ module @NonFusingTest attributes {mhlo.cross_program_prefetches = [], mhlo.input
 
 // -----
 
-// Test that sdy.all_reduce with multiple all_slice users (all matching axes) fuses into multiple reduce_scatters
+// Test that sdy.all_reduce with multiple identical all_slice users fuses into
+// a single reduce_scatter (SDY deduplicates identical all_slice ops).
 // CHECK-LABEL: @MultiUseFusingTest
-// CHECK: sdy.reduce_scatter
-// CHECK: sdy.reduce_scatter
+// CHECK: %[[RS:.*]] = sdy.reduce_scatter
+// CHECK: sdy.return %[[RS]], %[[RS]]
 // CHECK-NOT: sdy.all_slice
 // CHECK-NOT: sdy.all_reduce
 module @MultiUseFusingTest {

@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <vector>
 
 namespace mlir::tt::ttnn::op_model {
 
@@ -224,28 +225,39 @@ getShardShape(const llvm::ArrayRef<int64_t> &shapeAttr) {
 
 ::tt::tt_metal::CoreRangeSet
 getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
-  std::set<::tt::tt_metal::CoreRange> coreRangeSet;
+  std::vector<::tt::tt_metal::CoreRange> coreRanges;
+  coreRanges.reserve(coreRangeSetAttr.getCoreRanges().size());
   for (const CoreRangeAttr &coreRange : coreRangeSetAttr.getCoreRanges()) {
-    coreRangeSet.insert(::tt::tt_metal::CoreRange(
+    coreRanges.emplace_back(
         ::tt::tt_metal::CoreCoord(coreRange.getStartCoord().getX(),
                                   coreRange.getStartCoord().getY()),
         ::tt::tt_metal::CoreCoord(coreRange.getEndCoord().getX(),
-                                  coreRange.getEndCoord().getY())));
+                                  coreRange.getEndCoord().getY()));
   }
-  return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
+  return ::tt::tt_metal::CoreRangeSet(std::move(coreRanges));
 }
 
 ::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout) {
-  std::set<::tt::tt_metal::CoreRange> coreRangeSet;
-  assert(layout.getGrid().getVirtToPhysicalMap().isEmpty() == false);
-  for (const auto &[loc, size] :
-       ttcore::utils::toCoreRangeSet(layout.getGrid().getShape(),
-                                     layout.getGrid().getVirtToPhysicalMap())) {
-    coreRangeSet.insert(::tt::tt_metal::CoreRange(
-        ::tt::tt_metal::CoreCoord(loc[0], loc[1]),
-        ::tt::tt_metal::CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
+  CoreRangeSetAttr coreRangeSetAttr = layout.getCoreRangeSet();
+  assert(coreRangeSetAttr &&
+         "sharded TTNNLayoutAttr expected when building a metal CoreRangeSet");
+  return getCoreRangeSet(coreRangeSetAttr);
+}
+
+CoreRangeSetAttr
+getCoreRangeSet(MLIRContext *context,
+                const ::tt::tt_metal::CoreRangeSet &coreRangeSet) {
+  llvm::SmallVector<CoreRangeAttr> ranges;
+  ranges.reserve(coreRangeSet.ranges().size());
+  for (const ::tt::tt_metal::CoreRange &coreRange : coreRangeSet.ranges()) {
+    ranges.push_back(
+        CoreRangeAttr::get(context,
+                           CoreCoordAttr::get(context, coreRange.start_coord.x,
+                                              coreRange.start_coord.y),
+                           CoreCoordAttr::get(context, coreRange.end_coord.x,
+                                              coreRange.end_coord.y)));
   }
-  return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
+  return CoreRangeSetAttr::get(context, ranges);
 }
 
 std::optional<::tt::tt_metal::ShardSpec>
@@ -533,16 +545,16 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
 // there's no clear usecase for it other than conversion from
 // MathFidelity to ::ttnn::MathFidelity. Therefore, I decided to
 // not expose it for now. Subject to change in the future.
-::MathFidelity getMathFidelity(MathFidelity mathFidelity) {
+::tt::tt_metal::MathFidelity getMathFidelity(MathFidelity mathFidelity) {
   switch (mathFidelity) {
   case MathFidelity::LoFi:
-    return ::MathFidelity::LoFi;
+    return ::tt::tt_metal::MathFidelity::LoFi;
   case MathFidelity::HiFi2:
-    return ::MathFidelity::HiFi2;
+    return ::tt::tt_metal::MathFidelity::HiFi2;
   case MathFidelity::HiFi3:
-    return ::MathFidelity::HiFi3;
+    return ::tt::tt_metal::MathFidelity::HiFi3;
   case MathFidelity::HiFi4:
-    return ::MathFidelity::HiFi4;
+    return ::tt::tt_metal::MathFidelity::HiFi4;
   }
 }
 
@@ -667,18 +679,24 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
                 context, getTensorMemoryLayout(
                              tensorSpec.memory_config().memory_layout()));
 
-  ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
+  llvm::SmallVector<int64_t> gridShape = {1, 1};
   if (isL1BufferType(bufferType)) {
-    auto [virtToPhysicalMap, physicalToVirtMap] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            context, memoryLayoutAttr.getValue(), deviceGrid);
-    gridAttr = ttcore::GridAttr::get(
-        context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
-        virtToPhysicalMap, physicalToVirtMap);
+    gridShape = getLogicalGridShape(tensorSpec.memory_config(), deviceGrid);
   }
 
-  return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridAttr,
-                             memoryLayoutAttr);
+  CoreRangeSetAttr coreRangeSet{};
+  if (tensorSpec.memory_config().is_sharded() &&
+      tensorSpec.memory_config().shard_spec().has_value()) {
+    coreRangeSet = getCoreRangeSet(
+        context, tensorSpec.memory_config().shard_spec().value().grid);
+  }
+
+  return TTNNLayoutAttr::Builder(context, shape, elementType)
+      .setBufferType(bufferType)
+      .setMemoryLayout(memoryLayoutAttr)
+      .setGridShape(gridShape)
+      .setCoreRangeSet(coreRangeSet)
+      .build();
 }
 
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>

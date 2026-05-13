@@ -53,32 +53,6 @@ struct PropagateUnaryTensorManipulationResultElementTypePattern
   }
 };
 
-struct GatherResultTypePattern : public mlir::OpRewritePattern<GatherOp> {
-  using mlir::OpRewritePattern<GatherOp>::OpRewritePattern;
-
-  mlir::LogicalResult
-  matchAndRewrite(GatherOp op, mlir::PatternRewriter &rewriter) const override {
-    auto inputType =
-        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
-    auto resultType =
-        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
-    if (inputType.getElementType() == resultType.getElementType()) {
-      return rewriter.notifyMatchFailure(op, "already propagated");
-    }
-
-    auto newResultType = mlir::RankedTensorType::get(resultType.getShape(),
-                                                     inputType.getElementType(),
-                                                     resultType.getEncoding());
-    rewriter.replaceOpWithNewOp<GatherOp>(
-        op, newResultType, op.getInput(), op.getStartIndices(),
-        op.getOffsetDimsAttr(), op.getCollapsedSliceDimsAttr(),
-        op.getOperandBatchingDimsAttr(), op.getStartIndicesBatchingDimsAttr(),
-        op.getStartIndexMapAttr(), op.getIndexVectorDimAttr(),
-        op.getSliceSizesAttr(), op.getIndicesAreSortedAttr());
-    return mlir::success();
-  }
-};
-
 struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
   explicit AlignElementwiseBinaryTypesPattern(mlir::MLIRContext *ctx)
       : mlir::RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
@@ -288,7 +262,6 @@ struct PredicateTypeAlignment
     mlir::RewritePatternSet patterns(&getContext());
     patterns.add<PropagateUnaryTensorManipulationResultElementTypePattern>(
         &getContext());
-    patterns.add<GatherResultTypePattern>(&getContext());
     patterns.add<AlignElementwiseBinaryTypesPattern>(&getContext());
     patterns.add<ComparisonResultTypePattern<EqualOp>>(&getContext());
     patterns.add<ComparisonResultTypePattern<NotEqualOp>>(&getContext());

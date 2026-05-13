@@ -24,13 +24,14 @@ set(ttmlir_export_targets
   TTMLIRTTNNUtils
   MLIRTTNNDialect
   MLIRTTNNAnalysis
+  MLIRTTNNDiagnostics
   MLIRTTNNTransforms
   MLIRTTNNValidation
   MLIRTTNNInterfaces
 
   # TTMetal dialect
   MLIRTTMetalDialect
-  MLIRTTMetalPipelines
+  MLIRD2MPipelines
 
   # TTKernel dialect
   MLIRTTKernelDialect
@@ -49,6 +50,7 @@ set(ttmlir_export_targets
   MLIRD2MAnalysis
   MLIRD2MTransforms
   MLIRD2MUtils
+  MLIRLinalgSynchronizableOpInterfaceImpl
 
   # Conversions
   TTMLIRTosaToTTIR
@@ -58,6 +60,7 @@ set(ttmlir_export_targets
   TTMLIRArithToD2MTileOps
   TTMLIRMathToD2MTileOps
   TTMLIRTTNNToEmitC
+  TTMLIRTTIRToEmitPy
   TTMLIRTTNNToEmitPy
   TTMLIRTTIRToLinalg
   TTMLIRTTIRToTTNN

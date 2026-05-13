@@ -222,7 +222,7 @@ if(TTMLIR_ENABLE_ALCHEMIST_WHEEL)
     # This consolidates all shared libraries into one location for simpler RPATH
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/_ttnncpp.so ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtt_metal.so ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libdevice.so ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtt-umd.so ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtt_stl.so ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TTNN_INSTALL_DIR}/lib/libtracy.so.0.10.0 ${PYTHON_WHEEL_DIR}/tt_alchemist/lib/
 

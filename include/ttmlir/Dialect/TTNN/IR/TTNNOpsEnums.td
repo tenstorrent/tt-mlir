@@ -380,27 +380,15 @@ def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-def TTNN_WeightDtypeNone : I32EnumAttrCase<"None", 0, "none">;
-def TTNN_WeightDtypeBfpBf8 : I32EnumAttrCase<"BFP_BFloat8", 1, "bfp_bf8">;
-def TTNN_WeightDtypeBfpBf4 : I32EnumAttrCase<"BFP_BFloat4", 2, "bfp_bf4">;
+def TTNN_BFPDtypeNone : I32EnumAttrCase<"None", 0, "none">;
+def TTNN_BFPDtypeBfpBf8 : I32EnumAttrCase<"BFP_BFloat8", 1, "bfp_bf8">;
+def TTNN_BFPDtypeBfpBf4 : I32EnumAttrCase<"BFP_BFloat4", 2, "bfp_bf4">;
 
-def TTNN_WeightDtype : I32EnumAttr<"WeightDtype", "Weight data type for conversion",
+def TTNN_BFPDtype : I32EnumAttr<"BFPDtype", "Block floating-point data type for conversion passes",
                            [
-                            TTNN_WeightDtypeNone,
-                            TTNN_WeightDtypeBfpBf8,
-                            TTNN_WeightDtypeBfpBf4,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttnn";
-}
-
-def TTNN_NocIndexNoc0 : I32EnumAttrCase<"Noc0", 0, "noc0">;
-def TTNN_NocIndexNoc1 : I32EnumAttrCase<"Noc1", 1, "noc1">;
-
-def TTNN_NocIndex : I32EnumAttr<"NocIndex", "TT NocIndex",
-                           [
-                            TTNN_NocIndexNoc0,
-                            TTNN_NocIndexNoc1,
+                            TTNN_BFPDtypeNone,
+                            TTNN_BFPDtypeBfpBf8,
+                            TTNN_BFPDtypeBfpBf4,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";
@@ -413,17 +401,6 @@ def TTNN_NocMode : I32EnumAttr<"NocMode", "TT NocMode",
                            [
                             TTNN_NocModeDedicatedNoc,
                             TTNN_NocModeDynamicNoc,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttnn";
-}
-def TTNN_RoutingModeBidirLineMesh : I32EnumAttrCase<"BidirLineMesh", 0, "bidir_line_mesh">;
-def TTNN_RoutingModeUnidirRingTorus : I32EnumAttrCase<"UnidirRingTorus", 1, "unidir_ring_torus">;
-
-def TTNN_RoutingMode : I32EnumAttr<"RoutingMode", "TT RoutingMode",
-                           [
-                            TTNN_RoutingModeBidirLineMesh,
-                            TTNN_RoutingModeUnidirRingTorus,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add-Op Review</title>
+  <style>/*__VENDOR_CSS__*/</style>
+  <script>/*__VENDOR_JS__*/</script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-raised: #1c2129;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #7d8590;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.1);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.1);
+      --yellow: #d29922;
+      --yellow-bg: rgba(210, 153, 34, 0.1);
+      --radius: 8px;
+      --font-mono: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+      --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .header .summary {
+      display: flex;
+      gap: 1rem;
+      font-size: 0.8rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-weight: 500;
+      font-size: 0.75rem;
+    }
+    .badge.pass { background: var(--green-bg); color: var(--green); }
+    .badge.fail { background: var(--red-bg); color: var(--red); }
+    .badge.warn { background: var(--yellow-bg); color: var(--yellow); }
+    .badge.info { background: rgba(88, 166, 255, 0.1); color: var(--accent); }
+
+    /* ---- Op Tabs (top-level) ---- */
+    .op-tabs {
+      display: flex;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      flex-shrink: 0;
+      gap: 0;
+      align-items: stretch;
+    }
+    .op-tab {
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.7rem 1.2rem;
+      border-bottom: 3px solid transparent;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .op-tab:hover { color: var(--text); }
+    .op-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .op-tab.diff-tab {
+      margin-left: auto;
+      font-weight: 500;
+      font-size: 0.8rem;
+    }
+    .op-tab .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .op-tab .status-dot.loading { background: var(--yellow); animation: pulse 1.2s ease-in-out infinite; }
+    .op-tab .status-dot.pass { background: var(--green); }
+    .op-tab .status-dot.fail { background: var(--red); }
+    .op-tab .status-dot.none { background: var(--text-muted); opacity: 0.3; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* ---- Sub Tabs (per-op) ---- */
+    .sub-tabs {
+      display: flex;
+      background: var(--surface-raised);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      flex-shrink: 0;
+      gap: 0;
+    }
+    .sub-tabs.hidden { display: none; }
+    .sub-tab {
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .sub-tab:hover { color: var(--text); }
+    .sub-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .sub-tab .tab-badge {
+      margin-left: 0.4rem;
+      font-size: 0.65rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+    }
+
+    /* ---- Panel ---- */
+    .panel {
+      display: none;
+      flex: 1;
+      overflow: auto;
+    }
+    .panel.active { display: flex; flex-direction: column; }
+
+    /* ---- Tests Panel ---- */
+    .test-suite {
+      border-bottom: 1px solid var(--border);
+    }
+    .test-suite-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      background: var(--surface);
+      cursor: pointer;
+      user-select: none;
+    }
+    .test-suite-header:hover { background: var(--surface-raised); }
+    .test-suite-header .name {
+      font-weight: 500;
+      font-size: 0.85rem;
+    }
+    .test-suite-header .chevron {
+      transition: transform 0.2s;
+      color: var(--text-muted);
+    }
+    .test-suite.open .chevron { transform: rotate(90deg); }
+    .test-suite-body {
+      display: none;
+      padding: 0;
+    }
+    .test-suite.open .test-suite-body { display: block; }
+    .test-cmd {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      padding: 0.4rem 1.5rem;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .test-cmd code {
+      flex: 1;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .test-cmd .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.6rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: var(--font-sans);
+      flex-shrink: 0;
+    }
+    .test-cmd .copy-btn:hover { color: var(--text); border-color: var(--text-muted); }
+    .test-output {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      line-height: 1.6;
+      padding: 1rem 1.5rem;
+      background: var(--bg);
+      white-space: pre-wrap;
+      word-break: break-all;
+      overflow-x: auto;
+    }
+    .test-line-pass { color: var(--green); }
+    .test-line-fail { color: var(--red); }
+    .test-line-skip { color: var(--yellow); }
+    .test-line-info { color: var(--text-muted); }
+
+    /* ---- Diff Panel ---- */
+    .diff-container {
+      flex: 1;
+      overflow: auto;
+      padding: 0;
+    }
+    .diff-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .diff-toolbar .diff-stat {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .diff-toolbar button {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 0.7rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .diff-toolbar button:hover { background: var(--border); }
+    .diff-toolbar button.active {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    /* diff2html overrides for dark theme */
+    .d2h-wrapper { background: var(--bg); }
+    .d2h-file-header {
+      background: var(--surface) !important;
+      border-color: var(--border) !important;
+      color: var(--text) !important;
+      font-family: var(--font-mono) !important;
+      font-size: 0.8rem !important;
+    }
+    .d2h-file-name { color: var(--accent) !important; }
+    .d2h-diff-table {
+      font-family: var(--font-mono) !important;
+      font-size: 0.75rem !important;
+    }
+    .d2h-code-line-ctn { color: var(--text) !important; }
+    .d2h-code-linenumber {
+      color: var(--text-muted) !important;
+      background: var(--surface) !important;
+      border-color: var(--border) !important;
+    }
+    .d2h-ins { background: var(--green-bg) !important; }
+    .d2h-del { background: var(--red-bg) !important; }
+    .d2h-info {
+      background: var(--surface-raised) !important;
+      color: var(--text-muted) !important;
+      border-color: var(--border) !important;
+    }
+    .d2h-file-diff { border-color: var(--border) !important; }
+    .d2h-tag {
+      background: var(--surface-raised) !important;
+      border-color: var(--border) !important;
+      color: var(--text-muted) !important;
+    }
+    .d2h-file-list-wrapper {
+      background: var(--surface) !important;
+      border-color: var(--border) !important;
+    }
+    .d2h-file-list-line a { color: var(--accent) !important; }
+    .d2h-code-side-line { background: var(--bg) !important; }
+    .d2h-emptyplaceholder { background: var(--surface) !important; }
+    .d2h-file-side-diff { border-color: var(--border) !important; }
+    .d2h-ins .d2h-code-side-line,
+    .d2h-ins .d2h-code-line-ctn { background: var(--green-bg) !important; }
+    .d2h-del .d2h-code-side-line,
+    .d2h-del .d2h-code-line-ctn { background: var(--red-bg) !important; }
+    ins.d2h-change { background: rgba(63, 185, 80, 0.3) !important; }
+    del.d2h-change { background: rgba(248, 81, 73, 0.3) !important; }
+
+    /* ---- Code Panel (EmitPy / EmitC) ---- */
+    .code-panel {
+      flex: 1;
+      overflow: auto;
+      padding: 1rem 1.5rem;
+    }
+    .code-panel pre {
+      margin: 0;
+      padding: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow-x: auto;
+    }
+    .code-panel pre code {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.6;
+    }
+    .code-panel .code-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* hljs overrides */
+    .hljs { background: var(--surface) !important; }
+
+    /* Soft separator between overloads within a single code block */
+    .sig-sep {
+      display: block;
+      border-top: 1px dashed var(--border);
+      margin: 0.6rem 0;
+    }
+
+    /* ---- Placeholder ---- */
+    .placeholder {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 0.5rem;
+      color: var(--text-muted);
+    }
+    .placeholder .icon { font-size: 2rem; opacity: 0.5; }
+    .placeholder .label { font-size: 0.85rem; }
+
+    /* ---- Alchemist panel ---- */
+    .alchemist-panel {
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      flex: 1;
+      overflow: auto;
+    }
+    .alchemist-banner {
+      padding: 1rem 1.25rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .alchemist-banner.warn {
+      border-color: var(--yellow);
+      background: var(--yellow-bg);
+    }
+    .alchemist-banner .banner-title {
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .alchemist-banner .banner-text {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .alchemist-banner pre {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      background: var(--bg);
+      padding: 0.6rem 0.8rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+    .alchemist-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .alchemist-btn {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.5rem 1.2rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .alchemist-btn:hover { background: var(--accent-hover); }
+    .alchemist-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .alchemist-btn.run-btn {
+      background: var(--green);
+    }
+    .alchemist-btn.run-btn:hover { background: #4cc764; }
+    .alchemist-status {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .alchemist-status .spinner {
+      width: 14px;
+      height: 14px;
+      border-width: 2px;
+    }
+    .alchemist-log {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      line-height: 1.6;
+      padding: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      white-space: pre-wrap;
+      word-break: break-all;
+      overflow-x: auto;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .alchemist-log.error {
+      border-color: var(--red);
+      color: var(--red);
+    }
+    .alchemist-log.success {
+      border-color: var(--green);
+    }
+    .alchemist-section-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ---- Empty state ---- */
+    .empty-state {
+      padding: 3rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    /* ---- Spinner ---- */
+    .spinner-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 3rem;
+    }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .spinner-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Add-Op Review</h1>
+    <div class="summary" id="summary"></div>
+  </div>
+
+  <!-- Top-level op tabs (generated dynamically) -->
+  <div class="op-tabs" id="op-tabs"></div>
+
+  <!-- Sub-tabs (per-op, hidden when diff is active) -->
+  <div class="sub-tabs" id="sub-tabs">
+    <button class="sub-tab active" data-subtab="info">Info</button>
+    <button class="sub-tab" data-subtab="tests">
+      Tests <span class="tab-badge badge" id="tests-badge"></span>
+    </button>
+    <button class="sub-tab" data-subtab="emitpy">Emitted Python</button>
+    <button class="sub-tab" data-subtab="emitc">Emitted C++</button>
+    <button class="sub-tab" data-subtab="alchemist">tt-alchemist</button>
+  </div>
+
+  <!-- Content panels -->
+  <div class="panel active" id="panel-info"></div>
+  <div class="panel" id="panel-tests"></div>
+  <div class="panel" id="panel-emitpy">
+    <div class="code-panel" id="emitpy-code"></div>
+  </div>
+  <div class="panel" id="panel-emitc">
+    <div class="code-panel" id="emitc-code"></div>
+  </div>
+  <div class="panel" id="panel-alchemist"></div>
+  <div class="panel" id="panel-diff">
+    <div class="diff-toolbar">
+      <span class="diff-stat" id="diff-stat"></span>
+      <div style="flex:1"></div>
+      <button id="btn-unified" class="active" onclick="setDiffView('line-by-line')">Unified</button>
+      <button id="btn-side" onclick="setDiffView('side-by-side')">Side by Side</button>
+    </div>
+    <div class="diff-container" id="diff-output"></div>
+  </div>
+
+  <script>
+    /*__EMBEDDED_DATA__*/
+
+    // ---- State ----
+    let activeOp = null;     // op name string, or '__diff__'
+    let activeSubTab = 'info';
+    let currentData = null;
+
+    // ---- Op tab building ----
+    let tabsBuilt = false;
+
+    function buildOpTabs(data) {
+      const container = document.getElementById('op-tabs');
+      const ops = data.ops || {};
+      const opNames = Object.keys(ops);
+
+      if (!tabsBuilt) {
+        // First render: build the full DOM
+        let html = '';
+        opNames.forEach(name => {
+          const dotClass = getOpStatusDotClass(ops[name]);
+          html += `<button class="op-tab" data-op="${escapeAttr(name)}">
+            <span class="status-dot ${dotClass}"></span>
+            ${escapeHtml(name)}
+          </button>`;
+        });
+        html += `<button class="op-tab diff-tab" data-op="__diff__">Code Changes</button>`;
+        container.innerHTML = html;
+
+        container.querySelectorAll('.op-tab').forEach(tab => {
+          tab.addEventListener('click', () => {
+            selectOp(tab.dataset.op);
+          });
+        });
+        tabsBuilt = true;
+
+        if (!activeOp && opNames.length > 0) {
+          selectOp(opNames[0]);
+        } else if (activeOp) {
+          highlightOpTab(activeOp);
+        }
+      } else {
+        // Subsequent renders: only update status dots (no innerHTML rebuild)
+        container.querySelectorAll('.op-tab').forEach(tab => {
+          const name = tab.dataset.op;
+          if (name === '__diff__') return;
+          const dot = tab.querySelector('.status-dot');
+          if (dot) {
+            dot.className = 'status-dot ' + getOpStatusDotClass(ops[name]);
+          }
+        });
+      }
+    }
+
+    function getOpStatusDotClass(opData) {
+      if (!opData) return 'none';
+      const loading = opData._loading || {};
+      const anyLoading = Object.values(loading).some(v => v);
+      if (anyLoading) return 'loading';
+      const tests = opData.tests || {};
+      let hasFail = false, hasPass = false;
+      Object.values(tests).forEach(t => {
+        if (t.failed > 0) hasFail = true;
+        if (t.passed > 0) hasPass = true;
+      });
+      if (hasFail) return 'fail';
+      if (hasPass) return 'pass';
+      return 'none';
+    }
+
+    function highlightOpTab(opName) {
+      document.querySelectorAll('.op-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.op === opName);
+      });
+    }
+
+    function selectOp(opName) {
+      activeOp = opName;
+      lastRenderedKey = '';  // force re-render on tab switch
+      alchRenderedPhase = '';  // force full alchemist rebuild
+      highlightOpTab(opName);
+
+      const isDiff = opName === '__diff__';
+      document.getElementById('sub-tabs').classList.toggle('hidden', isDiff);
+
+      // Hide all panels, then show the right one
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+
+      if (isDiff) {
+        document.getElementById('panel-diff').classList.add('active');
+        renderDiffFromData();
+      } else {
+        showSubTab(activeSubTab);
+      }
+    }
+
+    // ---- Sub-tab switching ----
+    document.querySelectorAll('.sub-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        activeSubTab = tab.dataset.subtab;
+        lastRenderedKey = '';  // force re-render on sub-tab switch
+        alchRenderedPhase = '';  // force full alchemist rebuild
+        document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        showSubTab(activeSubTab);
+      });
+    });
+
+    function showSubTab(subTab) {
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('panel-' + subTab).classList.add('active');
+
+      // Highlight correct sub-tab button
+      document.querySelectorAll('.sub-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.subtab === subTab);
+      });
+
+      // Render content for the active op
+      if (currentData && activeOp && activeOp !== '__diff__') {
+        const opData = (currentData.ops || {})[activeOp];
+        if (opData) renderOpSubTab(activeOp, opData, subTab);
+      }
+    }
+
+    function renderOpSubTab(opName, opData, subTab) {
+      const loading = opData._loading || {};
+
+      if (subTab === 'info') {
+        if (loading.info) {
+          showSpinner(document.getElementById('panel-info'), 'Loading op info\u2026');
+        } else {
+          renderInfo(opName, opData.info || {});
+        }
+      } else if (subTab === 'tests') {
+        renderTests(opData.tests || {}, loading);
+        renderTestsBadge(opData);
+      } else if (subTab === 'emitpy') {
+        const ep = opData.emitted_python || {};
+        const code = typeof ep === 'string' ? ep : (ep.code || '');
+        const cmd = typeof ep === 'string' ? '' : (ep.cmd || '');
+        if (loading.emitted_python) {
+          showSpinner(document.getElementById('emitpy-code'), 'Generating Python\u2026');
+        } else {
+          renderCode('emitpy-code', code, 'python', `Emitted Python \u2014 ${opName}`, cmd);
+        }
+      } else if (subTab === 'emitc') {
+        const ec = opData.emitted_cpp || {};
+        const code = typeof ec === 'string' ? ec : (ec.code || '');
+        const cmd = typeof ec === 'string' ? '' : (ec.cmd || '');
+        if (loading.emitted_cpp) {
+          showSpinner(document.getElementById('emitc-code'), 'Generating C++\u2026');
+        } else {
+          renderCode('emitc-code', code, 'cpp', `Emitted C++ \u2014 ${opName}`, cmd);
+        }
+      } else if (subTab === 'alchemist') {
+        renderAlchemist(opName);
+      }
+    }
+
+    // ---- Spinner helper ----
+    function showSpinner(el, label) {
+      el.innerHTML = `<div class="spinner-container"><div class="spinner"></div><div class="spinner-label">${label}</div></div>`;
+    }
+
+    // ---- Main render ----
+    // Track what we last rendered so we can skip no-op re-renders
+    let lastRenderedKey = '';  // JSON snapshot of the data driving the current panel
+
+    function getPanelDataKey(data, opName, subTab) {
+      if (opName === '__diff__') {
+        const loading = (data._loading || {}).diff;
+        return JSON.stringify({ t: 'diff', l: loading, len: (data.diff || '').length });
+      }
+      const opData = (data.ops || {})[opName];
+      if (!opData) return '';
+      const loading = opData._loading || {};
+      if (subTab === 'info')   return JSON.stringify({ t: 'info', l: loading.info, d: opData.info });
+      if (subTab === 'tests')  return JSON.stringify({ t: 'tests', l: [loading.test_lit_ttnn, loading.test_lit_emitc, loading.test_pytest, loading.test_emitc_dylib], d: Object.keys(opData.tests || {}) });
+      if (subTab === 'emitpy') return JSON.stringify({ t: 'emitpy', l: loading.emitted_python, len: ((opData.emitted_python || {}).code || '').length });
+      if (subTab === 'emitc')  return JSON.stringify({ t: 'emitc', l: loading.emitted_cpp, len: ((opData.emitted_cpp || {}).code || '').length });
+      if (subTab === 'alchemist') {
+        const alch = (data.alchemist || {}).ops || {};
+        const opAlch = alch[opName] || {};
+        return JSON.stringify({ t: 'alch', avail: (data.alchemist || {}).available, phase: opAlch.phase, log: (opAlch.log || '').length, rlog: (opAlch.run_log || '').length });
+      }
+      return subTab;
+    }
+
+    function render(data) {
+      currentData = data;
+
+      // Update op tab status dots (cheap — no innerHTML rebuild after first call)
+      buildOpTabs(data);
+
+      // Only re-render the active panel if its data actually changed
+      const newKey = getPanelDataKey(data, activeOp, activeSubTab);
+      if (newKey !== lastRenderedKey) {
+        lastRenderedKey = newKey;
+
+        if (activeOp === '__diff__') {
+          renderDiffFromData();
+        } else if (activeOp) {
+          const opData = (data.ops || {})[activeOp];
+          if (opData) {
+            renderOpSubTab(activeOp, opData, activeSubTab);
+          }
+        }
+      }
+
+      renderSummary(data);
+    }
+
+    function renderDiffFromData() {
+      if (!currentData) return;
+      const loading = currentData._loading || {};
+      if (loading.diff) {
+        showSpinner(document.getElementById('diff-output'), 'Collecting diff\u2026');
+      } else {
+        renderDiff(currentData.diff || '', currentData.diff_stat || '');
+      }
+    }
+
+    function renderSummary(data) {
+      const el = document.getElementById('summary');
+      const ops = data.ops || {};
+      let totalPassed = 0, totalFailed = 0, anyLoading = false;
+
+      Object.values(ops).forEach(opData => {
+        const ol = opData._loading || {};
+        if (Object.values(ol).some(v => v)) anyLoading = true;
+        Object.values(opData.tests || {}).forEach(t => {
+          totalPassed += t.passed || 0;
+          totalFailed += t.failed || 0;
+        });
+      });
+
+      // Also check top-level loading (diff)
+      const topLoading = data._loading || {};
+      if (topLoading.diff) anyLoading = true;
+
+      let html = '';
+      if (anyLoading) html += '<span class="badge info">running\u2026</span>';
+      if (totalPassed > 0) html += `<span class="badge pass">${totalPassed} passed</span>`;
+      if (totalFailed > 0) html += `<span class="badge fail">${totalFailed} failed</span>`;
+      const files = (data.diff_stat || '').match(/(\d+) files? changed/);
+      if (files) html += `<span class="badge info">${files[1]} files changed</span>`;
+      el.innerHTML = html;
+    }
+
+    function renderTestsBadge(opData) {
+      const badge = document.getElementById('tests-badge');
+      const loading = opData._loading || {};
+      const anyTestLoading = loading.test_lit_ttnn || loading.test_lit_emitc || loading.test_pytest || loading.test_emitc_dylib;
+      const tests = opData.tests || {};
+      let totalPassed = 0, totalFailed = 0;
+      Object.values(tests).forEach(t => {
+        totalPassed += t.passed || 0;
+        totalFailed += t.failed || 0;
+      });
+
+      if (anyTestLoading) {
+        badge.className = 'tab-badge badge info';
+        badge.textContent = '\u2026';
+      } else if (totalFailed > 0) {
+        badge.className = 'tab-badge badge fail';
+        badge.textContent = `${totalFailed} fail`;
+      } else if (totalPassed > 0) {
+        badge.className = 'tab-badge badge pass';
+        badge.textContent = `${totalPassed} pass`;
+      } else {
+        badge.className = 'tab-badge badge';
+        badge.textContent = '';
+      }
+    }
+
+    // ---- Tests ----
+    const TEST_SUITES = [
+      { key: 'lit_ttnn', loadingKey: 'test_lit_ttnn', label: 'TTIR-to-TTNN Conversion (llvm-lit)' },
+      { key: 'lit_emitc', loadingKey: 'test_lit_emitc', label: 'EmitC Pipeline (llvm-lit)' },
+      { key: 'pytest',   loadingKey: 'test_pytest',    label: 'Builder / Golden Tests (pytest)' },
+      { key: 'emitc_dylib', loadingKey: 'test_emitc_dylib', label: 'EmitC Dylib / ttrt emitc (e2e)' },
+    ];
+
+    function renderTests(tests, loading) {
+      const container = document.getElementById('panel-tests');
+      let html = '';
+      let hasAny = false;
+
+      TEST_SUITES.forEach(({ key, loadingKey, label }) => {
+        const isLoading = loading[loadingKey];
+        const t = tests[key];
+        if (!isLoading && !t) return;
+        hasAny = true;
+
+        if (isLoading) {
+          html += `
+            <div class="test-suite">
+              <div class="test-suite-header">
+                <span class="name">${label} <span class="badge info"><span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;"></span></span></span>
+              </div>
+            </div>`;
+        } else {
+          const statusBadge = t.status === 'pass'
+            ? `<span class="badge pass">${t.passed || t.count || 'pass'}</span>`
+            : t.status === 'skip'
+            ? `<span class="badge info">skip</span>`
+            : `<span class="badge fail">${t.failed ? t.failed + ' failed' : 'fail'}</span>`;
+          const cmdHtml = t.cmd
+            ? `<div class="test-cmd"><code>${escapeHtml(t.cmd)}</code><button class="copy-btn" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>{this.textContent='copied!';setTimeout(()=>this.textContent='copy',1000)})">copy</button></div>`
+            : '';
+          html += `
+            <div class="test-suite open">
+              <div class="test-suite-header" onclick="this.parentElement.classList.toggle('open')">
+                <span class="name">${label} ${statusBadge}</span>
+                <span class="chevron">&#9654;</span>
+              </div>
+              <div class="test-suite-body">
+                ${cmdHtml}
+                <div class="test-output">${colorizeTestOutput(t.output || '')}</div>
+              </div>
+            </div>`;
+        }
+      });
+
+      if (!hasAny) {
+        container.innerHTML = '<div class="empty-state">No test results available</div>';
+      } else {
+        container.innerHTML = html;
+      }
+    }
+
+    function colorizeTestOutput(text) {
+      return text.split('\n').map(line => {
+        const escaped = escapeHtml(line);
+        if (/PASSED|PASS\b|passed/.test(line)) return `<span class="test-line-pass">${escaped}</span>`;
+        if (/FAILED|FAIL\b|failed|ERROR/.test(line)) return `<span class="test-line-fail">${escaped}</span>`;
+        if (/SKIPPED|skip/.test(line)) return `<span class="test-line-skip">${escaped}</span>`;
+        if (/^[-=]{5,}|^={5,}|^Passed|^Total/.test(line)) return `<span class="test-line-info">${escaped}</span>`;
+        return escaped;
+      }).join('\n');
+    }
+
+    function escapeHtml(text) {
+      const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'};
+      return text.replace(/[&<>"]/g, c => map[c]);
+    }
+
+    function escapeAttr(text) {
+      return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // ---- Diff ----
+    let currentDiffView = 'line-by-line';
+    let rawDiff = '';
+
+    function renderDiff(diff, stat) {
+      rawDiff = diff;
+      document.getElementById('diff-stat').textContent = stat;
+      if (!diff) {
+        document.getElementById('diff-output').innerHTML = '<div class="empty-state">No code changes detected</div>';
+        return;
+      }
+      updateDiff();
+    }
+
+    function updateDiff() {
+      if (typeof Diff2Html !== 'undefined') {
+        const html = Diff2Html.html(rawDiff, {
+          drawFileList: true,
+          matching: 'lines',
+          outputFormat: currentDiffView,
+          renderNothingWhenEmpty: false,
+        });
+        document.getElementById('diff-output').innerHTML = html;
+      } else {
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'padding:1rem 1.5rem;font-family:var(--font-mono);font-size:0.75rem;line-height:1.6;white-space:pre-wrap;';
+        pre.textContent = rawDiff;
+        const el = document.getElementById('diff-output');
+        el.innerHTML = '';
+        el.appendChild(pre);
+      }
+    }
+
+    function setDiffView(view) {
+      currentDiffView = view;
+      document.getElementById('btn-unified').classList.toggle('active', view === 'line-by-line');
+      document.getElementById('btn-side').classList.toggle('active', view === 'side-by-side');
+      if (rawDiff) updateDiff();
+    }
+
+    // ---- Info ----
+    function renderInfoSection(label, pathStr, items, language) {
+      // Renders a section header + a single <pre> block.
+      // Multiple items are joined by a thin separator line inside the same box.
+      let html = '';
+      let lbl = pathStr
+        ? `${label} &mdash; <span style="font-family:var(--font-mono);text-transform:none;letter-spacing:0">${escapeHtml(pathStr)}</span>`
+        : label;
+      html += `<div class="code-label" style="margin-top:1.5rem">${lbl}</div>`;
+      const joined = items.map(s => escapeHtml(s)).join('\n<span class="sig-sep"></span>\n');
+      html += `<pre><code class="language-${language}">${joined}</code></pre>`;
+      return html;
+    }
+
+    function renderInfo(opName, info) {
+      const container = document.getElementById('panel-info');
+      // Normalize: support both old "python_binding" (string) and new "python_bindings" (list)
+      const pyBindings = info.python_bindings && info.python_bindings.length
+        ? info.python_bindings
+        : (info.python_binding ? [info.python_binding] : []);
+      const cppSigs = info.cpp_signatures || [];
+
+      if (!cppSigs.length && !pyBindings.length && !info.ttnn_td_def && !info.ttir_td_def) {
+        container.innerHTML = '<div class="empty-state">No signature info available for this op</div>';
+        return;
+      }
+      let html = '<div class="code-panel">';
+
+      // C++ signatures
+      if (cppSigs.length > 0) {
+        html += renderInfoSection('C++ Signature', info.cpp_path || '', cppSigs, 'cpp');
+      }
+
+      // Python bindings
+      if (pyBindings.length > 0) {
+        html += renderInfoSection('Python Binding', info.py_path || '', pyBindings, 'cpp');
+      }
+
+      // TTNN .td definition
+      if (info.ttnn_td_def) {
+        html += renderInfoSection('TTNN TableGen Definition', info.ttnn_td_path || '', [info.ttnn_td_def], 'cpp');
+      }
+
+      // TTIR .td definition
+      if (info.ttir_td_def) {
+        html += renderInfoSection('TTIR TableGen Definition', info.ttir_td_path || '', [info.ttir_td_def], 'cpp');
+      }
+
+      html += '</div>';
+      container.innerHTML = html;
+
+      // Highlight all code blocks
+      container.querySelectorAll('pre code').forEach(el => {
+        if (typeof hljs !== 'undefined') {
+          try { hljs.highlightElement(el); } catch (e) {}
+        }
+      });
+    }
+
+    // ---- Code ----
+    function renderCode(containerId, code, language, label, cmd) {
+      const container = document.getElementById(containerId);
+      if (!code) {
+        container.innerHTML = '<div class="empty-state">No emitted code available</div>';
+        return;
+      }
+      container.innerHTML = '';
+
+      // Command bar (same style as test commands)
+      if (cmd) {
+        const cmdDiv = document.createElement('div');
+        cmdDiv.className = 'test-cmd';
+        cmdDiv.innerHTML = `<code>${escapeHtml(cmd)}</code><button class="copy-btn" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>{this.textContent='copied!';setTimeout(()=>this.textContent='copy',1000)})">copy</button>`;
+        container.appendChild(cmdDiv);
+      }
+
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'code-label';
+      labelDiv.textContent = label;
+      const pre = document.createElement('pre');
+      const codeEl = document.createElement('code');
+      codeEl.className = 'language-' + language;
+      codeEl.textContent = code;
+      pre.appendChild(codeEl);
+      container.appendChild(labelDiv);
+      container.appendChild(pre);
+      if (typeof hljs !== 'undefined') {
+        try { hljs.highlightElement(codeEl); } catch (e) {}
+      }
+    }
+
+    // ---- tt-alchemist ----
+    // Track structural state so we can do log-only updates without full rebuild
+    let alchRenderedPhase = '';
+    let alchRenderedOp = '';
+
+    function renderAlchemist(opName) {
+      const container = document.getElementById('panel-alchemist');
+      const alch = (currentData && currentData.alchemist) || {};
+      const available = alch.available;
+      const buildCmd = alch.build_cmd || '';
+      const opState = ((alch.ops || {})[opName]) || { phase: 'idle', log: '', run_log: '' };
+      const phase = opState.phase || 'idle';
+
+      // Fast path: if phase and op haven't changed, just update log text in-place
+      if (alchRenderedOp === opName && alchRenderedPhase === phase) {
+        const genLog = container.querySelector('[data-alch-log="gen"]');
+        if (genLog && opState.log) {
+          genLog.textContent = opState.log;
+          genLog.scrollTop = genLog.scrollHeight;
+        }
+        const runLog = container.querySelector('[data-alch-log="run"]');
+        if (runLog && opState.run_log) {
+          runLog.textContent = opState.run_log;
+          runLog.scrollTop = runLog.scrollHeight;
+        }
+        return;
+      }
+
+      // Full rebuild — phase or op changed
+      alchRenderedPhase = phase;
+      alchRenderedOp = opName;
+
+      let html = '<div class="alchemist-panel">';
+
+      if (!available) {
+        html += `
+          <div class="alchemist-banner warn">
+            <div class="banner-title">tt-alchemist is not available</div>
+            <div class="banner-text">
+              The <code>tt-alchemist</code> command was not found in your PATH.
+              To enable it, rebuild with the required CMake flags:
+            </div>
+            <pre>${escapeHtml(buildCmd)}</pre>
+          </div>`;
+        html += '</div>';
+        container.innerHTML = html;
+        return;
+      }
+
+      const opInput = ((alch.inputs || {})[opName]) || {};
+      const inputMlir = opInput.input_mlir || '';
+      const genCmd = opInput.cmd || '';
+
+      // Generate section
+      html += '<div class="alchemist-banner">';
+      html += '<div class="banner-title">Generate Python Solution</div>';
+      html += '<div class="banner-text">Run tt-alchemist to generate a complete Python solution from the op\'s MLIR input.</div>';
+      if (inputMlir) {
+        html += `<div class="banner-text">Input: <code>${escapeHtml(inputMlir)}</code></div>`;
+      }
+      if (genCmd) {
+        html += `<div class="test-cmd"><code>${escapeHtml(genCmd)}</code><button class="copy-btn" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>{this.textContent='copied!';setTimeout(()=>this.textContent='copy',1000)})">copy</button></div>`;
+      }
+      html += '<div class="alchemist-actions">';
+
+      if (phase === 'idle') {
+        html += `<button class="alchemist-btn" onclick="alchemistGenerate('${escapeAttr(opName)}')">Generate</button>`;
+      } else if (phase === 'generating') {
+        html += `<button class="alchemist-btn" disabled>Generate</button>`;
+        html += `<span class="alchemist-status"><span class="spinner"></span> Generating\u2026</span>`;
+      } else if (phase === 'generated' || phase === 'running' || phase === 'done') {
+        html += `<button class="alchemist-btn" onclick="alchemistGenerate('${escapeAttr(opName)}')">Re-generate</button>`;
+        html += `<span class="alchemist-status" style="color:var(--green)">Generated</span>`;
+      } else if (phase === 'error') {
+        html += `<button class="alchemist-btn" onclick="alchemistGenerate('${escapeAttr(opName)}')">Retry</button>`;
+        html += `<span class="alchemist-status" style="color:var(--red)">Failed</span>`;
+      }
+      html += '</div></div>';
+
+      // Generate log
+      if (opState.log) {
+        const isErr = phase === 'error' && !opState.run_log;
+        html += `<div class="alchemist-section-label">Generate Output</div>`;
+        html += `<div class="alchemist-log ${isErr ? 'error' : ''}" data-alch-log="gen">${escapeHtml(opState.log)}</div>`;
+      }
+
+      // Run section (only if generated or later)
+      if (phase === 'generated' || phase === 'running' || phase === 'done' || (phase === 'error' && opState.output_dir)) {
+        html += '<div class="alchemist-banner">';
+        html += '<div class="banner-title">Run Solution</div>';
+        if (opState.output_dir) {
+          html += `<div class="banner-text">Output directory: <code>${escapeHtml(opState.output_dir)}</code></div>`;
+        }
+        html += '<div class="alchemist-actions">';
+
+        if (phase === 'generated') {
+          html += `<button class="alchemist-btn run-btn" onclick="alchemistRun('${escapeAttr(opName)}')">Run</button>`;
+        } else if (phase === 'running') {
+          html += `<button class="alchemist-btn run-btn" disabled>Run</button>`;
+          html += `<span class="alchemist-status"><span class="spinner"></span> Running\u2026</span>`;
+        } else if (phase === 'done') {
+          html += `<button class="alchemist-btn run-btn" onclick="alchemistRun('${escapeAttr(opName)}')">Re-run</button>`;
+          html += `<span class="alchemist-status" style="color:var(--green)">Success</span>`;
+        } else if (phase === 'error' && opState.run_log) {
+          html += `<button class="alchemist-btn run-btn" onclick="alchemistRun('${escapeAttr(opName)}')">Retry</button>`;
+          html += `<span class="alchemist-status" style="color:var(--red)">Failed</span>`;
+        }
+        html += '</div></div>';
+
+        // Run log
+        if (opState.run_log) {
+          const isRunErr = phase === 'error' && opState.run_log;
+          html += `<div class="alchemist-section-label">Run Output</div>`;
+          html += `<div class="alchemist-log ${isRunErr ? 'error' : 'success'}" data-alch-log="run">${escapeHtml(opState.run_log)}</div>`;
+        }
+      }
+
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    async function alchemistGenerate(opName) {
+      try {
+        await fetch('/api/alchemist/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ op_name: opName }),
+        });
+        // Start polling to pick up state changes
+        if (!alchemistPollTimer) {
+          alchemistPollTimer = setInterval(pollData, 800);
+        }
+      } catch (e) {
+        console.error('alchemist generate failed:', e);
+      }
+    }
+
+    async function alchemistRun(opName) {
+      try {
+        await fetch('/api/alchemist/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ op_name: opName }),
+        });
+        if (!alchemistPollTimer) {
+          alchemistPollTimer = setInterval(pollData, 800);
+        }
+      } catch (e) {
+        console.error('alchemist run failed:', e);
+      }
+    }
+
+    let alchemistPollTimer = null;
+
+    // ---- Async polling ----
+    let pollTimer = null;
+
+    function isFullyLoaded(data) {
+      // Check top-level loading (diff)
+      const topLoading = data._loading;
+      if (topLoading && typeof topLoading === 'object' && Object.values(topLoading).some(v => v)) {
+        return false;
+      }
+      // Check per-op loading
+      const ops = data.ops || {};
+      for (const opData of Object.values(ops)) {
+        const ol = opData._loading;
+        if (ol && typeof ol === 'object' && Object.values(ol).some(v => v)) {
+          return false;
+        }
+      }
+      // Check alchemist in-progress phases
+      const alchOps = ((data.alchemist || {}).ops) || {};
+      for (const s of Object.values(alchOps)) {
+        if (s.phase === 'generating' || s.phase === 'running') return false;
+      }
+      return true;
+    }
+
+    async function pollData() {
+      try {
+        const resp = await fetch('/api/data');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        render(data);
+        if (isFullyLoaded(data)) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          if (alchemistPollTimer) {
+            clearInterval(alchemistPollTimer);
+            alchemistPollTimer = null;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // ---- Init ----
+    if (typeof EMBEDDED_DATA !== 'undefined') {
+      render(EMBEDDED_DATA);
+      if (!isFullyLoaded(EMBEDDED_DATA)) {
+        pollTimer = setInterval(pollData, 800);
+      }
+    }
+  </script>
+</body>
+</html>

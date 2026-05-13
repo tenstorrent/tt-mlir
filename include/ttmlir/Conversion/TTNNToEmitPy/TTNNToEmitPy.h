@@ -12,13 +12,13 @@
 #define GEN_PASS_DECL_EMITPYCONSTEVALCACHING
 #define GEN_PASS_DECL_EMITPYFORMEXPRESSIONS
 #define GEN_PASS_DECL_EMITPYLINKMODULES
+#define GEN_PASS_DECL_EMITPYADDIMPORTS
 #include "ttmlir/Conversion/Passes.h.inc"
 
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter,
-                                  bool enableGoldenMode);
+                                  TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTNNToEmitPyPass();
 
@@ -32,6 +32,8 @@ std::unique_ptr<OperationPass<ModuleOp>> createEmitPyFormExpressionsPass();
 std::unique_ptr<OperationPass<ModuleOp>> createEmitPyNameVarsPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createEmitPyLinkModulesPass();
+
+std::unique_ptr<OperationPass<ModuleOp>> createEmitPyAddImportsPass();
 } // namespace mlir::tt
 
 #endif // TTMLIR_CONVERSION_TTNNTOEMITPY_TTNNTOEMITPY_H

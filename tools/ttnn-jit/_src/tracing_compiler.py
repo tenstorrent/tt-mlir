@@ -5,8 +5,8 @@
 import ast
 import inspect
 
-from ttmlir.dialects import func, ttir
-from ttmlir.ir import (
+from ttnn_jit.ttmlir.dialects import func, ttir
+from ttnn_jit.ttmlir.ir import (
     Context,
     Location,
     Module,

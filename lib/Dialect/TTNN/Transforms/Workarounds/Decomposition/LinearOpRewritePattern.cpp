@@ -170,6 +170,10 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
       /*activation=*/nullptr,
       /*compute_config=*/srcOp.getComputeConfigAttr());
 
+  if (auto weightDtype = srcOp->getAttr("ttcore.weight_dtype")) {
+    matmulOp->setAttr("ttcore.weight_dtype", weightDtype);
+  }
+
   // Step 2: Create Add operation with bias.
   llvm::SmallVector<int64_t> addShape;
   mlir::OpTrait::util::getBroadcastedShape(matmulOp.getType().getShape(),

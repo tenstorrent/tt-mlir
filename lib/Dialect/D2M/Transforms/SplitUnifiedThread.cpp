@@ -6,10 +6,16 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -18,168 +24,649 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static bool needsDMA(Value memref, Value localBuffer) {
+  // Check if the local buffer is a streaming CB.
+  if (localBuffer) {
+    if (auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
+        return true;
+      }
+    }
+  }
+
+  // View ops need datamovement, except for reinterpret view_layout ops
+  // which are just type casts.
+  if (auto *defOp = memref.getDefiningOp()) {
+    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
+      return !viewOp.getReinterpretLayout();
+    }
+    if (mlir::isa<ViewOpInterface>(defOp)) {
+      return true;
+    }
+  }
+  if (auto memrefType = mlir::dyn_cast<MemRefType>(memref.getType())) {
+    if (ttcore::getMemorySpace(memrefType) == ttcore::MemorySpace::DeviceDRAM) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool isAliasedLoad(RemoteLoadOp loadOp) {
+  return !needsDMA(loadOp.getMemref(), loadOp.getLocalBuffer()) &&
+         !loadOp.isMcast();
+}
+
+bool isAliasedStore(RemoteStoreOp storeOp) {
+  return !needsDMA(storeOp.getMemref(), storeOp.getLocalBuffer()) &&
+         storeOp.getStartDevice().empty();
+}
+
+Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
+  while (value) {
+    // Check if its a cb (hoisted generic arg with cb layout attr).
+    if (auto memrefType = mlir::dyn_cast<MemRefType>(value.getType())) {
+      if (llvm::find(genericOp.getAdditionalArgs(), value) !=
+          genericOp.getAdditionalArgs().end()) {
+        // Skip scratch buffers.
+        Operation *definingOp = value.getDefiningOp();
+        if (definingOp && definingOp->getAttr("d2m.scratch_buffer")) {
+          return nullptr;
+        }
+        return value;
+      }
+    }
+
+    // If we are no longer inside the generic or have reached the root, stop
+    // tracing and return nullptr.
+    Operation *definingOp = value.getDefiningOp();
+    if (!definingOp || !genericOp->isProperAncestor(definingOp)) {
+      return nullptr;
+    }
+
+    // Otherwise keep tracing up the chain, if we reach an op we don't support,
+    // stop tracing and return nullptr.
+    if (auto collapseOp = mlir::dyn_cast<memref::CollapseShapeOp>(definingOp)) {
+      value = collapseOp.getSrc();
+      continue;
+    }
+    if (auto subviewOp = mlir::dyn_cast<memref::SubViewOp>(definingOp)) {
+      value = subviewOp.getSource();
+      continue;
+    }
+    return nullptr;
+  }
+  return nullptr;
+}
+
+LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
+                                              PatternRewriter &rewriter) {
+  // Look for a D2M_GenericRegionComputeOp, and collect the outermost ops that
+  // contain them in the generic op.
+  // Skip ops that have the SynchronizableOpInterface,
+  // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
+  // they haven't been lowered yet into non-synchronized ops
+  OpBuilder::InsertionGuard guard(rewriter);
+  DenseSet<Operation *> outermostOps;
+  bool walkFailed = false;
+  genericOp.getRegion(0).walk([&](Operation *op) {
+    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+      return WalkResult::advance();
+    }
+
+    // Go up loops until we reach one of the two as a parent:
+    // generic op or scf.for tagged as d2m.blocking_loop
+    Operation *outermostOp = op;
+    auto isBlockingLoop = [](Operation *op) {
+      return mlir::isa<scf::ForOp>(op) && op->hasAttr("d2m.blocking_loop");
+    };
+    while (outermostOp->getParentOp() != genericOp.getOperation() &&
+           !isBlockingLoop(outermostOp->getParentOp())) {
+      outermostOp = outermostOp->getParentOp();
+      if (!mlir::isa<scf::ForOp>(outermostOp) &&
+          !mlir::isa<linalg::GenericOp>(outermostOp)) {
+        outermostOp->emitOpError(
+            "Parent ops containing compute ops must be scf.for or "
+            "linalg.generic");
+        walkFailed = true;
+        return WalkResult::interrupt();
+      }
+    }
+
+    // Skip ops that have the SynchronizableOpInterface,
+    // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
+    // they haven't been lowered yet into non-synchronized ops.
+    if (!dyn_cast<SynchronizableOpInterface>(outermostOp)) {
+      outermostOps.insert(outermostOp);
+    }
+
+    return WalkResult::advance();
+  });
+
+  if (walkFailed) {
+    return failure();
+  }
+
+  // Expand and merge compute regions until we hit a syncrhonizable op on both
+  // ends.
+  SmallVector<std::pair<Block::iterator, Block::iterator>> computeRegions;
+  while (!outermostOps.empty()) {
+    Operation *outermostOp = *outermostOps.begin();
+    outermostOps.erase(outermostOp);
+    Block::iterator start = outermostOp->getIterator();
+    Block::iterator end = outermostOp->getIterator();
+
+    // Expand above.
+    while (start != outermostOp->getBlock()->begin() &&
+           !dyn_cast<SynchronizableOpInterface>(std::prev(start))) {
+      start--;
+      if (outermostOps.contains(&*start)) {
+        outermostOps.erase(&*start);
+      }
+    }
+
+    // Expand below.
+    while (std::next(end) != outermostOp->getBlock()->end() &&
+           !dyn_cast<SynchronizableOpInterface>(std::next(end))) {
+      end++;
+      if (outermostOps.contains(&*end)) {
+        outermostOps.erase(&*end);
+      }
+    }
+
+    computeRegions.push_back({start, std::next(end)});
+  }
+
+  for (auto [start, end] : computeRegions) {
+
+    DenseSet<Value> loadedCBOperands;
+    DenseSet<Value> storedCBOperands;
+
+    // For memref load and stores, trace to cb operand to get producers and
+    // consumers for syncrhonized region.
+    for (Operation &op : llvm::make_range(start, end)) {
+      // For load trace src memref up to defining op and check if its a cb (as
+      // opposed to dst).
+      op.walk([&](memref::LoadOp loadOp) {
+        Value cb = traceComputeMemrefToCB(loadOp.getMemref(), genericOp);
+        if (cb) {
+          loadedCBOperands.insert(cb);
+        }
+        return WalkResult::advance();
+      });
+
+      // For store trace dst memref up to defining op and check if its a cb (as
+      // opposed to dst)
+      op.walk([&](memref::StoreOp storeOp) {
+        Value cb = traceComputeMemrefToCB(storeOp.getMemref(), genericOp);
+        if (cb) {
+          storedCBOperands.insert(cb);
+        }
+        return WalkResult::advance();
+      });
+
+      // TileMatmulBlockOp uses CBs directly without load/store.
+      op.walk([&](d2m::TileMatmulBlockOp tileMatmulBlockOp) {
+        Value cbA = traceComputeMemrefToCB(tileMatmulBlockOp.getA(), genericOp);
+        Value cbB = traceComputeMemrefToCB(tileMatmulBlockOp.getB(), genericOp);
+        Value cbOutput =
+            traceComputeMemrefToCB(tileMatmulBlockOp.getOutput(), genericOp);
+        if (cbA) {
+          loadedCBOperands.insert(cbA);
+        }
+        if (cbB) {
+          loadedCBOperands.insert(cbB);
+        }
+        if (cbOutput) {
+          storedCBOperands.insert(cbOutput);
+        }
+        return WalkResult::advance();
+      });
+    }
+
+    // Remove allocs in load that are also in store since this is output cb
+    // reuse and not an actual input.
+    for (Value storedCBOperand : storedCBOperands) {
+      if (loadedCBOperands.contains(storedCBOperand)) {
+        loadedCBOperands.erase(storedCBOperand);
+      }
+    }
+
+    utils::wrapInSynchronizedRegion(
+        rewriter, start, end,
+        SmallVector<Value>(loadedCBOperands.begin(), loadedCBOperands.end()),
+        SmallVector<Value>(storedCBOperands.begin(), storedCBOperands.end()));
+  }
+
+  return success();
+}
+
+// From cb usage info, check for load-store pairs and insert aliased cb ops for
+// alias side.
+static LogicalResult processSharedBufferPairs(
+    Block *computeBlock, PatternRewriter &rewriter,
+    llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
+  for (auto [localBuffer, usageInfo] : cbUsageInfo) {
+    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
+           "Expected exactly one producer and one consumer for CB");
+    auto *producer = usageInfo.producers.front();
+    auto *consumer = usageInfo.consumers.front();
+
+    // Insert compute-side CB ops for the aliased half of the pair.
+    // The streaming half stays as a remote_load/store for DMA.
+    if (mlir::isa<RemoteLoadOp>(producer) &&
+        mlir::isa<RemoteStoreOp>(consumer) &&
+        isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
+      Location loc = producer->getLoc();
+      unsigned cbOperandIdx =
+          producer->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
+      // Set insertion point before consumer so GetCBOp dominates WaitOp/PopOp.
+      rewriter.setInsertionPoint(consumer);
+      auto cb =
+          d2m::getOrCreateCB(rewriter, producer->getParentOfType<GenericOp>(),
+                             computeBlock, cbOperandIdx);
+      rewriter.create<WaitOp>(loc, cb);
+      rewriter.create<PopOp>(loc, cb);
+    } else if (mlir::isa<RemoteLoadOp>(producer) &&
+               mlir::isa<RemoteStoreOp>(consumer) &&
+               isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
+      Location loc = consumer->getLoc();
+      unsigned cbOperandIdx =
+          consumer->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
+      // Set insertion point before producer so GetCBOp dominates
+      // ReserveOp/PushOp.
+      rewriter.setInsertionPoint(producer);
+      auto cb =
+          d2m::getOrCreateCB(rewriter, consumer->getParentOfType<GenericOp>(),
+                             computeBlock, cbOperandIdx);
+      rewriter.create<ReserveOp>(loc, cb);
+      rewriter.create<PushOp>(loc, cb);
+    }
+    // Else if both sides are streaming/need DMA, let the DM thread handle
+    // everything.
+  }
+  return success();
+}
+
+static LogicalResult
+insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
+                      llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
+  SmallVector<RemoteLoadOp> loads;
+
+  computeBlock->walk([&](Operation *op) {
+    if (dyn_cast<SynchronizableOpInterface>(op) &&
+        !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
+      auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
+      // get consumers and insert wait+pop
+      for (auto &operand : synchronizedOp->getOpOperands()) {
+        if (synchronizedOp.isConsumer(operand)) {
+          Location loc = synchronizedOp.getLoc();
+          Value localBuffer = operand.get();
+          unsigned cbOperandIdx =
+              synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
+                  localBuffer);
+
+          // get the associated producer for this operand
+          // Assumes only one producer for this local buffer
+          assert(cbUsageInfo[localBuffer].producers.size() == 1 &&
+                 cbUsageInfo[localBuffer].consumers.size() == 1 &&
+                 "Expected exactly one producer and one consumer for CB");
+          auto *associatedProducer = cbUsageInfo[localBuffer].producers.front();
+          rewriter.setInsertionPoint(synchronizedOp);
+          auto cb = d2m::getOrCreateCB(
+              rewriter, synchronizedOp->getParentOfType<GenericOp>(),
+              computeBlock, cbOperandIdx);
+
+          if (mlir::isa<RemoteLoadOp>(associatedProducer) &&
+              isAliasedLoad(mlir::cast<RemoteLoadOp>(associatedProducer))) {
+            rewriter.create<ReserveOp>(loc, cb);
+            rewriter.create<PushOp>(loc, cb);
+          }
+          WaitOp waitOp = rewriter.create<WaitOp>(loc, cb);
+          rewriter.setInsertionPointAfter(synchronizedOp);
+          rewriter.create<PopOp>(loc, cb);
+
+          // Replace uses of the local buffer in compute consumer
+          localBuffer.replaceUsesWithIf(
+              waitOp.getResult(),
+              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
+        }
+      }
+
+      // Get producers and insert reserve+push.
+      for (auto &operand : synchronizedOp->getOpOperands()) {
+        if (synchronizedOp.isProducer(operand)) {
+          Location loc = synchronizedOp.getLoc();
+          Value localBuffer = operand.get();
+          unsigned cbOperandIdx =
+              synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
+                  localBuffer);
+
+          // Get the associated consumer for this operand.
+          // Assumes only one consumer for this local buffer
+          assert(cbUsageInfo[localBuffer].consumers.size() == 1 &&
+                 cbUsageInfo[localBuffer].producers.size() == 1 &&
+                 "Expected exactly one producer and one consumer for CB");
+          auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
+          rewriter.setInsertionPoint(synchronizedOp);
+          auto cb = d2m::getOrCreateCB(
+              rewriter, synchronizedOp->getParentOfType<GenericOp>(),
+              computeBlock, cbOperandIdx);
+          auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+          rewriter.setInsertionPointAfter(synchronizedOp);
+          rewriter.create<PushOp>(loc, cb);
+          if (mlir::isa<RemoteStoreOp>(associatedConsumer) &&
+              isAliasedStore(mlir::cast<RemoteStoreOp>(associatedConsumer))) {
+            rewriter.create<WaitOp>(loc, cb);
+            rewriter.create<PopOp>(loc, cb);
+          }
+
+          // Replace uses of the local buffer in compute consumer
+          localBuffer.replaceUsesWithIf(
+              reserveOp.getResult(),
+              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
+        }
+      }
+    }
+
+    return WalkResult::advance();
+  });
+
+  return success();
+}
+
+// ---------------------------------------------------------------------------
+// DMA thread: convert implicit-form ops to explicit CB form
+// ---------------------------------------------------------------------------
+
+// Erase aliased load and store ops (no DMA needed).
+static LogicalResult eraseAliasedLoadStoreOps(
+    PatternRewriter &rewriter,
+    llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
+  for (auto [localBuffer, usageInfo] : cbUsageInfo) {
+    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
+           "Expected exactly one producer and one consumer for CB");
+    auto *producer = usageInfo.producers.front();
+    auto *consumer = usageInfo.consumers.front();
+
+    if (mlir::isa<RemoteStoreOp>(consumer) &&
+        isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
+      rewriter.eraseOp(consumer);
+    } else if (mlir::isa<RemoteLoadOp>(producer) &&
+               isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
+      rewriter.eraseOp(producer);
+    }
+  }
+  return success();
+}
+
+// Convert remote_load/store to explicit CB form in the DMA thread.
+// Aliased ops are collected for deferred erasure (no DMA needed). Shared
+// buffer pairs use the output operand's CB for both ops.
+static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
+                                                PatternRewriter &rewriter) {
+  SmallVector<RemoteLoadOp> loads;
+  SmallVector<RemoteStoreOp> stores;
+  SmallVector<LocalCopyOp> localCopies;
+  dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
+  dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
+  dmBlock->walk([&](LocalCopyOp op) { localCopies.push_back(op); });
+
+  for (RemoteLoadOp loadOp : loads) {
+    if (loadOp.isExplicitCBForm()) {
+      continue;
+    }
+
+    Value localBuffer = loadOp.getLocalBuffer();
+    unsigned cbOperandIdx =
+        loadOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
+
+    rewriter.setInsertionPoint(loadOp);
+    auto cb = d2m::getOrCreateCB(rewriter, loadOp->getParentOfType<GenericOp>(),
+                                 dmBlock, cbOperandIdx);
+    auto newLoad = rewriter.create<RemoteLoadOp>(
+        loadOp.getLoc(), loadOp.getMemref(), loadOp.getIndices(), cb,
+        loadOp.getMcastStartIndex(), loadOp.getMcastShape());
+    // Preserve preallocated semaphore indices set by
+    // D2MPreallocateMcastSemaphores (needed by LowerLoadStoreOpsToDMA).
+    if (auto semAttr = loadOp->getAttr("preallocated_semaphores")) {
+      newLoad->setAttr("preallocated_semaphores", semAttr);
+    }
+
+    loadOp->dropAllUses();
+    rewriter.eraseOp(loadOp);
+  }
+
+  for (RemoteStoreOp storeOp : stores) {
+    if (storeOp.isExplicitCBForm()) {
+      continue;
+    }
+
+    Value localBuffer = storeOp.getLocalBuffer();
+    assert(localBuffer && "could not find associated local buffer for store");
+    unsigned cbOperandIdx =
+        storeOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
+
+    rewriter.setInsertionPoint(storeOp);
+    auto cb = d2m::getOrCreateCB(
+        rewriter, storeOp->getParentOfType<GenericOp>(), dmBlock, cbOperandIdx);
+    rewriter.create<RemoteStoreOp>(
+        storeOp.getLoc(), storeOp.getMemref(), storeOp.getIndices(), cb,
+        storeOp.getStartDevice(), storeOp.getDeviceMcastShape(),
+        storeOp.getSemaphore(), storeOp.getSemaphoreIndices());
+    storeOp->dropAllUses();
+    rewriter.eraseOp(storeOp);
+  }
+
+  // Convert implicit-form local_copy ops to explicit CB form.
+  for (LocalCopyOp copyOp : localCopies) {
+    if (copyOp.isExplicitCBForm()) {
+      continue;
+    }
+
+    Location loc = copyOp.getLoc();
+
+    unsigned srcCbOperandIdx =
+        copyOp->getParentOfType<GenericOp>().getOperandIndex(copyOp.getSrc());
+    auto srcCb =
+        d2m::getOrCreateCB(rewriter, copyOp->getParentOfType<GenericOp>(),
+                           dmBlock, srcCbOperandIdx);
+    unsigned dstCbOperandIdx =
+        copyOp->getParentOfType<GenericOp>().getOperandIndex(copyOp.getDst());
+    auto dstCb =
+        d2m::getOrCreateCB(rewriter, copyOp->getParentOfType<GenericOp>(),
+                           dmBlock, dstCbOperandIdx);
+
+    // Create explicit CB form: local_copy %srcCb into %dstCb.
+    rewriter.setInsertionPoint(copyOp);
+    rewriter.create<LocalCopyOp>(loc, TypeRange{}, /*src=*/Value{},
+                                 /*dst=*/Value{}, srcCb, dstCb,
+                                 copyOp.getIndexingMaps());
+    copyOp->dropAllUses();
+    rewriter.eraseOp(copyOp);
+  }
+
+  return success();
+}
+
+// ---------------------------------------------------------------------------
+// Dead-op cleanup
+// ---------------------------------------------------------------------------
+
+// Recursively collect ops to erase from a block based on thread type.
+static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
+                              bool isDatamovementThread) {
+  for (Operation &op : block->getOperations()) {
+    if (op.hasTrait<OpTrait::IsTerminator>()) {
+      continue;
+    }
+    if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
+      collectOpsToErase(forOp.getBody(), eraseSet, isDatamovementThread);
+      continue;
+    }
+
+    bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
+    bool isReplicated = isa<SemaphoreWaitOp>(&op);
+
+    if (isDatamovementThread && !isDMAOp && !isReplicated) {
+      eraseSet.insert(&op);
+    } else if (!isDatamovementThread && isDMAOp) {
+      eraseSet.insert(&op);
+    }
+  }
+}
+
+// Iteratively erase unused ops from a block until fixpoint.
+static void eraseDeadOps(PatternRewriter &rewriter, Block *block,
+                         bool isDatamovementThread) {
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    DenseSet<Operation *> eraseSet;
+    collectOpsToErase(block, eraseSet, isDatamovementThread);
+
+    SmallVector<Operation *> toErase;
+    for (Operation *op : eraseSet) {
+      if (op->use_empty()) {
+        toErase.push_back(op);
+        changed = true;
+      }
+    }
+    for (Operation *op : llvm::reverse(toErase)) {
+      rewriter.eraseOp(op);
+    }
+  }
+}
+
+// Erase collected ops. All legitimate uses must have been replaced or dropped
+// before adding ops to this set, so we just drop any stale uses and erase.
+static void eraseDMAOpsInComputeBlock(PatternRewriter &rewriter,
+                                      Block *computeBlock) {
+  DenseSet<Operation *> ops;
+  computeBlock->walk([&](Operation *op) {
+    if (isa<RemoteLoadOp, RemoteStoreOp, LocalCopyOp>(op)) {
+      ops.insert(op);
+    }
+    return WalkResult::advance();
+  });
+  for (Operation *op : ops) {
+    op->dropAllUses();
+  }
+  for (Operation *op : ops) {
+    rewriter.eraseOp(op);
+  }
+  ops.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Main rewriter
+// ---------------------------------------------------------------------------
+
 class D2MSplitUnifiedThreadRewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(GenericOp generic,
                                 PatternRewriter &rewriter) const final {
-    // Only match GenericOp with a single region (unified compute thread form)
     if (generic.getNumRegions() != 1) {
       return failure();
     }
-
-    // Check if the single region is a unified thread
     if (generic.getRegionThreadType(0) != ThreadType::Unified) {
       return failure();
     }
 
-    // Create a new GenericOp with 2 regions: datamovement first, then compute
-    SmallVector<Attribute> threads;
-    threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
-    threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
+    if (failed(wrapComputeInSynchronizedRegion(generic, rewriter))) {
+      return failure();
+    }
 
-    auto newGeneric = rewriter.create<GenericOp>(
-        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
-        generic.getBlockFactors(), generic.getIndexingMaps(),
-        generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        generic.getScratchInputsAttr(),
-        /*numRegions*/ 2);
-
-    // Get the original region
     Region &originalRegion = generic.getRegion(0);
     if (originalRegion.empty()) {
       return failure();
     }
     Block *originalBlock = &originalRegion.front();
 
-    // Check that there are no illegal semaphore ops in the unified thread.
-    // Replicating these across two threads would create a race condition on the
-    // shared semaphore.
     if (failed(utils::checkForIllegalSemaphoreOps(originalBlock))) {
       return failure();
     }
 
-    // Create blocks for both new regions with the same arguments
-    Block *datamovementBlock = &newGeneric.getRegion(0).emplaceBlock();
+    // Create new 2-region GenericOp: datamovement + compute.
+    auto newGeneric = rewriter.create<GenericOp>(
+        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
+        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+        generic.getBlockFactors(), generic.getIndexingMaps(),
+        generic.getIteratorTypes(),
+        rewriter.getArrayAttr(
+            {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement),
+             rewriter.getAttr<ThreadAttr>(ThreadType::Compute)}),
+        generic.getFabricConnectionConfigAttr(),
+        /*numRegions*/ 2);
+
+    Block *dmBlock = &newGeneric.getRegion(0).emplaceBlock();
     Block *computeBlock = &newGeneric.getRegion(1).emplaceBlock();
 
-    // Copy semaphore block arguments to both new blocks.
-    IRMapping datamovementMapping;
-    IRMapping computeMapping;
+    // Map semaphore block arguments to both new blocks.
+    IRMapping dmMapping, computeMapping;
     for (unsigned i = 0; i < originalBlock->getNumArguments(); ++i) {
-      BlockArgument origArg = originalBlock->getArgument(i);
-      assert(mlir::isa<d2m::SemaphoreType>(origArg.getType()) &&
-             "region block arguments must be of semaphore type");
-      auto dmArg =
-          datamovementBlock->addArgument(origArg.getType(), generic.getLoc());
-      auto cmpArg =
-          computeBlock->addArgument(origArg.getType(), generic.getLoc());
-      datamovementMapping.map(origArg, dmArg);
-      computeMapping.map(origArg, cmpArg);
+      BlockArgument arg = originalBlock->getArgument(i);
+      assert(mlir::isa<d2m::LocalSemaphoreType>(arg.getType()) &&
+             "region block arguments must be of local semaphore type");
+      dmMapping.map(arg, dmBlock->addArgument(arg.getType(), generic.getLoc()));
+      computeMapping.map(
+          arg, computeBlock->addArgument(arg.getType(), generic.getLoc()));
     }
 
-    // Clone all operations to both regions (excluding terminators for now)
-    rewriter.setInsertionPointToStart(datamovementBlock);
+    // Clone all ops into both regions.
+    rewriter.setInsertionPointToStart(dmBlock);
     for (Operation &op : originalBlock->without_terminator()) {
-      rewriter.clone(op, datamovementMapping);
+      rewriter.clone(op, dmMapping);
     }
-
     rewriter.setInsertionPointToStart(computeBlock);
     for (Operation &op : originalBlock->without_terminator()) {
       rewriter.clone(op, computeMapping);
     }
-
-    // Clone terminators if they exist
     if (originalBlock->mightHaveTerminator()) {
-      Operation *terminator = originalBlock->getTerminator();
-      rewriter.setInsertionPointToEnd(datamovementBlock);
-      rewriter.clone(*terminator, datamovementMapping);
+      Operation *term = originalBlock->getTerminator();
+      rewriter.setInsertionPointToEnd(dmBlock);
+      rewriter.clone(*term, dmMapping);
       rewriter.setInsertionPointToEnd(computeBlock);
-      rewriter.clone(*terminator, computeMapping);
+      rewriter.clone(*term, computeMapping);
     }
 
-    // Helper function to recursively collect all operations in a block and its
-    // nested regions (excluding scf.for ops themselves, but including their
-    // body contents)
-    std::function<void(Block *, DenseSet<Operation *> &, bool)>
-        collectOpsToErase = [&](Block *block, DenseSet<Operation *> &eraseSet,
-                                bool keepRemoteOps) {
-          for (Operation &op : block->getOperations()) {
-            Operation *opPtr = &op;
+    // Compute thread: insert CB sync ops for implicit-form remote ops.
+    auto cbUsageInfoCompute = utils::getCBUsageInfo(newGeneric.getRegion(1));
+    auto cbUsageInfoDm = utils::getCBUsageInfo(newGeneric.getRegion(0));
+    if (failed(processSharedBufferPairs(computeBlock, rewriter,
+                                        cbUsageInfoCompute)) ||
+        failed(insertCBOpsForCompute(computeBlock, rewriter,
+                                     cbUsageInfoCompute))) {
+      return failure();
+    }
 
-            // Skip terminators
-            if (opPtr->hasTrait<OpTrait::IsTerminator>()) {
-              continue;
-            }
+    if (failed(eraseAliasedLoadStoreOps(rewriter, cbUsageInfoDm))) {
+      return failure();
+    }
 
-            // Never erase scf.for operations - they have nested regions.
-            // Recursively process their body instead.
-            if (auto forOp = dyn_cast<scf::ForOp>(opPtr)) {
-              collectOpsToErase(forOp.getBody(), eraseSet, keepRemoteOps);
-              continue;
-            }
+    // DMA thread: convert datamovement ops to explicit CB form.
+    if (failed(convertDMAToExplicitCBForm(dmBlock, rewriter))) {
+      return failure();
+    }
 
-            bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(opPtr);
-            // Semaphore waits are replicated: preserved in both threads.
-            bool isReplicatedOp = isa<SemaphoreWaitOp>(opPtr);
-            if (keepRemoteOps) {
-              // In datamovement region: keep RemoteLoadOp, RemoteStoreOp, and
-              // replicated ops; erase everything else.
-              if (!isRemoteOp && !isReplicatedOp) {
-                eraseSet.insert(opPtr);
-              }
-            } else {
-              // In compute region: remove RemoteLoadOp and RemoteStoreOp, keep
-              // everything else (including replicated ops).
-              if (isRemoteOp) {
-                eraseSet.insert(opPtr);
-              }
-            }
-          }
-        };
+    eraseDMAOpsInComputeBlock(rewriter, computeBlock);
+    eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);
+    eraseDeadOps(rewriter, computeBlock, /*isDatamovementThread=*/false);
 
-    // Helper function to iteratively erase operations that should be removed
-    // We keep erasing operations with no uses (or uses only by ops we're
-    // erasing) until no more can be erased
-    auto eraseOpsIteratively = [&](Block *block, bool keepRemoteOps) {
-      bool changed = true;
-      while (changed) {
-        changed = false;
-        DenseSet<Operation *> eraseSet;
-        SmallVector<Operation *> toErase;
-
-        // First pass: recursively identify all operations that should be
-        // erased (based on type), walking into all nested scf.for loops
-        collectOpsToErase(block, eraseSet, keepRemoteOps);
-
-        // Second pass: only erase operations that have no uses
-        // Operations with uses will be handled by canonicalization
-        for (Operation *opPtr : eraseSet) {
-          // Only erase operations that have no uses
-          // Operations with uses (like wait/reserve used by tile_matmul_block)
-          // will be handled by canonicalization after their users are erased
-          if (opPtr->use_empty()) {
-            toErase.push_back(opPtr);
-            changed = true;
-          }
-        }
-
-        // Erase operations in reverse order
-        for (Operation *op : llvm::reverse(toErase)) {
-          rewriter.eraseOp(op);
-        }
+    // Remove synchronized region ops, and move its ops to the parent level
+    computeBlock->walk([&](SynchronizedRegionOp synchronizedOp) {
+      if (failed(utils::unwrapSynchronizedRegion(rewriter, synchronizedOp))) {
+        return WalkResult::interrupt();
       }
-    };
-
-    // Filter operations in datamovement region: keep only RemoteLoadOp and
-    // RemoteStoreOp (preserve loops and terminators)
-    eraseOpsIteratively(datamovementBlock, /*keepRemoteOps=*/true);
-
-    // Filter operations in compute region: remove RemoteLoadOp and
-    // RemoteStoreOp (preserve loops and terminators)
-    eraseOpsIteratively(computeBlock, /*keepRemoteOps=*/false);
+      return WalkResult::advance();
+    });
 
     rewriter.replaceOp(generic, newGeneric.getResults());
 

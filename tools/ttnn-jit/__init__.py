@@ -2,9 +2,45 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import importlib
+import importlib.abc
+import importlib.machinery
 import os
 import re
 import subprocess
+import sys
+
+
+class _TtmlirRedirector(importlib.abc.MetaPathFinder):
+    """Redirect bare ``ttmlir.*`` imports to ``ttnn_jit.ttmlir.*``.
+
+    The MLIR Python bindings .so files are compiled with
+    ``MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.`` and hardcode C-level imports such as
+    ``import_("ttmlir._mlir_libs._mlir.ir")``.  When the ttmlir tree is bundled
+    inside the ``ttnn_jit`` wheel, those imports must resolve to the
+    already-loaded ``ttnn_jit.ttmlir.*`` modules instead of picking up a second
+    copy from the build directory on ``PYTHONPATH``.
+    """
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "ttmlir" or fullname.startswith("ttmlir."):
+            return importlib.machinery.ModuleSpec(fullname, _TtmlirLoader())
+        return None
+
+
+class _TtmlirLoader(importlib.abc.Loader):
+    def create_module(self, spec):
+        redirected = "ttnn_jit." + spec.name
+        if redirected in sys.modules:
+            return sys.modules[redirected]
+        return importlib.import_module(redirected)
+
+    def exec_module(self, module):
+        pass
+
+
+if not any(isinstance(f, _TtmlirRedirector) for f in sys.meta_path):
+    sys.meta_path.insert(0, _TtmlirRedirector())
 
 import ttnn
 

@@ -29,6 +29,9 @@ struct MatmulRuleBook : OpRuleBook {
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 
+  /// Reject all sharded RHS inputs (operand 1). LHS and bias are unrestricted.
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+
   /// Apply MatmulProgramConfig + fused activation dedup.
   void applyOpSpecificAttrs(Operation *op,
                             const BeamCandidate &candidate) const override;

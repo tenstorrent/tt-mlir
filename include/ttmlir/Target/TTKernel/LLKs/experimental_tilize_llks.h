@@ -21,10 +21,19 @@ ALWI void llk_unpack_tilize(uint32_t operand, uint32_t tile_index,
                                 1; // Remove header size added by descriptor
 
   WAYPOINT("UPTW");
+#ifndef ARCH_WORMHOLE
+  // tt-metal PR #43780 (commit c990d72) removed block_ct_dim for BH
+  _llk_unpack_tilize_(base_address + (start_tile_index * page_bytes),
+                      tile_index, unpack_src_format[operand_id],
+                      unpack_dst_format[operand_id], face_r_dim, num_faces,
+                      narrow_tile);
+#else
+  // Wormhole's _llk_unpack_tilize_ still takes block_ct_dim
   _llk_unpack_tilize_(base_address + (start_tile_index * page_bytes),
                       tile_index, unpack_src_format[operand_id],
                       unpack_dst_format[operand_id], block_ct_dim, face_r_dim,
                       num_faces, narrow_tile);
+#endif
   WAYPOINT("UPTD");
 }
 
@@ -49,7 +58,7 @@ ALWI void tilize_block(uint32_t icb, uint32_t ocb, uint32_t block_r,
 
       // Datacopy
       MATH(
-          (llk_math_eltwise_unary_datacopy<A2D, DST_ACCUM_MODE,
+          (llk_math_eltwise_unary_datacopy<DataCopyType::A2D, DST_ACCUM_MODE,
                                            BroadcastType::NONE, UnpackToDestEn>(
               0 /*dst index*/)));
       PACK((llk_pack<false, false>(0 /*tile index*/, ocb)));

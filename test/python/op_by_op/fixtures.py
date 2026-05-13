@@ -28,7 +28,9 @@ def ttir_module_str(shlo_module_str: str) -> str:
 
 @pytest.fixture
 def expected_ttir_module_count() -> int:
-    return 4
+    # Aggressive simplification removes the noop broadcast_in_dim, leaving
+    # only reshape + add.
+    return 2
 
 
 @pytest.fixture

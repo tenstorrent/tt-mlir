@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=false enable-const-eval=true" -o %t %s -mlir-print-local-scope
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1 enable-const-eval=true" -o %t %s -mlir-print-local-scope
 // RUN: FileCheck %s --input-file=%t
 
 // CHECK: func.func @integer_input_rm_prop

@@ -19,7 +19,7 @@ Bonus: These two commands can be piped, to avoid writing a `mlir` file to disk, 
 ## Generate flatbuffer file from MLIR
 ```bash
 # First run `ttmlir-opt` to convert to proper dialect
-./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/eltwise/binary/multiply/simple_multiply.mlir -o ttnn.mlir
+./build/bin/ttmlir-opt --ttir-to-ttnn-runtime-pipeline test/ttmlir/Dialect/TTNN/eltwise/binary/multiply/simple_multiply.mlir -o ttnn.mlir
 
 # Now run `ttmlir-translate` to produce flatbuffer file
 ./build/bin/ttmlir-translate --ttnn-to-flatbuffer ttnn.mlir -o out.ttnn

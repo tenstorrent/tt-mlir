@@ -3,6 +3,13 @@ include "ttmlir/Target/TTNN/types.fbs";
 
 namespace tt.target.ttnn;
 
+table BitcastConvertOp {
+  in: tt.target.ttnn.TensorRef;
+  dtype: tt.target.DataType;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table FromDeviceOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;

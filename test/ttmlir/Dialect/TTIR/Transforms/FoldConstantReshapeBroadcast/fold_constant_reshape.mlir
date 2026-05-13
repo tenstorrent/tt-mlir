@@ -9,7 +9,9 @@ module {
   func.func @test_fold_reshape_splat(%arg0: tensor<32x2560xf32>) -> tensor<32x2560xf32> {
     // CHECK-LABEL: func.func @test_fold_reshape_splat
     // The reshape should be folded into the constant
-    // CHECK: %[[CONST:.*]] = "ttir.constant"() <{value = dense<2.{{0*}}e+00> : tensor<32x2560xf32>}>
+    // CHECK: %[[CONST:.*]] = "ttir.full"
+    // CHECK-SAME: fill_value = 2.{{0*}}e+00
+    // CHECK-SAME: -> tensor<32x2560xf32>
     // CHECK-NOT: ttir.reshape
     // CHECK: %[[POW:.*]] = "ttir.pow"(%arg0, %[[CONST]])
     // CHECK: return %[[POW]]
@@ -24,7 +26,9 @@ module {
 module {
   func.func @test_fold_reshape_integer_splat(%arg0: tensor<32x64xi32>) -> tensor<32x64xi32> {
     // CHECK-LABEL: func.func @test_fold_reshape_integer_splat
-    // CHECK: %[[CONST:.*]] = "ttir.constant"() <{value = dense<42> : tensor<32x64xi32>}>
+    // CHECK: %[[CONST:.*]] = "ttir.full"
+    // CHECK-SAME: fill_value = 42
+    // CHECK-SAME: -> tensor<32x64xi32>
     // CHECK-NOT: ttir.reshape
     // CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[CONST]])
     // CHECK: return %[[ADD]]

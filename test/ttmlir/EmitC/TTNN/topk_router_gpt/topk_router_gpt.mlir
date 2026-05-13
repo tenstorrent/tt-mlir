@@ -1,0 +1,19 @@
+// RUN: ttmlir-opt --ttir-to-ttnn-common-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
+
+// RUN: ttmlir-opt --ttnn-common-to-runtime-pipeline -o %t_rt.mlir %t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t_rt.mlir
+//
+// RUN: ttmlir-opt --ttnn-common-to-emitc-pipeline -o %t2.mlir %t.mlir
+// RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
+
+func.func @test_topk_router_gpt(
+    %input:  tensor<32x64xbf16>,
+    %weight: tensor<64x128xbf16>,
+    %bias:   tensor<32x128xbf16>
+) -> (tensor<32x4xui16>, tensor<32x4xbf16>) {
+  %indices, %weights = "ttir.topk_router_gpt"(%input, %weight, %bias)
+      <{k = 4 : i32, num_experts = 128 : i32}>
+      : (tensor<32x64xbf16>, tensor<64x128xbf16>, tensor<32x128xbf16>)
+        -> (tensor<32x4xui16>, tensor<32x4xbf16>)
+  return %indices, %weights : tensor<32x4xui16>, tensor<32x4xbf16>
+}

@@ -4,7 +4,7 @@
 import ttnn
 import ttnn.device
 
-from ttmlir.dialects import ttnn as ttnn_dialect
+from ttnn_jit.ttmlir.dialects import ttnn as ttnn_dialect
 from ttnn_jit._src import (
     allocate_dram_buffer,
     get_l1_base_allocator_addr,

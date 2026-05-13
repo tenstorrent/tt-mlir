@@ -37,7 +37,8 @@ from test_utils import SystemDesc
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 ALL_ENVIRONMENTS = set(["silicon", "sim"])
-ALL_CONFIGS = ALL_BACKENDS | ALL_SYSTEMS | ALL_ENVIRONMENTS
+ALL_IMAGES = set(["tracy", "speedy"])
+ALL_CONFIGS = ALL_BACKENDS | ALL_SYSTEMS | ALL_ENVIRONMENTS | ALL_IMAGES
 
 
 _current_device = None
@@ -156,11 +157,62 @@ def clear_device_cache():
     _current_fabric_config = None
 
 
+def _reset_device_after_failure():
+    """Close the cached device after an execution failure.
+
+    After a device execution failure the hardware may be in an undefined state.
+    Close the device and clear the cache so the next test's ``device`` fixture
+    opens a fresh one automatically.
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    if _current_device is None:
+        return
+
+    target = _current_device_target
+    device = _current_device
+
+    try:
+        if target == "emitpy":
+            ttnn.close_mesh_device(device)
+        else:
+            tt_runtime.runtime.close_mesh_device(device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
+    except Exception as e:
+        print(f"Warning: failed to close device during reset: {e}")
+
+    _current_device = None
+    _current_device_target = None
+    _current_device_mesh_shape = None
+    _current_fabric_config = None
+
+    if target == "emitpy":
+        utils.DeviceGetter._instance = None
+        utils.DeviceGetter._mesh_shape = None
+
+
 def _get_current_environment():
     if "TT_METAL_SIMULATOR" in os.environ:
         return "sim"
 
     return "silicon"
+
+
+def _get_current_image():
+    """Identify the docker/build image flavor the tests are running under.
+
+    The image is exported as the ``IMAGE_NAME`` environment variable by CI
+    (see ``.github/workflows/call-test.yml``); when running locally the value
+    defaults to ``"speedy"`` so the dev experience matches the non-tracy
+    image. Only entries declared in ``ALL_IMAGES`` are recognized; anything
+    else is treated as the default ``"speedy"`` to avoid bogus ``skip_config``
+    matches against unknown values.
+    """
+    image = os.environ.get("IMAGE_NAME", "speedy")
+    if image not in ALL_IMAGES:
+        return "speedy"
+    return image
 
 
 def is_x86_machine():
@@ -266,7 +318,9 @@ def get_request_kwargs(request):
         kwargs["enable_intermediate_verification"] = True
     if request.config.getoption("--disable-golden"):
         kwargs["disable_golden"] = True
-    if request.config.getoption("--skip-exec"):
+    if request.config.getoption("--skip-exec") or getattr(
+        request.node, "skip_exec", False
+    ):
         kwargs["skip_exec"] = True
     if request.config.getoption("--disable-pcc"):
         kwargs["check_pcc"] = False
@@ -704,6 +758,10 @@ def pytest_runtest_call(item: pytest.Item):
                 f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
             )
         failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+
+        if failure_stage == "runtime" and not getattr(item, "skip_exec", False):
+            _reset_device_after_failure()
+
         raise
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)
@@ -714,6 +772,7 @@ def _mark_item_for_skip(
     current_target,
     board_id,
     current_environment,
+    current_image,
     marker_name,
     skip_handler_fn,
     negate_check=False,
@@ -733,7 +792,7 @@ def _mark_item_for_skip(
                 )
 
             match = platform_config <= set(
-                [current_target, board_id, current_environment]
+                [current_target, board_id, current_environment, current_image]
             )
             matches.append(match)
 
@@ -786,6 +845,7 @@ def pytest_collection_modifyitems(config, items):
                 break
 
         current_environment = _get_current_environment()
+        current_image = _get_current_image()
         board_id = get_board_id(system_desc)
 
         def skip_config_handler(item):
@@ -815,6 +875,7 @@ def pytest_collection_modifyitems(config, items):
             current_target,
             board_id,
             current_environment,
+            current_image,
             "skip_config",
             skip_config_handler,
         )
@@ -823,6 +884,7 @@ def pytest_collection_modifyitems(config, items):
             current_target,
             board_id,
             current_environment,
+            current_image,
             "only_config",
             only_config_handler,
             negate_check=True,
@@ -832,6 +894,7 @@ def pytest_collection_modifyitems(config, items):
             current_target,
             board_id,
             current_environment,
+            current_image,
             "skip_exec",
             skip_exec_handler,
         )

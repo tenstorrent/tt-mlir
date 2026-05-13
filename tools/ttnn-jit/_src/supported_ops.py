@@ -94,7 +94,6 @@ data_movement_ops = [
     "concat",
     "repeat",
     "embedding",
-    "gather",
 ]
 
 # CCL (collective communication) operations

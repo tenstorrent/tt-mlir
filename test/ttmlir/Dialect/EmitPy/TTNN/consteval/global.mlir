@@ -7,12 +7,11 @@
 
 module {
   // CHECK: emitpy.file "main" {
-  // CHECK:   emitpy.import from "consteval" import "cpu_hoisted_const_eval_{{.*}}", "consteval_forward"
-  // CHECK:   func.func private @cpu_hoisted_const_eval_{{.*}}
+  // CHECK:   emitpy.import from "consteval" import "consteval_forward"
   // CHECK:   func.func private @consteval_forward
-  // CHECK:   emitpy.global @_cached_forward = #emitpy.opaque<"{}">
+  // CHECK:   emitpy.global @ce_cache_forward = #emitpy.opaque<"{}">
   // CHECK:   func.func @forward(
-  // CHECK:     emitpy.global_statement @_cached_forward
+  // CHECK:     emitpy.global_statement @ce_cache_forward
   // CHECK:     call @consteval_forward
   // CHECK: }
   // CHECK: emitpy.file "consteval" {

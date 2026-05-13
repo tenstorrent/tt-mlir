@@ -24,7 +24,6 @@ namespace {
 
 using ttnn_to_emitpy::kConstEvaledAttr;
 using ttnn_to_emitpy::kNameAttr;
-using ttnn_to_emitpy::kWrapperAttr;
 
 constexpr const char *kCacheDictAttr = "cache_dict";
 
@@ -109,7 +108,7 @@ public:
                   }
                   return WalkResult::advance();
                 });
-                if (callee && callee->hasAttr(kWrapperAttr)) {
+                if (callee && ttmlir::utils::isConstEvalWrapperFunc(callee)) {
                   callOp->setDiscardableAttr(
                       kNameAttr, builder.getStringAttr(globalStmt.getName()));
                   return;
@@ -121,7 +120,7 @@ public:
         }
       }
 
-      if (!funcOp->hasAttr(kWrapperAttr)) {
+      if (!ttmlir::utils::isConstEvalWrapperFunc(funcOp)) {
         return;
       }
 

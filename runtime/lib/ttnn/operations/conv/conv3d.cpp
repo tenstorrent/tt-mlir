@@ -82,8 +82,8 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   }
 
   auto deviceComputeConfig = ::ttnn::init_device_compute_kernel_config(
-      targetDevice.arch(), computeConfig, MathFidelity::HiFi4, true, true,
-      false);
+      targetDevice.arch(), computeConfig, ::tt::tt_metal::MathFidelity::HiFi4,
+      true, true, false);
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(

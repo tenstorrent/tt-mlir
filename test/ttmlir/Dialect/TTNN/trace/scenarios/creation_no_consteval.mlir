@@ -3,12 +3,14 @@
 
 module {
   // CHECK-LABEL: func.func private @trace_0_creation_ops
-  // CHECK: "ttnn.add"
+  // CHECK: "ttnn.gelu_bw"
 
   // CHECK-LABEL: func.func private @run_and_capture_trace_0_creation_ops
   // CHECK: "ttnn.write_tensor"
+  // CHECK: "ttnn.deallocate"
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
+  // CHECK: "ttnn.execute_trace"
 
   // CHECK-LABEL: func.func private @execute_trace_0_creation_ops
   // CHECK: "ttnn.execute_trace"
@@ -27,7 +29,7 @@ module {
     %0 = "ttir.zeros"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
     %1 = "ttir.ones"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
 
-    %3 = "ttir.add"(%0, %1) : (tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
+    %3 = "ttir.gelu_bw"(%0, %1) : (tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
 
     return %3 : tensor<4x4xbf16>
   }

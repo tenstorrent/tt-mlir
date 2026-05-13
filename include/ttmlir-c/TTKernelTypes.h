@@ -14,7 +14,8 @@ extern "C" {
 MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx,
                                                     MlirType memrefType);
 
-MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelSemaphoreTypeGet(MlirContext ctx);
+MLIR_CAPI_EXPORTED MlirType
+ttmlirTTKernelLocalSemaphoreTypeGet(MlirContext ctx);
 
 MLIR_CAPI_EXPORTED MlirType ttmlirTTKernelNocAddrTypeGet(MlirContext ctx);
 

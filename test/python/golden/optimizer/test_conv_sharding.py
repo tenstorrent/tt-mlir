@@ -84,8 +84,7 @@ def test_conv2d_sharding(
         **get_request_kwargs(request),
         device=device,
         pipeline_options=[
-            "enable-optimizer=true",
-            "memory-layout-analysis-enabled=true",
+            "optimization-level=2",
         ],
         target="ttnn",
     )

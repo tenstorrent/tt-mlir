@@ -280,15 +280,10 @@ def test_sdpa_mask_broadcast(
             0.124999993,
         ),
         # Decode mask with batch broadcast: mask[0]=1
-        pytest.param(
+        (
             [(1, 32, 32, 64), (32, 32, 128, 64), (32, 32, 128, 64), (32,)],
             (1, 1, 32, 128),
             0.0883883387,
-            marks=pytest.mark.xfail(
-                reason="SDPA decode does not support batch broadcasting on "
-                "attention mask. "
-                "https://github.com/tenstorrent/tt-metal/issues/39910"
-            ),
         ),
     ],
     ids=[

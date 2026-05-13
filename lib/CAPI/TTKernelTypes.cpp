@@ -14,8 +14,8 @@ MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx, MlirType memrefType) {
   return wrap(CBType::get(mlir::cast<mlir::MemRefType>(unwrap(memrefType))));
 }
 
-MlirType ttmlirTTKernelSemaphoreTypeGet(MlirContext ctx) {
-  return wrap(SemaphoreType::get(unwrap(ctx)));
+MlirType ttmlirTTKernelLocalSemaphoreTypeGet(MlirContext ctx) {
+  return wrap(LocalSemaphoreType::get(unwrap(ctx)));
 }
 
 MlirType ttmlirTTKernelNocAddrTypeGet(MlirContext ctx) {

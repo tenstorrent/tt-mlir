@@ -5,7 +5,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         CPUBooleanNarrowing.cpp
         DecomposeComplexPermute.cpp
         DecomposeComplexReshape.cpp
-        DecomposeMinReduction.cpp
+        DecomposeComposites.cpp
         GlobalDataFormatConversion.cpp
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp

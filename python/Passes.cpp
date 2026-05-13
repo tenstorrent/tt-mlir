@@ -99,7 +99,7 @@ void populatePassesModule(nb::module_ &m) {
       nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   m.def(
-      "ttir_to_ttnn_backend_pipeline",
+      "ttir_to_ttnn_runtime_pipeline",
       [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getName());
@@ -113,7 +113,7 @@ void populatePassesModule(nb::module_ &m) {
         }
 
         const auto *pipeline =
-            mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
+            mlir::PassPipelineInfo::lookup("ttir-to-ttnn-runtime-pipeline");
 
         std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
             [](const llvm::Twine &) { return mlir::failure(); };

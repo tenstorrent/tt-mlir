@@ -31,20 +31,52 @@ struct BoundsInterval {
   Value end;
 };
 
-static double getFillValueAsDouble(ttcore::OOBVal oobVal) {
-  switch (oobVal) {
-  case ttcore::OOBVal::Undef:
-    return 0.0;
-  case ttcore::OOBVal::Zero:
-    return 0.0;
-  case ttcore::OOBVal::One:
-    return 1.0;
-  case ttcore::OOBVal::Inf:
-    return std::numeric_limits<double>::infinity();
-  case ttcore::OOBVal::NegInf:
-    return -std::numeric_limits<double>::infinity();
+// Build an element-typed OOB fill attribute. For integer types, Inf/NegInf
+// are saturated to the representable min/max of the type.
+static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
+                                  ttcore::OOBVal oobVal) {
+  if (auto floatTy = dyn_cast<FloatType>(elemType)) {
+    double v = 0.0;
+    switch (oobVal) {
+    case ttcore::OOBVal::Undef:
+    case ttcore::OOBVal::Zero:
+      v = 0.0;
+      break;
+    case ttcore::OOBVal::One:
+      v = 1.0;
+      break;
+    case ttcore::OOBVal::Inf:
+      v = std::numeric_limits<double>::infinity();
+      break;
+    case ttcore::OOBVal::NegInf:
+      v = -std::numeric_limits<double>::infinity();
+      break;
+    }
+    return builder.getFloatAttr(floatTy, v);
   }
-  return 0.0;
+  if (auto intTy = dyn_cast<IntegerType>(elemType)) {
+    unsigned w = intTy.getWidth();
+    bool isUnsigned = intTy.isUnsigned();
+    APInt v(w, 0);
+    switch (oobVal) {
+    case ttcore::OOBVal::Undef:
+    case ttcore::OOBVal::Zero:
+      break;
+    case ttcore::OOBVal::One:
+      v = APInt(w, 1);
+      break;
+    case ttcore::OOBVal::Inf:
+      v = isUnsigned ? APInt::getMaxValue(w) : APInt::getSignedMaxValue(w);
+      break;
+    case ttcore::OOBVal::NegInf:
+      v = isUnsigned ? APInt(w, 0) : APInt::getSignedMinValue(w);
+      break;
+    }
+    // arith.constant requires signless int types; TileFillOp accepts any
+    // integer so this is safe for the downstream use.
+    return builder.getIntegerAttr(IntegerType::get(builder.getContext(), w), v);
+  }
+  llvm_unreachable("unsupported element type for OOB fill");
 }
 
 /// Decompose BlockMaskOp with multi-core support.
@@ -189,9 +221,9 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
 
-    double fillValueDouble = getFillValueAsDouble(fillOOBVal);
-    Value fillScalar = rewriter.create<arith::ConstantOp>(
-        loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
+    TypedAttr fillAttr = getFillValueAttr(rewriter, elemType, fillOOBVal);
+    Value fillScalar =
+        rewriter.create<arith::ConstantOp>(loc, fillAttr.getType(), fillAttr);
 
     // Get this core's coordinates.
     Value coreY = rewriter.create<CoreIndexOp>(
@@ -211,8 +243,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     rewriter.create<WriteColMaskTileOp>(loc, validColsVal, colMaskCB);
 
     // === Tile operation helpers ===
-    auto createFillTile = [&]() {
-      return rewriter.create<FillTileOp>(loc, tileType, fillScalar).getResult();
+    auto createTileFill = [&]() {
+      return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
     };
 
     auto emitPassthrough = [&](Value localRowIdx, Value localColIdx) {
@@ -225,12 +257,12 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     auto emitRowMasked = [&](Value localRowIdx, Value localColIdx) {
       auto inputTile = rewriter.create<memref::LoadOp>(
           loc, input, ValueRange{localRowIdx, localColIdx});
-      auto fillTile = createFillTile();
+      auto tileFill = createTileFill();
       auto rowMaskTile = rewriter.create<memref::LoadOp>(
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
       auto result =
           rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile);
+                                       inputTile.getResult(), tileFill);
       rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
                                        ValueRange{localRowIdx, localColIdx});
     };
@@ -238,12 +270,12 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     auto emitColMasked = [&](Value localRowIdx, Value localColIdx) {
       auto inputTile = rewriter.create<memref::LoadOp>(
           loc, input, ValueRange{localRowIdx, localColIdx});
-      auto fillTile = createFillTile();
+      auto tileFill = createTileFill();
       auto colMaskTile = rewriter.create<memref::LoadOp>(
           loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
       auto result =
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile);
+                                       inputTile.getResult(), tileFill);
       rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
                                        ValueRange{localRowIdx, localColIdx});
     };
@@ -251,25 +283,25 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     auto emitCornerMasked = [&](Value localRowIdx, Value localColIdx) {
       auto inputTile = rewriter.create<memref::LoadOp>(
           loc, input, ValueRange{localRowIdx, localColIdx});
-      auto fillTile1 = createFillTile();
+      auto tileFill1 = createTileFill();
       auto rowMaskTile = rewriter.create<memref::LoadOp>(
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
       auto rowMaskedResult =
           rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), fillTile1);
-      auto fillTile2 = createFillTile();
+                                       inputTile.getResult(), tileFill1);
+      auto tileFill2 = createTileFill();
       auto colMaskTile = rewriter.create<memref::LoadOp>(
           loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
       auto finalResult =
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                       rowMaskedResult.getResult(), fillTile2);
+                                       rowMaskedResult.getResult(), tileFill2);
       rewriter.create<memref::StoreOp>(loc, finalResult.getResult(), output,
                                        ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitFill = [&](Value localRowIdx, Value localColIdx) {
-      auto fillTile = createFillTile();
-      rewriter.create<memref::StoreOp>(loc, fillTile, output,
+      auto tileFill = createTileFill();
+      rewriter.create<memref::StoreOp>(loc, tileFill, output,
                                        ValueRange{localRowIdx, localColIdx});
     };
 

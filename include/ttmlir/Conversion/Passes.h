@@ -18,6 +18,7 @@
 #include "ttmlir/Conversion/MathToD2MTileOps/MathToD2MTileOps.h"
 #include "ttmlir/Conversion/SFPIToEmitC/SFPIToEmitC.h"
 #include "ttmlir/Conversion/TTIRToD2M/TTIRToD2M.h"
+#include "ttmlir/Conversion/TTIRToEmitPy/TTIRToEmitPy.h"
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"

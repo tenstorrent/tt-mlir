@@ -50,7 +50,6 @@ struct TTIRToTTIRDecompositionPass
       // All other ops are legal (won't be decomposed).
       target.addLegalOp<ttir::IndexOp>();
       target.addLegalOp<ttir::GetDimensionSizeOp>();
-      target.addLegalOp<ttir::GatherOp>();
       target.addLegalOp<ttir::IndexSelectOp>();
       target.addLegalOp<ttir::QuantizeOp>();
       target.addLegalOp<ttir::RequantizeOp>();
@@ -68,7 +67,6 @@ struct TTIRToTTIRDecompositionPass
       // TTNN and TTMetal decompose all ops
       target.addIllegalOp<ttir::IndexOp>();
       target.addIllegalOp<ttir::GetDimensionSizeOp>();
-      target.addIllegalOp<ttir::GatherOp>();
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::IndexSelectOp>();
       target.addIllegalOp<ttir::ReduceAndOp>();
@@ -78,10 +76,12 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::DequantizeOp>();
       target.addIllegalOp<ttir::ReverseOp>();
 
-      // Conv2d and ConvTranspose2d are legal only if already in NHWC format.
-      // Non-NHWC ops will be decomposed with permutes to NHWC.
+      // Conv ops are legal only if already in channel-last format.
+      // Non-channel-last ops will be decomposed with permutes.
       target.addDynamicallyLegalOp<ttir::Conv2dOp>(
           [](ttir::Conv2dOp op) { return op.isNHWC(); });
+      target.addDynamicallyLegalOp<ttir::Conv3dOp>(
+          [](ttir::Conv3dOp op) { return op.isNDHWC(); });
       target.addDynamicallyLegalOp<ttir::ConvTranspose2dOp>(
           [](ttir::ConvTranspose2dOp op) { return op.isNHWC(); });
       break;

@@ -23,6 +23,7 @@
 #include "ttnn/operations/data_movement/clone/clone.hpp"
 #include "ttnn/operations/data_movement/concat/concat.hpp"
 #include "ttnn/operations/data_movement/copy/copy.hpp"
+#include "ttnn/operations/data_movement/gather/gather.hpp"
 #include "ttnn/operations/data_movement/pad/pad.hpp"
 #include "ttnn/operations/data_movement/permute/permute.hpp"
 #include "ttnn/operations/data_movement/repeat/repeat.hpp"
@@ -36,8 +37,10 @@
 #include "ttnn/operations/eltwise/ternary/ternary.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/ccl/moe/selective_reduce_combine/selective_reduce_combine.hpp"
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
+#include "ttnn/operations/experimental/topk_router_gpt/topk_router_gpt.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
@@ -57,6 +60,7 @@
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/operations/reduction/reduction_common/reduction_common.hpp"
+#include "ttnn/operations/reduction/sampling/sampling.hpp"
 #include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/operations/trace.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
@@ -93,6 +97,11 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
+// Creates a borrowed host tensor that aliases the buffer of `ownedHostTensor`.
+// `ownedHostTensor` must remain valid for the lifetime of uses of the result.
+::tt::runtime::Tensor
+createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor);
+
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).
@@ -128,13 +137,13 @@ Tensor createMultiDeviceBorrowedHostTensor(
 inline ::tt::runtime::Tensor createOwnedHostTensor(const void *data,
                                                    const TensorDesc &desc) {
   return ::tt::runtime::ttnn::createOwnedHostTensor(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
 }
 
 inline ::tt::runtime::Tensor createBorrowedHostTensor(void *data,
                                                       const TensorDesc &desc) {
   return ::tt::runtime::ttnn::createBorrowedHostTensor(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
 }
 
 inline ::tt::runtime::Tensor createMultiDeviceHostTensor(
@@ -142,14 +151,14 @@ inline ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
   return ::tt::runtime::ttnn::createMultiDeviceHostTensor(
-      data, desc.shape, desc.stride, desc.itemsize, desc.dataType, strategy,
-      meshShape);
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType,
+      strategy, meshShape);
 }
 
 inline ::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
                                                const TensorDesc &desc) {
-  return ::tt::runtime::ttnn::createEmptyTensor(device, layout, desc.shape,
-                                                desc.stride, desc.itemsize);
+  return ::tt::runtime::ttnn::createEmptyTensor(
+      device, layout, desc.shape, desc.stride, desc.elementSize());
 }
 
 bool isTensorAllocated(::tt::runtime::Tensor tensor);
@@ -250,15 +259,21 @@ std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle);
 
-// Returns reference to the output tensor of the operation
-// if the operation does not have an output tensor, returns std::nullopt
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
+// Returns references to the output tensor(s) of the operation.
+// Empty vector means no outputs (e.g. DeallocateOp).
+std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle);
 
-// Returns list of references to the input tensors of the operation
-// if the operation does not have any input tensors, returns empty vector
-std::vector<tt::runtime::TensorRef>
-getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+// Returns references to the input tensor(s) of the operation.
+// Empty vector means no inputs.
+std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle);
+
+std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef);
+::tt::target::DataType getTensorRefDataType(tt::runtime::TensorRef tensorRef);
+
+using OpWalkFn = std::function<void(tt::runtime::OpContext)>;
+
+void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
+                 const OpWalkFn &cb);
 
 // Returns tensor to which tensorRef refers
 // In case that that tensor is not in the tensor pool, returns std::nullopt
@@ -278,6 +293,8 @@ retrieveTensorsFromPool(CallbackContext programContextHandle,
 // deallocation
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
+
+size_t getProgramIndex(CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,

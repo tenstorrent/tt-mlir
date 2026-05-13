@@ -8,6 +8,9 @@ from conftest import get_request_kwargs
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
+from ttmlir.ir import StringAttr
+from ttmlir.dialects import stablehlo
+
 from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
@@ -175,6 +178,96 @@ def module_logistic(builder: StableHLOBuilder):
         return builder.logistic(in0, unit_attrs=unit_attrs)
 
 
+def module_sign(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def sign(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.sign(in0, unit_attrs=unit_attrs)
+
+
+def module_convert(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def convert(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.convert(in0, output_type=torch.bfloat16, unit_attrs=unit_attrs)
+
+
+def module_composite(builder: StableHLOBuilder):
+    # Author the decomposition function first as a private sibling func. The
+    # `stablehlo.composite` op emitted in the main func references it by name
+    # via its `decomposition` symbol attribute, mirroring the canonical form
+    # in test/ttmlir/Silicon/StableHLO/n150/composite_op.mlir.
+    @builder.func([(64, 128), (64, 128)], [torch.float32, torch.float32])
+    def add_impl(
+        lhs: Operand,
+        rhs: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.add(lhs, rhs)
+
+    add_impl.sym_visibility = StringAttr.get("private")
+    # Exclude the private decomposition from the golden_map program list so
+    # only the public entry point is treated as an executable program.
+    builder._nested_funcs.append(add_impl.name.value)
+
+    @builder.func([(64, 128), (64, 128)], [torch.float32, torch.float32])
+    def composite_main(
+        lhs: Operand,
+        rhs: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.composite(
+            "jit_eltwise_add.my_add",
+            [lhs, rhs],
+            decomposition=add_impl,
+            unit_attrs=unit_attrs,
+        )
+
+
+def module_cbrt(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def cbrt(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.cbrt(in0, unit_attrs=unit_attrs)
+
+
+def module_expm1(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def expm1(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.expm1(in0, unit_attrs=unit_attrs)
+
+
+def module_is_finite(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def is_finite(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.is_finite(in0, unit_attrs=unit_attrs)
+
+
 def module_shift_right_logical(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
     def shift_right_logical(
@@ -185,6 +278,42 @@ def module_shift_right_logical(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_remainder(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def remainder(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.remainder(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_atan2(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def atan2(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.atan2(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_shift_left(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def shift_left(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.shift_left(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_clamp(builder: StableHLOBuilder):
@@ -457,25 +586,7 @@ def module_compare_lt(builder: StableHLOBuilder):
         return builder.compare(in0, in1, "LT", unit_attrs=unit_attrs)
 
 
-def module_broadcast_in_dim(builder: StableHLOBuilder):
-    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
-    def broadcast_in_dim(
-        in0: Operand,
-        builder: StableHLOBuilder,
-        broadcast_dimensions: List[int],
-        output_shape: List[int],
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        return builder.broadcast_in_dim(
-            in0,
-            broadcast_dimensions=broadcast_dimensions,
-            output_shape=output_shape,
-            unit_attrs=unit_attrs,
-        )
-
-
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -485,6 +596,8 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
         module_mul,
         module_pow,
         module_subtract,
+        module_remainder,
+        module_atan2,
     ],
 )
 def test_binary_ops(test_fn: Callable, target: str, request, device):
@@ -496,16 +609,16 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
     [
-        module_compare_eq | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_ne | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_ge | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_gt | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_le | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_lt | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_compare_eq,
+        module_compare_ne,
+        module_compare_ge,
+        module_compare_gt,
+        module_compare_le,
+        module_compare_lt,
     ],
 )
 def test_compare_ops(test_fn: Callable, target: str, request, device):
@@ -538,6 +651,10 @@ def test_compare_ops(test_fn: Callable, target: str, request, device):
         module_sqrt,
         module_tan,
         module_tanh,
+        module_sign,
+        module_convert,
+        module_cbrt,
+        module_expm1,
     ],
 )
 def test_unary_ops(
@@ -560,6 +677,22 @@ def test_unary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="TTNN IsFiniteOp runtime DataType mismatch: expected BFLOAT16, got FLOAT32. Issue: #7930"
+)
+def test_is_finite(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    compile_and_execute_shlo(
+        module_is_finite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        check_pcc=False,
     )
 
 
@@ -622,10 +755,6 @@ def test_sort(
 @pytest.mark.parametrize("dimension", [2, 1, 0], ids=["dim2", "dim1", "dim0"])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("is_stable", [False])
-@pytest.mark.skip_exec(
-    ("p150",),
-    reason="Flaky on p150 in CI, ticket: https://github.com/tenstorrent/tt-mlir/issues/7571",
-)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sort_key_value(
     shape: Shape,
@@ -698,32 +827,21 @@ def test_get_dimension_size(
 
 
 _RESHAPE_CASES = [
-    # shapes, semantic id, skip_ttmetal?
-    ([(2, 3), (3, 2)], "swap", True),
-    ([(2, 3), (6,)], "flatten", True),
-    ([(1, 784), (1, 28, 28)], "unflatten", True),
-    ([(4, 8, 16), (4, 128)], "3d_to_2d", True),
-    ([(64, 512), (64, 1, 512)], "expand_dims", True),
-    ([(128, 128), (64, 256)], "rearrange_2d", True),
-    ([(10,), (10,)], "identity", True),
-    ([(0, 6), (0, 2, 3)], "zero_dim", True),
+    # shapes, semantic id
+    ([(2, 3), (3, 2)], "swap"),
+    ([(2, 3), (6,)], "flatten"),
+    ([(1, 784), (1, 28, 28)], "unflatten"),
+    ([(4, 8, 16), (4, 128)], "3d_to_2d"),
+    ([(64, 512), (64, 1, 512)], "expand_dims"),
+    ([(128, 128), (64, 256)], "rearrange_2d"),
+    ([(10,), (10,)], "identity"),
+    ([(0, 6), (0, 2, 3)], "zero_dim"),
 ]
 
-_RESHAPE_PARAMS = []
-for shapes, case_id, skip_ttmetal in _RESHAPE_CASES:
-    # ttnn: expected to pass
-    _RESHAPE_PARAMS.append(pytest.param(shapes, "ttnn", id=f"{case_id}-ttnn"))
-    # ttmetal: skip cases known to be unsupported
-    marks = []
-    if skip_ttmetal:
-        marks.append(
-            pytest.mark.skip(
-                reason="reshape lowering not yet supported in TTMetal backend"
-            )
-        )
-    _RESHAPE_PARAMS.append(
-        pytest.param(shapes, "ttmetal", id=f"{case_id}-ttmetal", marks=marks)
-    )
+_RESHAPE_PARAMS = [
+    pytest.param(shapes, "ttnn", id=f"{case_id}-ttnn")
+    for shapes, case_id in _RESHAPE_CASES
+]
 
 
 @pytest.mark.parametrize("shapes, target", _RESHAPE_PARAMS)
@@ -765,7 +883,7 @@ def test_ternary_ops(test_fn: Callable, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_reshape_mismatch_raises(target, request, device):
     """
     Element-count mismatch must raise. It may surface as a ValueError from the
@@ -838,7 +956,7 @@ def test_dot_general(
 
 @pytest.mark.parametrize("shape", [(2, 3, 4), (128, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "permutation",
     [
@@ -857,12 +975,6 @@ def test_transpose(
 ):
     if len(shape) != len(permutation):
         pytest.skip(f"Permutation {permutation} doesn't match shape rank {len(shape)}")
-
-    # Skip ttmetal for dimensions > 2
-    if target == "ttmetal" and len(shape) > 2:
-        pytest.skip(
-            f"ttmetal does not support transpose for dimensions > 2, got shape with {len(shape)} dimensions"
-        )
 
     def module(builder: StableHLOBuilder):
         @builder.func([shape], [dtype])
@@ -884,18 +996,7 @@ def test_transpose(
 @pytest.mark.parametrize("shape", [(2, 3)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[1, 1, 1, 1], [1, 0, 0, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize(
-    "target",
-    [
-        "ttnn",
-        pytest.param(
-            "ttmetal",
-            marks=pytest.mark.skip(
-                reason="ttir.pad lowering not supported on ttmetal, failed to legalize"
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_pad(
     shape: Shape,
     padding: List[int],
@@ -999,6 +1100,7 @@ def test_stablehlo_multi_return_support(
         module_or_bool,
         module_xor_bool,
         module_shift_right_logical,
+        module_shift_left,
     ],
 )
 def test_logical_binary_ops(
@@ -1016,9 +1118,7 @@ def test_logical_binary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bool], ids=["bool"])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_logical_unary_ops(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
+def test_not(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module_not_(builder: StableHLOBuilder):
         @builder.func([(128, 128)], [torch.bool])
         def not_(
@@ -1034,7 +1134,7 @@ def test_logical_unary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pcc=-1.0,
+        check_pcc=False,
     )
 
 
@@ -1049,7 +1149,7 @@ def test_logical_unary_ops(
     ids=["128x128_basic", "128x128_offset", "128x128_stride", "256x256_large"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_slice(
     shape: Shape,
     start_indices: List[int],
@@ -1189,111 +1289,6 @@ def test_bitwise_unary_ops(
 
     compile_and_execute_shlo(
         module_not_,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-# ----- Reduce Operations -----
-
-
-def reduce_sum(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_sum(in0, dimensions, unit_attrs=unit_attrs)
-
-
-def reduce_max(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_max(in0, dimensions, unit_attrs=unit_attrs)
-
-
-def reduce_min(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_min(in0, dimensions, unit_attrs=unit_attrs)
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_sum(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def reduce_sum_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_sum(in0, builder, dimensions)
-
-    compile_and_execute_shlo(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_max(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def reduce_max_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_max(in0, builder, dimensions)
-
-    compile_and_execute_shlo(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_min(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def reduce_min_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_min(in0, builder, dimensions)
-
-    compile_and_execute_shlo(
-        module,
         **get_request_kwargs(request),
         target=target,
         device=device,
@@ -1766,6 +1761,84 @@ def test_reduce_window_op(test_fn: Callable, target: str, request, device):
     )
 
 
+@pytest.mark.parametrize(
+    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes,collapsed_slice_dims",
+    [
+        # Simple 1D indices - f32.
+        ((100, 50), torch.float32, (10,), [0], [1], [1, 50], [0]),
+        pytest.param(
+            (8, 16, 32),
+            torch.float32,
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            # Complex indices - f32.
+            [1, 16, 1],
+            [0, 2],
+        ),
+        pytest.param(
+            (1, 12, 12, 768),
+            torch.float32,
+            (16, 12, 2),
+            [1, 2],
+            [0, 1, 2, 3],
+            [1, 3, 3, 768],
+            # Multi-partial indexed dims - f32.
+            [],
+        ),
+    ],
+    ids=[
+        "simple_1d-f32",
+        "complex_indices-f32",
+        "multi_partial-f32",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_gather(
+    input_shape: Shape,
+    input_dtype: torch.dtype,
+    indices_shape: Tuple,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    collapsed_slice_dims: List[int],
+    target: str,
+    request,
+    device,
+):
+    def module_gather(builder: StableHLOBuilder):
+        @builder.func([input_shape], [input_dtype])
+        def gather_func(in0: Operand, builder: StableHLOBuilder):
+            indices = builder.constant(torch.zeros(indices_shape, dtype=torch.int32))
+
+            operand_batching_dims = []
+            start_indices_batching_dims = []
+
+            if len(indices_shape) == 1 and len(start_index_map) == 1:
+                index_vector_dim = len(indices_shape)
+            else:
+                index_vector_dim = len(indices_shape) - 1
+
+            return builder.gather(
+                in0,
+                indices,
+                offset_dims=offset_dims,
+                collapsed_slice_dims=collapsed_slice_dims,
+                operand_batching_dims=operand_batching_dims,
+                start_indices_batching_dims=start_indices_batching_dims,
+                start_index_map=start_index_map,
+                index_vector_dim=index_vector_dim,
+                slice_sizes=slice_sizes,
+            )
+
+    compile_and_execute_shlo(
+        module_gather,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_all_gather(target: str, request, device):
     def module_all_gather(builder: StableHLOBuilder):
@@ -2012,11 +2085,44 @@ def test_convolution_groups_dilation(
     )
 
 
-@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize(
+    "shape,broadcast_dimensions,output_shape",
+    [
+        # 1D to 2D broadcasts
+        ((128,), [1], [32, 128]),
+        ((128,), [0], [128, 32]),
+        ((64,), [1], [16, 64]),
+        # 1D to 3D broadcasts
+        ((128,), [2], [4, 8, 128]),
+        ((64,), [0], [64, 16, 32]),
+        ((32,), [1], [8, 32, 16]),
+        # 2D to 3D broadcasts
+        ((32, 64), [1, 2], [8, 32, 64]),
+        ((16, 32), [0, 1], [16, 32, 8]),
+        # 2D to 4D broadcasts
+        ((32, 64), [2, 3], [2, 4, 32, 64]),
+        ((16, 32), [0, 2], [16, 8, 32, 4]),
+        # Scalar to multi-dim (0D to 2D)
+        ((), [], [32, 64]),
+        ((), [], [16, 16]),
+    ],
+    ids=[
+        "1d_128_to_2d_32x128",
+        "1d_128_to_2d_128x32",
+        "1d_64_to_2d_16x64",
+        "1d_128_to_3d_4x8x128",
+        "1d_64_to_3d_64x16x32",
+        "1d_32_to_3d_8x32x16",
+        "2d_32x64_to_3d_8x32x64",
+        "2d_16x32_to_3d_16x32x8",
+        "2d_32x64_to_4d_2x4x32x64",
+        "2d_16x32_to_4d_16x8x32x4",
+        "scalar_to_2d_32x64",
+        "scalar_to_2d_16x16",
+    ],
+)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("broadcast_dimensions", [[1]])
-@pytest.mark.parametrize("output_shape", [[32, 128]])
 def test_broadcast_ops(
     shape: Shape,
     dtype: torch.dtype,
@@ -2047,6 +2153,76 @@ def test_broadcast_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_composite_op(target: str, request, device):
+    # Op-creating test for stablehlo.composite: emits a private decomposition
+    # function and a public entry point that references it via the
+    # `decomposition` symbol attribute. Mirrors composite_op.mlir.
+    compile_and_execute_shlo(
+        module_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# ----- Reduce Operation -----
+
+# Body op -> (factory(acc, cur) -> OpResult, identity-init scalar value, torch dtype).
+# The identity init is required by StableHLO reduce semantics: the init value
+# participates in the reduction, so it must be the identity for the chosen body
+# (e.g. 0 for add, 1 for mul, -inf for max, +inf for min, True for and,
+# False for or). Using a non-identity init silently changes the reduction's
+# result.
+_REDUCE_BODY_OPTIONS = {
+    "add": (lambda acc, cur: stablehlo.AddOp(acc, cur).result, 0.0, torch.float32),
+    "mul": (lambda acc, cur: stablehlo.MulOp(acc, cur).result, 1.0, torch.float32),
+    "max": (
+        lambda acc, cur: stablehlo.MaxOp(acc, cur).result,
+        float("-inf"),
+        torch.float32,
+    ),
+    "min": (
+        lambda acc, cur: stablehlo.MinOp(acc, cur).result,
+        float("inf"),
+        torch.float32,
+    ),
+    "and": (lambda acc, cur: stablehlo.AndOp(acc, cur).result, True, torch.bool),
+    "or": (lambda acc, cur: stablehlo.OrOp(acc, cur).result, False, torch.bool),
+}
+
+
+@pytest.mark.parametrize("body_op", list(_REDUCE_BODY_OPTIONS.keys()))
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_reduce_op(body_op: str, target: str, request, device):
+    # Op-creating test for the generic builder.reduce(...) API parametrized
+    # over every body op option supported by stablehlo_reduce_golden:
+    # add / mul / max / min / and / or. Each variant uses the correct
+    # identity init value for its body op so the reduction semantics are
+    # well-defined.
+    body_fn, init_scalar, dtype = _REDUCE_BODY_OPTIONS[body_op]
+    shape = (4, 8)
+
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def reduce_main(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            init_value = builder.constant(torch.tensor(init_scalar, dtype=dtype))
+            return builder.reduce(
+                inputs=[in0],
+                init_values=[init_value],
+                dimensions=[1],
+                body=body_fn,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

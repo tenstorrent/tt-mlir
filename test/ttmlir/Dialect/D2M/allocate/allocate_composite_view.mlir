@@ -26,8 +26,8 @@ func.func @test_composite_view() -> memref<1x2x1x1x!ttcore.tile<32x32, f32>, #tt
         %1 = affine.apply affine_map<(d0)[s0] -> (d0 + s0)>(%arg2)[%block_offset0]
         %block_offset1 = d2m.block_offset(1) : index
         %2 = affine.apply affine_map<(d0)[s0] -> (d0 + s0)>(%arg3)[%block_offset1]
-        %3 = d2m.remote_load %alloc_3 %0[%1, %2] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
-        %4 = d2m.remote_store %alloc_2[%1, %2] %alloc_3 : memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, f32>> -> memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
+        d2m.remote_load %alloc_3 %0[%1, %2] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
+        d2m.remote_store %alloc_2[%1, %2] %alloc_3 : memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, f32>>
       } {d2m.blocking_loop = 1 : i64}
     } {d2m.blocking_loop = 0 : i64}
   }

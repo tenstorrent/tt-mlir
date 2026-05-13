@@ -86,3 +86,31 @@ module @gelu_tanh2 attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas 
     return %37 : tensor<32x32xf32>
   }
 }
+
+// Test: scalar full -> reshape pattern after implicit broadcast fold
+// (no explicit broadcast ops, scalar constants feed elementwise ops via reshape)
+module @gelu_tanh_scalar_reshape {
+  func.func @main(%arg0: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+    // CHECK: %[[GELU:.*]] = "ttir.gelu"(%arg0
+    // CHECK: return %[[GELU]]
+    %0 = "ttir.full"() <{fill_value = 3.000000e+00 : f32, shape = array<i32>}> : () -> tensor<bf16>
+    %1 = "ttir.full"() <{fill_value = 0.0446777344 : f32, shape = array<i32>}> : () -> tensor<bf16>
+    %2 = "ttir.full"() <{fill_value = 7.968750e-01 : f32, shape = array<i32>}> : () -> tensor<bf16>
+    %3 = "ttir.full"() <{fill_value = 1.000000e+00 : f32, shape = array<i32>}> : () -> tensor<bf16>
+    %4 = "ttir.full"() <{fill_value = 5.000000e-01 : f32, shape = array<i32>}> : () -> tensor<bf16>
+    %5 = "ttir.reshape"(%4) <{shape = [1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1xbf16>
+    %6 = "ttir.reshape"(%3) <{shape = [1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1xbf16>
+    %7 = "ttir.reshape"(%2) <{shape = [1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1xbf16>
+    %8 = "ttir.reshape"(%1) <{shape = [1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1xbf16>
+    %9 = "ttir.reshape"(%0) <{shape = [1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1xbf16>
+    %10 = "ttir.pow"(%arg0, %9) : (tensor<32x32xbf16>, tensor<1x1xbf16>) -> tensor<32x32xbf16>
+    %11 = "ttir.multiply"(%10, %8) : (tensor<32x32xbf16>, tensor<1x1xbf16>) -> tensor<32x32xbf16>
+    %12 = "ttir.add"(%arg0, %11) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %13 = "ttir.multiply"(%12, %7) : (tensor<32x32xbf16>, tensor<1x1xbf16>) -> tensor<32x32xbf16>
+    %14 = "ttir.tanh"(%13) : (tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %15 = "ttir.add"(%14, %6) : (tensor<32x32xbf16>, tensor<1x1xbf16>) -> tensor<32x32xbf16>
+    %16 = "ttir.multiply"(%arg0, %5) : (tensor<32x32xbf16>, tensor<1x1xbf16>) -> tensor<32x32xbf16>
+    %17 = "ttir.multiply"(%16, %15) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    return %17 : tensor<32x32xbf16>
+  }
+}

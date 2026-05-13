@@ -36,10 +36,6 @@ struct OutputHints {
   /// sharded configs when the NULL hint already yields a sharded output
   /// (e.g., when inputs are already sharded), keeping the search space small.
   std::vector<OpConfig> fallbackHints;
-
-  /// Whether to attempt L1 sharding for this op. False for reshape, permute,
-  /// etc.
-  bool attemptL1Sharding = true;
 };
 
 /// Get output hints for an op type. Per-op dispatch via TypeSwitch.
@@ -118,10 +114,15 @@ struct BeamCandidate {
 };
 
 /// Score a backend validation result. Per-op customization via TypeSwitch.
+/// `inputLayouts` is the full per-operand input layout set for this candidate
+/// (or empty if the op has no inputs); passed through to
+/// `OpRuleBook::adjustScore` so per-op overrides can inspect and make
+/// decisions based on input layouts.
 LayoutScore
 scoreCandidate(Operation *op, const OpConfig &config,
                const op_constraint_validation::ValidationResult &result,
-               bool requiresReshard);
+               bool requiresReshard,
+               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts = {});
 
 /// Op-specific tiebreaker when two candidates have equal LayoutScores.
 /// Returns true if candidate a is preferred over b.

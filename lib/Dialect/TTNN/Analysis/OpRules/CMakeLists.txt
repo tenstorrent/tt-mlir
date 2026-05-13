@@ -3,6 +3,7 @@ set(OPRULES_SRCS
     DataMovementRules.cpp
     EmbeddingRules.cpp
     MatmulRules.cpp
+    NormalizationRules.cpp
     OpRuleBook.cpp
     TransformerRules.cpp
     TypecastRules.cpp

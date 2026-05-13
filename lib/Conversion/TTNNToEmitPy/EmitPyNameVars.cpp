@@ -8,6 +8,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/Pass.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Casting.h"
@@ -20,6 +22,31 @@ namespace mlir::tt {
 #include "ttmlir/Conversion/Passes.h.inc"
 
 namespace {
+
+// Resolves the variable name for a function argument. Resolution
+// order:
+//   1) Honor any `emitpy.name` already attached upstream.
+//   2) If the function is forward function and the arguments were split by
+//   type, use a type-specific name ("activations" or "weights").
+//   3) Fall back to a generic `arg_N` (or `arg` when there's a single arg).
+static std::string getEmitPyNameForFuncArg(func::FuncOp funcOp,
+                                           unsigned argIdx) {
+  if (auto existingName =
+          funcOp.getArgAttrOfType<StringAttr>(argIdx, "emitpy.name")) {
+    return existingName.getValue().str();
+  }
+
+  if (ttmlir::utils::hasSplitForwardFuncArgsByType(funcOp)) {
+    if (funcOp.getArgAttr(argIdx, ttcore::g_originalActivationNamesAttrName)) {
+      return "activations";
+    }
+    if (funcOp.getArgAttr(argIdx, ttcore::g_originalWeightNamesAttrName)) {
+      return "weights";
+    }
+  }
+
+  return funcOp.getNumArguments() > 1 ? "arg_" + std::to_string(argIdx) : "arg";
+}
 
 class EmitPyNameVarsPass : public impl::EmitPyNameVarsBase<EmitPyNameVarsPass> {
 public:
@@ -88,19 +115,7 @@ public:
       }
 
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
-        std::string argName;
-
-        // Check if an emitpy.name attribute already exists for this argument.
-        // If so, use it instead of generating a new name.
-        if (auto existingNameAttr =
-                funcOp.getArgAttrOfType<StringAttr>(i, "emitpy.name")) {
-          argName = existingNameAttr.getValue().str();
-        } else if (isa<emitpy::DictType>(funcOp.getArgument(i).getType())) {
-          argName = "ce_cache";
-        } else {
-          argName = funcOp.getNumArguments() > 1 ? "input_" + std::to_string(i)
-                                                 : "input";
-        }
+        std::string argName = getEmitPyNameForFuncArg(funcOp, i);
 
         // Check if parameter name collides with the function name
         if (reservedNames.contains(argName)) {
@@ -115,6 +130,17 @@ public:
 
     // Handle subscript operations:
     module.walk([&](emitpy::SubscriptOp subscriptOp) {
+      // If a name hint was already attached upstream (e.g. by the split forward
+      // function arguments pass passing the original activation name), keep
+      // it.
+      //
+      if (auto existingNameAttr =
+              subscriptOp->getAttrOfType<StringAttr>("emitpy.name")) {
+        valueNames.insert(
+            {subscriptOp.getResult(), existingNameAttr.getValue().str()});
+        return;
+      }
+
       Value operand = subscriptOp.getOperand(0);
       Value indexValue = subscriptOp.getIndex();
 

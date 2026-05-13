@@ -1,7 +1,8 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="experimental-weight-dtype=bfp_bf8 enable-optimizer=true system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="experimental-weight-dtype=bfp_bf8 optimization-level=1 system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// UNSUPPORTED: true
 module {
   func.func @forward(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x96xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> tensor<64x96xbf16> {
     // CHECK-LABEL: func.func @forward

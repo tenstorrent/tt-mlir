@@ -294,19 +294,6 @@ def embedding(input_tensor, weight):
 
 
 # ------------------------------------------------------------
-# Gather operations
-# ------------------------------------------------------------
-def gather_dim0(input_tensor, index):
-    """Gather along dimension 0."""
-    return ttnn.gather(input_tensor, 0, index=index)
-
-
-def gather_dim1(input_tensor, index):
-    """Gather along dimension 1."""
-    return ttnn.gather(input_tensor, 1, index=index)
-
-
-# ------------------------------------------------------------
 # Clamp operations
 # ------------------------------------------------------------
 def clamp(input_tensor, min=None, max=None):

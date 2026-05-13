@@ -66,12 +66,22 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     rewriter.create<FillArangeTileOp>(loc, indexTileMemref);
 
     // === STEP 2: Scalar constants for arange start and step ===
-    Value startF = rewriter.create<arith::ConstantOp>(
-        loc, elemType,
-        rewriter.getFloatAttr(elemType, static_cast<double>(start)));
-    Value stepF = rewriter.create<arith::ConstantOp>(
-        loc, elemType,
-        rewriter.getFloatAttr(elemType, static_cast<double>(step)));
+    // arith ops require signless integers; tile element types may be si32/ui32.
+    bool isIntElem = isa<IntegerType>(elemType);
+    Type scalarType = isIntElem ? cast<Type>(IntegerType::get(
+                                      rewriter.getContext(),
+                                      cast<IntegerType>(elemType).getWidth()))
+                                : elemType;
+    auto makeScalarAttr = [&](int64_t val) -> TypedAttr {
+      return isIntElem
+                 ? cast<TypedAttr>(rewriter.getIntegerAttr(scalarType, val))
+                 : cast<TypedAttr>(rewriter.getFloatAttr(
+                       scalarType, static_cast<double>(val)));
+    };
+    Value startVal = rewriter.create<arith::ConstantOp>(loc, scalarType,
+                                                        makeScalarAttr(start));
+    Value stepVal = rewriter.create<arith::ConstantOp>(loc, scalarType,
+                                                       makeScalarAttr(step));
 
     // === STEP 3: Create nested loops over tiles ===
     // Get this core's coordinates.
@@ -137,20 +147,27 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     // Total offset (index type)
     Value tileOffsetIdx =
         rewriter.create<arith::AddIOp>(loc, rowContrib, colContrib);
-    Value tileOffsetI64 = rewriter.create<arith::IndexCastOp>(
-        loc, rewriter.getI64Type(), tileOffsetIdx);
-    Value tileOffsetF =
-        rewriter.create<arith::SIToFPOp>(loc, elemType, tileOffsetI64);
+    Value tileOffsetScalar;
+    if (isIntElem) {
+      tileOffsetScalar =
+          rewriter.create<arith::IndexCastOp>(loc, scalarType, tileOffsetIdx);
+    } else {
+      Value tileOffsetI64 = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI64Type(), tileOffsetIdx);
+      tileOffsetScalar =
+          rewriter.create<arith::SIToFPOp>(loc, scalarType, tileOffsetI64);
+    }
 
     // === STEP 6: Tile arithmetic with scalar RHS ===
     Value globalIndexTile =
-        rewriter.create<TileAddOp>(loc, tileType, localIndexTile, tileOffsetF)
+        rewriter
+            .create<TileAddOp>(loc, tileType, localIndexTile, tileOffsetScalar)
             .getResult();
     Value scaledTile =
-        rewriter.create<TileMulOp>(loc, tileType, globalIndexTile, stepF)
+        rewriter.create<TileMulOp>(loc, tileType, globalIndexTile, stepVal)
             .getResult();
     Value resultTile =
-        rewriter.create<TileAddOp>(loc, tileType, scaledTile, startF)
+        rewriter.create<TileAddOp>(loc, tileType, scaledTile, startVal)
             .getResult();
 
     // === STEP 7: Store result tile to output ===

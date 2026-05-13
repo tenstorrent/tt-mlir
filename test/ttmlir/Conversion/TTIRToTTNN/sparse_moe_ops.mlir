@@ -24,6 +24,26 @@ module attributes {} {
 
 // -----
 
+// Verify lowering of ttir.all_to_all_dispatch_metadata to ttnn.all_to_all_dispatch_metadata
+module attributes {} {
+  func.func @all_to_all_dispatch_metadata(
+    %activations: tensor<1x1x128x2880xbf16>,
+    %indices: tensor<1x1x128x4xi64>,
+    %scores: tensor<1x1x128x4xbf16>,
+    %expert_mapping: tensor<1x1x8x32xi64>
+  ) -> (tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>) {
+    %dispatched, %idx_out, %scores_out = "ttir.all_to_all_dispatch_metadata"(%activations, %indices, %scores, %expert_mapping) <{cluster_axis = 0 : i64, num_devices = 2 : i64}> : (tensor<1x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x8x32xi64>) -> (tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>)
+    return %dispatched, %idx_out, %scores_out : tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>
+  }
+}
+// CHECK-LABEL: @all_to_all_dispatch_metadata
+// CHECK: "ttnn.all_to_all_dispatch_metadata"
+// CHECK-SAME: cluster_axis = 0
+// CHECK-SAME: drain_core = #ttnn.core_coord<0, 0>
+// CHECK-SAME: num_devices = 2
+
+// -----
+
 // Verify lowering of ttir.moe_expert_token_remap to ttnn.moe_expert_token_remap
 module attributes {} {
   func.func @moe_expert_token_remap(
@@ -84,7 +104,7 @@ module attributes {} {
     %metadata: tensor<1x2x128x4xi64>,
     %expert_mapping: tensor<1x1x32x8xi64>
   ) -> tensor<4x1x128x2880xbf16> {
-    %result = "ttir.all_to_all_combine"(%input, %metadata, %expert_mapping) <{cluster_axis = 0 : i64, num_devices = 2 : i64, num_experts_per_tok = 4 : i64}> : (tensor<4x2x128x2880xbf16>, tensor<1x2x128x4xi64>, tensor<1x1x32x8xi64>) -> tensor<4x1x128x2880xbf16>
+    %result = "ttir.all_to_all_combine"(%input, %metadata, %expert_mapping) <{cluster_axis = 0 : i64, num_devices = 2 : i64, num_experts_per_tok = 4 : i64, output_shard_dim = 1 : i64}> : (tensor<4x2x128x2880xbf16>, tensor<1x2x128x4xi64>, tensor<1x1x32x8xi64>) -> tensor<4x1x128x2880xbf16>
     return %result : tensor<4x1x128x2880xbf16>
   }
 }
@@ -93,3 +113,21 @@ module attributes {} {
 // CHECK-SAME: cluster_axis = 0
 // CHECK-SAME: num_devices = 2
 // CHECK-SAME: num_experts_per_tok = 4
+// CHECK-SAME: output_shard_dim = 1
+
+// -----
+
+// Verify output_shard_dim=2 is passed through from TTIR to TTNN
+module attributes {} {
+  func.func @all_to_all_combine_shard_dim_2(
+    %input: tensor<4x1x128x2880xbf16>,
+    %metadata: tensor<1x1x128x4xi64>,
+    %expert_mapping: tensor<1x1x32x8xi64>
+  ) -> tensor<4x1x64x2880xbf16> {
+    %result = "ttir.all_to_all_combine"(%input, %metadata, %expert_mapping) <{cluster_axis = 0 : i64, num_devices = 2 : i64, num_experts_per_tok = 4 : i64, output_shard_dim = 2 : i64}> : (tensor<4x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x32x8xi64>) -> tensor<4x1x64x2880xbf16>
+    return %result : tensor<4x1x64x2880xbf16>
+  }
+}
+// CHECK-LABEL: @all_to_all_combine_shard_dim_2
+// CHECK: "ttnn.all_to_all_combine"
+// CHECK-SAME: output_shard_dim = 2

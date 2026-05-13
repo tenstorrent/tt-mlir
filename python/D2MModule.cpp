@@ -35,9 +35,9 @@ void populateD2MModule(nb::module_ &m) {
                      threadType));
       });
 
-  tt_type_class<tt::d2m::SemaphoreType>(m, "SemaphoreType")
+  tt_type_class<tt::d2m::LocalSemaphoreType>(m, "LocalSemaphoreType")
       .def_static("get", [](MlirContext ctx) {
-        return wrap(tt::d2m::SemaphoreType::get(unwrap(ctx)));
+        return wrap(tt::d2m::LocalSemaphoreType::get(unwrap(ctx)));
       });
 
   tt_type_class<tt::d2m::CBType>(m, "CBType")

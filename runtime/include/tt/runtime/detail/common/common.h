@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_COMMON_COMMON_H
 
 #include <optional>
+#include <vector>
 
 #define FMT_HEADER_ONLY
 #include "tt-metalium/cluster.hpp"
@@ -73,16 +74,20 @@ toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
 
 inline tt::tt_metal::CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
-  std::set<tt::tt_metal::CoreRange> coreRanges;
+  // Even though `CoreRangeSet`'s naming implies usage of std::set,
+  // it's important that the order of core ranges is preserved,
+  // so we use std::vector here to maintain the order as originally defined.
+  std::vector<tt::tt_metal::CoreRange> coreRanges;
+  coreRanges.reserve(coreRangeSet->size());
   for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {
     tt::tt_metal::CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
     // End is inclusive
     tt::tt_metal::CoreCoord end(
         coreRange->loc().x() + coreRange->size().x() - 1,
         coreRange->loc().y() + coreRange->size().y() - 1);
-    coreRanges.emplace(start, end);
+    coreRanges.emplace_back(start, end);
   }
-  return tt::tt_metal::CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(std::move(coreRanges));
 }
 
 inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
@@ -121,22 +126,22 @@ inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   }
 }
 
-inline UnpackToDestMode
+inline ::tt::tt_metal::UnpackToDestMode
 toUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
   switch (unpackToDestMode) {
   case tt::target::UnpackToDestMode::Fp32:
-    return UnpackToDestMode::UnpackToDestFp32;
+    return ::tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
   case tt::target::UnpackToDestMode::Default:
-    return UnpackToDestMode::Default;
+    return ::tt::tt_metal::UnpackToDestMode::Default;
   }
 }
 
-inline std::vector<UnpackToDestMode>
+inline std::vector<::tt::tt_metal::UnpackToDestMode>
 toUnpackToDestModes(const ::flatbuffers::Vector<tt::target::UnpackToDestMode>
                         *unpackToDestModesFB) {
   // Metal asserts that unpack_to_dest_mode.size() == NUM_CIRCULAR_BUFFERS.
-  std::vector<UnpackToDestMode> unpackToDestModes(NUM_CIRCULAR_BUFFERS,
-                                                  UnpackToDestMode::Default);
+  std::vector<::tt::tt_metal::UnpackToDestMode> unpackToDestModes(
+      NUM_CIRCULAR_BUFFERS, ::tt::tt_metal::UnpackToDestMode::Default);
   if (unpackToDestModesFB == nullptr) {
     return unpackToDestModes;
   }

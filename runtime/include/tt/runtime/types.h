@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <variant>
 #include <vector>
 
 #pragma clang diagnostic push
@@ -53,6 +54,9 @@ enum class DistributedMode {
   // across multiple hosts
   MultiProcess,
 };
+
+using Scalar = std::variant<uint32_t, int32_t, uint16_t, int16_t, uint8_t,
+                            int8_t, bool, float>;
 
 inline std::string toString(DeviceRuntime runtime) {
   return ::tt::runtime::flatbuffer::EnumNameDeviceRuntime(runtime);
@@ -169,7 +173,6 @@ struct RuntimeCheckedConstObjectImpl {
 struct TensorDesc {
   std::vector<uint32_t> shape = {}; // Logical.
   ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
-  uint32_t itemsize = 0;
   std::vector<uint32_t> stride = {}; // Potentially padded.
   uint64_t physicalVolume = 0;       // Potentially padded.
 
@@ -177,13 +180,16 @@ struct TensorDesc {
 
   TensorDesc(const std::vector<uint32_t> &shape,
              const ::tt::target::DataType dataType,
-             const std::optional<uint32_t> itemsize = {},
              const std::optional<std::vector<uint32_t>> &stride = {},
              const std::optional<uint64_t> physicalVolume = {});
 
   size_t volume() const;
 
-  size_t sizeBytes() const { return physicalVolume * itemsize; }
+  size_t sizeBytes() const;
+
+  // Returns bytes per element. Asserts for block format dtypes, which require
+  // tile layout and have no meaningful per-element size; use sizeBytes() there.
+  uint32_t elementSize() const;
 
   bool isPadded() const { return physicalVolume > volume(); }
 };

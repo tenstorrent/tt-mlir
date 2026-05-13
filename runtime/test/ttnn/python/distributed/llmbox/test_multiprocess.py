@@ -106,6 +106,13 @@ def compare_system_descriptors(
                 if key == "erisc_l1_unreserved_base":
                     continue
 
+                # Skip the optimal DRAM bank-to-logical-worker assignment.
+                if key in (
+                    "dram_bank_to_logical_worker_noc0",
+                    "dram_bank_to_logical_worker_noc1",
+                ):
+                    continue
+
                 new_path = f"{path}.{key}" if path else key
                 _deep_compare(obj1[key], obj2[key], new_path, differences)
 
@@ -192,6 +199,60 @@ def test_get_tensor_volume():
 
     tensor = get_runtime_tensor_from_torch(torch.randn(177, 211), storage=Storage.Owned)
     assert tensor.get_volume() == 177 * 211
+
+    shutdown_distributed_runtime()
+
+
+@pytest.mark.parametrize(
+    "shape,dtype",
+    [
+        ((2, 2), torch.float32),
+        ((177, 211), torch.float32),
+        ((32, 64), torch.bfloat16),
+        ((1, 3, 224, 224), torch.bfloat16),
+    ],
+)
+def test_create_unsafe_borrowed_host_tensor(shape, dtype):
+    launch_distributed_runtime()
+
+    reference_torch_tensor = torch.randn(shape, dtype=dtype)
+    owned_tensor = get_runtime_tensor_from_torch(
+        reference_torch_tensor, storage=Storage.Owned
+    )
+
+    borrowed_tensor = ttrt.runtime.create_unsafe_borrowed_host_tensor(owned_tensor)
+
+    # Verify shape and dtype match
+    owned_desc = owned_tensor.get_tensor_desc()
+    borrowed_desc = borrowed_tensor.get_tensor_desc()
+
+    assert owned_desc.shape == borrowed_desc.shape
+    assert owned_desc.dtype == borrowed_desc.dtype
+    assert owned_desc.item_size == borrowed_desc.item_size
+
+    # Verify that borrowed tensor aliases the owned tensor's buffer by
+    # copying data out and checking they match
+    output_from_owned = torch.zeros(shape, dtype=dtype)
+    output_from_borrowed = torch.zeros(shape, dtype=dtype)
+
+    ttrt.runtime.memcpy(output_from_owned.data_ptr(), owned_tensor)
+    ttrt.runtime.memcpy(output_from_borrowed.data_ptr(), borrowed_tensor)
+
+    assert torch.allclose(output_from_owned, output_from_borrowed)
+    assert torch.allclose(output_from_owned, reference_torch_tensor)
+
+    # Mutate owned tensor after borrowed tensor is created and verify borrowed
+    # tensor observes the update, ensuring this is aliasing (not a copy).
+    updated_torch_tensor = torch.randn(shape, dtype=dtype)
+    updated_owned_tensor = get_runtime_tensor_from_torch(
+        updated_torch_tensor, storage=Storage.Owned
+    )
+    ttrt.runtime.memcpy(owned_tensor, updated_owned_tensor)
+
+    output_from_borrowed_after_update = torch.zeros(shape, dtype=dtype)
+    ttrt.runtime.memcpy(output_from_borrowed_after_update.data_ptr(), borrowed_tensor)
+
+    assert torch.allclose(output_from_borrowed_after_update, updated_torch_tensor)
 
     shutdown_distributed_runtime()
 

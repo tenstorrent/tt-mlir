@@ -1,18 +1,15 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/PatternMatch.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERSCRATCHALLOCATE
@@ -20,23 +17,28 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Calculate total number of elements in a statically-shaped memref.
-static int64_t getNumElements(MemRefType memrefType) {
-  int64_t numElements = 1;
-  for (int64_t dim : memrefType.getShape()) {
-    assert(dim != ShapedType::kDynamic && "scratch memrefs must be static");
-    numElements *= dim;
-  }
-  return numElements;
-}
-
-// Information about a single scratch allocation.
+// Information about a single scratch allocation, including its liveness range.
 struct ScratchAllocationInfo {
   ScratchAllocateOp op;
   int64_t slotId;
   int64_t numElements;   // Number of elements (tiles) requested.
   int64_t elementOffset; // Starting element offset in scratch buffer.
+
+  // Liveness range: positions of the definition and last use within the
+  // top-level operation ordering of the entry block.
+  int64_t startPosition = -1;
+  int64_t endPosition = -1;
+
+  // Whether this allocation was packed inside a larger, non-conflicting
+  // allocation's footprint by the offset assignment heuristic.
+  bool packed = false;
 };
+
+// Returns true if two live ranges overlap.
+static bool livesOverlap(const ScratchAllocationInfo &a,
+                         const ScratchAllocationInfo &b) {
+  return a.startPosition <= b.endPosition && b.startPosition <= a.endPosition;
+}
 
 class D2MLowerScratchAllocatePass
     : public impl::D2MLowerScratchAllocateBase<D2MLowerScratchAllocatePass> {
@@ -60,14 +62,8 @@ public:
 
 private:
   // Process a single d2m.generic, lowering all scratch_allocate ops to
-  // rank-reducing subviews of the scratch memref obtained from
-  // get_scratch_from_cb.
+  // rank-reducing subviews of the scratch memref obtained from scratch_init.
   LogicalResult processGeneric(GenericOp genericOp) {
-    auto scratchInputsAttr = genericOp.getScratchInputsAttr();
-    if (!scratchInputsAttr || scratchInputsAttr.empty()) {
-      return success();
-    }
-
     if (genericOp.getNumRegions() == 0) {
       return success();
     }
@@ -76,59 +72,56 @@ private:
       return success();
     }
 
-    // Create a CB for the scratch operand using the CB rework utilities.
-    // This gives the scratch buffer a proper CB port number so that
-    // downstream compute APIs (unpack/pack) can address it.
-    // The CB must be created even if there are no scratch_allocate ops,
-    // because the scratch memref.alloc in the region needs a CB association
-    // for D2MToTTKernel conversion.
-    int64_t scratchInputIdx = scratchInputsAttr[0];
-    Block &block = region.front();
+    // Find the scratch_init op in the region.
+    ScratchInitOp scratchInit = nullptr;
+    region.walk([&](ScratchInitOp op) { scratchInit = op; });
 
-    IRRewriter rewriter(genericOp->getContext());
-    CBCache cbCache;
-    PortCounter portCounters;
-    Value scratchCB = getOrCreateCB(genericOp, region, scratchInputIdx,
-                                    rewriter, cbCache, portCounters);
+    if (!scratchInit) {
+      return success();
+    }
+
+    Value scratchMemRef = scratchInit.getScratch();
+    auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
 
     // Collect all scratch_allocate ops in this region.
     SmallVector<ScratchAllocationInfo> allocations;
     region.walk([&](ScratchAllocateOp allocOp) {
       auto memrefType = mlir::cast<MemRefType>(allocOp.getResult().getType());
-      allocations.push_back({allocOp, static_cast<int64_t>(allocOp.getSlot()),
-                             getNumElements(memrefType),
-                             /*elementOffset=*/0});
+      assert(!llvm::is_contained(memrefType.getShape(), ShapedType::kDynamic) &&
+             "scratch memrefs must be static");
+      allocations.push_back(
+          {allocOp, static_cast<int64_t>(allocOp.getSlot()),
+           ttmlir::utils::volume<int64_t>(memrefType.getShape()),
+           /*elementOffset=*/0});
     });
 
     if (allocations.empty()) {
+      scratchInit.erase();
       return success();
     }
 
-    // Sort by slot ID for deterministic layout.
+    // Sort descending by size so larger allocations are placed first, giving
+    // the best chance for smaller ones to be packed inside them.
     llvm::sort(allocations, [](const auto &a, const auto &b) {
+      if (a.numElements != b.numElements) {
+        return a.numElements > b.numElements;
+      }
       return a.slotId < b.slotId;
     });
 
-    // Compute sequential element offsets.
-    int64_t currentOffset = 0;
-    for (auto &info : allocations) {
-      assert(info.numElements > 0 && "scratch allocation must be non-empty");
-      info.elementOffset = currentOffset;
-      currentOffset += info.numElements;
-    }
-
-    OpBuilder builder(&block, block.begin());
-    builder.setInsertionPointAfterValue(scratchCB);
-    auto scratchFromCBOp =
-        builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchCB);
-    Value scratchMemRef = scratchFromCBOp.getResult();
-    auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
+    Block &block = region.front();
+    computeLiveness(allocations, block);
+    int64_t peakUsage = assignOffsets(allocations);
 
     // Verify allocations fit in the scratch buffer.
-    int64_t scratchCapacity = getNumElements(scratchMemRefType);
-    if (currentOffset > scratchCapacity) {
+    assert(!llvm::is_contained(scratchMemRefType.getShape(),
+                               ShapedType::kDynamic) &&
+           "scratch memrefs must be static");
+    int64_t scratchCapacity =
+        ttmlir::utils::volume<int64_t>(scratchMemRefType.getShape());
+    if (peakUsage > scratchCapacity) {
       return genericOp.emitOpError()
-             << "total scratch allocations (" << currentOffset
+             << "peak scratch usage (" << peakUsage
              << " elements) exceed scratch buffer capacity (" << scratchCapacity
              << " elements)";
     }
@@ -138,13 +131,91 @@ private:
       replaceScratchAllocate(info, scratchMemRef);
     }
 
+    // Erase the scratch_init anchor op now that all allocates are lowered.
+    scratchInit.erase();
+
     return success();
   }
 
-  /// Replace a scratch_allocate with a rank-reducing subview of the scratch CB,
-  /// followed by an expand_shape if the requested type is multi-dimensional.
+  // Compute liveness ranges for scratch allocations.
+  //
+  // Each allocation's live range spans from its definition to its last use.
+  void computeLiveness(SmallVectorImpl<ScratchAllocationInfo> &allocations,
+                       Block &block) {
+    // Assign sequential position indices to top-level operations in the block.
+    DenseMap<Operation *, int64_t> opPositions;
+    int64_t pos = 0;
+    for (Operation &op : block) {
+      opPositions[&op] = pos++;
+    }
+
+    auto getTopLevelOp = [&](Operation *op) -> Operation * {
+      return block.findAncestorOpInBlock(*op);
+    };
+
+    for (auto &info : allocations) {
+      Operation *topLevelDef = getTopLevelOp(info.op.getOperation());
+      assert(opPositions.contains(topLevelDef) &&
+             "scratch allocation must have a top-level position");
+      info.startPosition = opPositions[topLevelDef];
+      info.endPosition = info.startPosition;
+
+      for (OpOperand &use : info.op.getResult().getUses()) {
+        Operation *topLevelUser = getTopLevelOp(use.getOwner());
+        assert(opPositions.contains(topLevelUser) &&
+               "scratch allocation user must have a top-level position");
+        int64_t userPos = opPositions[topLevelUser];
+        info.endPosition = std::max(info.endPosition, userPos);
+      }
+    }
+  }
+
+  // Assign element offsets using a first-fit-decreasing heuristic.
+  //
+  // Allocations are already sorted descending by size. Each "outer" allocation
+  // reserves a region of scratch memory. Smaller allocations whose live ranges
+  // do not overlap with the outer allocation are packed inside its footprint,
+  // reusing the same memory at different sub-offsets.
+  //
+  // Returns the peak scratch usage (total elements required).
+  int64_t assignOffsets(SmallVectorImpl<ScratchAllocationInfo> &allocations) {
+    int64_t currentOffset = 0;
+    for (size_t i = 0; i < allocations.size(); ++i) {
+      auto &outer = allocations[i];
+      assert(outer.numElements > 0 && "scratch allocation must be non-empty");
+      if (outer.packed) {
+        continue;
+      }
+
+      outer.elementOffset = currentOffset;
+      int64_t innerOffset = currentOffset;
+
+      // Try to pack smaller, non-conflicting allocations inside this one.
+      for (size_t j = i + 1; j < allocations.size(); ++j) {
+        auto &inner = allocations[j];
+        if (inner.packed) {
+          continue;
+        }
+
+        bool fits = (innerOffset + inner.numElements) <=
+                    (currentOffset + outer.numElements);
+        if (!livesOverlap(outer, inner) && fits) {
+          inner.packed = true;
+          inner.elementOffset = innerOffset;
+          innerOffset += inner.numElements;
+        }
+      }
+
+      currentOffset += outer.numElements;
+    }
+    return currentOffset;
+  }
+
+  /// Replace a scratch_allocate with a rank-reducing subview of the scratch
+  /// memref, followed by an expand_shape if the requested type is
+  /// multi-dimensional.
   ///
-  /// The scratch buffer has shape [1, N] from AddScratchInputs.
+  /// The scratch buffer has shape [1, N] from InsertScratchBuffers.
   /// Each scratch_allocate requests a memref with numElements total tiles.
   /// We emit:
   ///   1. subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>  (flat 1D)
@@ -158,7 +229,7 @@ private:
     OpBuilder builder(allocOp);
     Location loc = allocOp.getLoc();
 
-    // Always extract a flat 1D slice from the 2D scratch CB.
+    // Always extract a flat 1D slice from the 2D scratch buffer.
     SmallVector<int64_t> flatShape = {info.numElements};
     SmallVector<int64_t> staticOffsets = {0, info.elementOffset};
     SmallVector<int64_t> staticSizes = {1, info.numElements};

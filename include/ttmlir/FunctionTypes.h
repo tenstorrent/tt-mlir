@@ -55,9 +55,20 @@ enum class FunctionType {
   /// Relevant for EmitPy and EmitC targets.
   InputGenerator,
 
+  /// Const-eval wrapper function - wraps const-eval logic with caching.
+  /// Created by TTNNPrepareConstEvalCaching.
+  ConstEvalWrapper,
+
   /// Main function - the entry point for the generated program.
   /// Relevant for EmitPy and EmitC targets.
   Main,
+
+  /// Imported declaration - a private declaration that represents a function
+  /// defined in a different file. Only relevant in multi-file contexts (i.e.,
+  /// when TTNNFileSplit is performed). These declarations are lowered to
+  /// `from <file> import <func>` statements during the EmitPy conversion.
+  /// The source file is stored in the "tt.imported_from" attribute.
+  ImportedDeclaration,
 };
 
 namespace detail {
@@ -76,7 +87,19 @@ constexpr inline llvm::StringLiteral kTraceRunAndCaptureValue =
 constexpr inline llvm::StringLiteral kTraceExecuteValue = "trace_execute";
 constexpr inline llvm::StringLiteral kKernelValue = "kernel";
 constexpr inline llvm::StringLiteral kInputGeneratorValue = "input_generator";
+constexpr inline llvm::StringLiteral kConstEvalWrapperValue =
+    "const_eval_wrapper";
 constexpr inline llvm::StringLiteral kMainValue = "main";
+constexpr inline llvm::StringLiteral kImportedDeclarationValue =
+    "imported_declaration";
+
+/// Attribute name for the source file of an imported declaration.
+constexpr inline llvm::StringLiteral kImportedFromAttrName = "tt.imported_from";
+
+/// Attribute name marking whether a forward device function arguments were
+/// split into activations and weights by TTNNSplitForwardFuncArgsByType.
+constexpr inline llvm::StringLiteral kSplitForwardFuncArgsByTypeAttrName =
+    "tt.has_split_func_args_by_type";
 } // namespace detail
 
 /// Returns the string value for the given function type.
@@ -100,8 +123,12 @@ inline llvm::StringRef getFunctionTypeValue(FunctionType type) {
     return detail::kKernelValue;
   case FunctionType::InputGenerator:
     return detail::kInputGeneratorValue;
+  case FunctionType::ConstEvalWrapper:
+    return detail::kConstEvalWrapperValue;
   case FunctionType::Main:
     return detail::kMainValue;
+  case FunctionType::ImportedDeclaration:
+    return detail::kImportedDeclarationValue;
   }
   llvm_unreachable("Unknown FunctionType");
 }
@@ -136,8 +163,14 @@ parseFunctionTypeValue(llvm::StringRef value) {
   if (value == detail::kInputGeneratorValue) {
     return FunctionType::InputGenerator;
   }
+  if (value == detail::kConstEvalWrapperValue) {
+    return FunctionType::ConstEvalWrapper;
+  }
   if (value == detail::kMainValue) {
     return FunctionType::Main;
+  }
+  if (value == detail::kImportedDeclarationValue) {
+    return FunctionType::ImportedDeclaration;
   }
   return std::nullopt;
 }
@@ -170,13 +203,25 @@ inline void clearFunctionType(mlir::func::FuncOp funcOp) {
   funcOp->removeAttr(detail::kFunctionTypeAttrName);
 }
 
+/// Removes the split forward function arguments attribute from the given
+/// function.
+inline void clearSplitForwardFuncArgsByType(mlir::func::FuncOp funcOp) {
+  funcOp->removeAttr(detail::kSplitForwardFuncArgsByTypeAttrName);
+}
+
 //===----------------------------------------------------------------------===//
 // Convenience query functions
 //===----------------------------------------------------------------------===//
 
-/// Returns true if the function is marked as a forward device function.
+/// Returns true if the function is a forward device function.
 inline bool isForwardDeviceFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::ForwardDevice);
+}
+
+/// Returns true if the function's arguments were split into activations and
+/// weights.
+inline bool hasSplitForwardFuncArgsByType(mlir::func::FuncOp funcOp) {
+  return funcOp->hasAttr(detail::kSplitForwardFuncArgsByTypeAttrName);
 }
 
 /// Returns true if the function is marked as a forward CPU function.
@@ -226,9 +271,47 @@ inline bool isInputGeneratorFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::InputGenerator);
 }
 
+/// Returns true if the function is marked as a const-eval wrapper.
+inline bool isConstEvalWrapperFunc(mlir::func::FuncOp funcOp) {
+  return hasFunctionType(funcOp, FunctionType::ConstEvalWrapper);
+}
+
 /// Returns true if the function is marked as a main function.
 inline bool isMainFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::Main);
+}
+
+/// Returns true if the function is marked as an imported declaration.
+inline bool isImportedDeclarationFunc(mlir::func::FuncOp funcOp) {
+  return hasFunctionType(funcOp, FunctionType::ImportedDeclaration);
+}
+
+/// Sets the source file attribute on an imported declaration function.
+inline void setImportedFrom(mlir::func::FuncOp funcOp,
+                            llvm::StringRef fileName) {
+  funcOp->setAttr(detail::kImportedFromAttrName,
+                  mlir::StringAttr::get(funcOp->getContext(), fileName));
+}
+
+/// Marks a forward device function as having split inputs by
+/// TTNNSplitForwardFuncArgsByType.
+inline void setSplitForwardFuncArgsByType(mlir::func::FuncOp funcOp) {
+  assert(isForwardDeviceFunc(funcOp) &&
+         "can only set split forward function arguments by type attribute on "
+         "forward device functions");
+  funcOp->setAttr(detail::kSplitForwardFuncArgsByTypeAttrName,
+                  mlir::UnitAttr::get(funcOp->getContext()));
+}
+
+/// Gets the source file attribute from an imported declaration function.
+inline std::optional<llvm::StringRef>
+getImportedFrom(mlir::func::FuncOp funcOp) {
+  auto attr =
+      funcOp->getAttrOfType<mlir::StringAttr>(detail::kImportedFromAttrName);
+  if (!attr) {
+    return std::nullopt;
+  }
+  return attr.getValue();
 }
 
 //===----------------------------------------------------------------------===//

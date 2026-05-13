@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --tt-populate-argument-types="argument-types=conv2d_const_eval_weights=input,constant,input" --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=false enable-const-eval=true" -o %t %s
+// RUN: ttmlir-opt --tt-populate-argument-types="argument-types=conv2d_const_eval_weights=input,constant,input" --ttir-to-ttnn-backend-pipeline="optimization-level=1 enable-const-eval=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Tests for conv2d weight preparation with constant evaluation.

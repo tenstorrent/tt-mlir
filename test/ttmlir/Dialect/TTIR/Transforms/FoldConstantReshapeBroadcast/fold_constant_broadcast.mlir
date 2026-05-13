@@ -9,7 +9,9 @@ module {
   func.func @test_fold_broadcast_splat(%arg0: tensor<128x360xf32>) -> tensor<128x360xf32> {
     // CHECK-LABEL: func.func @test_fold_broadcast_splat
     // The broadcast should be folded into the constant
-    // CHECK: %[[CONST:.*]] = "ttir.constant"() <{value = dense<2.{{0*}}e+00> : tensor<128x360xf32>}>
+    // CHECK: %[[CONST:.*]] = "ttir.full"
+    // CHECK-SAME: fill_value = 2.{{0*}}e+00
+    // CHECK-SAME: -> tensor<128x360xf32>
     // CHECK-NOT: ttir.broadcast
     // CHECK: %[[MUL:.*]] = "ttir.multiply"(%arg0, %[[CONST]])
     // CHECK: return %[[MUL]]
@@ -24,7 +26,9 @@ module {
 module {
   func.func @test_fold_broadcast_integer_splat(%arg0: tensor<64x128xi32>) -> tensor<64x128xi32> {
     // CHECK-LABEL: func.func @test_fold_broadcast_integer_splat
-    // CHECK: %[[CONST:.*]] = "ttir.constant"() <{value = dense<7> : tensor<64x128xi32>}>
+    // CHECK: %[[CONST:.*]] = "ttir.full"
+    // CHECK-SAME: fill_value = 7
+    // CHECK-SAME: -> tensor<64x128xi32>
     // CHECK-NOT: ttir.broadcast
     // CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[CONST]])
     // CHECK: return %[[ADD]]

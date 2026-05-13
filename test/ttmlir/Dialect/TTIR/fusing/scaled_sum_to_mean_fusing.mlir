@@ -90,3 +90,19 @@ func.func @scaled_sum_to_mean_three_dims(%input: tensor<2x4x8x16xbf16>) -> tenso
     // CHECK: return %[[MEAN]]
     return %4 : tensor<2x1x1x1xbf16>
 }
+
+// Test: scalar full -> reshape pattern (produced by broadcast_in_dim conversion of scalar constants)
+func.func @scaled_sum_to_mean_scalar_reshape(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32xbf16> {
+    // CHECK-LABEL: func.func @scaled_sum_to_mean_scalar_reshape
+    %0 = "ttir.full"() <{fill_value = 7.96318054E-5 : f32, shape = array<i32>}> : () -> tensor<bf16>
+    %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1xbf16>
+    // CHECK-NOT: "ttir.sum"
+    %2 = "ttir.sum"(%input) <{dim_arg = [2 : i32, 3 : i32], keep_dim = false}> : (tensor<1x32x112x112xbf16>) -> tensor<1x32xbf16>
+    // CHECK-NOT: "ttir.multiply"
+    %3 = "ttir.multiply"(%2, %1) : (tensor<1x32xbf16>, tensor<1x1xbf16>) -> tensor<1x32xbf16>
+    // CHECK: %[[MEAN:.*]] = "ttir.mean"(%arg0)
+    // CHECK-SAME: dim_arg = [2 : i32, 3 : i32]
+    // CHECK-SAME: keep_dim = false
+    // CHECK: return %[[MEAN]]
+    return %3 : tensor<1x32xbf16>
+}

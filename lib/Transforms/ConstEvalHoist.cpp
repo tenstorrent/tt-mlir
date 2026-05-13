@@ -193,6 +193,22 @@ private:
       return;
     }
 
+    // Skip ops whose results are in L1. Const-eval functions persist their
+    // outputs across function boundaries, so L1 allocations from const-eval
+    // would consume L1 budget during @main execution without the
+    // L1SpillManagement pass being able to account for them.
+    for (auto result : op->getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
+        if (auto layoutAttr = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+                tensorType.getEncoding())) {
+          if (layoutAttr.hasL1BufferType()) {
+            return;
+          }
+        }
+      }
+    }
+
     auto operandConstEval = [&](mlir::Value operand) {
       if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
         return constParams.contains(blockArg);

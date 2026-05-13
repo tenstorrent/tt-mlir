@@ -35,13 +35,13 @@ enum class LogComponent {
   Optimizer,
   DFShardingPolicy,
   OpValidation,
+  ValidationFallback,
   RMPropagation,
   Allocator,
   Test,
   General,
   D2MFusion,
   FusionValidator,
-  ValidationFallback,
   GreedyOptimizer
 };
 
@@ -63,6 +63,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "df-sharding-policy";
   case LogComponent::OpValidation:
     return "op-validation";
+  case LogComponent::ValidationFallback:
+    return "validation-fallback";
   case LogComponent::RMPropagation:
     return "rm-propagation";
   case LogComponent::Allocator:
@@ -75,8 +77,6 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "d2m-fusion";
   case LogComponent::FusionValidator:
     return "fusion-validator";
-  case LogComponent::ValidationFallback:
-    return "validation-fallback";
   case LogComponent::GreedyOptimizer:
     return "greedy-optimizer";
   }

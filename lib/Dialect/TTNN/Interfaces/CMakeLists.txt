@@ -15,6 +15,8 @@ add_mlir_library(MLIRTTNNInterfaces
   MLIRTTNNTensorSpecInterfaceIncGen
   MLIRTTNNWorkaroundInterfaceIncGen
   MLIRTTNNKernelInterfaceIncGen
+  TTNNOpsInterfacesIncGen
+  MLIRTTCoreOpsIncGen
 
   LINK_LIBS
   PUBLIC
