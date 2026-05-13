@@ -756,6 +756,11 @@ class Builder(metaclass=BuilderMeta):
         element_type: Union[torch.dtype, TypeInfo],
         layout: ttnn.ir.LayoutAttr = ttnn.Layout.Tile,
         buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
+        tensor_memory_layout: Optional[
+            ttnn.ir.TensorMemoryLayout
+        ] = ttnn.TensorMemoryLayout.Interleaved,
+        grid_shape: Optional[List[int]] = None,
+        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
     ) -> ttnn.ir.TTNNLayoutAttr:
         """
         TTNN tensors require that encoding information is present.
