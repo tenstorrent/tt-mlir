@@ -114,10 +114,7 @@ def _get_system_desc_path():
 
 _PIPELINE = ",".join(
     [
-        "convert-elementwise-to-linalg",
-        "arith-to-d2m-tile-ops",
         "canonicalize",
-        "ttir-to-d2m",
         "d2m-lower-to-layout",
         "canonicalize",
         "ttir-bufferization-pipeline",
