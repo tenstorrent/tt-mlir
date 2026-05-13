@@ -1,10 +1,9 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-preallocate-mcast-semaphores --d2m-lower-load-store-ops-to-dma --d2m-annotate-core-index-maps %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-preallocate-mcast-semaphores --d2m-lower-load-store-ops-to-dma %s | FileCheck %s
 
 // Exercise d2m-lower-load-store-ops-to-dma on a low-level multicast
 // d2m.remote_load when the enclosing d2m.generic uses a virtualized grid.
-// The pass should attach the generic grid's physical-to-virtual map to
-// d2m.core_index ops instead of eagerly converting multicast core operands
-// through the virtual-to-physical map.
+// The pass should keep d2m.core_index operands in virtual grid space instead of
+// eagerly converting multicast core operands through the virtual-to-physical map.
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -20,8 +19,8 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK-LABEL: func.func @mcast_remote_load_core_index_mapping
   func.func @mcast_remote_load_core_index_mapping(%arg0: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
-    // CHECK: %[[CORE0:.*]] = d2m.core_index(0) {phys_to_virt_map = {{.*}}} : index
-    // CHECK: %[[CORE1:.*]] = d2m.core_index(1) {phys_to_virt_map = {{.*}}} : index
+    // CHECK: %[[CORE0:.*]] = d2m.core_index(0) : index
+    // CHECK: %[[CORE1:.*]] = d2m.core_index(1) : index
     // CHECK: d2m.dma_write %{{.*}}, %{{.*}} core[%[[CORE0]], %c0] mcast[%c1, %c2]
     // CHECK: d2m.semaphore_set %{{.*}}, %c1, core[%[[CORE0]], %c0] mcast[%c1, %c2]
     // CHECK: d2m.semaphore_inc %{{.*}}, %c1, core[%[[CORE0]], %c0]

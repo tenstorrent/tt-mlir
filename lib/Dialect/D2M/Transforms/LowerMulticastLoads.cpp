@@ -206,7 +206,7 @@ public:
 
     // Convert virtual multicast extents to physical extents if virtualization
     // is present. Core index operands stay in virtual grid space; downstream
-    // core-index annotation establishes that via CoreIndexOp's
+    // generic region outlining establishes that via CoreIndexOp's
     // physical-to-virtual map.
     // Use the stored forward map from the output EmptyOp when available,
     // otherwise fall back to re-deriving from grid shape.
@@ -229,8 +229,8 @@ public:
     if (coreVirtMap) {
       // Project out shard layout dims and results from the forward map since
       // multicast shape only describes grid dimensions. Core index operands
-      // stay in virtual grid space; d2m-annotate-core-index-maps establishes
-      // that via phys_to_virt_map on the generated core_index ops.
+      // stay in virtual grid space; generic region outlining establishes that
+      // via phys_to_virt_map on the generated core_index ops.
       AffineMap projectedMap = getProjectedGridForwardMap(
           coreVirtMap, static_cast<unsigned>(mcastShapeInt64.size()));
       mcastShapeInt64 = ttmlir::utils::evalShape(projectedMap, mcastShapeInt64);

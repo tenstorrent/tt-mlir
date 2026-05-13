@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-lower-multicast-loads --d2m-annotate-core-index-maps %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-lower-multicast-loads %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -97,8 +97,8 @@ module attributes {} {
   }
 
   // Test virtual grid handling while lowering high-level multicast. Core
-  // indices carry the generic grid's physical-to-virtual map instead of being
-  // eagerly converted through the virtual-to-physical map.
+  // indices stay in virtual grid space instead of being eagerly converted
+  // through the virtual-to-physical map.
   // CHECK-LABEL: func.func @test_multicast_virtual_grid_core_index_mapping
   func.func @test_multicast_virtual_grid_core_index_mapping(%arg0: memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
     %alloc = memref.alloc() {alignment = 64 : i64, d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
@@ -113,7 +113,7 @@ module attributes {} {
       // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
       // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
       // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
-      // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0) {phys_to_virt_map = {{.*}}} : index
+      // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0) : index
       // CHECK-NOT: affine.apply
       // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[CORE0]], %[[C0]]] mshape[%[[C1]], %[[C2]]]
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>

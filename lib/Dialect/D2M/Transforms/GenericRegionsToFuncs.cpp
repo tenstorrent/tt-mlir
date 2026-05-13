@@ -2,17 +2,34 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/BuiltinAttributes.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICREGIONSTOFUNCS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
+static void annotateCoreIndexOpsWithPhysicalToVirtualMaps(GenericOp generic) {
+  AffineMap physicalToVirtualMap = generic.getGrid().getPhysicalToVirtMap();
+  if (!physicalToVirtualMap || physicalToVirtualMap.isEmpty()) {
+    return;
+  }
+
+  generic.walk([&](CoreIndexOp coreIndexOp) {
+    if (coreIndexOp->getParentOfType<GenericOp>() != generic) {
+      return;
+    }
+    coreIndexOp.setPhysToVirtMapAttr(AffineMapAttr::get(physicalToVirtualMap));
+  });
+}
+
 class D2MGenericRegionsToFuncs
     : public impl::D2MGenericRegionsToFuncsBase<D2MGenericRegionsToFuncs> {
 public:
@@ -24,6 +41,8 @@ public:
     OpBuilder builder(&getContext());
     int unique = 0;
     moduleOp->walk([&](GenericOp generic) {
+      annotateCoreIndexOpsWithPhysicalToVirtualMaps(generic);
+
       SmallVector<Attribute> threads;
       auto origThreads = generic.getThreadsAttr().getValue();
       for (Region &region : generic.getRegions()) {

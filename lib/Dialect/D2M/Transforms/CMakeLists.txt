@@ -1,5 +1,4 @@
 add_mlir_dialect_library(MLIRD2MTransforms
-        AnnotateCoreIndexMaps.cpp
         Allocate.cpp
         DMAOptimizations.cpp
         DecomposeArange.cpp

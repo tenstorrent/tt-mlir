@@ -479,7 +479,9 @@ def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::Mod
   let description = [{
     This pass moves the generic regions to top level functions. This is a useful prerequisite
     step before lowering because it enables us to better separate kernel program lowering from
-    host program lowering.
+    host program lowering. As the common exit point for generic regions, it also
+    annotates remaining d2m.core_index ops with the enclosing generic grid's
+    physical-to-virtual map before outlining.
 
     ```mlir
     func.func @main(/*...*/) {
@@ -1127,20 +1129,6 @@ def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir:
     (reserve/push/wait/pop). The resulting DMA ops use grid-level indices
     only. Full address indexing and coalescing is deferred
     to D2MLowerDMAToFullyIndexedForm.
-  }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
-}
-
-def D2MAnnotateCoreIndexMaps : Pass<"d2m-annotate-core-index-maps", "::mlir::ModuleOp"> {
-  let summary = "Attach generic grid physical-to-virtual maps to d2m.core_index ops.";
-  let description = [{
-    This pass annotates every d2m.core_index op with the physical-to-virtual
-    map from its immediately enclosing d2m.generic, when such a map exists.
-
-    The pass owns the invariant that d2m.core_index is interpreted in the
-    virtual coordinate space of the enclosing generic grid. Lowering passes can
-    therefore create plain d2m.core_index ops without also resolving virtual
-    grid mapping locally.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
