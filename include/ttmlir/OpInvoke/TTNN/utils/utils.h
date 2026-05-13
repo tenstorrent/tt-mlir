@@ -38,6 +38,19 @@ enum class CallType {
   EXECUTE,
 };
 
+using TensorArg = std::variant<const ::ttnn::Tensor *, ::ttnn::TensorSpec>;
+
+struct QueryTag {};
+struct ExecuteTag {};
+
+inline auto resolveTensorArg(TensorArg arg, QueryTag callType) {
+  return std::get<::ttnn::TensorSpec>(arg);
+}
+
+inline auto resolveTensorArg(TensorArg arg, ExecuteTag callType) {
+  return *std::get<const ::ttnn::Tensor *>(arg);
+}
+
 } // namespace ttnn_op_invoke
 
 namespace ttnn_op_invoke::operations::utils {
@@ -61,7 +74,16 @@ toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSetT &coreRangeSet);
 
+::ttnn::operations::unary::UnaryOpType
+toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType);
+
+::ttnn::operations::unary::UnaryOpType
+toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);
+
 ::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRefT &tensorRef);
+
+::ttnn::operations::unary::UnaryWithParam
+toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParamT &unaryWithParam);
 
 bool inSystemMemory(const ::tt::target::ttnn::TensorRefT &tensorRef);
 
@@ -71,6 +93,12 @@ getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRefT &tensorRef);
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg,
                            CallType callType);
+
+::ttnn::Conv2dConfig
+createConv2dConfig(const ::tt::target::ttnn::Conv2dConfigT &config);
+
+::ttnn::Conv2dSliceConfig
+createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfigT &config);
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfigT &config);
