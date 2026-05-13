@@ -172,32 +172,3 @@ class Layout:
         output_type = self.build_host_tensor_type(ctx)
         output = d2m.empty(output_type)
         return d2m.ToLayoutOp([output_type], val, output).result
-
-
-class TensorLayout(Layout):
-    """Layout + a reference to a host torch tensor.
-
-    Compatibility shim for the eager @d2m_jit API. The lazy API should use
-    Layout directly and keep its host tensor in a LazyTensor instead.
-    """
-
-    def __init__(
-        self,
-        tensor,
-        block_shape,
-        grid_shape=None,
-        dtype=None,
-        tiled=True,
-        collapse=True,
-        mem_space=ttcore.MemorySpace.DeviceL1,
-    ):
-        super().__init__(
-            shape=tensor.shape,
-            dtype=tensor.dtype if dtype is None else dtype,
-            block_shape=block_shape,
-            grid_shape=grid_shape,
-            tiled=tiled,
-            collapse=collapse,
-            mem_space=mem_space,
-        )
-        self.tensor = tensor
