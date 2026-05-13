@@ -4,13 +4,12 @@
 
 import pytest
 import torch
-from typing import Callable, List, Optional, Tuple
 
 from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from test_utils import Marks, shape_str, shapes_list_str, SkipIf
+from test_utils import shape_str, SkipIf
 
 pytestmark = pytest.mark.frontend("ttir")
 

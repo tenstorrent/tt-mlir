@@ -763,9 +763,14 @@ class Builder(metaclass=BuilderMeta):
         core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
     ) -> ttnn.ir.TTNNLayoutAttr:
         """
-        TTNN tensors require that encoding information is present.
-        This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interleaved tiled tensor.
+        TTNN tensors require encoding information to describe layout and placement.
+        This helper creates a TTNN tensor encoding using the requested layout,
+        buffer type, and tensor memory layout.
+
+        By default it produces a DRAM, interleaved, tiled encoding. It also
+        supports RowMajor layout, SystemMemory buffers (which do not use a
+        tensor memory layout), and sharded layouts when a non-interleaved
+        tensor_memory_layout and explicit core_range_set are provided.
         """
         if grid_shape is None:
             grid_shape = [1, 1]
