@@ -1,6 +1,8 @@
 add_library(TTNNOpInvokeLib STATIC
   utils/utils.cpp
   Conv/Conv2dOp.cpp
+  Eltwise/Unary/EltwiseUnaryCompositeOp.cpp
+  Eltwise/Unary/EltwiseUnaryOp.cpp
   Matmul/MatmulOp.cpp
 )
 
@@ -10,11 +12,8 @@ target_include_directories(TTNNOpInvokeLib PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/ttmlir/OpInvoke>
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common>
-)
-
-target_include_directories(TTNNOpInvokeLib PRIVATE
-  ${PROJECT_SOURCE_DIR}/runtime/include
-  ${PROJECT_BINARY_DIR}/runtime/include
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/runtime/include>
+  $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/runtime/include>
 )
 
 target_include_directories(TTNNOpInvokeLib SYSTEM PUBLIC

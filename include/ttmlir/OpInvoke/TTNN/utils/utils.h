@@ -9,6 +9,7 @@
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #pragma clang diagnostic pop
+#include "tt/runtime/detail/common/logger.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/matmul/device/config/matmul_program_config_types.hpp"
