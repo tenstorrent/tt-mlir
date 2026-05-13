@@ -23,6 +23,7 @@ from builder.base.builder_utils import (
     tag,
     parse,
     split,
+    derive_canonical_core_range_set,
 )
 
 
@@ -52,6 +53,7 @@ class Builder(metaclass=BuilderMeta):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
+        system_desc_path: Optional[str] = None,
     ):
         self._ctx = ctx
         self._loc = location
@@ -59,6 +61,7 @@ class Builder(metaclass=BuilderMeta):
         self._force_graph_level_check = False
         self._deallocate_goldens = deallocate_goldens
         self._deallocated_goldens_dir = deallocated_goldens_dir
+        self._system_desc_path = system_desc_path
         os.makedirs(self._deallocated_goldens_dir, exist_ok=True)
 
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
@@ -791,11 +794,24 @@ class Builder(metaclass=BuilderMeta):
             )
 
             if is_sharded and core_range_set is None:
-                raise ValueError(
-                    "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
-                    "the builder does not synthesize one because the canonical "
-                    "placement depends on the target arch's worker/DRAM grid."
+                # Attempt to calculate the canonical core_range_set using system descriptor
+                core_range_set = derive_canonical_core_range_set(
+                    self._ctx,
+                    buffer_type,
+                    tensor_memory_layout,
+                    grid_shape,
+                    self._system_desc_path,
                 )
+
+                # If we still don't have a core_range_set, raise an error
+                if core_range_set is None:
+                    raise ValueError(
+                        "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
+                        "the builder does not synthesize one because the canonical "
+                        "placement depends on the target arch's worker/DRAM grid. "
+                        "Either provide core_range_set explicitly or set system_desc_path "
+                        "when creating the builder."
+                    )
 
             return ttnn.ir.TTNNLayoutAttr.get(
                 self._ctx,

@@ -31,6 +31,8 @@ from ttmlir.passes import (
     ttir_to_emitpy_pipeline,
 )
 
+import _ttmlir_runtime as tt_runtime
+
 # ----- Typedefs -----
 
 Operand = Union[BlockArgument, OpResult]
@@ -343,6 +345,227 @@ def affine_map_from_lambda(fn):
             )
     num_syms = 0
     return AffineMap.get(num_dims, num_syms, exprs)
+
+
+def derive_canonical_core_range_set(
+    ctx: Context,
+    buffer_type: ttnn.ir.BufferType,
+    tensor_memory_layout: ttnn.ir.TensorMemoryLayout,
+    grid_shape: List[int],
+    system_desc_path: Optional[str] = None,
+) -> Optional[ttnn.ir.CoreRangeSetAttr]:
+    """
+    Derive the canonical CoreRangeSet for a sharded TTNN layout.
+
+    This function replicates the logic from TTNNLayoutAttr::Builder::buildWithCanonicalCorePlacement
+    in the C++ codebase. It derives core placements based on the buffer type (L1 or DRAM) and
+    memory layout (BlockSharded, HeightSharded, or WidthSharded).
+
+    Parameters
+    ----------
+    ctx : Context
+        MLIR context
+    buffer_type : ttnn.ir.BufferType
+        Buffer type (L1, DRAM, or SystemMemory)
+    tensor_memory_layout : ttnn.ir.TensorMemoryLayout
+        Memory layout (Interleaved, BlockSharded, HeightSharded, WidthSharded)
+    grid_shape : List[int]
+        Grid shape as [height, width]
+    system_desc_path : Optional[str]
+        Path to system descriptor file. If None, uses default grids.
+
+    Returns
+    -------
+    Optional[ttnn.ir.CoreRangeSetAttr]
+        The canonical CoreRangeSet, or None if not sharded or system_desc unavailable
+    """
+    # Only calculate for sharded layouts
+    if tensor_memory_layout == ttnn.TensorMemoryLayout.Interleaved:
+        return None
+
+    # Load system descriptor and create DeviceAttr if path provided
+    device_attr = None
+    if system_desc_path and os.path.exists(system_desc_path):
+        try:
+            # Load system descriptor from file
+            system_desc_fbs = tt_runtime.binary.load_system_desc_from_path(
+                system_desc_path
+            )
+
+            # Parse the flatbuffer and get the first chip descriptor
+            import json
+
+            system_desc_json = json.loads(system_desc_fbs.as_json())
+
+            # Extract grid information from the first chip
+            if (
+                "system_desc" in system_desc_json
+                and "chip_descs" in system_desc_json["system_desc"]
+            ):
+                chip_descs = system_desc_json["system_desc"]["chip_descs"]
+                if len(chip_descs) > 0:
+                    chip_desc = chip_descs[0]
+                    # Get worker and DRAM grid dimensions
+                    # Chip desc contains the grid as [y, x] (rows, cols)
+                    if "compute_grid" in chip_desc:
+                        compute_grid = chip_desc["compute_grid"]
+                        worker_grid_shape = [compute_grid["rows"], compute_grid["cols"]]
+                    else:
+                        worker_grid_shape = [8, 8]  # Default fallback
+
+                    if "dram_grid" in chip_desc:
+                        dram_grid = chip_desc["dram_grid"]
+                        dram_grid_shape = [dram_grid["rows"], dram_grid["cols"]]
+                    else:
+                        dram_grid_shape = [1, 12]  # Default fallback
+        except Exception as e:
+            # If loading fails, fall back to None
+            worker_grid_shape = [8, 8]
+            dram_grid_shape = [1, 12]
+    else:
+        # Default grids if no system descriptor
+        worker_grid_shape = [8, 8]
+        dram_grid_shape = [1, 12]
+
+    # Calculate CoreRangeSet based on buffer type and memory layout
+    if buffer_type == ttnn.BufferType.DRAM:
+        # DRAM-sharded: single rectangle covering first N banks
+        return _derive_canonical_dram_core_range_set(
+            ctx, tensor_memory_layout, grid_shape, dram_grid_shape
+        )
+    elif buffer_type == ttnn.BufferType.L1:
+        # L1-sharded: map virtual grid to physical cores
+        return _derive_canonical_l1_core_range_set(
+            ctx, tensor_memory_layout, grid_shape, worker_grid_shape
+        )
+
+    return None
+
+
+def _derive_canonical_l1_core_range_set(
+    ctx: Context,
+    mem_layout: ttnn.ir.TensorMemoryLayout,
+    grid_shape: List[int],
+    worker_grid_shape: List[int],
+) -> ttnn.ir.CoreRangeSetAttr:
+    """
+    Derive canonical CoreRangeSet for L1-sharded layout.
+
+    Mirrors the C++ deriveCanonicalL1CoreRangeSet function.
+    """
+    assert len(grid_shape) == 2, "Grid shape must be 2D"
+    assert len(worker_grid_shape) == 2, "Worker grid shape must be 2D"
+
+    worker_grid_volume = worker_grid_shape[0] * worker_grid_shape[1]
+
+    if mem_layout == ttnn.TensorMemoryLayout.BlockSharded:
+        # Virtual [H, W] maps identity onto physical cores (0,0)-(W-1, H-1)
+        assert (
+            grid_shape[0] <= worker_grid_shape[0]
+            and grid_shape[1] <= worker_grid_shape[1]
+        ), f"BlockSharded grid {grid_shape} does not fit in worker grid {worker_grid_shape}"
+
+        ranges = [
+            ttnn.ir.CoreRangeAttr.get(
+                ctx,
+                ttnn.ir.CoreCoordAttr.get(ctx, 0, 0),
+                ttnn.ir.CoreCoordAttr.get(ctx, grid_shape[1] - 1, grid_shape[0] - 1),
+            )
+        ]
+    elif mem_layout == ttnn.TensorMemoryLayout.HeightSharded:
+        # Virtual [M, 1] row-major flattens onto (m / W, m % W)
+        assert grid_shape[1] == 1, "HeightSharded expects [M, 1] grid"
+        assert (
+            grid_shape[0] <= worker_grid_volume
+        ), f"HeightSharded count {grid_shape[0]} exceeds worker volume {worker_grid_volume}"
+
+        ranges = _build_row_major_core_ranges(ctx, grid_shape[0], worker_grid_shape)
+    elif mem_layout == ttnn.TensorMemoryLayout.WidthSharded:
+        # Virtual [1, M] row-major flattens onto (m / W, m % W)
+        assert grid_shape[0] == 1, "WidthSharded expects [1, M] grid"
+        assert (
+            grid_shape[1] <= worker_grid_volume
+        ), f"WidthSharded count {grid_shape[1]} exceeds worker volume {worker_grid_volume}"
+
+        ranges = _build_row_major_core_ranges(ctx, grid_shape[1], worker_grid_shape)
+    else:
+        raise ValueError(f"Unexpected memory layout: {mem_layout}")
+
+    return ttnn.ir.CoreRangeSetAttr.get(ctx, ranges)
+
+
+def _derive_canonical_dram_core_range_set(
+    ctx: Context,
+    mem_layout: ttnn.ir.TensorMemoryLayout,
+    grid_shape: List[int],
+    dram_grid_shape: List[int],
+) -> ttnn.ir.CoreRangeSetAttr:
+    """
+    Derive canonical CoreRangeSet for DRAM-sharded layout.
+
+    Mirrors the C++ deriveCanonicalDramCoreRangeSet function.
+    """
+    assert mem_layout in [
+        ttnn.TensorMemoryLayout.HeightSharded,
+        ttnn.TensorMemoryLayout.WidthSharded,
+    ], f"DRAM-sharded only supports HeightSharded/WidthSharded, got {mem_layout}"
+
+    assert len(dram_grid_shape) == 2, "DRAM grid must be 2D"
+    assert dram_grid_shape[0] == 1, f"DRAM grid expected [1, N], got {dram_grid_shape}"
+
+    shard_volume = grid_shape[0] * grid_shape[1]
+    dram_volume = dram_grid_shape[0] * dram_grid_shape[1]
+
+    assert (
+        shard_volume <= dram_volume
+    ), f"Shard volume {shard_volume} exceeds DRAM volume {dram_volume}"
+    assert shard_volume >= 1, "Shard volume must be at least 1"
+
+    ranges = [
+        ttnn.ir.CoreRangeAttr.get(
+            ctx,
+            ttnn.ir.CoreCoordAttr.get(ctx, 0, 0),
+            ttnn.ir.CoreCoordAttr.get(ctx, shard_volume - 1, 0),
+        )
+    ]
+
+    return ttnn.ir.CoreRangeSetAttr.get(ctx, ranges)
+
+
+def _build_row_major_core_ranges(
+    ctx: Context,
+    shard_count: int,
+    physical_grid_shape: List[int],
+) -> List[ttnn.ir.CoreRangeAttr]:
+    """
+    Build CoreRangeAttr list for row-major flattening of shards onto physical grid.
+
+    Maps linear shard indices to physical cores in row-major order.
+    """
+    ranges = []
+    grid_width = physical_grid_shape[1]
+
+    start_idx = 0
+    while start_idx < shard_count:
+        start_y = start_idx // grid_width
+        start_x = start_idx % grid_width
+
+        # Find the end of this row
+        end_idx = min(start_idx + (grid_width - start_x) - 1, shard_count - 1)
+        end_y = end_idx // grid_width
+        end_x = end_idx % grid_width
+
+        ranges.append(
+            ttnn.ir.CoreRangeAttr.get(
+                ctx,
+                ttnn.ir.CoreCoordAttr.get(ctx, start_x, start_y),
+                ttnn.ir.CoreCoordAttr.get(ctx, end_x, end_y),
+            )
+        )
+
+        start_idx = end_idx + 1
+
+    return ranges
 
 
 class DeferredDevice:
