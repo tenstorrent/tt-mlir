@@ -98,8 +98,8 @@ private:
             allocsToHoist.push_back(newAllocOp);
           }
         } else {
-          // We should allow this in the future but asserting for now to check
-          // it's not used
+          // We can allow this in the future but asserting for now to check it's
+          // not used.
           assert(false && "unexpected alloc op attribute");
         }
       });

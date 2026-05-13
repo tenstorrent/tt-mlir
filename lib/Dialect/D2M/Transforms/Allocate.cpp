@@ -644,11 +644,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     .getInt();
           }
         } else {
+          // We can allow this in the future but asserting for now to check it's
+          // not used.
           llvm_unreachable("unexpected alloc op attribute");
-          //  we should allow this but asserting for now to check it's not used
         }
-        // TODO: check not of more than one type (or maybe add a
-        // GenericAllocAttribute, which can convey the above types)
 
         if (numBuffers.has_value()) {
           MemrefValueContext &ctx =
@@ -1291,7 +1290,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               isAliasedStore(remoteStoreOp) &&
               (!producerRemoteLoad ||
                !producerRemoteLoad->hasAttr("d2m.aliased_load"))) {
-            auto allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
+            auto *allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());
@@ -1366,35 +1365,29 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return allocation::hasNonTrivialView(operand);
   }
 
-  // TODO: move into some DMA utils place alongside isAliasedLoad and
-  // isAliasedStore which should be separated out to separate function after
-  /// @return `true` if `genericOp` requires a stream
-  /// for operand @`operandIndex` based on the available indexing space
-  /// information, excluding any blocked-operand forcing.
-  bool canAliasOperand(d2m::GenericOp genericOp, Value memrefOperand) const {
-    auto memspace =
-        ttcore::getMemorySpace(mlir::cast<MemRefType>(memrefOperand.getType()));
-    auto operandIndex = genericOp.getOperandIndex(memrefOperand);
-    bool isOutput = llvm::find_if(genericOp.getOutputs(), [&](Value operand) {
-                      return operand == memrefOperand;
-                    }) != genericOp.getOutputs().end();
+  /// @return `true` if the remote_load/store for this operand does not require
+  /// real DMA. (i.e. can be aliased with it's corresponding operand). This is
+  /// the case when the operand:
+  ///  - does not have a non-trivial view layout
+  ///  - is in L1 and not DRAM
+  ///  - is not in an explicit datamovement form and the dimensions
+  ///  corresponding to the load/store indices
+  ///    are not broadcast or reduction.
+  /// This is a common function shared byt isAliasedLoad and isAliasedStore.
+  bool canAliasOperand(d2m::GenericOp genericOp, Value genericOperand) const {
     if (useAlwaysStreamPolicy()) {
       return false;
     }
 
-    // TODO: remove???
-    if (!isNonTrivialView(memrefOperand) && isOutput &&
-        !allowL1OutputSpilling && memspace != MemorySpace::DeviceDRAM) {
-      return true;
-    }
-
     // Non-trivial views need a stream to represent the implied data movement.
-    if (isNonTrivialView(memrefOperand)) {
+    if (isNonTrivialView(genericOperand)) {
       return false;
     }
 
     // DRAM operands always need streams because data must physically
     // move between DRAM and L1 circular buffers.
+    auto memspace = ttcore::getMemorySpace(
+        mlir::cast<MemRefType>(genericOperand.getType()));
     if (memspace == MemorySpace::DeviceDRAM) {
       return false;
     }
@@ -1405,9 +1398,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return false;
     }
 
-    // TODO: remove??? redundant with mcast load check?
+    auto operandIndex = genericOp.getOperandIndex(genericOperand);
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-
     const auto broadcastDims = indexingMap.getBroadcastDims();
     const auto iteratorTypes = genericOp.getIteratorTypesValue();
 
