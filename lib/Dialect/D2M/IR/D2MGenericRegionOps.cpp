@@ -1796,11 +1796,7 @@ mlir::LogicalResult TileTilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), out.getType(), in,
-                                                    out);
-  // DPS-style op: replace uses of result with the output buffer, not the new
-  // op's result. This ensures downstream ops correctly use the original buffer
-  // allocation.
+  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), in, out);
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();
@@ -1905,11 +1901,7 @@ mlir::LogicalResult TileUntilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(getLoc(), out.getType(),
-                                                      in, out);
-  // DPS-style op: replace uses of result with the output buffer, not the new
-  // op's result. This ensures downstream ops correctly use the original buffer
-  // allocation.
+  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(getLoc(), in, out);
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();

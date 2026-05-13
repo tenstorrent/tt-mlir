@@ -344,7 +344,6 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
           auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
           rewriter.setInsertionPointAfter(synchronizedOp);
           rewriter.create<PushOp>(loc, cb);
-          // TODO: change isAliased to inherent attribute???
           if (mlir::isa<RemoteStoreOp>(associatedConsumer) &&
               isAliasedStore(mlir::cast<RemoteStoreOp>(associatedConsumer))) {
             rewriter.create<WaitOp>(loc, cb);

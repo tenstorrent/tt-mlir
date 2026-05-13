@@ -637,12 +637,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // The internal alloc needs a planner-assigned L1 address and will be
       // stamped with CBLayoutAttr, even for explicit generics, so that it can
       // be hoisted correctly as a CB later in the HoistCBAllocs pass.
-      std::optional<int32_t> numBuffers = std::nullopt;
       genericOp->walk([&](memref::AllocOp allocOp) {
+        std::optional<int32_t> numBuffers = std::nullopt;
         if (allocOp->getAttr("d2m.compute_intermediate")) {
-          // skip allocating, this is a contrace from fusion and compute
-          // lowering saying we will not actually use this buffer, it's just a
-          // placeholder, so we can safely skip it
+          // Skip allocating, this is a contract from fusion and compute
+          // lowering saying we will not actually use this buffer and it's just
+          // a placeholder, so we can safely skip it.
           return WalkResult::advance();
         } else if (allocOp->getAttr("d2m.scratch_buffer")) {
           numBuffers = 1;
@@ -651,7 +651,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
                   .getInt();
         } else {
-          assert(false && "unexpected alloc op attribute");
+          llvm_unreachable("unexpected alloc op attribute");
           //  we should allow this but asserting for now to check it's not used
         }
         // TODO: check not of more than one type (or maybe add a
@@ -1310,28 +1310,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       const auto &genericOpRef = genericOp;
       for (const OperandContext &operandCtx : genericCtx.operands) {
-        // TODO: clean up
-        // this should be return a cb if memref is a cb or be a nromal memref if
-        // memref is not a cb replace remote_load/store with this alias op print
-        // aliased operand
-        // llvm::errs() << "aliased operand: " << operandCtx.operand->get()
-        //             << "\n";
-
         genericOpRef->walk([&](RemoteLoadOp remoteLoadOp) {
-          // llvm::errs() << "remote load op: " << remoteLoadOp.getMemref()
-          //              << "\n";
           if (remoteLoadOp.getMemref() == operandCtx.operand->get() &&
               isAliasedLoad(remoteLoadOp)) {
-            // llvm::errs() << "replacing remote load op with aliased load
-            // op\n";
-            //  replace alloc with operand alias op
+            // Replace memref.alloc with operand alias op
             auto allocOp = remoteLoadOp.getLocalBuffer().getDefiningOp();
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteLoadOp.getMemref());
             remoteLoadOp->setAttr("d2m.aliased_load", rewriter.getUnitAttr());
-            // rewriter.replaceAllUsesWith(op.getLocalBuffer(),
-            // operandAliasOp.getResult());
           }
         });
       }
@@ -1343,8 +1330,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           const_cast<GenericOp &>(genericOp).getRegion(0));
       for (const OperandContext &operandCtx : genericCtx.operands) {
         genericOpRef->walk([&](RemoteStoreOp remoteStoreOp) {
-          // llvm::errs() << "remote store op: " << remoteStoreOp.getMemref()
-          //              << "\n";
           //  Also check we don't already have aliased load since we can't alias
           //  DMA on both sides
           auto producerRemoteLoad = mlir::dyn_cast<d2m::RemoteLoadOp>(
@@ -1353,16 +1338,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               isAliasedStore(remoteStoreOp) &&
               (!producerRemoteLoad ||
                !producerRemoteLoad->hasAttr("d2m.aliased_load"))) {
-            // llvm::errs() << "replacing remote store op with aliased store
-            // op\n";
             auto allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());
             remoteStoreOp->setAttr("d2m.aliased_store", rewriter.getUnitAttr());
-            // rewriter.replaceAllUsesWith(op.getLocalBuffer(),
-            // operandAliasOp.getResult());
-            // rewriter.eraseOp(op.getLocalBuffer().getDefiningOp());
           }
         });
       }
@@ -1452,21 +1432,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return allocation::hasNonTrivialView(operand);
   }
 
-  // TODO: remove since no longer used
-  /// @return `true` if `operandCtx` is an output that is exempt from stream
-  /// insertion. Currently, this is true for outputs when L1 output spilling is
-  /// disabled and the output is a trivial view.
-  bool isOperandExemptFromStreaming(const OperandContext &operandCtx,
-                                    MemorySpace memspace) const {
-    if (isNonTrivialView(operandCtx.operand->get())) {
-      return false;
-    }
-    return operandCtx.isOutput && !allowL1OutputSpilling &&
-           memspace != MemorySpace::DeviceDRAM;
-  }
-
-  // TODO: move into some DMA utils place alongside load/store aliasing logic
-  // which should be separated out to separate function after
+  // TODO: move into some DMA utils place alongside isAliasedLoad and
+  // isAliasedStore which should be separated out to separate function after
   /// @return `true` if `genericOp` requires a stream
   /// for operand @`operandIndex` based on the available indexing space
   /// information, excluding any blocked-operand forcing.
@@ -1477,11 +1444,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     bool isOutput = llvm::find_if(genericOp.getOutputs(), [&](Value operand) {
                       return operand == memrefOperand;
                     }) != genericOp.getOutputs().end();
-    // TODO: remove???
     if (useAlwaysStreamPolicy()) {
       return false;
     }
 
+    // TODO: remove???
     if (!isNonTrivialView(memrefOperand) && isOutput &&
         !allowL1OutputSpilling && memspace != MemorySpace::DeviceDRAM) {
       return true;
@@ -1504,9 +1471,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return false;
     }
 
-    // TODO: remove??? redundant with mcast load check; call this function
-    // needsDMA and then used isAliasedLoad and isAliasedStore to check if
-    // load/store is aliasable
+    // TODO: remove??? redundant with mcast load check?
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
 
     const auto broadcastDims = indexingMap.getBroadcastDims();
