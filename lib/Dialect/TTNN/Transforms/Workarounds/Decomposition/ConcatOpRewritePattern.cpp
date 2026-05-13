@@ -107,9 +107,7 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
   uint64_t cbSizeAfterTranspose =
       static_cast<uint64_t>(dimMinusTwo) * elemSizeBytes * 2;
 
-  uint64_t l1UsableSize = ttcore::getCurrentScopeSystemDesc(srcOp)
-                              .getChipDescs()[0]
-                              .getUsableL1Size();
+  uint64_t l1UsableSize = utils::getUsableL1PerCore(srcOp);
 
   if (cbSizeAfterTranspose <= l1UsableSize) {
     // Existing path fits in L1, no workaround needed.
