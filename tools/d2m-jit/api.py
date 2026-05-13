@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from ttmlir.ir import *
-from ttmlir.dialects import d2m, arith
+from ttmlir.dialects import d2m, arith, linalg
 
 from ._src.utils import _asindex
 from ._src.ast import D2MCompiler, syntax
@@ -109,6 +109,58 @@ def core_index(index):
     return d2m.core_index(index)
 
 
+# --- Block-level eltwise helper -------------------------------------------
+
+
+def _eltwise_block(block, tile_op_fn):
+    """Wrap a per-tile op inside a `linalg.generic` over a tensor-of-tiles.
+
+    `block` is a value of type `tensor<...x!ttcore.tile<...>>`. `tile_op_fn`
+    is called with the scalar (tile-typed) input element value and must
+    return the scalar (tile-typed) output value (or an OpView whose .result
+    is the value).
+
+    Emits:
+        %out  = d2m.empty() : tensor<...x!ttcore.tile<...>>
+        %ret  = linalg.generic
+            { indexing_maps = [identity, identity],
+              iterator_types = [parallel] * rank }
+            ins(%block) outs(%out) {
+          ^bb0(%t_in: !tile, %t_out: !tile):
+            %r = tile_op_fn(%t_in)
+            linalg.yield %r : !tile
+        } -> tensor<...x!ttcore.tile<...>>
+    """
+    block_ty = block.type
+    rank = block_ty.rank
+    elem_ty = block_ty.element_type
+
+    output = d2m.empty(block_ty)
+    identity = AffineMap.get_identity(rank)
+    indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)] * 2)
+    parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+    iterator_types = ArrayAttr.get([parallel] * rank)
+
+    generic = linalg.GenericOp(
+        [block_ty],
+        [block],
+        [output],
+        indexing_maps,
+        iterator_types,
+    )
+    body = Block.create_at_start(
+        generic.regions[0],
+        [elem_ty, elem_ty],
+        [Location.unknown(), Location.unknown()],
+    )
+    with InsertionPoint(body):
+        result = tile_op_fn(body.arguments[0])
+        if hasattr(result, "result"):
+            result = result.result
+        linalg.yield_([result])
+    return generic.result
+
+
 # --- Tile Unary Compute Ops ---
 
 
@@ -180,6 +232,13 @@ def tile_rsqrt(input):
 @syntax("tile_sigmoid")
 def tile_sigmoid(input):
     return d2m.tile_sigmoid(input.type, input)
+
+
+@syntax("sigmoid")
+def sigmoid(input):
+    """Block-level sigmoid: applies d2m.tile_sigmoid elementwise via
+    linalg.generic over the tensor-of-tiles input."""
+    return _eltwise_block(input, lambda t: d2m.tile_sigmoid(t.type, t))
 
 
 @syntax("tile_hardsigmoid")
