@@ -37,7 +37,7 @@ from ._src.utils import (
     _asindex,
     _cleanup_source_code,
 )
-from ._src.ast import D2MCompiler, syntax, Stream, TensorLayout
+from ._src.ast import D2MCompiler, syntax, TensorLayout
 
 
 @syntax("!tensor")
@@ -427,10 +427,7 @@ def _collect_captures(f):
     def convert(name, val):
         if isinstance(val, int):
             return val
-        elif isinstance(val, Stream):
-            return val
-        else:
-            raise TypeError(f"Unhandled capture for vars of type({type(val)})")
+        raise TypeError(f"Unhandled capture for vars of type({type(val)})")
 
     return {
         n: convert(n, c.cell_contents)

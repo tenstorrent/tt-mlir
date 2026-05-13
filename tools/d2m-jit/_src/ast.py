@@ -292,7 +292,6 @@ class D2MCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.module_symbol_table = None
         self.symbol_tables = []
-        self.streams = set()
         self.supported_nodes = list(self._SUPPORTED_NODES)
         self._fn_map = dict(self._syntax)
 
@@ -792,15 +791,3 @@ def syntax(syntax_name, args_as_attr=None):
         return fn
 
     return _fn_wrapper
-
-
-class Stream:
-    def __init__(self, tensor, num_buffers=None):
-        assert hasattr(
-            tensor, "_global_name"
-        ), "Stream must be created from a top level tensor argument"
-        self.name = tensor._global_name
-        self.shape = tensor.shape
-        self.dtype = tensor.dtype
-        assert num_buffers is None, "Unsupported"
-        self.num_buffers = num_buffers
