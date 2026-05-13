@@ -247,19 +247,69 @@ class LazyTensor:
 # --- Public constructors -----------------------------------------------------
 
 
-def to_layout(host_tensor, layout: Layout) -> LazyTensor:
-    """Bring a host torch tensor into the device. Returns a LazyTensor at the
-    layout's *blocked* grid (matches what kernels expect)."""
-    if torch is not None and isinstance(host_tensor, torch.Tensor):
-        assert list(host_tensor.shape) == list(layout.logical_shape), (
-            f"to_layout shape mismatch: tensor {list(host_tensor.shape)} "
+def to_layout(input_, layout: Layout) -> LazyTensor:
+    """Convert `input_` to a device tensor at `layout`.
+
+    Polymorphic on the input:
+      - host torch.Tensor: appends a host-typed func arg and emits a
+        host->device d2m.ToLayoutOp.
+      - LazyTensor:        emits a device->device d2m.ToLayoutOp between
+        the source's layout and `layout` (different grids/tile-ness/etc).
+
+    Returns a LazyTensor at the layout's *blocked* grid.
+    """
+    b = _Builder.get()
+
+    if isinstance(input_, LazyTensor):
+        src = input_._resolve()
+        assert list(src.layout.logical_shape) == list(layout.logical_shape), (
+            f"to_layout shape mismatch: src {src.layout.logical_shape} "
+            f"vs target {layout.logical_shape}"
+        )
+        with b.ctx, b.loc, b.insert_point:
+            # Step back from src's blocked grid to its unblocked form, then
+            # ToLayoutOp into the target's unblocked form, then re-view to
+            # the target's blocked grid.
+            src_val = src.layout.build_device_view(b.ctx, src.value)
+            dst_unblocked_ty = layout.build_device_tensor_type(b.ctx, blocked=False)
+            dst_empty = d2m.empty(dst_unblocked_ty)
+            converted = d2m.ToLayoutOp(
+                [dst_unblocked_ty], src_val, dst_empty
+            ).result
+            val = layout.build_blocked_view(b.ctx, converted)
+        return LazyTensor(layout, val, b.generation)
+
+    if torch is not None and isinstance(input_, torch.Tensor):
+        assert list(input_.shape) == list(layout.logical_shape), (
+            f"to_layout shape mismatch: tensor {list(input_.shape)} "
             f"vs layout {layout.logical_shape}"
         )
-    b = _Builder.get()
-    with b.ctx, b.loc, b.insert_point:
-        bb_arg = b.add_host_input(layout, host_tensor)
-        dev = layout.build_to_device(b.ctx, bb_arg)
-    return LazyTensor(layout, dev, b.generation)
+        with b.ctx, b.loc, b.insert_point:
+            bb_arg = b.add_host_input(layout, input_)
+            dev = layout.build_to_device(b.ctx, bb_arg)
+        return LazyTensor(layout, dev, b.generation)
+
+    raise TypeError(
+        f"to_layout expected a torch.Tensor or LazyTensor, got {type(input_).__name__}"
+    )
+
+
+def tilize(input_, layout: Layout) -> LazyTensor:
+    """to_layout with the expectation that the target is tile-typed.
+
+    Convenience alias documenting host/device -> tiled-device intent.
+    """
+    assert layout.tiled, "tilize requires layout.tiled=True"
+    return to_layout(input_, layout)
+
+
+def untilize(input_, layout: Layout) -> LazyTensor:
+    """to_layout with the expectation that the target is row-major (untiled).
+
+    Convenience alias documenting host/device -> row-major-device intent.
+    """
+    assert not layout.tiled, "untilize requires layout.tiled=False"
+    return to_layout(input_, layout)
 
 
 def empty(layout: Layout) -> LazyTensor:

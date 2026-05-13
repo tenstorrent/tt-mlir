@@ -16,6 +16,8 @@ from ._src.builder import (
     LazyTensor,
     kernel,
     to_layout,
+    tilize,
+    untilize,
     empty,
     view_layout,
     view,
