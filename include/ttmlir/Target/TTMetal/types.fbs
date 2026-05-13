@@ -96,6 +96,37 @@ table CBRef {
   buffer_ref: BufferRef;
 }
 
+enum DFBAccessPattern : ushort {
+  Strided,
+  All,
+}
+
+// Quasar DataflowBuffer configuration, mirrors the
+// `tt::tt_metal::experimental::dfb::DataflowBufferConfig` struct.
+table DataflowBufferConfig {
+  entry_size: uint32;
+  num_entries: uint32;
+  num_producers: uint32;
+  num_consumers: uint32;
+  producer_risc_mask: uint32;
+  consumer_risc_mask: uint32;
+  producer_pattern: DFBAccessPattern;
+  consumer_pattern: DFBAccessPattern;
+  enable_implicit_sync: bool = false;
+  data_format: DataType;
+}
+
+// A DFB allocated on a core range. `global_id` is assigned by the
+// compiler and is the key both `BindDFBToKernelsCommand.dfb_global_id`
+// and `EnqueueProgramCommand.dfb_global_ids` use to refer to this DFB.
+// The runtime resolves global_id -> tt-metal logical_dfb_id (returned by
+// CreateDataflowBuffer) via a per-program table.
+table DFBRef {
+  global_id: uint32;
+  core_range_set: [Dim2dRange];
+  config: DataflowBufferConfig;
+}
+
 table MeshDesc {
   name: string;
   mesh_shape: [int64];

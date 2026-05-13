@@ -828,11 +828,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     break;
   }
   case ttkernel::ArgType::DFBId: {
-    // Flatbuffer schema support for DFBId lands with PR8 (Quasar DFB
-    // runtime path). Until then, no pass emits this ArgType so reaching
-    // here is a bug.
-    llvm_unreachable(
-        "DFBId KernelArg flatbuffer serialization not yet implemented");
+    argType = target::metal::KernelArgType::KernelArgDFBId;
+    arg = target::metal::CreateKernelArgDFBId(*cache.fbb,
+                                              kernelArg.getOperandIndex())
+              .Union();
+    break;
   }
   }
 
@@ -1070,6 +1070,16 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
     }
 
     cqBuilder.commands.reserve(entry.getBody().front().getOperations().size());
+    // Per-program DFB serialization state:
+    //   - dfbValueToGlobalId: maps ttmetal.create_dataflow_buffer result
+    //     SSA values to their compiler-assigned flatbuffer global_ids
+    //     (allocated via cache.nextGlobalId()).
+    //   - pendingDFBGlobalIds: positional list of global_ids accumulated
+    //     since the last ttmetal.enqueue_program. Cleared when the
+    //     enqueue_program command is emitted; the order matches the
+    //     IR-side $dfb_ids array attr (which is itself positional).
+    DenseMap<Value, uint32_t> dfbValueToGlobalId;
+    std::vector<uint32_t> pendingDFBGlobalIds;
     entry->walk([&](mlir::Operation *op) {
       if (auto allocOp = dyn_cast_if_present<memref::AllocOp>(op); allocOp) {
         cqBuilder.appendCommand(
@@ -1110,6 +1120,19 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
           cbs.push_back(target::metal::CreateCBRef(*cache.fbb, port, buffer));
         }
 
+        // Quasar DFB global_ids — positional list ordered to match the
+        // IR-side $dfb_ids attribute. Populated incrementally by preceding
+        // CreateDataflowBuffer / BindDFBToKernels op serializations. After
+        // this enqueue_program command is emitted, the pending list is
+        // reset for the next program.
+        TT_assertv(pendingDFBGlobalIds.size() ==
+                       enqueueProgramOp.getDfbIds().size(),
+                   "Mismatched DFB count: {} pending vs {} on enqueue_program",
+                   pendingDFBGlobalIds.size(),
+                   enqueueProgramOp.getDfbIds().size());
+        std::vector<uint32_t> dfbGlobalIds = pendingDFBGlobalIds;
+        pendingDFBGlobalIds.clear();
+
         std::vector<flatbuffers::Offset<target::metal::KernelConfig>>
             kernelConfigs;
         kernelConfigs.reserve(enqueueProgramOp.getKernelConfigs().size());
@@ -1128,7 +1151,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
-                fbb, &argTypes, &args, &cbs,
+                fbb, &argTypes, &args, &cbs, &dfbGlobalIds,
                 target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
                 fabricConnectionConfig),
             op);
@@ -1140,6 +1163,59 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 fbb, cache.getOrCreate(createBufferOp.getResult(),
                                        bufferValueToFlatbuffer, systemDesc,
                                        createBufferOp.getAddress())),
+            op);
+      } else if (auto createDfbOp =
+                     dyn_cast_if_present<tt::ttmetal::CreateDataflowBufferOp>(op);
+                 createDfbOp) {
+        uint32_t globalId = cache.nextGlobalId();
+        dfbValueToGlobalId[createDfbOp.getResult()] = globalId;
+        pendingDFBGlobalIds.push_back(globalId);
+
+        ttmetal::DataflowBufferConfigAttr config = createDfbOp.getConfig();
+        target::metal::DFBAccessPattern producerPattern =
+            config.getProducerPattern().getValue() ==
+                    ttcore::DFBAccessPattern::All
+                ? target::metal::DFBAccessPattern::All
+                : target::metal::DFBAccessPattern::Strided;
+        target::metal::DFBAccessPattern consumerPattern =
+            config.getConsumerPattern().getValue() ==
+                    ttcore::DFBAccessPattern::All
+                ? target::metal::DFBAccessPattern::All
+                : target::metal::DFBAccessPattern::Strided;
+        auto cfg = target::metal::CreateDataflowBufferConfig(
+            *cache.fbb, config.getEntrySize(), config.getNumEntries(),
+            config.getNumProducers(), config.getNumConsumers(),
+            config.getProducerRiscMask(), config.getConsumerRiscMask(),
+            producerPattern, consumerPattern, config.getEnableImplicitSync(),
+            toFlatbuffer(cache, config.getDataFormat().getValue()));
+        // Encode the core_range_set as a single Dim2dRange.
+        ttmetal::CoreRangeAttr coreRange = createDfbOp.getCoreRange();
+        ArrayRef<int64_t> offset = coreRange.getOffset();
+        ArrayRef<int64_t> size = coreRange.getSize();
+        std::vector<target::Dim2dRange> coreRangeSet;
+        target::Dim2d offsetDim{static_cast<int32_t>(offset[0]),
+                                static_cast<int32_t>(offset[1])};
+        target::Dim2d sizeDim{static_cast<int32_t>(size[0]),
+                              static_cast<int32_t>(size[1])};
+        coreRangeSet.emplace_back(offsetDim, sizeDim);
+        auto dfbRef = target::metal::CreateDFBRefDirect(
+            *cache.fbb, globalId, &coreRangeSet, cfg);
+        cqBuilder.appendCommand(
+            target::metal::CreateCreateDataflowBufferCommand(fbb, dfbRef), op);
+      } else if (auto bindDfbOp =
+                     dyn_cast_if_present<tt::ttmetal::BindDFBToKernelsOp>(op);
+                 bindDfbOp) {
+        auto it = dfbValueToGlobalId.find(bindDfbOp.getDfbId());
+        TT_assertv(it != dfbValueToGlobalId.end(),
+                   "bind_dfb_to_kernels references unknown DFB SSA value");
+        uint32_t globalId = it->second;
+        auto producerStr =
+            cache.fbb->CreateString(bindDfbOp.getProducerKernel().str());
+        auto consumerStr =
+            cache.fbb->CreateString(bindDfbOp.getConsumerKernel().str());
+        cqBuilder.appendCommand(
+            target::metal::CreateBindDFBToKernelsCommand(
+                fbb, globalId, producerStr, consumerStr),
             op);
       } else if (auto deallocateBufferOp =
                      dyn_cast_if_present<tt::ttmetal::DeallocateBufferOp>(op);

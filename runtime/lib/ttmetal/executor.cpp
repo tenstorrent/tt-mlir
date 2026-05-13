@@ -22,6 +22,8 @@
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 
+#include <tt-metalium/experimental/dataflow_buffer/dataflow_buffer.hpp>
+
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 #include "ttmlir/Version.h"
@@ -71,6 +73,8 @@ private:
   void execute(const target::metal::CreateGlobalSemaphoreCommand *command);
   void execute(const target::metal::ResetGlobalSemaphoreCommand *command);
   void execute(const target::metal::CreateLocalSemaphoreCommand *command);
+  void execute(const target::metal::CreateDataflowBufferCommand *command);
+  void execute(const target::metal::BindDFBToKernelsCommand *command);
 
   std::uint64_t generateUniqueProgramRuntimeId() {
     return nextProgramRuntimeId++;
@@ -90,6 +94,20 @@ private:
 
   // Buffers that live on the host. Indexed by global_id.
   std::unordered_map<std::uint32_t, Tensor> hostBuffers;
+
+  // Quasar DFB host-side state. Compiler emits one
+  // CreateDataflowBufferCommand and one BindDFBToKernelsCommand per DFB
+  // before the EnqueueProgramCommand that uses it; the handlers record
+  // config/symbols here, and the EnqueueProgramCommand handler calls
+  // tt-metal CreateDataflowBuffer + BindDataflowBufferToProducerConsumerKernels
+  // after kernels are created.
+  struct PendingDFBInfo {
+    tt::tt_metal::experimental::dfb::DataflowBufferConfig config;
+    tt::tt_metal::CoreRangeSet core_range_set;
+    std::string producer_kernel_symbol;
+    std::string consumer_kernel_symbol;
+  };
+  std::unordered_map<std::uint32_t, PendingDFBInfo> pendingDFBs;
   std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshEvent>>
       meshEvents;
   std::vector<Tensor> outputs;
@@ -241,6 +259,14 @@ void MCQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_CreateLocalSemaphoreCommand());
     break;
   }
+  case target::metal::CommandType::CreateDataflowBufferCommand: {
+    execute(command->type_as_CreateDataflowBufferCommand());
+    break;
+  }
+  case target::metal::CommandType::BindDFBToKernelsCommand: {
+    execute(command->type_as_BindDFBToKernelsCommand());
+    break;
+  }
   case target::metal::CommandType::NONE: {
     LOG_FATAL("Unsupported CommandType::NONE");
     break;
@@ -367,6 +393,28 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
   for (auto deviceCoord : deviceRange) {
     tt_metal::Program program = tt_metal::CreateProgram();
+    // symbol -> KernelHandle, populated as we create kernels below.
+    // Used to resolve producer/consumer kernel handles when binding DFBs.
+    std::unordered_map<std::string, tt_metal::KernelHandle> kernelHandles;
+
+    // Quasar DFBs must be created BEFORE the kernels that reference them
+    // (the kernel's DFBId ct_args carry the runtime DFB id returned by
+    // CreateDataflowBuffer). Build the global_id -> runtime_id map here;
+    // binding to kernel handles happens after kernel creation.
+    std::unordered_map<std::uint32_t, std::uint32_t> dfbRuntimeIds;
+    if (command->dfb_global_ids() && command->dfb_global_ids()->size() > 0) {
+      for (uint32_t globalId : *command->dfb_global_ids()) {
+        auto it = pendingDFBs.find(globalId);
+        LOG_ASSERT(it != pendingDFBs.end(),
+                   "EnqueueProgramCommand references unknown DFB global_id");
+        const PendingDFBInfo &dfbInfo = it->second;
+        uint32_t dfbId =
+            tt::tt_metal::experimental::dfb::CreateDataflowBuffer(
+                program, dfbInfo.core_range_set, dfbInfo.config);
+        dfbRuntimeIds[globalId] = dfbId;
+      }
+    }
+
     for (const target::metal::KernelConfig *kernelConfig :
          *command->program()->kernels()) {
       const target::metal::KernelSource *kernelSource =
@@ -387,15 +435,20 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           createKernelConfig(kernelConfig, command->arg_refs_type(),
                              command->arg_refs(), meshBuffers,
                              global_semaphores, local_semaphore_initializer,
-                             command->cbs(), deviceAddressValidator,
+                             command->cbs(), command->dfb_global_ids(),
+                             dfbRuntimeIds, deviceAddressValidator,
                              createSemaphore, hostBuffers),
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
+      if (kernelConfig->symbol()) {
+        kernelHandles[kernelConfig->symbol()->str()] = handle;
+      }
 
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
           kernelConfig->args()->rt_args(), command->arg_refs_type(),
           command->arg_refs(), meshBuffers, global_semaphores,
-          local_semaphore_initializer, command->cbs(), deviceAddressValidator,
+          local_semaphore_initializer, command->cbs(),
+          command->dfb_global_ids(), dfbRuntimeIds, deviceAddressValidator,
           createSemaphore, hostBuffers);
 
       if (command->fabric_connection_config() &&
@@ -413,6 +466,30 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
         }
       } else {
         tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
+      }
+    }
+
+    // Quasar DFB binding: kernels exist now, so look up producer/consumer
+    // KernelHandles by symbol and call BindDataflowBufferToProducerConsumer
+    // Kernels. DFB creation was done above (before kernels) so the runtime
+    // ids are available for ct_args resolution.
+    if (command->dfb_global_ids() && command->dfb_global_ids()->size() > 0) {
+      for (uint32_t globalId : *command->dfb_global_ids()) {
+        auto it = pendingDFBs.find(globalId);
+        LOG_ASSERT(it != pendingDFBs.end(),
+                   "EnqueueProgramCommand references unknown DFB global_id");
+        const PendingDFBInfo &dfbInfo = it->second;
+        auto prodIt = kernelHandles.find(dfbInfo.producer_kernel_symbol);
+        auto consIt = kernelHandles.find(dfbInfo.consumer_kernel_symbol);
+        LOG_ASSERT(prodIt != kernelHandles.end(),
+                   "Producer kernel symbol not found for DFB bind");
+        LOG_ASSERT(consIt != kernelHandles.end(),
+                   "Consumer kernel symbol not found for DFB bind");
+        tt::tt_metal::experimental::dfb::
+            BindDataflowBufferToProducerConsumerKernels(
+                program, dfbRuntimeIds.at(globalId), prodIt->second,
+                consIt->second);
+        pendingDFBs.erase(it);
       }
     }
 
@@ -500,6 +577,47 @@ void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
     meshBuffers[command->ref()->global_id()] = createMeshBufferFromBufferRef(
         meshDevice, command->ref(), deviceAddressValidator);
   }
+}
+
+void MCQExecutor::execute(
+    const target::metal::CreateDataflowBufferCommand *command) {
+  ZoneScopedN("CreateDataflowBufferCommand");
+  const target::metal::DFBRef *ref = command->ref();
+  PendingDFBInfo info;
+  const target::metal::DataflowBufferConfig *cfg = ref->config();
+  info.config.entry_size = cfg->entry_size();
+  info.config.num_entries = cfg->num_entries();
+  info.config.producer_risc_mask =
+      static_cast<uint16_t>(cfg->producer_risc_mask());
+  info.config.num_producers = static_cast<uint8_t>(cfg->num_producers());
+  info.config.pap =
+      cfg->producer_pattern() == target::metal::DFBAccessPattern::All
+          ? tt::tt_metal::experimental::dfb::AccessPattern::ALL
+          : tt::tt_metal::experimental::dfb::AccessPattern::STRIDED;
+  info.config.consumer_risc_mask =
+      static_cast<uint16_t>(cfg->consumer_risc_mask());
+  info.config.num_consumers = static_cast<uint8_t>(cfg->num_consumers());
+  info.config.cap =
+      cfg->consumer_pattern() == target::metal::DFBAccessPattern::All
+          ? tt::tt_metal::experimental::dfb::AccessPattern::ALL
+          : tt::tt_metal::experimental::dfb::AccessPattern::STRIDED;
+  info.config.enable_implicit_sync = cfg->enable_implicit_sync();
+  info.config.data_format =
+      static_cast<tt::DataFormat>(static_cast<uint8_t>(cfg->data_format()));
+  if (ref->core_range_set()) {
+    info.core_range_set = common::toCoreRangeSet(ref->core_range_set());
+  }
+  pendingDFBs[ref->global_id()] = std::move(info);
+}
+
+void MCQExecutor::execute(
+    const target::metal::BindDFBToKernelsCommand *command) {
+  ZoneScopedN("BindDFBToKernelsCommand");
+  auto it = pendingDFBs.find(command->dfb_global_id());
+  LOG_ASSERT(it != pendingDFBs.end(),
+             "BindDFBToKernelsCommand references unknown DFB global_id");
+  it->second.producer_kernel_symbol = command->producer_kernel_symbol()->str();
+  it->second.consumer_kernel_symbol = command->consumer_kernel_symbol()->str();
 }
 
 void MCQExecutor::execute(

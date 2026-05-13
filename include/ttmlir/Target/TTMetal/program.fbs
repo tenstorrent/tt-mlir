@@ -85,6 +85,12 @@ table KernelArgScalar {
   operand_idx: uint32;
 }
 
+// Quasar logical DFB id passed as a compile-time arg. operand_idx is the
+// position in the parent enqueue_program's dfb_refs list.
+table KernelArgDFBId {
+  operand_idx: uint32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
@@ -92,6 +98,7 @@ union KernelArgType {
   KernelArgNamedArgument,
   KernelArgGlobalSemaphore,
   KernelArgScalar,
+  KernelArgDFBId,
 }
 
 table KernelArg {

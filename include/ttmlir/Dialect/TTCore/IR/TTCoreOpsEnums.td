@@ -46,12 +46,12 @@ def TTCore_DataType : I32EnumAttr<"DataType", "TT DataTypes",
 }
 
 def TTCore_DFBAccessPattern_Strided : I32EnumAttrCase<"Strided", 0, "strided">;
-def TTCore_DFBAccessPattern_Blocked : I32EnumAttrCase<"Blocked", 1, "blocked">;
+def TTCore_DFBAccessPattern_All     : I32EnumAttrCase<"All",     1, "all">;
 
 def TTCore_DFBAccessPattern : I32EnumAttr<"DFBAccessPattern", "TT DFB Access Pattern",
                            [
                             TTCore_DFBAccessPattern_Strided,
-                            TTCore_DFBAccessPattern_Blocked,
+                            TTCore_DFBAccessPattern_All,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";

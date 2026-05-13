@@ -19,7 +19,7 @@ module @dfb_config_1p1c_strided attributes {
 } {}
 
 // CHECK-LABEL: module @dfb_config_1p4c_blocked
-// CHECK-SAME: ttmetal.test_dfb_config = #ttmetal.dfb_config<entry_size = 2048, num_entries = 8, num_producers = 1, num_consumers = 4, producer_risc_mask = 1, consumer_risc_mask = 3840, producer_pattern = <strided>, consumer_pattern = <blocked>, enable_implicit_sync = true, data_format = <bf16>>
+// CHECK-SAME: ttmetal.test_dfb_config = #ttmetal.dfb_config<entry_size = 2048, num_entries = 8, num_producers = 1, num_consumers = 4, producer_risc_mask = 1, consumer_risc_mask = 3840, producer_pattern = <strided>, consumer_pattern = <all>, enable_implicit_sync = true, data_format = <bf16>>
 module @dfb_config_1p4c_blocked attributes {
   ttmetal.test_dfb_config = #ttmetal.dfb_config<
     entry_size = 2048,
@@ -29,7 +29,7 @@ module @dfb_config_1p4c_blocked attributes {
     producer_risc_mask = 1,
     consumer_risc_mask = 3840,
     producer_pattern = #ttcore.dfb_access_pattern<strided>,
-    consumer_pattern = #ttcore.dfb_access_pattern<blocked>,
+    consumer_pattern = #ttcore.dfb_access_pattern<all>,
     enable_implicit_sync = true,
     data_format = #ttcore.supportedDataTypes<bf16>
   >

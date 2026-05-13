@@ -48,6 +48,8 @@ createKernelConfig(
         &local_semaphores_cache,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
+    const flatbuffers::Vector<uint32_t> *dfbGlobalIds,
+    const std::unordered_map<std::uint32_t, std::uint32_t> &dfbRuntimeIds,
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn,
     const std::unordered_map<std::uint32_t, Tensor> &hostBuffers);

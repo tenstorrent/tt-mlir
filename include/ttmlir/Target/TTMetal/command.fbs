@@ -16,6 +16,11 @@ table ReturnCommand {
 table EnqueueProgramCommand {
   arg_refs: [ArgRef];
   cbs: [CBRef];
+  // Positional list of DFB global_ids. A kernel KernelArgDFBId with
+  // operand_idx N is bound to dfb_global_ids[N]. The runtime resolves the
+  // global_id to a tt-metal logical_dfb_id via the per-program DFB table
+  // (populated by preceding CreateDataflowBufferCommand entries).
+  dfb_global_ids: [uint32];
   program: ProgramDesc;
   fabric_connection_config: tt.target.FabricConnectionConfig;
 }
@@ -89,6 +94,18 @@ table MeshShardCommand {
   shard_dims: [int64];
 }
 
+// Quasar Dataflow Buffer host-side commands. These must precede their
+// referencing EnqueueProgramCommand in the queue.
+table CreateDataflowBufferCommand {
+  ref: DFBRef;
+}
+
+table BindDFBToKernelsCommand {
+  dfb_global_id: uint32;
+  producer_kernel_symbol: string;
+  consumer_kernel_symbol: string;
+}
+
 union CommandType {
   HostAllocCommand,
   ReturnCommand,
@@ -107,6 +124,8 @@ union CommandType {
   CpuCommand,
   FinishCommand,
   MeshShardCommand,
+  CreateDataflowBufferCommand,
+  BindDFBToKernelsCommand,
 }
 
 table Command {

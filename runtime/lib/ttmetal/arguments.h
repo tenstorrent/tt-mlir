@@ -37,6 +37,9 @@ std::vector<std::uint32_t> processKernelArgs(
         &localSemaphoresCache,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
+    const flatbuffers::Vector<uint32_t> *dfbGlobalIds,
+    const std::unordered_map<std::uint32_t, std::uint32_t>
+        &dfbRuntimeIds,
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn,
     const std::unordered_map<std::uint32_t, Tensor> &hostBuffers) {
@@ -136,6 +139,17 @@ std::vector<std::uint32_t> processKernelArgs(
               .as<MetalTensor>(DeviceRuntime::TTMetal);
       std::uint32_t scalarValue = std::get<std::uint32_t>(metalTensor);
       argsVec.push_back(scalarValue);
+      break;
+    }
+    case target::metal::KernelArgType::KernelArgDFBId: {
+      const auto *arg = kernelArg->arg_as_KernelArgDFBId();
+      LOG_ASSERT(dfbGlobalIds && arg->operand_idx() < dfbGlobalIds->size(),
+                 "DFBId operand_idx out of bounds: ", arg->operand_idx());
+      uint32_t globalId = dfbGlobalIds->Get(arg->operand_idx());
+      auto it = dfbRuntimeIds.find(globalId);
+      LOG_ASSERT(it != dfbRuntimeIds.end(),
+                 "DFB global_id has no runtime mapping: ", globalId);
+      argsVec.push_back(it->second);
       break;
     }
     case target::metal::KernelArgType::NONE:
