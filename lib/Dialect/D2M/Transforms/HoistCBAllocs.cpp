@@ -50,6 +50,22 @@ private:
     for (auto attr : allocOp->getAttrs()) {
       newAllocOp->setAttr(attr.getName(), attr.getValue());
     }
+
+    for (auto *user : newAllocOp->getResult(0).getUsers()) {
+      auto destinationStyleOp =
+          mlir::dyn_cast<DestinationStyleOpInterface>(user);
+      if (destinationStyleOp && user->getNumResults() > 0) {
+        for (auto &operand : destinationStyleOp->getOpOperands()) {
+          if (destinationStyleOp.isDpsInit(&operand) &&
+              operand.get() == newAllocOp->getResult(0)) {
+            // update op result that matches dps init
+            OpResult tiedResult = destinationStyleOp.getTiedOpResult(&operand);
+            tiedResult.setType(newMemRefType);
+          }
+        }
+      }
+    }
+
     return newAllocOp;
   }
 

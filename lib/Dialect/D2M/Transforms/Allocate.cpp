@@ -1420,10 +1420,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     funcOp->walk([&](d2m::GenericOp genericOp) {
       auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
       for (auto &[cb, usageInfo] : cbUsageInfo) {
-        llvm::errs() << "marking alloc as synchronized buffer:\n"
-                     << *cb.getDefiningOp();
         if (auto allocOp =
                 mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
+          llvm::errs() << "marking alloc as synchronized buffer:\n"
+                       << *cb.getDefiningOp();
           allocOp->setAttr("d2m.synchronized_buffer",
                            rewriter.getI32IntegerAttr(numStreamBuffers));
         }
@@ -1478,13 +1478,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                       return operand == memrefOperand;
                     }) != genericOp.getOutputs().end();
     // TODO: remove???
+    if (useAlwaysStreamPolicy()) {
+      return false;
+    }
+
     if (!isNonTrivialView(memrefOperand) && isOutput &&
         !allowL1OutputSpilling && memspace != MemorySpace::DeviceDRAM) {
       return true;
-    }
-
-    if (useAlwaysStreamPolicy()) {
-      return false;
     }
 
     // Non-trivial views need a stream to represent the implied data movement.
