@@ -223,7 +223,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
 // in place and rewritten to access DST instead of CB.
 static void dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
                              const CopyInfoMap &copyInfos,
-                             bool enableL1Acc = false) {
+                             bool disableL1Acc = true) {
   for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
     rewriter.setInsertionPointAfter(loopNestOrOp);
     auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
@@ -271,7 +271,7 @@ static void dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
     emitDstCopyNest<affine::AffineLoadOp>(rewriter, loopNestOrOp,
                                           copyInfo.loads, loadAccessGenerator,
                                           loadAccessRewriter,
-                                          /*enableL1Acc=*/enableL1Acc);
+                                          /*disableL1Acc=*/disableL1Acc);
 
     // Step 2: store copy loop.
     rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
@@ -330,10 +330,10 @@ struct D2MInsertDstRegisterAccessUnscheduledRewriter final
     : public OpRewritePattern<GenericOp> {
   D2MInsertDstRegisterAccessUnscheduledRewriter(
       mlir::MLIRContext *ctx, unsigned maxDstPhysicalSizeTiles,
-      bool enableL1Acc)
+      bool disableL1Acc)
       : OpRewritePattern<GenericOp>(ctx),
         maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
-        enableL1Acc(enableL1Acc) {}
+        disableL1Acc(disableL1Acc) {}
 
   LogicalResult matchAndRewrite(GenericOp gOp,
                                 PatternRewriter &rewriter) const final {
@@ -390,22 +390,25 @@ struct D2MInsertDstRegisterAccessUnscheduledRewriter final
 
         loopOp->setAttr("d2m.dst_access_inserted", rewriter.getUnitAttr());
 
-        // L1 accumulation requires (a) a tile_matmul that hits the packer
-        // L1-acc path, and (b) the matmul output element type to be one of
-        // the packer-supported native formats (block-float outputs like
+        // Disable packer L1 accumulation when (a) the user disabled it,
+        // (b) there is no tile_matmul that hits the packer L1-acc path,
+        // or (c) the matmul output element type is not one of the
+        // packer-supported native formats (block-float outputs like
         // bfp_bf8 are not supported and would silently corrupt results).
-        bool packerL1Acc = enableL1Acc && hasTileMatmul(loopOp) &&
-                           allTileMatmulOutputsSupportPackerL1Acc(loopOp);
+        bool disablePackerL1Acc =
+            disableL1Acc || !hasTileMatmul(loopOp) ||
+            !allTileMatmulOutputsSupportPackerL1Acc(loopOp);
 
         auto [copyInfos, dstIntermediates] =
             collectDstAccesses(gOp, *loopRegion, loopOp);
 
         modified |= insertDstRegisterAccessFinalize(
-            rewriter, gOp, *loopRegion, dstCapacity, loopOp, packerL1Acc,
+            rewriter, gOp, *loopRegion, dstCapacity, loopOp, disablePackerL1Acc,
             copyInfos, dstIntermediates,
             [](PatternRewriter &rw, Location loc, Value dst,
-               const CopyInfoMap &ci,
-               bool l1Acc) { dataCopyGenerate(rw, loc, dst, ci, l1Acc); });
+               const CopyInfoMap &ci, bool disableL1Acc) {
+              dataCopyGenerate(rw, loc, dst, ci, disableL1Acc);
+            });
 
         return WalkResult::advance();
       });
@@ -414,7 +417,7 @@ struct D2MInsertDstRegisterAccessUnscheduledRewriter final
   }
 
   unsigned maxDstPhysicalSizeTiles = 0;
-  bool enableL1Acc = false;
+  bool disableL1Acc = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -438,7 +441,7 @@ public:
     MLIRContext *ctx = moduleOp.getContext();
     RewritePatternSet patterns(ctx);
     patterns.add<D2MInsertDstRegisterAccessUnscheduledRewriter>(
-        ctx, maxDstPhysicalSizeTiles.getValue(), enableL1Acc);
+        ctx, maxDstPhysicalSizeTiles.getValue(), disableL1Acc);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();

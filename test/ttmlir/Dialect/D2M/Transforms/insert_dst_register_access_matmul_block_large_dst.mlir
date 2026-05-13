@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access-unscheduled="max-dst-physical-size-tiles=32 enable-l1-acc=false" --d2m-insert-tile-matmul-block --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access-unscheduled="max-dst-physical-size-tiles=32 disable-l1-acc=true" --d2m-insert-tile-matmul-block --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>

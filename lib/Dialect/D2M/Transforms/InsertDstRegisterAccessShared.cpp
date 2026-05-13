@@ -767,7 +767,7 @@ void emitDstCopyNest(
     llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
                             AffineMap, ValueRange)>
         accessReplacer,
-    bool enableL1Acc) {
+    bool disableL1Acc) {
   if (loadStoreRecords.empty()) {
     return;
   }
@@ -776,7 +776,7 @@ void emitDstCopyNest(
   // need a per-IV guard).
   Operation *copyLoop = nullptr;
   mlir::IRMapping copyLoopMapper;
-  if (!enableL1Acc) {
+  if (disableL1Acc) {
     std::tie(copyLoop, copyLoopMapper) =
         cloneAffineLoopSkeleton(rewriter, loopNestOrOp);
   }
@@ -787,7 +787,7 @@ void emitDstCopyNest(
     auto loadStoreMap = record.loadStore.getMap();
     auto loadStoreMemRefType = record.loadStore.getMemRefType();
 
-    if (!enableL1Acc) {
+    if (disableL1Acc) {
       mlir::IRMapping irMapper = copyLoopMapper;
       if (!record.guardIVs.empty()) {
         const bool isBcastGuard = record.bcast.has_value();
@@ -1107,7 +1107,7 @@ void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
 bool insertDstRegisterAccessFinalize(
     PatternRewriter &rewriter, GenericOp gOp, Region &region,
     unsigned dstCapacity, Operation *outermostInnerComputeLoop,
-    bool enableL1Acc, CopyInfoMap &copyInfos,
+    bool disableL1Acc, CopyInfoMap &copyInfos,
     DstIntermediatesMap &dstIntermediates,
     llvm::function_ref<void(PatternRewriter &, Location, Value,
                             const CopyInfoMap &, bool)>
@@ -1131,7 +1131,7 @@ bool insertDstRegisterAccessFinalize(
   Value dst = acquireDst.getResult();
 
   Value l1AccLoopIV = nullptr;
-  if (enableL1Acc) {
+  if (!disableL1Acc) {
     // L1-acc must be triggered by the outermost ancestor *reduction* loop --
     // i.e. an outer loop that does NOT index the output store. Using the
     // outermost ancestor unconditionally is incorrect for batched matmuls,
@@ -1144,15 +1144,15 @@ bool insertDstRegisterAccessFinalize(
     if (!l1AccLoopIV) {
       LDBG() << "Skipping L1 accumulation insertion: no outer reduction loop "
                 "with trip count > 1";
-      enableL1Acc = false;
+      disableL1Acc = true;
     }
   }
 
   // Emit path-specific data copy loops.
-  emitDataCopies(rewriter, loc, dst, copyInfos, enableL1Acc);
+  emitDataCopies(rewriter, loc, dst, copyInfos, disableL1Acc);
 
   // Insert optional L1 accumulation guard.
-  if (enableL1Acc) {
+  if (!disableL1Acc) {
     insertPackerL1AccGuard(rewriter, loc, acquireDst, l1AccLoopIV);
   }
 

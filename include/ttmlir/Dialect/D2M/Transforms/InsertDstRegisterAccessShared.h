@@ -230,8 +230,8 @@ cloneAffineLoopSkeleton(PatternRewriter &rewriter, Operation *loopNestOrOp);
 //   2. Rewrites the original load/store via `accessReplacer` so it now
 //      goes through the DST register.
 //
-// `enableL1Acc=true` skips the upfront copy nest entirely (the L1 acc
-// guard preserves the running tile).
+// `disableL1Acc=false` (i.e. L1 acc on) skips the upfront copy nest
+// entirely (the L1 acc guard preserves the running tile).
 template <typename LoadOrStoreTy>
 void emitDstCopyNest(
     PatternRewriter &rewriter, Operation *loopNestOrOp,
@@ -242,7 +242,7 @@ void emitDstCopyNest(
     llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
                             AffineMap, ValueRange)>
         accessReplacer,
-    bool enableL1Acc = false);
+    bool disableL1Acc = true);
 
 std::pair<AffineMap, SmallVector<Value>>
 buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op, int dstSlice,
@@ -277,7 +277,7 @@ void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
 bool insertDstRegisterAccessFinalize(
     PatternRewriter &rewriter, GenericOp gOp, Region &region,
     unsigned dstCapacity, Operation *outermostInnerComputeLoop,
-    bool enableL1Acc, CopyInfoMap &copyInfos,
+    bool disableL1Acc, CopyInfoMap &copyInfos,
     DstIntermediatesMap &dstIntermediates,
     llvm::function_ref<void(PatternRewriter &, Location, Value,
                             const CopyInfoMap &, bool)>

@@ -2,15 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-unscheduled="enable-l1-acc=true" --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-unscheduled --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Tests L1 accumulation guard insertion in the unscheduled pass:
+// Tests L1 accumulation guard insertion in the unscheduled pass (with the
+// default disable-l1-acc=false, i.e. L1 accumulation enabled):
 //
-// 1. `matmul_l1_acc`: with enable-l1-acc=true and an outer K-block
-//    reduction loop wrapping a tile_matmul root, expect a
-//    d2m.set_l1_accumulate guarded by an scf.if on the K-block IV (the
-//    outermost ancestor whose IV the output store does NOT depend on).
+// 1. `matmul_l1_acc`: with an outer K-block reduction loop wrapping a
+//    tile_matmul root, expect a d2m.set_l1_accumulate guarded by an
+//    scf.if on the K-block IV (the outermost ancestor whose IV the
+//    output store does NOT depend on).
 //
 // 2. `matmul_no_outer_reduction`: when the only ancestor loops of
 //    acquire_dst are *parallel* (output indexed by them), L1-acc must
