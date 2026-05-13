@@ -294,6 +294,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   parseBufferSizePolicy(StringRef policy) {
     return llvm::StringSwitch<std::optional<BufferSizePolicy>>(policy)
         .Case("auto", BufferSizePolicy::Auto)
+        .Case("exhaustive", BufferSizePolicy::Exhaustive)
         .Case("min", BufferSizePolicy::Min)
         .Case("max", BufferSizePolicy::Max)
         .Default(std::nullopt);
@@ -311,7 +312,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     if (!parsedBufferSizePolicy.has_value()) {
       moduleOp.emitOpError()
           << "invalid test-buffer-size-policy '" << testBufferSizePolicy
-          << "' (expected one of: auto, min, max)";
+          << "' (expected one of: auto, exhaustive, min, max)";
       return signalPassFailure();
     }
     bufferSizePolicy = *parsedBufferSizePolicy;

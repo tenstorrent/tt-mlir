@@ -2,6 +2,8 @@
 // RUN: FileCheck %s --check-prefix=CHECK-MAX --input-file=%t.max
 // RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608" -o %t.auto %s
 // RUN: FileCheck %s --check-prefix=CHECK-AUTO --input-file=%t.auto
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=8388608 test-buffer-size-policy=exhaustive" -o %t.exhaustive %s
+// RUN: FileCheck %s --check-prefix=CHECK-EXHAUSTIVE --input-file=%t.exhaustive
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -9,6 +11,7 @@
 #mapR = affine_map<(d0, d1, d2) -> (d2, d1)>
 #mapO = affine_map<(d0, d1, d2) -> (d0, d1)>
 #eltwise = affine_map<(d0, d1) -> (d0, d1)>
+#eltwise4d = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #eltwisePermuted = affine_map<(d0, d1) -> (d1, d0)>
 #eltwise3d = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #tail3d = affine_map<(d0, d1, d2) -> (d1, d2)>
@@ -223,5 +226,32 @@ module {
       %add = "d2m.tile_add"(%t0, %t1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     }
     return %out : memref<1x1x1x4x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x8192x8192, 1>, #dram>
+  }
+
+  // Large all-parallel factor spaces should use the bounded eltwise search in
+  // auto mode, while exhaustive mode expands the full candidate space.
+  // CHECK-AUTO-LABEL: func.func @eltwise_auto_vs_exhaustive_large_search_space()
+  // CHECK-AUTO: d2m.generic {block_factors = [4, 2, 2, 2], grid = #ttcore.grid<1x1x1x1>
+  // CHECK-AUTO-COUNT-3: memref.alloc() {{.*}} : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<32768x16384x8192x4096, 2>, #l1>
+  // CHECK-EXHAUSTIVE-LABEL: func.func @eltwise_auto_vs_exhaustive_large_search_space()
+  // CHECK-EXHAUSTIVE: d2m.generic {block_factors = [4, 4, 4, 1], grid = #ttcore.grid<1x1x1x1>
+  // CHECK-EXHAUSTIVE-COUNT-3: memref.alloc() {{.*}} : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x16384x16384x4096, 2>, #l1>
+  func.func @eltwise_auto_vs_exhaustive_large_search_space() -> memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #dram> {
+    %lhs = memref.alloc() : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #l1>
+    %rhs = memref.alloc() : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #l1>
+    %out = memref.alloc() : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #dram>
+    d2m.generic {block_factors = [1, 1, 1, 1], grid = #ttcore.grid<1x1x1x1>, indexing_maps = [#eltwise4d, #eltwise4d, #eltwise4d], iterator_types = [#parallel, #parallel, #parallel, #parallel], threads = [#d2m.thread<compute>]}
+        ins(%lhs, %rhs : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #l1>, memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #l1>)
+        outs(%out : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #dram>) {
+    ^compute0():
+      %tmp_in0 = memref.alloc() : memref<4x4x4x4x!ttcore.tile<32x32, f32>, #l1>
+      %tmp_in1 = memref.alloc() : memref<4x4x4x4x!ttcore.tile<32x32, f32>, #l1>
+      %tmp_out = memref.alloc() : memref<4x4x4x4x!ttcore.tile<32x32, f32>, #l1>
+      %c0 = arith.constant 0 : index
+      %t0 = memref.load %tmp_in0[%c0, %c0, %c0, %c0] : memref<4x4x4x4x!ttcore.tile<32x32, f32>, #l1>
+      %t1 = memref.load %tmp_in1[%c0, %c0, %c0, %c0] : memref<4x4x4x4x!ttcore.tile<32x32, f32>, #l1>
+      %add = "d2m.tile_add"(%t0, %t1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    }
+    return %out : memref<1x1x1x1x4x4x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x16384x16384x16384, 1>, #dram>
   }
 }

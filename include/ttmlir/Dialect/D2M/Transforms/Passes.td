@@ -653,7 +653,7 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
     Option<"testBufferSizePolicy",
           "test-buffer-size-policy",
           "std::string", /*default=*/"\"auto\"",
-          "Set policy for sizing stream buffers ('auto', 'min', 'max').">,
+          "Set policy for sizing stream buffers ('auto', 'exhaustive', 'min', 'max').">,
   ];
 }
 
