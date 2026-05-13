@@ -294,27 +294,33 @@ def to_layout(input_, layout: Layout) -> LazyTensor:
     )
 
 
-def tilize(lt: LazyTensor) -> LazyTensor:
+def tilize(lt: LazyTensor, dtype=None) -> LazyTensor:
     """Convert a device LazyTensor to a tile-typed (`tiled=True`) layout.
 
-    The target layout is the source's layout with `tiled` set to True;
-    all other fields (shape, dtype, block_shape, grid_shape, mem_space,
-    collapse) are preserved.
+    The target layout is the source's layout with `tiled` set to True,
+    optionally overriding `dtype` (e.g. f32 -> bf16). All other fields
+    (shape, block_shape, grid_shape, mem_space, collapse) are preserved.
     """
     if not isinstance(lt, LazyTensor):
         raise TypeError(f"tilize expected a LazyTensor, got {type(lt).__name__}")
-    return to_layout(lt, lt.layout.replace(tiled=True))
+    overrides = {"tiled": True}
+    if dtype is not None:
+        overrides["dtype"] = dtype
+    return to_layout(lt, lt.layout.replace(**overrides))
 
 
-def untilize(lt: LazyTensor) -> LazyTensor:
+def untilize(lt: LazyTensor, dtype=None) -> LazyTensor:
     """Convert a device LazyTensor to a row-major (`tiled=False`) layout.
 
-    The target layout is the source's layout with `tiled` set to False;
-    all other fields are preserved.
+    The target layout is the source's layout with `tiled` set to False,
+    optionally overriding `dtype`. All other fields are preserved.
     """
     if not isinstance(lt, LazyTensor):
         raise TypeError(f"untilize expected a LazyTensor, got {type(lt).__name__}")
-    return to_layout(lt, lt.layout.replace(tiled=False))
+    overrides = {"tiled": False}
+    if dtype is not None:
+        overrides["dtype"] = dtype
+    return to_layout(lt, lt.layout.replace(**overrides))
 
 
 def empty(layout: Layout) -> LazyTensor:
