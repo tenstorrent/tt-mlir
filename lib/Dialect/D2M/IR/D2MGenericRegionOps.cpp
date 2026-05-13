@@ -1796,7 +1796,8 @@ mlir::LogicalResult TileTilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), in, out);
+  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), mlir::TypeRange{},
+                                                    in, out);
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();
@@ -1858,9 +1859,9 @@ mlir::LogicalResult TileTilizeBlockOp::verify() {
   }
 
   // Verify result type matches output type (DPS style)
-  // if (getResult().getType() != getOutput().getType()) {
-  //  return emitOpError("result type must match output parameter type");
-  //}
+  if (getResult() && getResult().getType() != getOutput().getType()) {
+    return emitOpError("result type must match output parameter type");
+  }
 
   return success();
 }
@@ -1901,7 +1902,8 @@ mlir::LogicalResult TileUntilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(getLoc(), in, out);
+  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(
+      getLoc(), mlir::TypeRange{}, in, out);
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();
@@ -1952,9 +1954,9 @@ mlir::LogicalResult TileUntilizeBlockOp::verify() {
   }
 
   // Verify result type matches output type (DPS style)
-  // if (getResult().getType() != getOutput().getType()) {
-  //  return emitOpError("result type must match output parameter type");
-  //}
+  if (getResult() && getResult().getType() != getOutput().getType()) {
+    return emitOpError("result type must match output parameter type");
+  }
 
   return success();
 }
