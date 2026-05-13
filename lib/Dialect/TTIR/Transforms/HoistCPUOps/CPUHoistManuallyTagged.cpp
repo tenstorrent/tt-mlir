@@ -29,12 +29,22 @@ public:
 
     llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
     deviceInnerModule.walk([&](func::FuncOp funcOp) {
-      auto result =
+      auto hostResult =
           createDescriptorsWithPredicate(funcOp, [](mlir::Operation *op) {
             return op->hasAttr(ttir::ShouldHoistAttr::name);
           });
-      descriptors.append(std::make_move_iterator(result.begin()),
-                         std::make_move_iterator(result.end()));
+      descriptors.append(std::make_move_iterator(hostResult.begin()),
+                         std::make_move_iterator(hostResult.end()));
+
+      auto X280Result =
+          createDescriptorsWithPredicate(funcOp, [](mlir::Operation *op) {
+            return op->hasAttr(ttir::ShouldHoistToX280Attr::name);
+          });
+      for (auto &descriptor : X280Result) {
+        descriptor.role = ttcore::CPURole::Device;
+      }
+      descriptors.append(std::make_move_iterator(X280Result.begin()),
+                         std::make_move_iterator(X280Result.end()));
     });
 
     runCPUHoist(rootModule, std::move(descriptors));

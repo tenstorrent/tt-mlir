@@ -449,14 +449,45 @@ getUniqueFunctionName(const CPUHoistedOpsDescriptor &descriptor,
   return uniqueName;
 }
 
+// Helper function to get the inner ModuleOp for the given CPU role, creating it
+// if it doesn't already exist.
+mlir::ModuleOp getOrCreateCPUInnerModule(mlir::ModuleOp rootModule,
+                                         ttcore::CPURole role) {
+  TT_assertv(rootModule->getParentOp() == nullptr,
+             "getOrCreateCPUInnerModule must be called on the root ModuleOp.");
+
+  // Check if a "cpu_module" already exists.
+  for (auto &op : rootModule.getBody()->getOperations()) {
+    if (auto cpuModule = mlir::dyn_cast<ttcore::CPUModuleOp>(op)) {
+      if (cpuModule.getRole() != role) {
+        continue;
+      }
+      auto cpuInnerModule = mlir::dyn_cast_if_present<mlir::ModuleOp>(
+          cpuModule.getBodyRegion().front().front());
+      TT_assertv(cpuInnerModule, "CPUModuleOp must contain 1 ModuleOp.");
+      return cpuInnerModule;
+    }
+  }
+
+  // If no CPU module exists, create one.
+  mlir::Location loc = rootModule->getLoc();
+  mlir::IRRewriter rewriter(rootModule->getContext());
+  rewriter.setInsertionPointToEnd(rootModule.getBody());
+  auto cpuModule = rewriter.create<ttcore::CPUModuleOp>(loc, role);
+  rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
+  return rewriter.create<mlir::ModuleOp>(loc);
+}
+
 // Helper function to hoist an arbitrary set of ops into a new function in
 // the CPU module, generate a matching extern prototype (declaration) in the
 // Device module, and replace the ops in the set with a callOp to the extern
 // function declaration.
 static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
                                       mlir::ModuleOp deviceModule,
-                                      mlir::ModuleOp cpuModule) {
+                                      mlir::ModuleOp rootModule) {
   mlir::MLIRContext *context = deviceModule.getContext();
+  ttcore::CPURole role = descriptor.role;
+  mlir::ModuleOp cpuModule = getOrCreateCPUInnerModule(rootModule, role);
 
   const TypesVectorType resultTypes =
       performResultConversions(descriptor.outputValues);
@@ -662,34 +693,9 @@ void runCPUHoist(mlir::ModuleOp rootModule,
   TT_assertv(deviceInnerModule,
              "Must run tt::WrapDeviceModulePass on IR before hoisting.");
 
-  IRRewriter rewriter(rootModule->getContext());
-
-  auto loc = rootModule->getLoc();
-
-  // Check if a "cpu_module" already exists.
-  ttcore::CPUModuleOp cpuModule;
-  mlir::ModuleOp cpuInnerModule;
-  for (auto &op : rootModule.getBody()->getOperations()) {
-    if (auto module = llvm::dyn_cast<ttcore::CPUModuleOp>(op)) {
-      cpuModule = module;
-      cpuInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
-          cpuModule.getBodyRegion().front().front());
-      TT_assertv(cpuInnerModule, "CPUModuleOp must contain 1 ModuleOp.");
-      break;
-    }
-  }
-
-  // If no CPU module exists, create one.
-  if (!cpuModule) {
-    rewriter.setInsertionPointToEnd(rootModule.getBody());
-    cpuModule = rewriter.create<ttcore::CPUModuleOp>(loc);
-    rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
-    cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
-  }
-
   // Hoist each set of ops into a new function in the CPU module.
   for (auto &descriptor : descriptors) {
-    hoistOperationsToFunction(descriptor, deviceInnerModule, cpuInnerModule);
+    hoistOperationsToFunction(descriptor, deviceInnerModule, rootModule);
   }
 }
 

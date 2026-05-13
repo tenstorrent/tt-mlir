@@ -88,6 +88,16 @@ def TTIR_ShouldHoistAttr : AttrDef<TTIR_Dialect, "ShouldHoist", [], "::mlir::Att
   }];
 }
 
+// Unit attribute for should_hoist_to_x280 flag
+def TTIR_ShouldHoistToX280Attr : AttrDef<TTIR_Dialect, "ShouldHoistToX280", [], "::mlir::Attribute"> {
+  let mnemonic = "should_hoist_to_x280";
+  let summary = "Indicates that this function should be hoisted to X280";
+  let description = [{
+    This attribute marks functions that should be hoisted to X280 during optimization.
+    It is used as a marker and doesn't carry any additional data.
+  }];
+}
+
 def TTIR_ThreadAttr : AttrDef<TTIR_Dialect, "Thread", [], "::mlir::Attribute"> {
   let mnemonic = "thread";
   let summary = "Thread information for a generic op.";

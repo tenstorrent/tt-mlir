@@ -80,7 +80,10 @@ LogicalResult TupleOp::inferReturnTypes(
   return success();
 }
 
-void CPUModuleOp::build(OpBuilder &builder, OperationState &state) {
+void CPUModuleOp::build(OpBuilder &builder, OperationState &state,
+                        CPURole role) {
+  state.addAttribute(getRoleAttrName(state.name),
+                     CPURoleAttr::get(builder.getContext(), role));
   state.addRegion()->emplaceBlock();
 }
 

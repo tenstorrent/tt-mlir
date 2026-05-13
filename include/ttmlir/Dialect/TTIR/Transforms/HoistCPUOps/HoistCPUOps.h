@@ -7,6 +7,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -25,6 +26,7 @@ struct CPUHoistedOpsDescriptor {
   // Suffix for the hoisted function name (appears after "cpu_hoisted_",
   // and before the implementation hash).
   llvm::SmallString<64> funcNameSuffix;
+  ttcore::CPURole role = ttcore::CPURole::Host;
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
                           const ValuesVectorType &outputs,

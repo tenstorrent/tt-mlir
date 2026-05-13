@@ -116,11 +116,14 @@ def TTCore_CPUModuleOp : TTCore_Op<"cpu_module", [
     ```
   }];
 
+  let arguments = (ins DefaultValuedAttr<TTCore_CPURoleAttr,
+                                         "::mlir::tt::ttcore::CPURole::Host">:$role);
+
   let regions = (region SizedRegion<1>:$bodyRegion);
 
   let assemblyFormat = "attr-dict-with-keyword regions";
 
-  let builders = [OpBuilder<(ins)>];
+  let builders = [OpBuilder<(ins "::mlir::tt::ttcore::CPURole":$role)>];
 
   // We need to ensure the block inside the region is properly terminated;
   // the auto-generated builders do not guarantee that.
