@@ -109,12 +109,23 @@ static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
   return success();
 }
 
-static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
-  if (mlir::isa<ttcore::TileType>(scalarCB.getElementType())) {
+static mlir::Type getCBOrDFBElementType(mlir::Type t) {
+  if (auto cb = mlir::dyn_cast<CBType>(t)) {
+    return cb.getElementType();
+  }
+  if (auto dfb = mlir::dyn_cast<DFBType>(t)) {
+    return dfb.getElementType();
+  }
+  return mlir::Type();
+}
+
+static std::string verifyTilizeUntilizeCBs(mlir::Type tilizedCB,
+                                           mlir::Type scalarCB) {
+  if (mlir::isa<ttcore::TileType>(getCBOrDFBElementType(scalarCB))) {
     return "Input to TilizeOp or Output to UntilizeOp must have scalar "
            "element type";
   }
-  if (!mlir::isa<ttcore::TileType>(tilizedCB.getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(getCBOrDFBElementType(tilizedCB))) {
     return "Input to UntilizeOp or Output to TilizeOp must have tile "
            "element type";
   }
@@ -152,8 +163,8 @@ static ::mlir::LogicalResult verifyPackUntilizeDims(Operation *op,
     return emitOpError(
         "UntilizeInitOp must be inside of a EnqueueProgramOp region");
   }
-  auto inputCBType = getCbIn().getType();
-  if (!mlir::isa<ttcore::TileType>(inputCBType.getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(
+          getCBOrDFBElementType(getCbIn().getType()))) {
     return emitOpError("Input to UntilizeInitOp must have tile element type");
   }
   return success();
@@ -264,14 +275,13 @@ static ::mlir::LogicalResult verifyPackUntilizeDims(Operation *op,
   }
 
   // Both input and output should have tile element types for transpose.
-  auto inputCBType = getCbIn().getType();
-  auto outputCBType = getCbOut().getType();
-
-  if (!mlir::isa<ttcore::TileType>(inputCBType.getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(
+          getCBOrDFBElementType(getCbIn().getType()))) {
     return emitOpError("Input to TransposeInitOp must have tile element type");
   }
 
-  if (!mlir::isa<ttcore::TileType>(outputCBType.getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(
+          getCBOrDFBElementType(getCbOut().getType()))) {
     return emitOpError("Output to TransposeInitOp must have tile element type");
   }
 
@@ -286,9 +296,8 @@ static ::mlir::LogicalResult verifyPackUntilizeDims(Operation *op,
 
   // Only need to check the input CB since this is a single-tile operation
   // The output is implicit (DST register)
-  auto inputCBType = getIcb().getType();
-
-  if (!mlir::isa<ttcore::TileType>(inputCBType.getElementType())) {
+  if (!mlir::isa<ttcore::TileType>(
+          getCBOrDFBElementType(getIcb().getType()))) {
     return emitOpError(
         "Input to TransposeWHTileOp must have tile element type");
   }

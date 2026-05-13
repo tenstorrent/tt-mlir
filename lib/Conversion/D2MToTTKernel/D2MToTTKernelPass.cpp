@@ -54,6 +54,7 @@ struct ConvertD2MToTTKernel
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
     this->ttnnMode = rhs.ttnnMode;
+    this->useDFBs = rhs.useDFBs;
   }
 
   void runOnOperation() final {
@@ -131,7 +132,8 @@ struct ConvertD2MToTTKernel
     typeConverter.addConversion([](d2m::MemTxType memtx) {
       return IndexType::get(memtx.getContext());
     });
-    typeConverter.addConversion([](MemRefType memref) -> Type {
+    const bool useDFBsCapture = this->useDFBs;
+    typeConverter.addConversion([useDFBsCapture](MemRefType memref) -> Type {
       auto memorySpace = ttcore::getMemorySpace(memref);
       if (mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout())) {
         // This memref has a device layout meaning it's an address.
@@ -150,9 +152,22 @@ struct ConvertD2MToTTKernel
       }
 
       // Since none of the above is true, this memref abstracts cb backing.
+      // Under useDFBs we lower to a DFB type instead. Cardinality on the
+      // kernel-side !ttkernel.dfb type is metadata-only (the kernel ABI
+      // is identical regardless of P/C); the host-side TTMetal lowering
+      // emits the real num_producers/num_consumers into #ttmetal.dfb_config.
+      if (useDFBsCapture) {
+        return ttkernel::DFBType::get(memref, /*numProducers=*/1,
+                                      /*numConsumers=*/1);
+      }
       return ttkernel::CBType::get(memref);
     });
-    typeConverter.addConversion([](d2m::CBType cb) -> Type {
+    typeConverter.addConversion([useDFBsCapture](d2m::CBType cb) -> Type {
+      if (useDFBsCapture) {
+        return ttkernel::DFBType::get(cb.getUnderlyingAs<MemRefType>(),
+                                      /*numProducers=*/1,
+                                      /*numConsumers=*/1);
+      }
       return ttkernel::CBType::get(cb.getUnderlyingAs<MemRefType>());
     });
     typeConverter.addConversion([](d2m::LocalSemaphoreType semaphore) {
@@ -169,7 +184,7 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  cbProducerConsumer, ttnnMode);
+                                  cbProducerConsumer, ttnnMode, useDFBs);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
@@ -208,7 +223,49 @@ struct ConvertD2MToTTKernel
       signalPassFailure();
       return;
     }
+
+    if (useDFBs) {
+      insertDfbFinishOps(moduleOp);
+    }
   };
+
+  // For each kernel func that touches a DFB-typed value via push_back, wait,
+  // pop_front, or reserve_back, emit one ttkernel.dfb_finish on the value
+  // before the func terminator. Without this Quasar silently hangs on
+  // program completion.
+  static void insertDfbFinishOps(ModuleOp moduleOp) {
+    moduleOp->walk([&](func::FuncOp func) {
+      if (!func->hasAttr(ttkernel::ThreadTypeAttr::name)) {
+        return;
+      }
+      llvm::SmallSetVector<Value, 4> dfbValues;
+      func.walk([&](Operation *op) {
+        for (Value operand : op->getOperands()) {
+          if (mlir::isa<ttkernel::DFBType>(operand.getType())) {
+            dfbValues.insert(operand);
+          }
+        }
+      });
+      if (dfbValues.empty()) {
+        return;
+      }
+      if (func.getBody().empty()) {
+        return;
+      }
+      Block &lastBlock = func.getBody().back();
+      Operation *terminator =
+          lastBlock.mightHaveTerminator() ? lastBlock.getTerminator() : nullptr;
+      OpBuilder builder(func.getContext());
+      if (terminator) {
+        builder.setInsertionPoint(terminator);
+      } else {
+        builder.setInsertionPointToEnd(&lastBlock);
+      }
+      for (Value dfb : dfbValues) {
+        builder.create<ttkernel::DFBFinishOp>(func.getLoc(), dfb);
+      }
+    });
+  }
 };
 } // namespace
 

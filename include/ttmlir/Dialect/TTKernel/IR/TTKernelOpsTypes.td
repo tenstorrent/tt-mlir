@@ -74,6 +74,11 @@ def TTKernel_DFB : TTKernel_Type<"DFB", "dfb"> {
     }];
 }
 
+// Either a CB or a DFB — used by compute / view kernel ops that don't
+// care about producer/consumer cardinality. Sync ops (cb_*, dfb_*)
+// remain strict on their respective single types.
+def TTKernel_CBOrDFB : AnyTypeOf<[TTKernel_CB, TTKernel_DFB]>;
+
 def TTKernel_LocalSemaphore : TTKernel_Type<"LocalSemaphore", "local_semaphore"> {
   let summary = "TTKernel semaphore";
   let description = "Local semaphore type in TTKernel dialect";

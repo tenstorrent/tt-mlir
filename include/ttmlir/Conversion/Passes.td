@@ -183,7 +183,10 @@ def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::ModuleOp"> {
   let constructor = "createConvertD2MToTTKernelPass()";
   let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
   let options = [
-    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">
+    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">,
+    Option<"useDFBs", "use-dfbs", "bool", /*default=*/"false",
+           "Lower CB sync ops to Quasar Dataflow Buffer (DFB) ops instead of "
+           "Circular Buffer (CB) ops; required for Quasar.">
   ];
 }
 

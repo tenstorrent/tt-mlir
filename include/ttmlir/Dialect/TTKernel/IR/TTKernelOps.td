@@ -29,9 +29,9 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
       Must be run at the start of compute kernel.
     }];
 
-    let arguments = (ins TTKernel_CB:$icb0,
+    let arguments = (ins TTKernel_CBOrDFB:$icb0,
                          Optional<TTKernel_CB>:$icb1,
-                         TTKernel_CB:$ocb);
+                         TTKernel_CBOrDFB:$ocb);
 
     let assemblyFormat = [{
       `(` $icb0 (`,` $icb1^)? `,` $ocb `)` attr-dict `:` functional-type(operands, results)
@@ -128,7 +128,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
       the reserved section of the circular buffer to the consumer.
     }];
 
-    let arguments = (ins IndexLike:$dst_index, TTKernel_CB:$out_cb, IndexLike:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
+    let arguments = (ins IndexLike:$dst_index, TTKernel_CBOrDFB:$out_cb, IndexLike:$out_index, DefaultValuedAttr<BoolAttr, "false">:$out_of_order);
 
     let assemblyFormat = [{
       `(` $dst_index `,` $out_cb `,` $out_index `,` $out_of_order`)` attr-dict `:` functional-type(operands, results)
@@ -157,7 +157,7 @@ def TTKernel_PackTileBlockOp : TTKernel_Op<"pack_tile_block"> {
       cb_push_back to make the block visible to the consumer.
     }];
 
-    let arguments = (ins IndexLike:$dst_index, TTKernel_CB:$out_cb, IndexLike:$ntiles);
+    let arguments = (ins IndexLike:$dst_index, TTKernel_CBOrDFB:$out_cb, IndexLike:$ntiles);
 
     let assemblyFormat = [{
       `(` $dst_index `,` $out_cb `,` $ntiles `)` attr-dict `:` functional-type(operands, results)
@@ -185,7 +185,7 @@ def TTKernel_PackReconfigDataFormatOp : TTKernel_Op<"pack_reconfig_data_format">
       during L1 accumulation.
     }];
 
-    let arguments = (ins TTKernel_CB:$out_cb);
+    let arguments = (ins TTKernel_CBOrDFB:$out_cb);
 
     let assemblyFormat = [{
       `(` $out_cb `)` attr-dict `:` functional-type(operands, results)
@@ -198,7 +198,7 @@ def TTKernel_CopyTileInitOp : TTKernel_InitOp<"copy_tile_init"> {
       Must be called before copy_tile.
     }];
 
-    let arguments = (ins TTKernel_CB:$cb0);
+    let arguments = (ins TTKernel_CBOrDFB:$cb0);
 
     let assemblyFormat = [{
       `(` $cb0 `)` attr-dict `:` functional-type(operands, results)
@@ -220,7 +220,7 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
       engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$cb0, IndexLike:$tile_index_cb, IndexLike:$tile_index_dst);
+    let arguments = (ins TTKernel_CBOrDFB:$cb0, IndexLike:$tile_index_cb, IndexLike:$tile_index_dst);
 
     let assemblyFormat = [{
       `(` $cb0 `,` $tile_index_cb `,` $tile_index_dst `)` attr-dict `:` functional-type(operands, results)
@@ -245,7 +245,7 @@ def TTKernel_CopyBlockMatmulPartialsOp : TTKernel_Op<"copy_block_matmul_partials
       and finally packs the results back to a CB.
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, IndexLike:$start_tile_index, IndexLike:$start_dst_index, IndexLike:$ntiles);
+    let arguments = (ins TTKernel_CBOrDFB:$cb, IndexLike:$start_tile_index, IndexLike:$start_dst_index, IndexLike:$ntiles);
 
     let assemblyFormat = [{
       `(` $cb `,` $start_tile_index `,` $start_dst_index `,` $ntiles `)` attr-dict `:` functional-type(operands, results)
@@ -295,7 +295,7 @@ def TTKernel_UnaryOpInitCommonOp : TTKernel_InitOp<"unary_op_init_common"> {
       including unpacking, packing, and math configurations.
     }];
 
-    let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
+    let arguments = (ins TTKernel_CBOrDFB:$icb, TTKernel_CBOrDFB:$ocb);
 
     let assemblyFormat = [{
       `(` $icb `,` $ocb `)` attr-dict `:` functional-type(operands, results)
@@ -308,7 +308,7 @@ def TTKernel_BinaryOpInitCommonOp : TTKernel_InitOp<"binary_op_init_common"> {
       Followed by the specific init required with an opcode (binrary_op_specific_init).
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb, TTKernel_CBOrDFB:$out_cb);
 
     let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `,` $out_cb `)` attr-dict `:` functional-type(operands, results)
@@ -321,7 +321,7 @@ def TTKernel_MatmulInitOp : TTKernel_InitOp<"mm_init"> {
       Can only be run ONCE per kernel. Should be run before matmul.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb, TTKernel_CBOrDFB:$out_cb, I32:$transpose);
 
     let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `,` $out_cb `,` $transpose `)` attr-dict `:` functional-type(operands, results)
@@ -334,7 +334,7 @@ def TTKernel_MatmulInitShortOp : TTKernel_InitOp<"mm_init_short"> {
       Can be run MULTIPLE times per kernel. Should be run before matmul. Use this if some other init was called between mm_init and matmul_tiles. (i.e. in a loop)
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb, I32:$transpose);
 
     let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `,` $transpose `)` attr-dict `:` functional-type(operands, results)
@@ -350,8 +350,8 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpT
       is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb_id,
-                         TTKernel_CB:$in1_cb_id,
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb_id,
+                         TTKernel_CBOrDFB:$in1_cb_id,
                          IndexLike:$in0_tile_idx,
                          IndexLike:$in1_tile_idx,
                          IndexLike:$dst_tile_idx);
@@ -367,7 +367,7 @@ def TTKernel_MatmulBlockInitOp : TTKernel_InitOp<"mm_block_init"> {
       Initialization for matmul_block operation. Must be called before matmul_block.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb, I32:$transpose, I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb, TTKernel_CBOrDFB:$out_cb, I32:$transpose, I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
 }
 
 def TTKernel_MatmulBlockInitShortOp : TTKernel_InitOp<"mm_block_init_short"> {
@@ -376,7 +376,7 @@ def TTKernel_MatmulBlockInitShortOp : TTKernel_InitOp<"mm_block_init_short"> {
       A short version of matmul_block initialization.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$transpose,  I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb, I32:$transpose,  I32:$ct_dim, I32:$rt_dim, I32:$kt_dim);
 }
 
 def TTKernel_MatmulBlockOp : TTKernel_FPUOp<"matmul_block", [TTKernel_TernaryOpTrait]> {
@@ -390,8 +390,8 @@ def TTKernel_MatmulBlockOp : TTKernel_FPUOp<"matmul_block", [TTKernel_TernaryOpT
       ttkernel.tile_regs_acquire. Blocking; compute engine only.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb_id,
-                         TTKernel_CB:$in1_cb_id,
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb_id,
+                         TTKernel_CBOrDFB:$in1_cb_id,
                          IndexLike:$in0_tile_idx,
                          IndexLike:$in1_tile_idx,
                          IndexLike:$dst_tile_idx,
@@ -414,8 +414,8 @@ def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_bl
       is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb_id,
-                         TTKernel_CB:$in1_cb_id,
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb_id,
+                         TTKernel_CBOrDFB:$in1_cb_id,
                          IndexLike:$in0_tile_idx,
                          IndexLike:$in1_tile_idx,
                          IndexLike:$dst_tile_idx,
@@ -433,7 +433,7 @@ def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
       Must be run before add_tiles.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
 
      let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `)` attr-dict `:` functional-type(operands, results)
@@ -449,7 +449,7 @@ def TTKernel_AddTilesOp : TTKernel_FPUOp<"add_tiles", [TTKernel_BinaryOpTrait]> 
       is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
 
     let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `)` attr-dict `:` functional-type(operands, results)
@@ -462,7 +462,7 @@ def TTKernel_SubTilesInitOp : TTKernel_InitOp<"sub_tiles_init"> {
       Must be run before sub_tiles.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
 
     let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `)` attr-dict `:` functional-type(operands, results)
@@ -478,7 +478,7 @@ def TTKernel_SubTilesOp : TTKernel_FPUOp<"sub_tiles", [TTKernel_BinaryOpTrait]> 
       This call is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
 
     let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `)` attr-dict `:` functional-type(operands, results)
@@ -491,7 +491,7 @@ def TTKernel_MulTilesInitOp : TTKernel_InitOp<"mul_tiles_init"> {
       Must be run before mul_tiles.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb);
 
     let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `)` attr-dict `:` functional-type(operands, results)
@@ -507,7 +507,7 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> 
       This call is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
+    let arguments = (ins TTKernel_CBOrDFB:$in0_cb, TTKernel_CBOrDFB:$in1_cb, IndexLike:$in0_tile_index, IndexLike:$in1_tile_index, IndexLike:$dst_index);
 
     let assemblyFormat = [{
       `(` $in0_cb `,` $in1_cb `,` $in0_tile_index `,` $in1_tile_index `,` $dst_index `)` attr-dict `:` functional-type(operands, results)
@@ -523,7 +523,7 @@ def TTKernel_BinaryDestReuseTilesInitOp : TTKernel_InitOp<"binary_dest_reuse_til
       `reuse_type` specifies which source register gets the DST operand.
     }];
 
-    let arguments = (ins TTKernel_CB:$in_cb,
+    let arguments = (ins TTKernel_CBOrDFB:$in_cb,
                          TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
                          TTKernel_BinaryDestReuseTypeAttr:$reuse_type);
 
@@ -543,7 +543,7 @@ def TTKernel_BinaryDestReuseTilesOp : TTKernel_FPUOp<"binary_dest_reuse_tiles"> 
       `eltwise_binary_type` specifies the operation (add/sub/mul).
     }];
 
-    let arguments = (ins TTKernel_CB:$in_cb,
+    let arguments = (ins TTKernel_CBOrDFB:$in_cb,
                          IndexLike:$in_tile_index,
                          IndexLike:$dst_tile_index,
                          TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
@@ -560,8 +560,8 @@ def TTKernel_UnaryBcastInitOp : TTKernel_InitOp<"unary_bcast_init"> {
       Must be run before bcast_tile.
     }];
 
-    let arguments = (ins TTKernel_CB:$in_cb,
-                         TTKernel_CB:$out_cb,
+    let arguments = (ins TTKernel_CBOrDFB:$in_cb,
+                         TTKernel_CBOrDFB:$out_cb,
                          TTKernel_BcastTypeAttr:$bcast_type
                         );
 
@@ -581,7 +581,7 @@ def TTKernel_UnaryBcastTileOp : TTKernel_FPUOp<"unary_bcast", [TTKernel_UnaryOpT
       call. This call is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in_cb,
+    let arguments = (ins TTKernel_CBOrDFB:$in_cb,
                          IndexLike:$in_tile_index,
                          IndexLike:$dst_tile_index,
                          TTKernel_BcastTypeAttr:$bcast_type
@@ -598,9 +598,9 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
       Must be run before reduce_tile.
     }];
 
-    let arguments = (ins TTKernel_CB:$in_cb,
-                         TTKernel_CB:$scaling_cb,
-                         TTKernel_CB:$out_cb,
+    let arguments = (ins TTKernel_CBOrDFB:$in_cb,
+                         TTKernel_CBOrDFB:$scaling_cb,
+                         TTKernel_CBOrDFB:$out_cb,
                          TTKernel_ReduceTypeAttr:$reduce_type,
                          TTKernel_ReduceDimAttr:$reduce_dim,
                          UnitAttr:$full_fp32);
@@ -647,8 +647,8 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTra
       This call is blocking and is only available on the compute engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$in_cb,
-                         TTKernel_CB:$scaling_cb,
+    let arguments = (ins TTKernel_CBOrDFB:$in_cb,
+                         TTKernel_CBOrDFB:$scaling_cb,
                          IndexLike:$in_tile_index,
                          IndexLike:$scaling_tile_index,
                          IndexLike:$dst_index,
@@ -725,7 +725,7 @@ def TTKernel_InitSFPUOp : TTKernel_InitOp<"init_sfpu"> {
       including unpacking, packing, and math configurations.
     }];
 
-    let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
+    let arguments = (ins TTKernel_CBOrDFB:$icb, TTKernel_CBOrDFB:$ocb);
 
     let assemblyFormat = [{
       `(` $icb `,` $ocb `)` attr-dict `:` functional-type(operands, results)
@@ -3040,7 +3040,7 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
       TilizeBlockOp operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn, I32:$numTiles, TTKernel_CBOrDFB:$cbOut);
 
     let hasVerifier = 1;
 
@@ -3055,7 +3055,7 @@ def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block
       This is a custom tilize block LLK that takes the dimensions of the block, and properly tilizes each row.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC);
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn, TTKernel_CBOrDFB:$cbOut, I32:$blockR, I32:$blockC);
 
     let hasVerifier = 1;
 
@@ -3071,7 +3071,7 @@ def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
       kernel.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn, I32:$numTiles, TTKernel_CBOrDFB:$cbOut);
 
     let hasVerifier = 1;
 
@@ -3086,7 +3086,7 @@ def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
       Uninitialize tilize operation before re-initializing for another operation.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbI, TTKernel_CB:$cbOut);
+    let arguments = (ins TTKernel_CBOrDFB:$cbI, TTKernel_CBOrDFB:$cbOut);
 
     let assemblyFormat = [{
       `(` $cbI `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
@@ -3099,7 +3099,7 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
       UntilizeBlockOp operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn, I32:$numTiles, TTKernel_CBOrDFB:$cbOut);
 
     let hasVerifier = 1;
 
@@ -3114,7 +3114,7 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
       This is a custom untilize block LLK that takes the dimensions of the block.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC);
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn, TTKernel_CBOrDFB:$cbOut, I32:$blockR, I32:$blockC);
 
     let hasVerifier = 1;
 
@@ -3140,7 +3140,7 @@ def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
       `pack_untilize_uninit`.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut,
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn, TTKernel_CBOrDFB:$cbOut,
                          DefaultValuedAttr<I32Attr, "1">:$colsPerDstPass,
                          DefaultValuedAttr<I32Attr, "1">:$totalColTiles);
 
@@ -3158,7 +3158,7 @@ def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit"> {
       `pack_untilize_uninit(ocb)` API.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbOut);
+    let arguments = (ins TTKernel_CBOrDFB:$cbOut);
 
     let assemblyFormat = [{
       `(` $cbOut `)` attr-dict `:` functional-type(operands, results)
@@ -3182,7 +3182,7 @@ def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_u
       `pack_untilize_init -> experimental::pack_untilize_block -> pack_untilize_uninit`.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC,
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn, TTKernel_CBOrDFB:$cbOut, I32:$blockR, I32:$blockC,
                          I32Attr:$colsPerDstPass, I32Attr:$totalColTiles);
 
     let hasVerifier = 1;
@@ -3200,7 +3200,7 @@ def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental::write_r
       avoiding DST register pressure in the compute kernel.
     }];
 
-    let arguments = (ins I32:$validRows, TTKernel_CB:$cb);
+    let arguments = (ins I32:$validRows, TTKernel_CBOrDFB:$cb);
 
     let assemblyFormat = [{
       `(` $validRows `,` $cb `)` attr-dict `:` functional-type(operands, results)
@@ -3215,7 +3215,7 @@ def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_c
       avoiding DST register pressure in the compute kernel.
     }];
 
-    let arguments = (ins I32:$validCols, TTKernel_CB:$cb);
+    let arguments = (ins I32:$validCols, TTKernel_CBOrDFB:$cb);
 
     let assemblyFormat = [{
       `(` $validCols `,` $cb `)` attr-dict `:` functional-type(operands, results)
@@ -3236,7 +3236,7 @@ def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_aran
        [992, 993, 994, ..., 1023]]
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CBOrDFB:$cb);
 
     let assemblyFormat = [{
       `(` $cb `)` attr-dict `:` functional-type(operands, results)
@@ -3250,7 +3250,7 @@ def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
       kernel.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn);
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn);
 
     let hasVerifier = 1;
 
@@ -3265,7 +3265,7 @@ def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
       Uninitialize untilize operation, to allow initializing another operation.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn);
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn);
 
     let assemblyFormat = [{
       `(` $cbIn `)` attr-dict `:` functional-type(operands, results)
@@ -3279,7 +3279,7 @@ def TTKernel_TransposeInitOp : TTKernel_Op<"transpose_wh_init"> {
       kernel before transpose operations.
     }];
 
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+    let arguments = (ins TTKernel_CBOrDFB:$cbIn, TTKernel_CBOrDFB:$cbOut);
 
     let hasVerifier = 1;
 
@@ -3296,7 +3296,7 @@ def TTKernel_TransposeTileOp : TTKernel_Op<"transpose_wh_tile"> {
       dst_tile_index.
     }];
 
-    let arguments = (ins TTKernel_CB:$icb, IndexLike:$itile, IndexLike:$idst);
+    let arguments = (ins TTKernel_CBOrDFB:$icb, IndexLike:$itile, IndexLike:$idst);
 
     let hasVerifier = 1;
 
@@ -3799,7 +3799,7 @@ def TTKernel_NocSemaphoreIncMulticastOp : TTKernel_Op<"noc_semaphore_inc_multica
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_ArgResultType : AnyTypeOf<[Index, I32, UI32, TTKernel_CB, TTKernel_L1Addr]>;
+def TTKernel_ArgResultType : AnyTypeOf<[Index, I32, UI32, TTKernel_CB, TTKernel_DFB, TTKernel_L1Addr]>;
 
 def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val", [Pure]> {
     let summary = "Get runtime arg value.";
@@ -4502,7 +4502,7 @@ def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
       GetWritePtr operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CBOrDFB:$cb);
     let results = (outs I32:$writePtr);
 
     let assemblyFormat = [{
@@ -4516,7 +4516,7 @@ def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
       GetReadPtr operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CBOrDFB:$cb);
     let results = (outs I32:$readPtr);
 
     let assemblyFormat = [{
@@ -4529,7 +4529,7 @@ def TTKernel_GetTileSizeOp : TTKernel_Op<"get_tile_size"> {
     let description = [{
       get_tile_size operation
     }];
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CBOrDFB:$cb);
     let results = (outs I32:$tileSizeBytes);
 
     let assemblyFormat = [{
@@ -4542,7 +4542,7 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
     let description = [{
       get_dataformat operation
     }];
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CBOrDFB:$cb);
     let results = (outs TTKernel_DataFormat:$dataFormat);
 
     let assemblyFormat = [{

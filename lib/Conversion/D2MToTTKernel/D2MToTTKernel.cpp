@@ -2749,18 +2749,22 @@ private:
 
 class D2MGetCBRewriter : public OpConversionPattern<d2m::GetCBOp> {
 public:
-  using OpConversionPattern<d2m::GetCBOp>::OpConversionPattern;
+  D2MGetCBRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                   bool useDFBs)
+      : OpConversionPattern<d2m::GetCBOp>(typeConverter, context),
+        useDFBs(useDFBs) {}
 
   LogicalResult
   matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Append a CBPort entry to the parent function's ArgSpec so that
-    // D2MToTTNN can generate the corresponding cb_buffer_index in the
-    // kernel descriptor's ct_args.  The operand index tells the runtime
-    // which operand's buffer to associate with this CB.
+    // Append a CBPort (or DFBId, under useDFBs) entry to the parent
+    // function's ArgSpec so that D2MToTTNN / D2MToTTMetal can generate the
+    // corresponding cb_buffer_index / dfb_id in the kernel descriptor's
+    // ct_args. The operand index tells the runtime which operand's buffer
+    // to associate with this CB/DFB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    ArgAttr cbArg =
-        rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getCbOperandIdx());
+    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(
+        useDFBs ? ArgType::DFBId : ArgType::CBPort, op.getCbOperandIdx());
     size_t ctArgIndex;
     rewriter.modifyOpInPlace(entry, [&]() {
       ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
@@ -2768,12 +2772,16 @@ public:
 
     // Emit a get_compile_time_arg_val that reads the port from ct_args at
     // runtime. This allows the spatial op to remap CB ports per grid range
-    // by overriding compile-time arguments.
+    // by overriding compile-time arguments.  The type converter selects
+    // CBType or DFBType based on the useDFBs flag captured into it.
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
         op, cbType, static_cast<int32_t>(ctArgIndex));
     return success();
   }
+
+private:
+  bool useDFBs;
 };
 } // namespace
 
@@ -3104,7 +3112,8 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode) {
+    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode,
+    bool useDFBs) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
                ttkernel::PassthroughRewriter<memref::CastOp>,
@@ -3204,10 +3213,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSetL1AccumulateRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
-               ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
-               ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp, ttkernel::CBPushBackOp>,
-               ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::CBPushBackOp>,
-               ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
+               // CB sync ops (default lowering, used on WH/BH).
+               // Under useDFBs the CB rewriters are skipped and the DFB
+               // variants are added below.
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MMyThreadIdRewriter,
@@ -3222,9 +3230,32 @@ void populateD2MToTTKernelPatterns(
 
   patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
                                                       ttnnMode);
-  patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx, useDFBs);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
+
+  // Wait/Reserve/Push/Pop conversion: pick the CB or DFB op family based
+  // on the use-dfbs flag. Only one of these patterns matches d2m.wait /
+  // d2m.reserve / d2m.push / d2m.pop in any given run.
+  if (useDFBs) {
+    patterns.add<
+        ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::DFBWaitFrontOp,
+                                  ttkernel::DFBPopFrontOp>,
+        ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::DFBReserveBackOp,
+                                  ttkernel::DFBPushBackOp>,
+        ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::DFBPushBackOp>,
+        ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::DFBPopFrontOp>>(
+        typeConverter, ctx);
+  } else {
+    patterns.add<
+        ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp,
+                                  ttkernel::CBPopFrontOp>,
+        ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp,
+                                  ttkernel::CBPushBackOp>,
+        ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::CBPushBackOp>,
+        ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>>(
+        typeConverter, ctx);
+  }
 
   // Debug op patterns.
   patterns.add<ttkernel::D2MPrintOpRewriter>(typeConverter, ctx);
