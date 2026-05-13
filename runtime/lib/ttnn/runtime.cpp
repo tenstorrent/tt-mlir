@@ -1244,7 +1244,7 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
-    tensorRef = opContext.type_as_PrepareConv3dWeightsOp()->out();
+    tensorRefs = {opContext.type_as_PrepareConv3dWeightsOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
