@@ -6,68 +6,71 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttcore, d2m
 
 
-class TensorLayout:
+def _to_data_type(dtype):
+    s = str(dtype)
+    if s in {"torch.float32", "fp32"}:
+        return ttcore.DataType.Float32
+    if s in {"torch.float16", "fp16"}:
+        return ttcore.DataType.Float16
+    if s in {"torch.bfloat16", "bf16"}:
+        return ttcore.DataType.BFloat16
+    raise TypeError(f"Unsupported dtype {dtype}")
+
+
+def _to_mem_space(mem_space):
+    if isinstance(mem_space, ttcore.MemorySpace):
+        return mem_space
+    if mem_space in {"l1", "sram"}:
+        return ttcore.MemorySpace.DeviceL1
+    if mem_space == "dram":
+        return ttcore.MemorySpace.DeviceDRAM
+    raise TypeError(f"Unsupported mem_space {mem_space}")
+
+
+def _derive_blocked_grid_shape(logical_shape, block_shape, tiled):
+    assert len(logical_shape) == len(block_shape)
+    s = list(logical_shape)
+    if tiled:
+        for i in range(len(s)):
+            s[i] = (s[i] + 31) // 32
+
+    out = []
+    for ls, bs in zip(s, block_shape):
+        assert ls % bs == 0
+        out.append(ls // bs)
+    return out
+
+
+class Layout:
+    """Pure layout descriptor: shape + dtype + block/grid/tiling/mem_space.
+
+    Has no association with any host buffer. Builds the various MLIR
+    types/values needed to embed this layout in a host or device tensor.
+    """
+
     def __init__(
         self,
-        tensor,
+        shape,
+        dtype,
         block_shape,
         grid_shape=None,
-        dtype=None,
         tiled=True,
         collapse=True,
         mem_space=ttcore.MemorySpace.DeviceL1,
     ):
-        dtype = TensorLayout._to_data_type(
-            str(tensor.dtype if dtype is None else dtype)
+        self.logical_shape = list(shape)
+        self.dtype = _to_data_type(dtype)
+        self.block_shape = list(block_shape)
+        self.blocked_grid_shape = _derive_blocked_grid_shape(
+            self.logical_shape, self.block_shape, tiled
         )
-        self.tensor = tensor
-        self.logical_shape = tensor.shape
-        self.block_shape = block_shape
-        self.blocked_grid_shape = TensorLayout._derive_blocked_grid_shape(
-            list(tensor.shape), block_shape, tiled
+        self.grid_shape = (
+            list(self.blocked_grid_shape) if grid_shape is None else list(grid_shape)
         )
-        self.grid_shape = self.logical_grid_shape if grid_shape is None else grid_shape
-        self.dtype = dtype
         self.tiled = tiled
         self.collapse = collapse
-        self.mem_space = TensorLayout._to_mem_space(mem_space)
+        self.mem_space = _to_mem_space(mem_space)
         self._cached_layout = None
-
-    @staticmethod
-    def _to_data_type(dtype: str):
-        if dtype in {"torch.float32", "fp32"}:
-            return ttcore.DataType.Float32
-        elif dtype in {"torch.float16", "fp16"}:
-            return ttcore.DataType.Float16
-        elif dtype in {"torch.bfloat16", "bf16"}:
-            return ttcore.DataType.BFloat16
-        else:
-            raise TypeError(f"Unsupported dtype {dtype}")
-
-    @staticmethod
-    def _to_mem_space(mem_space):
-        if isinstance(mem_space, ttcore.MemorySpace):
-            return mem_space
-        if mem_space in {"l1", "sram"}:
-            return ttcore.MemorySpace.DeviceL1
-        elif mem_space == "dram":
-            return ttcore.MemorySpace.DeviceDRAM
-        else:
-            raise TypeError(f"Unsupported mem_space {mem_space}")
-
-    @staticmethod
-    def _derive_blocked_grid_shape(logical_shape, block_shape, tiled):
-        assert len(logical_shape) == len(block_shape)
-        if tiled:
-            for i in range(len(logical_shape)):
-                logical_shape[i] = (logical_shape[i] + 31) // 32
-
-        blocked_grid_shape = []
-        for ls, bs in zip(logical_shape, block_shape):
-            assert ls % bs == 0
-            blocked_grid_shape.append(ls // bs)
-
-        return blocked_grid_shape
 
     def get_tile_shape(self):
         return [32, 32] if self.tiled else []
@@ -75,12 +78,11 @@ class TensorLayout:
     def get_scalar_type(self, ctx):
         if self.dtype == ttcore.DataType.Float32:
             return F32Type.get(ctx)
-        elif self.dtype == ttcore.DataType.Float16:
+        if self.dtype == ttcore.DataType.Float16:
             return F16Type.get(ctx)
-        elif self.dtype == ttcore.DataType.BFloat16:
+        if self.dtype == ttcore.DataType.BFloat16:
             return BF16Type.get(ctx)
-        else:
-            raise TypeError(f"Unsupported data type {self.dtype}")
+        raise TypeError(f"Unsupported data type {self.dtype}")
 
     def get_host_elem_type(self, ctx):
         return self.get_scalar_type(ctx)
@@ -141,16 +143,11 @@ class TensorLayout:
     def build_to_device(self, ctx, val):
         output_type = self.build_device_tensor_type(ctx)
         output = d2m.empty(output_type)
-        res = d2m.ToLayoutOp(
-            [output_type],
-            val,
-            output,
-        ).result
+        res = d2m.ToLayoutOp([output_type], val, output).result
         return self.build_blocked_view(ctx, res)
 
     def build_blocked_view(self, ctx, val):
         if self.blocked_grid_shape == self.grid_shape:
-            # Nothing to do
             return val
         device_shape = self.get_device_shape(ctx, self.grid_shape)
         blocked_device_shape = self.get_device_shape(ctx, self.blocked_grid_shape)
@@ -162,7 +159,6 @@ class TensorLayout:
 
     def build_device_view(self, ctx, val):
         if self.blocked_grid_shape == self.grid_shape:
-            # Nothing to do
             return val
         device_shape = self.get_device_shape(ctx, self.grid_shape)
         blocked_device_shape = self.get_device_shape(ctx, self.blocked_grid_shape)
@@ -175,8 +171,33 @@ class TensorLayout:
     def build_from_device(self, ctx, val):
         output_type = self.build_host_tensor_type(ctx)
         output = d2m.empty(output_type)
-        return d2m.ToLayoutOp(
-            [output_type],
-            val,
-            output,
-        ).result
+        return d2m.ToLayoutOp([output_type], val, output).result
+
+
+class TensorLayout(Layout):
+    """Layout + a reference to a host torch tensor.
+
+    Compatibility shim for the eager @d2m_jit API. The lazy API should use
+    Layout directly and keep its host tensor in a LazyTensor instead.
+    """
+
+    def __init__(
+        self,
+        tensor,
+        block_shape,
+        grid_shape=None,
+        dtype=None,
+        tiled=True,
+        collapse=True,
+        mem_space=ttcore.MemorySpace.DeviceL1,
+    ):
+        super().__init__(
+            shape=tensor.shape,
+            dtype=tensor.dtype if dtype is None else dtype,
+            block_shape=block_shape,
+            grid_shape=grid_shape,
+            tiled=tiled,
+            collapse=collapse,
+            mem_space=mem_space,
+        )
+        self.tensor = tensor

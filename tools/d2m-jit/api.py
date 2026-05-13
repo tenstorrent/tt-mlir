@@ -38,7 +38,14 @@ from ._src.utils import (
     _cleanup_source_code,
 )
 from ._src.ast import D2MCompiler, syntax
-from ._src.tensor_layout import TensorLayout
+from ._src.tensor_layout import Layout, TensorLayout
+from ._src.builder import (
+    LazyTensor,
+    to_layout,
+    empty,
+    view_layout,
+    to_host,
+)
 
 
 @syntax("!tensor")
