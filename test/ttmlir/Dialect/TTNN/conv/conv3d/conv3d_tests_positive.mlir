@@ -131,4 +131,23 @@ module {
     return %0 : tensor<1x1024x2x4x4xbf16>
   }
 
+  // Test that the (1,2,2) patchify kernel triggers conv3d_config attachment.
+  // See docs/superpowers/specs/2026-05-13-dit-conv3d-patchify-config-design.md
+  func.func @conv3d_patchify_1x2x2_attaches_config(
+      %arg0: tensor<1x21x60x104x32xbf16>,
+      %arg1: tensor<5120x32x1x2x2xbf16>)
+      -> tensor<1x21x30x52x5120xbf16> {
+    // CHECK-LABEL: @conv3d_patchify_1x2x2_attaches_config
+    // CHECK: "ttnn.conv3d"
+    // CHECK-SAME: conv3d_config = #ttnn.conv3d_config<
+    %0 = "ttir.conv3d"(%arg0, %arg1)
+            <{
+              stride = array<i32: 1, 2, 2>,
+              padding = array<i32: 0, 0, 0>,
+              groups = 1 : i32,
+              padding_mode = "zeros"
+            }> : (tensor<1x21x60x104x32xbf16>, tensor<5120x32x1x2x2xbf16>) -> tensor<1x21x30x52x5120xbf16>
+    return %0 : tensor<1x21x30x52x5120xbf16>
+  }
+
 }

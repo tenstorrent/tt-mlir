@@ -2086,7 +2086,11 @@ public:
     bool kernelMatch =
         (kT_size == 3 && kH_size == 3 && kW_size == 3) ||
         (kT_size == 3 && kH_size == 1 && kW_size == 1) ||
-        (kT_size == 1 && kH_size == 1 && kW_size == 1);
+        (kT_size == 1 && kH_size == 1 && kW_size == 1) ||
+        // Patchify head used by Wan DiT patch_embedding. Stride == kernel,
+        // so no L1 reuse to be gained — the win here is purely from larger
+        // matmuls per launch and C_in_num_blocks=1.
+        (kT_size == 1 && kH_size == 2 && kW_size == 2);
 
     if (kernelMatch) {
       // Cap C_in_block / C_out_block to keep weight + activation CBs within
