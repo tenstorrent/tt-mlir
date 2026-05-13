@@ -7,6 +7,8 @@ from ttmlir.dialects import ttcore, d2m
 
 
 def _to_data_type(dtype):
+    if isinstance(dtype, ttcore.DataType):
+        return dtype
     s = str(dtype)
     if s in {"torch.float32", "fp32"}:
         return ttcore.DataType.Float32
@@ -71,6 +73,21 @@ class Layout:
         self.collapse = collapse
         self.mem_space = _to_mem_space(mem_space)
         self._cached_layout = None
+
+    def replace(self, **overrides) -> "Layout":
+        """Return a new Layout copying self's fields, overriding any
+        keyword in `overrides`."""
+        fields = dict(
+            shape=self.logical_shape,
+            dtype=self.dtype,
+            block_shape=self.block_shape,
+            grid_shape=self.grid_shape,
+            tiled=self.tiled,
+            collapse=self.collapse,
+            mem_space=self.mem_space,
+        )
+        fields.update(overrides)
+        return Layout(**fields)
 
     def get_tile_shape(self):
         return [32, 32] if self.tiled else []

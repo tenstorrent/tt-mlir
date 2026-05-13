@@ -294,22 +294,27 @@ def to_layout(input_, layout: Layout) -> LazyTensor:
     )
 
 
-def tilize(input_, layout: Layout) -> LazyTensor:
-    """to_layout with the expectation that the target is tile-typed.
+def tilize(lt: LazyTensor) -> LazyTensor:
+    """Convert a device LazyTensor to a tile-typed (`tiled=True`) layout.
 
-    Convenience alias documenting host/device -> tiled-device intent.
+    The target layout is the source's layout with `tiled` set to True;
+    all other fields (shape, dtype, block_shape, grid_shape, mem_space,
+    collapse) are preserved.
     """
-    assert layout.tiled, "tilize requires layout.tiled=True"
-    return to_layout(input_, layout)
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"tilize expected a LazyTensor, got {type(lt).__name__}")
+    return to_layout(lt, lt.layout.replace(tiled=True))
 
 
-def untilize(input_, layout: Layout) -> LazyTensor:
-    """to_layout with the expectation that the target is row-major (untiled).
+def untilize(lt: LazyTensor) -> LazyTensor:
+    """Convert a device LazyTensor to a row-major (`tiled=False`) layout.
 
-    Convenience alias documenting host/device -> row-major-device intent.
+    The target layout is the source's layout with `tiled` set to False;
+    all other fields are preserved.
     """
-    assert not layout.tiled, "untilize requires layout.tiled=False"
-    return to_layout(input_, layout)
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"untilize expected a LazyTensor, got {type(lt).__name__}")
+    return to_layout(lt, lt.layout.replace(tiled=False))
 
 
 def empty(layout: Layout) -> LazyTensor:
