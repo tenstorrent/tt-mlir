@@ -285,6 +285,47 @@ class D2MBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def mask(
+        self,
+        input: Operand,
+        logical_shape: Shape,
+        fill_value: Union[ttcore.OOBVal, ttcore.ir.OOBValAttr],
+        output: Optional[Operand] = None,
+        output_type: Optional[Type] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """Create a D2M mask operation over padded regions."""
+        if output is None and output_type is None:
+            output_type = self._get_type(input)
+
+        resolved_output_type, output_create_fn = self._resolve_output_spec(
+            output=output, output_type=output_type
+        )
+        fill_value_attr = (
+            fill_value
+            if isinstance(fill_value, Attribute)
+            else ttcore.ir.OOBValAttr.get(self._ctx, int(fill_value))
+        )
+
+        def organize_mask_args(inputs, output, output_shape):
+            return (
+                resolved_output_type,
+                inputs[0],
+                output,
+                list(logical_shape),
+                fill_value_attr,
+            )
+
+        return self._op_proxy(
+            d2m.MaskOp,
+            [input],
+            unit_attrs=unit_attrs,
+            organize_d2m_args=organize_mask_args,
+            output_type=resolved_output_type,
+            output_shape=resolved_output_type.shape,
+            output_create_fn=output_create_fn,
+        )
+
     def reblock(
         self,
         input: Operand,

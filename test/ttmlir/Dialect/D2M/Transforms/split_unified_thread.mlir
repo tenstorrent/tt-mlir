@@ -589,6 +589,66 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
+  // Test 14b: Full streaming load + store without d2m.blocking_loop
+  // Regression test: scope inference from remote op placement must produce the
+  // same split as Test 3, which relied on d2m.blocking_loop for scope anchoring.
+  // CHECK-LABEL: func.func @test_full_streaming_load_store_no_blocking_loop
+  func.func @test_full_streaming_load_store_no_blocking_loop(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+      %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %stream_in = d2m.view_layout %arg0 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %stream_out = d2m.view_layout %arg1 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %cb_in = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+    %cb_out = memref.alloc() {address = 6144 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+    // Datamovement: both in explicit CB form
+    // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %{{.*}}
+    // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %{{.*}}
+    // CHECK-NOT: d2m.wait
+    // CHECK-NOT: d2m.reserve
+    // CHECK-NOT: d2m.push
+    // CHECK-NOT: d2m.pop
+    // CHECK-NOT: linalg.generic
+    // Compute: wait + reserve + compute + push + pop
+    // CHECK: }, {
+    // CHECK: d2m.wait %{{.*}}
+    // CHECK: d2m.reserve %{{.*}}
+    // CHECK: linalg.generic
+    // CHECK: d2m.push %{{.*}}
+    // CHECK: d2m.pop %{{.*}}
+    // CHECK-NOT: d2m.remote_load
+    // CHECK-NOT: d2m.remote_store
+    // CHECK-NOT: d2m.core_index
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%stream_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        additionalArgs(%cb_in, %cb_out : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) {
+    ^unified0:
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      scf.for %arg2 = %c0 to %c1 step %c1 {
+        %core0 = d2m.core_index(0) : index
+        %core1 = d2m.core_index(1) : index
+        scf.for %arg3 = %c0 to %c1 step %c1 {
+          %0 = arith.addi %core0, %arg2 : index
+          %1 = arith.addi %core1, %arg3 : index
+          d2m.remote_load %cb_in %stream_in[%0, %1] : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+          linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%cb_in : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) outs(%cb_out : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) {
+          ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+            %3 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            linalg.yield %3 : !ttcore.tile<32x32, f32>
+          }
+          d2m.remote_store %stream_out[%0, %1] %cb_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+        }
+      }
+    }
+    memref.dealloc %cb_in : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+    memref.dealloc %cb_out : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+    return
+  }
+
   // Test 14: compute -> copy -> compute
   // Verifies: compute gets reserve + push for the source CB (compute-produced).
   // DMA gets wait on source CB + local_copy into destination CB.

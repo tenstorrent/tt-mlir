@@ -326,7 +326,7 @@ def D2MInsertDstRegisterAccessUnscheduled : Pass<"d2m-insert-dst-register-access
   ];
   let options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
-    Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
+    Option<"disableL1Acc", "disable-l1-acc", "bool", /*default=*/"false", "Disable accumulating partials in L1 (force reloading from L1 to DST instead).">,
   ];
 }
 
@@ -401,7 +401,7 @@ def D2MInsertDstRegisterAccessScheduled : Pass<"d2m-insert-dst-register-access-s
   ];
   let options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
-    Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
+    Option<"disableL1Acc", "disable-l1-acc", "bool", /*default=*/"false", "Disable accumulating partials in L1 (force reloading from L1 to DST instead).">,
   ];
 }
 
@@ -758,53 +758,86 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
 
-def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
-  let summary = "Decompose block_mask ops into linalg.generic with tile arithmetic";
+def D2MOptimizeMasks : Pass<"d2m-optimize-masks", "::mlir::ModuleOp"> {
+  let summary = "Eliminate redundant high-level mask ops";
   let description = [{
-    This pass decomposes high-level `block_mask` operations into linalg.generic
-    with per-tile masking using primitive tile arithmetic. The block_mask op
-    operates at block level (memref of tiles) and masks tiles that are completely
-    outside the logical tensor bounds with a specified OOBVal.
+    This pass walks the IR in program order and tracks the known effective OOB
+    state for values produced by `d2m.mask`.  A later mask is removed when its
+    input is already known to satisfy the requested fill value, or when the
+    tensor has no maskable padded region.
 
-    The decomposition creates a linalg.generic that iterates over tiles and:
-    1. Get current tile indices from linalg.index
-    2. Compute global element offset: tileIdx * 32 (tile size)
-    3. Check if entire tile is OOB: globalOffset >= logicalBound
-    4. Combine row/col OOB flags with OR (any dimension OOB means tile is OOB)
-    5. Blend: result = input * select(oob, 0, 1) + select(oob, fill, 0)
+    Unknown/untracked values are treated as undef for compatibility purposes:
+    they satisfy an undef target, but not a concrete fill requirement.  The pass
+    is intentionally conservative and is the place where richer arithmetic OOB
+    propagation can be added.
 
-    The pass uses arith.select to avoid inf*0=NaN issues when fill is infinity.
+    This pass should run after mask creation/canonicalization and before
+    `d2m-decompose-masking`.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect"
+  ];
+}
+
+def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
+  let summary = "Decompose mask ops into explicit per-tile masking";
+  let description = [{
+    This pass decomposes high-level `d2m.mask` operations into an explicit
+    `d2m.generic` that loads one shard, writes row/column mask tiles in L1,
+    and emits tile loops for interior, edge, corner, and fully OOB regions.
+
+    The decomposition uses row/column mask tiles with `d2m.tile_where`, rather
+    than multiply-by-zero blending, so infinite fill values do not depend on
+    target-specific zero-times-infinity behavior.
 
     Example transformation:
     ```mlir
     // Before:
-    d2m.block_mask %input, %output, %rows, %cols, <zero>
-        : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+    %masked = d2m.mask %input, %output
+        logical_shape = [50, 50] fill_value = <zero>
+        : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
+          into memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
+          -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
 
-    // After:
-    linalg.generic ... {
-      %row = linalg.index 0 : index
-      %col = linalg.index 1 : index
-      %globalRow = arith.muli %row, %c32 : index
-      %globalCol = arith.muli %col, %c32 : index
-      %rowOOB = arith.cmpi sge, %globalRow, %rows : index
-      %colOOB = arith.cmpi sge, %globalCol, %cols : index
-      %oob = arith.ori %rowOOB, %colOOB : i1
-      %mulFactor = arith.select %oob, %zero, %one : f32
-      %addend = arith.select %oob, %fillVal, %zero : f32
-      %scaled = d2m.tile_mul %in, %mulFactor
-      %result = d2m.tile_add %scaled, %addend
-      linalg.yield %result
+    // After (schematic):
+    d2m.generic {grid = #ttcore.grid<1x1>, threads = [#d2m.thread<unified>]}
+        ins(%input : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>)
+        outs(%output : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>) {
+      %localInput = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %localOutput = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %rowMask = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #cb, #l1>
+      %colMask = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #cb, #l1>
+      d2m.remote_load %localInput, %input[%coreY, %coreX] : ...
+      d2m.write_row_mask_tile(%validRows) to %rowMask : ...
+      d2m.write_col_mask_tile(%validCols) to %colMask : ...
+      scf.for %row = %rowStart to %rowEnd {
+        scf.for %col = %colStart to %colEnd {
+          %tile = memref.load %localInput[%row, %col] : ...
+          %mask = memref.load %rowMask[%c0, %c0] : ...
+          %fill = d2m.tile_fill %fillScalar : ...
+          %result = d2m.tile_where %mask, %tile, %fill : ...
+          memref.store %result, %localOutput[%row, %col] : ...
+        }
+      }
+      d2m.remote_store %output[%coreY, %coreX], %localOutput : ...
     }
     ```
 
-    This pass should run after LowerToLayout and before LinalgToAffine.
+    This pass should run after bufferization/generic loop generation and before
+    allocation.
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::memref::MemRefDialect",
     "::mlir::arith::ArithDialect",
-    "::mlir::linalg::LinalgDialect"
+    "::mlir::scf::SCFDialect"
+  ];
+  let options = [
+    Option<"numStreamBuffers",
+           "num-stream-buffers",
+           "unsigned", /*default=*/"2",
+           "Number of backing buffers to allocate for mask scratch CBs.">
   ];
 }
 

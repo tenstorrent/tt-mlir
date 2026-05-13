@@ -257,7 +257,6 @@ def get_metal_tensor_layout(
     logical_shape: Shape,
     tiled=False,
     element_dtype: torch.dtype = torch.float32,
-    oobVal=ttcore.OOBVal.Undef,
     memorySpace=ttcore.MemorySpace.DeviceL1,
     grid: Optional[Tuple[int, int]] = None,
     index_map: Optional[AffineMap] = None,
@@ -280,8 +279,6 @@ def get_metal_tensor_layout(
         Logical shape of the tensor
     tiled : bool
         Whether to use tiled layout (32x32 tiles)
-    oobVal : ttcore.OOBVal
-        Out-of-bounds value handling
     memorySpace : ttcore.MemorySpace
         Memory space (L1, DRAM, etc.)
     grid : Optional[Tuple[int, int]]
@@ -321,7 +318,6 @@ def get_metal_tensor_layout(
         layout = ttcore.ir.MetalLayoutAttr.get(
             ctx,
             logical_shape,
-            oobVal,
             memorySpace,
             memory_layout,
             collapse_intervals,
@@ -329,7 +325,7 @@ def get_metal_tensor_layout(
         )
     else:
         layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, logical_shape, oobVal, memorySpace, memory_layout
+            ctx, logical_shape, memorySpace, memory_layout
         )
 
     shard_shape = []

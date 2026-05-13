@@ -429,9 +429,6 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
     AttrParameter<"DenseIntElementsAttr", "Intervals of dims to collapse">:$collapsed_intervals,
 
-    // Out of bounds value.
-    AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
-
     // Memory space for the tensor.
     DefaultValuedParameter<"MemorySpace",
                             "MemorySpace::System">:$memory_space,
@@ -439,22 +436,22 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
    AttrParameter<"TensorMemoryLayout", "Tensor memory layout">:$memory_layout
   );
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val `,` $memory_space `,` $memory_layout `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $memory_space `,` $memory_layout `>`";
 
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout);
 
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals);
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals,
                                      ArrayRef<int64_t> dimAlignments

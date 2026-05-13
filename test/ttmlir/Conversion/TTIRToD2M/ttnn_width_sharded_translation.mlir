@@ -4,15 +4,15 @@
 #l1 = #ttnn.buffer_type<l1>
 
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 32x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 64x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 2x32x384, dim_alignments = 1x32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 2x2x32x384, dim_alignments = 1x1x32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 32x4096, dim_alignments = 32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 
 
 // Width Sharded - Rank 2 layouts

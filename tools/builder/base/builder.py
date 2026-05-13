@@ -787,9 +787,14 @@ class Builder(metaclass=BuilderMeta):
         core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
     ) -> ttnn.ir.TTNNLayoutAttr:
         """
-        TTNN tensors require that encoding information is present.
-        This method creates a TTNN tensor with encoding information.
-        For simplicity we will always create DRAM/Interleaved tiled tensor.
+        TTNN tensors require encoding information to describe layout and placement.
+        This helper creates a TTNN tensor encoding using the requested layout,
+        buffer type, and tensor memory layout.
+
+        By default it produces a DRAM, interleaved, tiled encoding. It also
+        supports RowMajor layout, SystemMemory buffers (which do not use a
+        tensor memory layout), and sharded layouts when a non-interleaved
+        tensor_memory_layout and explicit core_range_set are provided.
         """
         if grid_shape is None:
             grid_shape = [1, 1]
@@ -855,7 +860,6 @@ class Builder(metaclass=BuilderMeta):
         logical_shape: Shape,
         tiled=False,
         element_dtype: torch.dtype = torch.float32,
-        oobVal=None,  # Will default to ttcore.OOBVal.Undef in the utility
         memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
         grid: Optional[Tuple[int, int]] = None,
         index_map: Optional[AffineMap] = None,
@@ -867,8 +871,6 @@ class Builder(metaclass=BuilderMeta):
         from ttmlir.dialects import ttcore
 
         # Set defaults if not provided
-        if oobVal is None:
-            oobVal = ttcore.OOBVal.Undef
         if memorySpace is None:
             memorySpace = ttcore.MemorySpace.DeviceL1
         if memory_layout is None:
@@ -879,7 +881,6 @@ class Builder(metaclass=BuilderMeta):
             logical_shape,
             tiled,
             element_dtype,
-            oobVal,
             memorySpace,
             grid,
             index_map,

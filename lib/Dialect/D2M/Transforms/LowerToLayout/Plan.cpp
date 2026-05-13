@@ -85,26 +85,6 @@ Type getScalarType(Type type) {
   return type;
 }
 
-// A target layout requires masking iff its OOBVal is non-Undef and the tiled
-// shape has padding beyond the logical shape.
-bool needsMasking(ttcore::MetalLayoutAttr layout, RankedTensorType tensorType) {
-  if (layout.getOobVal() == ttcore::OOBVal::Undef) {
-    return false;
-  }
-  if (!ttcore::isTiled(tensorType)) {
-    return false;
-  }
-  ArrayRef<int64_t> logicalShape = layout.getLogicalShape();
-  ArrayRef<int64_t> dimAlignments = layout.getDimAlignments();
-  for (size_t i = 0; i < logicalShape.size(); ++i) {
-    if (ttmlir::utils::alignUp(logicalShape[i], dimAlignments[i]) !=
-        logicalShape[i]) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // Return true when the current buffer can be retagged with the target encoding
 // via d2m.view_layout {reinterpretLayout = true}; no data movement is required.
 bool canUseReinterpretLayoutView(const PlanState &current,
@@ -177,8 +157,8 @@ RankedTensorType createDeviceType(MLIRContext *ctx, RankedTensorType systemType,
   ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
       ctx, referenceLayout.getLogicalShape(),
       referenceLayout.getDimAlignments(),
-      referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
-      ttcore::MemorySpace::DeviceL1, referenceLayout.getMemoryLayout());
+      referenceLayout.getCollapsedIntervals(), ttcore::MemorySpace::DeviceL1,
+      referenceLayout.getMemoryLayout());
 
   ArrayRef<int64_t> tileShape;
   if (ttcore::isTiled(systemType)) {
@@ -230,11 +210,11 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
                                                            tensorGrid);
     layout = ttcore::MetalLayoutAttr::get(
         ctx, baseLayout.getLogicalShape(), dimAlignments, collapsedIntervals,
-        baseLayout.getOobVal(), memSpace, baseLayout.getMemoryLayout());
+        memSpace, baseLayout.getMemoryLayout());
   } else {
     layout = ttcore::MetalLayoutAttr::get(
         ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
-        baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(), memSpace,
+        baseLayout.getCollapsedIntervals(), memSpace,
         baseLayout.getMemoryLayout());
   }
 
@@ -269,8 +249,8 @@ void emitTilizedReshardDecomposition(
 
   auto scalarTargetLayout = ttcore::MetalLayoutAttr::get(
       ctx, targetLayout.getLogicalShape(), targetLayout.getDimAlignments(),
-      targetLayout.getCollapsedIntervals(), targetLayout.getOobVal(),
-      ttcore::MemorySpace::DeviceL1, targetLayout.getMemoryLayout());
+      targetLayout.getCollapsedIntervals(), ttcore::MemorySpace::DeviceL1,
+      targetLayout.getMemoryLayout());
   auto scalarTargetGridShape = targetLayout.getGridShape(targetType);
   auto scalarTargetType =
       RankedTensorType::get(scalarTargetLayout.getDeviceShape(
@@ -371,12 +351,6 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     // Metadata-only changes that do not require data mutation can be erased:
     // downstream ops may continue to use the existing physical buffer/layout,
     // which avoids creating type-only views that later lowering does not need.
-    bool needsMaskForOobChange =
-        current.getLayout()->getOobVal() != tgt.getLayout()->getOobVal() &&
-        needsMasking(*tgt.getLayout(), tgt.type);
-    if (needsMaskForOobChange) {
-      plan.push_back(ReinterpretLayoutStep{tgt.type});
-    }
     current.type = tgt.type;
   }
 
@@ -416,8 +390,7 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
             ctx, tgt.getLayout()->getLogicalShape(),
             tgt.getLayout()->getDimAlignments(),
             tgt.getLayout()->getCollapsedIntervals(),
-            tgt.getLayout()->getOobVal(), ttcore::MemorySpace::DeviceL1,
-            tgt.getLayout()->getMemoryLayout());
+            ttcore::MemorySpace::DeviceL1, tgt.getLayout()->getMemoryLayout());
         auto intermediateType = RankedTensorType::get(
             deviceShape, current.type.getElementType(), intermediateLayout);
         auto output =
@@ -457,16 +430,6 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     current.remapping = tgt.remapping;
   }
 
-  // MASKING: after reshards/layout changes have established the final tiled
-  // layout, write the target's OOB fill value into any padded region.
-  if (current.hasLayout() && ttcore::isTiled(current.type) &&
-      needsMasking(*current.getLayout(), current.type)) {
-    plan.push_back(MaskStep{
-        current.getLayout()->getOobVal(),
-        llvm::to_vector(current.getLayout()->getLogicalShape()),
-        makeOutputSpec(current.type, current.vgmForward, current.vgmInverse)});
-  }
-
   // DEVICE → SYSTEM.
   if (current.hasLayout() && !tgt.hasLayout()) {
     plan.push_back(DeviceToHostStep{tgt.type});
@@ -502,11 +465,6 @@ std::optional<Step> tryFuse(const Step &a, const Step &b) {
   // F3: Reshard; Reshard → Reshard(second).
   if (std::holds_alternative<ReshardStep>(a) &&
       std::holds_alternative<ReshardStep>(b)) {
-    return b;
-  }
-  // F6: Mask(v1); Mask(v2) → Mask(v2). Canonicalizer invariant: v2 != Undef.
-  if (std::holds_alternative<MaskStep>(a) &&
-      std::holds_alternative<MaskStep>(b)) {
     return b;
   }
   return std::nullopt;
@@ -545,57 +503,6 @@ bool applyFusionPass(Plan &plan) {
   return changed;
 }
 
-// Return true iff (a; b) has the same semantics as (b; a). Only kind-based
-// cases are encoded here; commutations with payload preconditions (e.g.
-// Tilize ⇌ Reshard only when tile-aligned) require more state and are
-// deliberately omitted.
-bool commutesFreely(const Step &a, const Step &b) {
-  // Mask's effect is in logical coordinates, which Reshard preserves.
-  if (std::holds_alternative<MaskStep>(a) &&
-      std::holds_alternative<ReshardStep>(b)) {
-    return true;
-  }
-  if (std::holds_alternative<ReshardStep>(a) &&
-      std::holds_alternative<MaskStep>(b)) {
-    return true;
-  }
-  return false;
-}
-
-// Return true iff swapping plan[i] and plan[i+1] creates a new adjacency
-// (either with plan[i-1] or with plan[i+2]) that the cancel / fuse passes
-// would then simplify. Gates the commutation pass against infinite swap
-// loops and unmotivated churn.
-bool swapEnablesSimplification(const Plan &plan, size_t i) {
-  const Step &a = plan[i];
-  const Step &b = plan[i + 1];
-  if (i > 0) {
-    const Step &leftNeighbor = plan[i - 1];
-    if (cancels(leftNeighbor, b) || tryFuse(leftNeighbor, b).has_value()) {
-      return true;
-    }
-  }
-  if (i + 2 < plan.size()) {
-    const Step &rightNeighbor = plan[i + 2];
-    if (cancels(a, rightNeighbor) || tryFuse(a, rightNeighbor).has_value()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool applyCommutationPass(Plan &plan) {
-  bool changed = false;
-  for (size_t i = 0; i + 1 < plan.size(); ++i) {
-    if (commutesFreely(plan[i], plan[i + 1]) &&
-        swapEnablesSimplification(plan, i)) {
-      std::swap(plan[i], plan[i + 1]);
-      changed = true;
-    }
-  }
-  return changed;
-}
-
 } // namespace
 
 Plan minimize(Plan plan) {
@@ -604,7 +511,6 @@ Plan minimize(Plan plan) {
     changed = false;
     changed |= applyCancellationPass(plan);
     changed |= applyFusionPass(plan);
-    changed |= applyCommutationPass(plan);
   }
   return plan;
 }

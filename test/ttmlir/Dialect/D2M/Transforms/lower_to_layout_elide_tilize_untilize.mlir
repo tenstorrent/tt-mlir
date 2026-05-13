@@ -10,8 +10,8 @@
 // which saves one tile_tilize_block and one tile_untilize_block op compared
 // to the pre-refactor behavior.
 
-#src = #ttcore.metal_layout<logical_shape = 32x5120, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#dst = #ttcore.metal_layout<logical_shape = 32x5120, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#src = #ttcore.metal_layout<logical_shape = 32x5120, dim_alignments = 32x256, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#dst = #ttcore.metal_layout<logical_shape = 32x5120, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
 
 // CHECK-LABEL: func.func @elide_redundant_tilize_untilize
 // The minimizer drops the tilize-then-untilize round trip: we expect exactly

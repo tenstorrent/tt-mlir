@@ -14,9 +14,11 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -648,6 +650,160 @@ bool ToLayoutOp::isDeviceToHost() {
 }
 
 //===----------------------------------------------------------------------===//
+// MaskOp
+//===----------------------------------------------------------------------===//
+
+static bool hasNoMaskablePadding(ShapedType shapedType,
+                                 ArrayRef<int64_t> logicalShape) {
+  auto tileType = dyn_cast<ttcore::TileType>(shapedType.getElementType());
+  if (!tileType) {
+    return true;
+  }
+
+  ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
+  if (!layout || logicalShape.size() < 2) {
+    return false;
+  }
+
+  if (auto metalLayout = dyn_cast<ttcore::MetalLayoutAttr>(layout)) {
+    ArrayRef<int64_t> dimAlignments = metalLayout.getDimAlignments();
+    if (logicalShape.size() != dimAlignments.size()) {
+      return false;
+    }
+    for (auto [logicalDim, alignment] :
+         llvm::zip(logicalShape, dimAlignments)) {
+      if (ttmlir::utils::alignUp(logicalDim, alignment) != logicalDim) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  ArrayRef<int64_t> gridShape = layout.getGridShape(shapedType);
+  ArrayRef<int64_t> shardShape = layout.getShardShape(shapedType);
+  if (gridShape.size() < 2 || shardShape.size() < 2) {
+    return false;
+  }
+
+  ArrayRef<int64_t> tileShape = tileType.getShape();
+  int64_t physicalRows = gridShape[gridShape.size() - 2] *
+                         shardShape[shardShape.size() - 2] * tileShape[0];
+  int64_t physicalCols = gridShape[gridShape.size() - 1] *
+                         shardShape[shardShape.size() - 1] * tileShape[1];
+  return logicalShape[logicalShape.size() - 2] == physicalRows &&
+         logicalShape[logicalShape.size() - 1] == physicalCols;
+}
+
+mlir::OpFoldResult MaskOp::fold(FoldAdaptor) {
+  if (!isa<RankedTensorType>(getResult().getType())) {
+    return {};
+  }
+
+  if (getInput().getType() != getResult().getType()) {
+    return {};
+  }
+
+  if (getFillValue() == ttcore::OOBVal::Undef) {
+    return getInput();
+  }
+
+  auto inputType = dyn_cast<ShapedType>(getInput().getType());
+  if (inputType && hasNoMaskablePadding(inputType, getLogicalShape())) {
+    return getInput();
+  }
+
+  return {};
+}
+
+::mlir::LogicalResult MaskOp::verify() {
+  auto inputType = dyn_cast<ShapedType>(getInput().getType());
+  auto outputType = dyn_cast<ShapedType>(getOutput().getType());
+  auto resultType = dyn_cast<ShapedType>(getResult().getType());
+
+  if (!inputType || !outputType || !resultType) {
+    return emitOpError("input, output, and result must be shaped types");
+  }
+
+  if (inputType != outputType || outputType != resultType) {
+    return emitOpError("input, output, and result must have identical types");
+  }
+
+  if (getLogicalShape().size() < 2) {
+    return emitOpError("logical_shape must have rank at least 2");
+  }
+
+  return success();
+}
+
+bool MaskOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.getOperandNumber() == 0;
+}
+
+bool MaskOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.getOperandNumber() == 1;
+}
+
+mlir::LogicalResult
+MaskOp::bufferize(mlir::RewriterBase &rewriter,
+                  const mlir::bufferization::BufferizationOptions &options,
+                  mlir::bufferization::BufferizationState &state) {
+  if (!isa<RankedTensorType>(getResult().getType())) {
+    return failure();
+  }
+
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  auto maybeOutput =
+      mlir::bufferization::getBuffer(rewriter, getOutput(), options, state);
+  if (failed(maybeOutput)) {
+    return maybeOutput;
+  }
+
+  rewriter.create<MaskOp>(getLoc(), maybeOutput->getType(), *maybeInput,
+                          *maybeOutput, getLogicalShapeAttr(),
+                          getFillValueAttr());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     *maybeOutput);
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+MaskOp::getAliasingValues(mlir::OpOperand &operand,
+                          const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  if (operand.getOperandNumber() == 1) {
+    aliasList.addAlias(
+        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+MaskOp::getBufferType(mlir::Value value,
+                      const mlir::bufferization::BufferizationOptions &,
+                      const mlir::bufferization::BufferizationState &,
+                      ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+void MaskOp::getEffects(mlir::SmallVectorImpl<mlir::SideEffects::EffectInstance<
+                            mlir::MemoryEffects::Effect>> &effects) {
+  if (!isa<MemRefType>(getInput().getType())) {
+    return;
+  }
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
 // ToDeviceOp
 //===----------------------------------------------------------------------===//
 
@@ -988,9 +1144,6 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
           inputTensor.getEncoding());
       auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
           resultTensor.getEncoding());
-      if (inputLayout.getOobVal() != resultLayout.getOobVal()) {
-        return emitOpError("view cannot change oob_val");
-      }
 
       if (inputLayout.getMemorySpace() != resultLayout.getMemorySpace()) {
         return emitOpError("view cannot change memory space");
@@ -2047,88 +2200,49 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           return mlir::failure();
         }
 
-        auto replaceWithOutputAlloc =
-            [op](PatternRewriter &rewriter, Region &region, Operation *regionOp,
-                 OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+        // Only works on tensor types (pre-bufferization).
+        // Since generic op is DPS, we can check if the number of results is
+        // zero to determine if we're in a non-tensor-bufferized form, and skip
+        // this pattern in that case.
+        if (op->getNumResults() == 0) {
+          return mlir::failure();
+        }
+
+        auto replaceWithEmpty = [](PatternRewriter &rewriter, Region &region,
+                                   Operation *regionOp,
+                                   OpOperand &initOperand) -> bool {
+          if (!mlir::isa<RankedTensorType>(initOperand.get().getType())) {
+            return false;
+          }
+
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
-          if (origDefiningOp &&
-              !mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
+          if (!origDefiningOp ||
+              mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
             return false;
           }
 
-          // Find the output alloc by positional counting.
-          Value outputAlloc = GenericOp::getOperandAlloc(region, dpsIOBoundary);
-
-          if (!outputAlloc || outputAlloc.use_empty()) {
-            return false;
-          }
-
-          // Find a wait/reserve that dominates the DPS operation.
-          Operation *waitOrReserve = nullptr;
-
-          // Get the parent function to compute dominance.
-          Operation *parentOp = op->getParentOp();
-          while (parentOp && !mlir::isa<FunctionOpInterface>(parentOp)) {
-            parentOp = parentOp->getParentOp();
-          }
-
-          assert(parentOp && "d2m.generic must be nested within a function");
-
-          // Use DominanceInfo for cross-block dominance checking.
-          DominanceInfo domInfo(parentOp);
-          for (Operation *user : outputAlloc.getUsers()) {
-            if (!mlir::isa<d2m::WaitOp, d2m::ReserveOp>(user)) {
-              continue;
-            }
-            // Check if this wait/reserve dominates the regionOp.
-            if (domInfo.dominates(user, regionOp)) {
-              waitOrReserve = user;
-              break;
-            }
-          }
-
-          if (!waitOrReserve) {
-            return false;
-          }
-
-          rewriter.modifyOpInPlace(regionOp, [&]() {
-            initOperand.assign(waitOrReserve->getResult(0));
-          });
-
-          if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(
-                  origDefiningOp)) {
-            rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
-                                        initOperand.get());
-          }
+          rewriter.setInsertionPoint(regionOp);
+          auto empty = rewriter.create<EmptyOp>(regionOp->getLoc(),
+                                                initOperand.get().getType(),
+                                                nullptr, nullptr);
+          initOperand.assign(empty);
 
           return true;
         };
 
-        int64_t dpsIOBoundary = op.getNumDpsInputs();
         bool updated = false;
         for (Region &region : op->getRegions()) {
-          if (op.getRegionThreadType(region.getRegionNumber()) !=
-              ThreadType::Compute) {
-            continue;
-          }
-
           region.walk([&](Operation *regionOp) {
-            if (DestinationStyleOpInterface dps =
-                    mlir::dyn_cast<DestinationStyleOpInterface>(regionOp);
+            if (linalg::GenericOp dps =
+                    mlir::dyn_cast<linalg::GenericOp>(regionOp);
                 dps) {
               for (OpOperand &initOperand : dps.getDpsInitsMutable()) {
                 assert(op.getNumDpsInits() == dps.getNumDpsInits());
                 assert(op.getNumDpsInits() == 1);
 
-                updated |= replaceWithOutputAlloc(rewriter, region, regionOp,
-                                                  initOperand, dpsIOBoundary);
+                updated |=
+                    replaceWithEmpty(rewriter, region, regionOp, initOperand);
               }
-            } else if (TileMatmulBlockOp tmb =
-                           mlir::dyn_cast<TileMatmulBlockOp>(regionOp);
-                       tmb) {
-              updated |=
-                  replaceWithOutputAlloc(rewriter, region, regionOp,
-                                         tmb.getOutputMutable(), dpsIOBoundary);
             }
           });
         }
@@ -3121,17 +3235,26 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
 
   GenericOp generic = region.getParentOfType<GenericOp>();
 
-  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops,
-  // stepping into blocking loops only. Do NOT walk into compute loops
-  // (scf.for without d2m.blocking_loop) — allocs inside those are local
-  // working buffers, not operand allocations.
+  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops.
+  //
+  // Descent into nested scf.for/affine.for is unconditional, but matching
+  // rules differ by context:
+  //  - At the top level or inside a blocking loop (tagged `d2m.blocking_loop`):
+  //    allocs match either by remote_load/remote_store association
+  //    (`assoc.hasRemoteUse`) or by positional declaration order.
+  //  - Inside a compute loop (scf.for/affine.for without `d2m.blocking_loop`):
+  //    only allocs with a direct remote_load/remote_store association are
+  //    considered operand allocs. Positional matching is disabled because
+  //    declaration order inside a compute loop has no relation to operand
+  //    declaration order; allocs without remote use there are local working
+  //    buffers, not operand allocations.
   //
   // d2m.get_cb ops are matched by operand_index when present, otherwise by
-  // their remote_load/remote_store binding. tensor.empty/memref.alloc ops are
-  // matched by positional order.
+  // their remote_load/remote_store binding.
   Value result;
   unsigned idx = 0;
-  std::function<void(Block &)> scanBlock = [&](Block &block) {
+  std::function<void(Block &, bool)> scanBlock = [&](Block &block,
+                                                     bool insideComputeLoop) {
     for (Operation &op : block) {
       if (result) {
         return;
@@ -3140,14 +3263,14 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
         LocalBufferAssociation assoc = analyzeLocalBufferAssociation(
             emptyOp.getResult(),
             generic ? generic.getOutputs().front() : Value());
-        if (assoc.hasRemoteUse || assoc.operand) {
+        if (assoc.hasRemoteUse || (assoc.operand && !insideComputeLoop)) {
           if (generic && assoc.operand &&
               generic.getOperandIndex(assoc.operand) ==
                   static_cast<int64_t>(operandIndex)) {
             result = emptyOp.getResult();
             return;
           }
-        } else {
+        } else if (!insideComputeLoop) {
           if (idx == operandIndex) {
             result = emptyOp.getResult();
             return;
@@ -3172,7 +3295,7 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
             result = allocOp.getResult();
             return;
           }
-        } else {
+        } else if (!insideComputeLoop) {
           if (idx == operandIndex) {
             result = allocOp.getResult();
             return;
@@ -3180,17 +3303,15 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
           ++idx;
         }
       } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          scanBlock(*forOp.getBody());
-        }
+        bool isBlocking = forOp->hasAttr("d2m.blocking_loop");
+        scanBlock(*forOp.getBody(), insideComputeLoop || !isBlocking);
       } else if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          scanBlock(*forOp.getBody());
-        }
+        bool isBlocking = forOp->hasAttr("d2m.blocking_loop");
+        scanBlock(*forOp.getBody(), insideComputeLoop || !isBlocking);
       }
     }
   };
-  scanBlock(region.front());
+  scanBlock(region.front(), /*insideComputeLoop=*/false);
 
   return result;
 }

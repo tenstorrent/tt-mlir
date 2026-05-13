@@ -153,11 +153,12 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   return normalizedOperandGrids;
 }
 
-GenericGridAnalysisResult
-GridAnalysis::analyzeGenericOp(GenericOp genericOp,
-                               ArrayRef<int64_t> targetGridShape) {
+GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
+    GenericOp genericOp,
+    const EffectiveTargetGridRange &effectiveTargetGridRange) {
   GenericGridAnalysisResult result;
-  result.effectiveTargetGrid = llvm::SmallVector<int64_t>(targetGridShape);
+  result.effectiveTargetGridRange = effectiveTargetGridRange;
+  ArrayRef<int64_t> targetGridShape = result.effectiveTargetGridRange.shape;
 
   // Build per-operand target grids. When a loop dimension maps to different
   // operand-dim positions across operands (e.g. matmul K is dim 1 of LHS but
@@ -293,8 +294,9 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
   return result;
 }
 
-llvm::SmallVector<int64_t>
-GridAnalysis::getTargetGridShape(GenericOp genericOp) const {
+EffectiveTargetGridRange
+GridAnalysis::getTargetGridRange(GenericOp genericOp) const {
+  EffectiveTargetGridRange targetGridRange;
   mlir::Region *region = genericOp->getParentRegion();
   if (auto spatialOp = mlir::dyn_cast<d2m::SpatialOp>(region->getParentOp())) {
     mlir::ArrayAttr gridRangesAttr = spatialOp.getGridRanges();
@@ -302,11 +304,17 @@ GridAnalysis::getTargetGridShape(GenericOp genericOp) const {
     if (gridRangesAttr && regionIndex < gridRangesAttr.size()) {
       ttcore::CoreRangeAttr range =
           mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr[regionIndex]);
-      return {range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
-              range.getEndCoord().getX() - range.getStartCoord().getX() + 1};
+      targetGridRange.shape = {
+          range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
+          range.getEndCoord().getX() - range.getStartCoord().getX() + 1};
+      targetGridRange.offset = {range.getStartCoord().getY(),
+                                range.getStartCoord().getX()};
+      return targetGridRange;
     }
   }
-  return llvm::SmallVector<int64_t>(deviceGridShape);
+  targetGridRange.shape = llvm::SmallVector<int64_t>(deviceGridShape);
+  targetGridRange.offset = {0, 0};
+  return targetGridRange;
 }
 
 GridAnalysis::GridAnalysis(Operation *moduleOp,
@@ -321,10 +329,11 @@ GridAnalysis::GridAnalysis(Operation *moduleOp,
       return;
     }
 
-    llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape(genericOp);
+    EffectiveTargetGridRange targetGridRange = getTargetGridRange(genericOp);
+    GenericGridAnalysisResult result =
+        analyzeGenericOp(genericOp, targetGridRange);
     results[genericOp.getOperation()] =
-        std::make_unique<GenericGridAnalysisResult>(
-            analyzeGenericOp(genericOp, targetGridShape));
+        std::make_unique<GenericGridAnalysisResult>(std::move(result));
   });
 }
 

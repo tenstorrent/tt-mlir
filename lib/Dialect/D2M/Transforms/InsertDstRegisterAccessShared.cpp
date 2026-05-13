@@ -182,6 +182,131 @@ bool isTileReductionOp(Operation *op) {
                    d2m::TileSFPUReduceSumOp>(op);
 }
 
+bool isPackerL1AccumulationSupportedDataType(ttcore::DataType dt) {
+  // The packer L1-acc path on Wormhole/Blackhole only operates on a fixed set
+  // of native formats. Block-float (bfp_*) outputs do NOT support L1
+  // accumulation: enabling it for those formats produces silently incorrect
+  // (catastrophic-PCC) results on hardware.
+  //
+  // Source of truth: tt-llk's `PACK_L1_ACC_FORMATS` in
+  // `tt_metal/tt-llk/tests/python_tests/quasar/test_pack_l1_acc_quasar.py`:
+  //   { Float16_b, Float16, Float32, Int32, Int8, UInt8 }
+  // (we don't have an Int8 enum in TTCore, so it is absent here).
+  switch (dt) {
+  case ttcore::DataType::Float32:
+  case ttcore::DataType::Float16:
+  case ttcore::DataType::BFloat16:
+  case ttcore::DataType::Int32:
+  case ttcore::DataType::UInt8:
+    return true;
+  default:
+    return false;
+  }
+}
+
+bool allTileMatmulOutputsSupportPackerL1Acc(Operation *loopOp) {
+  bool allSupported = true;
+  loopOp->walk([&](d2m::TileMatmulOp matmul) {
+    auto tileType =
+        mlir::dyn_cast<ttcore::TileType>(matmul.getResult().getType());
+    if (!tileType) {
+      // Be conservative: if we can't determine the tile element type, do not
+      // enable L1-acc.
+      allSupported = false;
+      return WalkResult::interrupt();
+    }
+    if (!isPackerL1AccumulationSupportedDataType(tileType.getDataType())) {
+      allSupported = false;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return allSupported;
+}
+
+// Returns true iff any AffineStore (in `copyInfos.stores`) or memref::StoreOp
+// (in `copyInfos.memrefStores`) recorded for this region depends on `iv`.
+// "Depends on" includes transitive dependence through subview indices.
+static bool anyOutputStoreDependsOnIV(const CopyInfoMap &copyInfos, Value iv) {
+  for (const auto &[loopOrOp, copyInfo] : copyInfos) {
+    for (const auto &record : copyInfo.stores) {
+      if (record.loadStore && accessDependsOnIV(record.loadStore, iv)) {
+        return true;
+      }
+    }
+    for (const auto &record : copyInfo.memrefStores) {
+      if (record.loadStore && accessDependsOnIV(record.loadStore, iv)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Compute the static trip count of an affine.for / scf.for loop body by
+// using its constant lower/upper bound and step. Returns std::nullopt if the
+// loop is not constant-bounded (in which case we conservatively allow L1-acc
+// at runtime, matching legacy behavior for non-constant K loops).
+static std::optional<int64_t> tryGetConstantTripCount(Operation *loopOp) {
+  if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(loopOp)) {
+    if (!affineFor.hasConstantBounds()) {
+      return std::nullopt;
+    }
+    int64_t lb = affineFor.getConstantLowerBound();
+    int64_t ub = affineFor.getConstantUpperBound();
+    int64_t step = affineFor.getStepAsInt();
+    if (step <= 0) {
+      return std::nullopt;
+    }
+    return llvm::divideCeil(std::max<int64_t>(0, ub - lb), step);
+  }
+  if (auto scfFor = mlir::dyn_cast<scf::ForOp>(loopOp)) {
+    auto lbCst = scfFor.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
+    auto ubCst = scfFor.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
+    auto stepCst = scfFor.getStep().getDefiningOp<arith::ConstantIndexOp>();
+    if (!lbCst || !ubCst || !stepCst) {
+      return std::nullopt;
+    }
+    int64_t lb = lbCst.value();
+    int64_t ub = ubCst.value();
+    int64_t step = stepCst.value();
+    if (step <= 0) {
+      return std::nullopt;
+    }
+    return llvm::divideCeil(std::max<int64_t>(0, ub - lb), step);
+  }
+  return std::nullopt;
+}
+
+Value findOutermostReductionLoopIVForL1Acc(Operation *acquireDstOp,
+                                           const CopyInfoMap &copyInfos) {
+  // `collectAncestorLoopIVs` returns IVs in outermost-to-innermost order
+  // (it reverses the upward walk).
+  SmallVector<Value> ancestorIVs = collectAncestorLoopIVs(acquireDstOp);
+  for (Value iv : ancestorIVs) {
+    if (anyOutputStoreDependsOnIV(copyInfos, iv)) {
+      // This loop indexes the output -- it is parallel, not a reduction.
+      continue;
+    }
+    // Found the outermost reduction loop. Only enable L1-acc if the loop
+    // actually iterates more than once (otherwise the per-iteration
+    // accumulation guard would never fire and we'd just emit dead code).
+    Operation *loopOp = nullptr;
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(iv)) {
+      loopOp = blockArg.getOwner()->getParentOp();
+    }
+    if (!loopOp) {
+      return nullptr;
+    }
+    std::optional<int64_t> tripCount = tryGetConstantTripCount(loopOp);
+    if (tripCount.has_value() && *tripCount <= 1) {
+      return nullptr;
+    }
+    return iv;
+  }
+  return nullptr;
+}
+
 void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
                         int scratchSlice) {
   TT_assertv(computeOp.getNumDstScratchSlices() == 1,
@@ -642,7 +767,7 @@ void emitDstCopyNest(
     llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
                             AffineMap, ValueRange)>
         accessReplacer,
-    bool enableL1Acc) {
+    bool disableL1Acc) {
   if (loadStoreRecords.empty()) {
     return;
   }
@@ -651,7 +776,7 @@ void emitDstCopyNest(
   // need a per-IV guard).
   Operation *copyLoop = nullptr;
   mlir::IRMapping copyLoopMapper;
-  if (!enableL1Acc) {
+  if (disableL1Acc) {
     std::tie(copyLoop, copyLoopMapper) =
         cloneAffineLoopSkeleton(rewriter, loopNestOrOp);
   }
@@ -662,7 +787,7 @@ void emitDstCopyNest(
     auto loadStoreMap = record.loadStore.getMap();
     auto loadStoreMemRefType = record.loadStore.getMemRefType();
 
-    if (!enableL1Acc) {
+    if (disableL1Acc) {
       mlir::IRMapping irMapper = copyLoopMapper;
       if (!record.guardIVs.empty()) {
         const bool isBcastGuard = record.bcast.has_value();
@@ -757,11 +882,9 @@ scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
   const auto cmpPredicate =
       isBcastGuard ? arith::CmpIPredicate::eq : arith::CmpIPredicate::ne;
 
-  auto zero = rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getIndexType(),
-      rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
-
   for (Value guardIV : guardIVs) {
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, guardIV.getType(), rewriter.getIntegerAttr(guardIV.getType(), 0));
     Value cmp =
         rewriter.create<arith::CmpIOp>(loc, cmpPredicate, guardIV, zero);
     if (isBcastGuard) {
@@ -982,7 +1105,7 @@ void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
 bool insertDstRegisterAccessFinalize(
     PatternRewriter &rewriter, GenericOp gOp, Region &region,
     unsigned dstCapacity, Operation *outermostInnerComputeLoop,
-    bool enableL1Acc, CopyInfoMap &copyInfos,
+    bool disableL1Acc, CopyInfoMap &copyInfos,
     DstIntermediatesMap &dstIntermediates,
     llvm::function_ref<void(PatternRewriter &, Location, Value,
                             const CopyInfoMap &, bool)>
@@ -1006,23 +1129,28 @@ bool insertDstRegisterAccessFinalize(
   Value dst = acquireDst.getResult();
 
   Value l1AccLoopIV = nullptr;
-  if (enableL1Acc) {
-    SmallVector<Value> loopIVsInScope =
-        collectAncestorLoopIVs(acquireDst.getOperation());
-    if (!loopIVsInScope.empty()) {
-      l1AccLoopIV = loopIVsInScope.front();
-    }
+  if (!disableL1Acc) {
+    // L1-acc must be triggered by the outermost ancestor *reduction* loop --
+    // i.e. an outer loop that does NOT index the output store. Using the
+    // outermost ancestor unconditionally is incorrect for batched matmuls,
+    // where the outermost loop is parallel (e.g. the batch dim) and turning
+    // on L1-acc on its second iteration would cause the packer to accumulate
+    // a fresh batch's tile into uninitialized L1 contents at a different
+    // output address.
+    l1AccLoopIV = findOutermostReductionLoopIVForL1Acc(
+        acquireDst.getOperation(), copyInfos);
     if (!l1AccLoopIV) {
-      LDBG() << "Skipping L1 accumulation insertion: no in-scope loop IV";
-      enableL1Acc = false;
+      LDBG() << "Skipping L1 accumulation insertion: no outer reduction loop "
+                "with trip count > 1";
+      disableL1Acc = true;
     }
   }
 
   // Emit path-specific data copy loops.
-  emitDataCopies(rewriter, loc, dst, copyInfos, enableL1Acc);
+  emitDataCopies(rewriter, loc, dst, copyInfos, disableL1Acc);
 
   // Insert optional L1 accumulation guard.
-  if (enableL1Acc) {
+  if (!disableL1Acc) {
     insertPackerL1AccGuard(rewriter, loc, acquireDst, l1AccLoopIV);
   }
 
