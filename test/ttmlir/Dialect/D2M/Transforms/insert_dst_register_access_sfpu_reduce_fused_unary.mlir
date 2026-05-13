@@ -1,0 +1,81 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// Regression coverage for #8081 and the allocator redesign in #8347.
+//
+// Topology: an SFPU integer reduction (`d2m.tile_sfpu_reduce_sum`) whose
+// result is consumed by a fused unary op (`d2m.tile_negative`) inside the
+// same generic region.  The SFPU reduce declares
+// `getNumDstScratchSlices() == 1`, so the dst-access insertion pass
+// reserves a private scratch slot for it; the fused unary then asks for
+// an in-place DST slot via `getCurrSliceIndex()`.
+//
+// Pre-fix, the scheduled allocator pushed scratch onto `inputStack` and
+// updated `currSliceIndex`, so `getCurrSliceIndex()` returned the scratch
+// slot and the fused negate would read/write the wrong tile (slot 1, the
+// scratch slot, instead of slot 0, the reduce's output).
+//
+// Post-fix, `allocateScratch()` parks scratch in its own pool: the negate
+// reads/writes the reduce's output slot (slot 0), and `dst_scratch_index`
+// on the reduce points at the separately-allocated slot 1.
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-scheduled --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
+
+#l1_ = #ttcore.memory_space<l1>
+#dst_ = #ttcore.memory_space<dst>
+
+module {
+  // ----------------------------------------------------------------------
+  // Scheduled fallback path (flat block).  SFPU int reduce's accumulator
+  // operand (`c`, operand index 1) is loaded into DST slot 0; scratch
+  // lives in slot 1.  The fused `tile_negative` consumes the reduce's
+  // result in place on slot 0.
+  // ----------------------------------------------------------------------
+  // CHECK-LABEL: func.func @fused_negate_after_int_reduce_scheduled
+  func.func @fused_negate_after_int_reduce_scheduled(
+      %in0: memref<1x1x1x1x!ttcore.tile<32x32, si32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+      %init: memref<1x1x1x1x!ttcore.tile<32x32, si32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+      %out0: memref<1x1x1x1x!ttcore.tile<32x32, si32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%in0, %init : memref<1x1x1x1x!ttcore.tile<32x32, si32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, si32>, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out0 : memref<1x1x1x1x!ttcore.tile<32x32, si32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    ^unified0:
+      %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, si32>, #l1_>>
+      %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, si32>, #l1_>>
+      %cb2_raw = d2m.get_cb(2) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, si32>, #l1_>>
+      %cb0 = d2m.wait %cb0_raw : !d2m.cb<memref<1x1x!ttcore.tile<32x32, si32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, si32>, #l1_>
+      %cb1 = d2m.wait %cb1_raw : !d2m.cb<memref<1x1x!ttcore.tile<32x32, si32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, si32>, #l1_>
+      %cb2 = d2m.reserve %cb2_raw : !d2m.cb<memref<1x1x!ttcore.tile<32x32, si32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, si32>, #l1_>
+      %a = affine.load %cb0[0, 0] : memref<1x1x!ttcore.tile<32x32, si32>, #l1_>
+      %c = affine.load %cb1[0, 0] : memref<1x1x!ttcore.tile<32x32, si32>, #l1_>
+      %r = "d2m.tile_sfpu_reduce_sum"(%a, %c) {reduce_dim = #d2m<reduce_dim R>} : (!ttcore.tile<32x32, si32>, !ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
+      %neg = "d2m.tile_negative"(%r) : (!ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
+      affine.store %neg, %cb2[0, 0] : memref<1x1x!ttcore.tile<32x32, si32>, #l1_>
+    }
+    // si32 -> 4-tile DST capacity.
+    // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<4x!ttcore.tile<32x32, si32>, #dst>
+    //
+    // CB->DST copy for the reduce's accumulator (operand index 1, slot 0):
+    // CHECK: affine.store %{{.*}}, %[[DST]][0]
+    //
+    // Reduce reads its accumulator from DST slot 0 and gets scratch slot 1
+    // (separately allocated, no longer pushed onto `inputStack`):
+    // CHECK: affine.load %[[DST]][0]
+    // CHECK: %{{.*}} = "d2m.tile_sfpu_reduce_sum"({{.*}}) <{dst_scratch_index = 1 : i64, reduce_dim = #d2m<reduce_dim R>}>
+    //
+    // Reduce's output stored back to slot 0; the fused `tile_negative`
+    // reads slot 0 (the reduce's output) -- pre-fix it would have read
+    // slot 1 (the scratch) via the polluted `getCurrSliceIndex()`:
+    // CHECK: affine.store %{{.*}}, %[[DST]][0]
+    // CHECK: affine.load %[[DST]][0]
+    // CHECK: "d2m.tile_negative"
+    // CHECK-NOT: %[[DST]][1]
+    // CHECK: affine.store %{{.*}}, %[[DST]][0]
+    //
+    // DST->CB store: read final from slot 0 (not slot 1):
+    // CHECK: affine.load %[[DST]][0]
+    // CHECK: affine.store
+    return
+  }
+}
