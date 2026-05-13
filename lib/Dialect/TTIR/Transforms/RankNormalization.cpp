@@ -72,17 +72,13 @@ static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
       return;
     }
 
-    bool hasTTIROp = false;
-    funcOp.walk([&](Operation *inner) {
-      if (isa<ttir::TTIRDialect>(inner->getDialect())) {
-        hasTTIROp = true;
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
-    if (hasTTIROp) {
-      result.insert(funcOp);
+    // Skip only const_eval helpers; they are intentionally TTNN-only with
+    // rank<2 signatures. Every other function (forward, trace, D2M
+    // subgraph, forward CPU, ...) participates as in the pre-#8248 logic.
+    if (ttmlir::utils::isConstEvalFunc(funcOp)) {
+      return;
     }
+    result.insert(funcOp);
   });
   return result;
 }
