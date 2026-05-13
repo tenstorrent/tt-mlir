@@ -110,6 +110,88 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
     }];
 }
 
+def D2M_DFB : D2M_Type<"DFB", "dfb", [ShapedTypeInterface, Bufferization_TensorLikeTypeInterface, Bufferization_BufferLikeTypeInterface]> {
+    let summary = "D2M dataflow buffer type.";
+    let description = [{
+        Dataflow buffer type that wraps a memref for non-pure semantics.
+        Quasar replacement for D2M_CB; used in d2m.generic region arguments
+        to represent post-bufferization MPMC dataflow-buffer semantics.
+
+        Like D2M_CB this type also supports pure tensor semantics (hence
+        ShapedType) to enable fully formed generic ops that come through
+        the pipeline via DSL paths.
+
+        Cardinality (num_producers, num_consumers) and access pattern are
+        carried on the underlying memref's #ttcore.dfb_layout, not on this
+        wrapper type. The wrapper exists solely to give DFB-typed values
+        a vocabulary distinct from CBs so the existing CB pipeline is
+        unaffected on Wormhole/Blackhole.
+    }];
+    let parameters = (ins "ShapedType":$underlying);
+    let assemblyFormat = "`<` $underlying `>`";
+
+    let skipDefaultBuilders = 1;
+    let builders = [
+      TypeBuilder<(ins "mlir::ShapedType":$underlying), [{
+        return $_get($_ctxt, underlying);
+      }]>,
+      TypeBuilderWithInferredContext<(ins "mlir::ShapedType":$underlying), [{
+        return $_get(underlying.getContext(), underlying);
+      }]>,
+    ];
+
+    let extraClassDeclaration = [{
+      mlir::ShapedType cloneWith(std::optional<llvm::ArrayRef<int64_t>> shape,
+                                 mlir::Type elementType) {
+        auto clone = getUnderlying().cloneWith(shape, elementType);
+        return mlir::cast<mlir::ShapedType>(get(clone));
+      }
+
+      template <typename T>
+      T getUnderlyingAs() {
+        return mlir::cast<T>(getUnderlying());
+      }
+
+      mlir::Type getElementType() {
+        return getUnderlying().getElementType();
+      }
+
+      bool hasRank() {
+        return getUnderlying().hasRank();
+      }
+
+      llvm::ArrayRef<int64_t> getShape() {
+        return getUnderlying().getShape();
+      }
+
+      bool hasTensorType() {
+        return mlir::isa<RankedTensorType>(getUnderlying());
+      }
+
+      bool hasMemRefType() {
+        return mlir::isa<MemRefType>(getUnderlying());
+      }
+
+      mlir::FailureOr<mlir::bufferization::BufferLikeType> getBufferType(
+        const mlir::bufferization::BufferizationOptions &,
+        llvm::function_ref<mlir::InFlightDiagnostic()>) {
+        auto underlying = MemRefType::get(getShape(), getElementType(), nullptr,
+            ttcore::MemorySpaceAttr::get(getContext(), ttcore::MemorySpace::DeviceL1));
+        return mlir::cast<bufferization::BufferLikeType>(get(
+                mlir::cast<ShapedType>(underlying)));
+      }
+
+      mlir::LogicalResult verifyCompatibleBufferType(
+        mlir::bufferization::BufferLikeType bufferType,
+        llvm::function_ref<mlir::InFlightDiagnostic()>) {
+        auto shapedType = mlir::dyn_cast<ShapedType>(bufferType);
+        return success(shapedType &&
+                       getElementType() == shapedType.getElementType() &&
+                       getShape() == shapedType.getShape());
+      }
+    }];
+}
+
 def D2M_GlobalSemaphore : D2M_Type<"GlobalSemaphore", "global_semaphore"> {
     let summary = "D2M global semaphore type.";
     let description = "Global semaphore type used with semaphore wait/set ops to synchronize cores.";

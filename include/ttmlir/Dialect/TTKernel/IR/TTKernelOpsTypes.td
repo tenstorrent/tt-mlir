@@ -38,6 +38,42 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     }];
 }
 
+def TTKernel_DFB : TTKernel_Type<"DFB", "dfb"> {
+    let summary = "TTKernel dfb";
+    let description = [{
+      Dataflow buffer type in TTKernel dialect. Quasar replacement for
+      TTKernel_CB; parameterized by the number of entries, the element type,
+      and the producer/consumer cardinality used to size the underlying
+      tile-counter array on Quasar.
+
+      The kernel-side device API (reserve_back / push_back / wait_front /
+      pop_front / finish) does not vary with cardinality — the consumer
+      slot binding is established host-side via
+      BindDataflowBufferToProducerConsumerKernels. The cardinality is kept
+      on the type for verifier/lowering use only.
+    }];
+    let parameters = (ins "int64_t":$num_entries, "Type":$element_type,
+                          "uint32_t":$num_producers, "uint32_t":$num_consumers);
+    let assemblyFormat = "`<` $num_entries `,` $element_type `,` $num_producers `,` $num_consumers `>`";
+
+    let builders = [
+      TypeBuilderWithInferredContext<(ins "mlir::MemRefType":$memref,
+                                          "uint32_t":$numProducers,
+                                          "uint32_t":$numConsumers), [{
+        return $_get(memref.getContext(), memref.getNumElements(),
+                     memref.getElementType(), numProducers, numConsumers);
+      }]>,
+    ];
+
+    let extraClassDeclaration = [{
+        int64_t getNumTiles() const {
+          assert(mlir::isa<mlir::tt::ttcore::TileType>(getElementType()) &&
+                 "getNumTiles only supports tile element type");
+          return getNumEntries();
+        }
+    }];
+}
+
 def TTKernel_LocalSemaphore : TTKernel_Type<"LocalSemaphore", "local_semaphore"> {
   let summary = "TTKernel semaphore";
   let description = "Local semaphore type in TTKernel dialect";

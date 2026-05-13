@@ -138,4 +138,37 @@ def TTMetal_KernelConfigAttr : AnyAttrOf<[TTMetal_ComputeConfigAttr, TTMetal_Noc
 
 def TTMetal_KernelConfigArrayAttr : TypedArrayAttrBase<TTMetal_KernelConfigAttr, "">;
 
+def TTMetal_DataflowBufferConfigAttr : TTMetal_Attr<"DataflowBufferConfig", "dfb_config"> {
+  let summary = "TTMetal Dataflow Buffer config attribute.";
+  let description = [{
+    Configuration for a Quasar Dataflow Buffer (DFB), mirroring the
+    DataflowBufferConfig struct in tt-metal's experimental DFB API
+    (`experimental::dfb::CreateDataflowBuffer`).
+
+    - entry_size: size of one DFB entry in bytes.
+    - num_entries: number of entries in the buffer.
+    - num_producers, num_consumers: cardinality.
+    - producer_risc_mask, consumer_risc_mask: bitmask of participating
+      RISCs (bits 0-7: DM RISCs, bits 8-15: Tensix compute RISCs).
+    - producer_pattern, consumer_pattern: STRIDED vs BLOCKED access pattern.
+    - enable_implicit_sync: when true, use transaction-id-based sync
+      instead of explicit reserve/push/wait/pop (currently always false in
+      the compiler — implicit sync is out of scope for the MVP).
+    - data_format: element data format.
+  }];
+
+  let parameters = (ins "uint32_t":$entry_size,
+                        "uint32_t":$num_entries,
+                        "uint32_t":$num_producers,
+                        "uint32_t":$num_consumers,
+                        "uint32_t":$producer_risc_mask,
+                        "uint32_t":$consumer_risc_mask,
+                        "mlir::tt::ttcore::DFBAccessPatternAttr":$producer_pattern,
+                        "mlir::tt::ttcore::DFBAccessPatternAttr":$consumer_pattern,
+                        "bool":$enable_implicit_sync,
+                        "mlir::tt::ttcore::DataTypeAttr":$data_format);
+
+  let assemblyFormat = "`<` `entry_size` `=` $entry_size `,` `num_entries` `=` $num_entries `,` `num_producers` `=` $num_producers `,` `num_consumers` `=` $num_consumers `,` `producer_risc_mask` `=` $producer_risc_mask `,` `consumer_risc_mask` `=` $consumer_risc_mask `,` `producer_pattern` `=` $producer_pattern `,` `consumer_pattern` `=` $consumer_pattern `,` `enable_implicit_sync` `=` $enable_implicit_sync `,` `data_format` `=` $data_format `>`";
+}
+
 #endif

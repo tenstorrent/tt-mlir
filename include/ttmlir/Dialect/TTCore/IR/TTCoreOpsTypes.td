@@ -319,6 +319,50 @@ def TTCore_CBLayoutAttr : TTCore_Attr<"CBLayout", "cb_layout", [MemRefLayoutAttr
   }];
 }
 
+def TTCore_DFBLayoutAttr : TTCore_Attr<"DFBLayout", "dfb_layout", [MemRefLayoutAttrInterface]> {
+  let summary = "Dataflow buffer layout attribute for Quasar MPMC buffers.";
+  let description = [{
+    Describes the layout of a Quasar Dataflow Buffer (DFB) — the MPMC
+    replacement for Wormhole/Blackhole Circular Buffers. Like CBLayoutAttr
+    it tags a per-core L1-local memref shape, but additionally carries the
+    DFB's cardinality (number of producers and consumers) and the access
+    pattern that determines how entries are distributed across them.
+
+    - Stride: Stride of each dimension in bytes.
+    - NumEntries: Number of backing entries (analogous to CB num_pages).
+    - NumProducers: Number of producer threads cooperating on this DFB.
+    - NumConsumers: Number of consumer threads cooperating on this DFB.
+    - ProducerPattern: STRIDED (interleaved across producers) or BLOCKED
+      (each producer owns a contiguous region).
+    - ConsumerPattern: STRIDED (each consumer reads its own interleaved
+      slice) or BLOCKED (entries are broadcast to all consumers).
+
+    For the 1P-1C subset this attribute behaves like a CBLayoutAttr with
+    num_entries replacing buffers.
+  }];
+  let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
+                        "uint32_t":$num_entries,
+                        "uint32_t":$num_producers,
+                        "uint32_t":$num_consumers,
+                        "DFBAccessPattern":$producer_pattern,
+                        "DFBAccessPattern":$consumer_pattern);
+
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $num_entries `,` $num_producers `,` $num_consumers `,` $producer_pattern `,` $consumer_pattern `>`";
+
+  let extraClassDeclaration = [{
+    static DFBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize,
+                             uint32_t numEntries, uint32_t numProducers, uint32_t numConsumers,
+                             DFBAccessPattern producerPattern, DFBAccessPattern consumerPattern);
+    static DFBLayoutAttr get(ArrayRef<int64_t> shape, Type elementType,
+                             uint32_t numEntries, uint32_t numProducers, uint32_t numConsumers,
+                             DFBAccessPattern producerPattern, DFBAccessPattern consumerPattern);
+
+    AffineMap getAffineMap() const;
+
+    unsigned getRank() const { return getStride().size(); }
+  }];
+}
+
 def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
   let summary = "Interleaved layout attribute in TT dialect";
   let description = [{
@@ -575,6 +619,10 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
 }
 
 def TTCore_MemorySpaceAttr : EnumAttr<TTCore_Dialect, TTCore_MemorySpace, "memory_space"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTCore_DFBAccessPatternAttr : EnumAttr<TTCore_Dialect, TTCore_DFBAccessPattern, "dfb_access_pattern"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

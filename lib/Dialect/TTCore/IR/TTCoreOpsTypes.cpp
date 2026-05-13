@@ -646,6 +646,35 @@ mlir::AffineMap CBLayoutAttr::getAffineMap() const {
                                                  getContext());
 }
 
+DFBLayoutAttr DFBLayoutAttr::get(mlir::MLIRContext *context,
+                                 ArrayRef<int64_t> shape, uint64_t elementSize,
+                                 uint32_t numEntries, uint32_t numProducers,
+                                 uint32_t numConsumers,
+                                 DFBAccessPattern producerPattern,
+                                 DFBAccessPattern consumerPattern) {
+  auto strides =
+      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
+  return get(context, strides, numEntries, numProducers, numConsumers,
+             producerPattern, consumerPattern);
+}
+
+DFBLayoutAttr DFBLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
+                                 uint32_t numEntries, uint32_t numProducers,
+                                 uint32_t numConsumers,
+                                 DFBAccessPattern producerPattern,
+                                 DFBAccessPattern consumerPattern) {
+  return get(elementType.getContext(), shape, getElementSizeBytes(elementType),
+             numEntries, numProducers, numConsumers, producerPattern,
+             consumerPattern);
+}
+
+mlir::AffineMap DFBLayoutAttr::getAffineMap() const {
+  // Mirror CBLayoutAttr: identity map keeps downstream memref.cast lowering
+  // intact; cardinality and access pattern do not affect logical indexing.
+  return mlir::AffineMap::getMultiDimIdentityMap(getStride().size(),
+                                                 getContext());
+}
+
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
                                                  ArrayRef<int64_t> shape,
                                                  uint64_t elementSize) {
