@@ -2,6 +2,8 @@
 
 These perf tests live in `test/ttmlir/Silicon/TTNN/{n150,llmbox,galaxy}/optimizer/single_block_layer_perf_tests/` and consume model fixtures from `test/ttmlir/models/single_blocks_and_layers/`. The fixtures are generated upstream in `tt-xla`. The scripts in this directory pull them across and keep the lit tests in sync.
 
+> Today only the `n150/...` subtree is checked in; the `llmbox/...` and `galaxy/...` dirs (and their `lit.local.cfg`) are created on demand by `update_lit_tests.sh` the first time a matching fixture is scaffolded.
+
 ## Refresh every fixture
 
 On a silicon host:
@@ -13,13 +15,13 @@ PYTHONUNBUFFERED=1 tools/scripts/single_layer_tests/regen.sh 2>&1 | tee /tmp/reg
 
 What it does:
 
-1. Reads tt-xla's pinned `TT_MLIR_VERSION` and rebases your current HEAD onto it in a throwaway worktree under `/tmp/ttmlir-regen-<pid>` (your working tree is never touched).
+1. Locates a tt-xla checkout (`--ttxla-dir` if given, else sibling `../tt-xla`, else shallow-clones `main` into `/tmp`) and reads the pinned `TT_MLIR_VERSION` from it. That's the SHA your HEAD will be rebased onto in a throwaway worktree under `/tmp/ttmlir-regen-<pid>` (your working tree is never touched).
 2. Pushes the rebased branch to `origin` as `regen/<label>-on-<base8>` so tt-xla can fetch it by SHA from the github URL it has hardcoded. (`--local` skips the push; see the `--local` section below.)
 3. Builds tt-xla against that SHA and runs the single-layer sweep on silicon.
 4. Copies the regenerated `*_1lyr_*.mlir` into the models dir.
 5. Runs `llvm-lit` over each per-device lit dir under the build-tree mirror (`build/test/ttmlir/Silicon/TTNN/{n150,llmbox,galaxy}/optimizer/single_block_layer_perf_tests/`), then runs `ttrt run` over the same dirs to execute the generated flatbuffers on silicon — same path the CI PR workflow follows for optimizer tests (`op_model_ttrt.sh`).
 
-The pushed branch is kept on origin; the final log lines print the `git push origin --delete` command to clean it up. Lit and ttrt failures at step 5 are reported but don't abort the run.
+The pushed branch is deleted from origin on success; pass `--keep-branch` to keep it (e.g. for CI handoff). On failure the branch is always kept and the final log lines print the `git push origin --delete` command to clean it up manually. Lit and ttrt failures at step 5 are reported but don't abort the run.
 
 ### Following along
 
@@ -106,11 +108,11 @@ Run any script with `-h` for the full listing. Highlights:
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--subset name[,...]` | `single` | Pick from `single,llmbox,galaxy`. `llmbox` and `galaxy` don't combine (different meshes). |
+| `--subset name[,...]` | empty (delegates to tt-xla, currently `single`) | Pick from `single,llmbox,galaxy`. `llmbox` and `galaxy` don't combine (different meshes). |
 | `--ttxla-dir <path>` | `../tt-xla`, else shallow clone of `main` into `/tmp` | |
 | `--skip-lit` | off | Skip the lit + ttrt run at the end. |
 | `--local` | off | Skip the push; pass `TT_MLIR_LOCAL_PATH=<your checkout>` to tt-xla instead. See the `--local` section. |
-| `--delete-branch` | off | After a successful run, delete the pushed branch from origin. Failures always keep it. |
+| `--keep-branch` | off | Keep the pushed branch on origin after a successful run. Failures always keep it. |
 
 **`update_lit_tests.sh`**
 
