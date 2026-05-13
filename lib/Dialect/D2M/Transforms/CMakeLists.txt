@@ -35,6 +35,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LowerLoadStoreOpsToDMA.cpp
         ExpandDMAReadCompositeView.cpp
         NormalizeThreadArgs.cpp
+        PromoteRemoteOperands.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

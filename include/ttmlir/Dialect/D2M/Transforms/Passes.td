@@ -921,6 +921,29 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
                            "::mlir::affine::AffineDialect"];
 }
 
+def D2MPromoteRemoteOperands : Pass<"d2m-promote-remote-operands", "::mlir::ModuleOp"> {
+  let summary = "Promote memrefs used by remote_load/remote_store from additionalArgs to ins/outs.";
+  let description = [{
+    Restores the canonical operand layout for d2m.generic ops in explicit-
+    datamovement form: memrefs that are read by `remote_load` go to `ins`,
+    memrefs that are written by `remote_store` go to `outs`, and anything
+    that was duplicated in `additionalArgs` is dropped.
+
+    Frontends (notably the Triton-to-D2M path) can place every DRAM tensor
+    handle in `additionalArgs` and use a placeholder `outs`; downstream
+    passes (D2MAllocate, D2MToTTMetal) assume canonical layout and break on
+    that input. Running this pass once at the start of the backend pipeline
+    normalizes the IR so existing passes see the operand layout they expect.
+
+    No-ops on generics that:
+    - are not in explicit datamovement form
+    - have zero or more than one distinct remote_store memref target (the
+      verifier requires exactly one outs operand)
+    - are already in canonical form
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
   let summary = "Lower outer loop bounds to explicit constants.";
   let description = [{
