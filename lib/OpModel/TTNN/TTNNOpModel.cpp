@@ -14,6 +14,8 @@
 #include "ttmlir/OpInvoke/TTNN/Conv/Conv2dOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
+#include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
+#include "ttmlir/OpInvoke/TTNN/Eltwise/Ternary/EltwiseTernaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
@@ -1831,6 +1833,17 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseTernaryWhereOpT
+buildEltwiseTernaryOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOp;
+
+  eltwiseTernaryWhereOp.out = detail::getOutputTensorRefT(outputLayout);
+
+  return eltwiseTernaryWhereOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
@@ -1854,14 +1867,21 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
       ::ttnn::TensorSpec inputSpecC,
       detail::convertToTensorSpec(device, inputShapeC, inputLayoutC));
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpNative =
+      buildEltwiseTernaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
-                                               device, inputSpecA, inputSpecB,
-                                               inputSpecC, outputMemoryConfig);
+    ttnn_op_invoke::EltwiseTernaryOpResult result =
+        ttnn_op_invoke::callEltwiseTernary(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseTernaryWhereOpNative, detail::getOpSymbol<OpTy>(),
+            inputSpecA, inputSpecB, inputSpecC, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from EltwiseTernaryOp query");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), query);
@@ -1892,14 +1912,21 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
       ::ttnn::TensorSpec inputSpecC,
       detail::convertToTensorSpec(device, inputShapeC, inputLayoutC));
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpNative =
+      buildEltwiseTernaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
-                                           inputSpecA, inputSpecB, inputSpecC,
-                                           outputMemoryConfig);
+    ttnn_op_invoke::EltwiseTernaryOpResult result =
+        ttnn_op_invoke::callEltwiseTernary(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            eltwiseTernaryWhereOpNative, detail::getOpSymbol<OpTy>(),
+            inputSpecA, inputSpecB, inputSpecC, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseTernaryOp query");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
@@ -4187,6 +4214,36 @@ llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 // Quantization Ops
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseQuantizationOpT
+buildEltwiseQuantizationOpTFromMLIR(std::optional<int32_t> axis,
+                                    std::optional<ttcore::DataType> outputDtype,
+                                    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOp;
+
+  if constexpr (std::is_same_v<OpTy, QuantizeOp>) {
+    eltwiseQuantizationOp.type =
+        ::tt::target::ttnn::EltwiseQuantizationOpType::Quantize;
+  } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
+    eltwiseQuantizationOp.type =
+        ::tt::target::ttnn::EltwiseQuantizationOpType::Dequantize;
+  } else if constexpr (std::is_same_v<OpTy, RequantizeOp>) {
+    eltwiseQuantizationOp.type =
+        ::tt::target::ttnn::EltwiseQuantizationOpType::Requantize;
+  } else {
+    static_assert(ttmlir::utils::always_false(), "Unsupported OpTy");
+  }
+
+  eltwiseQuantizationOp.axis =
+      axis.has_value() ? ::flatbuffers::Optional<int32_t>(axis.value())
+                       : ::flatbuffers::nullopt;
+
+  eltwiseQuantizationOp.out = detail::getOutputTensorRefT(outputLayout);
+
+  return eltwiseQuantizationOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
@@ -4211,22 +4268,24 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
       ::ttnn::TensorSpec zeroPointSpec,
       detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout));
 
-  // Use the explicit outputDtype parameter if provided, otherwise infer from
-  // layout
-  std::optional<::tt::tt_metal::DataType> outputDType;
-  if (outputDtype.has_value()) {
-    outputDType = conversion::getDataType(outputDtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
-  }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpNative =
+      buildEltwiseQuantizationOpTFromMLIR<OpTy>(axis, outputDtype,
+                                                outputLayout);
 
   // Create query closure
   auto quantizationOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        detail::getOpSymbol<OpTy>(), device, inputSpec, scaleSpec,
-        zeroPointSpec, axis, outputDType, outputMemoryConfig);
+    ttnn_op_invoke::EltwiseQuantizationOpResult result =
+        ttnn_op_invoke::callEltwiseQuantizeDequantize(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseQuantizationOpNative, inputSpec, scaleSpec, zeroPointSpec,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+            result) &&
+        "Expected ConstraintQueryResponse from callEltwiseQuantizeDequantize");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -4260,22 +4319,23 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
       ::ttnn::TensorSpec zeroPointSpec,
       detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout));
 
-  // Use the explicit outputDtype parameter if provided, otherwise infer from
-  // layout
-  std::optional<::tt::tt_metal::DataType> outputDType;
-  if (outputDtype.has_value()) {
-    outputDType = conversion::getDataType(outputDtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
-  }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpNative =
+      buildEltwiseQuantizationOpTFromMLIR<OpTy>(axis, outputDtype,
+                                                outputLayout);
 
   // Create query closure
   auto quantizationOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        detail::getOpSymbol<OpTy>(), device, inputSpec, scaleSpec,
-        zeroPointSpec, axis, outputDType, outputMemoryConfig);
+    ttnn_op_invoke::EltwiseQuantizationOpResult result =
+        ttnn_op_invoke::callEltwiseQuantizeDequantize(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            eltwiseQuantizationOpNative, inputSpec, scaleSpec, zeroPointSpec,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from callEltwiseQuantizeDequantize");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(quantizationOpQuery);
@@ -4324,23 +4384,23 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
                    detail::convertToTensorSpec(device, outZeroPointShape,
                                                outZeroPointLayout));
 
-  // Use the explicit outputDtype parameter if provided, otherwise infer from
-  // layout
-  std::optional<::tt::tt_metal::DataType> outputDType;
-  if (outputDtype.has_value()) {
-    outputDType = conversion::getDataType(outputDtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
-  }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpNative =
+      buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
+                                                        outputLayout);
 
   // Create query closure
-
   auto requantizeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::requantize, device, inputSpec, inScaleSpec, inZeroPointSpec,
-        outScaleSpec, outZeroPointSpec, axis, outputDType, outputMemoryConfig);
+    ttnn_op_invoke::EltwiseQuantizationOpResult result =
+        ttnn_op_invoke::callEltwiseRequantize(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseQuantizationOpNative, inputSpec, inScaleSpec,
+            inZeroPointSpec, outScaleSpec, outZeroPointSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from callEltwiseRequantize");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -4383,22 +4443,23 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
                    detail::convertToTensorSpec(device, outZeroPointShape,
                                                outZeroPointLayout));
 
-  // Use the explicit outputDtype parameter if provided, otherwise infer from
-  // layout
-  std::optional<::tt::tt_metal::DataType> outputDType;
-  if (outputDtype.has_value()) {
-    outputDType = conversion::getDataType(outputDtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
-  }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpNative =
+      buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
+                                                        outputLayout);
 
   // Create query closure
   auto requantizeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::requantize, device, inputSpec, inScaleSpec,
-                            inZeroPointSpec, outScaleSpec, outZeroPointSpec,
-                            axis, outputDType, outputMemoryConfig);
+    ttnn_op_invoke::EltwiseQuantizationOpResult result =
+        ttnn_op_invoke::callEltwiseRequantize(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            eltwiseQuantizationOpNative, inputSpec, inScaleSpec,
+            inZeroPointSpec, outScaleSpec, outZeroPointSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from callEltwiseRequantize");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(requantizeOpQuery);
