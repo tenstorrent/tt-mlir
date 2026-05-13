@@ -103,8 +103,8 @@ struct DstAccessCollection {
 };
 
 // DST slice allocator types live in their respective pass .cpp files
-// (`DstSliceAllocationState` in InsertDstRegisterAccessUnscheduled.cpp,
-// `DstStackAllocator` in InsertDstRegisterAccessScheduled.cpp), since each is
+// (`DstSliceAllocationState` in InsertDstRegisterAccess/Unscheduled.cpp,
+// `DstStackAllocator` in InsertDstRegisterAccess/Scheduled.cpp), since each is
 // only used by one pass.
 
 // ---------------------------------------------------------------------------

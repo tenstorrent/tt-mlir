@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Transforms/InsertDstRegisterAccessShared.h"
+#include "ttmlir/Dialect/D2M/Transforms/InsertDstRegisterAccess/Shared.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"

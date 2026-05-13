@@ -6,7 +6,7 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Transforms/InsertDstRegisterAccessShared.h"
+#include "ttmlir/Dialect/D2M/Transforms/InsertDstRegisterAccess/Shared.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
