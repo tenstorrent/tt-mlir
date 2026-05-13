@@ -225,6 +225,13 @@ public:
     addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
       return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
     });
+    addConversion([ctx](mlir::tt::ttkernel::DFBType type) -> Type {
+      // DFB is constructed from a uint16_t logical_dfb_id; the
+      // get_compile_time_arg_val emit relies on the implicit conversion
+      // uint32_t -> uint16_t -> experimental::DataflowBuffer.
+      return Builder(ctx).getType<emitc::OpaqueType>(
+          "experimental::DataflowBuffer");
+    });
     addConversion([ctx](mlir::tt::ttkernel::LocalSemaphoreType type) -> Type {
       // Convert semaphore to an address type. (i32)
       return Builder(ctx).getI32Type();
@@ -1503,6 +1510,48 @@ public:
 } // namespace
 
 namespace {
+// Quasar DFB sync ops are member-function calls (dfb.reserve_back(n), etc.)
+// on an `experimental::DataflowBuffer` instance, unlike CB ops which are
+// free-function calls (cb_push_back(cb, n)). Emit them via emitc.verbatim
+// with placeholders so the receiver-and-method syntax survives.
+template <typename SourceOp>
+class TTKernelDFBMethodRewriter : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelDFBMethodRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                            MLIRContext *ctx, StringRef methodName,
+                            bool hasNumEntries)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx),
+        methodName_(methodName.str()), hasNumEntries_(hasNumEntries) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    SmallVector<Value> operands;
+    operands.push_back(adaptor.getDfb());
+    std::string code;
+    if constexpr (!std::is_same_v<SourceOp, ttkernel::DFBFinishOp>) {
+      if (hasNumEntries_) {
+        operands.push_back(adaptor.getNumEntries());
+        code = "{}." + methodName_ + "({});";
+      } else {
+        code = "{}." + methodName_ + "();";
+      }
+    } else {
+      code = "{}." + methodName_ + "();";
+    }
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), rewriter.getStringAttr(code), operands);
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+private:
+  std::string methodName_;
+  bool hasNumEntries_;
+};
+} // namespace
+
+namespace {
 class ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
           ConvertTTKernelToEmitCPass> {
@@ -1866,6 +1915,25 @@ public:
                                                        funcOp.getContext());
     patterns.add<TTKernelLoadFromL1OpToEmitCOpRewriter>(typeConverter,
                                                         funcOp.getContext());
+
+    // Quasar Dataflow Buffer (DFB) sync ops: emit method-call syntax
+    // (dfb.reserve_back(n); etc.) via emitc.verbatim. The receiver is the
+    // DFB SSA value (type-converted to experimental::DataflowBuffer).
+    patterns.add<TTKernelDFBMethodRewriter<ttkernel::DFBReserveBackOp>>(
+        typeConverter, funcOp.getContext(), "reserve_back",
+        /*hasNumEntries=*/true);
+    patterns.add<TTKernelDFBMethodRewriter<ttkernel::DFBPushBackOp>>(
+        typeConverter, funcOp.getContext(), "push_back",
+        /*hasNumEntries=*/true);
+    patterns.add<TTKernelDFBMethodRewriter<ttkernel::DFBWaitFrontOp>>(
+        typeConverter, funcOp.getContext(), "wait_front",
+        /*hasNumEntries=*/true);
+    patterns.add<TTKernelDFBMethodRewriter<ttkernel::DFBPopFrontOp>>(
+        typeConverter, funcOp.getContext(), "pop_front",
+        /*hasNumEntries=*/true);
+    patterns.add<TTKernelDFBMethodRewriter<ttkernel::DFBFinishOp>>(
+        typeConverter, funcOp.getContext(), "finish",
+        /*hasNumEntries=*/false);
 
     patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
         typeConverter, funcOp.getContext());
