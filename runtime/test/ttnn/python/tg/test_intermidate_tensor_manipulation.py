@@ -21,7 +21,8 @@ from ..utils import (
     get_to_layout_inputs,
 )
 
-MESH_SHAPE = [1, 2]
+MESH_SHAPE = [8, 4]
+NUM_DEVICES = 32
 
 op_trace = []
 
@@ -72,9 +73,9 @@ def postop_hook(binary, program_context, op_context):
 
 
 def test_multichip_add(helper: Helper, request):
-    """Run a truly multichip graph (distribute_tensor -> add -> aggregate_tensor)
-    on a 1x2 mesh and verify the full output matches the golden."""
-    assert ttrt.runtime.get_num_available_devices() == 2
+    """Run a multichip graph (distribute_tensor -> add -> aggregate_tensor)
+    on an 8x4 mesh and verify the full output matches the golden."""
+    assert ttrt.runtime.get_num_available_devices() == NUM_DEVICES
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "multichip_add.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
@@ -101,7 +102,7 @@ def test_multichip_add(helper: Helper, request):
 def test_multichip_add_op_trace(helper: Helper, request):
     """Run the multichip graph with debug hooks to inspect tensor shapes
     and counts before/after each op in the runtime execution."""
-    assert ttrt.runtime.get_num_available_devices() == 2
+    assert ttrt.runtime.get_num_available_devices() == NUM_DEVICES
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "multichip_add.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
@@ -137,7 +138,7 @@ def test_multichip_add_op_trace(helper: Helper, request):
 
     ttrt.runtime.unregister_hooks()
 
-    print("\n=== Multichip Op Trace ===")
+    print("\n=== Multichip Op Trace (TG 8x4) ===")
     for entry in op_trace:
         stage = entry["stage"]
         op = entry["op"]
@@ -212,8 +213,8 @@ def make_postop_override_add(override_value=10.0):
 
 def test_multichip_add_update_output(helper: Helper, request):
     """After ttnn.add, replace its multi-device output with all 10s.
-    The aggregate_tensor should then produce a 64x128 tensor of all 10s."""
-    assert ttrt.runtime.get_num_available_devices() == 2
+    The aggregate_tensor should then produce a 256x128 tensor of all 10s."""
+    assert ttrt.runtime.get_num_available_devices() == NUM_DEVICES
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "multichip_add.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
@@ -301,9 +302,9 @@ def make_postop_per_device_override_add(num_devices):
 
 def test_multichip_add_per_device_override(helper: Helper, request):
     """After ttnn.add, replace each device's shard with a unique constant
-    (device 0 -> 100, device 1 -> 200). The aggregated output should
-    contain each device's value in the corresponding shard region."""
-    assert ttrt.runtime.get_num_available_devices() == 2
+    (device i -> (i+1)*100). The aggregated output should contain each
+    device's value in the corresponding shard region (2D: rows x cols)."""
+    assert ttrt.runtime.get_num_available_devices() == NUM_DEVICES
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "multichip_add.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
@@ -312,11 +313,11 @@ def test_multichip_add_per_device_override(helper: Helper, request):
 
     program = helper.binary.get_program(0)
     full_shape = tuple(program.outputs[0]["desc"]["shape"])
-    num_devices = MESH_SHAPE[0] * MESH_SHAPE[1]
+    mesh_rows, mesh_cols = MESH_SHAPE
 
     hooks = ttrt.runtime.DebugHooks.get(
         lambda b, pc, oc: None,
-        make_postop_per_device_override_add(num_devices),
+        make_postop_per_device_override_add(NUM_DEVICES),
     )
 
     if hooks is None:
@@ -340,18 +341,27 @@ def test_multichip_add_per_device_override(helper: Helper, request):
         output_torch = get_torch_output_container(program)
         ttrt.runtime.memcpy(output_torch.data_ptr(), output_host)
 
-        shard_w = full_shape[1] // num_devices
-        for dev_idx in range(num_devices):
-            expected_val = float((dev_idx + 1) * 100)
-            start = dev_idx * shard_w
-            end = start + shard_w
-            region = output_torch[:, start:end]
-            expected = torch.full_like(region, expected_val)
-            assert torch.allclose(region, expected, atol=0.1), (
-                f"Device {dev_idx}: expected all {expected_val}, "
-                f"got min={region.min()}, max={region.max()}"
-            )
-            print(f"Device {dev_idx}: region [{start}:{end}] = {expected_val} OK")
+        shard_h = full_shape[0] // mesh_rows
+        shard_w = full_shape[1] // mesh_cols
+        for r in range(mesh_rows):
+            for c in range(mesh_cols):
+                dev_idx = r * mesh_cols + c
+                expected_val = float((dev_idx + 1) * 100)
+                row_start = r * shard_h
+                row_end = row_start + shard_h
+                col_start = c * shard_w
+                col_end = col_start + shard_w
+                region = output_torch[row_start:row_end, col_start:col_end]
+                expected = torch.full_like(region, expected_val)
+                assert torch.allclose(region, expected, atol=0.1), (
+                    f"Device {dev_idx} (row {r}, col {c}): expected all {expected_val}, "
+                    f"got min={region.min()}, max={region.max()}"
+                )
+                print(
+                    f"Device {dev_idx} (row {r}, col {c}): "
+                    f"region [{row_start}:{row_end}, {col_start}:{col_end}] = "
+                    f"{expected_val} OK"
+                )
 
     ttrt.runtime.unregister_hooks()
     helper.teardown()
@@ -360,7 +370,7 @@ def test_multichip_add_per_device_override(helper: Helper, request):
 def test_multichip_add_mixed(helper: Helper, request):
     """Run a multichip graph where arg0 is sharded and arg1 is replicated,
     then verify the aggregated output matches the golden."""
-    assert ttrt.runtime.get_num_available_devices() == 2
+    assert ttrt.runtime.get_num_available_devices() == NUM_DEVICES
 
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "multichip_add_mixed.mlir.tmp.ttnn"
@@ -370,12 +380,23 @@ def test_multichip_add_mixed(helper: Helper, request):
     helper.check_constraints()
 
     def compute_golden(inputs):
-        # inputs[0] is 64x128 (sharded on dim 1), inputs[1] is 64x64 (replicated)
-        # Each device gets: arg0_shard[:, half] + arg1, then shards are concatenated.
-        half = inputs[0].shape[1] // 2
-        left = inputs[0][:, :half] + inputs[1]
-        right = inputs[0][:, half:] + inputs[1]
-        return torch.cat([left, right], dim=1)
+        # inputs[0] is 256x128 (sharded 8x4 on both dims), inputs[1] is 32x32 (replicated)
+        # Each device gets: arg0_shard[row_chunk, col_chunk] + arg1
+        # Shards are reassembled into the full 256x128 tensor.
+        rows, cols = MESH_SHAPE
+        shard_h = inputs[0].shape[0] // rows
+        shard_w = inputs[0].shape[1] // cols
+        result_rows = []
+        for r in range(rows):
+            result_cols = []
+            for c in range(cols):
+                shard = inputs[0][
+                    r * shard_h : (r + 1) * shard_h,
+                    c * shard_w : (c + 1) * shard_w,
+                ]
+                result_cols.append(shard + inputs[1])
+            result_rows.append(torch.cat(result_cols, dim=1))
+        return torch.cat(result_rows, dim=0)
 
     test_config = ProgramTestConfig(
         name="multichip_add_mixed",
@@ -397,7 +418,7 @@ def test_multichip_add_mixed(helper: Helper, request):
 def test_multichip_add_mixed_op_trace(helper: Helper, request):
     """Run the mixed-shard graph with debug hooks to compare tensor shapes
     between the sharded and replicated paths."""
-    assert ttrt.runtime.get_num_available_devices() == 2
+    assert ttrt.runtime.get_num_available_devices() == NUM_DEVICES
 
     binary_path = os.path.join(
         FLATBUFFER_BASE_PATH, "multichip_add_mixed.mlir.tmp.ttnn"
@@ -431,19 +452,25 @@ def test_multichip_add_mixed_op_trace(helper: Helper, request):
         output_torch = get_torch_output_container(program)
         ttrt.runtime.memcpy(output_torch.data_ptr(), output_host)
 
-        half = torch_inputs[0].shape[1] // 2
-        golden = torch.cat(
-            [
-                torch_inputs[0][:, :half] + torch_inputs[1],
-                torch_inputs[0][:, half:] + torch_inputs[1],
-            ],
-            dim=1,
-        )
+        rows, cols = MESH_SHAPE
+        shard_h = torch_inputs[0].shape[0] // rows
+        shard_w = torch_inputs[0].shape[1] // cols
+        result_rows = []
+        for r in range(rows):
+            result_cols = []
+            for c in range(cols):
+                shard = torch_inputs[0][
+                    r * shard_h : (r + 1) * shard_h,
+                    c * shard_w : (c + 1) * shard_w,
+                ]
+                result_cols.append(shard + torch_inputs[1])
+            result_rows.append(torch.cat(result_cols, dim=1))
+        golden = torch.cat(result_rows, dim=0)
         assert_pcc(output_torch, golden, threshold=0.99)
 
     ttrt.runtime.unregister_hooks()
 
-    print("\n=== Mixed Shard/Replicate Op Trace ===")
+    print("\n=== Mixed Shard/Replicate Op Trace (TG 8x4) ===")
     for entry in op_trace:
         stage = entry["stage"]
         op = entry["op"]

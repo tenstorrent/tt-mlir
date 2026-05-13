@@ -2183,7 +2183,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   return outputTensors;
 }
 
-std::optional<Tensor>
+std::vector<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize) {
   const auto &programContext =
@@ -2196,60 +2196,18 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
 
   if (!tensorRefPtr) {
     LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
-    return std::nullopt;
+    return {};
   }
 
   if (!tensorPool.contains(tensorRefPtr)) {
     LOG_WARNING("Tensor not found in tensor pool when retrieving tensor");
-    return std::nullopt;
-  }
-
-  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
-      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
-
-  std::vector<tt::runtime::Tensor> hostTensors =
-      ::tt::runtime::ttnn::toHost(outTensor, untilize);
-
-  if (hostTensors.empty()) {
-    LOG_WARNING("Failed to get host tensor when retrieving tensor");
-    return std::nullopt;
-  }
-
-  if (hostTensors.size() != 1) {
-    LOG_FATAL("Multi device tensor not supported when retrieving tensor");
-  }
-
-  return hostTensors[0];
-}
-
-std::vector<Tensor>
-retrieveTensorsFromPool(CallbackContext programContextHandle,
-                        tt::runtime::TensorRef tensorRef, bool untilize) {
-  const auto &programContext =
-      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
-          DeviceRuntime::TTNN);
-  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
-
-  const auto *tensorRefPtr =
-      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
-
-  if (!tensorRefPtr) {
-    LOG_WARNING("Tensor ref pointer is null when retrieving tensors");
-    return {};
-  }
-
-  if (!tensorPool.contains(tensorRefPtr)) {
-    LOG_WARNING("Tensor not found in tensor pool when retrieving tensors");
     return {};
   }
 
   ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
       tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
 
-  std::vector<tt::runtime::Tensor> hostTensors =
-      ::tt::runtime::ttnn::toHost(outTensor, untilize);
-
-  return hostTensors;
+  return ::tt::runtime::ttnn::toHost(outTensor, untilize);
 }
 
 std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {
@@ -2278,7 +2236,8 @@ void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
 }
 
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor tensor) {
+                        TensorRef tensorRef,
+                        std::vector<Tensor> srcTensors) {
   auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
@@ -2295,14 +2254,32 @@ void updateTensorInPool(CallbackContext programContextHandle,
     return;
   }
 
-  ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+  LOG_ASSERT(!srcTensors.empty(), "srcTensors must not be empty");
+
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
-  srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
-  if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
-                                  dstTensor.memory_config());
+
+  std::vector<::ttnn::Tensor> ttnnShards;
+  ttnnShards.reserve(srcTensors.size());
+  for (auto &shard : srcTensors) {
+    ::ttnn::Tensor &ttnnShard =
+        utils::getTTNNTensorFromRuntimeTensor(shard);
+    ttnnShards.push_back(::ttnn::to_layout(ttnnShard, dstTensor.layout()));
   }
-  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+
+  ::ttnn::Tensor composed;
+  if (ttnnShards.size() == 1) {
+    composed = std::move(ttnnShards[0]);
+  } else {
+    const ::ttnn::MeshShape &meshShape =
+        programContext.getMeshDevice().shape();
+    composed = ::ttnn::distributed::from_host_shards(ttnnShards, meshShape);
+  }
+
+  if (utils::isOnDevice(dstTensor.storage_type())) {
+    composed = ::ttnn::to_device(composed, dstTensor.device(),
+                                 dstTensor.memory_config());
+  }
+  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, composed);
 }
 
 size_t getProgramIndex(CallbackContext programContextHandle) {

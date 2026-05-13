@@ -60,7 +60,6 @@ try:
         get_op_output_refs,
         get_op_input_refs,
         retrieve_tensor_from_pool,
-        retrieve_tensors_from_pool,
         update_tensor_in_pool,
         get_program_index,
         walk_program,

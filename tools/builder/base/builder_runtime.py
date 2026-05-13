@@ -308,7 +308,7 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     tensor = tt_runtime.runtime.create_owned_host_tensor(
         data_ptr, shape, stride, size, dtype
     )
-    tt_runtime.runtime.update_tensor_in_pool(program_context, tensor_ref, tensor)
+    tt_runtime.runtime.update_tensor_in_pool(program_context, tensor_ref, [tensor])
 
 
 class CallbackRuntimeConfig:
@@ -432,7 +432,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
                         program_context, output_tensor_ref
                     )
                     update_device_tensor(
-                        program_context, output_tensor_ref, tensor, golden_tensor_torch
+                        program_context, output_tensor_ref, tensor[0], golden_tensor_torch
                     )
                     results["bypassed"] = "True"
 

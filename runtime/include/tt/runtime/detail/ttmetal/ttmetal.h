@@ -161,16 +161,23 @@ std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle);
 
+<<<<<<< HEAD
 std::optional<Tensor>
+=======
+std::optional<tt::runtime::TensorRef>
+getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
+
+std::vector<tt::runtime::TensorRef>
+getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+
+std::vector<Tensor>
+>>>>>>> 6cc417f6b26930717c1f729e4e612bd296aed371
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
 
-std::vector<Tensor>
-retrieveTensorsFromPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, bool untilize);
-
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor);
+                        TensorRef tensorRef,
+                        std::vector<Tensor> srcTensors);
 
 } // namespace tt::runtime::ttmetal
 
