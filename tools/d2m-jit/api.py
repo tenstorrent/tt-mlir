@@ -55,15 +55,9 @@ class TensorBlock:
     def __invert__(ast_self: TensorBlock) -> TensorBlock:
         return _eltwise_block(lambda t: d2m.tile_bitwise_not(t.type, t), ast_self)
 
-    # @ (matmul) stays bespoke -- not elementwise.
+    # @ (matmul): emitted as linalg.generic with d2m.tile_matmul in body.
     def __matmul__(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
-        lhs = ast_self
-        assert isinstance(lhs.type, RankedTensorType)
-        out_shape = lhs.type.shape
-        out_shape[-1] = rhs.type.shape[-1]
-        out = d2m.empty(RankedTensorType.get(out_shape, lhs.type.element_type))
-        d2m.tile_matmul_block(lhs, rhs, out)
-        return out
+        return _matmul_block(ast_self, rhs)
 
     def store(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         return d2m.store(ast_self, rhs)
@@ -176,6 +170,74 @@ def _eltwise_block(tile_op_fn, *blocks):
     return generic.result
 
 
+def _matmul_block(lhs, rhs):
+    """Block-level matmul: `C = A @ B` where each tensor is a 2D block of
+    tiles. Emits a linalg.generic with the standard matmul indexing maps
+    (parallel/parallel/reduction over M/N/K) and `d2m.tile_matmul` in the
+    body (per-tile accumulating multiply-add).
+
+    lhs: tensor<M x K x !ttcore.tile<...>>
+    rhs: tensor<K x N x !ttcore.tile<...>>
+    Returns: tensor<M x N x !ttcore.tile<...>>.
+    """
+    assert isinstance(lhs.type, RankedTensorType)
+    assert isinstance(rhs.type, RankedTensorType)
+    assert lhs.type.rank == 2, f"matmul lhs must be 2D, got rank {lhs.type.rank}"
+    assert rhs.type.rank == 2, f"matmul rhs must be 2D, got rank {rhs.type.rank}"
+    assert lhs.type.element_type == rhs.type.element_type, (
+        f"matmul element type mismatch: {lhs.type.element_type} vs "
+        f"{rhs.type.element_type}"
+    )
+    elem_ty = lhs.type.element_type
+    m_blocks = lhs.type.shape[0]
+    k_blocks = lhs.type.shape[1]
+    assert k_blocks == rhs.type.shape[0], (
+        f"matmul inner dim mismatch: lhs K={k_blocks} vs rhs K={rhs.type.shape[0]}"
+    )
+    n_blocks = rhs.type.shape[1]
+
+    out_ty = RankedTensorType.get([m_blocks, n_blocks], elem_ty)
+    output = d2m.empty(out_ty)
+
+    # (d0, d1, d2) = (M, N, K).
+    d0 = AffineDimExpr.get(0)
+    d1 = AffineDimExpr.get(1)
+    d2 = AffineDimExpr.get(2)
+    a_map = AffineMap.get(3, 0, [d0, d2])
+    b_map = AffineMap.get(3, 0, [d2, d1])
+    c_map = AffineMap.get(3, 0, [d0, d1])
+    indexing_maps = ArrayAttr.get(
+        [
+            AffineMapAttr.get(a_map),
+            AffineMapAttr.get(b_map),
+            AffineMapAttr.get(c_map),
+        ]
+    )
+    parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+    reduction = Attribute.parse("#linalg.iterator_type<reduction>")
+    iterator_types = ArrayAttr.get([parallel, parallel, reduction])
+
+    generic = linalg.GenericOp(
+        [out_ty],
+        [lhs, rhs],
+        [output],
+        indexing_maps,
+        iterator_types,
+    )
+    body = Block.create_at_start(
+        generic.regions[0],
+        [elem_ty, elem_ty, elem_ty],
+        [Location.unknown()] * 3,
+    )
+    with InsertionPoint(body):
+        a_t, b_t, c_t = body.arguments
+        result = d2m.tile_matmul(c_t.type, a_t, b_t, c_t)
+        if hasattr(result, "result"):
+            result = result.result
+        linalg.yield_([result])
+    return generic.result
+
+
 # --- Block-level elementwise op tables --------------------------------------
 #
 # Every entry below registers both a standalone @syntax(name) free function
@@ -256,6 +318,17 @@ for _name, _b in _BINARY_OPS.items():
     _fn.__name__ = _name
     syntax(_name)(_fn)
     setattr(TensorBlock, _name, _fn)
+
+
+# Block-level matmul -- doesn't fit the elementwise tables (3D iteration
+# with a reduction over K), so registered explicitly.
+
+def _matmul_fn(ast_self, rhs):
+    return _matmul_block(ast_self, rhs)
+_matmul_fn.__name__ = "matmul"
+syntax("matmul")(_matmul_fn)
+setattr(TensorBlock, "matmul", _matmul_fn)
+
 
 # Apply syntax("!tensor") AFTER the method-style entries are populated.
 TensorBlock = syntax("!tensor")(TensorBlock)
