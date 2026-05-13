@@ -33,39 +33,6 @@ class TTNNBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict)
-        self.create_tensor_encoding = self._create_tensor_encoding
-
-    def func(
-        self,
-        input_shapes,
-        input_types,
-        host_inputs: bool = False,
-    ):
-        if not host_inputs:
-            return super().func(input_shapes, input_types)
-
-        def wrapper(fn):
-            # Create a wrapper that matches create_tensor_encoding signature
-            # but sets layout to RowMajor and buffer type to SystemMemory for host tensors.
-            def host_row_major_wrapper(
-                shape, element_type, layout=None, buffer_type=None
-            ):
-                return self._create_tensor_encoding(
-                    shape,
-                    element_type,
-                    ttnn.Layout.RowMajor,
-                    ttnn.BufferType.SystemMemory,
-                )
-
-            self.create_tensor_encoding = host_row_major_wrapper
-
-            try:
-                result = super(TTNNBuilder, self).func(input_shapes, input_types)(fn)
-            finally:
-                self.create_tensor_encoding = self._create_tensor_encoding
-            return result
-
-        return wrapper
 
     # ----- Private Methods ----
 
@@ -188,7 +155,7 @@ class TTNNBuilder(Builder):
 
     # ----- Public Helper Methods ----
 
-    def _create_tensor_encoding(
+    def create_tensor_encoding(
         self,
         shape: Shape,
         element_type: Union[torch.dtype, TypeInfo],
@@ -239,7 +206,7 @@ class TTNNBuilder(Builder):
         `core_range_set` explicitly.
         """
         with self._ctx, self._loc:
-            ttnn_layout_attr = self._create_tensor_encoding(
+            ttnn_layout_attr = self.create_tensor_encoding(
                 shape,
                 element_type,
                 layout,

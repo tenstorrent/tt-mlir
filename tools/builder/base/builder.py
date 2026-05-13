@@ -1427,21 +1427,44 @@ class Builder(metaclass=BuilderMeta):
         input_shapes: List[List[int]],
         input_types: List[torch.dtype],
         ttnn_inputs: bool = False,
+        custom_inputs: Optional[List[dict]] = None,
     ):
-        if ttnn_inputs:
+        if ttnn_inputs or custom_inputs:
             encoding_fn = self._create_ttnn_tensor_encoding
         else:
             encoding_fn = self.create_tensor_encoding
 
         def wrapper(fn):
-            fn_input_types = [
-                self._create_ranked_tensor_type(
-                    shape,
-                    self._get_type_from_torch_dtype(dtype),
-                    encoding_fn(shape, dtype) if encoding_fn else None,
-                )
-                for shape, dtype in zip(input_shapes, input_types)
-            ]
+            # Handle custom_inputs if provided
+            if custom_inputs:
+                fn_input_types = []
+                for idx, (shape, dtype) in enumerate(zip(input_shapes, input_types)):
+                    if idx < len(custom_inputs) and encoding_fn:
+                        # Use custom layout kwargs for this input
+                        kwargs = custom_inputs[idx]
+                        encoding = encoding_fn(shape, dtype, **kwargs)
+                    elif encoding_fn:
+                        # Use default encoding
+                        encoding = encoding_fn(shape, dtype)
+                    else:
+                        encoding = None
+
+                    fn_input_types.append(
+                        self._create_ranked_tensor_type(
+                            shape,
+                            self._get_type_from_torch_dtype(dtype),
+                            encoding,
+                        )
+                    )
+            else:
+                fn_input_types = [
+                    self._create_ranked_tensor_type(
+                        shape,
+                        self._get_type_from_torch_dtype(dtype),
+                        encoding_fn(shape, dtype) if encoding_fn else None,
+                    )
+                    for shape, dtype in zip(input_shapes, input_types)
+                ]
 
             ordered_inputs = []
             ordered_outputs = []
