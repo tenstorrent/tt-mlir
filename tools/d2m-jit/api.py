@@ -32,8 +32,12 @@ from ttmlir.dialects import (
 )
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
-from ._src.utils import _discover_dialect_ops, _asindex, _cleanup_source_code
-from ._src.d2m_ast import D2MGenericCompiler, syntax, Stream, TensorLayout
+from pykernel._src.utils import (
+    _discover_dialect_ops,
+    _asindex,
+    _cleanup_source_code,
+)
+from ._src.ast import D2MGenericCompiler, syntax, Stream, TensorLayout
 
 
 @syntax("!tensor")

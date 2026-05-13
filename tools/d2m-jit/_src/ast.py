@@ -13,9 +13,9 @@ from ttmlir.dialects import (
 )
 from ttmlir.dialects._ods_common import get_default_loc_context
 
-from .kernel_types import *
-from .utils import _discover_dialect_ops, _cast
-from .kernel_ast import TTCompilerBase
+from pykernel._src.kernel_types import *
+from pykernel._src.utils import _discover_dialect_ops, _cast
+from pykernel._src.kernel_ast import TTCompilerBase
 
 
 class TensorLayout:
@@ -194,18 +194,67 @@ class TensorLayout:
         ).result
 
 
+# Kernel types accepted by D2MGenericCompiler beyond those allowed by
+# TTCompilerBase. "unified" represents a single-region kernel covering both
+# compute and data-movement; the other names are pass-through to the base.
+_D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
+
+
 class D2MGenericCompiler(TTCompilerBase):
     _syntax = {}
 
     def __init__(self, name, kernel_type=None, captures={}, *args, **kwargs):
-        super().__init__(name, kernel_type, *args, **kwargs)
+        # TTCompilerBase only recognises a fixed kernel_type set; pass `None`
+        # through to satisfy its assertion when we use d2m-only types, then
+        # restore the real value for our own use.
+        base_kernel_type = kernel_type if kernel_type != "unified" else None
+        assert kernel_type in _D2M_KERNEL_TYPES, f"Invalid kernel type {kernel_type}"
+        super().__init__(name, base_kernel_type, *args, **kwargs)
+        self.kernel_type = kernel_type
         self.loc = Location.name(self.name)
         self.captures = captures
         self.streams = set()
+        # Enable async + d2m-specific AST nodes.
         self.supported_nodes.append(ast.AsyncFunctionDef)
+        self.supported_nodes.append(ast.Yield)
+        self.supported_nodes.append(ast.Await)
         self._fn_map = {}
         for name, val in D2MGenericCompiler._syntax.items():
             self._fn_map[name] = val
+
+    # Async: d2m uses Python's yield/await to emit d2m.YieldOp / d2m.AwaitOp.
+    def visit_Yield(self, node):
+        if isinstance(node.value, ast.Name):
+            yield_args = [self.visit(node.value)]
+        elif isinstance(node.value, ast.Tuple):
+            yield_args = [self.visit(elem) for elem in node.value.elts]
+        else:
+            raise NotImplementedError(f"Unsupported type for yield {ast.dump(node)}")
+        d2m.YieldOp(yield_args)
+
+    def visit_Await(self, node):
+        if isinstance(node.value, ast.Name):
+            await_args = [self.visit(node.value)]
+        elif isinstance(node.value, ast.Tuple):
+            await_args = [self.visit(elem) for elem in node.value.elts]
+        else:
+            raise NotImplementedError("Unsupported type for await")
+        d2m.AwaitOp(await_args)
+
+    # In d2m, integer/bool literals are always indices into shards/blocks.
+    def visit_Constant(self, node):
+        as_attr = getattr(node, "_ttkernel_as_attr", False)
+        op_constructor = IntegerAttr.get if as_attr else arith.ConstantOp
+        if callable(as_attr):
+            return as_attr(node)
+        elif isinstance(node.value, bool):
+            return op_constructor(IndexType.get(self.ctx), node.value)
+        elif isinstance(node.value, int):
+            return op_constructor(IndexType.get(self.ctx), node.value)
+        else:
+            raise NotImplementedError(
+                f"constant type {type(node.value).__name__} not implemented"
+            )
 
     def _emit_entry(self, node):
         # TODO: add alloca args name into symbol table
@@ -313,7 +362,6 @@ def syntax(syntax_name, args_as_attr=None):
         return _fn_wrapper
 
 
-# TODO MOVE TO d2m_api.py
 class Stream:
     def __init__(self, tensor, num_buffers=None):
         assert hasattr(

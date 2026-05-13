@@ -7,10 +7,8 @@ declare_mlir_python_sources(TTPykernelSources
     SOURCES
         __init__.py
         api.py
-        d2m_api.py
         _src/__init__.py
         _src/base_ast.py
-        _src/d2m_ast.py
         _src/kernel_ast.py
         _src/kernel_op.py
         _src/kernel_types.py

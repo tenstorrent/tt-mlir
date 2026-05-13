@@ -15,8 +15,6 @@ from pykernel.api import (
     ttkernel_noc_compile,
 )
 
-import pykernel.d2m_api as d2m_api
-
 # Hide ttnn import behind a lazy import for now.
 # `import pykernel` will not import ttnn, but `from pykernel import PykernelOp` will
 _lazy = {"PyKernelOp": "pykernel._src.kernel_op"}

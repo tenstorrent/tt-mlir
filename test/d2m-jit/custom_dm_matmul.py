@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from pykernel.d2m_api import *
+
+# RUN: %python %s
+# REQUIRES: d2m-jit
+
+from d2m_jit.api import *
 from utils import assert_pcc, arange_tile
 import torch
 

@@ -32,6 +32,7 @@ set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir" CACHE STRING
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
+option(TTMLIR_ENABLE_D2M_JIT "Enable d2m-jit" OFF)
 option(TTMLIR_ENABLE_TTNN_JIT "Enable ttnn-jit" OFF)
 option(TTMLIR_ENABLE_TTRT "Enable ttrt" ON)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
@@ -71,6 +72,10 @@ endif()
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
+endif()
+
+if (TTMLIR_ENABLE_D2M_JIT AND NOT TTMLIR_ENABLE_PYKERNEL)
+  message(FATAL_ERROR "TTMLIR_ENABLE_D2M_JIT=ON requires TTMLIR_ENABLE_PYKERNEL=ON")
 endif()
 
 if (TTMLIR_ENABLE_TTIRTONVVM)
