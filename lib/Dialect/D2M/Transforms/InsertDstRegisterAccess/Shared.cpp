@@ -51,6 +51,136 @@ LogicalResult verifyInsertDstRegisterAccessPreconditions(ModuleOp moduleOp) {
 namespace detail {
 
 // ---------------------------------------------------------------------------
+// DstStackAllocator
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void debugDumpDstStackAllocator(StringRef header, ArrayRef<unsigned> sliceStack,
+                                ArrayRef<unsigned> inputStack,
+                                std::optional<unsigned> currentOutput,
+                                ArrayRef<unsigned> retiredOutputs,
+                                ArrayRef<unsigned> scratchSlots,
+                                std::optional<unsigned> action) {
+  LDBG_OS([&](raw_ostream &os) {
+    os << header << "\n";
+    os << "  SliceStack     = ";
+    llvm::interleaveComma(sliceStack, os);
+    os << "\n  InputStack     = ";
+    llvm::interleaveComma(inputStack, os);
+    os << "\n  CurrentOutput  = ";
+    if (currentOutput) {
+      os << *currentOutput;
+    } else {
+      os << "(none)";
+    }
+    os << "\n  RetiredOutputs = ";
+    llvm::interleaveComma(retiredOutputs, os);
+    os << "\n  ScratchSlots   = ";
+    llvm::interleaveComma(scratchSlots, os);
+    if (action) {
+      os << "\n  --> " << *action;
+    }
+  });
+}
+
+} // namespace
+
+unsigned DstStackAllocator::allocate(bool isStore) {
+  TT_assertv(!sliceStack.empty(), "Out of dst slices");
+
+  unsigned id = sliceStack.pop_back_val();
+  currSliceIndex = id;
+
+  if (isStore) {
+    // The previous `currentOutput`, if any, has no live consumer at this
+    // point (the new store supersedes it); demote it to `retiredOutputs`
+    // so a later `deallocate()` can recycle it cleanly without having to
+    // peek at queue tails.
+    if (currentOutput.has_value()) {
+      retiredOutputs.push_back(*currentOutput);
+    }
+    currentOutput = id;
+  } else {
+    inputStack.push_back(id);
+  }
+
+  debugDumpDstStackAllocator("== ALLOCATE ==", sliceStack, inputStack,
+                             currentOutput, retiredOutputs, scratchSlots, id);
+  return id;
+}
+
+unsigned DstStackAllocator::allocateScratch() {
+  TT_assertv(!sliceStack.empty(), "Out of dst slices");
+
+  unsigned id = sliceStack.pop_back_val();
+  scratchSlots.push_back(id);
+
+  // Intentionally do NOT update `currSliceIndex`, `inputStack`, or
+  // `currentOutput`.  Scratch is owned by the op for the lifetime of the
+  // region; it must not show up as a candidate for in-place reuse by
+  // later compute ops (the failure mode tracked in #8081).
+  debugDumpDstStackAllocator("== ALLOCATE SCRATCH ==", sliceStack, inputStack,
+                             currentOutput, retiredOutputs, scratchSlots, id);
+  return id;
+}
+
+unsigned DstStackAllocator::deallocate() {
+  TT_assertv(!(inputStack.empty() && retiredOutputs.empty() &&
+               !currentOutput.has_value()),
+             "Deallocating non-existent dst slice");
+
+  // Recycle in liveness order: most recent input first (LIFO), then any
+  // retired prior outputs, then the current output as a last resort
+  // (only legal once the next consumer is gone).  No middle-erase.
+  unsigned id = 0;
+  if (!inputStack.empty()) {
+    id = inputStack.pop_back_val();
+  } else if (!retiredOutputs.empty()) {
+    id = retiredOutputs.pop_back_val();
+  } else {
+    id = *currentOutput;
+    currentOutput.reset();
+  }
+
+  sliceStack.push_back(id);
+
+  debugDumpDstStackAllocator("== DEALLOCATE ==", sliceStack, inputStack,
+                             currentOutput, retiredOutputs, scratchSlots, id);
+  return id;
+}
+
+unsigned DstStackAllocator::getFirstInputSliceIndex() const {
+  TT_assertv(!inputStack.empty(), "No input slots allocated");
+  return inputStack.front();
+}
+
+void DstStackAllocator::deallocateAllButFirstInput() {
+  TT_assertv(inputStack.size() >= 1u, "Need at least one input to keep");
+
+  unsigned firstInput = inputStack.front();
+  inputStack.erase(inputStack.begin());
+
+  while (!inputStack.empty()) {
+    unsigned id = inputStack.pop_back_val();
+    sliceStack.push_back(id);
+    debugDumpDstStackAllocator("== DEALLOCATE (keeping first) ==", sliceStack,
+                               inputStack, currentOutput, retiredOutputs,
+                               scratchSlots, id);
+  }
+
+  currSliceIndex = firstInput;
+}
+
+void DstStackAllocator::initSliceStack() {
+  TT_assert((dstSliceCapacity > 0u && dstSliceCapacity <= 16u));
+
+  for (int i = dstSliceCapacity - 1; i >= 0; --i) {
+    sliceStack.push_back(static_cast<unsigned>(i));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------
 

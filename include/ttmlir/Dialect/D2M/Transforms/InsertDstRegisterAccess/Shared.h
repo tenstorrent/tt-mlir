@@ -102,10 +102,65 @@ struct DstAccessCollection {
   DstIntermediatesMap dstIntermediates;
 };
 
-// DST slice allocator types live in their respective pass .cpp files
-// (`DstSliceAllocationState` in InsertDstRegisterAccess/Unscheduled.cpp,
-// `DstStackAllocator` in InsertDstRegisterAccess/Scheduled.cpp), since each is
-// only used by one pass.
+// ---------------------------------------------------------------------------
+// Shared DST slice allocator
+//
+// Slots come from a free list (`sliceStack`) and are bound to one of four
+// explicit roles:
+//
+//   - `inputStack`     : operand reads of the in-progress compute op, popped
+//                        LIFO (most recent input is deallocated first).
+//   - `currentOutput`  : the result tile of the most recently emitted
+//                        compute op.  Its value may still be consumed
+//                        in-place by the next compute op.
+//   - `retiredOutputs` : prior outputs whose consumer has already been
+//                        emitted; they are dead but not yet recycled.
+//   - `scratchSlots`   : per-op private scratch (e.g. SFPU int reductions
+//                        via `getNumDstScratchSlices()`).  Owned by the op
+//                        for the lifetime of the region; never recycled,
+//                        and deliberately not tracked by `inputStack`,
+//                        `currentOutput`, or `currSliceIndex`.
+//
+// `currSliceIndex` is the most recently allocated *operand or output* slot
+// (never a scratch slot) so callers wanting to overwrite-in-place can grab
+// it directly.
+//
+// The scheduled pass uses the full API (LIFO reuse via `deallocate()` and
+// `deallocateAllButFirstInput()`).  The unscheduled pass uses only
+// `allocate()` / `allocateScratch()` / `getCurrSliceIndex()`, which gives
+// it the same bump-allocator behavior its old `DstSliceAllocationState`
+// had: every call returns a fresh slot in 0,1,2,... order.
+// ---------------------------------------------------------------------------
+
+class DstStackAllocator {
+public:
+  DstStackAllocator() = delete;
+  explicit DstStackAllocator(unsigned dstSliceCapacityIn)
+      : dstSliceCapacity(dstSliceCapacityIn) {
+    initSliceStack();
+  }
+
+  unsigned allocate(bool isStore = false);
+  unsigned allocateScratch();
+  unsigned deallocate();
+  void setStoreToDst() { storedToDst = true; }
+  bool didStoreToDst() const { return storedToDst; }
+  unsigned getCurrSliceIndex() const { return currSliceIndex; }
+  unsigned getFirstInputSliceIndex() const;
+  void deallocateAllButFirstInput();
+
+private:
+  unsigned dstSliceCapacity = 0;
+  unsigned currSliceIndex = 0;
+  SmallVector<unsigned, 16> inputStack;
+  std::optional<unsigned> currentOutput;
+  SmallVector<unsigned, 4> retiredOutputs;
+  SmallVector<unsigned, 4> scratchSlots;
+  SmallVector<unsigned, 16> sliceStack;
+  bool storedToDst = false;
+
+  void initSliceStack();
+};
 
 // ---------------------------------------------------------------------------
 // Shared utility free functions
