@@ -102,7 +102,7 @@ module attributes {ttcore.system_desc = #system_desc} {
 
   // CHECK-LABEL: func.func @decompose_mask_rank3_shard
   // CHECK: grid = #ttcore.grid<2x1x2, virt_to_physical_map =
-  // CHECK: d2m.core_index(2) {phys_to_virt_map =
+  // CHECK: d2m.core_index(2) : index
   // CHECK-NOT: memref.load %{{[^[]*}}[%{{[^,]*}}, %{{[^,]*}}] : memref<1x1x1x!ttcore.tile<32x32, f32>, #l1>
   // CHECK: memref.load %{{[^[]*}}[%{{[^,]*}}, %{{[^,]*}}, %{{[^]]*}}] : memref<1x1x1x!ttcore.tile<32x32, f32>, #l1>
   // CHECK-NOT: memref.load %{{[^[]*}}[%{{[^,]*}}, %{{[^,]*}}] : memref<1x1x1x!ttcore.tile<32x32, f32>, #l1>

@@ -1,9 +1,8 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-preallocate-mcast-semaphores --d2m-lower-load-store-ops-to-dma %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-preallocate-mcast-semaphores --d2m-lower-load-store-ops-to-dma --d2m-normalize-thread-args --d2m-generic-regions-to-funcs %s | FileCheck %s
 
-// Exercise d2m-lower-load-store-ops-to-dma on a low-level multicast
-// d2m.remote_load when the enclosing d2m.generic uses a virtualized grid.
-// The pass should keep d2m.core_index operands in virtual grid space instead of
-// eagerly converting multicast core operands through the virtual-to-physical map.
+// Exercise multicast d2m.remote_load lowering when the enclosing d2m.generic
+// uses a virtualized grid. Generic region outlining materializes multicast
+// DMA/semaphore core operands in physical grid space before kernel lowering.
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -16,14 +15,19 @@
 module attributes {ttcore.system_desc = #system_desc} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
 
-  // CHECK-LABEL: func.func @mcast_remote_load_core_index_mapping
   func.func @mcast_remote_load_core_index_mapping(%arg0: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
-    // CHECK: %[[CORE0:.*]] = d2m.core_index(0) : index
-    // CHECK: %[[CORE1:.*]] = d2m.core_index(1) : index
-    // CHECK: d2m.dma_write %{{.*}}, %{{.*}} core[%[[CORE0]], %c0] mcast[%c1, %c2]
-    // CHECK: d2m.semaphore_set %{{.*}}, %c1, core[%[[CORE0]], %c0] mcast[%c1, %c2]
-    // CHECK: d2m.semaphore_inc %{{.*}}, %c1, core[%[[CORE0]], %c0]
+    // CHECK-LABEL: func.func private @datamovement_kernel0
+    // CHECK: %[[CORE0:.*]] = d2m.core_index(0) {phys_to_virt_map = {{.*}}} : index
+    // CHECK: %[[DMA_CORE0:.*]] = affine.apply {{.*}}(%[[CORE0]], %c0)
+    // CHECK: %[[DMA_CORE1:.*]] = affine.apply {{.*}}(%[[CORE0]], %c0)
+    // CHECK: d2m.dma_write %{{.*}}, %{{.*}} core[%[[DMA_CORE0]], %[[DMA_CORE1]]] mcast[%c1, %c2]
+    // CHECK: %[[SET_CORE0:.*]] = affine.apply {{.*}}(%[[CORE0]], %c0)
+    // CHECK: %[[SET_CORE1:.*]] = affine.apply {{.*}}(%[[CORE0]], %c0)
+    // CHECK: d2m.semaphore_set %{{.*}}, %c1, core[%[[SET_CORE0]], %[[SET_CORE1]]] mcast[%c1, %c2]
+    // CHECK: %[[INC_CORE0:.*]] = affine.apply {{.*}}(%[[CORE0]], %c0)
+    // CHECK: %[[INC_CORE1:.*]] = affine.apply {{.*}}(%[[CORE0]], %c0)
+    // CHECK: d2m.semaphore_inc %{{.*}}, %c1, core[%[[INC_CORE0]], %[[INC_CORE1]]]
     d2m.generic {block_factors = [1, 1], grid = #grid_v2p, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%alloc : memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>)  {
