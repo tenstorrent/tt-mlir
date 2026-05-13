@@ -37,7 +37,8 @@ from ._src.utils import (
     _asindex,
     _cleanup_source_code,
 )
-from ._src.ast import D2MCompiler, syntax, TensorLayout
+from ._src.ast import D2MCompiler, syntax
+from ._src.tensor_layout import TensorLayout
 
 
 @syntax("!tensor")
