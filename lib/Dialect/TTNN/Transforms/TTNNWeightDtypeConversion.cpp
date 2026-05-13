@@ -108,8 +108,8 @@ public:
     // Other targets (e.g. BFloat16 per-tensor override) keep the existing
     // single-`typecast` device codepath.
     mlir::Value newWeight;
-    if (dtype == ttcore::DataType::BFP_BFloat4 ||
-        dtype == ttcore::DataType::BFP_BFloat8) {
+    if (dtype == ttcore::DataType::BFP_BFloat4) { // ||
+      // dtype == ttcore::DataType::BFP_BFloat8) {
       auto hostInputType = ttnn::utils::RankedTensorTypeFactory::create(
           mlir::cast<RankedTensorType>(weight.getType()),
           ttnn::BufferType::SystemMemory);
