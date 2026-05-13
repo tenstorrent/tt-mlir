@@ -80,7 +80,7 @@ def load_grid_shapes_from_system_desc(
     ------
     FileNotFoundError
         If the system descriptor file does not exist
-    ValueError
+    RuntimeError
         If the system descriptor cannot be parsed or does not contain required grid information
     """
     if not os.path.exists(system_desc_path):
