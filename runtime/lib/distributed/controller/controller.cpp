@@ -593,6 +593,10 @@ Controller::submit(const ::tt::runtime::Device &deviceHandle,
       *commandBuilder, deviceHandle, executableHandle, programIndex,
       inputHandles, outputHandles);
 
+  LOG_INFO("Controller enqueuing SubmitCommand id=", commandId,
+           " program=", programIndex, " inputs=", inputHandles.size(),
+           " outputs=", outputHandles.size());
+
   pushToCommandAndResponseQueues(commandId, fb::CommandType::SubmitCommand,
                                  std::move(commandBuilder));
 

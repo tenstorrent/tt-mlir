@@ -517,6 +517,10 @@ void CommandExecutor::execute(uint64_t commandId,
 
 void CommandExecutor::execute(uint64_t commandId,
                               const fb::SubmitCommand *command) {
+  LOG_INFO("Worker executing SubmitCommand id=", commandId,
+           " program=", command->program_id(),
+           " inputs=", command->input_global_ids()->size(),
+           " outputs=", command->output_global_ids()->size());
 
   ::tt::runtime::Device device = devicePool_.at(command->device()->global_id());
 
