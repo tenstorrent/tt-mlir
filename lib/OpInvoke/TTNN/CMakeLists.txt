@@ -1,6 +1,7 @@
 add_library(TTNNOpInvokeLib STATIC
   utils/utils.cpp
   conv/conv2dOp.cpp
+  matmul/matmulOp.cpp
 )
 
 set_property(TARGET TTNNOpInvokeLib PROPERTY CXX_STANDARD 20)
