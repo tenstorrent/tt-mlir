@@ -174,7 +174,12 @@ def ConvertD2MToTTMetal: Pass<"convert-d2m-to-ttmetal", "::mlir::ModuleOp"> {
              clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi2, "HiFi2", "HiFi2"),
              clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi3, "HiFi3", "HiFi3"),
              clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi4, "HiFi4", "HiFi4")
-           )}]>
+           )}]>,
+    Option<"useDFBs", "use-dfbs", "bool", /*default=*/"false",
+           "Emit Quasar Dataflow Buffer host-side ops (create_dataflow_buffer "
+           "+ bind_dfb_to_kernels) for CB additional args, and populate the "
+           "$dfbs/$dfb_ids operand lists on enqueue_program. Required for "
+           "Quasar; must match --convert-d2m-to-ttkernel=use-dfbs.">
   ];
 }
 

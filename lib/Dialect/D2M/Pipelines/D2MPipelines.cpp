@@ -281,7 +281,10 @@ void createD2MBackendPipeline(OpPassManager &pm,
 void createD2MToTTMetalPipeline(OpPassManager &pm,
                                 const D2MPipelineOptions &options) {
   d2m::ConvertD2MToTTMetalOptions d2mToTTMetalOptions;
-  { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
+  {
+    d2mToTTMetalOptions.mathFidelity = options.mathFidelity;
+    d2mToTTMetalOptions.useDFBs = options.useDFBs;
+  }
   pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
 }
 
@@ -303,7 +306,10 @@ void createD2MToTTNNPipeline(OpPassManager &pm,
 static void addD2MToTTKernelPreEmitCPasses(OpPassManager &pm,
                                            const D2MPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
-  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  {
+    D2MToTTKernelOptions.ttnnMode = options.ttnnMode;
+    D2MToTTKernelOptions.useDFBs = options.useDFBs;
+  }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());

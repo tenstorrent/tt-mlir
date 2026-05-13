@@ -248,6 +248,16 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::desc("Matmul iterator to distribute across threads: 'm' or "
                      "'n'."),
       llvm::cl::init("m")};
+
+  // Lower CB sync ops and host-side CB allocations to Quasar Dataflow
+  // Buffer ops instead of Circular Buffer ops. Required for Quasar; the
+  // CB path remains the default on Wormhole/Blackhole.
+  Option<bool> useDFBs{
+      *this, "use-dfbs",
+      llvm::cl::desc(
+          "Emit Quasar Dataflow Buffer ops in place of Circular Buffer ops "
+          "in the D2M->TTKernel and D2M->TTMetal conversions."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm,

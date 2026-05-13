@@ -46,8 +46,10 @@ static bool kernelContainsOp(const SymbolTable &symbolTable,
 
 class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {
 public:
-  D2MGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
-      : OpConversionPattern<d2m::GenericOp>(ctx), mathFidelity_(mathFidelity) {}
+  D2MGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity,
+                     bool useDFBs)
+      : OpConversionPattern<d2m::GenericOp>(ctx), mathFidelity_(mathFidelity),
+        useDFBs_(useDFBs) {}
 
   static KernelArgsAttr
   evalKernelArgsFromSpec(Builder &builder, const SymbolTable &symbolTable,
@@ -62,7 +64,8 @@ public:
     SmallVector<ttmetal::KernelArgAttr> rtArgs;
     SmallVector<ttmetal::KernelArgAttr> ctArgs;
     for (ttkernel::ArgAttr arg : kernelSpec.getRtArgs()) {
-      if (arg.getArgType() == ttkernel::ArgType::CBPort) {
+      if (arg.getArgType() == ttkernel::ArgType::CBPort ||
+          arg.getArgType() == ttkernel::ArgType::DFBId) {
         rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
       } else if (arg.getArgType() == ttkernel::ArgType::NamedArgument) {
@@ -74,7 +77,8 @@ public:
       }
     }
     for (ttkernel::ArgAttr arg : kernelSpec.getCtArgs()) {
-      if (arg.getArgType() == ttkernel::ArgType::CBPort) {
+      if (arg.getArgType() == ttkernel::ArgType::CBPort ||
+          arg.getArgType() == ttkernel::ArgType::DFBId) {
         ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
       } else if (arg.getArgType() == ttkernel::ArgType::NamedArgument) {
@@ -182,6 +186,9 @@ public:
     // Add additional args.
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
+    // Operand index in the parent generic for each CB entry (parallel to
+    // `cbs`). Used to pick out producer/consumer kernels under useDFBs.
+    llvm::SmallVector<size_t> cbOperandIndices;
     DenseMap<size_t, size_t> cbOperandIndexToPort;
     unsigned ioSize = op.getInputsAndOutputs().size();
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
@@ -206,6 +213,7 @@ public:
           Value aliasedMemref = aliasOp.getMemref();
           unsigned cbPort = cbs.size();
           cbs.push_back(getUnderlyingMemref(aliasedMemref));
+          cbOperandIndices.push_back(operandIndex);
           cbOperandIndexToPort[operandIndex] = cbPort;
           cbPorts.push_back(cbPort);
         } else if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
@@ -213,6 +221,7 @@ public:
                    allocOp) {
           unsigned cbPort = cbs.size();
           cbs.push_back(operand);
+          cbOperandIndices.push_back(operandIndex);
           cbOperandIndexToPort[operandIndex] = cbPort;
           cbPorts.push_back(cbPort);
         } else {
@@ -235,18 +244,250 @@ public:
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
         mathFidelity_, cbOperandIndexToPort, argMapping);
+
+    // Under useDFBs, also emit one ttmetal.create_dataflow_buffer +
+    // ttmetal.bind_dfb_to_kernels per CB additional arg. The kernel
+    // funcs (already converted by ConvertD2MToTTKernel with useDFBs=true)
+    // reference the DFB via ArgType::DFBId compile-time args; the DFB id
+    // resolves positionally from $dfb_ids on the enqueue_program op.
+    llvm::SmallVector<Value> dfbs;
+    llvm::SmallVector<int64_t> dfbIds;
+    if (useDFBs_) {
+      if (failed(emitDFBHostOps(op, threads, symbolTable, coreRange, cbs,
+                                cbOperandIndices, rewriter, dfbs, dfbIds))) {
+        return failure();
+      }
+    }
+
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, args, cbs, cbPorts,
-        /*dfbs=*/ValueRange{},
-        /*dfb_ids=*/rewriter.getDenseI64ArrayAttr({}),
-        kernelConfigs, op.getFabricConnectionConfigAttr());
+        op, args, cbs, cbPorts, dfbs,
+        rewriter.getDenseI64ArrayAttr(dfbIds), kernelConfigs,
+        op.getFabricConnectionConfigAttr());
     return success();
   };
+
+  // For each CB additional arg, emit a ttmetal.create_dataflow_buffer plus
+  // a ttmetal.bind_dfb_to_kernels pair right before the parent generic is
+  // replaced. Populates `dfbs` (memref proxies parallel to `cbs`) and
+  // `dfbIds` (positional ids 0..N-1).
+  static LogicalResult emitDFBHostOps(d2m::GenericOp op, ArrayAttr threads,
+                                      const SymbolTable &symbolTable,
+                                      CoreRangeAttr coreRange,
+                                      ArrayRef<Value> cbs,
+                                      ArrayRef<size_t> cbOperandIndices,
+                                      ConversionPatternRewriter &rewriter,
+                                      llvm::SmallVectorImpl<Value> &dfbs,
+                                      llvm::SmallVectorImpl<int64_t> &dfbIds) {
+    MLIRContext *ctx = rewriter.getContext();
+    auto device = ttcore::lookupDevice(op);
+
+    // Precompute per-thread NOC index using the same auto-counter scheme
+    // as convertThreadsToKernelConfigs so DFB risc_masks line up with the
+    // emitted NocConfig assignments.
+    llvm::SmallVector<int32_t> threadNocIndex(threads.size());
+    int unassignedNocCounter = 0;
+    for (auto [tIdx, threadAttr] : llvm::enumerate(threads)) {
+      d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+      if (thread.getThreadType() == d2m::ThreadType::Datamovement) {
+        int32_t nocIdx = thread.getNocIndex();
+        if (nocIdx < 0) {
+          nocIdx = unassignedNocCounter++ % 2;
+        }
+        threadNocIndex[tIdx] = nocIdx;
+      } else {
+        threadNocIndex[tIdx] = thread.getNocIndex();
+      }
+    }
+
+    for (auto [i, cbMemref] : llvm::enumerate(cbs)) {
+      size_t operandIdx = cbOperandIndices[i];
+      auto memrefType = mlir::cast<MemRefType>(cbMemref.getType());
+
+      // Determine producer / consumer kernels by walking the kernel funcs
+      // referenced by `threads` and classifying each by which sync ops
+      // touch this CB.
+      SymbolRefAttr producerSym, consumerSym;
+      d2m::ThreadType producerThreadType = d2m::ThreadType::Datamovement;
+      d2m::ThreadType consumerThreadType = d2m::ThreadType::Datamovement;
+      int32_t producerNocIndex = 0;
+      int32_t consumerNocIndex = 0;
+      for (auto [tIdx, threadAttr] : llvm::enumerate(threads)) {
+        d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+        CBRole role = classifyCBRole(symbolTable, thread.getKernelSymbol(),
+                                     operandIdx);
+        if (role == CBRole::Producer || role == CBRole::Both) {
+          if (producerSym) {
+            return op.emitOpError(
+                "multiple producer kernels for a single CB are not yet "
+                "supported by DFB lowering");
+          }
+          producerSym = thread.getKernelSymbol();
+          producerThreadType = thread.getThreadType();
+          producerNocIndex = threadNocIndex[tIdx];
+        }
+        if (role == CBRole::Consumer || role == CBRole::Both) {
+          if (consumerSym) {
+            return op.emitOpError(
+                "multiple consumer kernels for a single CB are not yet "
+                "supported by DFB lowering");
+          }
+          consumerSym = thread.getKernelSymbol();
+          consumerThreadType = thread.getThreadType();
+          consumerNocIndex = threadNocIndex[tIdx];
+        }
+      }
+      if (!producerSym || !consumerSym) {
+        return op.emitOpError(
+            "DFB lowering requires both a producer and a consumer kernel for "
+            "every CB additional arg");
+      }
+
+      uint64_t pageSizeBytes = device.getMemrefCBPageSizeBytes(memrefType);
+      uint64_t numPages = device.getMemrefCBNumPages(memrefType);
+      uint32_t producerMask = riscMaskFor(producerThreadType, producerNocIndex);
+      uint32_t consumerMask = riscMaskFor(consumerThreadType, consumerNocIndex);
+
+      Type innerElementType = memrefType.getElementType();
+      if (auto tile = mlir::dyn_cast<ttcore::TileType>(innerElementType)) {
+        innerElementType = tile.getElementType();
+      }
+      auto dataType = ttcore::elementTypeToDataType(innerElementType);
+      auto stridedPattern = ttcore::DFBAccessPatternAttr::get(
+          ctx, ttcore::DFBAccessPattern::Strided);
+      auto dataFormatAttr = ttcore::DataTypeAttr::get(ctx, dataType);
+
+      auto config = ttmetal::DataflowBufferConfigAttr::get(
+          ctx, /*entry_size=*/static_cast<uint32_t>(pageSizeBytes),
+          /*num_entries=*/static_cast<uint32_t>(numPages),
+          /*num_producers=*/1u, /*num_consumers=*/1u, producerMask,
+          consumerMask, stridedPattern, stridedPattern,
+          /*enable_implicit_sync=*/false, dataFormatAttr);
+
+      Value dfbId = rewriter.create<ttmetal::CreateDataflowBufferOp>(
+          op.getLoc(),
+          IntegerType::get(ctx, 32, IntegerType::Unsigned), coreRange, config);
+      rewriter.create<ttmetal::BindDFBToKernelsOp>(
+          op.getLoc(), dfbId,
+          mlir::FlatSymbolRefAttr::get(producerSym.getRootReference()),
+          mlir::FlatSymbolRefAttr::get(consumerSym.getRootReference()));
+
+      // Mirror cbs into dfbs (same memref proxy operand) and assign a
+      // positional id. Compiler-emitted DFB ids are 0..N-1 in program order.
+      dfbs.push_back(cbMemref);
+      dfbIds.push_back(static_cast<int64_t>(i));
+    }
+    return success();
+  }
+
+  enum class CBRole { Neither, Producer, Consumer, Both };
+
+  // Walk a kernel func body and classify whether it produces / consumes the
+  // CB additional arg at `cbOperandIdx` (relative to the parent generic).
+  // Producer = the kernel calls cb_reserve_back / cb_push_back (or DFB
+  // equivalents) on the corresponding compile-time arg; consumer = wait_front
+  // / pop_front.
+  static CBRole classifyCBRole(const SymbolTable &symbolTable,
+                               SymbolRefAttr kernelSym, size_t cbOperandIdx) {
+    auto kernelFunc = symbolTable.lookup<func::FuncOp>(
+        kernelSym.getRootReference());
+    if (!kernelFunc) {
+      return CBRole::Neither;
+    }
+    auto argSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
+        ttkernel::ArgSpecAttr::name);
+    if (!argSpec) {
+      return CBRole::Neither;
+    }
+    // Find the ct-arg index whose ArgAttr targets cbOperandIdx.
+    std::optional<size_t> matchingCtIdx;
+    for (auto [ctIdx, argAttr] :
+         llvm::enumerate(argSpec.getCtArgs())) {
+      if ((argAttr.getArgType() == ttkernel::ArgType::CBPort ||
+           argAttr.getArgType() == ttkernel::ArgType::DFBId) &&
+          argAttr.getOperandIndex() == cbOperandIdx) {
+        matchingCtIdx = ctIdx;
+        break;
+      }
+    }
+    if (!matchingCtIdx) {
+      return CBRole::Neither;
+    }
+    bool isProducer = false;
+    bool isConsumer = false;
+    kernelFunc.walk([&](Operation *op) {
+      auto matchesCtArg = [&](Value v) {
+        if (auto getOp = v.getDefiningOp<ttkernel::GetCompileArgValOp>()) {
+          return static_cast<int64_t>(getOp.getArgIndex()) ==
+                 static_cast<int64_t>(*matchingCtIdx);
+        }
+        return false;
+      };
+      if (auto cbOp = dyn_cast<ttkernel::CBReserveBackOp>(op);
+          cbOp && matchesCtArg(cbOp.getCb())) {
+        isProducer = true;
+      }
+      if (auto cbOp = dyn_cast<ttkernel::CBPushBackOp>(op);
+          cbOp && matchesCtArg(cbOp.getCb())) {
+        isProducer = true;
+      }
+      if (auto cbOp = dyn_cast<ttkernel::CBWaitFrontOp>(op);
+          cbOp && matchesCtArg(cbOp.getCb())) {
+        isConsumer = true;
+      }
+      if (auto cbOp = dyn_cast<ttkernel::CBPopFrontOp>(op);
+          cbOp && matchesCtArg(cbOp.getCb())) {
+        isConsumer = true;
+      }
+      if (auto dfbOp = dyn_cast<ttkernel::DFBReserveBackOp>(op);
+          dfbOp && matchesCtArg(dfbOp.getDfb())) {
+        isProducer = true;
+      }
+      if (auto dfbOp = dyn_cast<ttkernel::DFBPushBackOp>(op);
+          dfbOp && matchesCtArg(dfbOp.getDfb())) {
+        isProducer = true;
+      }
+      if (auto dfbOp = dyn_cast<ttkernel::DFBWaitFrontOp>(op);
+          dfbOp && matchesCtArg(dfbOp.getDfb())) {
+        isConsumer = true;
+      }
+      if (auto dfbOp = dyn_cast<ttkernel::DFBPopFrontOp>(op);
+          dfbOp && matchesCtArg(dfbOp.getDfb())) {
+        isConsumer = true;
+      }
+    });
+    if (isProducer && isConsumer) {
+      return CBRole::Both;
+    }
+    if (isProducer) {
+      return CBRole::Producer;
+    }
+    if (isConsumer) {
+      return CBRole::Consumer;
+    }
+    return CBRole::Neither;
+  }
+
+  // DM RISCs occupy bits 0..7 (BRISC=0, NCRISC=1, etc.); Tensix compute
+  // RISCs occupy bits 8..15 (TRISC0=8 etc.). For the MVP a DM thread is
+  // mapped to bit = nocIndex (0 or 1), and a compute thread to bit 8.
+  static uint32_t riscMaskFor(d2m::ThreadType threadType, int32_t nocIndex) {
+    switch (threadType) {
+    case d2m::ThreadType::Datamovement:
+      // Bit 0 if nocIndex is unassigned (-1) or 0; bit 1 if nocIndex is 1.
+      return 1u << (nocIndex == 1 ? 1u : 0u);
+    case d2m::ThreadType::Compute:
+      return 1u << 8;
+    case d2m::ThreadType::Unified:
+      llvm_unreachable("Unified threads must be split before DFB lowering");
+    }
+    return 0;
+  }
 
 private:
   static CoreRangeAttr coreRangeAttrFromOp(Builder &builder, d2m::GenericOp op);
 
   ttmetal::MathFidelity mathFidelity_;
+  bool useDFBs_;
 };
 
 // CoreRange from d2m.generic grid: when virt_to_physical is present, project
@@ -876,7 +1117,8 @@ namespace mlir::tt {
 
 void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
-                                  ttmetal::MathFidelity mathFidelity) {
+                                  ttmetal::MathFidelity mathFidelity,
+                                  bool useDFBs) {
   patterns.add<
       ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
       ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
@@ -884,7 +1126,7 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ttmetal::D2MResetGlobalSemaphoreRewriter,
       ttmetal::D2MCreateLocalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
       ctx);
-  patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
+  patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity, useDFBs);
   patterns.add<ttmetal::D2MOperandAliasRewriter>(ctx);
 }
 

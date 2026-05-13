@@ -20,7 +20,8 @@ namespace mlir::tt {
 
 void populateD2MToTTMetalPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    ttmetal::MathFidelity mathFidelity = ttmetal::MathFidelity::HiFi4);
+    ttmetal::MathFidelity mathFidelity = ttmetal::MathFidelity::HiFi4,
+    bool useDFBs = false);
 
 void populateD2MToTTMetalSpatialOpPattern(MLIRContext *ctx,
                                           RewritePatternSet &patterns);

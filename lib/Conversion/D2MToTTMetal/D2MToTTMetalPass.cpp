@@ -74,6 +74,7 @@ struct ConvertD2MToTTMetal
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
     this->mathFidelity = rhs.mathFidelity;
+    this->useDFBs = rhs.useDFBs;
   }
 
   void runOnOperation() final {
@@ -114,7 +115,7 @@ struct ConvertD2MToTTMetal
 
     RewritePatternSet patterns(&getContext());
     populateD2MToTTMetalPatterns(&getContext(), patterns, typeConverter,
-                                 mathFidelity);
+                                 mathFidelity, useDFBs);
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
