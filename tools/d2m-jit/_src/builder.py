@@ -212,15 +212,25 @@ class LazyTensor:
       - a materialised torch.Tensor (after to_host).
     """
 
-    __slots__ = ("layout", "value", "generation", "materialized")
+    __slots__ = ("layout", "value", "generation", "materialized", "is_view")
 
     def __init__(
-        self, layout: Layout, value, generation, materialized=None
+        self,
+        layout: Layout,
+        value,
+        generation,
+        materialized=None,
+        is_view: bool = False,
     ):
         self.layout = layout
         self.value = value
         self.generation = generation
         self.materialized = materialized
+        # A view is a metadata reinterpretation (d2m.view_layout) of an
+        # underlying buffer. to_host on a view is ambiguous -- the buffer
+        # data is not in the view's logical form -- so we refuse it and
+        # ask the user to materialise via to_layout first.
+        self.is_view = is_view
 
     def to_host(self):
         return to_host(self)[0]
@@ -391,7 +401,7 @@ def _emit_view_layout(lt: LazyTensor, affine_map, spec) -> LazyTensor:
         )
         val = d2m.ViewLayoutOp(dst_ty, lt.value, affine_map).result
     new_layout = _derive_perm_layout(lt.layout, spec) or lt.layout
-    return LazyTensor(new_layout, val, b.generation)
+    return LazyTensor(new_layout, val, b.generation, is_view=True)
 
 
 def view_layout(lt: LazyTensor, remapping_fn) -> LazyTensor:
@@ -572,6 +582,15 @@ def to_host(*lts: LazyTensor):
         raise ValueError("to_host requires at least one LazyTensor")
 
     resolved = [lt._resolve() for lt in lts]
+    for i, lt in enumerate(resolved):
+        if lt.is_view:
+            raise ValueError(
+                f"to_host: argument {i} is a view (created via "
+                f"view/view_layout). Views are metadata reinterpretations "
+                f"of an underlying buffer and cannot be materialised "
+                f"directly. Convert to a concrete layout first, e.g. "
+                f"to_layout(v, v.layout)."
+            )
     b = _Builder.get()
     # All resolved tensors must belong to this builder (resolve guarantees that).
     assert all(lt.generation == b.generation for lt in resolved)
