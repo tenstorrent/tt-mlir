@@ -21,6 +21,7 @@ from ._src.builder import (
     empty,
     view_layout,
     view,
+    permute,
     to_host,
 )
 

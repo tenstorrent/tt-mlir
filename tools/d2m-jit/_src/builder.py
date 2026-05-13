@@ -427,6 +427,28 @@ def view_layout(lt: LazyTensor, remapping_fn) -> LazyTensor:
     return _emit_view_layout(lt, affine_map, spec)
 
 
+def _emit_perm_view(lt: LazyTensor, perm) -> LazyTensor:
+    """Lift a logical-rank permutation to blocked rank and emit a view.
+
+    `perm` is a list of logical dim indices forming a permutation. The
+    blocked map applies the same permutation independently to the grid
+    half and the tile half of the source's MLIR shape.
+    """
+    n_logical = len(lt.layout.logical_shape)
+    if sorted(perm) != list(range(n_logical)):
+        raise ValueError(
+            f"permutation {list(perm)} is not a rearrangement of (0..{n_logical-1})"
+        )
+    lifted_perm = list(perm) + [p + n_logical for p in perm]
+    lifted_spec = [("dim", p) for p in lifted_perm]
+    b = _Builder.get()
+    with b.ctx, b.loc:
+        lifted_map = AffineMap.get(
+            2 * n_logical, 0, [AffineDimExpr.get(p) for p in lifted_perm]
+        )
+    return _emit_view_layout(lt, lifted_map, lifted_spec)
+
+
 def view(lt: LazyTensor, remapping_fn) -> LazyTensor:
     """Logical-rank view. `remapping_fn`'s parameter count matches the
     source's *logical* rank (e.g. 2 for a 512x512 tensor).
@@ -449,19 +471,30 @@ def view(lt: LazyTensor, remapping_fn) -> LazyTensor:
             "view: lambda must be a permutation of logical dims (no constants); "
             "use view_layout for richer remappings"
         )
-    perm = [val for _, val in logical_spec]
-    if sorted(perm) != list(range(n_logical)):
-        raise ValueError(f"view: lambda is not a permutation of (0..{n_logical-1})")
+    return _emit_perm_view(lt, [val for _, val in logical_spec])
 
-    # Lift to blocked rank directly via the spec/AffineMap, bypassing
-    # _affine_map_from_lambda (which inspects parameter count).
-    lifted_perm = perm + [p + n_logical for p in perm]
-    lifted_spec = [("dim", p) for p in lifted_perm]
-    with b.ctx, b.loc:
-        lifted_map = AffineMap.get(
-            2 * n_logical, 0, [AffineDimExpr.get(p) for p in lifted_perm]
+
+def permute(lt: LazyTensor, *dims) -> LazyTensor:
+    """torch.permute-style logical-dim permutation.
+
+    `dims` is a positional list of logical dim indices in the new order:
+
+      d2m.permute(lt, 1, 0)       # 2D transpose
+      d2m.permute(lt, 0, 2, 1)    # swap last two of a 3D logical tensor
+
+    Returns a view; subsequent `to_host` requires a materialising
+    `to_layout` (same rule as for any d2m view).
+    """
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"permute expected a LazyTensor, got {type(lt).__name__}")
+    lt = lt._resolve()
+    n_logical = len(lt.layout.logical_shape)
+    if len(dims) != n_logical:
+        raise ValueError(
+            f"permute: expected {n_logical} dim indices for logical rank "
+            f"{n_logical}, got {len(dims)}: {dims}"
         )
-    return _emit_view_layout(lt, lifted_map, lifted_spec)
+    return _emit_perm_view(lt, list(dims))
 
 
 # --- Materialisation ---------------------------------------------------------
