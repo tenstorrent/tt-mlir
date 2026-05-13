@@ -125,6 +125,119 @@ private:
   }
 };
 
+// This pattern undoes the StableHLO multi-dim-scatter flattening for the
+// cross-entropy / NLL backward case, where a 2D scatter on `<B, V>` was
+// flattened to a 1D scatter on `<B*V>` followed by a reshape back to
+// `<B, V>`. The flat shape, once lowered to TTNN and tilized, blows DRAM
+// at large vocab sizes because the trailing-1 dim is tile-padded by 32x.
+//
+// Match: `ttir.scatter(input, idx, vals, dim=0)<N>` -> `ttir.reshape([B, V])`
+// with `N == B*V`, 1D index/source of size B.
+//
+// Rewrite: `ttir.scatter(input<B,V>, idx<B,1>, vals<B,1>, dim=1)`. The
+// per-row column index is recovered as `flat_idx % V` via a runtime
+// remainder op (single <B>-shape op, trivial cost). This makes no
+// assumption about how the flat index was computed — the structural
+// invariant `flat_idx[i] / V == i` is what the stablehlo flattening
+// guarantees, and that is enough.
+//
+// The original 2D input is recovered by stripping the upstream
+// `_input_flatten` reshape from `<B, V>` to `<N>`; if absent, a fresh
+// `ttir.zeros<B, V>` is materialised.
+class FlatScatterReshapeToBatchedPattern
+    : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto reshapeOutType =
+        mlir::cast<RankedTensorType>(reshapeOp.getResult().getType());
+    auto reshapeInType =
+        mlir::cast<RankedTensorType>(reshapeOp.getInput().getType());
+    if (reshapeInType.getRank() != 1 || reshapeOutType.getRank() != 2) {
+      return failure();
+    }
+    int64_t batch = reshapeOutType.getShape()[0];
+    int64_t vocab = reshapeOutType.getShape()[1];
+    int64_t flatSize = reshapeInType.getShape()[0];
+    if (batch <= 0 || vocab <= 0 || batch * vocab != flatSize) {
+      return failure();
+    }
+
+    auto scatterOp = reshapeOp.getInput().getDefiningOp<ScatterOp>();
+    if (!scatterOp || scatterOp.getDim() != 0) {
+      return failure();
+    }
+    auto idxType =
+        mlir::cast<RankedTensorType>(scatterOp.getIndex().getType());
+    auto srcType =
+        mlir::cast<RankedTensorType>(scatterOp.getSource().getType());
+    if (idxType.getRank() != 1 || idxType.getShape()[0] != batch) {
+      return failure();
+    }
+    if (srcType.getRank() != 1 || srcType.getShape()[0] != batch) {
+      return failure();
+    }
+
+    // Recover the pre-flatten <B, V> input if the scatter's input is a
+    // reshape from <B, V> (the `_input_flatten` injected by the stablehlo
+    // multi-dim scatter conversion). Otherwise materialise fresh zeros.
+    Value scatter2dInput;
+    if (auto inputReshape =
+            scatterOp.getInput().getDefiningOp<ReshapeOp>()) {
+      auto preReshapeType =
+          mlir::cast<RankedTensorType>(inputReshape.getInput().getType());
+      if (preReshapeType.getRank() == 2 &&
+          preReshapeType.getShape()[0] == batch &&
+          preReshapeType.getShape()[1] == vocab) {
+        scatter2dInput = inputReshape.getInput();
+      }
+    }
+    if (!scatter2dInput) {
+      auto zeros2dType =
+          RankedTensorType::get({batch, vocab}, reshapeInType.getElementType());
+      scatter2dInput = rewriter.create<ZerosOp>(
+          ttmlir::utils::appendLocationSuffix(scatterOp.getLoc(), "_zeros_2d"),
+          zeros2dType,
+          llvm::to_vector_of<int32_t>(zeros2dType.getShape()));
+    }
+
+    Location loc = scatterOp.getLoc();
+    auto idx1dType = RankedTensorType::get(
+        {batch}, idxType.getElementType(), idxType.getEncoding());
+    auto vConst = rewriter.create<FullOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_V_const"), idx1dType,
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(vocab)));
+    auto perRowIdx = rewriter.create<RemainderOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_per_row_mod"), idx1dType,
+        scatterOp.getIndex(), vConst.getResult());
+
+    auto idx2dType = RankedTensorType::get(
+        {batch, 1}, idxType.getElementType(), idxType.getEncoding());
+    auto idx2d = rewriter.create<ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_idx_2d"), idx2dType,
+        perRowIdx.getResult(),
+        rewriter.getI32ArrayAttr({static_cast<int32_t>(batch), 1}));
+
+    auto vals2dType = RankedTensorType::get(
+        {batch, 1}, srcType.getElementType(), srcType.getEncoding());
+    auto vals2d = rewriter.create<ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_vals_2d"), vals2dType,
+        scatterOp.getSource(),
+        rewriter.getI32ArrayAttr({static_cast<int32_t>(batch), 1}));
+
+    auto scatter2d = rewriter.create<ScatterOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_2d"), reshapeOutType,
+        scatter2dInput, idx2d.getResult(), vals2d.getResult(),
+        rewriter.getI32IntegerAttr(1), scatterOp.getScatterReduceTypeAttr());
+
+    rewriter.replaceOp(reshapeOp, scatter2d.getResult());
+    return success();
+  }
+};
+
 // This pattern detects when a reduction operation is followed by a reshape
 // operation that simply adds back dimensions that were reduced. In such cases,
 // we can fuse the reshape into the reduction operation by setting
@@ -3011,6 +3124,11 @@ public:
       patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
       patterns.add<ConvAddBias<ConvTranspose2dOp>>(&getContext());
       patterns.add<ConvAddBias<Conv3dOp>>(&getContext());
+
+      // Fuse `scatter(dim=0)<B*V> + reshape([B, V])` into a single 2D
+      // scatter on `<B, V>` (undoes the StableHLO multi-dim-scatter
+      // flattening; avoids the trailing-1-dim tile-padding cliff in TTNN).
+      patterns.add<FlatScatterReshapeToBatchedPattern>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());

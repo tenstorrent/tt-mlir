@@ -2593,6 +2593,7 @@ def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
 }
 
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
+    let hasCanonicalizer = 1;
     let summary = "Sum reduction operation.";
     let description = [{
       The `sum` operation computes the sum of elements along specified dimensions of the input tensor.

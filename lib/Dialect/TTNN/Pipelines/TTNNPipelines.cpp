@@ -328,6 +328,8 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNMemoryManagement());
     }
     createTTNNPipelineWorkaroundPass(devicePm, options);
+    devicePm.addPass(mlir::createCanonicalizerPass());
+
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
     // Always added: per-arg "ttcore.weight_dtype" annotations may exist even

@@ -6043,6 +6043,30 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                         getDimArg(), getKeepDim(), getType().getShape());
 }
 
+// SumOp canonicalization.
+//
+// Rewrite `sum(neg(x), dim)` -> `neg(sum(x, dim))`. Sum is linear so this is
+// always valid, and pushing the `neg` to after the reduction lets the wide
+// pre-reduction tensor be freed sooner. Particularly relevant for the
+// cross-entropy / NLL backward where a `<B, V>` `neg` transient sits in
+// memory just before a `dim=1` sum reduces it down to `<B, 1>`.
+void mlir::tt::ttir::SumOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](mlir::tt::ttir::SumOp sumOp,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    auto negOp = sumOp.getInput().getDefiningOp<mlir::tt::ttir::NegOp>();
+    if (!negOp || !negOp->hasOneUse()) {
+      return failure();
+    }
+    auto newSum = rewriter.create<mlir::tt::ttir::SumOp>(
+        sumOp.getLoc(), sumOp.getResult().getType(), negOp.getInput(),
+        sumOp.getKeepDim(), sumOp.getDimArgAttr());
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::NegOp>(
+        sumOp, sumOp.getResult().getType(), newSum.getResult());
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // Reduce MinOp
 //===----------------------------------------------------------------------===//
