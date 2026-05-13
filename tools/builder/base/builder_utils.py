@@ -89,16 +89,17 @@ def load_grid_shapes_from_system_desc(
     try:
         system_desc_fbs = tt_runtime.binary.load_system_desc_from_path(system_desc_path)
         system_desc_json = json.loads(system_desc_fbs.as_json())
+
         chip_descs = system_desc_json["system_desc"]["chip_descs"]
         chip_desc = chip_descs[0]
 
-        # Get worker grid dimensions
-        compute_grid = chip_desc["compute_grid"]
-        worker_grid_shape = [compute_grid["rows"], compute_grid["cols"]]
+        # Get worker grid dimensions (grid_size field)
+        grid_size = chip_desc["grid_size"]
+        worker_grid_shape = [grid_size["y"], grid_size["x"]]
 
-        # Get DRAM grid dimensions
-        dram_grid = chip_desc["dram_grid"]
-        dram_grid_shape = [dram_grid["rows"], dram_grid["cols"]]
+        # Get DRAM grid dimensions (dram_grid_size field)
+        dram_grid_size = chip_desc["dram_grid_size"]
+        dram_grid_shape = [dram_grid_size["y"], dram_grid_size["x"]]
 
     except Exception as e:
         raise RuntimeError(
@@ -560,30 +561,54 @@ def _build_row_major_core_ranges(
     """
     Build CoreRangeAttr list for row-major flattening of shards onto physical grid.
 
+    This implementation matches the C++ buildRowMajorCoreRanges function, which
+    coalesces the core ranges into at most two rectangles:
+    1. One large W x H block covering all full rows
+    2. Optionally one tail 1 x W' strip for any partial row
+
     Maps linear shard indices to physical cores in row-major order.
+
+    Parameters
+    ----------
+    ctx : Context
+        MLIR context
+    shard_count : int
+        Total number of shards to map
+    physical_grid_shape : List[int]
+        Physical grid shape as [rows, cols]
+
+    Returns
+    -------
+    List[ttnn.ir.CoreRangeAttr]
+        List of at most 2 CoreRangeAttr covering the shards in row-major order
     """
     ranges = []
     grid_width = physical_grid_shape[1]
 
-    start_idx = 0
-    while start_idx < shard_count:
-        start_y = start_idx // grid_width
-        start_x = start_idx % grid_width
+    # Calculate how many full rows and remaining cores
+    full_rows = shard_count // grid_width
+    tail_cores = shard_count % grid_width
 
-        # Find the end of this row
-        end_idx = min(start_idx + (grid_width - start_x) - 1, shard_count - 1)
-        end_y = end_idx // grid_width
-        end_x = end_idx % grid_width
-
+    # Add the main block covering all full rows (if any)
+    if full_rows > 0:
         ranges.append(
             ttnn.ir.CoreRangeAttr.get(
                 ctx,
-                ttnn.ir.CoreCoordAttr.get(ctx, start_x, start_y),
-                ttnn.ir.CoreCoordAttr.get(ctx, end_x, end_y),
+                ttnn.ir.CoreCoordAttr.get(ctx, 0, 0),
+                ttnn.ir.CoreCoordAttr.get(ctx, grid_width - 1, full_rows - 1),
             )
         )
 
-        start_idx = end_idx + 1
+    # Add the tail strip for the partial row (if any)
+    if tail_cores > 0:
+        tail_y = full_rows
+        ranges.append(
+            ttnn.ir.CoreRangeAttr.get(
+                ctx,
+                ttnn.ir.CoreCoordAttr.get(ctx, 0, tail_y),
+                ttnn.ir.CoreCoordAttr.get(ctx, tail_cores - 1, tail_y),
+            )
+        )
 
     return ranges
 
