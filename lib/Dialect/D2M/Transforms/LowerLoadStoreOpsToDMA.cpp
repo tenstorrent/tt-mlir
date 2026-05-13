@@ -88,8 +88,7 @@ public:
     // Determine if this core is the sender.
     // The sender is at position mcastStartIndex[i] for each multicast
     // dimension. We need to check that ALL multicast dimensions have core_index
-    // == mcastStartIndex. CoreIndexOp grid mapping is attached when generic
-    // regions are outlined to funcs.
+    // == mcastStartIndex.
     Value isSender = nullptr;
     ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
     for (auto [i, mcastIdx] : llvm::enumerate(mcastStartIndex)) {

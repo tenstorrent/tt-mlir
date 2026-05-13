@@ -205,9 +205,8 @@ public:
     TT_assert(mcastShapeInt64.size() == computeGridShape.size());
 
     // Convert virtual multicast extents to physical extents if virtualization
-    // is present. Core index operands stay in virtual grid space; downstream
-    // generic region outlining establishes that via CoreIndexOp's
-    // physical-to-virtual map.
+    // is present. The multicast start coordinates are already expressed in the
+    // same coordinate space as the surrounding generic grid.
     // Use the stored forward map from the output EmptyOp when available,
     // otherwise fall back to re-deriving from grid shape.
     TT_assert(genericOp.getOutputs().size() >= 1u);
@@ -228,9 +227,7 @@ public:
 
     if (coreVirtMap) {
       // Project out shard layout dims and results from the forward map since
-      // multicast shape only describes grid dimensions. Core index operands
-      // stay in virtual grid space; generic region outlining establishes that
-      // via phys_to_virt_map on the generated core_index ops.
+      // multicast shape only describes grid dimensions.
       AffineMap projectedMap = getProjectedGridForwardMap(
           coreVirtMap, static_cast<unsigned>(mcastShapeInt64.size()));
       mcastShapeInt64 = ttmlir::utils::evalShape(projectedMap, mcastShapeInt64);
