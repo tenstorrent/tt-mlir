@@ -4610,6 +4610,13 @@ def ttir_erf_golden(
     return torch.erf(input_tensor).to(output_dtype)
 
 
+def ttir_gelu_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.gelu(input_tensor).to(output_dtype)
+
+
 def ttir_floor_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4763,6 +4770,40 @@ def ttir_reduce_scatter_golden(
     return GoldenMapTensor(
         {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
     )
+
+
+def ttir_mesh_partition_golden(
+    input: GoldenMapTensor,
+    dim_attr: IntegerAttr,
+    cluster_axis_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # `mesh_partition` is the lowering of `sdy.all_slice`: along `cluster_axis`
+    # the input is replicated, and we split it into N pieces along `dim` (where
+    # N is the mesh size on `cluster_axis`), distributing one slice to each
+    # device in the group. We assume the per-group shards are identical
+    # (replicated) and slice the first one. The input may also arrive fully
+    # replicated (single shard) when wrapped with `MeshShardType.Identity`, in
+    # which case we treat that single tensor as the per-group source.
+    dim = unpack_mlir_attr(dim_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    rows, cols = input.mesh_shape
+    shard_map = input.shard_map
+    fallback_shard = next(iter(shard_map.values()))
+
+    cluster_size = cols if cluster_axis == 1 else rows
+    output_shards: Dict[int, torch.Tensor] = {}
+    for r in range(rows):
+        for c in range(cols):
+            device_id = r * cols + c
+            group_index = c if cluster_axis == 1 else r
+            source = shard_map.get(device_id, fallback_shard)
+            scattered = torch.chunk(source, cluster_size, dim=dim)
+            output_shards[device_id] = scattered[group_index].clone().to(output_dtype)
+
+    return GoldenMapTensor(output_shards, input.mesh_shape)
 
 
 def ttir_collective_permute_golden(
@@ -7716,6 +7757,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AllReduceOp: ttir_all_reduce_golden,
     ttir.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttir.ReduceScatterOp: ttir_reduce_scatter_golden,
+    ttir.MeshPartitionOp: ttir_mesh_partition_golden,
     ttir.CollectivePermuteOp: ttir_collective_permute_golden,
     ttir.AllToAllOp: ttir_all_to_all_golden,
     ttir.CollectiveBroadcastOp: ttir_collective_broadcast_golden,
