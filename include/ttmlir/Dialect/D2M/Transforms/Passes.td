@@ -592,6 +592,31 @@ defvar D2MStreamingOptions = [
          "Make generic outputs eligible for spilling from L1 to DRAM.">,
 ];
 
+def D2MMarkSynchronizedBuffers : Pass<"d2m-mark-synchronized-buffers", "::mlir::ModuleOp"> {
+  let summary = "Mark in-generic allocs that require synchronization with d2m.synchronized_buffer attribute.";
+  let description = [{
+    This pass runs after bufferization and marks `memref.alloc` operations inside
+    `d2m.generic` ops that are used for synchronization (i.e., circular buffers)
+    with the `d2m.synchronized_buffer` attribute. The attribute value indicates
+    the number of stream buffers to allocate.
+
+    This information is used by the HoistCBAllocs pass to properly configure
+    the CBLayoutAttr for these buffers.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+
+  let options = [
+    Option<"numStreamBuffers",
+           "num-stream-buffers",
+           "unsigned", /*default=*/"2",
+           "Number of backing buffers to allocate per synchronized buffer (>=1). Default is 2.">,
+  ];
+}
+
 def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{

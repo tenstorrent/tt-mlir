@@ -60,6 +60,7 @@ void createTTIRBufferizationPipeline(OpPassManager &pm,
   // bufferDeallocationOptions;
   // mlir::bufferization::buildBufferDeallocationPipeline(
   //    pm, bufferDeallocationOptions);
+  pm.addPass(d2m::createD2MMarkSynchronizedBuffers());
 }
 
 void createOptimizationPasses(OpPassManager &pm,

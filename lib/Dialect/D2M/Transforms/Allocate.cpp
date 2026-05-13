@@ -396,11 +396,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(markSynchronizedOpBuffers(funcOp))) {
-      funcOp.emitOpError("Failed to mark synchronized op buffers");
-      return failure();
-    }
-
     if (failed(analyzeGenericRegionAllocs(funcOp, analysis))) {
       return failure();
     }
@@ -1348,23 +1343,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     analysis.sequencing);
     }
 
-    return success();
-  }
-
-  LogicalResult markSynchronizedOpBuffers(func::FuncOp funcOp) {
-    IRRewriter rewriter(funcOp->getContext());
-    // Use getCBUsageInfo to determine which in-generic allocs are used for
-    // synchronization and mark them with d2m.synchronized_buffer attribute
-    funcOp->walk([&](d2m::GenericOp genericOp) {
-      auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
-      for (auto &[cb, usageInfo] : cbUsageInfo) {
-        if (auto allocOp =
-                mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
-          allocOp->setAttr("d2m.synchronized_buffer",
-                           rewriter.getI32IntegerAttr(numStreamBuffers));
-        }
-      }
-    });
     return success();
   }
 
