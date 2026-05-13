@@ -1314,7 +1314,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           if (remoteLoadOp.getMemref() == operandCtx.operand->get() &&
               isAliasedLoad(remoteLoadOp)) {
             // Replace memref.alloc with operand alias op
-            auto allocOp = remoteLoadOp.getLocalBuffer().getDefiningOp();
+            auto *allocOp = remoteLoadOp.getLocalBuffer().getDefiningOp();
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteLoadOp.getMemref());
@@ -1402,8 +1402,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       for (auto &[cb, usageInfo] : cbUsageInfo) {
         if (auto allocOp =
                 mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
-          llvm::errs() << "marking alloc as synchronized buffer:\n"
-                       << *cb.getDefiningOp();
           allocOp->setAttr("d2m.synchronized_buffer",
                            rewriter.getI32IntegerAttr(numStreamBuffers));
         }
