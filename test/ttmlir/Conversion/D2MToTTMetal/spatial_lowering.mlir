@@ -167,9 +167,10 @@ module {
   // CHECK-LABEL: func.func @spatial_two_regions_cb_port_remap
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
   // CHECK: cb_ports = array<i64: 0, 1, 2, 3>
+  // CHECK-SAME: dfb_ids = array<i64>
   // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_cbport_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>
   // CHECK-SAME: #ttmetal.noc_config<@dm_cbport_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>]>, noc0>]
-  // CHECK: operandSegmentSizes = array<i32: 4, 4>
+  // CHECK: operandSegmentSizes = array<i32: 4, 4, 0>
   // CHECK-NOT: @dm_cbport_r1{{.*}}cb_port[0]
   // CHECK-NOT: d2m.spatial
   func.func @spatial_two_regions_cb_port_remap(

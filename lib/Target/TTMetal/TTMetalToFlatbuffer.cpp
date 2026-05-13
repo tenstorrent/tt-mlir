@@ -827,6 +827,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
+  case ttkernel::ArgType::DFBId: {
+    // Flatbuffer schema support for DFBId lands with PR8 (Quasar DFB
+    // runtime path). Until then, no pass emits this ArgType so reaching
+    // here is a bug.
+    llvm_unreachable(
+        "DFBId KernelArg flatbuffer serialization not yet implemented");
+  }
   }
 
   return target::metal::CreateKernelArg(*cache.fbb, argType, arg);

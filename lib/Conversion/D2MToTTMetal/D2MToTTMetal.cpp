@@ -236,8 +236,10 @@ public:
         rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
         mathFidelity_, cbOperandIndexToPort, argMapping);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, args, cbs, cbPorts, kernelConfigs,
-        op.getFabricConnectionConfigAttr());
+        op, args, cbs, cbPorts,
+        /*dfbs=*/ValueRange{},
+        /*dfb_ids=*/rewriter.getDenseI64ArrayAttr({}),
+        kernelConfigs, op.getFabricConnectionConfigAttr());
     return success();
   };
 
@@ -644,6 +646,8 @@ public:
 
     rewriter.create<ttmetal::EnqueueProgramOp>(
         op.getLoc(), remapTable.getUnifiedArgs(), mergedCbs, mergedCbPorts,
+        /*dfbs=*/ValueRange{},
+        /*dfb_ids=*/rewriter.getDenseI64ArrayAttr({}),
         rewriter.getArrayAttr(mergedKernelConfigs), mergedFabricConfig);
 
     for (Operation *operation : postEnqueueOps) {

@@ -69,6 +69,46 @@ static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
   return success();
 }
 
+::mlir::LogicalResult DFBReserveBackOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "DFBReserveBackOp must be inside of a EnqueueProgramOp region");
+  }
+  return success();
+}
+
+::mlir::LogicalResult DFBPushBackOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "DFBPushBackOp must be inside of a EnqueueProgramOp region");
+  }
+  return success();
+}
+
+::mlir::LogicalResult DFBWaitFrontOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "DFBWaitFrontOp must be inside of a EnqueueProgramOp region");
+  }
+  return success();
+}
+
+::mlir::LogicalResult DFBPopFrontOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "DFBPopFrontOp must be inside of a EnqueueProgramOp region");
+  }
+  return success();
+}
+
+::mlir::LogicalResult DFBFinishOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "DFBFinishOp must be inside of a EnqueueProgramOp region");
+  }
+  return success();
+}
+
 static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   if (mlir::isa<ttcore::TileType>(scalarCB.getElementType())) {
     return "Input to TilizeOp or Output to UntilizeOp must have scalar "

@@ -2932,6 +2932,105 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front", [TTKernel_DeviceZoneOp
 }
 
 //===----------------------------------------------------------------------===//
+// TTKernel DFB (Dataflow Buffer) operations
+//
+// Parallel to the CB ops above. DFBs are Quasar's MPMC dataflow buffers;
+// the kernel-side ABI is the same shape as the CB API (reserve / push /
+// wait / pop) plus an explicit drain barrier (finish). Each op takes a
+// !ttkernel.dfb value and an i32 num_entries count.
+//
+// The consumer-slot selection happens host-side at
+// BindDataflowBufferToProducerConsumerKernels time; the kernel-side ops
+// do not parametrize on it.
+//===----------------------------------------------------------------------===//
+
+def TTKernel_DFBReserveBackOp : TTKernel_Op<"dfb_reserve_back"> {
+    let summary = "DFBReserveBack call.";
+    let description = [{
+      Quasar DataflowBuffer::reserve_back kernel call. Producer-side
+      acquire: blocks until at least `numEntries` free entries are
+      available across the configured consumer tile counters.
+    }];
+
+    let arguments = (ins TTKernel_DFB:$dfb, I32:$numEntries);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $dfb `,` $numEntries `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_DFBPushBackOp : TTKernel_Op<"dfb_push_back"> {
+    let summary = "DFBPushBack call.";
+    let description = [{
+      Quasar DataflowBuffer::push_back kernel call. Producer-side release:
+      increments `posted` on the consumer tile counter(s) (rotating per
+      STRIDED, broadcasting per BLOCKED) so consumers see the new entries.
+    }];
+
+    let arguments = (ins TTKernel_DFB:$dfb, I32:$numEntries);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $dfb `,` $numEntries `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_DFBWaitFrontOp : TTKernel_Op<"dfb_wait_front", [TTKernel_DeviceZoneOpTrait]> {
+    let summary = "DFBWaitFront call.";
+    let description = [{
+      Quasar DataflowBuffer::wait_front kernel call. Consumer-side
+      acquire: blocks until at least `numEntries` entries are available
+      on this consumer's tile counter. Slot identity is established at
+      host-side bind time and does not appear as an operand here.
+    }];
+
+    let arguments = (ins TTKernel_DFB:$dfb, I32:$numEntries);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $dfb `,` $numEntries `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_DFBPopFrontOp : TTKernel_Op<"dfb_pop_front"> {
+    let summary = "DFBPopFront call.";
+    let description = [{
+      Quasar DataflowBuffer::pop_front kernel call. Consumer-side release:
+      increments `acked` on this consumer's tile counter, freeing the
+      entry for producer reuse.
+    }];
+
+    let arguments = (ins TTKernel_DFB:$dfb, I32:$numEntries);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $dfb `,` $numEntries `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_DFBFinishOp : TTKernel_Op<"dfb_finish"> {
+    let summary = "DFBFinish call (explicit drain barrier).";
+    let description = [{
+      Quasar DataflowBuffer::finish kernel call. Waits for all outstanding
+      posted entries to be acked by all consumers. No CB analogue; failing
+      to emit this at end of producer work silently hangs Quasar.
+    }];
+
+    let arguments = (ins TTKernel_DFB:$dfb);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $dfb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+//===----------------------------------------------------------------------===//
 // TTKernel Tile operations
 //===----------------------------------------------------------------------===//
 

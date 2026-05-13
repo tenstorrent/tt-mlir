@@ -188,6 +188,11 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
   case ttkernel::ArgType::Scalar: {
     return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
   }
+  case ttkernel::ArgType::DFBId: {
+    // DFBs are a Quasar-only path; D2M->TTNN targets WH/BH and should
+    // never produce a DFBId kernel arg.
+    llvm_unreachable("DFBId KernelArg not valid for TTNN target");
+  }
   }
   llvm_unreachable("Invalid ArgType");
 }
