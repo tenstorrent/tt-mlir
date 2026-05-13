@@ -209,7 +209,13 @@ class TTNNBuilder(Builder):
         `tensor_memory_layout`, `grid_shape`, and `core_range_set`.
         """
         return self._create_ttnn_tensor_encoding(
-            shape, element_type, layout, buffer_type
+            shape,
+            element_type,
+            layout,
+            buffer_type,
+            tensor_memory_layout,
+            grid_shape,
+            core_range_set,
         )
 
     def create_ttnn_tensor(
