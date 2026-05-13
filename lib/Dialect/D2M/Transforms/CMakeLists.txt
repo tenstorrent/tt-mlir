@@ -11,9 +11,9 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
         GridSelection.cpp
-        InsertDstRegisterAccessShared.cpp
-        InsertDstRegisterAccessUnscheduled.cpp
-        InsertDstRegisterAccessScheduled.cpp
+        InsertDstRegisterAccess/Shared.cpp
+        InsertDstRegisterAccess/Unscheduled.cpp
+        InsertDstRegisterAccess/Scheduled.cpp
         InsertTileMatmulBlock.cpp
         LinalgToAffine.cpp
         LowerScratchAllocate.cpp
