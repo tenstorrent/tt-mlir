@@ -339,29 +339,119 @@ def empty(layout: Layout) -> LazyTensor:
     return LazyTensor(layout, val, b.generation)
 
 
-def view_layout(lt: LazyTensor, layout: Layout) -> LazyTensor:
-    """Re-view a LazyTensor under a different grid_shape with the same
-    logical shape/dtype/block_shape/mem_space."""
-    lt = lt._resolve()
-    assert lt.layout.logical_shape == layout.logical_shape
-    assert lt.layout.block_shape == layout.block_shape
-    assert lt.layout.dtype == layout.dtype
-    assert lt.layout.tiled == layout.tiled
+def _derive_perm_layout(src_layout: Layout, spec):
+    """If `spec` (from _affine_map_from_lambda) describes a clean permutation
+    of paired (grid, tile) dims, return a Layout with logical_shape/
+    block_shape/grid_shape permuted accordingly. Otherwise return None."""
+    n_logical = len(src_layout.logical_shape)
+    expected = 2 * n_logical
+    if len(spec) != expected:
+        return None
+    # The lifted blocked-rank perm has the form
+    #   [p0, p1, ..., p_{N-1}, p0+N, p1+N, ..., p_{N-1}+N]
+    # where (p0..p_{N-1}) is a permutation of (0..N-1).
+    head = spec[:n_logical]
+    tail = spec[n_logical:]
+    perm = []
+    for tag, val in head:
+        if tag != "dim" or val >= n_logical:
+            return None
+        perm.append(val)
+    # Verify tail mirrors head with +N offset.
+    for i, (tag, val) in enumerate(tail):
+        if tag != "dim" or val != perm[i] + n_logical:
+            return None
+    if sorted(perm) != list(range(n_logical)):
+        return None
+    return src_layout.replace(
+        shape=[src_layout.logical_shape[p] for p in perm],
+        block_shape=[src_layout.block_shape[p] for p in perm],
+        grid_shape=[src_layout.grid_shape[p] for p in perm],
+    )
 
+
+def _emit_view_layout(lt: LazyTensor, affine_map, spec) -> LazyTensor:
+    """Lower form: take an already-built AffineMap + spec and emit
+    `d2m.view_layout`. Used by both view_layout (with a user lambda)
+    and view (with a lifted blocked-rank spec built in Python)."""
     b = _Builder.get()
     with b.ctx, b.loc, b.insert_point:
-        # Source value is at lt.layout's blocked grid. Reblock to target's
-        # blocked grid via the existing reblock-map machinery.
-        src_shape = lt.layout.get_device_shape(b.ctx, lt.layout.blocked_grid_shape)
-        dst_shape = layout.get_device_shape(b.ctx, layout.blocked_grid_shape)
-        dst_ty = layout.build_device_tensor_type(b.ctx, blocked=True)
-        reblock_map = d2m.ir.calculate_reblock_map(src_shape, dst_shape, b.ctx)
-        val = d2m.ViewLayoutOp(dst_ty, lt.value, reblock_map).result
-    return LazyTensor(layout, val, b.generation)
+        src_type = lt.value.type
+        src_shape = list(src_type.shape)
+        if affine_map.n_dims != len(src_shape):
+            raise ValueError(
+                f"view_layout: lambda takes {affine_map.n_dims} args but "
+                f"source MLIR rank is {len(src_shape)}"
+            )
+        dst_shape = []
+        for tag, val in spec:
+            dst_shape.append(src_shape[val] if tag == "dim" else 1)
+        dst_ty = RankedTensorType.get(
+            dst_shape, src_type.element_type, encoding=src_type.encoding
+        )
+        val = d2m.ViewLayoutOp(dst_ty, lt.value, affine_map).result
+    new_layout = _derive_perm_layout(lt.layout, spec) or lt.layout
+    return LazyTensor(new_layout, val, b.generation)
 
 
-# Short alias.
-view = view_layout
+def view_layout(lt: LazyTensor, remapping_fn) -> LazyTensor:
+    """Emit a `d2m.view_layout` with a user-supplied affine remapping.
+
+    `remapping_fn` is a Python lambda whose parameter count matches the
+    source value's MLIR rank (typically 2N for an N-dim logical tiled
+    tensor: the first N dims are grid, the trailing N are per-grid tile
+    indices). Each result expression may reference a parameter (perm /
+    passthrough) or be the literal 0 (broadcast-to-1).
+
+    The result LazyTensor's Layout is derived from the source by
+    permuting logical_shape/block_shape/grid_shape if the lambda is a
+    paired (grid, tile) permutation. Otherwise it inherits the source
+    Layout unchanged -- callers that immediately consume the view in a
+    kernel should make sure their lambda corresponds to a valid layout
+    permutation.
+    """
+    lt = lt._resolve()
+    b = _Builder.get()
+    with b.ctx, b.loc:
+        affine_map, spec = _affine_map_from_lambda(remapping_fn)
+    return _emit_view_layout(lt, affine_map, spec)
+
+
+def view(lt: LazyTensor, remapping_fn) -> LazyTensor:
+    """Logical-rank view. `remapping_fn`'s parameter count matches the
+    source's *logical* rank (e.g. 2 for a 512x512 tensor).
+
+    Lifts the logical permutation to the blocked MLIR rank by applying
+    the same permutation independently to the grid dims and the per-grid
+    tile dims, then delegates to `view_layout`'s emit body. Only true
+    permutations (no constants) are supported here -- use `view_layout`
+    for richer remappings.
+    """
+    lt = lt._resolve()
+    b = _Builder.get()
+    with b.ctx, b.loc:
+        _, logical_spec = _affine_map_from_lambda(remapping_fn)
+    n_logical = len(lt.layout.logical_shape)
+    if len(logical_spec) != n_logical or any(
+        tag != "dim" for tag, _ in logical_spec
+    ):
+        raise ValueError(
+            "view: lambda must be a permutation of logical dims (no constants); "
+            "use view_layout for richer remappings"
+        )
+    perm = [val for _, val in logical_spec]
+    if sorted(perm) != list(range(n_logical)):
+        raise ValueError(f"view: lambda is not a permutation of (0..{n_logical-1})")
+
+    # Lift to blocked rank directly via the spec/AffineMap, bypassing
+    # _affine_map_from_lambda (which inspects parameter count).
+    lifted_perm = perm + [p + n_logical for p in perm]
+    lifted_spec = [("dim", p) for p in lifted_perm]
+    with b.ctx, b.loc:
+        lifted_map = AffineMap.get(
+            2 * n_logical, 0, [AffineDimExpr.get(p) for p in lifted_perm]
+        )
+    return _emit_view_layout(lt, lifted_map, lifted_spec)
 
 
 # --- Materialisation ---------------------------------------------------------
@@ -521,6 +611,14 @@ def _collect_int_captures(fn):
 
 
 def _affine_map_from_lambda(fn):
+    """Build an MLIR AffineMap by running `fn` with sentinel dim objects.
+
+    Returns `(AffineMap, spec)` where `spec` is a list of one tag per
+    result expression: either `("dim", i)` for AffineDimExpr referencing
+    input dim `i`, or `("const", v)` for an AffineConstantExpr. Callers
+    that don't need the spec can take `[0]`.
+    """
+
     class _Dim:
         def __init__(self, position):
             self.position = position
@@ -528,17 +626,20 @@ def _affine_map_from_lambda(fn):
     dims = tuple(_Dim(i) for i, _ in enumerate(inspect.signature(fn).parameters))
     results = fn(*dims)
     exprs = []
+    spec = []
     for r in results:
         if isinstance(r, _Dim):
             exprs.append(AffineDimExpr.get(r.position))
+            spec.append(("dim", r.position))
         elif isinstance(r, int):
             assert r == 0, "Only 0 is allowed as an integer constant in indexing_map"
             exprs.append(AffineConstantExpr.get(r))
+            spec.append(("const", r))
         else:
             raise TypeError(
                 f"Unsupported indexing_map result type {type(r).__name__}: {r}"
             )
-    return AffineMap.get(len(dims), 0, exprs)
+    return AffineMap.get(len(dims), 0, exprs), spec
 
 
 def _emit_kernel_generic(
@@ -614,7 +715,9 @@ def _emit_kernel_generic(
         if bf and isinstance(bf[0], tuple):
             bf = [v for tup in bf for v in tup]
 
-        indexing_attrs = [_affine_map_from_lambda(f) for f in (indexing_maps or [])]
+        indexing_attrs = [
+            _affine_map_from_lambda(f)[0] for f in (indexing_maps or [])
+        ]
         iter_attr = ArrayAttr.get(
             [
                 ttcore.ir.IteratorTypeAttr.get(
