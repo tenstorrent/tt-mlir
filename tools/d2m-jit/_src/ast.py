@@ -16,7 +16,7 @@ from ttmlir.dialects import (
 from ttmlir.dialects._ods_common import get_default_loc_context
 
 from .utils import _discover_dialect_ops, _cast, _get_type_str
-from .tensor_layout import TensorLayout
+from .tensor_layout import Layout
 
 
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
@@ -153,7 +153,7 @@ class D2MCompiler(ast.NodeVisitor):
         func_operand_types = []
         for i, arg in enumerate(node.args.args):
             rt_arg = self.args[i]
-            if isinstance(rt_arg, TensorLayout):
+            if isinstance(rt_arg, Layout):
                 func_operand_types.append(
                     rt_arg.build_device_tensor_type(self.ctx, blocked=True)
                 )

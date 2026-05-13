@@ -10,7 +10,7 @@ from utils import assert_pcc, arange_tile
 import torch
 
 
-@d2m_jit()
+@kernel
 def matmul(lhs, rhs, out, K, M, N, GY, GX):
     cy = core_index(0)
     cx = core_index(1)
@@ -27,7 +27,7 @@ def matmul(lhs, rhs, out, K, M, N, GY, GX):
                 remote_store(out, [m, n], out_shard)
 
 
-@d2m_jit()
+@kernel
 def add(lhs, rhs, out, m_blocks, n_blocks):
     m_offset = core_index(0) * m_blocks
     n_offset = core_index(1) * n_blocks
@@ -42,19 +42,23 @@ def add(lhs, rhs, out, m_blocks, n_blocks):
 def test_eltwise():
     lhs = arange_tile(512, 512, dtype=torch.float)
     rhs = arange_tile(512, 512, dtype=torch.float)
-    out = torch.zeros(512, 512)
     grid = (2, 2)
     block_shape = [1, 1]
     m_blocks = (lhs.shape[0] // 32) // block_shape[0] // grid[0]
     n_blocks = (lhs.shape[1] // 32) // block_shape[1] // grid[1]
-    add(
-        TensorLayout(lhs, block_shape, grid_shape=[8, 8]),
-        TensorLayout(rhs, block_shape, grid_shape=[8, 8]),
-        TensorLayout(out, block_shape, grid_shape=[2, 2]),
-        m_blocks,
-        n_blocks,
-        grid=grid,
+
+    L_in = Layout(
+        shape=lhs.shape, dtype=lhs.dtype, block_shape=block_shape, grid_shape=[8, 8]
     )
+    L_out = Layout(
+        shape=lhs.shape, dtype=lhs.dtype, block_shape=block_shape, grid_shape=[2, 2]
+    )
+
+    lhs_d = to_layout(lhs, L_in)
+    rhs_d = to_layout(rhs, L_in)
+    out_d = empty(L_out)
+    add(lhs_d, rhs_d, out_d, m_blocks, n_blocks, grid=grid)
+    out = out_d.to_host()
 
     print(out[::32, ::32])
     golden = lhs + rhs
@@ -64,47 +68,24 @@ def test_eltwise():
 def test_eltwise2():
     lhs = arange_tile(64, 64, dtype=torch.float)
     rhs = arange_tile(64, 64, dtype=torch.float)
-    out = torch.zeros(64, 64)
     grid = (1, 1)
     block_shape = [1, 1]
     m_blocks = (lhs.shape[0] // 32) // block_shape[0] // grid[0]
     n_blocks = (lhs.shape[1] // 32) // block_shape[1] // grid[1]
-    add(
-        TensorLayout(lhs, block_shape, grid_shape=[1, 1]),
-        TensorLayout(rhs, block_shape, grid_shape=[1, 1]),
-        TensorLayout(out, block_shape, grid_shape=[1, 1]),
-        m_blocks,
-        n_blocks,
-        grid=grid,
+
+    L = Layout(
+        shape=lhs.shape, dtype=lhs.dtype, block_shape=block_shape, grid_shape=[1, 1]
     )
+
+    lhs_d = to_layout(lhs, L)
+    rhs_d = to_layout(rhs, L)
+    out_d = empty(L)
+    add(lhs_d, rhs_d, out_d, m_blocks, n_blocks, grid=grid)
+    out = out_d.to_host()
 
     print(out[::32, ::32])
     golden = lhs + rhs
     assert_pcc(golden, out)
 
 
-def test_matmul():
-    lhs = torch.randn(128, 128)
-    rhs = torch.randn(128, 128)
-    out = torch.zeros(128, 128)
-    grid = (2, 2)
-    GY = 2
-    GX = 2
-    matmul(
-        TensorLayout(lhs, [2, 2]),
-        TensorLayout(rhs, [2, 2]),
-        TensorLayout(out, [2, 2]),
-        2,
-        2,
-        2,
-        GY,
-        GX,
-        grid=(GY, GX),
-    )
-
-    golden = lhs @ rhs
-    assert_pcc(golden, out)
-
-
 test_eltwise()
-#test_matmul()

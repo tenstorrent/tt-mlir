@@ -14,7 +14,9 @@ LazyTensor is a thin wrapper around an `ir.Value` plus a `Layout`; it has
 no Python-side graph — the MLIR module IS the graph.
 """
 
-import json
+import ast as _ast
+import functools
+import inspect
 import os
 from typing import Optional
 
@@ -31,10 +33,12 @@ except (ModuleNotFoundError, ImportError):
 
 from ttmlir.ir import *
 from ttmlir.passmanager import PassManager
-from ttmlir.dialects import d2m, func, ttcore
+from ttmlir.dialects import d2m, func, arith, ttcore
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
+from .ast import D2MCompiler
 from .tensor_layout import Layout
+from .utils import _cleanup_source_code
 
 
 # Reverse of ttcore.DataType for picking output torch dtypes.
@@ -178,6 +182,19 @@ class _Builder:
         self._refresh_function_type()
         return bb_arg
 
+    def add_scalar_input(self, value: int):
+        """Append an index-typed func arg backing a Python int and return its
+        BlockArgument. Scalars become GenericOp additionalArgs and need to be
+        block-arg sourced (not host-scope constants) to satisfy region
+        isolation."""
+        with self.ctx, self.loc:
+            idx_ty = IndexType.get(self.ctx)
+        bb_arg = self.entry_block.add_argument(idx_ty, self.loc)
+        self._input_types.append(idx_ty)
+        self._input_tensors.append(int(value))
+        self._refresh_function_type()
+        return bb_arg
+
     @property
     def host_tensors(self):
         return list(self._input_tensors)
@@ -245,11 +262,18 @@ def to_layout(host_tensor, layout: Layout) -> LazyTensor:
 
 
 def empty(layout: Layout) -> LazyTensor:
-    """Allocate an uninitialised device tensor at the layout's blocked grid."""
+    """Allocate an uninitialised device tensor.
+
+    Materialises the buffer at the user's `grid_shape` first, then
+    re-views to the blocked grid (which is what kernels operate over).
+    This mirrors the old eager flow so d2m-allocate can plan the
+    physical placement from the unblocked breadcrumb.
+    """
     b = _Builder.get()
     with b.ctx, b.loc, b.insert_point:
-        blocked_ty = layout.build_device_tensor_type(b.ctx, blocked=True)
-        val = d2m.empty(blocked_ty)
+        unblocked_ty = layout.build_device_tensor_type(b.ctx, blocked=False)
+        raw = d2m.empty(unblocked_ty)
+        val = layout.build_blocked_view(b.ctx, raw)
     return LazyTensor(layout, val, b.generation)
 
 
@@ -314,9 +338,12 @@ def _execute(b: _Builder, lts):
     device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)
     runtime.set_compatible_device_runtime(fbb)
 
-    # Marshal inputs from the torch tensors gathered during graph build.
+    # Marshal inputs from the torch tensors / scalars gathered during graph build.
     rt_inputs = []
     for t in b.host_tensors:
+        if isinstance(t, int) and not isinstance(t, bool):
+            rt_inputs.append(runtime.create_scalar_tensor(t))
+            continue
         rt_inputs.append(
             runtime.create_borrowed_host_tensor(
                 t.data_ptr(),
@@ -386,3 +413,192 @@ def to_host(*lts: LazyTensor):
 
     _Builder.reset()
     return tuple(outs)
+
+
+# --- Kernel emission ---------------------------------------------------------
+
+
+def _collect_int_captures(fn):
+    """Closed-over int free variables, used as immediate captures by D2MCompiler."""
+    if fn.__closure__ is None:
+        return {}
+    out = {}
+    for name, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+        try:
+            val = cell.cell_contents
+        except ValueError:
+            continue
+        if isinstance(val, int) and not isinstance(val, bool):
+            out[name] = val
+    return out
+
+
+def _affine_map_from_lambda(fn):
+    class _Dim:
+        def __init__(self, position):
+            self.position = position
+
+    dims = tuple(_Dim(i) for i, _ in enumerate(inspect.signature(fn).parameters))
+    results = fn(*dims)
+    exprs = []
+    for r in results:
+        if isinstance(r, _Dim):
+            exprs.append(AffineDimExpr.get(r.position))
+        elif isinstance(r, int):
+            assert r == 0, "Only 0 is allowed as an integer constant in indexing_map"
+            exprs.append(AffineConstantExpr.get(r))
+        else:
+            raise TypeError(
+                f"Unsupported indexing_map result type {type(r).__name__}: {r}"
+            )
+    return AffineMap.get(len(dims), 0, exprs)
+
+
+def _emit_kernel_generic(
+    kernel: "CompiledKernel",
+    args,
+    grid,
+    num_outs: int,
+    block_factors,
+    indexing_maps,
+    iterator_types,
+):
+    """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
+    b = _Builder.get()
+
+    # Split args, preserving "all LazyTensors precede all scalars" ordering.
+    lazy_args = []
+    scalar_args = []
+    saw_scalar = False
+    for a in args:
+        if isinstance(a, LazyTensor):
+            if saw_scalar:
+                raise TypeError(
+                    "LazyTensor arguments must precede scalar arguments in a "
+                    "kernel call"
+                )
+            lazy_args.append(a._resolve())
+        elif isinstance(a, int) and not isinstance(a, bool):
+            saw_scalar = True
+            scalar_args.append(a)
+        else:
+            raise TypeError(
+                f"Unsupported kernel argument type {type(a).__name__}: {a!r}"
+            )
+
+    if num_outs < 1:
+        raise ValueError("num_outs must be >= 1")
+    if len(lazy_args) < num_outs:
+        raise ValueError(
+            f"kernel call has {len(lazy_args)} tensor args; need at least "
+            f"{num_outs} for outputs"
+        )
+    input_lts = lazy_args[: len(lazy_args) - num_outs]
+    output_lts = lazy_args[len(lazy_args) - num_outs :]
+
+    # Compile the kernel body in the current builder's context. D2MCompiler
+    # picks up b.ctx via get_default_loc_context.
+    with b.ctx, b.loc:
+        compiler_args = [lt.layout for lt in lazy_args] + list(scalar_args)
+        compiler = D2MCompiler(
+            kernel.fn.__name__,
+            "unified",
+            kernel._captures,
+            *compiler_args,
+        )
+        compiler.visit(kernel._ast)
+        compiler.module.operation.verify()
+
+    # Emit the GenericOp + splice the kernel body.
+    with b.ctx, b.loc, b.insert_point:
+        # Scalars are sourced from func args (not host-scope constants) so the
+        # GenericOp's region stays isolated-from-above.
+        additional = [b.add_scalar_input(s) for s in scalar_args]
+        inputs = [lt.value for lt in input_lts]
+        outputs = [lt.value for lt in output_lts]
+        output_types = [v.type for v in outputs]
+
+        threads = ArrayAttr.get(
+            [compiler.func_entry.attributes[d2m.ir.ThreadAttr.name]]
+        )
+        grid_attr = ttcore.ir.GridAttr.get(b.ctx, list(grid))
+
+        bf = list(block_factors or [])
+        if bf and isinstance(bf[0], tuple):
+            bf = [v for tup in bf for v in tup]
+
+        indexing_attrs = [_affine_map_from_lambda(f) for f in (indexing_maps or [])]
+        iter_attr = ArrayAttr.get(
+            [
+                ttcore.ir.IteratorTypeAttr.get(
+                    b.ctx, ttcore.IteratorType[i.title()].value
+                )
+                for i in (iterator_types or [])
+            ]
+        )
+
+        generic = d2m.GenericOp(
+            output_types,
+            inputs,
+            outputs,
+            additional,
+            grid_attr,
+            bf,
+            indexing_attrs,
+            iter_attr,
+            threads,
+            1,  # num_regions
+        )
+
+        region = generic.regions[0]
+        compiler.func_entry.entry_block.append_to(region)
+        block = region.blocks[0]
+        if block.operations and block.operations[-1].name == "func.return":
+            block.operations[-1].erase()
+
+        all_ops = inputs + outputs + additional
+        for orig_arg, op in zip(block.arguments, all_ops):
+            orig_arg.replace_all_uses_with(op)
+        for _ in range(len(block.arguments)):
+            block.erase_argument(0)
+
+    # Rebind output LazyTensors to the GenericOp's results.
+    for i, lt in enumerate(output_lts):
+        lt.value = generic.results[i]
+        lt.generation = b.generation
+
+
+class CompiledKernel:
+    """Wraps a user kernel function. Parses the Python body once; emits a
+    `d2m.GenericOp` into the current builder on every call."""
+
+    def __init__(self, fn):
+        functools.update_wrapper(self, fn)
+        self.fn = fn
+        self._source = _cleanup_source_code(fn)
+        self._ast = _ast.parse(self._source)
+        self._captures = _collect_int_captures(fn)
+
+    def __call__(
+        self,
+        *args,
+        grid,
+        num_outs: int = 1,
+        block_factors=None,
+        indexing_maps=None,
+        iterator_types=None,
+    ):
+        _emit_kernel_generic(
+            self,
+            args,
+            grid=grid,
+            num_outs=num_outs,
+            block_factors=block_factors,
+            indexing_maps=indexing_maps,
+            iterator_types=iterator_types,
+        )
+
+
+def kernel(fn):
+    """Decorate a user function as a d2m_jit kernel."""
+    return CompiledKernel(fn)

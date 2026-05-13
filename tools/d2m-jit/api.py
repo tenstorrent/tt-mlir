@@ -40,7 +40,9 @@ from ._src.utils import (
 from ._src.ast import D2MCompiler, syntax
 from ._src.tensor_layout import Layout, TensorLayout
 from ._src.builder import (
+    CompiledKernel,
     LazyTensor,
+    kernel,
     to_layout,
     empty,
     view_layout,
