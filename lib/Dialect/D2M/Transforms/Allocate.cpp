@@ -632,17 +632,17 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // be hoisted correctly as a CB later in the HoistCBAllocs pass.
       genericOp->walk([&](memref::AllocOp allocOp) {
         std::optional<int32_t> numBuffers = std::nullopt;
-        if (allocOp->getAttr("d2m.compute_intermediate")) {
+        if (allocOp->getAttr("d2m.scratch_buffer")) {
+          numBuffers = 1;
+        } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
           // Skip allocating, this is a contract from fusion and compute
           // lowering saying we will not actually use this buffer and it's just
           // a placeholder, so we can safely skip it.
-          return WalkResult::advance();
-        } else if (allocOp->getAttr("d2m.scratch_buffer")) {
-          numBuffers = 1;
-        } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
-          numBuffers =
-              allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
-                  .getInt();
+          if (!allocOp->getAttr("d2m.compute_intermediate")) {
+            numBuffers =
+                allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
+                    .getInt();
+          }
         } else {
           llvm_unreachable("unexpected alloc op attribute");
           //  we should allow this but asserting for now to check it's not used
