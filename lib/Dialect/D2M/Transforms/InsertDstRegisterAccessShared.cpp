@@ -757,11 +757,9 @@ scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
   const auto cmpPredicate =
       isBcastGuard ? arith::CmpIPredicate::eq : arith::CmpIPredicate::ne;
 
-  auto zero = rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getIndexType(),
-      rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
-
   for (Value guardIV : guardIVs) {
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, guardIV.getType(), rewriter.getIntegerAttr(guardIV.getType(), 0));
     Value cmp =
         rewriter.create<arith::CmpIOp>(loc, cmpPredicate, guardIV, zero);
     if (isBcastGuard) {
