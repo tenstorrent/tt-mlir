@@ -261,8 +261,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   auto scalarShardShape = desiredInputLayout.getScalarShardShape();
   int64_t blockH = scalarShardShape[0] / tileWidth;
   int64_t blockW = scalarShardShape[1] / tileWidth;
-  int64_t gridW = std::min(numCores, physicalGrid[0]);
-  int64_t gridH = (numCores + physicalGrid[0] - 1) / physicalGrid[0];
+  int64_t gridW = std::min(numCores, physicalGrid[1]);
+  int64_t gridH = (numCores + physicalGrid[1] - 1) / physicalGrid[1];
   auto programConfigAttr =
       ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
           rewriter.getContext(),
