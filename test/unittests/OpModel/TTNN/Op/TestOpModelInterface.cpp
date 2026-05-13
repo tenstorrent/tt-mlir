@@ -5795,8 +5795,8 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
 
   // Test QuantizeOp interface
   OpModel backend = dyn_cast<OpModel>(quantizeOp.getOperation());
-  auto constraintsExp = backend.getOpConstraints(
-      getInputLayouts(quantizeOp), OpConfig(getOutputLayout(quantizeOp)));
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(quantizeOp),
+                                                 OpConfig(int32Layout));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
@@ -5811,8 +5811,8 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
   EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
   EXPECT_TRUE(outputLayouts[0].hasInterleavedL1TensorMemoryLayout());
 
-  auto runtimeExp = backend.getOpRuntime(getInputLayouts(quantizeOp),
-                                         OpConfig(getOutputLayout(quantizeOp)));
+  auto runtimeExp =
+      backend.getOpRuntime(getInputLayouts(quantizeOp), OpConfig(int32Layout));
   EXPECT_EQ(static_cast<bool>(runtimeExp), true);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -5920,8 +5920,8 @@ TEST_F(OpModelBase, RequantizeOpInterface) {
 
   // Test RequantizeOp interface
   OpModel backend = dyn_cast<OpModel>(requantizeOp.getOperation());
-  auto constraintsExp = backend.getOpConstraints(
-      getInputLayouts(requantizeOp), OpConfig(getOutputLayout(requantizeOp)));
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(requantizeOp),
+                                                 OpConfig(int32Layout));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
@@ -5936,8 +5936,8 @@ TEST_F(OpModelBase, RequantizeOpInterface) {
   EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
   EXPECT_TRUE(outputLayouts[0].hasInterleavedL1TensorMemoryLayout());
 
-  auto runtimeExp = backend.getOpRuntime(
-      getInputLayouts(requantizeOp), OpConfig(getOutputLayout(requantizeOp)));
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(requantizeOp),
+                                         OpConfig(int32Layout));
   EXPECT_EQ(static_cast<bool>(runtimeExp), true);
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
