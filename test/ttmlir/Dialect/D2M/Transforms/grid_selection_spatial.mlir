@@ -6,7 +6,7 @@
 // -----
 // Grid 2x2 at origin: generic keeps grid 2x2.
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
-#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 // CHECK-LABEL: func.func @spatial_grid_2x2_origin
 module attributes {ttcore.device = #any_device} {
   func.func @spatial_grid_2x2_origin()
@@ -40,7 +40,7 @@ module attributes {ttcore.device = #any_device} {
 // -----
 // Grid 1x1 at origin: generic keeps grid 1x1.
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
-#layout_1x1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_1x1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 // CHECK-LABEL: func.func @spatial_grid_1x1_origin
 module attributes {ttcore.device = #any_device} {
   func.func @spatial_grid_1x1_origin()
@@ -75,8 +75,8 @@ module attributes {ttcore.device = #any_device} {
 // Two regions: grid_ranges (0,0)-(0,0) and (1,1)-(2,2). Each generic keeps its region grid (1x1, 2x2).
 // Non-origin region output buffer uses d2m.empty VGM (physical core (y,x) to virtual shard indices).
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
-#layout_1x1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_1x1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #id = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #vgm_11_inv = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>
 #vgm_11_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>
@@ -131,8 +131,8 @@ module attributes {ttcore.device = #any_device} {
 // Two regions with direct empty outs (no view_layout in between): verify VGM
 // on non-origin region output is preserved on generic grid mapping.
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
-#layout_1x1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_1x1 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 64x64, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #vgm_11_inv = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>
 #vgm_11_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>
 // CHECK-LABEL: func.func @spatial_multi_region_two_ranges_direct_empty
@@ -186,7 +186,7 @@ module attributes {ttcore.device = #any_device} {
 // Non-origin quadrants use d2m.empty VGM (offset from physical (y,x) to virtual 0..3).
 // logical_shape 128x128 with 32x32 tiles: 4x4 grid x 1x1 tiles/core => 4*32 = 128 per axis.
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
-#layout_4x4 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_4x4 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #id_4x4 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #vgm_q1_inv = affine_map<(d0, d1) -> (0, d0, d1 - 4)>
 #vgm_q1_fwd = affine_map<(d0, d1, d2, d3) -> (d0, d1 + 4, d2, d3)>
@@ -285,8 +285,8 @@ module attributes {ttcore.device = #any_device} {
 // In non-origin spatial ranges, the recreated to_layout output empties must
 // keep offset-aware VGM even when selected grid is 1x1 (no virtualization).
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
-#layout_in_1x1 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#layout_out_1x1 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_in_1x1 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#layout_out_1x1 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 // CHECK-DAG: #[[FWD:map[0-9]*]] = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1 + 2, d2, d3)>
 // CHECK-DAG: #[[INV:map[0-9]*]] = affine_map<(d0, d1) -> (0, d0 - 2, d1 - 2)>
 // CHECK-LABEL: func.func @spatial_non_origin_composite_view_tlayout_single_use
@@ -335,7 +335,7 @@ module attributes {ttcore.device = #any_device} {
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
 #l1 = #ttnn.buffer_type<l1>
 #ttnn_layout_vgm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(2, 2), (2, 2)>]>>
-#layout_cast = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_cast = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #map_vgm_inv = affine_map<(d0, d1) -> (0, d0 - 2, d1 - 2)>
 #map_vgm_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1 + 2, d2, d3)>
 // CHECK-LABEL: func.func @spatial_non_origin_generic_grid_from_cast_vgm

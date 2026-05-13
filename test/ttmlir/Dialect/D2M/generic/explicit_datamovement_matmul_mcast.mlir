@@ -21,9 +21,9 @@
 #mapR = affine_map<(d0, d1, d2) -> (d2, d1)>
 #mapO = affine_map<(d0, d1, d2) -> (d0, d1)>
 
-#layout_a = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#layout_b = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#layout_c = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_a = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#layout_b = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#layout_c = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // CHECK-LABEL: func.func @explicit_datamovement_matmul_mcast
 func.func @explicit_datamovement_matmul_mcast(

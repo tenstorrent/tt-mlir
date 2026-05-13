@@ -754,7 +754,6 @@ class Builder(metaclass=BuilderMeta):
         logical_shape: Shape,
         tiled=False,
         element_dtype: torch.dtype = torch.float32,
-        oobVal=None,  # Will default to ttcore.OOBVal.Undef in the utility
         memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
         grid: Optional[Tuple[int, int]] = None,
         index_map: Optional[AffineMap] = None,
@@ -766,8 +765,6 @@ class Builder(metaclass=BuilderMeta):
         from ttmlir.dialects import ttcore
 
         # Set defaults if not provided
-        if oobVal is None:
-            oobVal = ttcore.OOBVal.Undef
         if memorySpace is None:
             memorySpace = ttcore.MemorySpace.DeviceL1
         if memory_layout is None:
@@ -778,7 +775,6 @@ class Builder(metaclass=BuilderMeta):
             logical_shape,
             tiled,
             element_dtype,
-            oobVal,
             memorySpace,
             grid,
             index_map,

@@ -5,7 +5,7 @@
 // CHECK-LABEL: func.func @single_exp
 // CHECK: "ttmetal.enqueue_program"
 
-#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #map = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #map2 = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>

@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -649,6 +650,160 @@ bool ToLayoutOp::isDeviceToHost() {
 }
 
 //===----------------------------------------------------------------------===//
+// MaskOp
+//===----------------------------------------------------------------------===//
+
+static bool hasNoMaskablePadding(ShapedType shapedType,
+                                 ArrayRef<int64_t> logicalShape) {
+  auto tileType = dyn_cast<ttcore::TileType>(shapedType.getElementType());
+  if (!tileType) {
+    return true;
+  }
+
+  ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
+  if (!layout || logicalShape.size() < 2) {
+    return false;
+  }
+
+  if (auto metalLayout = dyn_cast<ttcore::MetalLayoutAttr>(layout)) {
+    ArrayRef<int64_t> dimAlignments = metalLayout.getDimAlignments();
+    if (logicalShape.size() != dimAlignments.size()) {
+      return false;
+    }
+    for (auto [logicalDim, alignment] :
+         llvm::zip(logicalShape, dimAlignments)) {
+      if (ttmlir::utils::alignUp(logicalDim, alignment) != logicalDim) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  ArrayRef<int64_t> gridShape = layout.getGridShape(shapedType);
+  ArrayRef<int64_t> shardShape = layout.getShardShape(shapedType);
+  if (gridShape.size() < 2 || shardShape.size() < 2) {
+    return false;
+  }
+
+  ArrayRef<int64_t> tileShape = tileType.getShape();
+  int64_t physicalRows = gridShape[gridShape.size() - 2] *
+                         shardShape[shardShape.size() - 2] * tileShape[0];
+  int64_t physicalCols = gridShape[gridShape.size() - 1] *
+                         shardShape[shardShape.size() - 1] * tileShape[1];
+  return logicalShape[logicalShape.size() - 2] == physicalRows &&
+         logicalShape[logicalShape.size() - 1] == physicalCols;
+}
+
+mlir::OpFoldResult MaskOp::fold(FoldAdaptor) {
+  if (!isa<RankedTensorType>(getResult().getType())) {
+    return {};
+  }
+
+  if (getInput().getType() != getResult().getType()) {
+    return {};
+  }
+
+  if (getFillValue() == ttcore::OOBVal::Undef) {
+    return getInput();
+  }
+
+  auto inputType = dyn_cast<ShapedType>(getInput().getType());
+  if (inputType && hasNoMaskablePadding(inputType, getLogicalShape())) {
+    return getInput();
+  }
+
+  return {};
+}
+
+::mlir::LogicalResult MaskOp::verify() {
+  auto inputType = dyn_cast<ShapedType>(getInput().getType());
+  auto outputType = dyn_cast<ShapedType>(getOutput().getType());
+  auto resultType = dyn_cast<ShapedType>(getResult().getType());
+
+  if (!inputType || !outputType || !resultType) {
+    return emitOpError("input, output, and result must be shaped types");
+  }
+
+  if (inputType != outputType || outputType != resultType) {
+    return emitOpError("input, output, and result must have identical types");
+  }
+
+  if (getLogicalShape().size() < 2) {
+    return emitOpError("logical_shape must have rank at least 2");
+  }
+
+  return success();
+}
+
+bool MaskOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.getOperandNumber() == 0;
+}
+
+bool MaskOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.getOperandNumber() == 1;
+}
+
+mlir::LogicalResult
+MaskOp::bufferize(mlir::RewriterBase &rewriter,
+                  const mlir::bufferization::BufferizationOptions &options,
+                  mlir::bufferization::BufferizationState &state) {
+  if (!isa<RankedTensorType>(getResult().getType())) {
+    return failure();
+  }
+
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  auto maybeOutput =
+      mlir::bufferization::getBuffer(rewriter, getOutput(), options, state);
+  if (failed(maybeOutput)) {
+    return maybeOutput;
+  }
+
+  rewriter.create<MaskOp>(getLoc(), maybeOutput->getType(), *maybeInput,
+                          *maybeOutput, getLogicalShapeAttr(),
+                          getFillValueAttr());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     *maybeOutput);
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+MaskOp::getAliasingValues(mlir::OpOperand &operand,
+                          const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  if (operand.getOperandNumber() == 1) {
+    aliasList.addAlias(
+        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+MaskOp::getBufferType(mlir::Value value,
+                      const mlir::bufferization::BufferizationOptions &,
+                      const mlir::bufferization::BufferizationState &,
+                      ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+void MaskOp::getEffects(mlir::SmallVectorImpl<mlir::SideEffects::EffectInstance<
+                            mlir::MemoryEffects::Effect>> &effects) {
+  if (!isa<MemRefType>(getInput().getType())) {
+    return;
+  }
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
 // ToDeviceOp
 //===----------------------------------------------------------------------===//
 
@@ -989,9 +1144,6 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
           inputTensor.getEncoding());
       auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
           resultTensor.getEncoding());
-      if (inputLayout.getOobVal() != resultLayout.getOobVal()) {
-        return emitOpError("view cannot change oob_val");
-      }
 
       if (inputLayout.getMemorySpace() != resultLayout.getMemorySpace()) {
         return emitOpError("view cannot change memory space");

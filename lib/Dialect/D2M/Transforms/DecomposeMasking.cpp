@@ -2,19 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include <cmath>
+#include <functional>
 #include <limits>
 
 namespace mlir::tt::d2m {
@@ -79,7 +81,38 @@ static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
   llvm_unreachable("unsupported element type for OOB fill");
 }
 
-/// Decompose BlockMaskOp with multi-core support.
+static Value createCoreIndex(OpBuilder &builder, Location loc, int64_t dim,
+                             AffineMap physicalToVirtMap) {
+  if (physicalToVirtMap.isEmpty()) {
+    return builder.create<CoreIndexOp>(loc, dim);
+  }
+  return builder.create<CoreIndexOp>(loc, dim, physicalToVirtMap);
+}
+
+static ttcore::GridAttr getMaskGridAttr(OpBuilder &builder, Value output,
+                                        ArrayRef<int64_t> gridShape) {
+  auto invMap = utils::getVirtualGridInverseMapping(output);
+  auto fwdMap = utils::getVirtualGridForwardMapping(output);
+  if (!invMap || !fwdMap) {
+    return ttcore::GridAttr::get(builder.getContext(), gridShape);
+  }
+
+  AffineMap gridFwdMap = *fwdMap;
+  size_t rank = gridShape.size();
+  gridFwdMap = ttmlir::utils::affineMapDropBackResults(gridFwdMap, rank);
+  for (int64_t i = static_cast<int64_t>(rank) - 1; i >= 0; --i) {
+    unsigned dimToDrop = static_cast<unsigned>(rank + static_cast<size_t>(i));
+    gridFwdMap = ttmlir::utils::dropDim(gridFwdMap, dimToDrop);
+  }
+  gridFwdMap =
+      gridFwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()),
+                              /*resultPos=*/0);
+
+  return ttcore::GridAttr::get(builder.getContext(), gridShape, gridFwdMap,
+                               *invMap);
+}
+
+/// Decompose MaskOp with multi-core support.
 ///
 /// The key change from single-core: loop bounds become dynamic based on
 /// which portion of the global tile space this core is responsible for.
@@ -91,8 +124,11 @@ static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
 ///
 /// If start >= end, the loop doesn't run--we only pad rightmost + downmost
 /// regions, so this should be correct w/o modifying start with max().
-struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
-  using OpRewritePattern<BlockMaskOp>::OpRewritePattern;
+struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
+  DecomposeMaskPattern(MLIRContext *ctx, unsigned numStreamBuffers)
+      : OpRewritePattern<MaskOp>(ctx), numStreamBuffers(numStreamBuffers) {}
+
+  unsigned numStreamBuffers;
 
   // Compute local loop bounds for a core given a global region
   // [globalRegionStart, globalRegionEnd). Returns (localStart, localEnd) such
@@ -137,63 +173,86 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     return {localStart, localEnd};
   }
 
-  LogicalResult matchAndRewrite(BlockMaskOp op,
+  LogicalResult matchAndRewrite(MaskOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value input = op.getInput();
-    Value output = op.getOutput();
-    Value rowMaskCB = op.getRowMaskCb();
-    Value colMaskCB = op.getColMaskCb();
-    Value logicalRowsVal = op.getLogicalRows();
-    Value logicalColsVal = op.getLogicalCols();
+    Value globalInput = op.getInput();
+    Value globalOutput = op.getOutput();
     ttcore::OOBVal fillOOBVal = op.getFillValue();
 
-    if (isa<RankedTensorType>(input.getType())) {
+    if (isa<RankedTensorType>(globalInput.getType())) {
       return rewriter.notifyMatchFailure(op, "tensor semantics not supported");
     }
 
-    auto inputType = cast<MemRefType>(input.getType());
-    ArrayRef<int64_t> inputShape = inputType.getShape();
-    if (inputShape.size() < 2) {
-      return rewriter.notifyMatchFailure(op, "input must have at least 2 dims");
+    auto globalInputType = cast<MemRefType>(globalInput.getType());
+    auto globalOutputType = cast<MemRefType>(globalOutput.getType());
+    if (!ttcore::hasDeviceLayout(globalInput) ||
+        !ttcore::hasDeviceLayout(globalOutput)) {
+      return rewriter.notifyMatchFailure(op, "mask operands need layouts");
     }
 
-    auto genericOp = op->getParentOfType<GenericOp>();
-    if (!genericOp) {
-      return rewriter.notifyMatchFailure(
-          op, "BlockMaskOp must be inside a GenericOp");
-    }
-
-    ttcore::GridAttr gridAttr = genericOp.getGrid();
-    ArrayRef<int64_t> gridShape = gridAttr.getShape();
+    ArrayRef<int64_t> gridShape = ttcore::getGridShape(globalOutput);
     if (gridShape.size() < 2) {
       return rewriter.notifyMatchFailure(
           op, "grid must have at least 2 dimensions");
     }
 
+    SmallVector<int64_t> shardShape =
+        llvm::to_vector(ttcore::getShardShape(globalInput));
+    if (shardShape.size() < 2) {
+      return rewriter.notifyMatchFailure(op, "input must have at least 2 dims");
+    }
+
+    ArrayRef<int64_t> logicalShape = op.getLogicalShape();
+    int64_t logicalRows = logicalShape[logicalShape.size() - 2];
+    int64_t logicalCols = logicalShape[logicalShape.size() - 1];
+
+    auto gridAttr = getMaskGridAttr(rewriter, globalOutput, gridShape);
+    AffineMap physicalToVirtMap = gridAttr.getPhysicalToVirtMap();
+    ArrayAttr emptyArray = rewriter.getArrayAttr({});
+    ArrayAttr threads = rewriter.getArrayAttr(
+        rewriter.getAttr<ThreadAttr>(ThreadType::Unified));
+    auto genericOp = rewriter.create<GenericOp>(
+        loc, TypeRange{}, ValueRange{globalInput}, ValueRange{globalOutput},
+        ValueRange{}, gridAttr, emptyArray, emptyArray, emptyArray, threads,
+        /*fabricConnectionConfig=*/nullptr, /*regionsCount=*/1);
+
+    Region &region = genericOp.getRegion(0);
+    rewriter.createBlock(&region);
+    rewriter.setInsertionPointToStart(&region.front());
+
+    Attribute memorySpace = globalOutputType.getMemorySpace();
+    Type tileElementType = globalInputType.getElementType();
+    auto inputType = MemRefType::get(shardShape, tileElementType,
+                                     MemRefLayoutAttrInterface{}, memorySpace);
+    auto outputType = MemRefType::get(shardShape, tileElementType,
+                                      MemRefLayoutAttrInterface{}, memorySpace);
+    auto maskLayout = ttcore::CBLayoutAttr::get(
+        rewriter.getContext(), {1, 1},
+        ttcore::getElementSizeBytes(tileElementType), numStreamBuffers);
+    auto maskType =
+        MemRefType::get({1, 1}, tileElementType, maskLayout, memorySpace);
+
+    Value input = rewriter.create<memref::AllocOp>(loc, inputType);
+    Value output = rewriter.create<memref::AllocOp>(loc, outputType);
+    Value rowMaskCB = rewriter.create<memref::AllocOp>(loc, maskType);
+    Value colMaskCB = rewriter.create<memref::AllocOp>(loc, maskType);
+
+    SmallVector<Value> remoteIndices;
+    remoteIndices.reserve(gridShape.size());
+    for (size_t dim = 0; dim < gridShape.size(); ++dim) {
+      remoteIndices.push_back(createCoreIndex(
+          rewriter, loc, static_cast<int64_t>(dim), physicalToVirtMap));
+    }
+
+    rewriter.create<RemoteLoadOp>(loc, input, globalInput, remoteIndices);
+
+    ArrayRef<int64_t> inputShape = inputType.getShape();
     auto tileType = cast<ttcore::TileType>(inputType.getElementType());
     Type elemType = tileType.getElementType();
 
     int64_t shardTileRows = inputShape[inputShape.size() - 2];
     int64_t shardTileCols = inputShape[inputShape.size() - 1];
-
-    // Extract the logical shape constants.
-    auto getConstantIndex = [](Value v) -> std::optional<int64_t> {
-      if (auto constOp = v.getDefiningOp<arith::ConstantIndexOp>()) {
-        return constOp.value();
-      }
-      return std::nullopt;
-    };
-
-    std::optional<int64_t> logicalRowsOpt = getConstantIndex(logicalRowsVal);
-    std::optional<int64_t> logicalColsOpt = getConstantIndex(logicalColsVal);
-
-    if (!logicalRowsOpt || !logicalColsOpt) {
-      return rewriter.notifyMatchFailure(op, "logical shape must be constant");
-    }
-
-    int64_t logicalRows = *logicalRowsOpt;
-    int64_t logicalCols = *logicalColsOpt;
 
     // Compute tile-level boundaries (compile-time constants).
     // lastValidRow: the last tile row that contains any valid data (may be
@@ -225,11 +284,13 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Value fillScalar =
         rewriter.create<arith::ConstantOp>(loc, fillAttr.getType(), fillAttr);
 
-    // Get this core's coordinates.
-    Value coreY = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0), nullptr);
-    Value coreX = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(1), nullptr);
+    // Get this core's coordinates for the two tiled dimensions that masking
+    // applies to. Higher-rank shards may have leading dimensions before the
+    // tiled row/col dimensions.
+    int64_t rowGridDim = static_cast<int64_t>(gridShape.size()) - 2;
+    int64_t colGridDim = static_cast<int64_t>(gridShape.size()) - 1;
+    Value coreY = createCoreIndex(rewriter, loc, rowGridDim, physicalToVirtMap);
+    Value coreX = createCoreIndex(rewriter, loc, colGridDim, physicalToVirtMap);
 
     // Write the mask tiles.
     Value validRowsVal =
@@ -247,16 +308,30 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
     };
 
-    auto emitPassthrough = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
-      rewriter.create<memref::StoreOp>(loc, inputTile.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+    auto buildLocalIndices = [&](ArrayRef<Value> leadingIndices,
+                                 Value localRowIdx, Value localColIdx) {
+      SmallVector<Value> indices;
+      indices.reserve(inputType.getRank());
+      indices.append(leadingIndices.begin(), leadingIndices.end());
+      indices.push_back(localRowIdx);
+      indices.push_back(localColIdx);
+      return indices;
     };
 
-    auto emitRowMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+    auto emitPassthrough = [&](ArrayRef<Value> leadingIndices,
+                               Value localRowIdx, Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
+      auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
+      rewriter.create<memref::StoreOp>(loc, inputTile.getResult(), output,
+                                       indices);
+    };
+
+    auto emitRowMasked = [&](ArrayRef<Value> leadingIndices, Value localRowIdx,
+                             Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
+      auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill = createTileFill();
       auto rowMaskTile = rewriter.create<memref::LoadOp>(
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
@@ -264,12 +339,14 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
                                        inputTile.getResult(), tileFill);
       rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+                                       indices);
     };
 
-    auto emitColMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+    auto emitColMasked = [&](ArrayRef<Value> leadingIndices, Value localRowIdx,
+                             Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
+      auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill = createTileFill();
       auto colMaskTile = rewriter.create<memref::LoadOp>(
           loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
@@ -277,12 +354,14 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
                                        inputTile.getResult(), tileFill);
       rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+                                       indices);
     };
 
-    auto emitCornerMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+    auto emitCornerMasked = [&](ArrayRef<Value> leadingIndices,
+                                Value localRowIdx, Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
+      auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill1 = createTileFill();
       auto rowMaskTile = rewriter.create<memref::LoadOp>(
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
@@ -296,41 +375,70 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
                                        rowMaskedResult.getResult(), tileFill2);
       rewriter.create<memref::StoreOp>(loc, finalResult.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+                                       indices);
     };
 
-    auto emitFill = [&](Value localRowIdx, Value localColIdx) {
+    auto emitFill = [&](ArrayRef<Value> leadingIndices, Value localRowIdx,
+                        Value localColIdx) {
+      SmallVector<Value> indices =
+          buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
       auto tileFill = createTileFill();
-      rewriter.create<memref::StoreOp>(loc, tileFill, output,
-                                       ValueRange{localRowIdx, localColIdx});
+      rewriter.create<memref::StoreOp>(loc, tileFill, output, indices);
     };
 
     // Helper to create a nested loop over local coordinates.
-    auto createLocalLoop = [&](Value rowStart, Value rowEnd, Value colStart,
-                               Value colEnd,
-                               std::function<void(Value, Value)> emitBody) {
-      auto outerLoop =
-          rewriter.create<scf::ForOp>(loc, rowStart, rowEnd, oneIdx);
-      rewriter.setInsertionPointToStart(outerLoop.getBody());
+    auto createLocalLoop =
+        [&](Value rowStart, Value rowEnd, Value colStart, Value colEnd,
+            std::function<void(ArrayRef<Value>, Value, Value)> emitBody) {
+          SmallVector<Value> leadingIndices;
+          Operation *outermostLoop = nullptr;
 
-      auto innerLoop =
-          rewriter.create<scf::ForOp>(loc, colStart, colEnd, oneIdx);
-      // Mark the INNER loop as the compute root, since that's where
-      // the actual compute operations are emitted. This ensures DST
-      // syncs are placed inside the inner loop body, not the outer.
-      // Since we emit an scf.for directly, we must tag this here
-      // since linalg-to-affine and d2m-op-scheduler won't process this.
-      innerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
-      innerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
-      rewriter.setInsertionPointToStart(innerLoop.getBody());
+          std::function<Operation *(unsigned)> buildLoopNest =
+              [&](unsigned dim) -> Operation * {
+            if (dim == inputType.getRank() - 2) {
+              auto rowLoop =
+                  rewriter.create<scf::ForOp>(loc, rowStart, rowEnd, oneIdx);
+              if (!outermostLoop) {
+                outermostLoop = rowLoop;
+              }
+              rewriter.setInsertionPointToStart(rowLoop.getBody());
 
-      emitBody(outerLoop.getInductionVar(), innerLoop.getInductionVar());
+              auto colLoop =
+                  rewriter.create<scf::ForOp>(loc, colStart, colEnd, oneIdx);
+              // Mark the INNER loop as the compute root, since that's where
+              // the actual compute operations are emitted. This ensures DST
+              // syncs are placed inside the inner loop body, not the outer.
+              // Since we emit an scf.for directly, we must tag this here
+              // since linalg-to-affine and d2m-op-scheduler won't process this.
+              colLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+              colLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
+              rewriter.setInsertionPointToStart(colLoop.getBody());
 
-      return outerLoop;
-    };
+              emitBody(leadingIndices, rowLoop.getInductionVar(),
+                       colLoop.getInductionVar());
+              return rowLoop;
+            }
+
+            Value loopEnd =
+                rewriter.create<arith::ConstantIndexOp>(loc, inputShape[dim]);
+            auto loop =
+                rewriter.create<scf::ForOp>(loc, zeroIdx, loopEnd, oneIdx);
+            if (!outermostLoop) {
+              outermostLoop = loop;
+            }
+            leadingIndices.push_back(loop.getInductionVar());
+            rewriter.setInsertionPointToStart(loop.getBody());
+            buildLoopNest(dim + 1);
+            leadingIndices.pop_back();
+            return loop;
+          };
+
+          buildLoopNest(/*dim=*/0);
+          return outermostLoop;
+        };
 
     OpBuilder::InsertionGuard guard(rewriter);
-    Operation *insertionPoint = op;
+    Operation *insertionPoint = &region.front().back();
 
     // =========================================================================
     // LOOP 0: Interior tiles - fully valid.
@@ -342,7 +450,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
-      auto loop =
+      auto *loop =
           createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitPassthrough);
       insertionPoint = loop;
     }
@@ -357,7 +465,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
-      auto loop =
+      auto *loop =
           createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitRowMasked);
       insertionPoint = loop;
     }
@@ -372,7 +480,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
-      auto loop =
+      auto *loop =
           createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitColMasked);
       insertionPoint = loop;
     }
@@ -388,7 +496,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
-      auto loop =
+      auto *loop =
           createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitCornerMasked);
       insertionPoint = loop;
     }
@@ -403,7 +511,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter, loc, lastValidRow + 1, totalTileRows, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, 0, totalTileCols, coreX, shardTileCols);
-      auto loop = createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+      auto *loop =
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
       insertionPoint = loop;
     }
 
@@ -418,8 +527,17 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           rewriter, loc, 0, lastValidRow + 1, coreY, shardTileRows);
       auto [colStart, colEnd] = computeLocalBounds(
           rewriter, loc, lastValidCol + 1, totalTileCols, coreX, shardTileCols);
-      createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+      auto *loop =
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+      insertionPoint = loop;
     }
+
+    rewriter.setInsertionPointAfter(insertionPoint);
+    rewriter.create<RemoteStoreOp>(
+        loc, /*resultTypes=*/TypeRange{}, globalOutput, remoteIndices, output,
+        /*cb=*/Value{}, /*startDevice=*/ValueRange{},
+        /*deviceMcastShape=*/ValueRange{}, /*semaphore=*/Value{},
+        /*semaphoreIndices=*/ValueRange{});
 
     rewriter.replaceOp(op, op.getOutput());
     return success();
@@ -428,10 +546,13 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
 
 struct D2MDecomposeMasking
     : public impl::D2MDecomposeMaskingBase<D2MDecomposeMasking> {
+  using impl::D2MDecomposeMaskingBase<
+      D2MDecomposeMasking>::D2MDecomposeMaskingBase;
+
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<DecomposeBlockMaskPattern>(ctx);
+    patterns.add<DecomposeMaskPattern>(ctx, numStreamBuffers);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

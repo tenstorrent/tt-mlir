@@ -212,8 +212,7 @@ public:
     auto newLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), outputLayout.getLogicalShape(),
         outputLayout.getDimAlignments(), outputLayout.getCollapsedIntervals(),
-        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
-        outputLayout.getMemoryLayout());
+        outputLayout.getMemorySpace(), outputLayout.getMemoryLayout());
 
     auto viewType =
         RankedTensorType::get(outputInfo.type.getShape(),
@@ -346,8 +345,8 @@ public:
 
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
-          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-          baseLayout.getMemorySpace(), baseLayout.getMemoryLayout());
+          baseLayout.getCollapsedIntervals(), baseLayout.getMemorySpace(),
+          baseLayout.getMemoryLayout());
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
       return rewriter
@@ -452,147 +451,6 @@ public:
         .getResult(0);
   }
 
-  // Lower masking operation using a d2m.generic with BlockMaskOp.
-  // The BlockMaskOp operates at block level and gets decomposed later.
-  //
-  // Strategy: Use CB-based mask generation (L1 writes + copy_tile).
-  // This is more reliable than SFPU-based mask generation which has
-  // complex face iteration pattern, at cost of extra memory usage.
-  Value lowerMaskingGeneric(PatternRewriter &rewriter, Value input,
-                            Value output, Location loc,
-                            ArrayRef<int64_t> logicalShape,
-                            ttcore::OOBVal fillValue) const {
-    // Extract the last two dimensions as the logical rows/cols for masking.
-    int64_t logicalRows = logicalShape[logicalShape.size() - 2];
-    int64_t logicalCols = logicalShape[logicalShape.size() - 1];
-
-    // Check if partial masking is needed (non-tile-aligned shape).
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto inputLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-    // shardRank is the shard shape rank (used for indexing maps).
-    const size_t shardRank = inputLayout.getShardShape(inputType).size();
-
-    // Create scratch mask tensors (single tile each).
-    // These are used as scratch CBs to write masks via L1, then copy to DST.
-    // The mask tensor must have same rank as input tensor for GenericOp to
-    // work. Use the input's logical shape but with 1s except last two dims
-    // (32x32).
-    auto inputLogicalShape = inputLayout.getLogicalShape();
-    SmallVector<int64_t> maskLogicalShape(inputLogicalShape.begin(),
-                                          inputLogicalShape.end());
-    // Set all dims to 1 except last two which are 32x32 (single tile).
-    for (size_t i = 0; i < maskLogicalShape.size(); ++i) {
-      if (i < maskLogicalShape.size() - 2) {
-        maskLogicalShape[i] = 1;
-      } else {
-        maskLogicalShape[i] = 32;
-      }
-    }
-    // Create mask layout using the input's collapsed intervals so the mask
-    // tensor has the same grid rank as the input tensor, regardless of
-    // collapse.
-    auto inputNormalizedIntervals = inputLayout.getNormalizedIntervals();
-    auto maskDimAlignments = ttcore::MetalLayoutAttr::computeTileAlignments(
-        maskLogicalShape, inputNormalizedIntervals);
-    auto maskLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), maskLogicalShape, maskDimAlignments,
-        inputLayout.getCollapsedIntervals(), ttcore::OOBVal::Undef,
-        ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
-
-    auto elemType = inputType.getElementType();
-    // Mask is a single tile (broadcast via constant indexing maps).
-    // Use a unit grid with the same rank as the input grid.
-    auto gridShape = inputLayout.getGridShape(inputType);
-    SmallVector<int64_t> unitGrid(gridShape.size(), 1);
-    auto tileShape = ttcore::getTensorTileShape(inputType);
-    auto maskShape = maskLayout.getDeviceShape(unitGrid, tileShape);
-
-    Value rowMaskTensor =
-        rewriter.create<d2m::EmptyOp>(loc, maskShape, elemType, maskLayout)
-            .getResult();
-    Value colMaskTensor =
-        rewriter.create<d2m::EmptyOp>(loc, maskShape, elemType, maskLayout)
-            .getResult();
-
-    // Input list includes scratch mask CBs.
-    SmallVector<Value> allInputs = {input, rowMaskTensor, colMaskTensor};
-    SmallVector<Value> allOutputs = {output};
-
-    // Build indexing maps based on shard rank (iteration space).
-    AffineMap identityMap = rewriter.getMultiDimIdentityMap(shardRank);
-    // For mask operands: broadcast (constant 0 for each grid/shard dim).
-    SmallVector<AffineExpr> zeroExprs(shardRank,
-                                      rewriter.getAffineConstantExpr(0));
-    AffineMap constantMap =
-        AffineMap::get(shardRank, 0, zeroExprs, rewriter.getContext());
-    SmallVector<AffineMap> indexingMaps = {
-        identityMap, // input: iterate over all tiles.
-        constantMap, // rowMask: single tile, constant.
-        constantMap, // colMask: single tile, constant.
-        identityMap  // output: iterate over all tiles.
-    };
-    Attribute parallel = rewriter.getAttr<ttcore::IteratorTypeAttr>(
-        ttcore::IteratorType::Parallel);
-    ArrayAttr indexingMapsAttr = rewriter.getAffineMapArrayAttr(indexingMaps);
-    ArrayAttr iteratorTypesAttr =
-        rewriter.getArrayAttr(SmallVector<Attribute>(shardRank, parallel));
-
-    auto genericOp = rewriter.create<GenericOp>(
-        loc, ValueRange(allInputs), ValueRange(allOutputs),
-        /*additionalArgs=*/ValueRange(), indexingMapsAttr, iteratorTypesAttr,
-        [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-          // blockArgs: [inputCB, rowMaskCB, colMaskCB, outputCB].
-          Type inputShardType = getShardTypeFromCB(blockArgs[0]);
-          Type outputShardType = getShardTypeFromCB(blockArgs[3]);
-
-          size_t gridRank = gridShape.size();
-          SmallVector<Value> indices =
-              buildIdentityGridIndices(builder, innerLoc, gridRank);
-
-          // Load input data.
-          Value src = createRemoteLoad(builder, innerLoc, inputShardType, input,
-                                       indices);
-
-          // Load mask data from scratch CBs using RemoteLoad. This establishes
-          // the connection between local buffers and the CBs. The masks use
-          // constant zero indices (broadcast - single tile shared across grid).
-          Type rowMaskType = getShardTypeFromCB(blockArgs[1]);
-          Type colMaskType = getShardTypeFromCB(blockArgs[2]);
-          SmallVector<Value> zeroIndices(
-              gridRank, builder.create<arith::ConstantIndexOp>(innerLoc, 0));
-          Value rowMaskLocal = createRemoteLoad(builder, innerLoc, rowMaskType,
-                                                rowMaskTensor, zeroIndices);
-          Value colMaskLocal = createRemoteLoad(builder, innerLoc, colMaskType,
-                                                colMaskTensor, zeroIndices);
-
-          // Create output buffer.
-          Value dst = createTensorEmpty(builder, innerLoc, outputShardType);
-
-          Value logicalRowsVal =
-              builder.create<arith::ConstantIndexOp>(innerLoc, logicalRows);
-          Value logicalColsVal =
-              builder.create<arith::ConstantIndexOp>(innerLoc, logicalCols);
-
-          // BlockMaskOp with mask tensors - the mask writes will be handled
-          // in DecomposeMasking, which runs after bufferization.
-          Value masked = builder
-                             .create<BlockMaskOp>(innerLoc, dst.getType(), src,
-                                                  dst, rowMaskLocal,
-                                                  colMaskLocal, logicalRowsVal,
-                                                  logicalColsVal, fillValue)
-                             .getResult();
-
-          // Store the masked result to output.
-          Value storeResult =
-              createRemoteStore(builder, innerLoc, output, indices, masked);
-          builder.create<YieldOp>(innerLoc, storeResult);
-        },
-        ThreadType::Unified);
-
-    return genericOp.getResult(0);
-  }
-
   ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
                               Value input, RankedTensorType desiredType) const {
     auto layout =
@@ -610,6 +468,90 @@ public:
         .replaceOpWithNewOp<d2m::ToLayoutOp>(op, bounced->getResult(0),
                                              op.getOutput())
         ->getResult(0);
+  }
+
+  static bool matchesOutputSpec(Value value, const OutputBufferSpec &spec) {
+    if (!value || value.getType() != spec.type) {
+      return false;
+    }
+
+    AffineMap currentForward =
+        utils::getVirtualGridForwardMapping(value).value_or(AffineMap());
+    AffineMap currentInverse =
+        utils::getVirtualGridInverseMapping(value).value_or(AffineMap());
+    // View remappings are semantic view metadata. Do not reuse such values as
+    // generic outs buffers, even when their type and VGM match the spec.
+    if (utils::getAssociatedRemapping(value)) {
+      return false;
+    }
+    return currentForward == spec.vgmForward &&
+           currentInverse == spec.vgmInverse;
+  }
+
+  Value createEmpty(PatternRewriter &rewriter, Location loc,
+                    const OutputBufferSpec &spec, Value reusableOutput = {},
+                    bool allowReuse = true) const {
+    if (allowReuse && matchesOutputSpec(reusableOutput, spec)) {
+      return reusableOutput;
+    }
+
+    AffineMapAttr invAttr =
+        spec.vgmInverse ? AffineMapAttr::get(spec.vgmInverse) : nullptr;
+    AffineMapAttr fwdAttr =
+        spec.vgmForward ? AffineMapAttr::get(spec.vgmForward) : nullptr;
+    if (!invAttr && !fwdAttr) {
+      if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+              spec.type.getEncoding())) {
+        return rewriter
+            .create<d2m::EmptyOp>(loc, spec.type.getShape(),
+                                  spec.type.getElementType(), layout,
+                                  targetGridShape)
+            .getResult();
+      }
+    }
+
+    return rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr)
+        .getResult();
+  }
+
+  // `d2m.mask` is created before LowerToLayout, so its input and output types
+  // initially match the pre-lowered ToLayout result. Lowering may replace that
+  // input with a value that has a different concrete physical shape, for
+  // example after tilization chooses a tile-aligned buffer. Since MaskOp
+  // requires input/output/result to have identical types, rebuild the mask
+  // output to match the rewritten input while preserving the old output's
+  // virtual-grid metadata.
+  void repairMaskAfterInputRewrite(PatternRewriter &rewriter,
+                                   MaskOp mask) const {
+    auto inputType =
+        mlir::dyn_cast<RankedTensorType>(mask.getInput().getType());
+    if (!inputType || mask.getOutput().getType() == inputType) {
+      return;
+    }
+
+    Value oldOutput = mask.getOutput();
+    d2m::EmptyOp oldOutputEmpty = oldOutput.getDefiningOp<d2m::EmptyOp>();
+
+    OutputBufferSpec outputSpec{inputType};
+    if (oldOutputEmpty) {
+      if (auto attr = oldOutputEmpty.getVirtualGridForwardMappingAttr()) {
+        outputSpec.vgmForward = attr.getValue();
+      }
+      if (auto attr = oldOutputEmpty.getVirtualGridInverseMappingAttr()) {
+        outputSpec.vgmInverse = attr.getValue();
+      }
+    }
+
+    rewriter.setInsertionPoint(mask);
+    Value newOutput = createEmpty(rewriter, mask.getLoc(), outputSpec);
+    auto newMask =
+        rewriter.create<MaskOp>(mask.getLoc(), mask.getInput(), newOutput,
+                                mask.getLogicalShape(), mask.getFillValue());
+    rewriter.replaceOp(mask, newMask.getResult());
+
+    if (oldOutputEmpty && oldOutput.use_empty()) {
+      rewriter.eraseOp(oldOutputEmpty);
+    }
   }
 
   // Pull the planning-relevant metadata off a Value: its type plus any
@@ -631,96 +573,43 @@ public:
     Value currentValue = op.getInput();
     Location loc = op.getLoc();
 
-    auto matchesOutputSpec = [&](Value value,
-                                 const OutputBufferSpec &spec) -> bool {
-      if (value.getType() != spec.type) {
-        return false;
-      }
-      AffineMap currentForward =
-          utils::getVirtualGridForwardMapping(value).value_or(AffineMap());
-      AffineMap currentInverse =
-          utils::getVirtualGridInverseMapping(value).value_or(AffineMap());
-      // View remappings are semantic view metadata. Do not reuse such values as
-      // generic outs buffers, even when their type and VGM match the spec.
-      if (utils::getAssociatedRemapping(value)) {
-        return false;
-      }
-      return currentForward == spec.vgmForward &&
-             currentInverse == spec.vgmInverse;
-    };
-
-    auto createEmpty = [&](const OutputBufferSpec &spec,
-                           bool allowReuse = true) -> Value {
-      if (allowReuse && matchesOutputSpec(op.getOutput(), spec)) {
-        return op.getOutput();
-      }
-      AffineMapAttr invAttr =
-          spec.vgmInverse ? AffineMapAttr::get(spec.vgmInverse) : nullptr;
-      AffineMapAttr fwdAttr =
-          spec.vgmForward ? AffineMapAttr::get(spec.vgmForward) : nullptr;
-      if (!invAttr && !fwdAttr) {
-        if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-                spec.type.getEncoding())) {
-          return rewriter
-              .create<d2m::EmptyOp>(loc, spec.type.getShape(),
-                                    spec.type.getElementType(), layout,
-                                    targetGridShape)
-              .getResult();
-        }
-      }
-      return rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr)
-          .getResult();
+    auto createStepOutput = [&](const OutputBufferSpec &spec,
+                                bool allowReuse = true) -> Value {
+      return this->createEmpty(rewriter, loc, spec, op.getOutput(), allowReuse);
     };
 
     for (const Step &step : plan) {
       if (const auto *s = std::get_if<HostToDeviceStep>(&step)) {
-        currentValue = lowerSystemLayoutChange(rewriter, currentValue,
-                                               createEmpty(s->output), loc);
+        currentValue = lowerSystemLayoutChange(
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<DeviceToHostStep>(&step)) {
         currentValue = lowerSystemLayoutChange(
             rewriter, currentValue,
-            createEmpty(OutputBufferSpec{s->outputType}), loc);
+            createStepOutput(OutputBufferSpec{s->outputType}), loc);
       } else if (const auto *s = std::get_if<L1ToDRAMStep>(&step)) {
-        currentValue = lowerDatamovementGeneric(rewriter, currentValue,
-                                                createEmpty(s->output), loc);
+        currentValue = lowerDatamovementGeneric(
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<DRAMToL1Step>(&step)) {
-        currentValue = lowerDatamovementGeneric(rewriter, currentValue,
-                                                createEmpty(s->output), loc);
+        currentValue = lowerDatamovementGeneric(
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<TilizeStep>(&step)) {
         currentValue = lowerFormatConversionGeneric(
-            rewriter, currentValue, createEmpty(s->output), loc);
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<UntilizeStep>(&step)) {
         currentValue = lowerFormatConversionGeneric(
-            rewriter, currentValue, createEmpty(s->output), loc);
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<RebufferStep>(&step)) {
-        currentValue = lowerDatamovementGeneric(rewriter, currentValue,
-                                                createEmpty(s->output), loc);
+        currentValue = lowerDatamovementGeneric(
+            rewriter, currentValue, createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<ReshardStep>(&step)) {
         currentValue = lowerMappingChange(rewriter, currentValue,
-                                          createEmpty(s->output), loc);
+                                          createStepOutput(s->output), loc);
       } else if (const auto *s = std::get_if<RemapStep>(&step)) {
         currentValue = rewriter
                            .create<ViewLayoutOp>(loc, s->outputType,
                                                  currentValue, s->remapping,
                                                  /*reinterpretLayout=*/false)
                            .getResult();
-      } else if (const auto *s = std::get_if<ReinterpretLayoutStep>(&step)) {
-        currentValue =
-            rewriter
-                .create<ViewLayoutOp>(
-                    loc, s->outputType, currentValue,
-                    rewriter.getMultiDimIdentityMap(
-                        mlir::cast<ShapedType>(currentValue.getType())
-                            .getRank()),
-                    /*reinterpretLayout=*/true)
-                .getResult();
-      } else if (const auto *s = std::get_if<MaskStep>(&step)) {
-        // Mask requires a fresh, non-aliased output buffer: during
-        // bufferization, sharing a buffer with the input breaks CB
-        // synchronization.
-        auto maskedEmpty = createEmpty(s->output, /*allowReuse=*/false);
-        currentValue = lowerMaskingGeneric(rewriter, currentValue, maskedEmpty,
-                                           loc, s->logicalShape, s->oobVal);
       }
     }
     return currentValue;
@@ -739,8 +628,24 @@ public:
       rewriter.replaceOp(op, op.getInput());
       return success();
     }
+
+    // Capture direct mask users before replacing the ToLayout result. The
+    // replacement updates the mask input in-place, and that can leave the mask
+    // output/result type stale until repaired below.
+    SmallVector<MaskOp> maskUsers;
+    for (OpOperand &use : op.getResult(0).getUses()) {
+      if (use.getOperandNumber() == 0) {
+        if (auto mask = dyn_cast<MaskOp>(use.getOwner())) {
+          maskUsers.push_back(mask);
+        }
+      }
+    }
+
     Value result = emit(rewriter, op, plan);
     rewriter.replaceOp(op, result);
+    for (MaskOp mask : maskUsers) {
+      repairMaskAfterInputRewrite(rewriter, mask);
+    }
     return success();
   }
 

@@ -1081,69 +1081,6 @@ def D2M_TileRandOp : D2M_GenericRegionComputeOp<"tile_rand"> {
     }];
 }
 
-def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
-  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  , D2M_SkipOpEltwiseFusionTrait
-  , AttrSizedOperandSegments
-  ]> {
-    let summary = "Mask block elements outside logical bounds with fill value";
-    let description = [{
-        The `block_mask` operation masks elements in a block/memref that fall outside
-        the logical tensor bounds, replacing them with a specified fill value.
-
-        This op operates at the block level (memref of tiles) and handles both complete
-        tile masking (tiles entirely outside bounds) and partial tile masking (tiles
-        that straddle the boundary).
-
-        The logical_rows and logical_cols are Index values specifying the logical
-        dimensions for this core's shard. These can be computed dynamically based on
-        the core's position in the grid, enabling multicore support.
-
-        For partial tile masking, row_mask_cb and col_mask_cb contain scratch mask
-        tiles written by a corresponding BlockMaskWriteOp in the DM region. These are
-        single-tile CBs where each element is 1.0 if valid or 0.0 if OOB.
-
-        This is a high-level op that gets decomposed in a later pass into multiple
-        loop nests that handle interior tiles, edge tiles, and corner tiles separately.
-
-        Example:
-        ```mlir
-        // With mask CBs for partial masking:
-        d2m.block_mask %input, %output, %row_mask_cb, %col_mask_cb,
-                       %logical_rows, %logical_cols, <zero>
-            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>,
-               memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
-        ```
-    }];
-
-    let arguments = (ins
-        AnyRankedTensorOrMemRef:$input,
-        AnyRankedTensorOrMemRef:$output,
-        Optional<AnyRankedTensorOrMemRef>:$row_mask_cb,
-        Optional<AnyRankedTensorOrMemRef>:$col_mask_cb,
-        Index:$logical_rows,
-        Index:$logical_cols,
-        TTCore_OOBValAttr:$fill_value);
-
-    let results = (outs AnyRankedTensorOrMemRef:$result);
-
-    // Use default format with AttrSizedOperandSegments - the operand_segment_sizes
-    // attribute is automatically added/parsed to track optional operand presence.
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-      bool hasMaskCBs() { return getRowMaskCb() != nullptr && getColMaskCb() != nullptr; }
-    }];
-
-    let hasVerifier = 1;
-}
-
 def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {
     let summary = "D2M Destination Register Reinterpret Cast Op";
     let description = [{
@@ -3034,7 +2971,9 @@ def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg", [Pure]> {
 //===----------------------------------------------------------------------===//
 
 def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , D2M_SynchronizableOpInterface
+  ]> {
     let summary = "Write row mask pattern to a tile CB";
     let description = [{
         The `write_row_mask_tile` operation writes a row mask pattern
@@ -3047,11 +2986,21 @@ def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
     let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validRows,
                          AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
 
+    let extraClassDeclaration = [{
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutputMutable() == &operand;
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) { return false; }
+    }];
+
     let assemblyFormat = [{ `(` $validRows `)` `to` $output attr-dict `:` type($validRows) `,` type($output) }];
 }
 
 def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , D2M_SynchronizableOpInterface
+  ]> {
     let summary = "Write column mask pattern to a tile CB";
     let description = [{
         The `write_col_mask_tile` operation writes a column mask pattern
@@ -3063,6 +3012,14 @@ def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
 
     let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validCols,
                          AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let extraClassDeclaration = [{
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutputMutable() == &operand;
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) { return false; }
+    }];
 
     let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
 }
