@@ -6,6 +6,13 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttcore, d2m
 
 
+# Public dtype constants. Pass to `dtype=` on Layout / tilize / untilize
+# instead of strings ("fp32", "bf16", ...). The strings are still accepted.
+float32 = ttcore.DataType.Float32
+float16 = ttcore.DataType.Float16
+bfloat16 = ttcore.DataType.BFloat16
+
+
 def _to_data_type(dtype):
     if isinstance(dtype, ttcore.DataType):
         return dtype

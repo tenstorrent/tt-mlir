@@ -10,7 +10,7 @@ from ttmlir.dialects import d2m, arith
 from ._src.utils import _asindex
 from ._src.ast import D2MCompiler, syntax
 from ._src.config import config
-from ._src.tensor_layout import Layout
+from ._src.tensor_layout import Layout, float32, float16, bfloat16
 from ._src.builder import (
     CompiledKernel,
     LazyTensor,
