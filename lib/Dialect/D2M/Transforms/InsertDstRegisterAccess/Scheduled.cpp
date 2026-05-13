@@ -20,7 +20,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
 
-#include <deque>
 #include <optional>
 
 #define DEBUG_TYPE "D2MInsertDstRegisterAccessScheduled"
@@ -34,11 +33,27 @@ namespace {
 using namespace detail;
 
 // ---------------------------------------------------------------------------
-// Stack-based allocator used by the scheduled path.  Each compute op pops
-// inputs off `inputStack` (LIFO), and stores push onto `outputQueue`; on
-// deallocate inputs come back first, otherwise the second-from-tail entry
-// of the output queue (the previous output, no longer live) is dropped so
-// the running tail output stays available for the next consumer.
+// Stack-based allocator used by the scheduled path.
+//
+// Slots come from a free list (`sliceStack`) and are bound to one of four
+// explicit roles:
+//
+//   - `inputStack`     : operand reads of the in-progress compute op, popped
+//                        LIFO (most recent input is deallocated first).
+//   - `currentOutput`  : the result tile of the most recently emitted
+//                        compute op.  Its value may still be consumed
+//                        in-place by the next compute op.
+//   - `retiredOutputs` : prior outputs whose consumer has already been
+//                        emitted; they are dead but not yet recycled.
+//   - `scratchSlots`   : per-op private scratch (e.g. SFPU int reductions
+//                        via `getNumDstScratchSlices()`).  Owned by the op
+//                        for the lifetime of the region; never recycled,
+//                        and deliberately not tracked by `inputStack`,
+//                        `currentOutput`, or `currSliceIndex`.
+//
+// `currSliceIndex` is the most recently allocated *operand or output* slot
+// (never a scratch slot) so callers wanting to overwrite-in-place can grab
+// it directly.
 // ---------------------------------------------------------------------------
 
 class DstStackAllocator {
@@ -50,38 +65,50 @@ public:
   }
 
   unsigned allocate(bool isStore = false);
+  unsigned allocateScratch();
   unsigned deallocate();
   void setStoreToDst() { storedToDst = true; }
   bool didStoreToDst() const { return storedToDst; }
   unsigned getCurrSliceIndex() const { return currSliceIndex; }
-  unsigned getFirstInputSliceIndex();
+  unsigned getFirstInputSliceIndex() const;
   void deallocateAllButFirstInput();
 
 private:
   unsigned dstSliceCapacity = 0;
   unsigned currSliceIndex = 0;
   SmallVector<unsigned, 16> inputStack;
-  std::deque<unsigned> outputQueue;
+  std::optional<unsigned> currentOutput;
+  SmallVector<unsigned, 4> retiredOutputs;
+  SmallVector<unsigned, 4> scratchSlots;
   SmallVector<unsigned, 16> sliceStack;
   bool storedToDst = false;
 
   void initSliceStack();
 };
 
-// Print allocator state to debug log, prefixed by `header`.
-static void debugDumpDstStackAllocator(StringRef header,
-                                       ArrayRef<unsigned> sliceStack,
-                                       ArrayRef<unsigned> inputStack,
-                                       const std::deque<unsigned> &outputQueue,
-                                       std::optional<unsigned> action) {
+static void
+debugDumpDstStackAllocator(StringRef header, ArrayRef<unsigned> sliceStack,
+                           ArrayRef<unsigned> inputStack,
+                           std::optional<unsigned> currentOutput,
+                           ArrayRef<unsigned> retiredOutputs,
+                           ArrayRef<unsigned> scratchSlots,
+                           std::optional<unsigned> action) {
   LDBG_OS([&](raw_ostream &os) {
     os << header << "\n";
-    os << "  SliceStack  = ";
+    os << "  SliceStack     = ";
     llvm::interleaveComma(sliceStack, os);
-    os << "\n  InputStack  = ";
+    os << "\n  InputStack     = ";
     llvm::interleaveComma(inputStack, os);
-    os << "\n  OutputQueue = ";
-    llvm::interleaveComma(outputQueue, os);
+    os << "\n  CurrentOutput  = ";
+    if (currentOutput) {
+      os << *currentOutput;
+    } else {
+      os << "(none)";
+    }
+    os << "\n  RetiredOutputs = ";
+    llvm::interleaveComma(retiredOutputs, os);
+    os << "\n  ScratchSlots   = ";
+    llvm::interleaveComma(scratchSlots, os);
     if (action) {
       os << "\n  --> " << *action;
     }
@@ -91,49 +118,68 @@ static void debugDumpDstStackAllocator(StringRef header,
 unsigned DstStackAllocator::allocate(bool isStore) {
   TT_assertv(!sliceStack.empty(), "Out of dst slices");
 
-  currSliceIndex = sliceStack.pop_back_val();
+  unsigned id = sliceStack.pop_back_val();
+  currSliceIndex = id;
 
   if (isStore) {
-    outputQueue.push_back(currSliceIndex);
+    // The previous `currentOutput`, if any, has no live consumer at this
+    // point (the new store supersedes it); demote it to `retiredOutputs`
+    // so a later `deallocate()` can recycle it cleanly without having to
+    // peek at queue tails.
+    if (currentOutput.has_value()) {
+      retiredOutputs.push_back(*currentOutput);
+    }
+    currentOutput = id;
   } else {
-    inputStack.push_back(currSliceIndex);
+    inputStack.push_back(id);
   }
 
   debugDumpDstStackAllocator("== ALLOCATE ==", sliceStack, inputStack,
-                             outputQueue, currSliceIndex);
-  return currSliceIndex;
+                             currentOutput, retiredOutputs, scratchSlots, id);
+  return id;
+}
+
+unsigned DstStackAllocator::allocateScratch() {
+  TT_assertv(!sliceStack.empty(), "Out of dst slices");
+
+  unsigned id = sliceStack.pop_back_val();
+  scratchSlots.push_back(id);
+
+  // Intentionally do NOT update `currSliceIndex`, `inputStack`, or
+  // `currentOutput`.  Scratch is owned by the op for the lifetime of the
+  // region; it must not show up as a candidate for in-place reuse by
+  // later compute ops (the failure mode tracked in #8081).
+  debugDumpDstStackAllocator("== ALLOCATE SCRATCH ==", sliceStack, inputStack,
+                             currentOutput, retiredOutputs, scratchSlots, id);
+  return id;
 }
 
 unsigned DstStackAllocator::deallocate() {
-  TT_assertv(!(inputStack.empty() && outputQueue.empty()),
+  TT_assertv(!(inputStack.empty() && retiredOutputs.empty() &&
+               !currentOutput.has_value()),
              "Deallocating non-existent dst slice");
 
-  // Inputs are deallocated LIFO (most recent input first).  If there are no
-  // inputs left, deallocate from outputQueue.  When the output queue holds
-  // more than one slice, the *last* one is the running output that the next
-  // op may still consume, so we drop the second-from-tail entry instead and
-  // keep the tail live.  TODO(sgholami): once the allocator is reworked to
-  // make this implicit (e.g. by tracking the running output separately),
-  // this special case can go away.
+  // Recycle in liveness order: most recent input first (LIFO), then any
+  // retired prior outputs, then the current output as a last resort
+  // (only legal once the next consumer is gone).  No middle-erase.
   unsigned id = 0;
   if (!inputStack.empty()) {
     id = inputStack.pop_back_val();
-  } else if (outputQueue.size() > 1) {
-    id = outputQueue.at(outputQueue.size() - 2);
-    outputQueue.erase(outputQueue.end() - 2);
+  } else if (!retiredOutputs.empty()) {
+    id = retiredOutputs.pop_back_val();
   } else {
-    id = outputQueue.back();
-    outputQueue.pop_back();
+    id = *currentOutput;
+    currentOutput.reset();
   }
 
   sliceStack.push_back(id);
 
   debugDumpDstStackAllocator("== DEALLOCATE ==", sliceStack, inputStack,
-                             outputQueue, id);
+                             currentOutput, retiredOutputs, scratchSlots, id);
   return id;
 }
 
-unsigned DstStackAllocator::getFirstInputSliceIndex() {
+unsigned DstStackAllocator::getFirstInputSliceIndex() const {
   TT_assertv(!inputStack.empty(), "No input slots allocated");
   return inputStack.front();
 }
@@ -148,7 +194,8 @@ void DstStackAllocator::deallocateAllButFirstInput() {
     unsigned id = inputStack.pop_back_val();
     sliceStack.push_back(id);
     debugDumpDstStackAllocator("== DEALLOCATE (keeping first) ==", sliceStack,
-                               inputStack, outputQueue, id);
+                               inputStack, currentOutput, retiredOutputs,
+                               scratchSlots, id);
   }
 
   currSliceIndex = firstInput;
