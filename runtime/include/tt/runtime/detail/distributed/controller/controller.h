@@ -174,7 +174,7 @@ public:
 
 private:
   std::chrono::seconds writeTimeout_{300};
-  std::chrono::seconds readTimeout_{300};
+  std::chrono::seconds readTimeout_{3000};
   std::chrono::seconds workerShutdownTimeout_{300};
 
   std::atomic<ControllerState> controllerState_{ControllerState::Uninitialized};
