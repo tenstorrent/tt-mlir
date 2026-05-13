@@ -939,6 +939,74 @@ public:
   }
 };
 
+// Converts stablehlo.custom_call @tenstorrent.gather -> ttir.gather.
+// This handles custom_calls created by FlattenOrConvertCompositesPass from the
+// tenstorrent.gather composite (so Shardy can propagate shardings through it).
+class CustomCallGatherConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+public:
+  CustomCallGatherConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != kTTGatherCustomCallTargetName ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
+      return failure();
+    }
+    if (adaptor.getOperands().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather must have exactly 2 operands");
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather must have exactly one result");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing attributes on converted custom_call op");
+    }
+    auto dimIntAttr = compositeAttrs.getAs<IntegerAttr>("dim");
+    if (!dimIntAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather requires integer 'dim' attribute");
+    }
+    auto dimAttr =
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(dimIntAttr.getInt()));
+
+    auto input = adaptor.getOperands()[0];
+    auto index = adaptor.getOperands()[1];
+
+    // Cast the index tensor to UInt32 type if it isn't already UInt32 or
+    // UInt16.
+    auto indexType = mlir::cast<RankedTensorType>(index.getType());
+    if (!indexType.getElementType().isInteger()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Index tensor must be of an integer type");
+    }
+    if (!indexType.getElementType().isUnsignedInteger(32) &&
+        !indexType.getElementType().isUnsignedInteger(16)) {
+      auto ui32Type = RankedTensorType::get(indexType.getShape(),
+                                            rewriter.getIntegerType(32, false));
+      index =
+          rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
+                                                dimAttr);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -982,6 +1050,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentTopKConversionPattern>(context);
   patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
   patterns.add<TenstorrentGatherConversionPattern>(context);
+  patterns.add<CustomCallGatherConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt
