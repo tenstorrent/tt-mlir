@@ -113,14 +113,14 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   // they haven't been lowered yet into non-synchronized ops
   OpBuilder::InsertionGuard guard(rewriter);
 
-  // Collect the blocks that contain remote_load/store ops at their immediate
-  // level. These delimit the scope where compute is synchronized: the
-  // outermost compute ancestor sits in such a block alongside the loads/stores
-  // that bound it.
-  DenseSet<Block *> blocksWithRemoteOps;
+  // Collect the blocks that contain SynchronizableOpInterface ops at their
+  // immediate level. These delimit the scope where compute is synchronized:
+  // the outermost compute ancestor sits in such a block alongside the
+  // synchronizable ops that bound it.
+  DenseSet<Block *> blocksWithSynchronizableOps;
   genericOp.getRegion(0).walk([&](Operation *op) {
-    if (isa<RemoteLoadOp, RemoteStoreOp>(op)) {
-      blocksWithRemoteOps.insert(op->getBlock());
+    if (dyn_cast<SynchronizableOpInterface>(op)) {
+      blocksWithSynchronizableOps.insert(op->getBlock());
     }
   });
 
@@ -132,10 +132,10 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     }
 
     // Walk up loops until we reach the generic op as a parent, or a block
-    // that contains a remote_load/store at the same level.
+    // that contains a SynchronizableOpInterface op at the same level.
     Operation *outermostOp = op;
     while (outermostOp->getParentOp() != genericOp.getOperation() &&
-           !blocksWithRemoteOps.contains(outermostOp->getBlock())) {
+           !blocksWithSynchronizableOps.contains(outermostOp->getBlock())) {
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {
