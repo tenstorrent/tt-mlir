@@ -12,10 +12,9 @@ import torch
 from chisel.executor import (
     build_role_keyed_inputs,
     execute_golden,
-    get_provided_inplace_vals,
 )
 from chisel.ops import (
-    get_inplace_operands,
+    get_flat_inplace_vals,
     get_op_inputs,
     get_op_outputs,
     is_non_executable_op,
@@ -109,9 +108,7 @@ def test_golden_execution(subtests, ir_module, binary, binary_path):
                         f"\nbinary: {binary_path}"
                     )
 
-                inplace_vals = get_provided_inplace_vals(
-                    op.opview, get_inplace_operands(type(op.opview))
-                )
+                inplace_vals = get_flat_inplace_vals(op.opview)
                 for out, (role, val) in zip(result[len(op_outputs) :], inplace_vals):
                     expected_shape = list(val.type.shape)
                     expected_dtype = mlir_type_to_torch_dtype(val.type.element_type)

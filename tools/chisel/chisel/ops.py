@@ -11,6 +11,7 @@ from ttmlir.ir import (
     BlockArgument,
     Context,
     Module,
+    OpOperandList,
     OpResult,
     Operation,
     Value,
@@ -29,7 +30,7 @@ _CHISEL_NON_EXECUTABLE_OPS: set = {
 
 # Op class -> operand role names mutated via `Arg<..., [MemWrite]>` in ODS.
 # Goldens return SSA results first, then one tensor per *provided* memwrite
-# operand (absent Optional operands are skipped - see get_provided_inplace_vals).
+# operand (absent Optional operands are skipped - see get_flat_inplace_vals).
 # Hand-maintained;
 # TODO(ndrakulic, #8385): derive from ODS via python_op_schema_codegen.py.
 _CHISEL_INPLACE_OPS: dict[type, tuple[str, ...]] = {
@@ -66,6 +67,23 @@ def get_op_outputs(op: Operation) -> list[OpResult]:
 def get_op_inputs(op: Operation) -> list[Value]:
     """Extract input tensors (operands with shape and element_type) from a MLIR operation."""
     return [operand for operand in op.operands if is_tensor_value(operand)]
+
+
+def get_flat_inplace_vals(op: Operation) -> list[tuple[str, Value]]:
+    """Return (role, value) pairs for in-place operands present on `op`.
+
+    Absent Optional operands are skipped; OpOperandList is expanded.
+    """
+    vals: list[tuple[str, Value]] = []
+    for role in get_inplace_operands(type(op)):
+        accessor = getattr(op, role, None)
+        if accessor is None:
+            continue
+        if isinstance(accessor, OpOperandList):
+            vals.extend((role, v) for v in accessor)
+        else:
+            vals.append((role, accessor))
+    return vals
 
 
 class IRModule:

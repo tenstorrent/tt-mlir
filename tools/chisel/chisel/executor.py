@@ -9,14 +9,18 @@ The executor normalizes the result to a tuple with one entry per SSA result
 followed by one entry per provided in-place operand.
 """
 import logging
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from ttmlir.ir import OpOperandList, Operation, Value
 
 from golden import get_chisel_golden_function, GoldenMapTensor
 
 from .exceptions import GoldenNotImplementedError
-from .ops import get_inplace_operands, get_op_outputs, is_tensor_value
+from .ops import (
+    get_flat_inplace_vals,
+    get_op_outputs,
+    is_tensor_value,
+)
 
 logger = logging.getLogger("chisel")
 
@@ -57,25 +61,6 @@ def build_role_keyed_inputs(
     return role_inputs
 
 
-def get_provided_inplace_vals(
-    op: Operation, roles: Iterable[str]
-) -> list[tuple[str, Value]]:
-    """Return (role, value) pairs for in-place operands present on `op`.
-
-    Absent Optional operands are skipped; OpOperandList is expanded.
-    """
-    vals: list[tuple[str, Value]] = []
-    for role in roles:
-        accessor = getattr(op, role, None)
-        if accessor is None:
-            continue
-        if isinstance(accessor, OpOperandList):
-            vals.extend((role, v) for v in accessor)
-        else:
-            vals.append((role, accessor))
-    return vals
-
-
 def execute_golden(
     op: Operation,
     golden_inputs: Dict[str, object],
@@ -106,7 +91,7 @@ def execute_golden(
         return None
 
     ssa_count = len(get_op_outputs(op))
-    inplace_vals = get_provided_inplace_vals(op, get_inplace_operands(type(op)))
+    inplace_vals = get_flat_inplace_vals(op)
     expected = ssa_count + len(inplace_vals)
     assert len(tensors) == expected, (
         f"Golden for {type(op).__name__} returned {len(tensors)} tensor(s) "

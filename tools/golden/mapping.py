@@ -8012,6 +8012,7 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
 
 
 # Chisel golden interface: fn(op, inputs: Dict[str, GoldenMapTensor]) -> GoldenMapTensor | tuple
+# TODO(ndrakulic, #8399) this needs unification with other goldens
 
 
 def _ttnn_unflatten_nhwc(tensor, batch_size, input_height, input_width, channels):
@@ -8143,14 +8144,18 @@ def chisel_debug_region_end(op, inputs):
 
 
 def chisel_ttnn_assign(op, inputs):
-    return inputs["input"].clone().to(
-        mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    return (
+        inputs["input"]
+        .clone()
+        .to(mlir_type_to_torch_dtype(op.results[0].type.element_type))
     )
 
 
 def chisel_ttnn_to_memory_config(op, inputs):
-    return inputs["input"].clone().to(
-        mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    return (
+        inputs["input"]
+        .clone()
+        .to(mlir_type_to_torch_dtype(op.results[0].type.element_type))
     )
 
 
@@ -8688,8 +8693,10 @@ def chisel_ttnn_prepare_conv2d_weights(op, inputs):
 
 
 def chisel_ttnn_prepare_conv2d_bias(op, inputs):
-    return inputs["bias_tensor"].clone().to(
-        mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    return (
+        inputs["bias_tensor"]
+        .clone()
+        .to(mlir_type_to_torch_dtype(op.results[0].type.element_type))
     )
 
 
@@ -8702,8 +8709,10 @@ def chisel_ttnn_prepare_conv_transpose2d_weights(op, inputs):
 
 
 def chisel_ttnn_prepare_conv_transpose2d_bias(op, inputs):
-    return inputs["bias_tensor"].clone().to(
-        mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    return (
+        inputs["bias_tensor"]
+        .clone()
+        .to(mlir_type_to_torch_dtype(op.results[0].type.element_type))
     )
 
 
