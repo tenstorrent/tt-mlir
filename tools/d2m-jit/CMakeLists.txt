@@ -9,9 +9,6 @@ declare_mlir_python_sources(TTD2MJitSources
         api.py
         _src/__init__.py
         _src/ast.py
-        _src/base_ast.py
-        _src/compiler.py
-        _src/kernel_types.py
         _src/utils.py
 )
 

@@ -1,20 +1,23 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
 import ast
 import inspect
+
 from ttmlir.ir import *
 from ttmlir.dialects import (
     ttcore,
     d2m,
     func,
+    scf,
     arith,
+    memref,
+    emitc,
 )
 from ttmlir.dialects._ods_common import get_default_loc_context
 
-from .utils import _discover_dialect_ops, _cast
-from .compiler import TTCompilerBase
+from .utils import _discover_dialect_ops, _cast, _get_type_str
 
 
 class TensorLayout:
@@ -193,35 +196,288 @@ class TensorLayout:
         ).result
 
 
-# Kernel types accepted by D2MGenericCompiler beyond those allowed by
-# TTCompilerBase. "unified" represents a single-region kernel covering both
-# compute and data-movement; the other names are pass-through to the base.
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
 
 
-class D2MGenericCompiler(TTCompilerBase):
+class D2MCompiler(ast.NodeVisitor):
+    """Unified AST -> MLIR visitor for d2m_jit.
+
+    Replaces the prior three-level PyKernelAstBase / TTCompilerBase /
+    D2MGenericCompiler hierarchy. ttkernel-specific paths (rt_args/ct_args,
+    print -> ttkernel.dprint, ClassRegistry TensorAccessor dispatch, source
+    code emitc.verbatim comments) have been removed.
+    """
+
+    # Populated at import time by the @syntax decorator.
     _syntax = {}
 
-    def __init__(self, name, kernel_type=None, captures={}, *args, **kwargs):
-        # TTCompilerBase only recognises a fixed kernel_type set; pass `None`
-        # through to satisfy its assertion when we use d2m-only types, then
-        # restore the real value for our own use.
-        base_kernel_type = kernel_type if kernel_type != "unified" else None
-        assert kernel_type in _D2M_KERNEL_TYPES, f"Invalid kernel type {kernel_type}"
-        super().__init__(name, base_kernel_type, *args, **kwargs)
-        self.kernel_type = kernel_type
-        self.loc = Location.name(self.name)
-        self.captures = captures
-        self.streams = set()
-        # Enable async + d2m-specific AST nodes.
-        self.supported_nodes.append(ast.AsyncFunctionDef)
-        self.supported_nodes.append(ast.Yield)
-        self.supported_nodes.append(ast.Await)
-        self._fn_map = {}
-        for name, val in D2MGenericCompiler._syntax.items():
-            self._fn_map[name] = val
+    _SUPPORTED_NODES = (
+        # Variables
+        ast.Name,
+        ast.Load,
+        ast.Store,
+        # Control flow
+        ast.If,
+        ast.For,
+        # Async (d2m: yield/await emit d2m.YieldOp/AwaitOp)
+        ast.Yield,
+        ast.Await,
+        # Literals
+        ast.Constant,
+        # Expressions
+        ast.Attribute,
+        ast.Expr,
+        ast.IfExp,
+        ast.Call,
+        ast.UnaryOp,
+        ast.UAdd,
+        ast.USub,
+        ast.Not,
+        ast.Invert,
+        ast.BinOp,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.FloorDiv,
+        ast.Mod,
+        ast.Pow,
+        ast.LShift,
+        ast.RShift,
+        ast.BitOr,
+        ast.BitXor,
+        ast.BitAnd,
+        ast.BoolOp,
+        ast.And,
+        ast.Or,
+        ast.Compare,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        # Subscripting
+        ast.Subscript,
+        ast.List,
+        ast.Tuple,
+        # Statements
+        ast.Pass,
+        ast.Assign,
+        ast.AugAssign,
+        ast.AnnAssign,
+        ast.Return,
+        # Function/module
+        ast.Module,
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.arguments,
+        ast.arg,
+    )
 
-    # Async: d2m uses Python's yield/await to emit d2m.YieldOp / d2m.AwaitOp.
+    def __init__(self, name, kernel_type=None, captures=None, *args, **kwargs):
+        assert kernel_type in _D2M_KERNEL_TYPES, f"Invalid kernel type {kernel_type}"
+
+        self.name = name
+        self.kernel_type = kernel_type
+        self.captures = captures if captures is not None else {}
+        self.args = args
+
+        try:
+            default_context = get_default_loc_context()
+        except ValueError:
+            default_context = None
+        self.ctx = default_context if default_context is not None else Context()
+        self.cursor = Location.unknown(self.ctx)
+        self.loc = Location.name(self.name)
+        self.module = Module.create(self.cursor)
+        self.insert_point = self.module.body
+        self.func_entry = None
+        self.module_symbol_table = None
+        self.symbol_tables = []
+        self.streams = set()
+        self.supported_nodes = list(self._SUPPORTED_NODES)
+        self._fn_map = dict(self._syntax)
+
+    # --- Symbol table helpers ----------------------------------------------
+
+    def _var_exists(self, var_name):
+        for sym_table in reversed(self.symbol_tables):
+            if var_name in sym_table:
+                return sym_table
+        return {}
+
+    # --- Dispatch ----------------------------------------------------------
+
+    def visit(self, node, **kwargs):
+        if not any(isinstance(node, n) for n in self.supported_nodes):
+            raise NotImplementedError(f"visit {type(node).__name__} not supported")
+        method_name = "visit_" + node.__class__.__name__
+        visitor = getattr(self, method_name, self.generic_visit)
+        params = inspect.signature(visitor).parameters
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in params}
+        if filtered_kwargs:
+            return visitor(node, **filtered_kwargs)
+        return visitor(node)
+
+    # --- Module / function entry ------------------------------------------
+
+    def visit_Module(self, node):
+        with InsertionPoint(self.insert_point), Location.unknown():
+            for stmt in node.body:
+                self.visit(stmt)
+
+    def _emit_entry(self, node):
+        assert not self.func_entry, "Cannot declare function within a function"
+
+        func_operand_types = []
+        for i, arg in enumerate(node.args.args):
+            rt_arg = self.args[i]
+            if isinstance(rt_arg, TensorLayout):
+                func_operand_types.append(
+                    rt_arg.build_device_tensor_type(self.ctx, blocked=True)
+                )
+            elif isinstance(rt_arg, int):
+                func_operand_types.append(IndexType.get(self.ctx))
+            else:
+                raise TypeError(
+                    f"Unknown kernel argument type {type(rt_arg)} for argument {arg.arg}"
+                )
+
+        self.func_entry = func.FuncOp(name=node.name, type=(func_operand_types, []))
+        self.func_entry.attributes[d2m.ir.ThreadAttr.name] = d2m.ir.ThreadAttr.get(
+            self.ctx, self.kernel_type
+        )
+
+        self.symbol_tables.append({})
+        func_bb = self.func_entry.add_entry_block()
+        for i, bb_arg in enumerate(func_bb.arguments):
+            self.symbol_tables[-1][node.args.args[i].arg] = bb_arg
+        self.module_symbol_table = SymbolTable(self.module.operation)
+
+        with InsertionPoint(func_bb):
+            for capture_name, val in self.captures.items():
+                assert isinstance(capture_name, str)
+                if isinstance(val, int):
+                    self.symbol_tables[-1][capture_name] = arith.ConstantOp(
+                        IndexType.get(self.ctx), val
+                    )
+                else:
+                    raise TypeError(
+                        f"Invalid capture type for var {capture_name}: {type(val)}"
+                    )
+
+            for target in node.body:
+                self.visit(target)
+            func.ReturnOp([])
+
+        self.symbol_tables.pop()
+
+    def visit_FunctionDef(self, node):
+        with self.loc:
+            return self._emit_entry(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        with self.loc:
+            return self._emit_entry(node)
+
+    def visit_Return(self, node):
+        if node.value:
+            func.ReturnOp([self.visit(node.value)])
+        else:
+            func.ReturnOp([])
+
+    def visit_Expr(self, node):
+        return self.visit(node.value)
+
+    # --- Control flow ------------------------------------------------------
+
+    def visit_If(self, node):
+        if_cond = self.visit(node.test)
+        if hasattr(if_cond, "result"):
+            if_cond = if_cond.result
+
+        cond_type = None
+        if hasattr(if_cond, "type") and isinstance(if_cond.type, memref.MemRefType):
+            if_cond = memref.LoadOp(
+                if_cond, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+            cond_type = if_cond.type
+        elif hasattr(if_cond, "type") and isinstance(if_cond.type, IntegerType):
+            cond_type = if_cond.type
+        elif isinstance(if_cond, arith.ConstantOp):
+            cond_type = if_cond.type
+
+        if cond_type is None or not isinstance(cond_type, IntegerType):
+            raise ValueError("Cannot compare non-integer values")
+
+        if cond_type.width != 1:
+            if_cond = arith.cmpi(
+                arith.CmpIPredicate.ne, if_cond, arith.ConstantOp(cond_type, 0)
+            )
+
+        if_exp = scf.IfOp(cond=if_cond, hasElse=bool(node.orelse))
+        with InsertionPoint(if_exp.then_block), Location.unknown():
+            self.symbol_tables.append({})
+            for stmt in node.body:
+                self.visit(stmt)
+            scf.YieldOp([])
+            self.symbol_tables.pop()
+        if node.orelse:
+            with InsertionPoint(if_exp.else_block), Location.unknown():
+                self.symbol_tables.append({})
+                for stmt in node.orelse:
+                    self.visit(stmt)
+                scf.YieldOp([])
+                self.symbol_tables.pop()
+
+    def visit_For(self, node):
+        assert node.iter.func.id == "range", "Only range() supported in for loops"
+
+        if len(node.iter.args) == 1:
+            lower_bound = arith.ConstantOp(IndexType.get(self.ctx), 0)
+            upper_bound = self.visit(node.iter.args[0])
+            step = arith.ConstantOp(IndexType.get(self.ctx), 1)
+        elif len(node.iter.args) == 2:
+            lower_bound = self.visit(node.iter.args[0])
+            upper_bound = self.visit(node.iter.args[1])
+            step = arith.ConstantOp(IndexType.get(self.ctx), 1)
+        elif len(node.iter.args) == 3:
+            lower_bound = self.visit(node.iter.args[0])
+            upper_bound = self.visit(node.iter.args[1])
+            step = self.visit(node.iter.args[2])
+
+        def _load_if_memref(v):
+            if isinstance(v.type, memref.MemRefType):
+                return memref.LoadOp(
+                    v, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                ).result
+            return v
+
+        lower_bound = _load_if_memref(lower_bound)
+        upper_bound = _load_if_memref(upper_bound)
+        step = _load_if_memref(step)
+
+        def _to_index(v):
+            if isinstance(v.type, IndexType):
+                return v
+            return arith.IndexCastOp(IndexType.get(self.ctx), v).result
+
+        lower_bound = _to_index(lower_bound)
+        upper_bound = _to_index(upper_bound)
+        step = _to_index(step)
+
+        for_op = scf.ForOp(lower_bound, upper_bound, step)
+        with InsertionPoint(for_op.body), Location.unknown():
+            self.symbol_tables.append({})
+            self.symbol_tables[-1][node.target.id] = for_op.induction_variable
+            for stmt in node.body:
+                self.visit(stmt)
+            scf.YieldOp([])
+            self.symbol_tables.pop()
+
+    # --- Async (d2m) -------------------------------------------------------
+
     def visit_Yield(self, node):
         if isinstance(node.value, ast.Name):
             yield_args = [self.visit(node.value)]
@@ -240,84 +496,395 @@ class D2MGenericCompiler(TTCompilerBase):
             raise NotImplementedError("Unsupported type for await")
         d2m.AwaitOp(await_args)
 
-    # In d2m, integer/bool literals are always indices into shards/blocks.
+    # --- Statements --------------------------------------------------------
+
+    def visit_Name(self, node):
+        var_name = node.id
+        if var_name == "int":
+            return IntegerType.get_signless(32, self.ctx)
+        sym_table = self._var_exists(var_name)
+        if sym_table:
+            return sym_table[var_name]
+        return None
+
+    def visit_Assign(self, node):
+        assert len(node.targets) == 1, "Only single assignments supported"
+
+        var = self.visit(node.targets[0])
+        value = self.visit(node.value)
+        sym_table = self.symbol_tables[-1]
+
+        if isinstance(node.targets[0], ast.Subscript):
+            memref.StoreOp(value, var.memref, var.indices)
+            return
+
+        var_name = node.targets[0].id
+        if hasattr(var, "type") and isinstance(var.type, MemRefType):
+            memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
+        else:
+            sym_table[var_name] = value
+
+    def visit_AnnAssign(self, node):
+        var = self.visit(node.target)
+        value = self.visit(node.value)
+        sym_table = self.symbol_tables[-1]
+        var_name = node.target.id
+
+        if isinstance(node.annotation, ast.List):
+            if not len(node.annotation.elts) >= 2 or not isinstance(
+                node.annotation.elts[0], ast.Name
+            ):
+                raise ValueError(
+                    "Array initialization must follow [dtype, *shape] syntax."
+                )
+            var_type = IntegerType.get_signless(32, self.ctx)
+            if all(isinstance(elt, ast.Constant) for elt in node.annotation.elts[1:]):
+                memref_type = MemRefType.get(
+                    [elt.value for elt in node.annotation.elts[1:]], var_type
+                )
+                sym_table[var_name] = memref.alloca(memref_type, [], [])
+                return
+            raise NotImplementedError("Dynamic dimensions are not supported.")
+
+        if hasattr(value, "type") and isinstance(value.type, MemRefType):
+            raise ValueError(
+                "Cannot AnnAssign to another AnnAssign'ed variable. "
+                "Workaround: add 0 to it first."
+            )
+
+        if not var:
+            memref_type = MemRefType.get([1], value.type)
+            var = memref.alloca(memref_type, [], [])
+            sym_table[var_name] = var
+        else:
+            assert isinstance(var, MemRefType), "Can only AnnAssign to memref types"
+
+        memref.StoreOp(value, var, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
+
+    def visit_AugAssign(self, node):
+        target = self.visit(node.target)
+        if not target:
+            raise ValueError("AugAssign target must already be defined")
+
+        value = self.visit(node.value)
+        if not isinstance(target.type, memref.MemRefType):
+            raise ValueError("Cannot AugAssign to non-memref types")
+
+        _target = memref.LoadOp(
+            target, arith.ConstantOp(IndexType.get(self.ctx), 0)
+        ).result
+
+        match node.op:
+            case ast.Add():
+                result = arith.AddIOp(_target, value)
+            case ast.Sub():
+                result = arith.SubIOp(_target, value)
+            case ast.Mult():
+                result = arith.MulIOp(_target, value)
+            case _:
+                raise NotImplementedError(
+                    f"AugAssign operation {type(node.op).__name__} not supported"
+                )
+
+        memref.StoreOp(result, target, [arith.ConstantOp(IndexType.get(self.ctx), 0)])
+
+    # --- Function calls ----------------------------------------------------
+
+    def visit_Call(self, node):
+        def _load_func_arg(func_arg):
+            if not func_arg:
+                raise ValueError(f"Function argument not found for {node.func.id}")
+            if hasattr(func_arg, "type") and isinstance(
+                func_arg.type, memref.MemRefType
+            ):
+                func_arg = memref.LoadOp(
+                    func_arg, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                )
+            return func_arg
+
+        if not isinstance(node.func, ast.Attribute):
+            assert (
+                node.func.id in self._fn_map
+            ), f"Function {node.func.id} not supported"
+            fn = self._fn_map[node.func.id]
+            args_as_attr = [False] * len(node.args)
+            if isinstance(fn, tuple):
+                fn, args_as_attr = fn
+            func_args = []
+            assert len(node.args) == len(args_as_attr)
+            for arg, as_attr in zip(node.args, args_as_attr):
+                arg._ttkernel_as_attr = as_attr
+                func_args.append(_load_func_arg(self.visit(arg)))
+            kwargs = {kw.arg: _load_func_arg(self.visit(kw.value)) for kw in node.keywords}
+            return fn(*func_args, **kwargs)
+
+        func_args = [_load_func_arg(self.visit(arg)) for arg in node.args]
+        kwargs = {kw.arg: _load_func_arg(self.visit(kw.value)) for kw in node.keywords}
+        return self.visit(node.func, func_args=func_args, kwargs=kwargs)
+
+    # --- Operators ---------------------------------------------------------
+
+    def visit_BoolOp(self, node):
+        values = [self.visit(arg) for arg in node.values]
+
+        for i, value in enumerate(values):
+            value_type = None
+            if hasattr(value, "type") and isinstance(value.type, memref.MemRefType):
+                value = memref.LoadOp(
+                    value, arith.ConstantOp(IndexType.get(self.ctx), 0)
+                ).result
+                value_type = value.type
+            elif hasattr(value, "type") and isinstance(value.type, IntegerType):
+                value_type = value.type
+            elif isinstance(value, arith.ConstantOp):
+                value_type = value.type
+
+            if value_type is None or not isinstance(value_type, IntegerType):
+                raise ValueError(
+                    "BoolOp values must be MemRef, ConstantOp, or IntegerType"
+                )
+
+            if value_type.width != 1:
+                values[i] = arith.cmpi(
+                    arith.CmpIPredicate.ne, value, arith.ConstantOp(value_type, 0)
+                )
+
+        def _match(lhs, rhs):
+            match (node.op):
+                case ast.And():
+                    return arith.andi(lhs, rhs)
+                case ast.Or():
+                    return arith.ori(lhs, rhs)
+                case _:
+                    raise NotImplementedError(f"BoolOp {node.op} not supported")
+
+        chained = _match(values[0], values[1])
+        for i in range(2, len(values)):
+            chained = _match(chained, values[i])
+        return chained
+
+    def visit_BinOp(self, node):
+        lhs = self.visit(node.left)
+        rhs = self.visit(node.right)
+        if not lhs or not rhs:
+            raise ValueError("Binary operands not found")
+
+        if isinstance(lhs, OpView):
+            lhs = lhs.result
+        if isinstance(rhs, OpView):
+            rhs = rhs.result
+
+        if hasattr(lhs, "type") and isinstance(lhs.type, memref.MemRefType):
+            lhs = memref.LoadOp(
+                lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+        if hasattr(rhs, "type") and isinstance(rhs.type, memref.MemRefType):
+            rhs = memref.LoadOp(
+                rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+
+        if lhs.type != rhs.type:
+            rhs = _cast(rhs, lhs.type)
+        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
+        mlir_type = _get_type_str(lhs.type)
+
+        def qualified_or(attr, otherwise, *args, **kwargs):
+            fn = self._fn_map.get(f"{mlir_type}.{attr}", otherwise)
+            return fn(*args, **kwargs)
+
+        def unimplemented(*args, **kwargs):
+            raise NotImplementedError(f"{node.op} not implemented")
+
+        match (node.op):
+            case ast.Add():
+                return qualified_or("__add__", arith.addi, lhs, rhs)
+            case ast.Sub():
+                return qualified_or("__sub__", arith.subi, lhs, rhs)
+            case ast.Mult():
+                return qualified_or("__mul__", arith.muli, lhs, rhs)
+            case ast.Div():
+                return qualified_or("__truediv__", unimplemented, lhs, rhs)
+            case ast.MatMult():
+                return qualified_or("__matmul__", unimplemented, lhs, rhs)
+            case ast.FloorDiv():
+                return qualified_or("__floordiv__", arith.divsi, lhs, rhs)
+            case ast.Mod():
+                return qualified_or("__mod__", arith.remsi, lhs, rhs)
+            case ast.Pow():
+                return qualified_or("__pow__", unimplemented, lhs, rhs)
+            case ast.LShift():
+                return qualified_or("__lshift__", arith.shli, lhs, rhs)
+            case ast.RShift():
+                return qualified_or("__rshift__", arith.shrsi, lhs, rhs)
+            case ast.BitOr():
+                return qualified_or("__or__", arith.ori, lhs, rhs)
+            case ast.BitAnd():
+                return qualified_or("__and__", arith.andi, lhs, rhs)
+            case ast.BitXor():
+                return qualified_or("__xor__", arith.xori, lhs, rhs)
+            case _:
+                raise NotImplementedError(
+                    f"Binary operator {type(node.op).__name__} not implemented"
+                )
+
+    def visit_UnaryOp(self, node):
+        operand = self.visit(node.operand)
+        if not operand:
+            raise ValueError("Unary operand not found")
+
+        if isinstance(operand.type, memref.MemRefType):
+            operand = memref.LoadOp(
+                operand, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+
+        mlir_type = _get_type_str(operand.type)
+
+        def qualified_or(attr, otherwise, *args, **kwargs):
+            fn = self._fn_map.get(f"{mlir_type}.{attr}", otherwise)
+            return fn(*args, **kwargs)
+
+        match (node.op):
+            case ast.USub():
+                return qualified_or(
+                    "__neg__", lambda v: emitc.UnaryMinusOp(v.type, v), operand
+                )
+            case ast.UAdd():
+                return qualified_or(
+                    "__pos__", lambda v: emitc.UnaryPlusOp(v.type, v), operand
+                )
+            case ast.Not():
+                return qualified_or(
+                    "__not__",
+                    lambda v: emitc.logical_not(
+                        IntegerType.get_signless(1, self.ctx), v
+                    ),
+                    operand,
+                )
+            case ast.Invert():
+                return qualified_or(
+                    "__invert__", lambda v: emitc.bitwise_not(v.type, v), operand
+                )
+            case _:
+                raise NotImplementedError(
+                    f"Unary operator {type(node.op).__name__} not implemented"
+                )
+
+    def visit_Compare(self, node):
+        assert len(node.ops) == 1, "Only single operators supported"
+        assert len(node.comparators) == 1, "Only single comparators supported"
+        lhs = self.visit(node.left)
+        rhs = self.visit(node.comparators[0])
+        if not lhs or not rhs:
+            raise ValueError("Compare operands not found")
+
+        if isinstance(lhs.type, memref.MemRefType):
+            lhs = memref.LoadOp(
+                lhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+        if isinstance(rhs.type, memref.MemRefType):
+            rhs = memref.LoadOp(
+                rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
+            ).result
+
+        if lhs.type != rhs.type:
+            rhs = _cast(rhs, lhs.type)
+        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
+
+        match (node.ops[0]):
+            case ast.Eq():
+                return arith.cmpi(arith.CmpIPredicate.eq, lhs, rhs)
+            case ast.NotEq():
+                return arith.cmpi(arith.CmpIPredicate.ne, lhs, rhs)
+            case ast.Gt():
+                return arith.cmpi(arith.CmpIPredicate.sgt, lhs, rhs)
+            case ast.GtE():
+                return arith.cmpi(arith.CmpIPredicate.sge, lhs, rhs)
+            case ast.Lt():
+                return arith.cmpi(arith.CmpIPredicate.slt, lhs, rhs)
+            case ast.LtE():
+                return arith.cmpi(arith.CmpIPredicate.sle, lhs, rhs)
+            case _:
+                raise NotImplementedError(
+                    f"Compare operator {type(node.ops).__name__} not implemented"
+                )
+
+    # --- Subscript / attribute --------------------------------------------
+
+    def visit_Subscript(self, node):
+        tbl = self._var_exists(node.value.id)
+        if not tbl:
+            raise ValueError("Array doesn't exist.")
+        arr = tbl[node.value.id]
+
+        if not hasattr(arr, "type") or not (
+            isinstance(arr.type, MemRefType) or isinstance(arr.type, RankedTensorType)
+        ):
+            raise ValueError("Can only subscript arrays")
+
+        def _build_index(slice_, shape, bounds_check_idx):
+            if hasattr(slice_, "value"):
+                if slice_.value >= shape[bounds_check_idx]:
+                    raise IndexError("Index out of bounds.")
+                return arith.ConstantOp(IndexType.get(self.ctx), slice_.value)
+            r = self.visit(slice_)
+            if isinstance(r.type, IndexType):
+                return r
+            return arith.IndexCastOp(IndexType.get(self.ctx), r)
+
+        if isinstance(node.slice, ast.Constant):
+            if arr.type.rank < 1:
+                raise IndexError("Can only index elements of array, rank < 1")
+            if arr.type.shape[0] <= node.slice.value:
+                raise IndexError("Index out of bounds.")
+            idx = _build_index(node.slice, arr.type.shape, 0)
+        elif isinstance(node.slice, ast.Tuple):
+            if len(node.slice.elts) > arr.type.rank:
+                raise IndexError(
+                    "Can only index elements of array, rank >= len(index)"
+                )
+            idx = [
+                _build_index(elt, arr.type.shape, i)
+                for i, elt in enumerate(node.slice.elts)
+            ]
+        else:
+            idx = [_build_index(node.slice, arr.type.shape, 0)]
+
+        if isinstance(arr.type, MemRefType):
+            return memref.LoadOp(arr, idx)
+        return (arr, idx)
+
+    def visit_Attribute(self, node, func_args=[], kwargs={}):
+        mlir_value = self._var_exists(node.value.id)[node.value.id]
+        mlir_type = _get_type_str(mlir_value.type)
+        fn = self._fn_map.get(f"{mlir_type}.{node.attr}", None)
+        if fn is None:
+            raise ValueError(
+                f"{node.value.id} of type {mlir_type} has no attribute {node.attr}"
+            )
+        return fn(mlir_value, *func_args, **kwargs)
+
+    # --- Containers --------------------------------------------------------
+
+    def visit_List(self, node):
+        return self.visit_Tuple(node)
+
+    def visit_Tuple(self, node):
+        return tuple(map(self.visit, node.elts))
+
+    # --- Literals ----------------------------------------------------------
+
     def visit_Constant(self, node):
         as_attr = getattr(node, "_ttkernel_as_attr", False)
         op_constructor = IntegerAttr.get if as_attr else arith.ConstantOp
         if callable(as_attr):
             return as_attr(node)
-        elif isinstance(node.value, bool):
+        if isinstance(node.value, bool):
             return op_constructor(IndexType.get(self.ctx), node.value)
-        elif isinstance(node.value, int):
+        if isinstance(node.value, int):
             return op_constructor(IndexType.get(self.ctx), node.value)
-        else:
-            raise NotImplementedError(
-                f"constant type {type(node.value).__name__} not implemented"
-            )
-
-    def _emit_entry(self, node):
-        # TODO: add alloca args name into symbol table
-        assert not self.func_entry, "Cannot declare function within a function"
-
-        func_operand_types = []
-        for i in range(len(node.args.args)):
-            rt_arg = self.args[i]
-
-            if isinstance(rt_arg, TensorLayout):
-                func_operand_types.append(
-                    rt_arg.build_device_tensor_type(self.ctx, blocked=True)
-                )
-            elif isinstance(rt_arg, int):
-                func_operand_types.append(IndexType.get(self.ctx))
-            else:
-                raise TypeError(
-                    f"Unknown kernel arguments type annotation {type(rt_arg)} for argument {arg.arg}"
-                )
-
-        self.func_entry = func.FuncOp(name=node.name, type=(func_operand_types, []))
-
-        self.func_entry.attributes[d2m.ir.ThreadAttr.name] = d2m.ir.ThreadAttr.get(
-            self.ctx, self.kernel_type
+        raise NotImplementedError(
+            f"constant type {type(node.value).__name__} not implemented"
         )
-
-        self.symbol_tables.append({})
-
-        # prepopulate bb arguments into symbol table
-        func_bb = self.func_entry.add_entry_block()
-        for i, bb_arg in enumerate(func_bb.arguments):
-            self.symbol_tables[-1][node.args.args[i].arg] = bb_arg
-
-        self.module_symbol_table = SymbolTable(self.module.operation)
-
-        # update basic block
-        with InsertionPoint(func_bb):
-            # prepopulate captures at the top of the scope
-            for name, val in self.captures.items():
-                assert isinstance(name, str)
-                if isinstance(val, int):
-                    self.symbol_tables[-1][name] = arith.ConstantOp(
-                        IndexType.get(self.ctx), val
-                    )
-                else:
-                    raise TypeError(f"Invalid capture type for var {name}: {type(val)}")
-
-            for target in node.body:
-                self.visit(target)
-
-            func.ReturnOp([])
-
-        self.symbol_tables.pop()
-
-    def visit_FunctionDef(self, node):
-        with self.loc:
-            return self._emit_entry(node)
-
-    def visit_AsyncFunctionDef(self, node):
-        with self.loc:
-            return self._emit_entry(node)
-
-    def visit_List(self, node):
-        return self.visit_Tuple(node)
 
 
 def syntax(syntax_name, args_as_attr=None):
@@ -326,7 +893,6 @@ def syntax(syntax_name, args_as_attr=None):
         def _class_wrapper(cls):
             nonlocal args_as_attr
             assert isinstance(cls, type)
-
             for name, method in cls.__dict__.items():
                 if callable(method):
                     sig = inspect.signature(method)
@@ -335,30 +901,25 @@ def syntax(syntax_name, args_as_attr=None):
                         setattr(cls, name, staticmethod(method))
                         qualified = f"{syntax_name}.{name}"
                         if args_as_attr is None:
-                            D2MGenericCompiler._syntax[qualified] = method
+                            D2MCompiler._syntax[qualified] = method
                         else:
                             assert isinstance(args_as_attr, list)
-                            D2MGenericCompiler._syntax[qualified] = (
-                                method,
-                                args_as_attr,
-                            )
-
+                            D2MCompiler._syntax[qualified] = (method, args_as_attr)
             return cls
 
         return _class_wrapper
-    else:
 
-        def _fn_wrapper(fn):
-            nonlocal args_as_attr
-            assert callable(fn)
-            if args_as_attr is None:
-                D2MGenericCompiler._syntax[fn.__name__] = fn
-            else:
-                assert isinstance(args_as_attr, list)
-                D2MGenericCompiler._syntax[fn.__name__] = (fn, args_as_attr)
-            return fn
+    def _fn_wrapper(fn):
+        nonlocal args_as_attr
+        assert callable(fn)
+        if args_as_attr is None:
+            D2MCompiler._syntax[fn.__name__] = fn
+        else:
+            assert isinstance(args_as_attr, list)
+            D2MCompiler._syntax[fn.__name__] = (fn, args_as_attr)
+        return fn
 
-        return _fn_wrapper
+    return _fn_wrapper
 
 
 class Stream:

@@ -37,7 +37,7 @@ from ._src.utils import (
     _asindex,
     _cleanup_source_code,
 )
-from ._src.ast import D2MGenericCompiler, syntax, Stream, TensorLayout
+from ._src.ast import D2MCompiler, syntax, Stream, TensorLayout
 
 
 @syntax("!tensor")
@@ -455,7 +455,7 @@ def _compile(
                 kwargs["_verbose"] = True
 
             m = ast.parse(source_code)
-            b = D2MGenericCompiler(
+            b = D2MCompiler(
                 f.__name__,
                 kernel_type,
                 _collect_captures(f),
