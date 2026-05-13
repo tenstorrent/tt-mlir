@@ -11,72 +11,61 @@
 #include "mlir/IR/AffineMap.h"
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace mlir::ttmlir::python {
+namespace {
+
+template <typename Range>
+std::vector<int64_t> toStdVector(const Range &range) {
+  return std::vector<int64_t>(range.begin(), range.end());
+}
+
+} // namespace
+
 void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::ttcore::MetalLayoutAttr>(m, "MetalLayoutAttr")
-      // 4-arg overload (no memory_layout provided, defaults to Sharded)
+      // 3-arg overload (no memory_layout provided, defaults to Sharded).
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> logicalShape,
-                     uint32_t oobValValue, uint32_t memorySpaceValue) {
+                     uint32_t memorySpaceValue) {
                     return wrap(tt::ttcore::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                        static_cast<tt::ttcore::OOBVal>(oobValValue),
                         static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                         tt::ttcore::TensorMemoryLayout::Sharded));
                   })
-      // 5-arg overload (override memory layout)
+      // 4-arg overload (override memory layout).
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> logicalShape,
-                     uint32_t oobValValue, uint32_t memorySpaceValue,
-                     uint32_t memoryLayoutValue) {
+                     uint32_t memorySpaceValue, uint32_t memoryLayoutValue) {
                     return wrap(tt::ttcore::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                        static_cast<tt::ttcore::OOBVal>(oobValValue),
                         static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                         static_cast<tt::ttcore::TensorMemoryLayout>(
                             memoryLayoutValue)));
                   })
-      // 6-arg overload (with index_map, computes defaults for collapseIntervals
-      // and dimAlignments)
+      // 5-arg overload (explicit collapse intervals).
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
-             uint32_t oobValValue, uint32_t memorySpaceValue,
-             uint32_t memoryLayoutValue) {
-            // Use [0, -1] as default collapsed intervals.
-            auto *context = unwrap(ctx);
-            auto intervalType =
-                RankedTensorType::get({1, 2}, IntegerType::get(context, 64));
-            auto collapsedIntervals = DenseIntElementsAttr::get(
-                intervalType, llvm::ArrayRef<int64_t>({0, -1}));
-
-            // Normalize intervals and compute alignments.
-            auto normalizedIntervals =
-                tt::ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
-                    collapsedIntervals, logicalShape.size());
-            auto dimAlignments =
-                tt::ttcore::MetalLayoutAttr::computeTileAlignments(
-                    logicalShape, normalizedIntervals);
-
+             uint32_t memorySpaceValue, uint32_t memoryLayoutValue,
+             MlirAttribute collapseIntervals) {
             return wrap(tt::ttcore::MetalLayoutAttr::get(
-                context, ArrayRef<int64_t>(logicalShape),
-                static_cast<tt::ttcore::OOBVal>(oobValValue),
+                unwrap(ctx), ArrayRef<int64_t>(logicalShape),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
-                collapsedIntervals, dimAlignments));
+                mlir::cast<DenseIntElementsAttr>(unwrap(collapseIntervals))));
           })
-      // 8-arg overload (full specification with index_map)
+      // 6-arg overload (full specification).
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
-             uint32_t oobValValue, uint32_t memorySpaceValue,
-             uint32_t memoryLayoutValue, MlirAttribute collapseIntervals,
+             uint32_t memorySpaceValue, uint32_t memoryLayoutValue,
+             MlirAttribute collapseIntervals,
              std::vector<int64_t> dimAlignments) {
             return wrap(tt::ttcore::MetalLayoutAttr::get(
                 unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
                 mlir::cast<DenseIntElementsAttr>(unwrap(collapseIntervals)),
@@ -104,27 +93,20 @@ void populateTTModule(nb::module_ &m) {
       .def("getDeviceShape",
            [](const tt::ttcore::MetalLayoutAttr &self,
               std::vector<int64_t> gridShape, std::vector<int64_t> tileShape) {
-             const auto shape = self.getDeviceShape(gridShape, tileShape);
-             return std::vector<int64_t>(shape.begin(), shape.end());
+             return toStdVector(self.getDeviceShape(gridShape, tileShape));
            })
       // Properties
       .def_prop_ro("logical_shape",
                    [](const tt::ttcore::MetalLayoutAttr &self) {
-                     auto shape = self.getLogicalShape();
-                     return std::vector<int64_t>(shape.begin(), shape.end());
+                     return toStdVector(self.getLogicalShape());
                    })
       .def_prop_ro("dim_alignments",
                    [](const tt::ttcore::MetalLayoutAttr &self)
                        -> std::optional<std::vector<int64_t>> {
                      if (auto align = self.getDimAlignments(); !align.empty()) {
-                       return std::vector<int64_t>(align.begin(), align.end());
+                       return toStdVector(align);
                      }
                      return std::nullopt;
-                   })
-      .def_prop_ro("oobval", &tt::ttcore::MetalLayoutAttr::getOobVal)
-      .def_prop_ro("oobval_as_int",
-                   [](tt::ttcore::MetalLayoutAttr la) {
-                     return static_cast<uint32_t>(la.getOobVal());
                    })
       .def_prop_ro("memory_space", &tt::ttcore::MetalLayoutAttr::getMemorySpace)
       .def_prop_ro("memory_space_as_int",

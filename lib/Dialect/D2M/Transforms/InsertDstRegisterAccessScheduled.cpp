@@ -176,7 +176,7 @@ static void dataCopyGenerateScheduledInPlace(
     llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
                             ValueRange)>
         dstAccessReplacement,
-    bool enableL1Acc = false) {
+    bool disableL1Acc = true) {
   if (loadStoreOps.empty()) {
     return;
   }
@@ -195,7 +195,7 @@ static void dataCopyGenerateScheduledInPlace(
 
     rewriter.setInsertionPoint(loadStore);
 
-    if (!enableL1Acc) {
+    if (disableL1Acc) {
       loadStoreDstAccessGenerator(
           rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
           l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -236,7 +236,7 @@ static void dataCopyGenerateWithClone(
         dstAccessReplacement(rw, record.loadStore, dstAccessMap,
                              dstAccessIndices);
       },
-      /*enableL1Acc=*/false);
+      /*disableL1Acc=*/true);
 }
 
 // ---------------------------------------------------------------------------
@@ -404,7 +404,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
 static void dataCopyGenerateScheduledAll(PatternRewriter &rewriter,
                                          Location loc, Value dst,
                                          const CopyInfoMap &copyInfos,
-                                         bool enableL1Acc = false) {
+                                         bool disableL1Acc = true) {
   for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
     rewriter.setInsertionPointAfter(loopNestOrOp);
     auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
@@ -427,7 +427,7 @@ static void dataCopyGenerateScheduledAll(PatternRewriter &rewriter,
           rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
               op, dst, dstAccessMap, dstAccessIndices);
         },
-        /*enableL1Acc=*/enableL1Acc);
+        /*disableL1Acc=*/disableL1Acc);
 
     // Process memref loads (scheduled path with scf.for loops).
     for (auto [loadOp, bcast, dstSliceIndex, guardIVs] : copyInfo.memrefLoads) {
@@ -436,7 +436,7 @@ static void dataCopyGenerateScheduledAll(PatternRewriter &rewriter,
 
       rewriter.setInsertionPoint(loadOp);
 
-      if (!enableL1Acc) {
+      if (disableL1Acc) {
         auto cbLoad = rewriter.create<memref::LoadOp>(
             loadOp.getLoc(), loadOp.getMemRef(), loadOp.getIndices());
         rewriter.create<affine::AffineStoreOp>(loadOp.getLoc(),
@@ -535,10 +535,10 @@ struct D2MInsertDstRegisterAccessScheduledRewriter final
     : public OpRewritePattern<GenericOp> {
   D2MInsertDstRegisterAccessScheduledRewriter(mlir::MLIRContext *ctx,
                                               unsigned maxDstPhysicalSizeTiles,
-                                              bool enableL1Acc)
+                                              bool disableL1Acc)
       : OpRewritePattern<GenericOp>(ctx),
         maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
-        enableL1Acc(enableL1Acc) {}
+        disableL1Acc(disableL1Acc) {}
 
   LogicalResult matchAndRewrite(GenericOp gOp,
                                 PatternRewriter &rewriter) const final {
@@ -602,17 +602,24 @@ struct D2MInsertDstRegisterAccessScheduledRewriter final
         // Consume the scheduled attribute.
         loopOp->removeAttr("d2m.scheduled");
 
-        bool packerL1Acc = enableL1Acc && hasTileMatmul(loopOp);
+        // Disable packer L1 accumulation when (a) the user disabled it,
+        // (b) there is no tile_matmul that hits the packer L1-acc path,
+        // or (c) the matmul output element type is not one of the
+        // packer-supported native formats (block-float outputs like
+        // bfp_bf8 are not supported and would silently corrupt results).
+        bool disablePackerL1Acc =
+            disableL1Acc || !hasTileMatmul(loopOp) ||
+            !allTileMatmulOutputsSupportPackerL1Acc(loopOp);
 
         auto [copyInfos, dstIntermediates] =
             collectDstAccessesScheduled(gOp, *loopRegion, loopOp, dstCapacity);
 
         modified |= insertDstRegisterAccessFinalize(
-            rewriter, gOp, *loopRegion, dstCapacity, loopOp, packerL1Acc,
+            rewriter, gOp, *loopRegion, dstCapacity, loopOp, disablePackerL1Acc,
             copyInfos, dstIntermediates,
             [](PatternRewriter &rw, Location loc, Value dst,
-               const CopyInfoMap &ci, bool l1Acc) {
-              dataCopyGenerateScheduledAll(rw, loc, dst, ci, l1Acc);
+               const CopyInfoMap &ci, bool disableL1Acc) {
+              dataCopyGenerateScheduledAll(rw, loc, dst, ci, disableL1Acc);
             });
 
         return WalkResult::advance();
@@ -628,11 +635,11 @@ struct D2MInsertDstRegisterAccessScheduledRewriter final
 
         modified |= insertDstRegisterAccessFinalize(
             rewriter, gOp, *genericRegion, dstCapacity,
-            /*outermostInnerComputeLoop=*/nullptr, /*enableL1Acc=*/false,
+            /*outermostInnerComputeLoop=*/nullptr, /*disableL1Acc=*/true,
             copyInfos, dstIntermediates,
             [](PatternRewriter &rw, Location loc, Value dst,
-               const CopyInfoMap &ci, bool l1Acc) {
-              dataCopyGenerateScheduledAll(rw, loc, dst, ci, l1Acc);
+               const CopyInfoMap &ci, bool disableL1Acc) {
+              dataCopyGenerateScheduledAll(rw, loc, dst, ci, disableL1Acc);
             });
       }
     }
@@ -640,7 +647,7 @@ struct D2MInsertDstRegisterAccessScheduledRewriter final
   }
 
   unsigned maxDstPhysicalSizeTiles = 0;
-  bool enableL1Acc = false;
+  bool disableL1Acc = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -664,7 +671,7 @@ public:
     MLIRContext *ctx = moduleOp.getContext();
     RewritePatternSet patterns(ctx);
     patterns.add<D2MInsertDstRegisterAccessScheduledRewriter>(
-        ctx, maxDstPhysicalSizeTiles.getValue(), enableL1Acc);
+        ctx, maxDstPhysicalSizeTiles.getValue(), disableL1Acc);
 
     if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
       signalPassFailure();

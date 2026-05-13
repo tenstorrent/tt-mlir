@@ -20,6 +20,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LowerToLayout/LowerToLayout.cpp
         LowerToLayout/Plan.cpp
         MaterializeViewReturns.cpp
+        OptimizeMasks.cpp
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
         InsertScratchBuffers.cpp

@@ -33,39 +33,6 @@ class TTNNBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict)
-        self.create_tensor_encoding = self._create_tensor_encoding
-
-    def func(
-        self,
-        input_shapes,
-        input_types,
-        host_inputs: bool = False,
-    ):
-        if not host_inputs:
-            return super().func(input_shapes, input_types)
-
-        def wrapper(fn):
-            # Create a wrapper that matches create_tensor_encoding signature
-            # but sets layout to RowMajor and buffer type to SystemMemory for host tensors.
-            def host_row_major_wrapper(
-                shape, element_type, layout=None, buffer_type=None
-            ):
-                return self._create_tensor_encoding(
-                    shape,
-                    element_type,
-                    ttnn.Layout.RowMajor,
-                    ttnn.BufferType.SystemMemory,
-                )
-
-            self.create_tensor_encoding = host_row_major_wrapper
-
-            try:
-                result = super(TTNNBuilder, self).func(input_shapes, input_types)(fn)
-            finally:
-                self.create_tensor_encoding = self._create_tensor_encoding
-            return result
-
-        return wrapper
 
     # ----- Private Methods ----
 
@@ -188,7 +155,7 @@ class TTNNBuilder(Builder):
 
     # ----- Public Helper Methods ----
 
-    def _create_tensor_encoding(
+    def create_tensor_encoding(
         self,
         shape: Shape,
         element_type: Union[torch.dtype, TypeInfo],
@@ -208,45 +175,15 @@ class TTNNBuilder(Builder):
         layouts (L1 or DRAM) require the caller to pass
         `tensor_memory_layout`, `grid_shape`, and `core_range_set`.
         """
-        if grid_shape is None:
-            grid_shape = [1, 1]
-        if isinstance(element_type, torch.dtype):
-            element_type = self._get_type_from_torch_dtype(element_type)
-        with self._ctx, self._loc:
-            if layout == ttnn.Layout.Tile:
-                data_type = util.element_type_to_data_type(element_type)
-                layout_element_type = ttcore.ir.TileType.get(
-                    self._ctx, 32, 32, data_type
-                )
-            elif layout == ttnn.Layout.RowMajor:
-                layout_element_type = element_type
-            else:
-                raise ValueError(f"Unsupported layout: {layout}")
-
-            if buffer_type == ttnn.BufferType.SystemMemory:
-                tensor_memory_layout = None
-
-            is_sharded = (
-                tensor_memory_layout is not None
-                and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
-            )
-
-            if is_sharded and core_range_set is None:
-                raise ValueError(
-                    "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
-                    "the builder does not synthesize one because the canonical "
-                    "placement depends on the target arch's worker/DRAM grid."
-                )
-
-            return ttnn.ir.TTNNLayoutAttr.get(
-                self._ctx,
-                shape,
-                layout_element_type,
-                buffer_type,
-                grid_shape,
-                core_range_set,
-                tensor_memory_layout,
-            )
+        return self._create_ttnn_tensor_encoding(
+            shape,
+            element_type,
+            layout,
+            buffer_type,
+            tensor_memory_layout,
+            grid_shape,
+            core_range_set,
+        )
 
     def create_ttnn_tensor(
         self,
@@ -269,7 +206,7 @@ class TTNNBuilder(Builder):
         `core_range_set` explicitly.
         """
         with self._ctx, self._loc:
-            ttnn_layout_attr = self._create_tensor_encoding(
+            ttnn_layout_attr = self.create_tensor_encoding(
                 shape,
                 element_type,
                 layout,

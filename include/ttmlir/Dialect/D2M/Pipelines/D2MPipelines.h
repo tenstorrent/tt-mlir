@@ -208,9 +208,11 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "prints debug output comparing them."),
       llvm::cl::init(false)};
 
-  Option<bool> enableL1Acc{*this, "enable-l1-acc",
-                           llvm::cl::desc("Enable L1 accumulation."),
-                           llvm::cl::init(false)};
+  Option<bool> disableL1Acc{
+      *this, "disable-l1-acc",
+      llvm::cl::desc("Disable L1 accumulation (force reloading from L1 to DST "
+                     "instead of accumulating partials in L1)."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm,

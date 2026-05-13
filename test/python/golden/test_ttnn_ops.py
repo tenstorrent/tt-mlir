@@ -424,7 +424,16 @@ def test_all_gather(
         full_input_shape[d] *= factor
 
     def module(builder: TTNNBuilder):
-        @builder.func([full_input_shape], [dtype], host_inputs=True)
+        @builder.func(
+            [full_input_shape],
+            [dtype],
+            custom_inputs=[
+                {
+                    "layout": ttnn.Layout.RowMajor,
+                    "buffer_type": ttnn.BufferType.SystemMemory,
+                }
+            ],
+        )
         def all_gather(in0: Operand, builder: TTNNBuilder):
             device = builder.get_device()
 
@@ -530,7 +539,16 @@ def test_reduce_scatter(
         )
 
     def module(builder: TTNNBuilder):
-        @builder.func([full_input_shape], [dtype], host_inputs=True)
+        @builder.func(
+            [full_input_shape],
+            [dtype],
+            custom_inputs=[
+                {
+                    "layout": ttnn.Layout.RowMajor,
+                    "buffer_type": ttnn.BufferType.SystemMemory,
+                }
+            ],
+        )
         def reduce_scatter(in0: Operand, builder: TTNNBuilder):
             device = builder.get_device()
 

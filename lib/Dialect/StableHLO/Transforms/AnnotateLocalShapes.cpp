@@ -117,6 +117,13 @@ static mlir::LogicalResult annotateArgumentLocalShapes(MLIRContext *context,
       }
     }
 
+    if (failed(newType)) {
+      return module.emitError()
+             << "Could not compute local sharded shape for argument "
+             << arg.getArgNumber()
+             << ": tensor sharding is incompatible with tensor shape.";
+    }
+
     mlir::NamedAttribute localShapeNamedAttr = {
         mlir::tt::ttcore::LocalShapeAttr::name,
         mlir::tt::ttcore::LocalShapeAttr::get(context, newType.value())};
@@ -204,6 +211,12 @@ static mlir::LogicalResult annotateResultLocalShapes(MLIRContext *context,
           }
         }
       }
+    }
+
+    if (failed(newType)) {
+      return module.emitError()
+             << "Could not compute local sharded shape for result " << i
+             << ": tensor sharding is incompatible with tensor shape.";
     }
 
     mlir::NamedAttribute localShapeNamedAttr = {
