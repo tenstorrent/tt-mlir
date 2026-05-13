@@ -10,6 +10,7 @@ declare_mlir_python_sources(TTD2MJitSources
         _src/__init__.py
         _src/ast.py
         _src/builder.py
+        _src/config.py
         _src/tensor_layout.py
         _src/utils.py
 )

@@ -37,6 +37,7 @@ from ttmlir.dialects import d2m, func, arith, ttcore
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
 from .ast import D2MCompiler
+from .config import config
 from .tensor_layout import Layout
 from .utils import _cleanup_source_code
 
@@ -322,9 +323,27 @@ def _run_pipeline(b: _Builder):
     if system_desc:
         register += f"{{system-desc-path={system_desc}}}"
     pipeline_str = f"builtin.module({register},{_PIPELINE})"
+
+    if config.print_pipeline:
+        print(f"[d2m-jit] pipeline: {pipeline_str}")
+    if config.print_ir_before_pipeline:
+        print("[d2m-jit] IR before pipeline:")
+        print(b.module)
+
     pm = PassManager.parse(pipeline_str, context=b.ctx)
-    pm.enable_verifier(True)
+    pm.enable_verifier(config.verify_passes)
+    if config.print_ir_after_each_pass:
+        # ir-printing requires single-threaded passes so output is coherent.
+        b.ctx.enable_multithreading(False)
+        pm.enable_ir_printing(
+            print_after_all=True,
+            enable_debug_info=config.print_ir_debug_info,
+        )
     pm.run(b.module.operation)
+
+    if config.print_ir_after_pipeline:
+        print("[d2m-jit] IR after pipeline:")
+        print(b.module)
 
 
 def _execute(b: _Builder, lts):
@@ -333,6 +352,9 @@ def _execute(b: _Builder, lts):
         raise RuntimeError("ttmlir runtime is not available in this build")
     bin_capsule = ttmetal_to_flatbuffer_bin(b.module)
     fbb = binary.load_binary_from_capsule(bin_capsule)
+    if config.save_flatbuffer_path:
+        fbb.store(config.save_flatbuffer_path)
+        print(f"[d2m-jit] flatbuffer written to {config.save_flatbuffer_path}")
     program_index = 0
     device_options = runtime.MeshDeviceOptions()
     device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)

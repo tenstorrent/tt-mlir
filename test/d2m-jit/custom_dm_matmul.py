@@ -5,12 +5,12 @@
 # RUN: %python %s
 # REQUIRES: d2m-jit
 
-from d2m_jit.api import *
+import d2m_jit as d2m
 from utils import assert_pcc, arange_tile
 import torch
 
 
-@kernel
+@d2m.kernel
 def matmul(lhs, rhs, out, K, M, N, GY, GX):
     cy = core_index(0)
     cx = core_index(1)
@@ -27,7 +27,7 @@ def matmul(lhs, rhs, out, K, M, N, GY, GX):
                 remote_store(out, [m, n], out_shard)
 
 
-@kernel
+@d2m.kernel
 def add(lhs, rhs, out, m_blocks, n_blocks):
     m_offset = core_index(0) * m_blocks
     n_offset = core_index(1) * n_blocks
@@ -47,16 +47,16 @@ def test_eltwise():
     m_blocks = (lhs.shape[0] // 32) // block_shape[0] // grid[0]
     n_blocks = (lhs.shape[1] // 32) // block_shape[1] // grid[1]
 
-    L_in = Layout(
+    L_in = d2m.Layout(
         shape=lhs.shape, dtype=lhs.dtype, block_shape=block_shape, grid_shape=[8, 8]
     )
-    L_out = Layout(
+    L_out = d2m.Layout(
         shape=lhs.shape, dtype=lhs.dtype, block_shape=block_shape, grid_shape=[2, 2]
     )
 
-    lhs_d = to_layout(lhs, L_in)
-    rhs_d = to_layout(rhs, L_in)
-    out_d = empty(L_out)
+    lhs_d = d2m.to_layout(lhs, L_in)
+    rhs_d = d2m.to_layout(rhs, L_in)
+    out_d = d2m.empty(L_out)
     add(lhs_d, rhs_d, out_d, m_blocks, n_blocks, grid=grid)
     out = out_d.to_host()
 
@@ -73,13 +73,13 @@ def test_eltwise2():
     m_blocks = (lhs.shape[0] // 32) // block_shape[0] // grid[0]
     n_blocks = (lhs.shape[1] // 32) // block_shape[1] // grid[1]
 
-    L = Layout(
+    L = d2m.Layout(
         shape=lhs.shape, dtype=lhs.dtype, block_shape=block_shape, grid_shape=[1, 1]
     )
 
-    lhs_d = to_layout(lhs, L)
-    rhs_d = to_layout(rhs, L)
-    out_d = empty(L)
+    lhs_d = d2m.to_layout(lhs, L)
+    rhs_d = d2m.to_layout(rhs, L)
+    out_d = d2m.empty(L)
     add(lhs_d, rhs_d, out_d, m_blocks, n_blocks, grid=grid)
     out = out_d.to_host()
 
