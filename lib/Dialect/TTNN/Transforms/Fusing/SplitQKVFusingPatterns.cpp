@@ -641,7 +641,8 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
   RankedTensorType vSplitTy = makeSplitOutputType(v.match.getFinalType());
 
   // Validate the fused op before creating it.
-  OpValidator validator(rewriter.getContext(), validationConfig);
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
   auto numHeadsAttr = rewriter.getUI32IntegerAttr(q.numHeads());
   auto numKVHeadsAttr =
       isGQA ? rewriter.getUI32IntegerAttr(k.numHeads()) : IntegerAttr();
@@ -880,7 +881,8 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
                                    vPermuteOp.getType()};
 
   // Validate the fused op before creating it.
-  OpValidator validator(rewriter.getContext(), validationConfig);
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
   auto validationResult = validator.validateOp<NLPCreateQKVHeadsDecodeOp>(
       splitOp.getOperation(), splitOp.getLoc(),
       {qPermuteOp.getType(), kPermuteOp.getType(), vPermuteOp.getType()},

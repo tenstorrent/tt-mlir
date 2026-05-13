@@ -61,9 +61,10 @@ struct OpValidationResult {
 
 /// Validates a single op by creating it in an isolated module,
 /// applying workaround passes, and checking op model constraints.
-class OpValidator {
+class IsolatedIRValidationWrapper {
 public:
-  OpValidator(MLIRContext *context, const OpValidationConfig &config = {})
+  IsolatedIRValidationWrapper(MLIRContext *context,
+                              const OpValidationConfig &config = {})
       : context(context), config(config) {}
 
   /// Validate an op by creating it in an isolated module.
@@ -93,9 +94,9 @@ private:
 
 // Template implementations
 template <typename OpType, typename... Args>
-void OpValidator::createValidationFunc(ModuleOp module, Location loc,
-                                       llvm::ArrayRef<Type> resultTypes,
-                                       Args &&...args) {
+void IsolatedIRValidationWrapper::createValidationFunc(
+    ModuleOp module, Location loc, llvm::ArrayRef<Type> resultTypes,
+    Args &&...args) {
   OpBuilder builder(context);
   builder.setInsertionPointToEnd(module.getBody());
 
@@ -163,9 +164,10 @@ void OpValidator::createValidationFunc(ModuleOp module, Location loc,
 }
 
 template <typename OpType, typename... Args>
-OpValidationResult OpValidator::validateOp(Operation *srcOp, Location loc,
-                                           llvm::ArrayRef<Type> resultTypes,
-                                           Args &&...args) {
+OpValidationResult
+IsolatedIRValidationWrapper::validateOp(Operation *srcOp, Location loc,
+                                        llvm::ArrayRef<Type> resultTypes,
+                                        Args &&...args) {
   // Find the parent module carrying system_desc.
   auto parentModule = srcOp->getParentOfType<ModuleOp>();
   ModuleOp moduleWithSystemDesc = parentModule;

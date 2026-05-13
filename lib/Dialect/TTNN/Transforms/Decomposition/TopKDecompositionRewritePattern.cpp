@@ -23,9 +23,10 @@ LogicalResult TopKDecompositionRewritePattern::matchAndRewrite(
       mlir::cast<RankedTensorType>(topkOp.getIndices().getType());
 
   // When validation config is provided, validate the TopK operation using
-  // OpValidator. If validation succeeds, keep the op as-is.
+  // IsolatedIRValidationWrapper. If validation succeeds, keep the op as-is.
   if (validationConfig.has_value()) {
-    OpValidator validator(rewriter.getContext(), *validationConfig);
+    IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                          *validationConfig);
 
     auto validationResult = validator.validateOp<ttnn::TopKOp>(
         topkOp.getOperation(), topkOp.getLoc(),
@@ -39,7 +40,7 @@ LogicalResult TopKDecompositionRewritePattern::matchAndRewrite(
       return failure();
     }
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidator,
+    TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                  "TopK decomposition triggered (validation failed): {0}",
                  validationResult.errorMessage);
   }

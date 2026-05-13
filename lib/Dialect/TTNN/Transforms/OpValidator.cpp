@@ -12,7 +12,8 @@
 
 namespace mlir::tt::ttnn {
 
-OpValidationResult OpValidator::runValidationPipeline(ModuleOp module) {
+OpValidationResult
+IsolatedIRValidationWrapper::runValidationPipeline(ModuleOp module) {
   // Suppress diagnostics from the validation sub-pipeline. Passes like
   // OperationValidationAndFallback call emitError() on failure, which would
   // propagate through the shared MLIRContext and poison the outer pipeline.

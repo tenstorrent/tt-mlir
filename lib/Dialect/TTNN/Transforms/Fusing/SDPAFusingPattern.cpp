@@ -698,7 +698,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
   auto qShape = qType.getShape();
 
-  OpValidator validator(rewriter.getContext(), validationConfig);
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
 
   bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
   if (isDecode) {
@@ -725,7 +726,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             /*program_config=*/SDPAProgramConfigAttr());
 
     if (!validationResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::OpValidator,
+      TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                    "SDPA decode fusion validation failed: {0}",
                    validationResult.errorMessage);
       return failure();
@@ -757,7 +758,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         /*memory_config=*/MemoryConfigAttr());
 
     if (!validationResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::OpValidator,
+      TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                    "SDPA fusion validation failed: {0}",
                    validationResult.errorMessage);
       return failure();

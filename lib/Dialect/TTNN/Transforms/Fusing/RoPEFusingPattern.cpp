@@ -896,7 +896,8 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
   op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp);
 
   // Validate in an isolated module before committing to fusion.
-  OpValidator validator(rewriter.getContext(), validationConfig);
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
   auto validationResult = validator.validateOp<RotaryEmbeddingOp>(
       srcOp, srcOp->getLoc(), {x.getType()}, x, cos, sin,
       /*token_index=*/nullptr,
@@ -904,7 +905,7 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
       /*compute_config=*/computeConfig);
 
   if (!validationResult.isSuccess()) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidator,
+    TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                  "RoPE fusion validation failed: {0}",
                  validationResult.errorMessage);
     return failure();

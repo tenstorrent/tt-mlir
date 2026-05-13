@@ -41,7 +41,7 @@ enum class LogComponent {
   Test,
   General,
   D2MFusion,
-  OpValidator,
+  IsolatedIRValidationWrapper,
   GreedyOptimizer
 };
 
@@ -75,8 +75,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "general";
   case LogComponent::D2MFusion:
     return "d2m-fusion";
-  case LogComponent::OpValidator:
-    return "op-validator";
+  case LogComponent::IsolatedIRValidationWrapper:
+    return "isolated-ir-validation-wrapper";
   case LogComponent::GreedyOptimizer:
     return "greedy-optimizer";
   }
