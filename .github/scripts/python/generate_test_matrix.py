@@ -182,7 +182,7 @@ def calc_test_duration(arch):
         durations_file = Path(".test_durations") / f"{arch}.json"
         if not durations_file.exists():
             print(f"Durations file not found: {durations_file}", file=sys.stderr)
-            return 0
+            return default_duration
 
     with durations_file.open() as f:
         durations = json.load(f)
@@ -266,7 +266,10 @@ def main(input_filename, target_duration, component_filter):
             if split_into_groups > 1:
                 for m in range(1, split_into_groups + 1):
                     split_copy = test_copy.copy()
-                    split_copy["args"] = list(split_copy.get("args", [])) + [
+                    existing_args = split_copy.get("args", [])
+                    if isinstance(existing_args, str):
+                        existing_args = [existing_args]
+                    split_copy["args"] = existing_args + [
                         f"split={m}/{split_into_groups}"
                     ]
                     split_copy["duration"] = duration / split_into_groups
