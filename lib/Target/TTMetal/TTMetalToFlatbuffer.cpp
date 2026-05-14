@@ -382,8 +382,9 @@ createBufferDistributionSpecForVirtualGrid(
   // forward map (outputs [physY, physX, shardCoords...]).
   // For non-VGM buffers, use the physical grid shape and the device's
   // VirtToPhysicalMap (outputs [device, physY, physX]).
-  ArrayRef<int64_t> gridShape =
-      hasVirtualGridMapping ? shardLayout.getGridShape(memref) : physicalGridShape;
+  ArrayRef<int64_t> gridShape = hasVirtualGridMapping
+                                    ? shardLayout.getGridShape(memref)
+                                    : physicalGridShape;
   ArrayRef<int64_t> memrefShardShape = shardLayout.getShardShape(memref);
   TT_assertv(gridShape.size() == memrefShardShape.size(),
              "Expected grid rank to match shard rank");
@@ -429,9 +430,10 @@ createBufferDistributionSpecForVirtualGrid(
       TT_assertv(physCoord.size() >=
                      static_cast<size_t>(ttcore::PhysGridResultIdx::NumIndices),
                  "Expected physical core mapping to produce [device, y, x]");
-      cores.emplace_back(
-          static_cast<int32_t>(physCoord[ttcore::PhysGridResultIdx::CoreCoordY]),
-          static_cast<int32_t>(physCoord[ttcore::PhysGridResultIdx::CoreCoordX]));
+      cores.emplace_back(static_cast<int32_t>(
+                             physCoord[ttcore::PhysGridResultIdx::CoreCoordY]),
+                         static_cast<int32_t>(
+                             physCoord[ttcore::PhysGridResultIdx::CoreCoordX]));
     });
   }
 
