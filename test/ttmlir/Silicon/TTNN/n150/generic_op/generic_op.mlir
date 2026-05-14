@@ -118,7 +118,7 @@ module {
     %zero = "emitc.constant"() <{value = 0 : i32}> : () -> i32
     %2 = emitc.call_opaque "get_common_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
     %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
     %4 = emitc.literal "my_x[noc_index]" : !emitc.size_t
     %5 = emitc.literal "my_y[noc_index]" : !emitc.size_t
 
@@ -136,9 +136,9 @@ module {
     %1 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
 
     %2 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %2 : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %2 : !emitc.opaque<"::tt::CB">
     %3 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-    emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %3 : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %3 : !emitc.opaque<"::tt::CB">
 
     // Move single tile from CB to register
     emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
@@ -169,7 +169,7 @@ module {
     %zero = "emitc.constant"() <{value = 0 : i32}> : () -> i32
     %2 = emitc.call_opaque "get_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
     %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
     %4 = emitc.literal "my_x[noc_index]" : !emitc.size_t
     %5 = emitc.literal "my_y[noc_index]" : !emitc.size_t
 
