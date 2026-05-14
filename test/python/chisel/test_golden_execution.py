@@ -40,7 +40,7 @@ _KNOWN_NOT_IMPLEMENTED_OPS: frozenset[str] = (
             "ttnn.nlp_concat_heads_decode",
             "ttnn.bitcast_convert",
             "ttnn.group_norm",
-            "ttnn.batch_norm_training"
+            "ttnn.batch_norm_training",
         }
     )
     | QUANTIZE_OP_NAMES
