@@ -78,6 +78,47 @@ module {
 }
 
 // -----
+// TC7: spatial grid range is wider than generic VGM range.
+// The kernel core range must follow d2m.generic grid map.
+#dram = #ttnn.buffer_type<dram>
+#l1 = #ttnn.buffer_type<l1>
+#dram1 = #ttcore.memory_space<dram>
+#l1_1 = #ttcore.memory_space<l1>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x2x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(1, 1), (1, 1)>]>>
+#map3 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK-LABEL: func.func @spatial_generic_map_narrower_than_spatial_range
+module {
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+  // CHECK: #ttnn.data_movement_kernel<symbol_ref = @dm_narrow, core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>
+  // CHECK: #ttnn.compute_kernel<symbol_ref = @cp_narrow, core_ranges = <[#ttnn.core_range<(1,1), (1,1)>]>
+  func.func @spatial_generic_map_narrower_than_spatial_range(%arg0: tensor<64x128xf32, #ttnn_layout>) -> tensor<64x64xf32, #ttnn_layout3> {
+    %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x128xf32, #ttnn_layout> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>
+    %cast_0 = memref.alloc() {address = 0xa400 : i64, alignment = 16 : i64, d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
+    %view = d2m.view_layout %cast remapping = #map3 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
+    %cb_0 = memref.alloc() {address = 0xa000 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>
+    %cb_1 = d2m.operand_alias %cast_0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1> -> memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (3, 3)>]}
+        ins(%cast : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>)
+        outs(%cast_0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
+      ^region_0:
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_narrow, noc = 0>, #d2m.thread<compute, @cp_narrow>]}
+            ins(%view : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
+            outs(%cast_0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
+            additionalArgs(%cb_0, %cb_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
+    }
+    %cast_1 = ttir.ttnn_metal_layout_cast %cast_0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1> -> tensor<64x64xf32, #ttnn_layout3>
+    return %cast_1 : tensor<64x64xf32, #ttnn_layout3>
+  }
+  func.func private @dm_narrow() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    return
+  }
+  func.func private @cp_narrow() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    return
+  }
+}
+
+// -----
 // TC2: Multi-region, inputs NOT shared. Each region 1 in + 1 out. Global IOs: in0, in1, out0, out1. CB descriptors 2+2; ct_args CB 0,1 each region; address 0,1,2,3.
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
@@ -123,7 +164,7 @@ module {
     %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x128xf32, #ttnn_layout> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>
     %cast_0 = ttir.ttnn_metal_layout_cast %arg1 : tensor<128x64xf32, #ttnn_layout1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>
     %cast_1 = ttir.ttnn_metal_layout_cast %0 : tensor<64x64xf32, #ttnn_layout2> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
-    %cast_2 = ttir.ttnn_metal_layout_cast %1 : tensor<64x64xf32, #ttnn_layout3> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
+    %cast_2 = memref.alloc() {address = 0x5200 : i64, alignment = 16 : i64, d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
     %view_tc2_r0 = d2m.view_layout %cast remapping = #map3 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %view_tc2_r1 = d2m.view_layout %cast_0 remapping = #map3 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %cb_tc2_r0_0 = memref.alloc() {address = 0x5000 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>
@@ -140,7 +181,7 @@ module {
             additionalArgs(%cb_tc2_r0_0, %cb_tc2_r0_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_ns2, noc = 0>, #d2m.thread<datamovement, @dm_ns3, noc = 1>, #d2m.thread<compute, @cp_ns1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_ns2, noc = 0>, #d2m.thread<datamovement, @dm_ns3, noc = 1>, #d2m.thread<compute, @cp_ns1>]}
             ins(%view_tc2_r1 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
             outs(%cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
             additionalArgs(%cb_tc2_r1_0, %cb_tc2_r1_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
@@ -215,7 +256,7 @@ module {
     %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x128xf32, #ttnn_layout> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>
     %cast_0 = ttir.ttnn_metal_layout_cast %arg1 : tensor<128x64xf32, #ttnn_layout1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>
     %cast_1 = ttir.ttnn_metal_layout_cast %0 : tensor<64x64xf32, #ttnn_layout2> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
-    %cast_2 = ttir.ttnn_metal_layout_cast %1 : tensor<64x64xf32, #ttnn_layout3> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
+    %cast_2 = memref.alloc() {address = 0x6300 : i64, alignment = 16 : i64, d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
     %view_tc3_r0 = d2m.view_layout %cast remapping = #map3 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %view_tc3_r1_0 = d2m.view_layout %cast remapping = #map3 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %view_tc3_r1_1 = d2m.view_layout %cast_0 remapping = #map3 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
@@ -234,7 +275,7 @@ module {
             additionalArgs(%cb_tc3_r0_0, %cb_tc3_r0_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_2p3_2, noc = 0>, #d2m.thread<datamovement, @dm_2p3_3, noc = 1>, #d2m.thread<compute, @cp_2p3_1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_2p3_2, noc = 0>, #d2m.thread<datamovement, @dm_2p3_3, noc = 1>, #d2m.thread<compute, @cp_2p3_1>]}
             ins(%view_tc3_r1_0, %view_tc3_r1_1 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
             outs(%cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
             additionalArgs(%cb_tc3_r1_0, %cb_tc3_r1_1, %cb_tc3_r1_2 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
@@ -293,7 +334,7 @@ module {
     %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x128xf32, #ttnn_layout> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>
     %cast_0 = ttir.ttnn_metal_layout_cast %arg1 : tensor<128x64xf32, #ttnn_layout1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>
     %cast_1 = ttir.ttnn_metal_layout_cast %0 : tensor<64x64xf32, #ttnn_layout2> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
-    %cast_2 = ttir.ttnn_metal_layout_cast %1 : tensor<64x64xf32, #ttnn_layout3> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
+    %cast_2 = memref.alloc() {address = 0x7400 : i64, alignment = 16 : i64, d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
     %view_tc4_r0_0 = d2m.view_layout %cast remapping = #map3 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %view_tc4_r0_1 = d2m.view_layout %cast_0 remapping = #map3 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %view_tc4_r1_0 = d2m.view_layout %cast remapping = #map3 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
@@ -314,7 +355,7 @@ module {
             additionalArgs(%cb_tc4_r0_0, %cb_tc4_r0_1, %cb_tc4_r0_2 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_k2, noc = 0>, #d2m.thread<datamovement, @dm_k3, noc = 1>, #d2m.thread<compute, @cp_k1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_k2, noc = 0>, #d2m.thread<datamovement, @dm_k3, noc = 1>, #d2m.thread<compute, @cp_k1>]}
             ins(%view_tc4_r1_0, %view_tc4_r1_1 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
             outs(%cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
             additionalArgs(%cb_tc4_r1_0, %cb_tc4_r1_1, %cb_tc4_r1_2 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
@@ -371,7 +412,7 @@ module {
     %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<64x128xf32, #ttnn_layout> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>
     %cast_0 = ttir.ttnn_metal_layout_cast %arg1 : tensor<128x64xf32, #ttnn_layout1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>
     %cast_1 = ttir.ttnn_metal_layout_cast %0 : tensor<64x64xf32, #ttnn_layout2> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
-    %cast_2 = ttir.ttnn_metal_layout_cast %1 : tensor<64x64xf32, #ttnn_layout3> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
+    %cast_2 = memref.alloc() {address = 0x8400 : i64, alignment = 16 : i64, d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, d2m.virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>
     %view_tc5_r0 = d2m.view_layout %cast remapping = #map3 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %view_tc5_r1 = d2m.view_layout %cast_0 remapping = #map3 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1> -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>
     %cb_tc5_r0_0 = memref.alloc() {address = 0x8000 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>
@@ -388,7 +429,7 @@ module {
             additionalArgs(%cb_tc5_r0_0, %cb_tc5_r0_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_r1_sem, noc = 0>, #d2m.thread<datamovement, @dm_r1_nosem, noc = 1>, #d2m.thread<compute, @cp_r1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_r1_sem, noc = 0>, #d2m.thread<datamovement, @dm_r1_nosem, noc = 1>, #d2m.thread<compute, @cp_r1>]}
             ins(%view_tc5_r1 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
             outs(%cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
             additionalArgs(%cb_tc5_r1_0, %cb_tc5_r1_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_1>)
