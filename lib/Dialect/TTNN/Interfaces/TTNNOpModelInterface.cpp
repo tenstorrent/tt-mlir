@@ -4410,6 +4410,7 @@ EmptyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints, *this,
       deviceGrid, shape, dtype, layout, memoryConfig, opConfig.outputLayout);
@@ -4437,8 +4438,8 @@ ArangeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
   std::optional<mlir::tt::ttnn::MemoryConfigAttr> memConfig = getMemoryConfig();
 
-  const mlir::tt::ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
+                   detail::getValidatedDeviceGrid(getOperation()));
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints, *this,
