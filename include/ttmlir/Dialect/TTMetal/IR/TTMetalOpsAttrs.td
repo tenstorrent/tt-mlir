@@ -68,6 +68,12 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
   let summary = "TTMetal ComputeConfig attribute.";
   let description = [{
     Structure for configuring compute kernels.
+
+    `num_threads_per_cluster` is the per-kernel compute-thread fan-out on
+    Quasar (1..hardware ceiling). Propagated from D2M_ThreadAttr.
+    Default 1 keeps single-hart (WH/BH) compute kernels unaffected; the
+    custom printer elides the field when it equals 1 so existing IR
+    round-trips unchanged.
   }];
   let parameters = (ins "SymbolRefAttr":$kernel_symbol,
                         "CoreRangeAttr":$core_range,
@@ -76,8 +82,9 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
                         "bool":$fp32_dest_acc_en,
                         "bool":$dst_full_sync_en,
                         "bool":$math_approx_mode,
-                        ArrayRefParameter<"UnpackToDestMode">:$unpack_to_dest_mode);
-  let assemblyFormat =  "`<` $kernel_symbol `,` qualified($core_range) `,` qualified($kernel_args) `,` $math_fidelity`,` $fp32_dest_acc_en`,` $dst_full_sync_en`,` $math_approx_mode`,` `[` $unpack_to_dest_mode `]` `>`";
+                        ArrayRefParameter<"UnpackToDestMode">:$unpack_to_dest_mode,
+                        DefaultValuedParameter<"uint32_t", "1">:$num_threads_per_cluster);
+  let hasCustomAssemblyFormat = 1;
 
   let extraClassDeclaration = [{
     static ComputeConfigAttr get(mlir::MLIRContext *context,
@@ -96,7 +103,29 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
                                     fp32DestAccEn,
                                     dstFullSyncEn,
                                     false,
-                                    unpackToDestMode);
+                                    unpackToDestMode,
+                                    1u);
+    };
+
+    static ComputeConfigAttr get(mlir::MLIRContext *context,
+                                 mlir::SymbolRefAttr kernelSymbol,
+                                 CoreRangeAttr coreRange,
+                                 KernelArgsAttr kernelArgs,
+                                 MathFidelity mathFid,
+                                 bool fp32DestAccEn,
+                                 bool dstFullSyncEn,
+                                 bool mathApproxMode,
+                                 ::llvm::ArrayRef<UnpackToDestMode> unpackToDestMode) {
+      return ComputeConfigAttr::get(context,
+                                    kernelSymbol,
+                                    coreRange,
+                                    kernelArgs,
+                                    mathFid,
+                                    fp32DestAccEn,
+                                    dstFullSyncEn,
+                                    mathApproxMode,
+                                    unpackToDestMode,
+                                    1u);
     };
 
     mlir::tt::ttkernel::ThreadType getThreadType() const { return mlir::tt::ttkernel::ThreadType::Compute; }

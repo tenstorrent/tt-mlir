@@ -863,7 +863,8 @@ computeConfigToFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(computeConfigAttr.getMathFidelity()),
       computeConfigAttr.getFp32DestAccEn(),
       computeConfigAttr.getDstFullSyncEn(),
-      computeConfigAttr.getMathApproxMode(), &unpackToDestModeVec);
+      computeConfigAttr.getMathApproxMode(), &unpackToDestModeVec,
+      computeConfigAttr.getNumThreadsPerCluster());
 }
 
 static flatbuffers::Offset<target::metal::EthernetConfig>

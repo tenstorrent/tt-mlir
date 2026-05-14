@@ -16,18 +16,48 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Returns true if the forall's mapping carries a #d2m.compute_thread attr.
-static bool isComputeThreadForall(scf::ForallOp forall) {
+// Returns the ComputeThreadMappingAttr on a forall's mapping array, or
+// nullopt if the forall is not a compute-thread distribution.
+static std::optional<ComputeThreadMappingAttr>
+getComputeThreadMapping(scf::ForallOp forall) {
   std::optional<ArrayAttr> mapping = forall.getMapping();
   if (!mapping) {
-    return false;
+    return std::nullopt;
   }
   for (Attribute attr : mapping->getValue()) {
-    if (mlir::isa<ComputeThreadMappingAttr>(attr)) {
-      return true;
+    if (auto computeThread = mlir::dyn_cast<ComputeThreadMappingAttr>(attr)) {
+      return computeThread;
     }
   }
-  return false;
+  return std::nullopt;
+}
+
+static bool isComputeThreadForall(scf::ForallOp forall) {
+  return getComputeThreadMapping(forall).has_value();
+}
+
+// Find the d2m.generic enclosing this forall and the index of the region
+// within that generic that (transitively) contains the forall. Returns
+// std::nullopt if the forall is not inside a d2m.generic region. The
+// region index corresponds to the position in `generic.getThreads()` —
+// the thread region (Compute) whose ThreadAttr we need to stamp the
+// per-generic N onto.
+static std::optional<std::pair<GenericOp, unsigned>>
+findEnclosingGenericRegion(scf::ForallOp forall) {
+  Operation *parent = forall->getParentOp();
+  Region *childRegion = forall->getParentRegion();
+  while (parent) {
+    if (auto generic = mlir::dyn_cast<GenericOp>(parent)) {
+      // childRegion is a top-level region of `generic`.
+      assert(childRegion->getParentOp() == generic.getOperation() &&
+             "childRegion should be a top-level region of the enclosing "
+             "d2m.generic");
+      return std::make_pair(generic, childRegion->getRegionNumber());
+    }
+    childRegion = parent->getParentRegion();
+    parent = parent->getParentOp();
+  }
+  return std::nullopt;
 }
 
 // Lower a single compute-thread forall to SPMD form: insert d2m.my_thread_id
@@ -55,6 +85,46 @@ static LogicalResult materialize(scf::ForallOp forall) {
     return forall->emitOpError(
         "compute_thread forall must have empty scf.in_parallel terminator");
   }
+
+  // Extract N from the #d2m.compute_thread<num=N> mapping and stamp it
+  // onto the enclosing d2m.generic's matching thread region. After this
+  // pass erases the forall, ThreadAttr.numThreadsPerCluster is the only
+  // surviving record of the per-generic compute-thread fan-out for
+  // downstream DFB cardinality.
+  auto mapping = getComputeThreadMapping(forall);
+  assert(mapping && "materialize() invoked on a non-compute-thread forall");
+  int64_t numThreadsPerCluster = mapping->getNum();
+  auto enclosing = findEnclosingGenericRegion(forall);
+  if (!enclosing) {
+    return forall->emitOpError(
+        "compute_thread forall must be inside a d2m.generic region");
+  }
+  GenericOp generic = enclosing->first;
+  unsigned regionIdx = enclosing->second;
+  ArrayAttr threadsAttr = generic.getThreadsAttr();
+  SmallVector<Attribute> rebuiltThreads(threadsAttr.getValue().begin(),
+                                        threadsAttr.getValue().end());
+  auto origThread = mlir::cast<ThreadAttr>(rebuiltThreads[regionIdx]);
+  if (origThread.getThreadType() != ThreadType::Compute) {
+    return forall->emitOpError(
+        "compute_thread forall must live inside the d2m.generic's Compute "
+        "thread region (got threadType ")
+           << stringifyEnum(origThread.getThreadType()) << ")";
+  }
+  if (origThread.getNumThreadsPerCluster() != 1 &&
+      origThread.getNumThreadsPerCluster() != numThreadsPerCluster) {
+    return forall->emitOpError(
+        "compute thread region already carries num_threads_per_cluster = ")
+           << origThread.getNumThreadsPerCluster()
+           << " which conflicts with this forall's #d2m.compute_thread<num="
+           << numThreadsPerCluster << ">";
+  }
+  rebuiltThreads[regionIdx] = ThreadAttr::get(
+      generic.getContext(), origThread.getThreadType(),
+      origThread.getKernelSymbol(), origThread.getNocIndex(),
+      origThread.getProcessorIndex(), numThreadsPerCluster);
+  generic.setThreadsAttr(
+      ArrayAttr::get(generic.getContext(), rebuiltThreads));
 
   OpBuilder builder(forall);
   Value tid = builder.create<d2m::MyThreadIdOp>(forall.getLoc());

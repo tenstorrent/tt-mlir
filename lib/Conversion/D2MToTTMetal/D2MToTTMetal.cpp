@@ -128,14 +128,24 @@ public:
                                     ? UnpackToDestMode::Fp32
                                     : UnpackToDestMode::Default;
         std::vector<UnpackToDestMode> unpackModes{mode};
+        // Per-generic compute-thread fan-out from D2M_ThreadAttr (default
+        // 1; multi-hart Quasar kernels set this via the
+        // D2MMaterializeComputeThreadForall stamp).
+        uint32_t numThreadsPerCluster =
+            static_cast<uint32_t>(thread.getNumThreadsPerCluster());
+        constexpr bool mathApproxMode = false;
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, mathFidelity,
-            fp32DestAccum, dstFullSyncEn, unpackModes);
+            fp32DestAccum, dstFullSyncEn, mathApproxMode, unpackModes,
+            numThreadsPerCluster);
         break;
       }
       case d2m::ThreadType::Datamovement: {
         // Explicit processorIndex >= 0 is rejected up front by the pass; legacy
-        // IR reaches here with processorIndex == -1.
+        // IR reaches here with processorIndex == -1. Multi-hart DM kernels
+        // are out of MVP scope (the bridge tests this work targets keep
+        // num_producers/consumers=1 on the DM side); the assert in
+        // riscMaskFor enforces that.
         int32_t nocIdx = thread.getNocIndex();
         if (nocIdx < 0) {
           nocIdx = unassignedNocCounter++ % 2;
@@ -311,6 +321,8 @@ public:
       d2m::ThreadType consumerThreadType = d2m::ThreadType::Datamovement;
       int32_t producerNocIndex = 0;
       int32_t consumerNocIndex = 0;
+      uint32_t numProducers = 1;
+      uint32_t numConsumers = 1;
       for (auto [tIdx, threadAttr] : llvm::enumerate(threads)) {
         d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
         CBRole role = classifyCBRole(symbolTable, thread.getKernelSymbol(),
@@ -324,6 +336,10 @@ public:
           producerSym = thread.getKernelSymbol();
           producerThreadType = thread.getThreadType();
           producerNocIndex = threadNocIndex[tIdx];
+          // Per-generic compute-thread fan-out: stamped onto the Compute
+          // thread region's D2M_ThreadAttr by
+          // D2MMaterializeComputeThreadForall. DM threads use 1.
+          numProducers = static_cast<uint32_t>(thread.getNumThreadsPerCluster());
         }
         if (role == CBRole::Consumer || role == CBRole::Both) {
           if (consumerSym) {
@@ -334,6 +350,7 @@ public:
           consumerSym = thread.getKernelSymbol();
           consumerThreadType = thread.getThreadType();
           consumerNocIndex = threadNocIndex[tIdx];
+          numConsumers = static_cast<uint32_t>(thread.getNumThreadsPerCluster());
         }
       }
       if (!producerSym || !consumerSym) {
@@ -344,8 +361,10 @@ public:
 
       uint64_t pageSizeBytes = device.getMemrefCBPageSizeBytes(memrefType);
       uint64_t numPages = device.getMemrefCBNumPages(memrefType);
-      uint32_t producerMask = riscMaskFor(producerThreadType, producerNocIndex);
-      uint32_t consumerMask = riscMaskFor(consumerThreadType, consumerNocIndex);
+      uint32_t producerMask =
+          riscMaskFor(producerThreadType, producerNocIndex, numProducers);
+      uint32_t consumerMask =
+          riscMaskFor(consumerThreadType, consumerNocIndex, numConsumers);
 
       Type innerElementType = memrefType.getElementType();
       if (auto tile = mlir::dyn_cast<ttcore::TileType>(innerElementType)) {
@@ -354,14 +373,26 @@ public:
       auto dataType = ttcore::elementTypeToDataType(innerElementType);
       auto stridedPattern = ttcore::DFBAccessPatternAttr::get(
           ctx, ttcore::DFBAccessPattern::Strided);
+      auto allPattern = ttcore::DFBAccessPatternAttr::get(
+          ctx, ttcore::DFBAccessPattern::All);
       auto dataFormatAttr = ttcore::DataTypeAttr::get(ctx, dataType);
+
+      // Producer side is STRIDED in MVP scope (single-DM linear writes
+      // and multi-hart compute interleave). Consumer side may be ALL
+      // when the CB is broadcast across N consumers — detected by
+      // comparing CB shape to the parent generic operand it shadows.
+      ttcore::DFBAccessPatternAttr producerPattern = stridedPattern;
+      ttcore::DFBAccessPatternAttr consumerPattern =
+          (numConsumers > 1 &&
+           inferConsumerBroadcast(op, operandIdx, memrefType, numConsumers))
+              ? allPattern
+              : stridedPattern;
 
       auto config = ttmetal::DataflowBufferConfigAttr::get(
           ctx, /*entry_size=*/static_cast<uint32_t>(pageSizeBytes),
-          /*num_entries=*/static_cast<uint32_t>(numPages),
-          /*num_producers=*/1u, /*num_consumers=*/1u, producerMask,
-          consumerMask, stridedPattern, stridedPattern,
-          /*enable_implicit_sync=*/false, dataFormatAttr);
+          /*num_entries=*/static_cast<uint32_t>(numPages), numProducers,
+          numConsumers, producerMask, consumerMask, producerPattern,
+          consumerPattern, /*enable_implicit_sync=*/false, dataFormatAttr);
 
       Value dfbId = rewriter.create<ttmetal::CreateDataflowBufferOp>(
           op.getLoc(),
@@ -468,19 +499,105 @@ public:
   }
 
   // DM RISCs occupy bits 0..7 (BRISC=0, NCRISC=1, etc.); Tensix compute
-  // RISCs occupy bits 8..15 (TRISC0=8 etc.). For the MVP a DM thread is
-  // mapped to bit = nocIndex (0 or 1), and a compute thread to bit 8.
-  static uint32_t riscMaskFor(d2m::ThreadType threadType, int32_t nocIndex) {
+  // RISCs occupy bits 8..15 (TRISC0=8 etc.).
+  //
+  // For a single DM thread the mask is `1 << nocIndex` (BRISC or NCRISC).
+  // For a compute kernel with N harts (per-generic, from
+  // D2M_ThreadAttr.numThreadsPerCluster) the mask spans N consecutive
+  // Tensix bits starting at TRISC0: `((1 << N) - 1) << 8`. Examples:
+  //   N=1 -> 0x100, N=2 -> 0x300, N=4 -> 0xF00.
+  // Matches tt-metal's bridge-test computation at
+  // third_party/tt-metal/src/tt-metal/tt_metal/impl/dataflow_buffer/
+  // dataflow_buffer.cpp:52-81.
+  //
+  // Multi-hart DM kernels are out of MVP scope; numThreads is asserted
+  // to be 1 for Datamovement threads.
+  static uint32_t riscMaskFor(d2m::ThreadType threadType, int32_t nocIndex,
+                              uint32_t numThreads) {
     switch (threadType) {
     case d2m::ThreadType::Datamovement:
+      assert(numThreads == 1 &&
+             "multi-hart DM kernels not supported by DFB lowering yet");
       // Bit 0 if nocIndex is unassigned (-1) or 0; bit 1 if nocIndex is 1.
       return 1u << (nocIndex == 1 ? 1u : 0u);
     case d2m::ThreadType::Compute:
-      return 1u << 8;
+      assert(numThreads >= 1 && numThreads <= 4 &&
+             "compute_thread fan-out must be 1..4");
+      return ((1u << numThreads) - 1u) << 8u;
     case d2m::ThreadType::Unified:
       llvm_unreachable("Unified threads must be split before DFB lowering");
     }
     return 0;
+  }
+
+  // Determine whether a CB additional arg is consumed in BROADCAST (ALL)
+  // mode by every consumer hart. This is true when the CB memref shape
+  // matches the parent generic operand's shape (no per-thread slicing),
+  // and false when the CB shape is smaller (operand was sliced per
+  // compute thread by D2MDistributeComputeThreads).
+  //
+  // The match logic walks the parent generic's I/O operands looking
+  // for the one this CB shadows. We try in order:
+  //   (a) Operand at additional-arg index (operandIdx - ioSize) — only
+  //       holds when the CB ports are 1:1 with I/O operands in order.
+  //   (b) Any I/O operand whose memref base shape > the CB shape and
+  //       whose total element count equals CB_count * numConsumers
+  //       (split-by-numConsumers signal).
+  // If we can't resolve, default to STRIDED (no broadcast) — the safer
+  // choice since STRIDED is the more common case and emitting it for a
+  // truly-broadcast CB just means the data movement is denser than
+  // optimal, not incorrect.
+  static bool inferConsumerBroadcast(d2m::GenericOp generic,
+                                     size_t operandIdx, MemRefType cbType,
+                                     uint32_t numConsumers) {
+    if (numConsumers <= 1) {
+      return false;
+    }
+    int64_t cbVolume = 1;
+    for (int64_t dim : cbType.getShape()) {
+      cbVolume *= dim;
+    }
+    auto ioOperands = generic.getInputsAndOutputs();
+    size_t ioSize = ioOperands.size();
+    auto matchesOperand = [&](Value operand) -> std::optional<bool> {
+      auto operandMemref =
+          mlir::dyn_cast<MemRefType>(operand.getType());
+      if (!operandMemref) {
+        return std::nullopt;
+      }
+      if (operandMemref.getElementType() != cbType.getElementType()) {
+        return std::nullopt;
+      }
+      int64_t opVolume = 1;
+      for (int64_t dim : operandMemref.getShape()) {
+        opVolume *= dim;
+      }
+      if (opVolume == cbVolume) {
+        return true; // BROADCAST: every consumer sees the full operand.
+      }
+      if (opVolume == cbVolume * static_cast<int64_t>(numConsumers)) {
+        return false; // STRIDED: each consumer sees 1/N of the operand.
+      }
+      return std::nullopt;
+    };
+
+    // (a) Positional match: CB at additionalArg index k corresponds to
+    // I/O operand at index k when allocation preserved order.
+    if (operandIdx >= ioSize) {
+      size_t addlIdx = operandIdx - ioSize;
+      if (addlIdx < ioSize) {
+        if (auto result = matchesOperand(ioOperands[addlIdx])) {
+          return *result;
+        }
+      }
+    }
+    // (b) Scan all I/O operands for a volume-based match.
+    for (Value operand : ioOperands) {
+      if (auto result = matchesOperand(operand)) {
+        return *result;
+      }
+    }
+    return false; // Safe default: STRIDED.
   }
 
 private:

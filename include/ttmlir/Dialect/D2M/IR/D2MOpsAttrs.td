@@ -30,28 +30,39 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
     "ThreadType":$threadType,
     OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
     DefaultValuedParameter<"int32_t", "-1">:$nocIndex,
-    DefaultValuedParameter<"int32_t", "-1">:$processorIndex
+    DefaultValuedParameter<"int32_t", "-1">:$processorIndex,
+    DefaultValuedParameter<"int64_t", "1">:$numThreadsPerCluster
   );
 
   // Format: `<` threadType (`,` kernelSymbol)?
   //             (`,` `noc` `=` nocIndex)?
-  //             (`,` `processor` `=` processorIndex)? `>`.
+  //             (`,` `processor` `=` processorIndex)?
+  //             (`,` `num_threads_per_cluster` `=` numThreadsPerCluster)? `>`.
   // The optional groups all start with `,`, which the declarative format cannot
   // disambiguate when kernelSymbol is absent, so we hand-roll the parser to
   // peek for the keyword after a comma and pick the right branch.
+  // `num_threads_per_cluster` is per-generic and carries the compute-thread
+  // fan-out chosen by D2MDistributeComputeThreads (1 ≤ N ≤ HW ceiling).
+  // Default 1 so existing IR / CB-only callers stay unaffected.
   let hasCustomAssemblyFormat = 1;
 
   let extraClassDeclaration = [{
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {
-        return get(context, threadType, nullptr, -1, -1);
+        return get(context, threadType, nullptr, -1, -1, 1);
       }
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
                             SymbolRefAttr kernelSymbol) {
-        return get(context, threadType, kernelSymbol, -1, -1);
+        return get(context, threadType, kernelSymbol, -1, -1, 1);
       }
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
                             SymbolRefAttr kernelSymbol, int32_t nocIndex) {
-        return get(context, threadType, kernelSymbol, nocIndex, -1);
+        return get(context, threadType, kernelSymbol, nocIndex, -1, 1);
+      }
+      static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
+                            SymbolRefAttr kernelSymbol, int32_t nocIndex,
+                            int32_t processorIndex) {
+        return get(context, threadType, kernelSymbol, nocIndex, processorIndex,
+                   1);
       }
   }];
 }

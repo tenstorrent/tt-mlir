@@ -18,6 +18,10 @@ table ComputeConfig {
   dst_full_sync_en: bool;
   math_approx_mode: bool;
   unpack_to_dest_mode: [UnpackToDestMode];
+  // Per-kernel compute-thread fan-out on Quasar. Default 1 keeps
+  // single-hart WH/BH kernels unaffected. The runtime spawns N harts
+  // and routes them through experimental::quasar::QuasarComputeConfig.
+  num_threads_per_cluster: uint32 = 1;
 }
 
 table EthernetConfig {

@@ -54,9 +54,11 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   SymbolRefAttr kernelSymbol;
   int32_t nocIndex = -1;
   int32_t processorIndex = -1;
+  int64_t numThreadsPerCluster = 1;
   bool parsedKernelSymbol = false;
   bool parsedNocIndex = false;
   bool parsedProcessorIndex = false;
+  bool parsedNumThreadsPerCluster = false;
 
   while (parser.parseOptionalComma().succeeded()) {
     if (parser.parseOptionalKeyword("noc").succeeded()) {
@@ -85,6 +87,20 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
       continue;
     }
 
+    if (parser.parseOptionalKeyword("num_threads_per_cluster").succeeded()) {
+      if (parsedNumThreadsPerCluster) {
+        parser.emitError(parser.getCurrentLocation(),
+                         "duplicate num_threads_per_cluster in D2M_ThreadAttr");
+        return {};
+      }
+      if (parser.parseEqual() ||
+          parser.parseInteger(numThreadsPerCluster)) {
+        return {};
+      }
+      parsedNumThreadsPerCluster = true;
+      continue;
+    }
+
     if (parsedKernelSymbol) {
       parser.emitError(parser.getCurrentLocation(),
                        "duplicate kernel symbol in D2M_ThreadAttr");
@@ -101,7 +117,7 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   }
 
   return ThreadAttr::get(parser.getContext(), *threadType, kernelSymbol,
-                         nocIndex, processorIndex);
+                         nocIndex, processorIndex, numThreadsPerCluster);
 }
 
 void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
@@ -116,6 +132,9 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
   }
   if (getProcessorIndex() != -1) {
     printer << ", processor = " << getProcessorIndex();
+  }
+  if (getNumThreadsPerCluster() != 1) {
+    printer << ", num_threads_per_cluster = " << getNumThreadsPerCluster();
   }
   printer << ">";
 }
