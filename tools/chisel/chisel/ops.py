@@ -5,7 +5,9 @@
 MLIR operation utilities: IRModule wrapper, tensor operand extraction, and
 chisel-specific op classification (non-executable / in-place).
 """
-from ttmlir.dialects import func, ttcore, ttnn
+from typing import NewType, Optional
+
+from ttmlir.dialects import func, ttnn
 from ttmlir.ir import (
     AsmState,
     BlockArgument,
@@ -20,13 +22,15 @@ from ttmlir.ir import (
 )
 
 
-# Ops not executable as goldens (device, I/O, control flow).
-_CHISEL_NON_EXECUTABLE_OPS: set = {
-    ttnn.GetDeviceOp,
-    ttnn.LoadTensorOp,
-    ttcore.LoadCachedOp,
-    func.CallOp,
-}
+# MLIR SSA value name as printed in the IR (e.g. "%0", "%arg1"). Produced by
+# `Value.get_name(asm_state)` and used to key per-op input/output tensors.
+SSAName = NewType("SSAName", str)
+
+# Operand role name on an OpView (e.g. "lhs", "rhs", "input"). Sourced from
+# `OpView.OPERAND_NAMES` and CHISEL_INPLACE_OPS; used to dispatch goldens by
+# their declared keyword arguments.
+RoleName = NewType("RoleName", str)
+
 
 # Op class -> operand role names mutated via `Arg<..., [MemWrite]>` in ODS.
 # Goldens return SSA results first, then one tensor per *provided* memwrite
@@ -46,15 +50,11 @@ _CHISEL_INPLACE_OPS: dict[type, tuple[str, ...]] = {
 }
 
 
-def is_non_executable_op(op_class: type) -> bool:
-    return op_class in _CHISEL_NON_EXECUTABLE_OPS
-
-
-def get_inplace_operands(op_class: type) -> tuple[str, ...]:
+def get_inplace_operands(op_class: type) -> tuple[RoleName, ...]:
     return _CHISEL_INPLACE_OPS.get(op_class, ())
 
 
-def is_tensor_value(val) -> bool:
+def is_tensor_value(val: Value) -> bool:
     """True if `val` is a tensor-like MLIR Value (has shape and element_type)."""
     return hasattr(val.type, "shape") and hasattr(val.type, "element_type")
 
@@ -137,10 +137,10 @@ class IRModule:
     def _extract_function_ops(self, name: str) -> tuple[list[Operation], list[Value]]:
         assert name in self._functions
         func_op = self._functions[name]
-        ops = []
-        outputs = []
+        ops: list[Operation] = []
+        outputs: list[Value] = []
 
-        def _visitor(op):
+        def _visitor(op: Operation) -> WalkResult:
             # Python bindings only expose walk() on Operation; skip the FuncOp
             # itself to match C++ entry.getBody().walk() in FuncOpToProgram.h.
             if op == func_op.operation:
@@ -155,9 +155,9 @@ class IRModule:
         return ops, outputs
 
     def _find_function(self, name: str) -> func.FuncOp:
-        result = None
+        result: Optional[func.FuncOp] = None
 
-        def _visitor(op):
+        def _visitor(op: Operation) -> WalkResult:
             nonlocal result
             opview = op.opview
             if isinstance(opview, func.FuncOp):

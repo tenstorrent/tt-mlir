@@ -13,38 +13,22 @@ from chisel.executor import (
     build_role_keyed_inputs,
     execute_golden,
 )
+from chisel.op_configs import get_no_golden_op_names
 from chisel.ops import (
     get_flat_inplace_vals,
     get_op_inputs,
     get_op_outputs,
-    is_non_executable_op,
     is_tensor_value,
 )
 from golden import GoldenMapTensor, get_chisel_golden_function
 from golden.mapping import mlir_type_to_torch_dtype
 from ttmlir.dialects import quant
-from utils import iterate_programs, QUANTIZE_OP_NAMES
+from utils import iterate_programs
 
-# Ops without a registered golden - skipped instead of failed. Remove an entry
-# once its golden lands. Quantization ops are included via QUANTIZE_OP_NAMES.
-_KNOWN_NOT_IMPLEMENTED_OPS: frozenset[str] = (
-    frozenset(
-        {
-            "ttnn.generic",
-            "ttnn.nlp_create_qkv_heads_decode",
-            "ttnn.rotary_embedding_llama",
-            "ttnn.constant",
-            "ttnn.mesh_shard",
-            "ttnn.mesh_partition",
-            "ttnn.nlp_concat_heads",
-            "ttnn.nlp_concat_heads_decode",
-            "ttnn.bitcast_convert",
-            "ttnn.group_norm",
-            "ttnn.batch_norm_training",
-        }
-    )
-    | QUANTIZE_OP_NAMES
-)
+# Ops chisel cannot validate (no golden, structural mismatch, etc.) — sourced
+# from op_configs.register_defaults so the skip list is a single source of
+# truth shared with the runtime callback.
+_SKIPPED_OPS: frozenset[str] = get_no_golden_op_names()
 
 
 def _has_quantized_type(op) -> bool:
@@ -71,9 +55,6 @@ def test_golden_execution(subtests, ir_module, binary, binary_path):
     for _prog_idx, prog_name in iterate_programs(binary):
         for op in ir_module.get_function_ops(prog_name):
             with subtests.test(prog=prog_name, op=op.name):
-                if is_non_executable_op(type(op.opview)):
-                    pytest.skip(f"golden not applicable for {type(op.opview).__name__}")
-
                 if _has_quantized_type(op):
                     pytest.skip(
                         f"quantized tensor types not yet supported (op: {op.name})"
@@ -81,7 +62,7 @@ def test_golden_execution(subtests, ir_module, binary, binary_path):
 
                 if (
                     get_chisel_golden_function(type(op.opview)) is None
-                    and op.name in _KNOWN_NOT_IMPLEMENTED_OPS
+                    and op.name in _SKIPPED_OPS
                 ):
                     pytest.skip(f"{op.name}: no golden registered")
 

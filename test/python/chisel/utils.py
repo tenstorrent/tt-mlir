@@ -5,12 +5,6 @@ import json
 import re
 
 
-# Quantization ops are not yet supported by chisel goldens; tests skip them.
-QUANTIZE_OP_NAMES: frozenset[str] = frozenset(
-    {"ttnn.quantize", "ttnn.dequantize", "ttnn.requantize"}
-)
-
-
 def json_string_as_dict(s: str) -> dict:
     """Parse a flatbuffer-emitted JSON string, normalizing nan/inf for json.loads."""
     if not s:
