@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
@@ -36,6 +36,84 @@ static std::optional<int64_t> scalarIntKey(Value v) {
   return std::nullopt;
 }
 
+// Return the update-index operand of a cache op that carries one, or null if
+// the op doesn't expose one. Only update-style cache ops have a position
+// operand that traces back to a cumulative_length arg.
+static Value getCacheUpdateIndex(CacheOpInterface cacheOp) {
+  if (auto op = llvm::dyn_cast<UpdateCacheOp>(cacheOp.getOperation())) {
+    return op.getUpdateIndex();
+  }
+  if (auto op = llvm::dyn_cast<PagedUpdateCacheOp>(cacheOp.getOperation())) {
+    return op.getUpdateIndex();
+  }
+  return {};
+}
+
+// Walk back from a cache op's update_index operand through TM-like ops to
+// collect any entry-block arguments that feed into it. The cumulative_length
+// arg sits behind some combination of mesh_shard / broadcast / repeat /
+// reshape / typecast and an add with an arange-derived offset.
+static void collectArgsFeedingValue(Value start, func::FuncOp funcOp,
+                                    llvm::DenseSet<BlockArgument> &out) {
+  Block &entry = funcOp.getBody().front();
+  SmallVector<Value> worklist;
+  llvm::DenseSet<Value> visited;
+  worklist.push_back(start);
+
+  while (!worklist.empty()) {
+    Value v = worklist.pop_back_val();
+    if (!visited.insert(v).second) {
+      continue;
+    }
+
+    if (auto blockArg = llvm::dyn_cast<BlockArgument>(v)) {
+      if (blockArg.getOwner() == &entry) {
+        out.insert(blockArg);
+      }
+      continue;
+    }
+
+    Operation *defOp = v.getDefiningOp();
+    if (!defOp) {
+      continue;
+    }
+
+    // Look through TM-like single-operand ops.
+    if (isa<MeshShardOp, BroadcastOp, RepeatOp, ReshapeOp, TypecastOp>(defOp)) {
+      worklist.push_back(defOp->getOperand(0));
+      continue;
+    }
+
+    // For add, the cumulative_length sits on one side; the other side is
+    // typically an arange or constant offset. Push both and let recursion
+    // terminate on non-arg leaves.
+    if (auto addOp = llvm::dyn_cast<AddOp>(defOp)) {
+      worklist.push_back(addOp.getLhs());
+      worklist.push_back(addOp.getRhs());
+      continue;
+    }
+
+    // Anything else (arange, full, constant, arbitrary compute) terminates
+    // this branch.
+  }
+}
+
+// Collect entry-block args that provably feed an `update_index` of some
+// update-style cache op. These are the args we'll treat as cumulative_length
+// for unification.
+static llvm::DenseSet<BlockArgument>
+collectCumulativeLengthArgs(func::FuncOp funcOp) {
+  llvm::DenseSet<BlockArgument> result;
+  funcOp.walk([&](CacheOpInterface cacheOp) {
+    Value updateIndex = getCacheUpdateIndex(cacheOp);
+    if (!updateIndex) {
+      return;
+    }
+    collectArgsFeedingValue(updateIndex, funcOp, result);
+  });
+  return result;
+}
+
 } // namespace
 
 class TTIRConsolidateStaticCacheUpdates
@@ -56,6 +134,17 @@ public:
       Block &lastBlock = funcOp.getBody().back();
       auto returnOp = llvm::dyn_cast<func::ReturnOp>(lastBlock.getTerminator());
       if (!returnOp) {
+        return;
+      }
+
+      // Identify candidate cumulative_length args by tracing back from
+      // update-style cache ops in this function. An arg is only eligible for
+      // unification if it provably feeds a cache update_index — this proves
+      // the lockstep invariant and prevents misfiring on unrelated programs
+      // that happen to share the [add(blockArg, const_delta)] shape.
+      llvm::DenseSet<BlockArgument> cumulativeLengthArgs =
+          collectCumulativeLengthArgs(funcOp);
+      if (cumulativeLengthArgs.empty()) {
         return;
       }
 
@@ -93,12 +182,11 @@ public:
           if (!blockArg || blockArg.getOwner() != &funcOp.getBody().front()) {
             return false;
           }
-          // Require the arg to be marked as a cumulative_length by an upstream
-          // inference pass. This is what proves the lockstep invariant holds
+          // Require the arg to be in the set of args provably feeding a cache
+          // update_index. This is what proves the lockstep invariant holds
           // for this argument; without it, two independent counters with the
           // same delta could be miscompiled into one.
-          if (!funcOp.getArgAttr(blockArg.getArgNumber(),
-                                 ttcore::g_cumulativeLengthAttrName)) {
+          if (!cumulativeLengthArgs.contains(blockArg)) {
             return false;
           }
           if (!scalarIntKey(maybeDelta).has_value()) {
