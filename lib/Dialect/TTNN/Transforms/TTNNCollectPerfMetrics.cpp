@@ -86,20 +86,18 @@ inline double topPerfTimeFromRoofline(double dramTime, double computeTime) {
   return 2.0 * std::max(dramTime, computeTime);
 }
 
-// Logical scalar shape of a tensor. If the element type is TileType, defer
-// to TileType::getScalarShape which un-tiles the trailing dims.
+// Logical scalar shape of a tensor. In TTNN MLIR, the outer tensor shape is
+// always in scalar (logical) units even when the element type is a TileType
+// (the tile element is a storage hint; the memref inside the layout encoding
+// is what carries the per-tile dimensions). So this is just tt.getShape().
 inline llvm::SmallVector<int64_t>
 getScalarTensorShape(mlir::RankedTensorType tt) {
-  llvm::SmallVector<int64_t> shape(tt.getShape());
-  if (auto tile = mlir::dyn_cast<ttcore::TileType>(tt.getElementType())) {
-    return tile.getScalarShape(shape);
-  }
-  return shape;
+  return llvm::SmallVector<int64_t>(tt.getShape());
 }
 
 inline uint64_t getScalarVolume(mlir::RankedTensorType tt) {
   uint64_t v = 1;
-  for (int64_t d : getScalarTensorShape(tt)) {
+  for (int64_t d : tt.getShape()) {
     if (d <= 0) {
       return 0;
     }
@@ -108,17 +106,36 @@ inline uint64_t getScalarVolume(mlir::RankedTensorType tt) {
   return v;
 }
 
-// Storage bytes for a tensor. Uses the actual on-device element/tile size, so
-// BFP8 weights end up as 1 byte per element via the tile-byte path.
-inline uint64_t getTensorMemoryBytes(mlir::RankedTensorType tt) {
-  uint64_t v = 1;
-  for (int64_t d : tt.getShape()) {
-    if (d <= 0) {
-      return 0;
+// Bytes per scalar element for a TileType. tile.getSizeBytes() gives bytes
+// per tile (e.g. ~1056 for a 32x32 BFP8 tile); divide by tile element count
+// to get bytes per scalar element (~1.03 for BFP8 BF8).
+inline double getBytesPerScalarElement(mlir::Type elementType) {
+  if (auto tile = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+    auto shape = tile.getShape();
+    uint64_t tileElements = 1;
+    for (int64_t d : shape) {
+      tileElements *= static_cast<uint64_t>(d);
     }
-    v *= static_cast<uint64_t>(d);
+    if (tileElements == 0) {
+      return 0.0;
+    }
+    return static_cast<double>(tile.getSizeBytes()) /
+           static_cast<double>(tileElements);
   }
-  return v * ttcore::getElementSizeBytes(tt.getElementType());
+  return static_cast<double>(elementType.getIntOrFloatBitWidth()) / 8.0;
+}
+
+// Storage bytes for a tensor at on-device storage type. The tensor shape is
+// already scalar (see getScalarTensorShape); for TileType elements we use the
+// per-scalar tile byte size so BFP8 weights come out as ~1 byte/element.
+inline uint64_t getTensorMemoryBytes(mlir::RankedTensorType tt) {
+  uint64_t volume = getScalarVolume(tt);
+  if (volume == 0) {
+    return 0;
+  }
+  double bytes = static_cast<double>(volume) *
+                 getBytesPerScalarElement(tt.getElementType());
+  return static_cast<uint64_t>(bytes + 0.5);
 }
 
 // Returns Hout and Wout for a Conv2dOp using the explicit attributes on the
