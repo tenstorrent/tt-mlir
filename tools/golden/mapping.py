@@ -28,7 +28,6 @@ import re
 import einops
 import torch
 import torch.nn.functional
-import torch.nn.functional as F
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug, func
 from ttmlir.ir import *
 from ttmlir.passes import DataType
@@ -8508,7 +8507,7 @@ def chisel_ttnn_max_pool2d(op, inputs):
         if top == bottom and left == right:
             torch_padding = (top, left)
         else:
-            nchw = F.pad(
+            nchw = torch.nn.functional.pad(
                 nchw, [left, right, top, bottom], mode="constant", value=float("-inf")
             )
             torch_padding = 0
