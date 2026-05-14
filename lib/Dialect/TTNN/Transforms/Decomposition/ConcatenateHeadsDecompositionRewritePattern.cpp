@@ -30,8 +30,7 @@ LogicalResult ConcatenateHeadsDecompositionRewritePattern::matchAndRewrite(
                                           *validationConfig);
 
     auto validationResult = validator.validateOp<ttnn::ConcatenateHeadsOp>(
-        srcOp.getOperation(), srcOp.getLoc(), {outputType}, srcOp.getInput(),
-        /*memory_config=*/nullptr);
+        srcOp.getOperation(), srcOp.getLoc(), {outputType}, srcOp.getInput());
 
     if (validationResult.isSuccess()) {
       return failure();
@@ -60,8 +59,7 @@ LogicalResult ConcatenateHeadsDecompositionRewritePattern::matchAndRewrite(
 
   PermuteOp permuteOp = rewriter.create<ttnn::PermuteOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_concat_heads"),
-      permutedType, srcOp.getInput(), permutationAttr, ttnn::MemoryConfigAttr(),
-      mlir::FloatAttr());
+      permutedType, srcOp.getInput(), permutationAttr, mlir::FloatAttr());
 
   // Step 2: Reshape to concatenate heads.
   // [batch_size, sequence_size, num_heads, head_size]
@@ -73,8 +71,7 @@ LogicalResult ConcatenateHeadsDecompositionRewritePattern::matchAndRewrite(
       rewriter.getI32ArrayAttr(reshapedShapeI32);
 
   rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
-      srcOp, outputType, permuteOp.getResult(), reshapedShapeAttr,
-      ttnn::MemoryConfigAttr());
+      srcOp, outputType, permuteOp.getResult(), reshapedShapeAttr);
 
   return success();
 }

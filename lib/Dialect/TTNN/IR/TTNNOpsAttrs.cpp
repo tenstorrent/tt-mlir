@@ -262,10 +262,6 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
-MemoryConfigAttr TTNNLayoutAttr::getMemoryConfigAttr() const {
-  return MemoryConfigAttr::get(*this);
-}
-
 // If the element type is TileType, return the nested element type i.e
 // FloatType/IntegerType
 mlir::Type TTNNLayoutAttr::getScalarElementType() const {
@@ -459,13 +455,24 @@ MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr) {
   BufferTypeAttr bufferTypeAttr =
       mlir::cast<BufferTypeAttr>(layoutAttr.getMemref().getMemorySpace());
   TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
+  // A layout with `ignorePhysicalLayout` set models a sharded layout with
+  // an unspecified shard shape; leave shardSpec unset so consumers get a
+  // partial MemoryConfig and the backend can pick the physical layout.
   std::optional<ShardSpecAttr> shardSpec = std::nullopt;
   if (tensorMemoryLayout &&
-      isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
+      isShardedMemoryLayout(tensorMemoryLayout.getValue()) &&
+      !layoutAttr.getIgnorePhysicalLayout()) {
     shardSpec = ShardSpecAttr::get(layoutAttr.getContext(), layoutAttr);
   }
   return MemoryConfigAttr::get(layoutAttr.getContext(), tensorMemoryLayout,
                                bufferTypeAttr, shardSpec);
+}
+
+MemoryConfigAttr MemoryConfigAttr::get(TTNNNDLayoutAttr layoutAttr) {
+  return MemoryConfigAttr::get(
+      layoutAttr.getContext(), layoutAttr.getMemLayout(),
+      mlir::cast<BufferTypeAttr>(layoutAttr.getMemref().getMemorySpace()),
+      /*shardSpec=*/std::nullopt, utils::createNDShardSpecIfNeeded(layoutAttr));
 }
 
 MemoryConfigAttr MemoryConfigAttr::get(
@@ -1154,13 +1161,6 @@ deriveShardShape(ArrayRef<int64_t> physicalShape, Type elementType,
   default:
     llvm_unreachable("unexpected memory layout");
   }
-}
-
-MemoryConfigAttr TTNNNDLayoutAttr::getMemoryConfigAttr() const {
-  return MemoryConfigAttr::get(
-      getContext(), getMemLayout(),
-      mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()),
-      /*shardSpec=*/std::nullopt, utils::createNDShardSpecIfNeeded(*this));
 }
 
 // Helper to build a CoreRangeSet covering `numCores` L1 cores laid out

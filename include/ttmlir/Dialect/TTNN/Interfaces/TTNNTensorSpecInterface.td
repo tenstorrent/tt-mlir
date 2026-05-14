@@ -95,10 +95,6 @@ def TTNN_MemoryConfigOpInterface : OpInterface<"TTNNMemoryConfigOpInterface"> {
       }]
     >,
   ];
-
-  let verify = [{
-    return verifyTTNNMemoryConfigInterface<ConcreteOp>($_op);
-  }];
 }
 
 def TTNN_ComputeKernelConfigOpInterface : OpInterface<"TTNNComputeKernelConfigOpInterface"> {

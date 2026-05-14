@@ -89,7 +89,7 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let hasVerifier = 1;
 }
 
-def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
     let summary = "Bitcast_convert op.";
     let description = [{
       This op reinterprets the bits of each element in
@@ -2523,7 +2523,7 @@ def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layer_norm_pre_all_gather",
 }
 
 def TTNN_LayerNormPostAllGatherOp : TTNN_Op<"layer_norm_post_all_gather",
-    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Layer normalization post-all-gather op.";
     let description = [{
       Applies normalization using gathered statistics from a distributed

@@ -28,13 +28,13 @@ inline MemoryConfigAttr getMemoryConfigFromResult(mlir::Operation *op) {
 
   return llvm::TypeSwitch<mlir::Attribute, MemoryConfigAttr>(
              output.getEncoding())
-      .Case<TTNNLayoutAttr>([&](TTNNLayoutAttr layoutAttr) {
-        return layoutAttr.getMemoryConfigAttr();
+      .Case<TTNNLayoutAttr>([](TTNNLayoutAttr layoutAttr) {
+        return MemoryConfigAttr::get(layoutAttr);
       })
       .Case<TTNNNDLayoutAttr>([](TTNNNDLayoutAttr layoutAttr) {
-        return layoutAttr.getMemoryConfigAttr();
+        return MemoryConfigAttr::get(layoutAttr);
       })
-      .Default([&](mlir::Attribute) { return MemoryConfigAttr(); });
+      .Default([](mlir::Attribute) { return MemoryConfigAttr(); });
 }
 
 // Verifies the TTNNDtypeOpInterface
@@ -108,59 +108,6 @@ mlir::LogicalResult verifyTTNNLayoutInterface(mlir::Operation *op) {
   return mlir::success();
 }
 
-// Generically support different LayoutAttr types.
-template <typename LayoutAttrType>
-mlir::LogicalResult
-verifyMemoryConfigWithLayout(mlir::Operation *op,
-                             MemoryConfigAttr memoryConfigAttr,
-                             LayoutAttrType outputLayoutAttr) {
-  // Verify if the buffer type is the same.
-  if (memoryConfigAttr.getBufferType().getValue() !=
-      outputLayoutAttr.getBufferType()) {
-    return op->emitOpError()
-           << "Output tensor buffer type "
-           << stringifyBufferType(outputLayoutAttr.getBufferType())
-           << " must match memory config buffer type "
-           << stringifyBufferType(memoryConfigAttr.getBufferType().getValue());
-  }
-
-  // Tensor memory layout is optional, if not set, it is assumed to be the
-  // same as the output tensor memory layout.
-  if (memoryConfigAttr.getTensorMemoryLayout() &&
-      memoryConfigAttr.getTensorMemoryLayout() !=
-          outputLayoutAttr.getMemLayout()) {
-    return op->emitOpError()
-           << "Output tensor layout memory space "
-           << stringifyTensorMemoryLayout(
-                  outputLayoutAttr.getMemLayout().getValue())
-           << " must match memory config memory space "
-           << stringifyTensorMemoryLayout(
-                  memoryConfigAttr.getTensorMemoryLayout().getValue());
-  }
-
-  if (memoryConfigAttr.getShardSpec()) {
-    if (memoryConfigAttr.getShardSpec()->getShape() !=
-        ShapeAttr::get(op->getContext(),
-                       outputLayoutAttr.getScalarShardShape())) {
-      return op->emitOpError()
-             << "Output tensor scalar shard shape ("
-             << outputLayoutAttr.getScalarShardShape()
-             << ") must match memory config shard spec shape ("
-             << memoryConfigAttr.getShardSpec()->getShape().getShape() << ")";
-    }
-  }
-
-  return mlir::success();
-}
-
-// Verifies the TTNNMemoryConfigInterface
-template <typename ConcreteType>
-mlir::LogicalResult verifyTTNNMemoryConfigInterface(mlir::Operation *op) {
-  // Memory config is derived directly from output layout encoding, so there is
-  // no independent op attribute to cross-validate here.
-  (void)op;
-  return mlir::success();
-}
 // Verifies the TTNNComputeKernelConfigInterface
 template <typename ConcreteType>
 mlir::LogicalResult

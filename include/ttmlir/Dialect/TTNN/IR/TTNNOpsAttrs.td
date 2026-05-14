@@ -252,7 +252,6 @@ def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
    bool isTiled() const;
    llvm::SmallVector<int64_t> getScalarShardShape() const;
    Layout getLayout() const;
-   MemoryConfigAttr getMemoryConfigAttr() const;
    ttcore::DataType getDataType() const;
    Type getElementType() const;
  }];
@@ -289,6 +288,7 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
     class Builder;
     static MemoryConfigAttr get(::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec);
     static MemoryConfigAttr get(ttnn::TTNNLayoutAttr layout);
+    static MemoryConfigAttr get(ttnn::TTNNNDLayoutAttr layout);
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
   }];
 
@@ -872,9 +872,6 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     BufferType getBufferType() const;
     ttcore::DataType getDataType() const;
     uint64_t getElementSizeBytes() const;
-    MemoryConfigAttr getMemoryConfigAttr() const;
-    static llvm::SmallVector<int64_t> calculateLogicalShardShapeForSharding(ArrayRef<int64_t> tensorShape, mlir::AffineMap linear, ttcore::GridAttr grid);
-    static llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(ArrayRef<int64_t> tensorShape, Type elementType, mlir::AffineMap linear, ttcore::GridAttr grid);
     llvm::SmallVector<int64_t> getShardShape() const;
     llvm::SmallVector<int64_t> getScalarShardShape() const;
     llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;

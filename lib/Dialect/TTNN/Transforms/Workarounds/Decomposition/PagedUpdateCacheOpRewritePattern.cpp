@@ -53,7 +53,7 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
     return failure();
   }
 
-  // Apply ToMemoryConfigOp to convert the input tensor to the desired layout.
+  // Apply ToLayoutOp to convert the input tensor to the desired layout.
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
   auto toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
