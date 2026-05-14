@@ -1392,32 +1392,56 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
            memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
       ```
 
+      Cross-core local-L1 read form (srcCore is non-empty): %src is a local
+      L1 memref whose L1 offset is uniform across the grid (e.g. a scratch
+      allocation), and `srcCore` selects the source core whose copy of %src
+      to read. The current core issues a NoC read against the source core's
+      L1; the source core is not required to equal the current core.
+
+      ```mlir
+      %tx = d2m.dma_read %src[%offset] core[%srcY, %srcX], %dst[%offset], <8>
+        : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
+           memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+      ```
+
       This operation only supports unicast (multicast are write-only).
 
       Constraints:
       - dst MUST be a LOCAL memref!
       - src and dst must have the same element type.
+      - `srcCore` is mutually exclusive with a device-laid-out src.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
-                         I64Attr:$numElems);
+                         I64Attr:$numElems,
+                         Variadic<Index>:$srcCore);
     let results = (outs D2M_MemTx:$result);
 
     let builders = [
       // Shard-level form (grid indices on src, no indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0), /*srcCore=*/ValueRange());
       }]>,
       // Fully indexed form
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems, /*srcCore=*/ValueRange());
+      }]>,
+      // Cross-core local-L1 read, fully indexed (srcCore selects source core)
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems, "ValueRange": $srcCore),
+      [{
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems, srcCore);
+      }]>,
+      // Cross-core local-L1 read, shard-level (no indices on dst, numElems = 0)
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $srcCore),
+      [{
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0), srcCore);
       }]>,
     ];
 
-    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` qualified(type($result))}];
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` (`core` `[` $srcCore^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` qualified(type($result))}];
 
     let hasVerifier = 1;
 
@@ -1428,6 +1452,9 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
       bool isShardLevel() { return getNumElems() == 0; }
       bool isFullyIndexed() { return getNumElems() > 0; }
+      /// True if this op selects an explicit remote source core (cross-core
+      /// local-L1 read form). Mutually exclusive with a device-laid-out src.
+      bool hasSrcCore() { return !getSrcCore().empty(); }
       size_t getSizeBytes() {
         assert(isFullyIndexed() && "getSizeBytes() requires fully indexed form");
         auto elementSizeBytes =
@@ -2273,6 +2300,138 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
 
       bool isConsumer(mlir::OpOperand &operand) {
         return llvm::any_of(getLocalBufferMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+      }
+    }];
+}
+
+def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  , D2M_SynchronizableOpInterface
+  ]> {
+    let summary = "D2M collective gather across cores.";
+    let description = [{
+      Collective gather of per-core local L1 buffers into a designated
+      collector core. All cores in the rectangular group
+      `[groupStartIndex, groupStartIndex + groupShape)` execute this op. The
+      collector at `collectorIndex` reads each source core's local `%src`
+      into its local `%dst`. Non-collector cores publish their `%src` (via
+      prior writes) and then synchronize; they do not touch `%dst`.
+
+      The op relies on the invariant that `%src` has the *same L1 offset*
+      on every core in the group (i.e. it is a scratch-style allocation, or
+      the underlying memref of a CB-backed buffer). The verifier does not
+      currently prove this structurally; the lowering passes assume it.
+
+      Tensor form (pre-bufferization): the result aliases `%dst` in DPS
+      style.
+
+      ```mlir
+      %result = d2m.gather_core %src into %dst
+        group [%groupY, %groupX] shape [%groupSizeY, %groupSizeX]
+        collector [%collectorY, %collectorX]
+        : tensor<2x4x!ttcore.tile<32x32, f32>>,
+          tensor<2x4x!ttcore.tile<32x32, f32>>
+        -> tensor<2x4x!ttcore.tile<32x32, f32>>
+      ```
+
+      Memref form (post-bufferization): no result.
+
+      ```mlir
+      d2m.gather_core %src into %dst
+        group [%groupY, %groupX] shape [%groupSizeY, %groupSizeX]
+        collector [%collectorY, %collectorX]
+        : memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
+          memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      ```
+
+      V1 constraints:
+      - `groupStartIndex`, `groupShape`, and `collectorIndex` each have
+        exactly 2 entries (single-device, 2D core grid).
+      - Source and destination element types must match.
+      - Source and destination shapes must match.
+      - Neither operand has a device layout.
+      - In memref form, both operands are in `#l1` memory space.
+      - Synchronization between sources and the collector is implemented
+        by two local semaphores allocated by a dedicated preallocation
+        pass; the lowering in `D2MLowerLoadStoreOpsToDMA` materializes
+        the `semaphore_inc/set/wait` machinery.
+    }];
+
+    let arguments = (ins
+      Arg<AnyRankedTensorOrMemRef, "per-core local L1 source",
+        [MemRead]>:$src,
+      Arg<AnyRankedTensorOrMemRef, "local L1 destination on the collector",
+        [MemWrite]>:$dst,
+      Variadic<Index>:$groupStartIndex,
+      Variadic<Index>:$groupShape,
+      Variadic<Index>:$collectorIndex);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let builders = [
+      // Memref form (no result; DPS in-place).
+      //
+      // The tensor form is reachable via the auto-generated builder that
+      // takes an `Optional<Type>` for the result; calling it with a non-null
+      // Type produces the tensor form, calling it with `Type{}` produces
+      // the memref form. The explicit builder below is just convenience
+      // for the common memref-form case.
+      OpBuilder<(ins "Value":$src, "Value":$dst,
+                     "ValueRange":$groupStartIndex, "ValueRange":$groupShape,
+                     "ValueRange":$collectorIndex),
+      [{
+        build($_builder, $_state, /*result=*/Type{}, src, dst,
+              groupStartIndex, groupShape, collectorIndex);
+      }]>
+    ];
+
+    let assemblyFormat = [{
+      $src `into` $dst
+      `group` `[` $groupStartIndex `]`
+      `shape` `[` $groupShape `]`
+      `collector` `[` $collectorIndex `]`
+      attr-dict `:` type($src) `,` type($dst)
+      (`->` type($result)^)?
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface.
+      // The dst operand is the DPS init (destination) for the gather.
+      MutableOperandRange getDpsInitsMutable() {
+        return getDstMutable();
+      }
+
+      /// Returns true if the result is present (tensor form).
+      bool hasResultForm() { return static_cast<bool>(getResult()); }
+
+      /// Returns the shaped type (memref or tensor) of the src operand.
+      ShapedType getSrcShapedType() {
+        return cast<ShapedType>(getSrc().getType());
+      }
+
+      /// Returns the shaped type (memref or tensor) of the dst operand.
+      ShapedType getDstShapedType() {
+        return cast<ShapedType>(getDst().getType());
+      }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getDst();
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getSrc();
       }
     }];
 }

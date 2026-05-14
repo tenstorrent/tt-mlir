@@ -261,6 +261,140 @@ public:
   }
 };
 
+class D2MLowerGatherCoreRewritePattern : public OpRewritePattern<GatherCoreOp> {
+public:
+  using OpRewritePattern<GatherCoreOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GatherCoreOp gather,
+                                PatternRewriter &rewriter) const final {
+    Location loc = gather.getLoc();
+
+    // Tensors should have been bufferized by the time this pass runs.
+    if (!mlir::isa<MemRefType>(gather.getSrc().getType()) ||
+        !mlir::isa<MemRefType>(gather.getDst().getType())) {
+      return rewriter.notifyMatchFailure(
+          gather, "src and dst must be memrefs at this stage in the pipeline");
+    }
+
+    auto genericOp = gather->getParentOfType<GenericOp>();
+    TT_assertv(genericOp, "GatherCoreOp must be inside a GenericOp");
+
+    Value src = gather.getSrc();
+    Value dst = gather.getDst();
+    ValueRange groupStart = gather.getGroupStartIndex();
+    ValueRange groupShape = gather.getGroupShape();
+    ValueRange collectorIdx = gather.getCollectorIndex();
+    TT_assertv((groupStart.size() == 2 && groupShape.size() == 2 &&
+                collectorIdx.size() == 2),
+               "GatherCoreOp must have 2D group / collector indices (V1)");
+
+    // Pre-allocated semaphores: sourceReady (sources -> collector) and
+    // collectorDone (collector -> sources). The same attribute scheme is
+    // used as for mcast remote loads, so getPreallocatedSemaphores works
+    // verbatim.
+    auto preallocatedSems = getPreallocatedSemaphores(gather);
+    Value sourceReady = preallocatedSems.first;
+    Value collectorDone = preallocatedSems.second;
+
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                                   rewriter.getIndexAttr(1));
+
+    // numSources = (groupShape[0] * groupShape[1]) - 1. The collector does
+    // not signal sourceReady on itself; mirrors the mcast lowering where
+    // the sender does not signal receiversReady on itself.
+    Value groupVolume =
+        rewriter.create<arith::MulIOp>(loc, groupShape[0], groupShape[1]);
+    Value numSources = rewriter.create<arith::SubIOp>(loc, groupVolume, one);
+
+    // Inner-loop bounds: end = start + size on each axis.
+    Value endY =
+        rewriter.create<arith::AddIOp>(loc, groupStart[0], groupShape[0]);
+    Value endX =
+        rewriter.create<arith::AddIOp>(loc, groupStart[1], groupShape[1]);
+
+    // isCollector: virtual core index == collectorIdx on every axis.
+    AffineMap gridMapping = genericOp.getGrid().getPhysicalToVirtMap();
+    Value isCollector;
+    for (auto [i, collIdx] : llvm::enumerate(collectorIdx)) {
+      Value coreIdx = rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(i),
+                                                   gridMapping);
+      Value cond = rewriter.create<arith::CmpIOp>(loc, rewriter.getI1Type(),
+                                                  arith::CmpIPredicate::eq,
+                                                  coreIdx, collIdx);
+      isCollector = isCollector
+                        ? rewriter.create<arith::AndIOp>(loc, isCollector, cond)
+                              .getResult()
+                        : cond;
+    }
+
+    // Pre-compute physical coordinates we need across the branches:
+    // - physGroupStart: start of the multicast region for collectorDone.
+    // - physCollector: target of source-side semaphore_inc.
+    SmallVector<Value> physGroupStart = mapVirtualToPhysicalCoreIndex(
+        rewriter, loc, genericOp.getGrid(), groupStart);
+    SmallVector<Value> physCollector = mapVirtualToPhysicalCoreIndex(
+        rewriter, loc, genericOp.getGrid(), collectorIdx);
+
+    rewriter.create<scf::IfOp>(
+        loc, isCollector,
+        [&](OpBuilder &builder, Location loc) {
+          // Collector branch: wait for sources, pull each source's payload,
+          // signal the entire group.
+          builder.create<SemaphoreWaitOp>(loc, sourceReady, numSources, zero);
+
+          // Row-major iteration over the gather group. The collector's own
+          // coordinate is included; the resulting "self read" is correct
+          // (just slightly inefficient) and avoids an inner-loop branch.
+          builder.create<scf::ForOp>(
+              loc, groupStart[0], endY, one, ValueRange(),
+              [&](OpBuilder &yBuilder, Location yLoc, Value srcY, ValueRange) {
+                yBuilder.create<scf::ForOp>(
+                    yLoc, groupStart[1], endX, one, ValueRange(),
+                    [&](OpBuilder &xBuilder, Location xLoc, Value srcX,
+                        ValueRange) {
+                      SmallVector<Value> physSrc =
+                          mapVirtualToPhysicalCoreIndex(xBuilder, xLoc,
+                                                        genericOp.getGrid(),
+                                                        {srcY, srcX});
+                      // Shard-level dma_read: read the entire src shard
+                      // from core[physSrc] into dst on the current core.
+                      // The expansion to fully indexed form (and the
+                      // srcCore-aware NoC lowering) is handled by the
+                      // downstream passes.
+                      Value tx = xBuilder.create<DMAReadOp>(
+                          xLoc, src, /*srcIndices=*/ValueRange(), dst,
+                          /*srcCore=*/ValueRange(physSrc));
+                      xBuilder.create<DMAWaitOp>(xLoc, tx);
+                      xBuilder.create<scf::YieldOp>(xLoc);
+                    });
+                yBuilder.create<scf::YieldOp>(yLoc);
+              });
+
+          // Signal collector-done to every core in the group. The collector
+          // itself is in this multicast region but does not wait on the
+          // semaphore.
+          builder.create<SemaphoreSetOp>(loc, collectorDone, one,
+                                         physGroupStart, groupShape,
+                                         /*startDevice=*/ValueRange(),
+                                         /*deviceMcastShape=*/ValueRange());
+
+          builder.create<scf::YieldOp>(loc);
+        },
+        [&](OpBuilder &builder, Location loc) {
+          // Source branch: signal collector that we are ready, then wait
+          // until the collector has finished pulling us.
+          builder.create<SemaphoreIncOp>(loc, sourceReady, one, physCollector);
+          builder.create<SemaphoreWaitOp>(loc, collectorDone, one, zero);
+          builder.create<scf::YieldOp>(loc);
+        });
+
+    rewriter.eraseOp(gather);
+    return success();
+  }
+};
+
 class D2MLowerDMACopyRewritePattern : public OpRewritePattern<LocalCopyOp> {
 public:
   using OpRewritePattern<LocalCopyOp>::OpRewritePattern;
@@ -303,6 +437,7 @@ public:
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext());
     patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext());
     patterns.add<D2MLowerDMACopyRewritePattern>(&getContext());
+    patterns.add<D2MLowerGatherCoreRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

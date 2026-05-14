@@ -139,6 +139,18 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMARead must have the same element type");
   }
+  // Cross-core local-L1 read form: srcCore is mutually exclusive with a
+  // device-laid-out src (it only makes sense when %src is a local memref
+  // whose L1 offset is uniform across the grid).
+  if (hasSrcCore()) {
+    if (isSrcRemote()) {
+      return emitOpError(
+          "srcCore is mutually exclusive with a device-laid-out src");
+    }
+    if (getSrcCore().size() != 2) {
+      return emitOpError("srcCore must have exactly 2 indices");
+    }
+  }
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
   if (isShardLevel()) {
@@ -1638,6 +1650,173 @@ bool RemoteStoreOp::hasTensorSemantics() {
   Value result = getResult();
   bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
   return memrefIsTensor || localBufferIsTensor || resultIsTensor;
+}
+
+//===----------------------------------------------------------------------===//
+// GatherCoreOp Verifier
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult GatherCoreOp::verify() {
+  Type srcType = getSrc().getType();
+  Type dstType = getDst().getType();
+  bool srcIsTensor = mlir::isa<RankedTensorType>(srcType);
+  bool dstIsTensor = mlir::isa<RankedTensorType>(dstType);
+
+  // Both operands must be in the same type domain.
+  if (srcIsTensor != dstIsTensor) {
+    return emitOpError("src and dst must both be tensors or both be memrefs");
+  }
+
+  // Result presence is tied to the type domain (DPS in tensor form, in-place
+  // in memref form).
+  bool hasResult = static_cast<bool>(getResult());
+  if (srcIsTensor && !hasResult) {
+    return emitOpError(
+        "tensor form must have a result (DPS); use the memref form for "
+        "in-place semantics");
+  }
+  if (!srcIsTensor && hasResult) {
+    return emitOpError(
+        "memref form must not have a result; the dst memref is the "
+        "destination (DPS)");
+  }
+  if (hasResult && getResult().getType() != dstType) {
+    return emitOpError("result type must match dst type");
+  }
+
+  // Neither operand has a device layout. Gather operates on per-core local
+  // L1 buffers; a device layout would imply a grid-indexed remote operand,
+  // which is the remote_load path, not this one.
+  if (ttcore::hasDeviceLayout(getSrc())) {
+    return emitOpError("src must not have a device layout");
+  }
+  if (ttcore::hasDeviceLayout(getDst())) {
+    return emitOpError("dst must not have a device layout");
+  }
+
+  auto srcShaped = mlir::cast<ShapedType>(srcType);
+  auto dstShaped = mlir::cast<ShapedType>(dstType);
+  if (srcShaped.getElementType() != dstShaped.getElementType()) {
+    return emitOpError("src and dst element types must match");
+  }
+  if (srcShaped.getShape() != dstShaped.getShape()) {
+    return emitOpError("src and dst shapes must match");
+  }
+
+  // Memory-space check applies only to the memref form.
+  if (!srcIsTensor) {
+    auto checkL1 = [&](MemRefType memrefType, StringRef name) -> LogicalResult {
+      auto memSpace = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+          memrefType.getMemorySpace());
+      if (!memSpace || memSpace.getValue() != ttcore::MemorySpace::DeviceL1) {
+        return emitOpError() << name << " must be in L1 memory space";
+      }
+      return success();
+    };
+    if (failed(checkL1(mlir::cast<MemRefType>(srcType), "src"))) {
+      return failure();
+    }
+    if (failed(checkL1(mlir::cast<MemRefType>(dstType), "dst"))) {
+      return failure();
+    }
+  }
+
+  // V1 is single-device, 2D grid: group and collector are 2-vectors.
+  if (getGroupStartIndex().size() != 2) {
+    return emitOpError("groupStartIndex must have exactly 2 indices");
+  }
+  if (getGroupShape().size() != 2) {
+    return emitOpError("groupShape must have exactly 2 indices");
+  }
+  if (getCollectorIndex().size() != 2) {
+    return emitOpError("collectorIndex must have exactly 2 indices");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GatherCoreOp Bufferization Interface Implementation
+//===----------------------------------------------------------------------===//
+
+bool GatherCoreOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool GatherCoreOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getDst();
+}
+
+mlir::bufferization::AliasingValueList
+GatherCoreOp::getAliasingValues(mlir::OpOperand &operand,
+                                const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  // In tensor form the result aliases dst (DPS). In memref form there is no
+  // result and nothing aliases.
+  Value result = getResult();
+  if (result && operand.get() == getDst()) {
+    aliasList.addAlias(
+        {result, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+GatherCoreOp::getBufferType(mlir::Value value,
+                            const mlir::bufferization::BufferizationOptions &,
+                            const mlir::bufferization::BufferizationState &,
+                            ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getSrc() || value == getDst()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult GatherCoreOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  Value result = getResult();
+  if (!result) {
+    // Already in memref form (no result); nothing to bufferize.
+    return mlir::failure();
+  }
+
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return srcBuffer;
+  }
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  if (failed(dstBuffer)) {
+    return dstBuffer;
+  }
+
+  // Use the explicit memref-form convenience builder.
+  rewriter.create<GatherCoreOp>(getLoc(), *srcBuffer, *dstBuffer,
+                                getGroupStartIndex(), getGroupShape(),
+                                getCollectorIndex());
+
+  // Wrap the dst buffer in a ToTensorOp so downstream tensor-form consumers
+  // can still resolve to the underlying memref via getBuffer().
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *dstBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool GatherCoreOp::hasTensorSemantics() {
+  bool srcIsTensor = mlir::isa<RankedTensorType>(getSrc().getType());
+  bool dstIsTensor = mlir::isa<RankedTensorType>(getDst().getType());
+  Value result = getResult();
+  bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
+  return srcIsTensor || dstIsTensor || resultIsTensor;
 }
 
 //===----------------------------------------------------------------------===//
