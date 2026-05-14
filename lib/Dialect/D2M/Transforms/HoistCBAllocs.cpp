@@ -77,20 +77,20 @@ private:
     for (Region &region : genericOp->getRegions()) {
       region.walk([&](memref::AllocOp allocOp) {
         if (allocOp->getAttr("d2m.scratch_buffer")) {
-          assert(allocOp->getAttrOfType<IntegerAttr>("address") &&
-                 "scratch buffer must have address attribute");
+          TT_assertv(allocOp->getAttrOfType<IntegerAttr>("address"),
+                     "scratch buffer must have address attribute");
           auto newAllocOp = attachCBLayoutAttribute(rewriter, allocOp, 1);
           allocsToHoist.push_back(newAllocOp);
         } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
           if (allocOp->getAttr("d2m.compute_intermediate")) {
             // Skip hoisting, these are fake buffers added by fusion that are
             // guaranteed to not be used
-            assert(
-                !allocOp->getAttrOfType<IntegerAttr>("address") &&
+            TT_assertv(
+                !allocOp->getAttrOfType<IntegerAttr>("address"),
                 "compute intermediate buffer must not have address attribute");
           } else {
-            assert(allocOp->getAttrOfType<IntegerAttr>("address") &&
-                   "synchronized buffer must have address attribute");
+            TT_assertv(allocOp->getAttrOfType<IntegerAttr>("address"),
+                       "synchronized buffer must have address attribute");
             auto newAllocOp = attachCBLayoutAttribute(
                 rewriter, allocOp,
                 allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")

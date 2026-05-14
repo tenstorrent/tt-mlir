@@ -623,6 +623,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     Block &funcBody = funcOp.getBody().front();
     const auto &L1memInfo = memSpaces[ordinal(MemorySpace::DeviceL1)];
 
+    LogicalResult result = success();
     funcBody.walk([&](d2m::GenericOp genericOp) {
       SequenceT genericSeqPos = analysis.sequencing[genericOp];
 
@@ -646,11 +647,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         } else {
           // We can allow this in the future but asserting for now to check it's
           // not used.
-          std::string opStr;
-          llvm::raw_string_ostream(opStr) << *allocOp;
-          llvm::report_fatal_error(
-              "Alloc op not tagged with any recognized attributes:\n" +
-              Twine(opStr));
+          allocOp->emitError(
+              "Alloc op not tagged with any recognized attributes");
+          result = failure();
+          return WalkResult::interrupt();
         }
 
         if (numBuffers.has_value()) {
@@ -673,6 +673,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         return WalkResult::advance();
       });
     });
+
+    if (failed(result)) {
+      return result;
+    }
 
     TT_ALLOC_DEBUG("collected {} in-generic memref alloc(s)",
                    llvm::count_if(analysis.memrefs, [](const auto &entry) {
@@ -1274,7 +1278,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteLoadOp.getMemref());
-            remoteLoadOp->setAttr("d2m.aliased_load", rewriter.getUnitAttr());
           }
         });
       }
@@ -1299,7 +1302,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());
-            remoteStoreOp->setAttr("d2m.aliased_store", rewriter.getUnitAttr());
           }
           return WalkResult::advance();
         });
@@ -1379,8 +1381,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   ///  - is not in an explicit datamovement form and the dimensions
   ///  corresponding to the load/store indices
   ///    are not broadcast or reduction.
-  /// This is a common function shared byt isAliasedLoad and isAliasedStore.
+  /// This is a common function shared by isAliasedLoad and isAliasedStore.
   bool canAliasOperand(d2m::GenericOp genericOp, Value genericOperand) const {
+    // Check if operand requires aliasing
+    bool isOutput = llvm::find_if(genericOp.getOutputs(), [&](Value operand) {
+                      return operand == genericOperand;
+                    }) != genericOp.getOutputs().end();
+    auto memspace = ttcore::getMemorySpace(
+        mlir::cast<MemRefType>(genericOperand.getType()));
+    if (!isNonTrivialView(genericOperand) && isOutput &&
+        !allowL1OutputSpilling && memspace != MemorySpace::DeviceDRAM) {
+      return true;
+    }
+
     if (useAlwaysStreamPolicy()) {
       return false;
     }
@@ -1392,8 +1405,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     // DRAM operands always need streams because data must physically
     // move between DRAM and L1 circular buffers.
-    auto memspace = ttcore::getMemorySpace(
-        mlir::cast<MemRefType>(genericOperand.getType()));
     if (memspace == MemorySpace::DeviceDRAM) {
       return false;
     }

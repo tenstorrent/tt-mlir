@@ -60,7 +60,6 @@ void createTTIRBufferizationPipeline(OpPassManager &pm,
   // bufferDeallocationOptions;
   // mlir::bufferization::buildBufferDeallocationPipeline(
   //    pm, bufferDeallocationOptions);
-  pm.addPass(d2m::createD2MMarkSynchronizedBuffers());
 }
 
 void createOptimizationPasses(OpPassManager &pm,
@@ -136,6 +135,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   }
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
+  pm.addPass(d2m::createD2MMarkSynchronizedBuffers());
   pm.addPass(d2m::createD2MInsertScratchBuffers());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
