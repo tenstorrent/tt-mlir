@@ -218,16 +218,27 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
                                      MemRefLayoutAttrInterface{}, memorySpace);
     auto outputType = MemRefType::get(shardShape, tileElementType,
                                       MemRefLayoutAttrInterface{}, memorySpace);
-    auto maskLayout = ttcore::CBLayoutAttr::get(
-        rewriter.getContext(), {1, 1},
-        ttcore::getElementSizeBytes(tileElementType), numStreamBuffers);
-    auto maskType =
-        MemRefType::get({1, 1}, tileElementType, maskLayout, memorySpace);
+    auto maskType = MemRefType::get({1, 1}, tileElementType,
+                                    MemRefLayoutAttrInterface{}, memorySpace);
 
-    Value input = rewriter.create<memref::AllocOp>(loc, inputType);
-    Value output = rewriter.create<memref::AllocOp>(loc, outputType);
-    Value rowMaskCB = rewriter.create<memref::AllocOp>(loc, maskType);
-    Value colMaskCB = rewriter.create<memref::AllocOp>(loc, maskType);
+    // Set the synchronized buffer attribute since manually introducing a
+    // post-bufferization memref alloc
+    auto inputOp = rewriter.create<memref::AllocOp>(loc, inputType);
+    inputOp->setAttr("d2m.synchronized_buffer",
+                     rewriter.getI32IntegerAttr(numStreamBuffers));
+    Value input = inputOp.getResult();
+    auto outputOp = rewriter.create<memref::AllocOp>(loc, outputType);
+    outputOp->setAttr("d2m.synchronized_buffer",
+                      rewriter.getI32IntegerAttr(numStreamBuffers));
+    Value output = outputOp.getResult();
+    auto rowMaskCBOp = rewriter.create<memref::AllocOp>(loc, maskType);
+    rowMaskCBOp->setAttr("d2m.synchronized_buffer",
+                         rewriter.getI32IntegerAttr(numStreamBuffers));
+    Value rowMaskCB = rowMaskCBOp.getResult();
+    auto colMaskCBOp = rewriter.create<memref::AllocOp>(loc, maskType);
+    colMaskCBOp->setAttr("d2m.synchronized_buffer",
+                         rewriter.getI32IntegerAttr(numStreamBuffers));
+    Value colMaskCB = colMaskCBOp.getResult();
 
     SmallVector<Value> remoteIndices;
     remoteIndices.reserve(gridShape.size());

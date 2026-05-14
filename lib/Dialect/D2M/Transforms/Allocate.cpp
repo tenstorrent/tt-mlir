@@ -646,7 +646,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         } else {
           // We can allow this in the future but asserting for now to check it's
           // not used.
-          llvm_unreachable("unexpected alloc op attribute");
+          std::string opStr;
+          llvm::raw_string_ostream(opStr) << *allocOp;
+          llvm::report_fatal_error(
+              "Alloc op not tagged with any recognized attributes:\n" +
+              Twine(opStr));
         }
 
         if (numBuffers.has_value()) {
@@ -1278,24 +1282,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       const auto &genericOpRef = genericOp;
-      auto cbUsageInfo = utils::getCBUsageInfo(
-          const_cast<GenericOp &>(genericOp).getRegion(0));
       for (const OperandContext &operandCtx : genericCtx.operands) {
         genericOpRef->walk([&](RemoteStoreOp remoteStoreOp) {
-          //  Also check we don't already have aliased load since we can't alias
+          //  Check we don't already have aliased load since we can't alias
           //  DMA on both sides
-          auto producerRemoteLoad = mlir::dyn_cast<d2m::RemoteLoadOp>(
-              cbUsageInfo[remoteStoreOp.getLocalBuffer()].producers[0]);
+          if (mlir::isa<d2m::OperandAliasOp>(
+                  remoteStoreOp.getLocalBuffer().getDefiningOp())) {
+            return WalkResult::advance();
+          }
+
           if (remoteStoreOp.getMemref() == operandCtx.operand->get() &&
-              isAliasedStore(remoteStoreOp) &&
-              (!producerRemoteLoad ||
-               !producerRemoteLoad->hasAttr("d2m.aliased_load"))) {
+              isAliasedStore(remoteStoreOp)) {
             auto *allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
+            TT_assertv(mlir::isa<memref::AllocOp>(allocOp),
+                       "Expected memref::AllocOp");
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());
             remoteStoreOp->setAttr("d2m.aliased_store", rewriter.getUnitAttr());
           }
+          return WalkResult::advance();
         });
       }
     }
