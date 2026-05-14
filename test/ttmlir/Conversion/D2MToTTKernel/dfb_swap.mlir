@@ -22,21 +22,23 @@ module {
     // DFB: ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.dfb<1, !ttcore.tile<32x32, f32>, 1, 1>
     // DFB: ttkernel.dfb_wait_front
     // DFB: ttkernel.dfb_reserve_back
-    // DFB: ttkernel.dfb_pop_front
     // DFB: ttkernel.dfb_push_back
+    // DFB: ttkernel.dfb_pop_front
     // DFB-NOT: ttkernel.cb_wait_front
 
     // CB: ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, f32>>
     // CB: ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, f32>>
     // CB: ttkernel.cb_wait_front
     // CB: ttkernel.cb_reserve_back
-    // CB: ttkernel.cb_pop_front
     // CB: ttkernel.cb_push_back
+    // CB: ttkernel.cb_pop_front
     // CB-NOT: ttkernel.dfb_wait_front
     %in = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
     %out = d2m.reserve %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
     %t = memref.load %in[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
     memref.store %t, %out[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+    d2m.push %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+    d2m.pop %cb0 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
 
     // Verify dfb_finish is emitted once per DFB at end of func.
     // DFB-COUNT-2: ttkernel.dfb_finish
