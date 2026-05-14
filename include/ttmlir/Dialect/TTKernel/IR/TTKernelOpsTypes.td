@@ -82,6 +82,8 @@ def TTKernel_L1Addr : TTKernel_Type<"L1Addr", "l1_addr"> {
 def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
     let summary = "TTKernel l1 address pointer";
     let description = "L1 pointer address type in TTKernel dialect";
+    let parameters = (ins DefaultValuedParameter<"unsigned", "32">:$elementWidth);
+    let assemblyFormat = "(`<` $elementWidth^ `>`)?";
 }
 
 def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "interleaved_addr_gen_fast"> {

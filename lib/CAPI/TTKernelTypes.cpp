@@ -45,7 +45,7 @@ MlirType ttmlirTTKernelL1AddrTypeGet(MlirContext ctx) {
 }
 
 MlirType ttmlirTTKernelL1AddrPtrTypeGet(MlirContext ctx) {
-  return wrap(L1AddrPtrType::get(unwrap(ctx)));
+  return wrap(L1AddrPtrType::get(unwrap(ctx), /*elementWidth=*/32));
 }
 
 MlirType ttmlirTTKernelInterleavedAddrGenFastTypeGet(MlirContext ctx) {

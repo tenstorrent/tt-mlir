@@ -211,6 +211,17 @@ static std::string ensureCBDeclaration(Value cb, Operation *useOp,
   return cbName;
 }
 
+static StringRef getL1PtrOpaqueTypeName(unsigned elementWidth) {
+  switch (elementWidth) {
+  case 16:
+    return "volatile tt_l1_ptr uint16_t";
+  case 32:
+    return "volatile tt_l1_ptr uint32_t";
+  default:
+    llvm_unreachable("unsupported L1AddrPtr element width");
+  }
+}
+
 // Type converter used for TTKernel/TTMetal conversions:
 namespace {
 class TTKernelToEmitCTypeConverter : public TypeConverter {
@@ -234,8 +245,8 @@ public:
     });
     addConversion(
         [ctx](mlir::tt::ttkernel::L1AddrPtrType type) -> emitc::PointerType {
-          return emitc::PointerType::get(
-              emitc::OpaqueType::get(ctx, "volatile tt_l1_ptr uint32_t"));
+          return emitc::PointerType::get(emitc::OpaqueType::get(
+              ctx, getL1PtrOpaqueTypeName(type.getElementWidth())));
         });
     addConversion([ctx](mlir::tt::ttkernel::DataFormatType type) -> Type {
       return emitc::OpaqueType::get(ctx, "DataFormat");
@@ -292,6 +303,32 @@ public:
 } // namespace
 
 namespace {
+class TTKernelCastToL1PtrOpToEmitCOpRewriter
+    : public OpConversionPattern<ttkernel::CastToL1PtrOp> {
+
+public:
+  TTKernelCastToL1PtrOpToEmitCOpRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<ttkernel::CastToL1PtrOp>(typeConverter, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(ttkernel::CastToL1PtrOp op,
+                  ttkernel::CastToL1PtrOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto ptrType = mlir::cast<ttkernel::L1AddrPtrType>(op.getL1Ptr().getType());
+    std::string castName =
+        "reinterpret_cast<" +
+        getL1PtrOpaqueTypeName(ptrType.getElementWidth()).str() + "*>";
+
+    Type resultType = getTypeConverter()->convertType(op.getL1Ptr().getType());
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, castName, nullptr, ArrayAttr(), adaptor.getOperands());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class TTKernelStoreToL1OpToEmitCOpRewriter
     : public OpConversionPattern<ttkernel::StoreToL1Op> {
 
@@ -312,13 +349,11 @@ public:
                 .getPointee()),
         adaptor.getL1Ptr(), adaptor.getOffset());
 
-    // Cast rhs to volatile tt_l1_ptr uint32_t to match the pointed type.
-    // This is because assignment requires the types to match. This compiles
-    // in metal, but it looks ugly.
-    auto casted = rewriter.create<emitc::CastOp>(
-        op->getLoc(),
-        emitc::OpaqueType::get(op.getContext(), "volatile tt_l1_ptr uint32_t"),
-        adaptor.getValue());
+    auto pointeeType =
+        mlir::cast<emitc::PointerType>(adaptor.getL1Ptr().getType())
+            .getPointee();
+    auto casted = rewriter.create<emitc::CastOp>(op->getLoc(), pointeeType,
+                                                 adaptor.getValue());
     rewriter.replaceOpWithNewOp<emitc::AssignOp>(op, subscriptOp, casted);
     return success();
   }
@@ -1561,7 +1596,7 @@ public:
         TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
+        TTKernelCastToL1PtrOpToEmitCOpRewriter,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SemaphoreWaitMinOp>,

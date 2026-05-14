@@ -3791,7 +3791,7 @@ def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
       Store value to L1.
     }];
 
-    let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
+    let arguments = (ins AnyTypeOf<[I16, I32]>:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
 
     let assemblyFormat = [{
       `(` $value `,` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
@@ -3801,12 +3801,12 @@ def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
 def TTKernel_LoadFromL1Op : TTKernel_Op<"load_from_l1"> {
     let summary = "LoadFromL1";
     let description = [{
-      Load an i32 value from L1.
+      Load value from L1.
     }];
 
     let arguments = (ins TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
 
-    let results = (outs I32:$value);
+    let results = (outs AnyTypeOf<[I16, I32]>:$value);
 
     let assemblyFormat = [{
       `(` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
