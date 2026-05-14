@@ -380,6 +380,23 @@ void populatePassesModule(nb::module_ &m) {
         mlir::tt::ttmetal::translateTTMetalToFlatbuffer(moduleOp));
   });
 
+  m.def("ttmetal_to_flatbuffer_bin", [](MlirModule module) {
+    mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+    // Create a dialect registry and register all necessary dialects and
+    // translations
+    mlir::DialectRegistry registry;
+
+    // Register all LLVM IR translations
+    registerAllToLLVMIRTranslations(registry);
+
+    // Apply the registry to the module's context
+    moduleOp->getContext()->appendDialectRegistry(registry);
+
+    return wrapInCapsule(
+        mlir::tt::ttmetal::translateTTMetalToFlatbuffer(moduleOp));
+  });
+
   m.def(
       "ttkernel_to_cpp",
       [](MlirModule module) {
