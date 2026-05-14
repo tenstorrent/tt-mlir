@@ -5,23 +5,19 @@ import pytest
 import _ttmlir_runtime as tt_runtime
 
 from chisel.ops import get_op_inputs, get_op_outputs
-
-
-# For now skipping quantization OPS
-_SKIP_OPS = {"ttnn.quantize", "ttnn.dequantize", "ttnn.requantize"}
+from utils import iterate_programs, QUANTIZE_OP_NAMES
 
 
 def test_walk_program_shapes_match_ir(binary, ir_module, subtests):
     """TensorRef shapes from walk_program must match shapes in the IR module."""
 
-    for prog_idx in range(binary.get_num_programs()):
-        prog_name = binary.get_program_name(prog_idx)
+    for prog_idx, prog_name in iterate_programs(binary):
         mlir_ops = iter(ir_module.get_function_ops(prog_name))
 
         def _check(op_ctx):
             mlir_op = next(mlir_ops)
 
-            if mlir_op.name in _SKIP_OPS:
+            if mlir_op.name in QUANTIZE_OP_NAMES:
                 return
 
             with subtests.test(op=mlir_op.name, side="inputs"):
