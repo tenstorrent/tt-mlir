@@ -4,8 +4,11 @@
 import pytest
 import _ttmlir_runtime as tt_runtime
 
+from chisel.op_configs import get_no_golden_op_names
 from chisel.ops import get_op_inputs, get_op_outputs
-from utils import iterate_programs, QUANTIZE_OP_NAMES
+from utils import iterate_programs
+
+_SKIPPED_OPS: frozenset[str] = get_no_golden_op_names()
 
 
 def test_walk_program_shapes_match_ir(binary, ir_module, subtests):
@@ -17,7 +20,7 @@ def test_walk_program_shapes_match_ir(binary, ir_module, subtests):
         def _check(op_ctx):
             mlir_op = next(mlir_ops)
 
-            if mlir_op.name in QUANTIZE_OP_NAMES:
+            if mlir_op.name in _SKIPPED_OPS:
                 return
 
             with subtests.test(op=mlir_op.name, side="inputs"):
