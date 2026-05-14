@@ -79,6 +79,13 @@ public:
       return;
     }
 
+    for (auto *user : memrefValue.getUsers()) {
+      if (auto genericOp = dyn_cast<d2m::GenericOp>(user)) {
+        rewriter.setInsertionPointToStart(&genericOp.getRegion(0).front());
+        return;
+      }
+    }
+    // assert(memrefValue.getParentOfType<d2m::GenericOp>()  && "expected linearized memref to be used within a d2m.generic");
     rewriter.setInsertionPointAfterValue(memrefValue);
   }
 
