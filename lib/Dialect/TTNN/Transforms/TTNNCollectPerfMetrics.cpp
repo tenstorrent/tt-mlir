@@ -65,6 +65,16 @@ struct PerfTargets {
   uint64_t kvCacheMemoryBytes = 0;
   uint64_t inputCount = 0;
   uint64_t inputMemoryBytes = 0;
+  // Embedding-feeding params that are double-counted in DRAM-bound rooflines
+  // when tt-xla compiles tied embeddings as untied (input embedding lookup
+  // accesses one row per token — effectively negligible — while the LM head
+  // matmul reads the full V*H weight; if both tensors are present they show
+  // up as two separate args here). For the "effective" DRAM-bound figure we
+  // subtract these out, matching what a properly-tied compile would read.
+  uint64_t embeddingParamCount = 0;
+  uint64_t embeddingParamMemoryBytes = 0;
+  uint64_t effectiveParamCount = 0;
+  uint64_t effectiveParamMemoryBytes = 0;
 
   uint64_t matmulFlops = 0;
   uint64_t linearFlops = 0;
@@ -75,6 +85,9 @@ struct PerfTargets {
   // Derived quantities.
   double dramRooflineTimeSec = 0.0;
   double computeRooflineTimeSecLofi = 0.0;
+  double computeRooflineTimeSecHifi2 = 0.0;
+  double computeRooflineTimeSecHifi3 = 0.0;
+  double computeRooflineTimeSecHifi4 = 0.0;
   std::string bound;
   double topPerfTimeSec = 0.0;
   double topPerfSamplesPerSec = 0.0;
@@ -343,11 +356,51 @@ private:
     }
   }
 
+  // Trace a Value back to the originating BlockArgument of `funcOp` through
+  // pass-through ops (ttcore.load_cached, layout conversions, typecasts).
+  // Returns the BlockArgument if found, else nullptr.
+  BlockArgument traceToFuncArg(Value v, func::FuncOp funcOp) {
+    while (v) {
+      if (auto blockArg = mlir::dyn_cast<BlockArgument>(v)) {
+        if (blockArg.getOwner()->getParentOp() == funcOp) {
+          return blockArg;
+        }
+        return nullptr;
+      }
+      Operation *def = v.getDefiningOp();
+      if (!def || def->getNumOperands() == 0) {
+        return nullptr;
+      }
+      // ttcore.load_cached(@const_eval, [%arg, ...]) — first operand is the
+      // upstream func arg for the embedding-feeding case in the forward
+      // function. For other pass-through ops (to_layout, typecast,
+      // to_memory_config), the first operand is the input tensor we want to
+      // follow.
+      v = def->getOperand(0);
+    }
+    return nullptr;
+  }
+
   // Walk forward function arguments and classify them as
   // params/constants vs KV cache vs runtime inputs. Numbers are in scalar
   // elements; bytes use on-device storage type (so BFP8 weights are 1 byte
   // per element through the TileType byte path).
+  //
+  // Also identifies the embedding-feeding parameter args (the ones consumed
+  // by a ttnn.embedding op) and tracks them separately so callers can compute
+  // an "effective" DRAM-bound weight memory that excludes them — see the
+  // PerfTargets fields for why.
   void collectArgumentStats(PerfTargets &t, func::FuncOp funcOp) {
+    // First, find every BlockArgument that flows into a ttnn.embedding op as
+    // the weight operand. The set is per-function and usually has 0 or 1
+    // entries (some models have multiple embeddings, e.g. position embeddings).
+    llvm::DenseSet<unsigned> embeddingArgIndices;
+    funcOp.walk([&](ttnn::EmbeddingOp embeddingOp) {
+      if (auto blockArg = traceToFuncArg(embeddingOp.getWeight(), funcOp)) {
+        embeddingArgIndices.insert(blockArg.getArgNumber());
+      }
+    });
+
     for (BlockArgument arg : funcOp.getArguments()) {
       auto tensorType = mlir::dyn_cast<RankedTensorType>(arg.getType());
       if (!tensorType) {
@@ -355,7 +408,7 @@ private:
       }
       uint64_t scalarVol = getScalarVolume(tensorType);
       uint64_t bytes = getTensorMemoryBytes(tensorType);
-      size_t idx = arg.getArgNumber();
+      unsigned idx = arg.getArgNumber();
 
       if (ttcore::isKVCacheArgument(funcOp, idx)) {
         t.kvCacheCount += scalarVol;
@@ -371,8 +424,26 @@ private:
         // Parameter, Constant, or Default.
         t.paramCount += scalarVol;
         t.paramMemoryBytes += bytes;
+        if (embeddingArgIndices.contains(idx)) {
+          t.embeddingParamCount += scalarVol;
+          t.embeddingParamMemoryBytes += bytes;
+        }
       }
     }
+
+    // Effective weight = total params minus the embedding lookup weight,
+    // since the embedding op only touches batch_size rows per step (sparse
+    // access). Even when the model uses tied weights, only the LM head matmul
+    // reads the full V*H tensor on each forward; the embedding lookup does
+    // not. Subtracting here makes the DRAM roofline match what a tied compile
+    // would actually read.
+    t.effectiveParamCount = t.paramCount > t.embeddingParamCount
+                                ? t.paramCount - t.embeddingParamCount
+                                : 0;
+    t.effectiveParamMemoryBytes =
+        t.paramMemoryBytes > t.embeddingParamMemoryBytes
+            ? t.paramMemoryBytes - t.embeddingParamMemoryBytes
+            : 0;
   }
 
   // Walk all ops in the forward function and count FLOPs for matmul-class
@@ -504,15 +575,35 @@ private:
     collectArgumentStats(t, forwardFunc);
     collectComputeStats(t, forwardFunc);
 
-    // Total weight bytes that have to be read from DRAM each step.
-    uint64_t totalWeightBytes = t.paramMemoryBytes + t.kvCacheMemoryBytes;
+    // Effective weight bytes that have to be read from DRAM each step. We
+    // exclude the embedding-feeding parameter because the input embedding
+    // lookup only touches one row per token (sparse access, ~kB per step),
+    // not the full V*H weight — and when tied weights are preserved, that
+    // same tensor serves the LM head matmul once, which we account for via
+    // the matmul FLOPs and the const-eval'd LM-head weight (a separate arg
+    // in tt-xla's untied compile). See PerfTargets fields for context.
+    uint64_t totalWeightBytes =
+        t.effectiveParamMemoryBytes + t.kvCacheMemoryBytes;
     if (t.dramBandwidthBytesPerSec > 0) {
       t.dramRooflineTimeSec = static_cast<double>(totalWeightBytes) /
                               static_cast<double>(t.dramBandwidthBytesPerSec);
     }
+    auto flops = static_cast<double>(t.totalFlops);
     if (t.peakFlopsLofi > 0) {
-      t.computeRooflineTimeSecLofi = static_cast<double>(t.totalFlops) /
-                                     static_cast<double>(t.peakFlopsLofi);
+      t.computeRooflineTimeSecLofi =
+          flops / static_cast<double>(t.peakFlopsLofi);
+    }
+    if (t.peakFlopsHifi2 > 0) {
+      t.computeRooflineTimeSecHifi2 =
+          flops / static_cast<double>(t.peakFlopsHifi2);
+    }
+    if (t.peakFlopsHifi3 > 0) {
+      t.computeRooflineTimeSecHifi3 =
+          flops / static_cast<double>(t.peakFlopsHifi3);
+    }
+    if (t.peakFlopsHifi4 > 0) {
+      t.computeRooflineTimeSecHifi4 =
+          flops / static_cast<double>(t.peakFlopsHifi4);
     }
     t.bound = t.dramRooflineTimeSec >= t.computeRooflineTimeSecLofi ? "dram"
                                                                     : "compute";
@@ -547,6 +638,15 @@ private:
     params["memory_bytes"] = static_cast<int64_t>(t.paramMemoryBytes);
     params["memory_gb"] =
         static_cast<double>(t.paramMemoryBytes) / (1024.0 * 1024.0 * 1024.0);
+    params["embedding_count"] = static_cast<int64_t>(t.embeddingParamCount);
+    params["embedding_memory_bytes"] =
+        static_cast<int64_t>(t.embeddingParamMemoryBytes);
+    params["effective_count"] = static_cast<int64_t>(t.effectiveParamCount);
+    params["effective_memory_bytes"] =
+        static_cast<int64_t>(t.effectiveParamMemoryBytes);
+    params["effective_memory_gb"] =
+        static_cast<double>(t.effectiveParamMemoryBytes) /
+        (1024.0 * 1024.0 * 1024.0);
     pt["params"] = std::move(params);
 
     llvm::json::Object kv;
@@ -574,6 +674,9 @@ private:
     llvm::json::Object rl;
     rl["dram_time_sec"] = t.dramRooflineTimeSec;
     rl["compute_time_sec_lofi"] = t.computeRooflineTimeSecLofi;
+    rl["compute_time_sec_hifi2"] = t.computeRooflineTimeSecHifi2;
+    rl["compute_time_sec_hifi3"] = t.computeRooflineTimeSecHifi3;
+    rl["compute_time_sec_hifi4"] = t.computeRooflineTimeSecHifi4;
     rl["bound"] = t.bound;
     rl["top_perf_time_sec"] = t.topPerfTimeSec;
     rl["top_perf_samples_per_sec"] = t.topPerfSamplesPerSec;
