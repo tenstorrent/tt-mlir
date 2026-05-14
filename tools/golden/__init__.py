@@ -9,6 +9,8 @@ __all__ = [
     "unpack_mlir_attr",
     "get_golden_function",
     "GOLDEN_MAPPINGS",
+    "CHISEL_GOLDEN_MAPPINGS",
+    "get_chisel_golden_function",
     "get_pcc",
     "get_atol_rtol",
     "get_atol_rtol_pcc",
