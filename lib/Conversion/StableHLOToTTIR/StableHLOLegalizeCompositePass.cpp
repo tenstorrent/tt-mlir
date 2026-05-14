@@ -845,28 +845,29 @@ public:
   }
 };
 
-class TenstorrentGatherConversionPattern
+class TenstorrentGatherDimConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 public:
-  TenstorrentGatherConversionPattern(MLIRContext *context)
+  TenstorrentGatherDimConversionPattern(MLIRContext *context)
       : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
 
   LogicalResult
   matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
                   mlir::stablehlo::CompositeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (srcOp.getName() != "tenstorrent.gather_dim") {
+    auto opName = srcOp.getName();
+    if (opName != "tenstorrent.gather_dim" && opName != "tenstorrent.gather") {
       return failure();
     }
 
     if (adaptor.getOperands().size() != 2) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather_dim must have exactly 2 operands");
+          srcOp, opName + " must have exactly 2 operands");
     }
 
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather_dim must have exactly one result");
+          srcOp, opName + " must have exactly one result");
     }
 
     auto outputType =
@@ -985,7 +986,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);
   patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
-  patterns.add<TenstorrentGatherConversionPattern>(context);
+  patterns.add<TenstorrentGatherDimConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt

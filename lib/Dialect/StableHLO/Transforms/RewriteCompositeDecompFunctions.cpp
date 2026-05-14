@@ -144,6 +144,7 @@ static const llvm::StringMap<DecompRewriter> &getCompositeRewriters() {
   static const llvm::StringMap<DecompRewriter> map = [] {
     llvm::StringMap<DecompRewriter> m;
     m["tenstorrent.gather_dim"] = rewriteTenstorrentGatherDecomp;
+    m["tenstorrent.gather"] = rewriteTenstorrentGatherDecomp;
     return m;
   }();
   return map;
