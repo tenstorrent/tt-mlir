@@ -3595,6 +3595,28 @@ public:
   }
 };
 
+class RotaryEmbeddingOpConversionPattern
+    : public OpConversionPattern<ttir::RotaryEmbeddingOp> {
+public:
+  using OpConversionPattern<ttir::RotaryEmbeddingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RotaryEmbeddingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType =
+        this->getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ttnn::RotaryEmbeddingOp>(
+        op, resultType, adaptor.getInput(), adaptor.getCosCache(),
+        adaptor.getSinCache(),
+        /*token_index=*/mlir::IntegerAttr(),
+        /*compute_config=*/nullptr);
+    return success();
+  }
+};
+
 class TopKOpConversionPattern : public OpConversionPattern<ttir::TopKOp> {
 public:
   using OpConversionPattern<ttir::TopKOp>::OpConversionPattern;
@@ -3764,6 +3786,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
+           RotaryEmbeddingOpConversionPattern,
            TopKOpConversionPattern,
            TopKRouterGptOpConversionPattern
            >(typeConverter, ctx);

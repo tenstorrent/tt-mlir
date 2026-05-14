@@ -5363,6 +5363,52 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
 }
 
 //===----------------------------------------------------------------------===//
+// RotaryEmbeddingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::RotaryEmbeddingOp::verify() {
+  auto inputType = mlir::cast<RankedTensorType>(getInput().getType());
+  auto cosType = mlir::cast<RankedTensorType>(getCosCache().getType());
+  auto sinType = mlir::cast<RankedTensorType>(getSinCache().getType());
+  auto resultType = mlir::cast<RankedTensorType>(getResult().getType());
+
+  // All tensors must be rank 4.
+  if (inputType.getRank() != 4) {
+    return emitOpError("input tensor must be rank 4, got rank ")
+           << inputType.getRank();
+  }
+  if (cosType.getRank() != 4) {
+    return emitOpError("cos_cache tensor must be rank 4, got rank ")
+           << cosType.getRank();
+  }
+  if (sinType.getRank() != 4) {
+    return emitOpError("sin_cache tensor must be rank 4, got rank ")
+           << sinType.getRank();
+  }
+
+  // cos and sin must have the same shape.
+  if (cosType.getShape() != sinType.getShape()) {
+    return emitOpError("cos_cache and sin_cache must have the same shape, got ")
+           << cosType.getShape() << " and " << sinType.getShape();
+  }
+
+  // Last dimension (head_dim) must match between input and cos/sin.
+  auto inputShape = inputType.getShape();
+  auto cosShape = cosType.getShape();
+  if (inputShape[3] != cosShape[3]) {
+    return emitOpError("head_dim mismatch: input has ")
+           << inputShape[3] << " but cos/sin caches have " << cosShape[3];
+  }
+
+  // Result shape must match input shape.
+  if (inputType.getShape() != resultType.getShape()) {
+    return emitOpError("result shape must match input shape");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // SortOp
 //===----------------------------------------------------------------------===//
 

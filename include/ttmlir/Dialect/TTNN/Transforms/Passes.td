@@ -333,7 +333,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "uint32_t", /*default=*/"10000",
             "Maximum number of fallback configurations to try before "
             "giving up (0 = unlimited). Only used when "
-            "enable-op-constraints is true.">
+            "enable-op-constraints is true.">,
+    Option<"enableRoPEFusion",
+            "enable-rope-fusion",
+            "bool", /*default=*/"false",
+            "Enable RoPE fusion patterns at the TTNN level. Disabled by "
+            "default since RoPE fusion is handled at the TTIR level.">
   ];
 }
 

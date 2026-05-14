@@ -320,10 +320,13 @@ public:
       OpValidationConfig validationConfig;
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
 
-      patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
+      if (enableRoPEFusion) {
+        patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
+                                                   validationConfig);
+        patterns.add<fusing::RoPEExpandedFusing>(&getContext(),
                                                  validationConfig);
-      patterns.add<fusing::RoPEExpandedFusing>(&getContext(), validationConfig);
-      patterns.add<fusing::RoPEDecodeFusing>(&getContext());
+        patterns.add<fusing::RoPEDecodeFusing>(&getContext());
+      }
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
