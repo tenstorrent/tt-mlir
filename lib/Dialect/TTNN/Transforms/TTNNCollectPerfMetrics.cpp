@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -23,6 +25,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <cassert>
 #include <string>
 
@@ -41,6 +44,116 @@ struct OperationMetrics {
   bool hasSystemMemory = false;
   std::string layoutInfo;
 };
+
+// First-cut single-chip perf ceiling estimate. See
+// docs/superpowers/specs/2026-05-14-perf-target-estimation-design.md.
+struct PerfTargets {
+  // Hardware description.
+  std::string arch;
+  unsigned chipCountInSystemDesc = 0;
+  uint64_t workerGridCores = 0;
+  uint64_t dramBandwidthBytesPerSec = 0;
+  uint64_t peakFlopsLofi = 0;
+  uint64_t peakFlopsHifi2 = 0;
+  uint64_t peakFlopsHifi3 = 0;
+  uint64_t peakFlopsHifi4 = 0;
+
+  // Graph statistics.
+  uint64_t paramCount = 0;
+  uint64_t paramMemoryBytes = 0;
+  uint64_t kvCacheCount = 0;
+  uint64_t kvCacheMemoryBytes = 0;
+  uint64_t inputCount = 0;
+  uint64_t inputMemoryBytes = 0;
+
+  uint64_t matmulFlops = 0;
+  uint64_t linearFlops = 0;
+  uint64_t conv2dFlops = 0;
+  uint64_t sparseMatmulFlops = 0;
+  uint64_t totalFlops = 0;
+
+  // Derived quantities.
+  double dramRooflineTimeSec = 0.0;
+  double computeRooflineTimeSecLofi = 0.0;
+  std::string bound;
+  double topPerfTimeSec = 0.0;
+  double topPerfSamplesPerSec = 0.0;
+};
+
+// Single place to encode the empirical utilization assumption. Real-world
+// kernels rarely hit theoretical roofline; we approximate by 2x.
+inline double topPerfTimeFromRoofline(double dramTime, double computeTime) {
+  return 2.0 * std::max(dramTime, computeTime);
+}
+
+// Logical scalar shape of a tensor. If the element type is TileType, defer
+// to TileType::getScalarShape which un-tiles the trailing dims.
+inline llvm::SmallVector<int64_t>
+getScalarTensorShape(mlir::RankedTensorType tt) {
+  llvm::SmallVector<int64_t> shape(tt.getShape());
+  if (auto tile = mlir::dyn_cast<ttcore::TileType>(tt.getElementType())) {
+    return tile.getScalarShape(shape);
+  }
+  return shape;
+}
+
+inline uint64_t getScalarVolume(mlir::RankedTensorType tt) {
+  uint64_t v = 1;
+  for (int64_t d : getScalarTensorShape(tt)) {
+    if (d <= 0) {
+      return 0;
+    }
+    v *= static_cast<uint64_t>(d);
+  }
+  return v;
+}
+
+// Storage bytes for a tensor. Uses the actual on-device element/tile size, so
+// BFP8 weights end up as 1 byte per element via the tile-byte path.
+inline uint64_t getTensorMemoryBytes(mlir::RankedTensorType tt) {
+  uint64_t v = 1;
+  for (int64_t d : tt.getShape()) {
+    if (d <= 0) {
+      return 0;
+    }
+    v *= static_cast<uint64_t>(d);
+  }
+  return v * ttcore::getElementSizeBytes(tt.getElementType());
+}
+
+// Returns Hout and Wout for a Conv2dOp using the explicit attributes on the
+// op itself. We deliberately do not look at the result tensor shape because
+// the output is flattened to (1, 1, N*Hout*Wout, C) and is harder to invert.
+inline std::pair<int64_t, int64_t> getConv2dOutputSpatial(ttnn::Conv2dOp op) {
+  int64_t Hin = op.getInputHeight();
+  int64_t Win = op.getInputWidth();
+  auto kernel = op.getKernelSize();
+  auto stride = op.getStride();
+  auto padding = op.getPadding();
+  auto dilation = op.getDilation();
+
+  int64_t KH = kernel[0];
+  int64_t KW = kernel[1];
+  int64_t sH = stride[0];
+  int64_t sW = stride[1];
+  int64_t dH = dilation[0];
+  int64_t dW = dilation[1];
+
+  int64_t pTop, pBottom, pLeft, pRight;
+  if (padding.size() == 2) {
+    pTop = pBottom = padding[0];
+    pLeft = pRight = padding[1];
+  } else {
+    pTop = padding[0];
+    pBottom = padding[1];
+    pLeft = padding[2];
+    pRight = padding[3];
+  }
+
+  int64_t Hout = (Hin + pTop + pBottom - dH * (KH - 1) - 1) / sH + 1;
+  int64_t Wout = (Win + pLeft + pRight - dW * (KW - 1) - 1) / sW + 1;
+  return {Hout, Wout};
+}
 
 struct AggregatedMetrics {
   uint64_t totalOps = 0;
@@ -176,6 +289,282 @@ private:
     jsonOutput["operation_type_breakdown"] = std::move(operationTypeBreakdown);
   }
 
+  // Pull DRAM bandwidth and peak FLOPS from a hardcoded per-arch table. The
+  // values are not present in the SystemDescAttr today, so we look them up
+  // from the arch + grid dims. Single-chip n150 only — see design doc.
+  void populateHardwareLimits(PerfTargets &t, ttcore::ChipDescAttr chipDesc) {
+    auto arch = chipDesc.getArch().getValue();
+    auto gridShape = chipDesc.getGrid();
+    uint64_t numCores = 1;
+    for (int64_t d : gridShape) {
+      if (d > 0) {
+        numCores *= static_cast<uint64_t>(d);
+      }
+    }
+    t.workerGridCores = numCores;
+
+    switch (arch) {
+    case ttcore::Arch::WormholeB0:
+      t.arch = "wormhole_b0";
+      // Wormhole B0 n150: 12 channels of GDDR6, 288 GB/s aggregate.
+      t.dramBandwidthBytesPerSec = 288ULL * 1000ULL * 1000ULL * 1000ULL;
+      // 4 TFLOPS / engine at LoFi @ 1 GHz times worker grid.
+      t.peakFlopsLofi = 4ULL * 1000ULL * 1000ULL * 1000ULL * 1000ULL * numCores;
+      t.peakFlopsHifi2 = t.peakFlopsLofi / 2ULL;
+      t.peakFlopsHifi3 = (t.peakFlopsLofi * 4ULL) / 12ULL; // ~1.33 / engine
+      t.peakFlopsHifi4 = t.peakFlopsLofi / 4ULL;
+      break;
+    case ttcore::Arch::Blackhole:
+      t.arch = "blackhole";
+      // Placeholder values. Refine when we evaluate on Blackhole.
+      t.dramBandwidthBytesPerSec = 512ULL * 1000ULL * 1000ULL * 1000ULL;
+      t.peakFlopsLofi = 8ULL * 1000ULL * 1000ULL * 1000ULL * 1000ULL * numCores;
+      t.peakFlopsHifi2 = t.peakFlopsLofi / 2ULL;
+      t.peakFlopsHifi3 = (t.peakFlopsLofi * 4ULL) / 12ULL;
+      t.peakFlopsHifi4 = t.peakFlopsLofi / 4ULL;
+      break;
+    }
+  }
+
+  // Walk forward function arguments and classify them as
+  // params/constants vs KV cache vs runtime inputs. Numbers are in scalar
+  // elements; bytes use on-device storage type (so BFP8 weights are 1 byte
+  // per element through the TileType byte path).
+  void collectArgumentStats(PerfTargets &t, func::FuncOp funcOp) {
+    for (BlockArgument arg : funcOp.getArguments()) {
+      auto tensorType = mlir::dyn_cast<RankedTensorType>(arg.getType());
+      if (!tensorType) {
+        continue;
+      }
+      uint64_t scalarVol = getScalarVolume(tensorType);
+      uint64_t bytes = getTensorMemoryBytes(tensorType);
+      size_t idx = arg.getArgNumber();
+
+      if (ttcore::isKVCacheArgument(funcOp, idx)) {
+        t.kvCacheCount += scalarVol;
+        t.kvCacheMemoryBytes += bytes;
+        continue;
+      }
+
+      auto argType = ttcore::getFunctionArgumentType(funcOp, idx);
+      if (argType == ttcore::ArgumentType::Input) {
+        t.inputCount += scalarVol;
+        t.inputMemoryBytes += bytes;
+      } else {
+        // Parameter, Constant, or Default.
+        t.paramCount += scalarVol;
+        t.paramMemoryBytes += bytes;
+      }
+    }
+  }
+
+  // Walk all ops in the forward function and count FLOPs for matmul-class
+  // ops only. Higher-level ops like scaled_dot_product_attention decompose
+  // into matmuls by the time TTNNCollectPerfMetrics runs, so we pick them up
+  // automatically without per-op accounting.
+  void collectComputeStats(PerfTargets &t, func::FuncOp funcOp) {
+    funcOp.walk([&](Operation *op) {
+      if (auto matmul = mlir::dyn_cast<ttnn::MatmulOp>(op)) {
+        auto aType = mlir::cast<RankedTensorType>(matmul.getA().getType());
+        auto outType =
+            mlir::cast<RankedTensorType>(matmul.getResult().getType());
+        auto aShape = getScalarTensorShape(aType);
+        auto outShape = getScalarTensorShape(outType);
+        if (aShape.size() < 2 || outShape.empty()) {
+          return;
+        }
+        int64_t k = matmul.getTransposeA() ? aShape[aShape.size() - 2]
+                                           : aShape[aShape.size() - 1];
+        uint64_t outVol = 1;
+        for (int64_t d : outShape) {
+          if (d <= 0) {
+            return;
+          }
+          outVol *= static_cast<uint64_t>(d);
+        }
+        uint64_t flops = 2ULL * outVol * static_cast<uint64_t>(k);
+        t.matmulFlops += flops;
+        t.totalFlops += flops;
+        return;
+      }
+      if (auto linear = mlir::dyn_cast<ttnn::LinearOp>(op)) {
+        auto aType = mlir::cast<RankedTensorType>(linear.getA().getType());
+        auto outType =
+            mlir::cast<RankedTensorType>(linear.getResult().getType());
+        auto aShape = getScalarTensorShape(aType);
+        auto outShape = getScalarTensorShape(outType);
+        if (aShape.size() < 2 || outShape.empty()) {
+          return;
+        }
+        int64_t k = linear.getTransposeA() ? aShape[aShape.size() - 2]
+                                           : aShape[aShape.size() - 1];
+        uint64_t outVol = 1;
+        for (int64_t d : outShape) {
+          if (d <= 0) {
+            return;
+          }
+          outVol *= static_cast<uint64_t>(d);
+        }
+        uint64_t flops = 2ULL * outVol * static_cast<uint64_t>(k);
+        // Bias add is +outVol FLOPs, negligible vs the matmul.
+        if (linear.getBias()) {
+          flops += outVol;
+        }
+        t.linearFlops += flops;
+        t.totalFlops += flops;
+        return;
+      }
+      if (auto conv = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
+        int64_t N = conv.getBatchSize();
+        int64_t Cin = conv.getInChannels();
+        int64_t Cout = conv.getOutChannels();
+        int64_t groups = conv.getGroups();
+        auto kernel = conv.getKernelSize();
+        if (kernel.size() < 2 || groups == 0) {
+          return;
+        }
+        auto [Hout, Wout] = getConv2dOutputSpatial(conv);
+        if (Hout <= 0 || Wout <= 0) {
+          return;
+        }
+        uint64_t flops =
+            2ULL * static_cast<uint64_t>(N) * static_cast<uint64_t>(Hout) *
+            static_cast<uint64_t>(Wout) * static_cast<uint64_t>(Cin) *
+            static_cast<uint64_t>(Cout) * static_cast<uint64_t>(kernel[0]) *
+            static_cast<uint64_t>(kernel[1]) / static_cast<uint64_t>(groups);
+        t.conv2dFlops += flops;
+        t.totalFlops += flops;
+        return;
+      }
+      if (auto sm = mlir::dyn_cast<ttnn::SparseMatmulOp>(op)) {
+        auto aType = mlir::cast<RankedTensorType>(sm.getA().getType());
+        auto outType = mlir::cast<RankedTensorType>(sm.getResult().getType());
+        auto aShape = getScalarTensorShape(aType);
+        auto outShape = getScalarTensorShape(outType);
+        if (aShape.size() < 2 || outShape.empty()) {
+          return;
+        }
+        int64_t k = aShape[aShape.size() - 1];
+        uint64_t outVol = 1;
+        for (int64_t d : outShape) {
+          if (d <= 0) {
+            return;
+          }
+          outVol *= static_cast<uint64_t>(d);
+        }
+        uint64_t flops = 2ULL * outVol * static_cast<uint64_t>(k);
+        t.sparseMatmulFlops += flops;
+        t.totalFlops += flops;
+        return;
+      }
+    });
+  }
+
+  PerfTargets computePerfTargets(ModuleOp module, func::FuncOp forwardFunc) {
+    PerfTargets t;
+    auto systemDescAttr = module->getAttrOfType<ttcore::SystemDescAttr>(
+        ttcore::SystemDescAttr::name);
+    if (!systemDescAttr) {
+      llvm::errs() << "TTNNCollectPerfMetrics: no ttcore.system_desc on the "
+                      "module; skipping perf target estimate.\n";
+      return t;
+    }
+    auto chipDescs = systemDescAttr.getChipDescs();
+    t.chipCountInSystemDesc = chipDescs.size();
+    if (t.chipCountInSystemDesc == 0) {
+      llvm::errs() << "TTNNCollectPerfMetrics: system desc has no chip "
+                      "descriptors; skipping perf target estimate.\n";
+      return t;
+    }
+    if (t.chipCountInSystemDesc > 1) {
+      llvm::errs() << "TTNNCollectPerfMetrics: system desc has "
+                   << t.chipCountInSystemDesc
+                   << " chips; perf target estimate uses only chip 0 "
+                      "(single-chip n150 assumption).\n";
+    }
+    populateHardwareLimits(t, chipDescs[0]);
+
+    collectArgumentStats(t, forwardFunc);
+    collectComputeStats(t, forwardFunc);
+
+    // Total weight bytes that have to be read from DRAM each step.
+    uint64_t totalWeightBytes = t.paramMemoryBytes + t.kvCacheMemoryBytes;
+    if (t.dramBandwidthBytesPerSec > 0) {
+      t.dramRooflineTimeSec = static_cast<double>(totalWeightBytes) /
+                              static_cast<double>(t.dramBandwidthBytesPerSec);
+    }
+    if (t.peakFlopsLofi > 0) {
+      t.computeRooflineTimeSecLofi = static_cast<double>(t.totalFlops) /
+                                     static_cast<double>(t.peakFlopsLofi);
+    }
+    t.bound = t.dramRooflineTimeSec >= t.computeRooflineTimeSecLofi ? "dram"
+                                                                    : "compute";
+    t.topPerfTimeSec = topPerfTimeFromRoofline(t.dramRooflineTimeSec,
+                                               t.computeRooflineTimeSecLofi);
+    t.topPerfSamplesPerSec =
+        t.topPerfTimeSec > 0.0 ? 1.0 / t.topPerfTimeSec : 0.0;
+
+    return t;
+  }
+
+  void addPerfTargetsToJson(llvm::json::Object &jsonOutput,
+                            const PerfTargets &t) {
+    llvm::json::Object pt;
+    pt["arch"] = t.arch;
+    pt["chip_count_in_system_desc"] =
+        static_cast<int64_t>(t.chipCountInSystemDesc);
+    pt["single_chip_assumption"] = true;
+    pt["worker_grid_cores"] = static_cast<int64_t>(t.workerGridCores);
+    pt["dram_bandwidth_bytes_per_sec"] =
+        static_cast<int64_t>(t.dramBandwidthBytesPerSec);
+
+    llvm::json::Object peak;
+    peak["lofi"] = static_cast<int64_t>(t.peakFlopsLofi);
+    peak["hifi2"] = static_cast<int64_t>(t.peakFlopsHifi2);
+    peak["hifi3"] = static_cast<int64_t>(t.peakFlopsHifi3);
+    peak["hifi4"] = static_cast<int64_t>(t.peakFlopsHifi4);
+    pt["peak_flops"] = std::move(peak);
+
+    llvm::json::Object params;
+    params["count"] = static_cast<int64_t>(t.paramCount);
+    params["memory_bytes"] = static_cast<int64_t>(t.paramMemoryBytes);
+    params["memory_gb"] =
+        static_cast<double>(t.paramMemoryBytes) / (1024.0 * 1024.0 * 1024.0);
+    pt["params"] = std::move(params);
+
+    llvm::json::Object kv;
+    kv["count"] = static_cast<int64_t>(t.kvCacheCount);
+    kv["memory_bytes"] = static_cast<int64_t>(t.kvCacheMemoryBytes);
+    kv["memory_gb"] =
+        static_cast<double>(t.kvCacheMemoryBytes) / (1024.0 * 1024.0 * 1024.0);
+    pt["kv_cache"] = std::move(kv);
+
+    llvm::json::Object inp;
+    inp["count"] = static_cast<int64_t>(t.inputCount);
+    inp["memory_bytes"] = static_cast<int64_t>(t.inputMemoryBytes);
+    pt["inputs"] = std::move(inp);
+
+    llvm::json::Object compute;
+    compute["total_flops"] = static_cast<int64_t>(t.totalFlops);
+    llvm::json::Object breakdown;
+    breakdown["matmul"] = static_cast<int64_t>(t.matmulFlops);
+    breakdown["linear"] = static_cast<int64_t>(t.linearFlops);
+    breakdown["conv2d"] = static_cast<int64_t>(t.conv2dFlops);
+    breakdown["sparse_matmul"] = static_cast<int64_t>(t.sparseMatmulFlops);
+    compute["breakdown"] = std::move(breakdown);
+    pt["compute"] = std::move(compute);
+
+    llvm::json::Object rl;
+    rl["dram_time_sec"] = t.dramRooflineTimeSec;
+    rl["compute_time_sec_lofi"] = t.computeRooflineTimeSecLofi;
+    rl["bound"] = t.bound;
+    rl["top_perf_time_sec"] = t.topPerfTimeSec;
+    rl["top_perf_samples_per_sec"] = t.topPerfSamplesPerSec;
+    pt["roofline"] = std::move(rl);
+
+    jsonOutput["perf_targets"] = std::move(pt);
+  }
+
   std::string generateAutoFilename(ModuleOp module) {
     std::string baseName = "UnnamedModule";
 
@@ -250,6 +639,8 @@ public:
     AggregatedMetrics aggregatedMetrics;
     llvm::DenseSet<Value> spilledValues;
     llvm::StringMap<int> operationTypeCounts;
+    PerfTargets perfTargets;
+    bool perfTargetsComputed = false;
 
     module->walk([&](func::FuncOp funcOp) {
       if (ttnnEnableTrace) {
@@ -260,6 +651,13 @@ public:
         if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
           return;
         }
+      }
+
+      // Single-chip perf target estimate. Only computed for the first matching
+      // function; if there are multiple forwards we only score the first one.
+      if (!perfTargetsComputed) {
+        perfTargets = computePerfTargets(module, funcOp);
+        perfTargetsComputed = true;
       }
 
       // First pass: identify DRAM spills
@@ -331,6 +729,10 @@ public:
 
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);
+
+    if (perfTargetsComputed) {
+      addPerfTargetsToJson(jsonOutput, perfTargets);
+    }
 
     if (ttnnPerfMetricsVerboseOutputEnabled) {
       addVerboseOutputToJson(jsonOutput, operationDetails, operationTypeCounts);
