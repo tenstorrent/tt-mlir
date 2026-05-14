@@ -16,21 +16,6 @@
 
 namespace mlir::tt::d2m {
 
-/// Complete grid decision for one tensor value.
-///
-/// selectedGrid is the tensor grid stored in the layout. physicalGrid is the
-/// 2D worker-grid extent used to place a virtual grid. layoutGrid is the grid
-/// used when computing grid-aware dim alignments for this selected grid.
-struct GridDecision {
-  llvm::SmallVector<int64_t> selectedGrid;
-  llvm::SmallVector<int64_t> targetGrid;
-  llvm::SmallVector<int64_t> physicalGrid;
-  llvm::SmallVector<int64_t> layoutGrid;
-
-  bool empty() const { return selectedGrid.empty(); }
-  bool isVirtual() const { return selectedGrid != physicalGrid; }
-};
-
 /// Per-operand analysis result describing the chosen grid for a GenericOp
 /// operand. The concrete update strategy is recovered at apply time from the
 /// operand's defining op.
@@ -85,12 +70,15 @@ struct GridAnalysis {
 
   /// Normalize operand grids within a generic to ensure consistency across
   /// operands sharing loop dimensions. Physical shapes are required to ensure
-  /// promoted grid factors evenly divide all affected operands.
+  /// promoted grid factors evenly divide all affected operands. When
+  /// requireCurrentTypeReblockable is set, the search also rejects grids that
+  /// cannot reblock the generic's current operand/result types.
   static llvm::SmallVector<llvm::SmallVector<int64_t>>
   normalizeOperandGridsForGeneric(
       GenericOp genericOp,
       ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
-      ArrayRef<llvm::SmallVector<int64_t>> physicalShapes);
+      ArrayRef<llvm::SmallVector<int64_t>> physicalShapes,
+      ArrayRef<int64_t> targetGrid, bool requireCurrentTypeReblockable = false);
 
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.

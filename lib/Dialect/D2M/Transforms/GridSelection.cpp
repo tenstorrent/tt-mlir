@@ -39,30 +39,58 @@ namespace mlir::tt::d2m {
 // recreating the MetalLayoutAttr with the given grid and proper dimension
 // alignments.
 static void
-populateVirtualGridAttrs(const GridDecision &decision, OpBuilder &builder,
-                         mlir::AffineMapAttr &virtualGridInverseMapping,
-                         mlir::AffineMapAttr &virtualGridForwardMapping) {
-  if (!decision.isVirtual()) {
+populateGridRemapAttrs(const GridDecision &decision,
+                       const EffectiveTargetGridRange &effectiveTargetGridRange,
+                       OpBuilder &builder,
+                       mlir::AffineMapAttr &virtualGridInverseMapping,
+                       mlir::AffineMapAttr &virtualGridForwardMapping) {
+  ArrayRef<int64_t> effectiveTargetGridOffset = effectiveTargetGridRange.offset;
+  bool hasOffset = llvm::any_of(effectiveTargetGridOffset,
+                                [](int64_t coord) { return coord != 0; });
+  bool requiresVirtualization = decision.isVirtual();
+  if (!requiresVirtualization && !hasOffset) {
     return;
   }
 
-  auto [forwardMap, inverseMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-      builder.getContext(), decision.selectedGrid, decision.physicalGrid);
+  AffineMap forwardMap;
+  AffineMap inverseMap;
+  if (requiresVirtualization) {
+    std::tie(forwardMap, inverseMap) =
+        ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            builder.getContext(), decision.selectedGrid, decision.physicalGrid);
+  } else {
+    // Offset-only remap without virtualization: start from identity mappings.
+    TT_assertv(decision.selectedGrid.size() == 2u,
+               "Expected 2D selected grid for offset-only remap");
+    // D2M grid/shard tensors expose 2 grid dims followed by 2 shard dims.
+    constexpr unsigned kGridShardRank = 4;
+    forwardMap =
+        AffineMap::getMultiDimIdentityMap(kGridShardRank, builder.getContext());
+    inverseMap =
+        ttmlir::utils::createIdentityGridInverseMap(builder.getContext());
+  }
+
+  if (hasOffset) {
+    TT_assertv(effectiveTargetGridOffset.size() == 2u,
+               "Expected 2D effective target grid offset");
+    forwardMap = ttmlir::utils::applyOffsetsToAffineMapResults(
+        forwardMap, effectiveTargetGridOffset, /*startIndex=*/0);
+    SmallVector<int64_t> inverseOffsets = {-effectiveTargetGridOffset[0],
+                                           -effectiveTargetGridOffset[1]};
+    inverseMap = ttmlir::utils::applyOffsetsToAffineMapDims(
+        inverseMap, inverseOffsets, /*startIndex=*/0);
+  }
+
   virtualGridInverseMapping = AffineMapAttr::get(inverseMap);
   virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
 }
 
-static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
-                                 const GridDecision &decision, bool ttnnMode,
-                                 OpBuilder &builder) {
+static void
+optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, const GridDecision &decision,
+                     const EffectiveTargetGridRange &effectiveTargetGridRange,
+                     bool ttnnMode, OpBuilder &builder) {
   auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
   if (!emptyOp) {
-    return;
-  }
-
-  // Check if we're already at the target grid.
-  auto emptyType = mlir::cast<mlir::RankedTensorType>(emptyOp.getType());
-  if (emptyType.getShape().take_front(2) == llvm::ArrayRef(optimalGrid)) {
     return;
   }
 
@@ -97,8 +125,8 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   // is traced through the stream's input at DMA lowering time.
   mlir::AffineMapAttr virtualGridInverseMapping;
   mlir::AffineMapAttr virtualGridForwardMapping;
-  populateVirtualGridAttrs(decision, builder, virtualGridInverseMapping,
-                           virtualGridForwardMapping);
+  populateGridRemapAttrs(decision, effectiveTargetGridRange, builder,
+                         virtualGridInverseMapping, virtualGridForwardMapping);
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
       emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
@@ -227,10 +255,9 @@ static void insertViewForTTNNDRAMTensor(Value operand,
 
   auto viewOutputLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), baseMetalLayout.getLogicalShape(),
-      baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
-      ttcore::TensorMemoryLayout::Interleaved,
-      baseMetalLayout.getCollapsedIntervals(),
-      baseMetalLayout.getDimAlignments());
+      baseMetalLayout.getDimAlignments(),
+      baseMetalLayout.getCollapsedIntervals(), ttcore::MemorySpace::DeviceDRAM,
+      ttcore::TensorMemoryLayout::Interleaved);
 
   auto viewOutputTensor = mlir::RankedTensorType::get(
       fakeShardedShape, metalTensor.getElementType(), viewOutputLayout);
@@ -287,21 +314,27 @@ optimizeTTNNMetalLayoutCastOpGrid(ttir::TTNNMetalLayoutCastOp castOp,
 // Transform phases — apply pre-computed grid decisions to the IR.
 // ----------------------------------------------------------------------------
 
-static void applyToLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
-                                OpBuilder &builder) {
+static void
+applyToLayoutUpdate(const OperandGridInfo &info,
+                    const EffectiveTargetGridRange &effectiveTargetGridRange,
+                    bool ttnnMode, OpBuilder &builder) {
   auto toLayoutOp = info.operand.getDefiningOp<d2m::ToLayoutOp>();
-  optimizeToLayoutGrid(toLayoutOp, info.grid, ttnnMode, builder);
+  optimizeToLayoutGrid(toLayoutOp, info.grid, effectiveTargetGridRange,
+                       ttnnMode, builder);
 }
 
-static void applyBehindViewToLayoutUpdate(const OperandGridInfo &info,
-                                          bool ttnnMode, OpBuilder &builder) {
+static void applyBehindViewToLayoutUpdate(
+    const OperandGridInfo &info,
+    const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
+    OpBuilder &builder) {
   Value source = info.operand;
   while (auto view = source.getDefiningOp<d2m::ViewLayoutOp>()) {
     source = view.getInput();
   }
   auto toLayoutOp = source.getDefiningOp<d2m::ToLayoutOp>();
   TT_assert(toLayoutOp);
-  optimizeToLayoutGrid(toLayoutOp, info.viewSourceGrid, ttnnMode, builder);
+  optimizeToLayoutGrid(toLayoutOp, info.viewSourceGrid,
+                       effectiveTargetGridRange, ttnnMode, builder);
 }
 
 static void applyTTNNTensorUpdate(const OperandGridInfo &info,
@@ -328,9 +361,10 @@ static void applyTTNNTensorUpdate(const OperandGridInfo &info,
   }
 }
 
-static void applyCompositeViewUpdate(const OperandGridInfo &info,
-                                     ArrayRef<int64_t> effectiveTargetGrid,
-                                     bool ttnnMode, OpBuilder &builder) {
+static void applyCompositeViewUpdate(
+    const OperandGridInfo &info,
+    const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
+    OpBuilder &builder) {
   auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
   const int32_t concatDim = compositeView.getDim();
   auto outType =
@@ -360,6 +394,7 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
     }
 
     RankedTensorType newInputType;
+    llvm::SmallVector<int64_t> inputOptimalGrid;
     if (isTiled) {
       SmallVector<int64_t> inputAlignments(outDimAlignments.begin(),
                                            outDimAlignments.end());
@@ -376,14 +411,13 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
       inputAlignments[concatDim] = (tileHWIdx >= 0) ? tileShape[tileHWIdx] : 1;
 
       auto coordLayout = ttcore::MetalLayoutAttr::get(
-          builder.getContext(), inputLayout.getLogicalShape(),
-          inputLayout.getOobVal(), inputLayout.getMemorySpace(),
-          inputLayout.getMemoryLayout(), inputLayout.getCollapsedIntervals(),
-          inputAlignments);
+          builder.getContext(), inputLayout.getLogicalShape(), inputAlignments,
+          inputLayout.getCollapsedIntervals(), inputLayout.getMemorySpace(),
+          inputLayout.getMemoryLayout());
 
       auto inputPhysShape = coordLayout.getPhysicalShape(tileShape);
-      auto inputOptimalGrid = utils::computeOptimalGrid(
-          inputType, inputPhysShape, info.grid.targetGrid);
+      inputOptimalGrid = utils::computeOptimalGrid(inputType, inputPhysShape,
+                                                   info.grid.targetGrid);
 
       auto deviceShape =
           coordLayout.getDeviceShape(inputOptimalGrid, tileShape);
@@ -396,8 +430,8 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
       // shard shapes.
       auto inputPhysShape =
           utils::computePhysicalShape(input, info.grid.targetGrid, ttnnMode);
-      auto inputOptimalGrid = utils::computeOptimalGrid(
-          inputType, inputPhysShape, info.grid.targetGrid);
+      inputOptimalGrid = utils::computeOptimalGrid(inputType, inputPhysShape,
+                                                   info.grid.targetGrid);
       newInputType = utils::tensorWithOptimalGrid(
           inputType, info.grid.targetGrid, ttnnMode, inputOptimalGrid);
     }
@@ -410,11 +444,17 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
         toLayoutOp && input.hasOneUse()) {
       auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
       if (emptyOp) {
+        GridDecision inputDecision = utils::makeGridDecision(
+            inputOptimalGrid, effectiveTargetGridRange.shape);
+        mlir::AffineMapAttr virtualGridInverseMapping;
+        mlir::AffineMapAttr virtualGridForwardMapping;
+        populateGridRemapAttrs(inputDecision, effectiveTargetGridRange, builder,
+                               virtualGridInverseMapping,
+                               virtualGridForwardMapping);
         builder.setInsertionPoint(emptyOp);
         auto newEmptyOp = builder.create<d2m::EmptyOp>(
-            emptyOp.getLoc(), newInputType.getShape(),
-            newInputType.getElementType(), newInputType.getEncoding(),
-            effectiveTargetGrid);
+            emptyOp.getLoc(), newInputType, virtualGridInverseMapping,
+            virtualGridForwardMapping);
         builder.setInsertionPoint(toLayoutOp);
         auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
             toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
@@ -443,8 +483,10 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
   compositeView.erase();
 }
 
-static void applyEmptyOpUpdate(const OperandGridInfo &info, bool ttnnMode,
-                               OpBuilder &builder) {
+static void
+applyEmptyOpUpdate(const OperandGridInfo &info,
+                   const EffectiveTargetGridRange &effectiveTargetGridRange,
+                   bool ttnnMode, OpBuilder &builder) {
   EmptyOp emptyOp = info.operand.getDefiningOp<d2m::EmptyOp>();
   auto emptyType =
       mlir::cast<mlir::RankedTensorType>(emptyOp.getResult().getType());
@@ -452,14 +494,10 @@ static void applyEmptyOpUpdate(const OperandGridInfo &info, bool ttnnMode,
       emptyType, info.grid.layoutGrid, ttnnMode, info.grid.selectedGrid);
   builder.setInsertionPoint(emptyOp);
 
-  mlir::AffineMapAttr virtualGridInverseMapping =
-      emptyOp.getVirtualGridInverseMappingAttr();
-  mlir::AffineMapAttr virtualGridForwardMapping =
-      emptyOp.getVirtualGridForwardMappingAttr();
-  if (!virtualGridInverseMapping) {
-    populateVirtualGridAttrs(info.grid, builder, virtualGridInverseMapping,
-                             virtualGridForwardMapping);
-  }
+  mlir::AffineMapAttr virtualGridInverseMapping;
+  mlir::AffineMapAttr virtualGridForwardMapping;
+  populateGridRemapAttrs(info.grid, effectiveTargetGridRange, builder,
+                         virtualGridInverseMapping, virtualGridForwardMapping);
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
       emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
@@ -534,42 +572,19 @@ static llvm::SmallVector<int64_t> getCurrentPhysicalShape(Value value) {
   return physicalShape;
 }
 
-static int64_t findLargestDivisorAtMost(int64_t maxFactor,
-                                        int64_t physicalDim) {
-  for (int64_t factor = maxFactor; factor > 1; --factor) {
-    if (physicalDim % factor == 0) {
-      return factor;
-    }
-  }
-  return 1;
-}
-
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 normalizeOperandGridsForCurrentTypes(
-    d2m::GenericOp genericOp,
-    ArrayRef<llvm::SmallVector<int64_t>> operandGrids) {
+    d2m::GenericOp genericOp, ArrayRef<llvm::SmallVector<int64_t>> operandGrids,
+    ArrayRef<int64_t> targetGrid) {
   llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
   physicalShapes.reserve(genericOp.getInputsAndOutputs().size());
   for (Value operand : genericOp.getInputsAndOutputs()) {
     physicalShapes.push_back(getCurrentPhysicalShape(operand));
   }
 
-  llvm::SmallVector<llvm::SmallVector<int64_t>> sanitizedOperandGrids(
-      operandGrids.begin(), operandGrids.end());
-  for (auto [operandGrid, physicalShape] :
-       llvm::zip_equal(sanitizedOperandGrids, physicalShapes)) {
-    TT_assert(operandGrid.size() == physicalShape.size());
-    for (unsigned dim = 0; dim < operandGrid.size(); ++dim) {
-      int64_t &gridDim = operandGrid[dim];
-      int64_t physicalDim = physicalShape[dim];
-      if (physicalDim % gridDim != 0) {
-        gridDim = findLargestDivisorAtMost(gridDim, physicalDim);
-      }
-    }
-  }
-
   return GridAnalysis::normalizeOperandGridsForGeneric(
-      genericOp, sanitizedOperandGrids, physicalShapes);
+      genericOp, operandGrids, physicalShapes, targetGrid,
+      /*requireCurrentTypeReblockable=*/true);
 }
 
 // Update a ViewLayoutOp by recreating it with a new output type that matches
@@ -644,7 +659,8 @@ recreateGenericOp(d2m::GenericOp genericOp,
   }
 
   llvm::SmallVector<llvm::SmallVector<int64_t>> operandGrids =
-      normalizeOperandGridsForCurrentTypes(genericOp, optimalOperandGrids);
+      normalizeOperandGridsForCurrentTypes(genericOp, optimalOperandGrids,
+                                           effectiveTargetGrid);
 
   OpBuilder builder(genericOp);
   unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
@@ -675,7 +691,7 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
   // effectiveTargetGrid is the generic's target grid (full device grid, or the
   // range scoped by an enclosing d2m.spatial region). Per-operand grid
   // decisions already carry their selected, physical, and alignment grids.
-  ArrayRef<int64_t> effectiveTargetGrid = result.effectiveTargetGrid;
+  ArrayRef<int64_t> effectiveTargetGrid = result.effectiveTargetGridRange.shape;
   OpBuilder builder(genericOp->getContext());
 
   // Classify operands upfront: once apply* mutates IR, defining ops for
@@ -718,20 +734,24 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
       applyTTNNTensorUpdate(info, builder);
       break;
     case Kind::CompositeView:
-      applyCompositeViewUpdate(info, effectiveTargetGrid, ttnnMode, builder);
+      applyCompositeViewUpdate(info, result.effectiveTargetGridRange, ttnnMode,
+                               builder);
       break;
     case Kind::ToLayout:
-      applyToLayoutUpdate(info, ttnnMode, builder);
+      applyToLayoutUpdate(info, result.effectiveTargetGridRange, ttnnMode,
+                          builder);
       break;
     case Kind::Empty:
-      applyEmptyOpUpdate(info, ttnnMode, builder);
+      applyEmptyOpUpdate(info, result.effectiveTargetGridRange, ttnnMode,
+                         builder);
       break;
     case Kind::ViewLayout:
     case Kind::Skip:
       break;
     }
     if (!info.viewSourceGrid.empty()) {
-      applyBehindViewToLayoutUpdate(info, ttnnMode, builder);
+      applyBehindViewToLayoutUpdate(info, result.effectiveTargetGridRange,
+                                    ttnnMode, builder);
     }
   }
 

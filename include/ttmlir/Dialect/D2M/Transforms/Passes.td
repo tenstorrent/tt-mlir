@@ -683,13 +683,18 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
   let summary = "Optimized grid selection for D2M generic ops.";
   let description = [{
     This pass optimizes the grid selection for D2M generic operations. It walks through
-    all d2m.generic ops and updates their operand ToLayoutOps with optimal grid sizes
-    and proper dimAlignments based on the tensor physical shapes.
+    all d2m.generic ops and updates their operands/producers with optimal grid sizes,
+    virtual-grid mappings, and proper dimAlignments based on the tensor physical shapes.
 
     The TTIRToD2M conversion creates all tensors with simple 1x1 grids and minimal
     dimAlignments. This pass then computes the optimal grid for each tensor based on
     its physical shape, finding the largest grid dimensions that evenly divide the shape.
-    It also recomputes proper dimAlignments that account for grid-based alignment requirements.
+    It also recomputes proper dimAlignments that account for grid-based alignment
+    requirements. For compute generics, operand grids are normalized in loop space so
+    shared loop dimensions agree without selecting virtual grids that cannot be placed on
+    the target worker grid. Matmul kernels are intentionally more restrictive: they may use
+    physical grids or one-dimensional virtual grids along logical height/width dimensions,
+    but not arbitrary ND virtual grids.
 
     Note: This pass is not used in TTNN mode, where grids are already correctly set.
     The pipeline conditionally adds this pass only for non-TTNN mode.

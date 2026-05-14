@@ -17,6 +17,8 @@
 
 #include "mlir/IR/BuiltinOps.h"
 
+#include <functional>
+
 namespace mlir::tt::d2m {
 
 bool GridAnalysis::isTTNNOperand(Value operand) {
@@ -57,30 +59,6 @@ computeTrailingDimLayoutGrid(ArrayRef<int64_t> selectedGrid,
   return layoutGrid;
 }
 
-static GridDecision makeGridDecision(ArrayRef<int64_t> selectedGrid,
-                                     ArrayRef<int64_t> targetGrid) {
-  GridDecision decision;
-  decision.selectedGrid = llvm::SmallVector<int64_t>(selectedGrid);
-  decision.targetGrid = llvm::SmallVector<int64_t>(targetGrid);
-
-  if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(selectedGrid,
-                                                      targetGrid)) {
-    decision.physicalGrid = llvm::SmallVector<int64_t>(selectedGrid);
-    decision.layoutGrid = llvm::SmallVector<int64_t>(targetGrid);
-    return decision;
-  }
-
-  auto physicalGrid = utils::findLegalPhysicalGridForVolume(
-      ttmlir::utils::volume<int64_t>(selectedGrid), targetGrid);
-  TT_assertv(!physicalGrid.empty(),
-             "Unable to find physical grid for virtual grid {} within {}",
-             ttmlir::utils::formatIterable(selectedGrid, "x"),
-             ttmlir::utils::formatIterable(targetGrid, "x"));
-  decision.physicalGrid = physicalGrid;
-  decision.layoutGrid = physicalGrid;
-  return decision;
-}
-
 // Find the largest value <= maxFactor that divides all the given physical
 // dimensions. Returns 1 if no better common factor exists.
 static int64_t findLargestCommonFactor(int64_t maxFactor,
@@ -111,6 +89,92 @@ static bool isMatmulGeneric(GenericOp genericOp) {
       .wasInterrupted();
 }
 
+static bool isTrailingDimOnly1DVirtualGrid(ArrayRef<int64_t> grid,
+                                           ArrayRef<int64_t> targetGrid) {
+  unsigned nonUnitDims = 0;
+  unsigned trailingDimOffset =
+      grid.size() > targetGrid.size()
+          ? static_cast<unsigned>(grid.size() - targetGrid.size())
+          : 0;
+  for (auto [dimIdx, dim] : llvm::enumerate(grid)) {
+    if (dim <= 1) {
+      continue;
+    }
+    if (dimIdx < trailingDimOffset) {
+      return false;
+    }
+    ++nonUnitDims;
+  }
+  return nonUnitDims <= 1;
+}
+
+// Matmul kernels require a physical (non-virtual) grid or a 1D virtual grid
+// along the logical height/width dimensions.
+static bool isGridSupportedByMatmulKernel(ArrayRef<int64_t> grid,
+                                          ArrayRef<int64_t> targetGrid) {
+  return !ttmlir::d2m::utils::grids::requiresVirtualGrid(grid, targetGrid) ||
+         isTrailingDimOnly1DVirtualGrid(grid, targetGrid);
+}
+
+static bool hasLegalPhysicalPlacement(ArrayRef<int64_t> grid,
+                                      ArrayRef<int64_t> targetGrid) {
+  return !utils::findLegalPhysicalGridForVolume(
+              ttmlir::utils::volume<int64_t>(grid), targetGrid)
+              .empty();
+}
+
+static bool canReblockCurrentTypeToGrid(Value operand, ArrayRef<int64_t> grid) {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  ArrayRef<int64_t> currentGridShape = layout.getGridShape(tensorType);
+  ArrayRef<int64_t> currentShardShape = layout.getShardShape(tensorType);
+
+  if (currentGridShape.size() != grid.size() ||
+      currentShardShape.size() != grid.size()) {
+    return false;
+  }
+
+  for (auto [idx, gridDim] : llvm::enumerate(grid)) {
+    if ((currentGridShape[idx] * currentShardShape[idx]) % gridDim != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static llvm::SmallVector<int64_t>
+computeMatmulTrailingDim1DGrid(ArrayRef<int64_t> physicalShape,
+                               ArrayRef<int64_t> targetGrid) {
+  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
+  llvm::SmallVector<int64_t> bestGrid(physicalShape.size(), 1);
+  int64_t bestGridVolume = 1;
+  unsigned trailingDimOffset =
+      physicalShape.size() > targetGrid.size()
+          ? static_cast<unsigned>(physicalShape.size() - targetGrid.size())
+          : 0;
+
+  for (auto [dimIdx, physicalDim] : llvm::enumerate(physicalShape)) {
+    if (dimIdx < trailingDimOffset) {
+      continue;
+    }
+    for (int64_t factor :
+         llvm::reverse(ttmlir::utils::getFactors(physicalDim))) {
+      if (factor > targetGridVolume || factor <= bestGridVolume) {
+        continue;
+      }
+      if (utils::findLegalPhysicalGridForVolume(factor, targetGrid).empty()) {
+        continue;
+      }
+      bestGrid.assign(physicalShape.size(), 1);
+      bestGrid[dimIdx] = factor;
+      bestGridVolume = factor;
+      break;
+    }
+  }
+
+  return bestGrid;
+}
+
 struct GridDecisionAndShape {
   GridDecision decision;
   llvm::SmallVector<int64_t> physicalShape;
@@ -119,12 +183,19 @@ struct GridDecisionAndShape {
 static llvm::SmallVector<int64_t>
 computeSelectedGrid(mlir::Value operand, ArrayRef<int64_t> physicalShape,
                     ArrayRef<int64_t> targetGrid, bool allowVirtualGrid) {
-  if (!allowVirtualGrid) {
-    return utils::computeOptimalBlockShardedGrid(physicalShape, targetGrid);
-  }
-
   auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
-  return utils::computeOptimalGrid(operandType, physicalShape, targetGrid);
+  llvm::SmallVector<int64_t> grid =
+      utils::computeOptimalGrid(operandType, physicalShape, targetGrid);
+  if (allowVirtualGrid || isGridSupportedByMatmulKernel(grid, targetGrid)) {
+    return grid;
+  }
+  // Matmul cannot use ND virtual grids; prefer block-sharded.
+  grid = utils::computeOptimalBlockShardedGrid(physicalShape, targetGrid);
+  if (isGridSupportedByMatmulKernel(grid, targetGrid)) {
+    return grid;
+  }
+  // Last resort: pick a 1D virtual grid.
+  return computeMatmulTrailingDim1DGrid(physicalShape, targetGrid);
 }
 
 static llvm::SmallVector<int64_t> computeCurrentPhysicalShape(Value operand) {
@@ -148,7 +219,7 @@ computeCurrentBlockShardedDecision(mlir::Value operand,
   result.physicalShape = computeCurrentPhysicalShape(operand);
   auto selectedGrid =
       utils::computeOptimalBlockShardedGrid(result.physicalShape, targetGrid);
-  result.decision = makeGridDecision(selectedGrid, targetGrid);
+  result.decision = utils::makeGridDecision(selectedGrid, targetGrid);
   result.decision.layoutGrid =
       computeTrailingDimLayoutGrid(selectedGrid, targetGrid);
   return result;
@@ -166,10 +237,10 @@ computeGridDecision(mlir::Value operand, ArrayRef<int64_t> initialLayoutGrid,
     GridDecisionAndShape result;
     result.physicalShape =
         utils::computePhysicalShape(operand, layoutGrid, ttnnMode);
-    result.decision =
-        makeGridDecision(computeSelectedGrid(operand, result.physicalShape,
-                                             targetGrid, allowVirtualGrid),
-                         targetGrid);
+    result.decision = utils::makeGridDecision(
+        computeSelectedGrid(operand, result.physicalShape, targetGrid,
+                            allowVirtualGrid),
+        targetGrid);
     if (!allowVirtualGrid) {
       result.decision.layoutGrid = computeTrailingDimLayoutGrid(
           result.decision.selectedGrid, targetGrid);
@@ -192,7 +263,8 @@ llvm::SmallVector<llvm::SmallVector<int64_t>>
 GridAnalysis::normalizeOperandGridsForGeneric(
     GenericOp genericOp,
     ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
-    ArrayRef<llvm::SmallVector<int64_t>> physicalShapes) {
+    ArrayRef<llvm::SmallVector<int64_t>> physicalShapes,
+    ArrayRef<int64_t> targetGrid, bool requireCurrentTypeReblockable) {
   if (optimalOperandGrids.empty()) {
     return {};
   }
@@ -201,15 +273,26 @@ GridAnalysis::normalizeOperandGridsForGeneric(
             genericOp.getInputsAndOutputs().size());
   TT_assert(physicalShapes.size() == optimalOperandGrids.size());
 
-  llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
-      optimalOperandGrids.begin(), optimalOperandGrids.end());
+  if (genericOp.isDMAOnlyForm()) {
+    return llvm::SmallVector<llvm::SmallVector<int64_t>>(optimalOperandGrids);
+  }
 
-  // Map: loopDim -> list of (operandIndex, operandDimIdx) pairs that reference
-  // this loop dimension in their indexing maps.
-  llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
-      dimToInputOperandDims;
+  llvm::SmallVector<Value> operands(genericOp.getInputsAndOutputs().begin(),
+                                    genericOp.getInputsAndOutputs().end());
+  llvm::SmallVector<llvm::SmallVector<int64_t>> currentReblockShapes;
+  currentReblockShapes.reserve(operands.size());
+  if (requireCurrentTypeReblockable) {
+    for (Value operand : operands) {
+      currentReblockShapes.push_back(computeCurrentPhysicalShape(operand));
+    }
+  }
 
+  bool requireMatmulCompatibleGrid = isMatmulGeneric(genericOp);
   auto indexingMaps = genericOp.getIndexingMapsValue();
+  unsigned numLoopDims = indexingMaps.front().getNumDims();
+  llvm::SmallVector<llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
+      loopDimOperandDims(numLoopDims);
+
   for (uint64_t operandIndex = 0; operandIndex < indexingMaps.size();
        ++operandIndex) {
     AffineMap operandIndexingMap = indexingMaps[operandIndex];
@@ -219,35 +302,127 @@ GridAnalysis::normalizeOperandGridsForGeneric(
       if (!dimExpr) {
         continue;
       }
-      int64_t loopDim = dimExpr.getPosition();
-      dimToInputOperandDims[loopDim].push_back(
+      unsigned loopDim = dimExpr.getPosition();
+      loopDimOperandDims[loopDim].push_back(
           std::make_pair(operandIndex, static_cast<uint64_t>(operandDimIdx)));
     }
   }
 
-  // For each loop dimension shared by multiple operands, find the largest grid
-  // factor that evenly divides every participating physical shape. Generic
-  // recreation derives operand grids from loop factors, so outputs and inputs
-  // must agree on any loop dimension they both reference.
-  for (auto &it : dimToInputOperandDims) {
-    auto &entries = it.second;
-    if (entries.size() < 2) {
+  // Build a loop-space grid wish-list first. For each loop dimension, choose
+  // the largest factor requested by any operand that also divides every
+  // physical operand dimension that indexes the loop.
+  llvm::SmallVector<int64_t> desiredLoopGrid(numLoopDims, 1);
+  for (unsigned loopDim = 0; loopDim < numLoopDims; ++loopDim) {
+    auto &entries = loopDimOperandDims[loopDim];
+    if (entries.empty()) {
       continue;
     }
 
     int64_t maxFactor = 0;
     SmallVector<int64_t> physDimsForLoop;
     for (auto [operandIndex, operandDimIdx] : entries) {
-      maxFactor = std::max(maxFactor,
-                           normalizedOperandGrids[operandIndex][operandDimIdx]);
+      maxFactor =
+          std::max(maxFactor, optimalOperandGrids[operandIndex][operandDimIdx]);
       physDimsForLoop.push_back(physicalShapes[operandIndex][operandDimIdx]);
+      if (requireCurrentTypeReblockable) {
+        physDimsForLoop.push_back(
+            currentReblockShapes[operandIndex][operandDimIdx]);
+      }
     }
 
-    int64_t commonFactor = findLargestCommonFactor(maxFactor, physDimsForLoop);
+    desiredLoopGrid[loopDim] =
+        findLargestCommonFactor(maxFactor, physDimsForLoop);
+  }
 
-    for (auto [operandIndex, operandDimIdx] : entries) {
-      normalizedOperandGrids[operandIndex][operandDimIdx] = commonFactor;
+  auto projectLoopGridToOperands = [&](ArrayRef<int64_t> loopGrid) {
+    llvm::SmallVector<llvm::SmallVector<int64_t>> projectedOperandGrids(
+        optimalOperandGrids.begin(), optimalOperandGrids.end());
+    for (uint64_t operandIndex = 0; operandIndex < indexingMaps.size();
+         ++operandIndex) {
+      auto results = indexingMaps[operandIndex].getResults();
+      for (auto [operandDimIdx, expr] : llvm::enumerate(results)) {
+        auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+        if (!dimExpr) {
+          continue;
+        }
+        projectedOperandGrids[operandIndex][operandDimIdx] =
+            loopGrid[dimExpr.getPosition()];
+      }
     }
+    return projectedOperandGrids;
+  };
+
+  auto allOperandGridsArePlaceable =
+      [&](ArrayRef<llvm::SmallVector<int64_t>> operandGrids) {
+        return llvm::all_of(llvm::enumerate(operandGrids), [&](auto indexed) {
+          auto [operandIndex, operandGrid] = indexed;
+          if (requireCurrentTypeReblockable &&
+              !canReblockCurrentTypeToGrid(operands[operandIndex],
+                                           operandGrid)) {
+            return false;
+          }
+          if (!hasLegalPhysicalPlacement(operandGrid, targetGrid)) {
+            return false;
+          }
+          return !requireMatmulCompatibleGrid ||
+                 isGridSupportedByMatmulKernel(operandGrid, targetGrid);
+        });
+      };
+
+  llvm::SmallVector<int64_t> bestLoopGrid(numLoopDims, 1);
+  int64_t bestLoopGridVolume = 1;
+  llvm::SmallVector<int64_t> candidateLoopGrid(numLoopDims, 1);
+  llvm::SmallVector<llvm::SmallVector<int64_t>> loopFactorChoices;
+  loopFactorChoices.reserve(numLoopDims);
+  for (int64_t desiredFactor : desiredLoopGrid) {
+    loopFactorChoices.push_back(ttmlir::utils::getFactors(desiredFactor));
+  }
+
+  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
+  std::function<void(unsigned, int64_t)> searchLoopGrids =
+      [&](unsigned loopDim, int64_t volumeSoFar) {
+        if (loopDim == numLoopDims) {
+          if (!hasLegalPhysicalPlacement(candidateLoopGrid, targetGrid)) {
+            return;
+          }
+          auto candidateOperandGrids =
+              projectLoopGridToOperands(candidateLoopGrid);
+          if (!allOperandGridsArePlaceable(candidateOperandGrids)) {
+            return;
+          }
+          if (volumeSoFar > bestLoopGridVolume) {
+            bestLoopGrid = candidateLoopGrid;
+            bestLoopGridVolume = volumeSoFar;
+          }
+          return;
+        }
+
+        for (int64_t factor : llvm::reverse(loopFactorChoices[loopDim])) {
+          int64_t candidateVolume = volumeSoFar * factor;
+          if (candidateVolume > targetGridVolume) {
+            continue;
+          }
+          candidateLoopGrid[loopDim] = factor;
+          searchLoopGrids(loopDim + 1, candidateVolume);
+        }
+        candidateLoopGrid[loopDim] = 1;
+      };
+  searchLoopGrids(/*loopDim=*/0, /*volumeSoFar=*/1);
+
+  auto normalizedOperandGrids = projectLoopGridToOperands(bestLoopGrid);
+  if (allOperandGridsArePlaceable(normalizedOperandGrids)) {
+    return normalizedOperandGrids;
+  }
+
+  // Keep this as an invariant rather than a fallback: normalization is
+  // responsible for constructing only placeable grids.
+  for (auto [operandIndex, operandGrid] :
+       llvm::enumerate(normalizedOperandGrids)) {
+    TT_assertv(hasLegalPhysicalPlacement(operandGrid, targetGrid),
+               "Grid normalization produced unplaceable operand grid {} for "
+               "operand {} within target grid {}",
+               ttmlir::utils::formatIterable(operandGrid, "x"), operandIndex,
+               ttmlir::utils::formatIterable(targetGrid, "x"));
   }
 
   return normalizedOperandGrids;
@@ -352,12 +527,11 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     result.operandInfos.push_back(std::move(info));
   }
 
-  // Normalize the operand grids for the generic operation.
   result.normalizedOperandGrids = normalizeOperandGridsForGeneric(
-      genericOp, optimalOperandGrids, physicalShapes);
+      genericOp, optimalOperandGrids, physicalShapes, targetGridShape);
 
   // Propagate normalized grids back to operands so producer rewrites and the
-  // recreated generic agree on grid shape and virtual-grid metadata.
+  // recreated generic share one final grid decision.
   for (unsigned idx = 0; idx < result.operandInfos.size(); ++idx) {
     OperandGridInfo &info = result.operandInfos[idx];
     if (isTTNNOperand(info.operand)) {
@@ -367,8 +541,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     if (view && view.getReinterpretLayout()) {
       continue;
     }
-    info.grid = makeGridDecision(result.normalizedOperandGrids[idx],
-                                 perOperandTargetGrids[idx]);
+    info.grid = utils::makeGridDecision(result.normalizedOperandGrids[idx],
+                                        perOperandTargetGrids[idx]);
     if (!allowVirtualGrid) {
       info.grid.layoutGrid = computeTrailingDimLayoutGrid(
           info.grid.selectedGrid, perOperandTargetGrids[idx]);

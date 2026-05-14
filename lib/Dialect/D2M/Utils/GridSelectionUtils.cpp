@@ -14,6 +14,30 @@ namespace mlir::tt::d2m::utils {
 static constexpr double kMinGridUtilization = 0.25;
 static constexpr double kMinDominantAxisGridImprovement = 2.0;
 
+GridDecision makeGridDecision(ArrayRef<int64_t> selectedGrid,
+                              ArrayRef<int64_t> targetGrid) {
+  GridDecision decision;
+  decision.selectedGrid = llvm::SmallVector<int64_t>(selectedGrid);
+  decision.targetGrid = llvm::SmallVector<int64_t>(targetGrid);
+
+  if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(selectedGrid,
+                                                      targetGrid)) {
+    decision.physicalGrid = llvm::SmallVector<int64_t>(selectedGrid);
+    decision.layoutGrid = llvm::SmallVector<int64_t>(targetGrid);
+    return decision;
+  }
+
+  auto physicalGrid = utils::findLegalPhysicalGridForVolume(
+      ttmlir::utils::volume<int64_t>(selectedGrid), targetGrid);
+  TT_assertv(!physicalGrid.empty(),
+             "Unable to find physical grid for virtual grid {} within {}",
+             ttmlir::utils::formatIterable(selectedGrid, "x"),
+             ttmlir::utils::formatIterable(targetGrid, "x"));
+  decision.physicalGrid = physicalGrid;
+  decision.layoutGrid = physicalGrid;
+  return decision;
+}
+
 llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetGrid) {
@@ -127,8 +151,9 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
   ttcore::MetalLayoutAttr layout =
       mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-  // Interleaved layouts have no sharded core placement to virtualize.
-  if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+  // For now, only non-collapsed 2D virtual grids on L1 are supported.
+  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) ||
+      layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
     return false;
   }
   if (physicalShape.size() != 2) {
