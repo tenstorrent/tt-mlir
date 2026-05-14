@@ -508,24 +508,6 @@ def TTIRFoldFullToScalar: Pass<"ttir-fold-full-to-scalar", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
-def TTIRInferStaticCacheCumulativeLengthArgs
-    : Pass<"ttir-infer-static-cache-cumulative-length-args",
-           "::mlir::ModuleOp"> {
-  let summary = "Mark function args that feed StaticCache update_index as cumulative_length.";
-  let description = [{
-    Walks update-style cache ops (`ttir.update_cache`, `ttir.paged_update_cache`)
-    and traces back from their `update_index` operand through TM-like ops
-    (mesh_shard, broadcast, repeat, reshape, typecast) and add (to look past
-    `arange + cumulative_length`) to find entry-block arguments. Each such
-    argument is marked with the `ttcore.cumulative_length` unit attribute.
-
-    Downstream passes (e.g. ttir-consolidate-static-cache-updates) gate on
-    this attribute so they only touch arguments provably tied to a cache
-    update position.
-  }];
-  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect"];
-}
-
 def TTIRConsolidateStaticCacheUpdates
     : Pass<"ttir-consolidate-static-cache-updates", "::mlir::ModuleOp"> {
   let summary = "Unify redundant per-layer block args for mark_static_address tensors.";
@@ -539,8 +521,11 @@ def TTIRConsolidateStaticCacheUpdates
     ops down to 1.
 
     Applies when:
-    - The blockArg carries the `ttcore.cumulative_length` unit attribute (set
-      by `ttir-infer-static-cache-cumulative-length-args`).
+    - The blockArg provably feeds the `update_index` of some update-style
+      cache op (`ttir.update_cache`, `ttir.paged_update_cache`) in the same
+      function, traced through TM-like ops (mesh_shard, broadcast, repeat,
+      reshape, typecast) and add. This grounds the lockstep invariant in
+      actual cache usage and prevents misfiring on unrelated programs.
     - Multiple return operands match [mesh_shard(] add(blockArg, const_delta) [)]
     - The add result has exactly one use: the return operand.
     - All matched adds share the same constant delta value and the same
