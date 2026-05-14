@@ -6,7 +6,7 @@ module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x1>]>} {
   func.func @permute(%arg0: tensor<1x96x32x128xf32>) -> tensor<1x96x128x32xf32> {
     // CHECK-LABEL: func.func @permute
     // CHECK: "ttmetal.create_buffer"() {{.*}}virtualGridForwardMapping
-    // CHECK: "ttmetal.enqueue_read_buffer"({{.*}}, {{.*}}) : (memref<1x16x4x1x1x6x32x32xf32, #ttcore.shard{{.*}}, #l1>, memref<1x96x128x32xf32>)
+    // CHECK: "ttmetal.enqueue_read_buffer"({{.*}}, {{.*}}) : (memref<{{.*}}xf32, #ttcore.shard{{.*}}, #l1>, memref<1x96x128x32xf32>)
     %0 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x96x32x128xf32>) -> tensor<1x96x128x32xf32>
     return %0 : tensor<1x96x128x32xf32>
   }

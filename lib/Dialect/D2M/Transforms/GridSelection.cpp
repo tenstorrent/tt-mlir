@@ -575,7 +575,7 @@ static llvm::SmallVector<int64_t> getCurrentPhysicalShape(Value value) {
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 normalizeOperandGridsForCurrentTypes(
     d2m::GenericOp genericOp, ArrayRef<llvm::SmallVector<int64_t>> operandGrids,
-    ArrayRef<int64_t> targetGrid) {
+    ArrayRef<int64_t> targetGrid, bool ttnnMode) {
   llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
   physicalShapes.reserve(genericOp.getInputsAndOutputs().size());
   for (Value operand : genericOp.getInputsAndOutputs()) {
@@ -583,7 +583,7 @@ normalizeOperandGridsForCurrentTypes(
   }
 
   return GridAnalysis::normalizeOperandGridsForGeneric(
-      genericOp, operandGrids, physicalShapes, targetGrid,
+      genericOp, operandGrids, physicalShapes, targetGrid, ttnnMode,
       /*requireCurrentTypeReblockable=*/true);
 }
 
@@ -650,17 +650,16 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
 //  - no-op (empty grids): returns original op
 //  - recreated op: returns new op and erases original op
 // Failure is returned when generic recreation fails.
-static FailureOr<d2m::GenericOp>
-recreateGenericOp(d2m::GenericOp genericOp,
-                  ArrayRef<int64_t> effectiveTargetGrid,
-                  ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
+static FailureOr<d2m::GenericOp> recreateGenericOp(
+    d2m::GenericOp genericOp, ArrayRef<int64_t> effectiveTargetGrid,
+    ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids, bool ttnnMode) {
   if (optimalOperandGrids.empty()) {
     return genericOp;
   }
 
   llvm::SmallVector<llvm::SmallVector<int64_t>> operandGrids =
       normalizeOperandGridsForCurrentTypes(genericOp, optimalOperandGrids,
-                                           effectiveTargetGrid);
+                                           effectiveTargetGrid, ttnnMode);
 
   OpBuilder builder(genericOp);
   unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
@@ -763,7 +762,7 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
   }
 
   FailureOr<d2m::GenericOp> newGenericOp = recreateGenericOp(
-      genericOp, effectiveTargetGrid, result.normalizedOperandGrids);
+      genericOp, effectiveTargetGrid, result.normalizedOperandGrids, ttnnMode);
   if (failed(newGenericOp)) {
     genericOp.emitOpError() << "grid selection failed to recreate generic op";
     return failure();

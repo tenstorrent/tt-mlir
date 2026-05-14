@@ -16,16 +16,16 @@ module {
 
     // AFTER-LABEL: func.func @embedding_grid
     // AFTER: %[[GENERIC:.*]] = d2m.generic
-    // AFTER-SAME: grid = #ttcore.grid<8x{{[0-9]+}}>
+    // AFTER-SAME: grid = #ttcore.grid<1x1
     // AFTER-SAME: indexing_maps = [
     // AFTER: %[[EMBED:.*]] = d2m.embedding {{.*}}<32, 32>
     // AFTER-SAME: {indicesShape = array<i64: 8, 4>}
-    // AFTER-SAME: -> tensor<8x{{[0-9]+}}x32x32xf32
-    // AFTER: d2m.yield %[[EMBED]] : (tensor<8x{{[0-9]+}}x32x32xf32
+    // AFTER-SAME: -> tensor<1x1x256x32xf32
+    // AFTER: d2m.yield %[[EMBED]] : (tensor<1x1x256x32xf32
 
     // BUFFER-LABEL: func.func @embedding_grid
     // BUFFER: d2m.generic
-    // BUFFER-SAME: grid = #ttcore.grid<8x{{[0-9]+}}>
+    // BUFFER-SAME: grid = #ttcore.grid<1x1
     // BUFFER-SAME: indexing_maps = [
     // BUFFER: d2m.indexed_row_copy {{.*}} scratch {{.*}}<32, 32>
     // BUFFER-SAME: {indicesShape = array<i64: 8, 4>}

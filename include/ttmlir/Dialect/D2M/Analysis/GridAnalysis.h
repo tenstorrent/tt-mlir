@@ -78,7 +78,8 @@ struct GridAnalysis {
       GenericOp genericOp,
       ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
       ArrayRef<llvm::SmallVector<int64_t>> physicalShapes,
-      ArrayRef<int64_t> targetGrid, bool requireCurrentTypeReblockable = false);
+      ArrayRef<int64_t> targetGrid, bool ttnnMode = false,
+      bool requireCurrentTypeReblockable = false);
 
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.

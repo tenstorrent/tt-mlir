@@ -142,6 +142,29 @@ static bool canReblockCurrentTypeToGrid(Value operand, ArrayRef<int64_t> grid) {
   return true;
 }
 
+static bool canMaterializeOperandGrid(Value operand, ArrayRef<int64_t> grid,
+                                      ArrayRef<int64_t> targetGrid,
+                                      bool ttnnMode) {
+  if (!hasLegalPhysicalPlacement(grid, targetGrid)) {
+    return false;
+  }
+
+  GridDecision decision = utils::makeGridDecision(grid, targetGrid);
+  llvm::SmallVector<int64_t> materializedPhysicalShape =
+      utils::computePhysicalShape(operand, decision.layoutGrid, ttnnMode);
+  if (materializedPhysicalShape.size() != grid.size()) {
+    return false;
+  }
+
+  for (auto [physicalDim, gridDim] :
+       llvm::zip_equal(materializedPhysicalShape, grid)) {
+    if (physicalDim % gridDim != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static llvm::SmallVector<int64_t>
 computeMatmulTrailingDim1DGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetGrid) {
@@ -264,7 +287,8 @@ GridAnalysis::normalizeOperandGridsForGeneric(
     GenericOp genericOp,
     ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
     ArrayRef<llvm::SmallVector<int64_t>> physicalShapes,
-    ArrayRef<int64_t> targetGrid, bool requireCurrentTypeReblockable) {
+    ArrayRef<int64_t> targetGrid, bool ttnnMode,
+    bool requireCurrentTypeReblockable) {
   if (optimalOperandGrids.empty()) {
     return {};
   }
@@ -272,10 +296,6 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   TT_assert(optimalOperandGrids.size() ==
             genericOp.getInputsAndOutputs().size());
   TT_assert(physicalShapes.size() == optimalOperandGrids.size());
-
-  if (genericOp.isDMAOnlyForm()) {
-    return llvm::SmallVector<llvm::SmallVector<int64_t>>(optimalOperandGrids);
-  }
 
   llvm::SmallVector<Value> operands(genericOp.getInputsAndOutputs().begin(),
                                     genericOp.getInputsAndOutputs().end());
@@ -361,7 +381,8 @@ GridAnalysis::normalizeOperandGridsForGeneric(
                                            operandGrid)) {
             return false;
           }
-          if (!hasLegalPhysicalPlacement(operandGrid, targetGrid)) {
+          if (!canMaterializeOperandGrid(operands[operandIndex], operandGrid,
+                                         targetGrid, ttnnMode)) {
             return false;
           }
           return !requireMatmulCompatibleGrid ||
@@ -378,13 +399,12 @@ GridAnalysis::normalizeOperandGridsForGeneric(
     loopFactorChoices.push_back(ttmlir::utils::getFactors(desiredFactor));
   }
 
-  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
+  // Only projected operand/output grids consume physical cores. Loop factors
+  // that do not project to the output, such as matmul K-splits, become block
+  // factors on the selected cores and should not be capped by target volume.
   std::function<void(unsigned, int64_t)> searchLoopGrids =
       [&](unsigned loopDim, int64_t volumeSoFar) {
         if (loopDim == numLoopDims) {
-          if (!hasLegalPhysicalPlacement(candidateLoopGrid, targetGrid)) {
-            return;
-          }
           auto candidateOperandGrids =
               projectLoopGridToOperands(candidateLoopGrid);
           if (!allOperandGridsArePlaceable(candidateOperandGrids)) {
@@ -399,9 +419,6 @@ GridAnalysis::normalizeOperandGridsForGeneric(
 
         for (int64_t factor : llvm::reverse(loopFactorChoices[loopDim])) {
           int64_t candidateVolume = volumeSoFar * factor;
-          if (candidateVolume > targetGridVolume) {
-            continue;
-          }
           candidateLoopGrid[loopDim] = factor;
           searchLoopGrids(loopDim + 1, candidateVolume);
         }
@@ -421,6 +438,12 @@ GridAnalysis::normalizeOperandGridsForGeneric(
     TT_assertv(hasLegalPhysicalPlacement(operandGrid, targetGrid),
                "Grid normalization produced unplaceable operand grid {} for "
                "operand {} within target grid {}",
+               ttmlir::utils::formatIterable(operandGrid, "x"), operandIndex,
+               ttmlir::utils::formatIterable(targetGrid, "x"));
+    TT_assertv(canMaterializeOperandGrid(operands[operandIndex], operandGrid,
+                                         targetGrid, ttnnMode),
+               "Grid normalization produced unmaterializable operand grid {} "
+               "for operand {} within target grid {}",
                ttmlir::utils::formatIterable(operandGrid, "x"), operandIndex,
                ttmlir::utils::formatIterable(targetGrid, "x"));
   }
@@ -528,7 +551,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   }
 
   result.normalizedOperandGrids = normalizeOperandGridsForGeneric(
-      genericOp, optimalOperandGrids, physicalShapes, targetGridShape);
+      genericOp, optimalOperandGrids, physicalShapes, targetGridShape,
+      ttnnMode);
 
   // Propagate normalized grids back to operands so producer rewrites and the
   // recreated generic share one final grid decision.
