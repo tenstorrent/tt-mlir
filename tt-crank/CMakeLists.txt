@@ -40,7 +40,7 @@ add_subdirectory(src)
 
 # Must run after add_subdirectory(third_party) — the ttsim SoC-descriptor copy
 # is wired as a build-time dependency on the tt-mlir-ep target.
-include(cmake/Ttsim.cmake)
+include(cmake/TTsim.cmake)
 
 if(TT_KURBLA_BUILD_TESTS AND PROJECT_IS_TOP_LEVEL)
     add_subdirectory(tests)
