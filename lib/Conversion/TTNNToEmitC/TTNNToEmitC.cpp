@@ -1021,6 +1021,10 @@ namespace {
 class GlobalAvgPool2dOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::GlobalAvgPool2dOp> {
+private:
+  std::string getPrefixSwapPattern() const override {
+    return "ttmlir::standalone::";
+  }
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
