@@ -4085,11 +4085,10 @@ def ttir_batch_norm_training_golden(
     # running_mean = momentum * batch_mean + (1 - momentum) * running_mean
     # running_variance = momentum * batch_variance + (1 - momentum) * running_variance
     updated_running_mean = torch.add(
-        torch.mul(batch_mean_reshaped, momentum), torch.mul(running_mean, 1 - momentum)
+        torch.mul(batch_mean, momentum), torch.mul(running_mean, 1 - momentum)
     )
     updated_running_var = torch.add(
-        torch.mul(batch_var_reshaped, momentum),
-        torch.mul(running_variance, 1 - momentum),
+        torch.mul(batch_var, momentum), torch.mul(running_variance, 1 - momentum)
     )
 
     return (
@@ -8728,30 +8727,6 @@ def chisel_ttnn_batch_norm_inference(op, inputs):
     )
 
 
-def chisel_ttnn_batch_norm_training(op, inputs):
-    rm = inputs["running_mean"]
-    rv = inputs["running_var"]
-    out, urm, urv = ttir_batch_norm_training_golden(
-        input_tensor=inputs["input"],
-        scale=inputs["weight"],
-        offset=inputs["bias"],
-        running_mean=rm,
-        running_variance=rv,
-        epsilon_attr=op.attributes["epsilon"],
-        dimension_attr=1,
-        momentum_attr=op.attributes["momentum"],
-        output_type_mlir=op.results[0].type.element_type,
-        mean_output_type_mlir=op.results[0].type.element_type,
-        variance_output_type_mlir=op.results[0].type.element_type,
-    )
-    returns = [out]
-    if rm is not None:
-        returns.append(urm)
-    if rv is not None:
-        returns.append(urv)
-    return tuple(returns)
-
-
 def chisel_ttnn_distributed_rms_norm(op, inputs):
     return ttir_distributed_rms_norm_golden(
         input=inputs["input"],
@@ -9184,7 +9159,6 @@ CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.PrepareConvTranspose2dBiasOp: chisel_ttnn_prepare_conv_transpose2d_bias,
     # BatchNorm / DistRMSNorm / Scatter
     ttnn.BatchNormInferenceOp: chisel_ttnn_batch_norm_inference,
-    ttnn.BatchNormTrainingOp: chisel_ttnn_batch_norm_training,
     ttnn.DistributedRMSNormOp: chisel_ttnn_distributed_rms_norm,
     ttnn.ScatterOp: chisel_ttnn_scatter,
     # SDPA / Attention ops
