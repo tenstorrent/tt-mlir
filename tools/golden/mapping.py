@@ -2612,6 +2612,44 @@ def upsample2d_golden(
     return torch.transpose(output, 1, 3)
 
 
+def grid_sample_golden(
+    in0: GoldenMapTensor,
+    in1: GoldenMapTensor,
+    output: GoldenMapTensor,
+    mode: str = "bilinear",
+    padding_mode: str = "zeros",
+    align_corners: bool = False,
+) -> GoldenMapTensor:
+    """
+    Custom golden function for grid_sample operation.
+
+    Parameters
+    ----------
+    in0 : GoldenMapTensor
+        Input feature tensor (N, C, H_in, W_in)
+    in1 : GoldenMapTensor
+        Sampling grid tensor in TTIR format (N, 2, H_out, W_out)
+    output : GoldenMapTensor
+        Output tensor specification (N, C, H_out, W_out)
+    mode : str, optional
+        Interpolation mode (default: "bilinear")
+    padding_mode : str, optional
+        Padding mode (default: "zeros")
+    align_corners : bool, optional
+        Whether to align corners (default: False)
+
+    Returns
+    -------
+    GoldenMapTensor
+        Sampled output tensor (N, C, H_out, W_out)
+    """
+    # TTIR grid is (N, 2, H_out, W_out); torch expects (N, H_out, W_out, 2).
+    grid = in1.permute(0, 2, 3, 1).contiguous()
+    return torch.nn.functional.grid_sample(
+        in0, grid, mode=mode, padding_mode=padding_mode, align_corners=bool(align_corners)
+    )
+
+
 def fill_cache_golden(
     cache_tensor: GoldenMapTensor, input_tensor: GoldenMapTensor, **kwargs
 ) -> GoldenMapTensor:
@@ -7637,6 +7675,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.EmbeddingOp: ttir_embedding_golden,
     ttir.EmbeddingBackwardOp: ttir_embedding_backward_golden,
     ttir.Upsample2dOp: upsample2d_golden,
+    ttir.GridSampleOp: grid_sample_golden,
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.LayerNormOp: ttir_layer_norm_golden,

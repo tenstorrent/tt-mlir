@@ -3269,6 +3269,44 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     let hasVerifier = 1;
 }
 
+def TTNN_GridSampleOp : TTNN_Op<"grid_sample"> {
+    let summary = "Grid sample operation.";
+
+    let description = [{
+      Samples an input tensor at grid locations.
+
+      Input tensor has shape (N, H_in, W_in, C) in NHWC format.
+      Grid tensor has shape (N, H_out, W_out, 2) with coordinates normalized to [-1, 1].
+      Output tensor has shape (N, H_out, W_out, C) in NHWC format.
+
+      Attributes:
+      - `mode` (str): Interpolation mode. Supported: "bilinear", "nearest". Default is "bilinear".
+      - `padding_mode` (str): Padding mode for out-of-bounds coordinates. Supported: "zeros". Default is "zeros".
+      - `align_corners` (bool): If true, grid coordinates of -1 and 1 map to the corners of the input.
+
+      Example:
+        %0 = "ttnn.grid_sample"(%input, %grid) <{mode = "nearest", padding_mode = "zeros", align_corners = true}> :
+            (tensor<1x80x144x64xbf16>, tensor<1x128x64x2xbf16>) -> tensor<1x128x64x64xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$grid,
+                         DefaultValuedAttr<StrAttr, "\"bilinear\"">:$mode,
+                         DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
+                         DefaultValuedAttr<BoolAttr, "false">:$align_corners,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createGridSampleOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
     let summary = "Quantize operation.";
     let description = [{

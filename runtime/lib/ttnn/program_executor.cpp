@@ -89,6 +89,7 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
+#include "operations/pool/grid_sample.h"
 #include "operations/rand/rand.h"
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/cumsum.h"
@@ -557,6 +558,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::GridSampleOp: {
+    return operations::pool::run(op->type_as_GridSampleOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::CpuOp: {
     return operations::cpu::run(op->type_as_CpuOp(), getContext());

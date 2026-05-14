@@ -27,7 +27,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   analysisInput.funcOp->walk([&](Operation *op) {
     // Skip operations that have the row-major workaround later on in Optimizer.
     // TODO(bmalesevic,#3985): remove after this is fixed
-    if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(op)) {
+    if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp, ttnn::GridSampleOp>(op)) {
       return;
     }
 

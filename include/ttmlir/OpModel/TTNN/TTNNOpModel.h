@@ -1784,6 +1784,27 @@ struct OpModel<PowScalarOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// GridSampleOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<GridSampleOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   llvm::ArrayRef<int64_t> gridShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout,
+                   llvm::StringRef mode, llvm::StringRef paddingMode,
+                   bool alignCorners, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+               llvm::ArrayRef<int64_t> gridShape,
+               TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout,
+               llvm::StringRef mode, llvm::StringRef paddingMode,
+               bool alignCorners, TTNNLayoutAttr outputLayout);
+};
+
 // UpsampleOp
 //===----------------------------------------------------------------------===//
 

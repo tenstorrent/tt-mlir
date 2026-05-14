@@ -209,6 +209,39 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
+// Factory method to create a set of workarounds for GridSampleOp. GridSampleOp
+// expects input in row-major BF16 layout (NHWC spatial sampling pattern).
+// The grid must also be row-major, but its dtype depends on the execution path:
+//   - bilinear + align_corners=False: BF16 (kernel reads grid coordinates directly)
+//   - nearest or bilinear + align_corners=True: float32 (passed to
+//     prepare_grid_sample_grid on host, which requires float32 precision)
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createGridSampleOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  auto gridSampleOp = mlir::cast<mlir::tt::ttnn::GridSampleOp>(op);
+  std::string mode = gridSampleOp.getMode().str();
+  bool alignCorners = gridSampleOp.getAlignCorners();
+
+  bool usesPrecomputedGrid = (mode == "nearest") || alignCorners;
+
+  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+
+  // Grid: ROW_MAJOR always; BF16 only for non-precomputed bilinear path.
+  TTNNOperandWorkarounds gridWorkaround;
+  gridWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  if (!usesPrecomputedGrid) {
+    gridWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  }
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround) // input
+      .addInputOperandWorkaround(gridWorkaround)               // grid
+      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+}
+
 // Factory method to create a set of workarounds for GatherOp. The GatherOp
 // requires the input and index tensors to be in TILED layout.
 // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451

@@ -3228,6 +3228,73 @@ public:
 };
 } // namespace
 
+namespace {
+class GridSampleOpConversionPattern
+    : public OpConversionPattern<ttir::GridSampleOp> {
+public:
+  using OpConversionPattern<ttir::GridSampleOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GridSampleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::Location loc = op.getLoc();
+
+    // TTIR input is NCHW (N, C, H_in, W_in).
+    // tt-metal grid_sample expects NHWC (N, H_in, W_in, C). Permute [0,2,3,1].
+    mlir::Value input = adaptor.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    llvm::SmallVector<int64_t> nchwToNhwc = {0, 2, 3, 1};
+    llvm::SmallVector<int64_t> nhwcInputShape =
+        ttmlir::utils::applyPermutation(inputType.getShape(), nchwToNhwc);
+    RankedTensorType nhwcInputType =
+        ttnn::utils::RankedTensorTypeFactory::create(inputType, nhwcInputShape);
+    input = rewriter.create<ttnn::PermuteOp>(
+        loc, nhwcInputType, input,
+        rewriter.getDenseI64ArrayAttr(nchwToNhwc),
+        /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
+
+    // TTIR grid is in TVM relay format (N, 2, H_out, W_out).
+    // tt-metal expects (N, H_out, W_out, 2). Permute [0, 2, 3, 1].
+    mlir::Value grid = adaptor.getGrid();
+    auto gridType = mlir::cast<RankedTensorType>(grid.getType());
+    llvm::SmallVector<int64_t> gridPermutation = {0, 2, 3, 1};
+    llvm::SmallVector<int64_t> permutedGridShape =
+        ttmlir::utils::applyPermutation(gridType.getShape(), gridPermutation);
+    RankedTensorType permutedGridType =
+        ttnn::utils::RankedTensorTypeFactory::create(gridType, permutedGridShape);
+    grid = rewriter.create<ttnn::PermuteOp>(
+        loc, permutedGridType, grid,
+        rewriter.getDenseI64ArrayAttr(gridPermutation),
+        /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
+
+    // The TTIR output type is NCHW (N, C, H_out, W_out).
+    // The TTNN GridSampleOp produces NHWC (N, H_out, W_out, C).
+    // Build NHWC output type by permuting the NCHW output type with [0,2,3,1].
+    auto ttirOutputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    llvm::SmallVector<int64_t> nhwcOutputShape =
+        ttmlir::utils::applyPermutation(ttirOutputType.getShape(), nchwToNhwc);
+    RankedTensorType nhwcOutputType =
+        ttnn::utils::RankedTensorTypeFactory::create(ttirOutputType, nhwcOutputShape);
+
+    mlir::Value ttnnResult = rewriter.create<ttnn::GridSampleOp>(
+        loc, nhwcOutputType, input, grid, adaptor.getModeAttr(),
+        adaptor.getPaddingModeAttr(), adaptor.getAlignCornersAttr(),
+        ttnn::MemoryConfigAttr());
+
+    // Permute output back from NHWC (N, H_out, W_out, C) to NCHW (N, C, H_out, W_out).
+    // Permutation [0,3,1,2] is the inverse of [0,2,3,1].
+    llvm::SmallVector<int64_t> nhwcToNchw = {0, 3, 1, 2};
+    rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
+        op, ttirOutputType, ttnnResult,
+        rewriter.getDenseI64ArrayAttr(nhwcToNchw),
+        /*memory_config=*/nullptr, /*pad_value=*/mlir::FloatAttr());
+
+    return success();
+  }
+};
+} // namespace
+
 // Lowering of TTIR `collective_broadcast` op to a sequence of TTNN
 // `point_to_point` ops.
 //
@@ -3895,6 +3962,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GatherOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
+           GridSampleOpConversionPattern,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,

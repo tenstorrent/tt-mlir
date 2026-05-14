@@ -7446,6 +7446,27 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// GridSampleOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    llvm::ArrayRef<int64_t> gridShape, TTNNLayoutAttr inputLayout,
+    TTNNLayoutAttr gridLayout, llvm::StringRef mode,
+    llvm::StringRef paddingMode, bool alignCorners,
+    TTNNLayoutAttr outputLayout) {
+  return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                 "GridSampleOp op model not implemented");
+}
+
+llvm::Expected<size_t> OpModel<GridSampleOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, llvm::ArrayRef<int64_t> gridShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout, llvm::StringRef mode,
+    llvm::StringRef paddingMode, bool alignCorners,
+    TTNNLayoutAttr outputLayout) {
+  return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                 "GridSampleOp op model not implemented");
+}
+
 // Upsample
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(

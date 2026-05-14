@@ -50,6 +50,7 @@
 #include "operations/pool/generic/generic_pools.hpp"
 #include "operations/pool/global_avg_pool/global_avg_pool.hpp"
 #include "operations/pool/upsample/upsample.hpp"
+#include "operations/pool/grid_sample/grid_sample.hpp"
 #include "operations/rand/rand.hpp"
 #include "operations/reduction/accumulation/cumsum/cumsum.hpp"
 #include "operations/reduction/argmax/argmax.hpp"
