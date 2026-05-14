@@ -811,7 +811,26 @@ public:
                                        adaptor.getOperands()[1],
                                        adaptor.getOperands()[2]};
     if (hasAttnMask) {
-      sdpaOperands.push_back(adaptor.getOperands()[3]);
+      // Left-pad mask with unit dims to 4D — matches PyTorch broadcast
+      // semantics.
+      Value mask = adaptor.getOperands()[3];
+      auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+      int64_t maskRank = maskType.getRank();
+      if (maskRank > 4) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "attention_mask rank must be <= 4");
+      }
+      if (maskRank < 4) {
+        SmallVector<int64_t> paddedShape(4 - maskRank, 1);
+        paddedShape.append(maskType.getShape().begin(),
+                           maskType.getShape().end());
+        auto paddedType =
+            RankedTensorType::get(paddedShape, maskType.getElementType());
+        mask = rewriter.create<ttir::ReshapeOp>(
+            srcOp.getLoc(), paddedType, mask,
+            rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
+      }
+      sdpaOperands.push_back(mask);
     }
 
     // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
