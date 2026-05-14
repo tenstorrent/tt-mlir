@@ -200,10 +200,53 @@ private:
   bool debugCoalescingInference;
 
 public:
+  // Cross-core local-L1 read: %src is a plain local memref and srcCore
+  // selects the remote core to read from. The source memref has no grid
+  // component, so the expansion is a single fully-indexed read of the
+  // whole shard at offset 0 (or N reads if the local layout is not
+  // contiguous, but for V1 the only legal source kinds — scratch-style
+  // allocations and CB underlying memrefs — are flat). srcCore is
+  // preserved verbatim on the resulting dma_read; the actual NoC address
+  // construction happens in D2MToTTKernel.
+  static LogicalResult rewriteCrossCoreLocalRead(PatternRewriter &rewriter,
+                                                 DMAReadOp op) {
+    Location loc = op.getLoc();
+    Value src = op.getSrc();
+    Value dst = op.getDst();
+    ValueRange srcCore = op.getSrcCore();
+
+    MemRefType srcType = op.getSrcMemRefType();
+    ArrayRef<int64_t> shardShape = srcType.getShape();
+    size_t shardVolume = ttmlir::utils::volume(shardShape);
+
+    ttcore::DeviceAttr device = ttcore::lookupDevice(op);
+    AffineMap srcMemoryMap =
+        utils::getMemoryMap(device, src, /*isRemote=*/false);
+    AffineMap dstMemoryMap =
+        utils::getMemoryMap(device, dst, /*isRemote=*/false);
+
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    SmallVector<Value> zeros(shardShape.size(), zero);
+    SmallVector<Value> srcIndices =
+        utils::applyMap(rewriter, loc, srcMemoryMap, zeros, false);
+    SmallVector<Value> dstIndices =
+        utils::applyMap(rewriter, loc, dstMemoryMap, zeros, false);
+
+    rewriter.replaceOpWithNewOp<DMAReadOp>(
+        op, src, srcIndices, dst, dstIndices,
+        rewriter.getI64IntegerAttr(shardVolume), srcCore);
+    return success();
+  }
+
   LogicalResult matchAndRewrite(DMAReadOp op,
                                 PatternRewriter &rewriter) const final {
     if (op.isFullyIndexed()) {
       return failure();
+    }
+
+    if (op.hasSrcCore()) {
+      return rewriteCrossCoreLocalRead(rewriter, op);
     }
 
     Location loc = op.getLoc();
