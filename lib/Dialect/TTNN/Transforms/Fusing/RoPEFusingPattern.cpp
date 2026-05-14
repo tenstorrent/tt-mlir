@@ -885,7 +885,7 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
     int64_t inputSeq = xType.getShape()[xRank - 2];
     int64_t cosSeq = cosType.getShape()[cosRank - 2];
     if (cosSeq < inputSeq) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+      TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                    "RoPE fusion rejected: cos/sin seq dim ({0}) < input seq "
                    "dim ({1}) — kernel would read padding garbage",
                    cosSeq, inputSeq);
