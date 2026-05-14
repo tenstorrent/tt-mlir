@@ -6,7 +6,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -869,7 +869,7 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
                            Value x, Value cos, Value sin,
                            ArrayRef<int64_t> outPermutation,
                            DeviceComputeKernelConfigAttr computeConfig,
-                           const FusionValidationConfig &validationConfig) {
+                           const OpValidationConfig &validationConfig) {
   // The metal rotary_embedding kernel indexes into cos/sin along the sequence
   // dimension (dim -2) for each input position — it does not broadcast.
   // If cos/sin have fewer sequence positions than the input, the kernel reads
@@ -896,15 +896,16 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
   op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp);
 
   // Validate in an isolated module before committing to fusion.
-  FusionValidator validator(rewriter.getContext(), validationConfig);
-  auto validationResult = validator.validateFusion<RotaryEmbeddingOp>(
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
+  auto validationResult = validator.validateOp<RotaryEmbeddingOp>(
       srcOp, srcOp->getLoc(), {x.getType()}, x, cos, sin,
       /*token_index=*/nullptr,
       /*memory_config=*/MemoryConfigAttr(),
       /*compute_config=*/computeConfig);
 
   if (!validationResult.isSuccess()) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+    TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                  "RoPE fusion validation failed: {0}",
                  validationResult.errorMessage);
     return failure();
