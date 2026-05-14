@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 
@@ -16,6 +17,25 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
+
+static bool containsAccumulatingCompute(Operation *op) {
+  if (isa<d2m::TileMatmulOp, d2m::TileMatmulBlockOp, d2m::TileReduceSumOp,
+          d2m::TileReduceMaxOp, d2m::TileReduceMeanOp, d2m::TileSFPUReduceSumOp,
+          d2m::TileSFPUReduceMaxOp>(op)) {
+    return true;
+  }
+
+  return op
+      ->walk([](Operation *nestedOp) {
+        if (isa<d2m::TileMatmulOp, d2m::TileMatmulBlockOp, d2m::TileReduceSumOp,
+                d2m::TileReduceMaxOp, d2m::TileReduceMeanOp,
+                d2m::TileSFPUReduceSumOp, d2m::TileSFPUReduceMaxOp>(nestedOp)) {
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      })
+      .wasInterrupted();
+}
 
 class D2MMarkSynchronizedBuffers
     : public impl::D2MMarkSynchronizedBuffersBase<D2MMarkSynchronizedBuffers> {
@@ -32,8 +52,15 @@ public:
       for (auto &[cb, usageInfo] : cbUsageInfo) {
         if (auto allocOp =
                 mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
+          int32_t bufferCount = numStreamBuffers;
+          for (Operation *producer : usageInfo.producers) {
+            if (containsAccumulatingCompute(producer)) {
+              bufferCount = 1;
+              break;
+            }
+          }
           allocOp->setAttr("d2m.synchronized_buffer",
-                           rewriter.getI32IntegerAttr(numStreamBuffers));
+                           rewriter.getI32IntegerAttr(bufferCount));
 
           if (!usageInfo.consumers.empty() && !usageInfo.producers.empty()) {
             TT_assertv((usageInfo.consumers.size() == 1 &&
