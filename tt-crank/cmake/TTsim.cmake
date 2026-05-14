@@ -3,9 +3,10 @@
 # soc_descriptor.yaml). Mirrors what tt-mlir's call-test-ttsim.yml workflow
 # does in shell.
 #
-# Always builds the staging. Whether the test binary actually opens ttsim is a
-# runtime decision driven by the TT_KURBLA_USE_SIMULATOR env var — see
-# tests/sim_test_env.cpp and the `sim` test preset in CMakePresets.json.
+# Always builds the staging and wires the paths into libtt_kurbla.so. Whether
+# tt-kurbla actually opens ttsim is a runtime decision driven by the
+# TT_KURBLA_USE_SIMULATOR env var — see src/engine/sim_env.cpp and the `sim`
+# test preset in CMakePresets.json.
 #
 # Exposes (parent scope):
 #   TT_KURBLA_SIM_DIR          staged sim home dir
@@ -68,3 +69,13 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(tt_kurbla_ttsim_stage DEPENDS "${_soc_staged}")
+
+# Wire the sim shim into the library: paths via compile defs, staged-dir
+# population via a build-time dependency. Done here (not in src/CMakeLists.txt)
+# because TTsim.cmake is the source of truth for these paths and it's included
+# after add_subdirectory(src).
+target_compile_definitions(tt_kurbla PRIVATE
+    TT_KURBLA_SIM_DIR="${TT_KURBLA_SIM_DIR}"
+    TT_KURBLA_TT_METAL_HOME="${TT_KURBLA_TT_METAL_HOME}"
+)
+add_dependencies(tt_kurbla tt_kurbla_ttsim_stage)
