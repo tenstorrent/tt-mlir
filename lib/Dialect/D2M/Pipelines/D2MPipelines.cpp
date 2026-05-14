@@ -244,7 +244,9 @@ void createD2MBackendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
-  pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
+  if (!options.useTensorAccessorDMA) {
+    pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
+  }
 
   // Normalize thread argument access by inserting d2m.get_arg ops for any
   // remaining additional arguments and setting resolution_stage on
@@ -283,7 +285,10 @@ void createD2MToTTNNPipeline(OpPassManager &pm,
 static void addD2MToTTKernelPreEmitCPasses(OpPassManager &pm,
                                            const D2MPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
-  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  {
+    D2MToTTKernelOptions.ttnnMode = options.ttnnMode;
+    D2MToTTKernelOptions.useTensorAccessorDMA = options.useTensorAccessorDMA;
+  }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
