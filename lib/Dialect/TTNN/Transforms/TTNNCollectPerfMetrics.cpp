@@ -605,10 +605,20 @@ private:
       t.computeRooflineTimeSecHifi4 =
           flops / static_cast<double>(t.peakFlopsHifi4);
     }
-    t.bound = t.dramRooflineTimeSec >= t.computeRooflineTimeSecLofi ? "dram"
-                                                                    : "compute";
+    // Default math fidelity for the headline `bound`/`top_perf_*` fields is
+    // HiFi2. Rationale: tt-mlir's TTNN matmuls run BFP8 weights × BF16
+    // activations, which is the HiFi2 path on Wormhole B0 (LoFi requires
+    // BFP4/BFP2 inputs, HiFi3/HiFi4 are for FP16/FP32-accumulate paths). LoFi
+    // is too optimistic for the workloads we estimate against — at 256
+    // TFLOPS it always shows decode as DRAM-bound and over-promises prefill.
+    // We keep all four `compute_time_sec_*` fields in the JSON so downstream
+    // consumers can re-derive the bound at a different fidelity if they know
+    // a model uses something else.
+    t.bound = t.dramRooflineTimeSec >= t.computeRooflineTimeSecHifi2
+                  ? "dram"
+                  : "compute";
     t.topPerfTimeSec = topPerfTimeFromRoofline(t.dramRooflineTimeSec,
-                                               t.computeRooflineTimeSecLofi);
+                                               t.computeRooflineTimeSecHifi2);
     t.topPerfSamplesPerSec =
         t.topPerfTimeSec > 0.0 ? 1.0 / t.topPerfTimeSec : 0.0;
 
