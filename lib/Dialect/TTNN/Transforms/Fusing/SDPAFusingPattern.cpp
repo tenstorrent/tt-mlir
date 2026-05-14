@@ -38,6 +38,25 @@ struct SDPAFusing::SDPAComponents {
   MatmulOp attentionMatmul;
   SoftmaxOp softmax;
   Operation *scoreOp = nullptr;
+
+  // Snapshot needed to roll back the in-place mutation that strips an inner
+  // repeat from a load_cached's const_eval body. Set by prepareInputsForSDPA
+  // when it performs that strip; cleared on success or applied (to undo) on
+  // any failure path before the matchAndRewrite returns failure(). Required
+  // because the greedy rewriter does NOT roll back in-place mutations on
+  // pattern failure, so leaving the strip applied corrupts every other user
+  // of the load_cached result (e.g. the concat that produced this sink).
+  struct ConstEvalStripUndo {
+    func::ReturnOp returnOp;
+    unsigned resultIdx;
+    Value originalReturnOperand;
+    func::FuncOp funcOp;
+    FunctionType originalFuncType;
+    ttcore::LoadCachedOp loadCached;
+    Type originalLoadCachedType;
+    Value originalAttentionSink;
+  };
+  std::optional<ConstEvalStripUndo> constEvalStripUndo;
 };
 
 // Normalize a shape to 4D by prepending 1s. Used for validation only, does not
@@ -127,12 +146,35 @@ bool SDPAFusing::isKeyTransposed(Value key, Value query, Value value) const {
 // Constant Extraction
 // ============================================================================
 
+// Extract a float splat from a ttnn.constant op's ElementsAttr value, if the
+// element type is a float type. Returns std::nullopt otherwise.
+static std::optional<float> extractFloatSplatFromConstant(ConstantOp constantOp) {
+  auto denseAttr =
+      mlir::dyn_cast<DenseElementsAttr>(constantOp.getValueAttr());
+  if (!denseAttr || !denseAttr.isSplat()) {
+    return std::nullopt;
+  }
+  if (!mlir::isa<FloatType>(denseAttr.getElementType())) {
+    return std::nullopt;
+  }
+  return denseAttr.getSplatValue<APFloat>().convertToFloat();
+}
+
 std::optional<float> SDPAFusing::extractConstant(Value v) const {
-  v = ttmlir::utils::lookThrough<TypecastOp>(v);
+  // Peel TypecastOp + Reshape so we recognize a scalar splat that has been
+  // reshaped (e.g. scalar -> 1x1x1) before being multiplied. Reshape preserves
+  // splat-ness, so the underlying constant value is unchanged.
+  v = ttmlir::utils::lookThrough<TypecastOp, ReshapeOp>(v);
 
   if (auto fullOp = v.getDefiningOp<FullOp>()) {
     if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
       return attr.getValue().convertToFloat();
+    }
+  }
+
+  if (auto constantOp = v.getDefiningOp<ConstantOp>()) {
+    if (auto splat = extractFloatSplatFromConstant(constantOp)) {
+      return splat;
     }
   }
 
@@ -149,10 +191,17 @@ std::optional<float> SDPAFusing::extractConstant(Value v) const {
     }
 
     std::optional<float> result;
-    funcOp.walk([&](FullOp fullOp) {
-      if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
-        result = attr.getValue().convertToFloat();
-        return WalkResult::interrupt();
+    funcOp.walk([&](Operation *op) {
+      if (auto fullOp = dyn_cast<FullOp>(op)) {
+        if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+          result = attr.getValue().convertToFloat();
+          return WalkResult::interrupt();
+        }
+      } else if (auto constantOp = dyn_cast<ConstantOp>(op)) {
+        if (auto splat = extractFloatSplatFromConstant(constantOp)) {
+          result = splat;
+          return WalkResult::interrupt();
+        }
       }
       return WalkResult::advance();
     });
@@ -478,22 +527,44 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
           Value stripped =
               ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(innerV);
           if (stripped != innerV) {
-            // Update the const_eval function: return the pre-repeat value.
-            returnOp.setOperand(resultIdx, stripped);
-
             auto strippedType =
                 mlir::cast<RankedTensorType>(stripped.getType());
 
+            // Snapshot pre-mutation state so createSDPAOp can roll back if
+            // validation fails. See SDPAComponents::ConstEvalStripUndo for the
+            // rationale.
+            SDPAComponents::ConstEvalStripUndo undo;
+            undo.returnOp = returnOp;
+            undo.resultIdx = resultIdx;
+            undo.originalReturnOperand = innerV;
+            undo.funcOp = funcOp;
+            undo.originalFuncType = funcOp.getFunctionType();
+            undo.loadCached = loadCached;
+            undo.originalLoadCachedType =
+                loadCached.getResult(resultIdx).getType();
+            undo.originalAttentionSink = c.attentionSink;
+
+            // Update the const_eval function: return the pre-repeat value.
+            rewriter.modifyOpInPlace(returnOp, [&]() {
+              returnOp.setOperand(resultIdx, stripped);
+            });
+
             // Update function signature return type.
-            auto funcType = funcOp.getFunctionType();
-            SmallVector<Type> newResultTypes(funcType.getResults());
-            newResultTypes[resultIdx] = strippedType;
-            funcOp.setType(FunctionType::get(
-                funcOp.getContext(), funcType.getInputs(), newResultTypes));
+            rewriter.modifyOpInPlace(funcOp, [&]() {
+              auto funcType = funcOp.getFunctionType();
+              SmallVector<Type> newResultTypes(funcType.getResults());
+              newResultTypes[resultIdx] = strippedType;
+              funcOp.setType(FunctionType::get(
+                  funcOp.getContext(), funcType.getInputs(), newResultTypes));
+            });
 
             // Update load_cached result type.
-            loadCached.getResult(resultIdx).setType(strippedType);
+            rewriter.modifyOpInPlace(loadCached, [&]() {
+              loadCached.getResult(resultIdx).setType(strippedType);
+            });
+
             c.attentionSink = loadCached.getResult(resultIdx);
+            c.constEvalStripUndo = undo;
           }
         }
       }
@@ -522,6 +593,15 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
   c.query = unsqueezeTo4D(c.query);
   c.key = unsqueezeTo4D(c.key);
   c.value = unsqueezeTo4D(c.value);
+
+  // Unsqueeze attention sink to 4D too. The SDPA decode sink workaround
+  // (ScaledDotProductAttentionDecodeAttentionSinkRewritePattern) requires
+  // shape [*, num_heads, 1, 1] and rejects lower-rank sinks. Some frontends
+  // (e.g. AOTAutograd-lowered graphs) feed the sink in as 3D [num_heads, 1, 1]
+  // because the leading batch dim got squeezed during TTNN layout.
+  if (c.attentionSink) {
+    c.attentionSink = unsqueezeTo4D(c.attentionSink);
+  }
 
   return true;
 }
@@ -672,6 +752,25 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
 
 mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
                                              SDPAComponents &c) const {
+  // Roll back the in-place const_eval strip done by prepareInputsForSDPA.
+  // Must be called on every failure path below; on success the strip stays
+  // applied and the snapshot is simply dropped.
+  auto undoConstEvalStrip = [&]() {
+    if (!c.constEvalStripUndo) {
+      return;
+    }
+    auto &u = *c.constEvalStripUndo;
+    rewriter.modifyOpInPlace(u.returnOp, [&]() {
+      u.returnOp.setOperand(u.resultIdx, u.originalReturnOperand);
+    });
+    rewriter.modifyOpInPlace(u.funcOp, [&]() { u.funcOp.setType(u.originalFuncType); });
+    rewriter.modifyOpInPlace(u.loadCached, [&]() {
+      u.loadCached.getResult(u.resultIdx).setType(u.originalLoadCachedType);
+    });
+    c.attentionSink = u.originalAttentionSink;
+    c.constEvalStripUndo.reset();
+  };
+
   float scale = c.scale.value_or(1.0f);
   FloatAttr scaleAttr = rewriter.getF32FloatAttr(scale);
 
@@ -728,6 +827,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
       TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
                    "SDPA decode fusion validation failed: {0}",
                    validationResult.errorMessage);
+      undoConstEvalStrip();
       return failure();
     }
 
@@ -761,6 +861,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
       TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
                    "SDPA fusion validation failed: {0}",
                    validationResult.errorMessage);
+      undoConstEvalStrip();
       return failure();
     }
 
