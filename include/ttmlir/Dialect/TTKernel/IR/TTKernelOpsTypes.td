@@ -84,7 +84,6 @@ def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
     let description = "L1 pointer address type in TTKernel dialect";
     let parameters = (ins DefaultValuedParameter<"unsigned", "32">:$elementWidth);
     let assemblyFormat = "(`<` $elementWidth^ `>`)?";
-    let genVerifyDecl = 1;
     let extraClassDeclaration = [{
       static ::llvm::LogicalResult verify(
           ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
