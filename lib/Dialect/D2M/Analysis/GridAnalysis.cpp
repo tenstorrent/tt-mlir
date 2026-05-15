@@ -89,6 +89,17 @@ static bool isMatmulGeneric(GenericOp genericOp) {
       .wasInterrupted();
 }
 
+static bool isEmbeddingGeneric(GenericOp genericOp) {
+  return genericOp
+      ->walk([](Operation *op) {
+        if (mlir::isa<d2m::EmbeddingOp, d2m::IndexedRowCopyOp>(op)) {
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      })
+      .wasInterrupted();
+}
+
 static bool isTrailingDimOnly1DVirtualGrid(ArrayRef<int64_t> grid,
                                            ArrayRef<int64_t> targetGrid) {
   unsigned nonUnitDims = 0;
@@ -308,6 +319,7 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   }
 
   bool requireMatmulCompatibleGrid = isMatmulGeneric(genericOp);
+  bool encourageEmbeddingGrid = isEmbeddingGeneric(genericOp);
   auto indexingMaps = genericOp.getIndexingMapsValue();
   unsigned numLoopDims = indexingMaps.front().getNumDims();
   llvm::SmallVector<llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
@@ -331,6 +343,7 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   // Build a loop-space grid wish-list first. For each loop dimension, choose
   // the largest factor requested by any operand that also divides every
   // physical operand dimension that indexes the loop.
+  constexpr int64_t kMinEmbeddingDimForGridExpansion = 1024;
   llvm::SmallVector<int64_t> desiredLoopGrid(numLoopDims, 1);
   for (unsigned loopDim = 0; loopDim < numLoopDims; ++loopDim) {
     auto &entries = loopDimOperandDims[loopDim];
@@ -372,7 +385,7 @@ GridAnalysis::normalizeOperandGridsForGeneric(
     return projectedOperandGrids;
   };
 
-  auto allOperandGridsArePlaceable =
+  auto allOperandGridsAreLegal =
       [&](ArrayRef<llvm::SmallVector<int64_t>> operandGrids) {
         return llvm::all_of(llvm::enumerate(operandGrids), [&](auto indexed) {
           auto [operandIndex, operandGrid] = indexed;
@@ -381,6 +394,7 @@ GridAnalysis::normalizeOperandGridsForGeneric(
                                            operandGrid)) {
             return false;
           }
+
           if (!canMaterializeOperandGrid(operands[operandIndex], operandGrid,
                                          targetGrid, ttnnMode)) {
             return false;
@@ -407,7 +421,7 @@ GridAnalysis::normalizeOperandGridsForGeneric(
         if (loopDim == numLoopDims) {
           auto candidateOperandGrids =
               projectLoopGridToOperands(candidateLoopGrid);
-          if (!allOperandGridsArePlaceable(candidateOperandGrids)) {
+          if (!allOperandGridsAreLegal(candidateOperandGrids)) {
             return;
           }
           if (volumeSoFar > bestLoopGridVolume) {
@@ -427,26 +441,47 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   searchLoopGrids(/*loopDim=*/0, /*volumeSoFar=*/1);
 
   auto normalizedOperandGrids = projectLoopGridToOperands(bestLoopGrid);
-  if (allOperandGridsArePlaceable(normalizedOperandGrids)) {
+  unsigned outputOperandIndex = genericOp.getInputs().size();
+  if (encourageEmbeddingGrid && outputOperandIndex < operands.size() &&
+      targetGrid.size() >= 2 && !normalizedOperandGrids[0].empty() &&
+      !normalizedOperandGrids[1].empty() &&
+      !normalizedOperandGrids[outputOperandIndex].empty()) {
+    llvm::SmallVector<int64_t> weightPhysicalShape =
+        computeCurrentPhysicalShape(operands[1]);
+    llvm::SmallVector<int64_t> outputPhysicalShape =
+        computeCurrentPhysicalShape(operands[outputOperandIndex]);
+    if (weightPhysicalShape.size() >= 2 && outputPhysicalShape.size() >= 2 &&
+        weightPhysicalShape[0] >= kMinEmbeddingDimForGridExpansion) {
+      for (int64_t rowFactor = findLargestCommonFactor(
+               targetGrid[0], {weightPhysicalShape[0], outputPhysicalShape[0]});
+           rowFactor > normalizedOperandGrids[outputOperandIndex][0];
+           --rowFactor) {
+        if (weightPhysicalShape[0] % rowFactor != 0 ||
+            outputPhysicalShape[0] % rowFactor != 0) {
+          continue;
+        }
+        llvm::SmallVector<llvm::SmallVector<int64_t>> candidateOperandGrids =
+            normalizedOperandGrids;
+        candidateOperandGrids[0][0] = 1;
+        candidateOperandGrids[1][0] = rowFactor;
+        candidateOperandGrids[outputOperandIndex][0] = rowFactor;
+        if (allOperandGridsAreLegal(candidateOperandGrids)) {
+          normalizedOperandGrids = candidateOperandGrids;
+          break;
+        }
+      }
+    }
+  }
+  if (allOperandGridsAreLegal(normalizedOperandGrids)) {
     return normalizedOperandGrids;
   }
 
   // Keep this as an invariant rather than a fallback: normalization is
-  // responsible for constructing only placeable grids.
-  for (auto [operandIndex, operandGrid] :
-       llvm::enumerate(normalizedOperandGrids)) {
-    TT_assertv(hasLegalPhysicalPlacement(operandGrid, targetGrid),
-               "Grid normalization produced unplaceable operand grid {} for "
-               "operand {} within target grid {}",
-               ttmlir::utils::formatIterable(operandGrid, "x"), operandIndex,
-               ttmlir::utils::formatIterable(targetGrid, "x"));
-    TT_assertv(canMaterializeOperandGrid(operands[operandIndex], operandGrid,
-                                         targetGrid, ttnnMode),
-               "Grid normalization produced unmaterializable operand grid {} "
-               "for operand {} within target grid {}",
-               ttmlir::utils::formatIterable(operandGrid, "x"), operandIndex,
-               ttmlir::utils::formatIterable(targetGrid, "x"));
-  }
+  // responsible for constructing only legal execution grids.
+  TT_assertv(allOperandGridsAreLegal(normalizedOperandGrids),
+             "Grid normalization produced illegal operand grids within target "
+             "grid {}",
+             ttmlir::utils::formatIterable(targetGrid, "x"));
 
   return normalizedOperandGrids;
 }

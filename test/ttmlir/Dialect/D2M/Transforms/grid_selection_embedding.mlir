@@ -54,4 +54,29 @@ module {
     %0 = "ttir.embedding"(%indices, %weight) : (tensor<1x4xi32>, tensor<16x16xf32>) -> tensor<1x4x16xf32>
     return %0 : tensor<1x4x16xf32>
   }
+
+  func.func @embedding_large_table(%indices: tensor<1x128xi32>, %weight: tensor<40960x128xf32>) -> tensor<1x128x128xf32> {
+    // AFTER-LABEL: func.func @embedding_large_table
+    // AFTER: d2m.empty() : tensor<4x4x10240x32xf32
+    // AFTER: d2m.empty() : tensor<4x4x32x32xf32
+    // AFTER: %[[GENERIC:.*]] = d2m.generic
+    // AFTER-SAME: grid = #ttcore.grid<4x4>
+    // AFTER: %[[EMBED:.*]] = d2m.embedding {{.*}}<128, 128>
+    // AFTER-SAME: {indicesShape = array<i64: 1, 128>}
+    // AFTER-SAME: tensor<4x1x8x128xi32
+    // AFTER-SAME: tensor<4x4x10240x32xf32
+    // AFTER-SAME: -> tensor<4x4x32x32xf32
+    // AFTER: d2m.yield %[[EMBED]] : (tensor<4x4x32x32xf32
+
+    // BUFFER-LABEL: func.func @embedding_large_table
+    // BUFFER: d2m.generic
+    // BUFFER-SAME: grid = #ttcore.grid<4x4>
+    // BUFFER: d2m.indexed_row_copy {{.*}} scratch {{.*}}<128, 128>
+    // BUFFER-SAME: {indicesShape = array<i64: 1, 128>}
+    // BUFFER-SAME: : memref<4x1x8x128xi32
+    // BUFFER-SAME: memref<4x4x10240x32xf32
+    // BUFFER-SAME: memref<4x4x32x32xf32
+    %0 = "ttir.embedding"(%indices, %weight) : (tensor<1x128xi32>, tensor<40960x128xf32>) -> tensor<1x128x128xf32>
+    return %0 : tensor<1x128x128xf32>
+  }
 }
