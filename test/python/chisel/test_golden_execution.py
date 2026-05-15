@@ -13,7 +13,7 @@ from chisel.executor import (
     build_role_keyed_inputs,
     execute_golden,
 )
-from chisel.op_configs import get_no_golden_op_names
+from chisel.op_configs import get_op_names_no_golden
 from chisel.ops import (
     get_flat_inplace_vals,
     get_op_inputs,
@@ -25,10 +25,10 @@ from golden.mapping import mlir_type_to_torch_dtype
 from ttmlir.dialects import quant
 from utils import iterate_programs
 
-# Ops chisel cannot validate (no golden, structural mismatch, etc.) — sourced
+# Ops chisel cannot validate (no golden, structural mismatch, etc.) - sourced
 # from op_configs.register_defaults so the skip list is a single source of
 # truth shared with the runtime callback.
-_SKIPPED_OPS: frozenset[str] = get_no_golden_op_names()
+_SKIPPED_OPS: frozenset[str] = get_op_names_no_golden()
 
 
 def _has_quantized_type(op) -> bool:

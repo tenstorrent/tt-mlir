@@ -17,7 +17,7 @@ from typing import (
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class Status(str, Enum):
+class RecordStatus(str, Enum):
     OK = "ok"
     SHAPE_MISMATCH = "shape_mismatch"
     DTYPE_MISMATCH = "dtype_mismatch"
@@ -29,21 +29,23 @@ class Status(str, Enum):
     CHISEL_BUG = "chisel_bug"
 
 
-NON_FAILURE_STATUSES = frozenset({Status.OK, Status.SKIPPED_NUMERICS, Status.NO_GOLDEN})
+PASS_STATUS = frozenset(
+    {RecordStatus.OK, RecordStatus.SKIPPED_NUMERICS, RecordStatus.NO_GOLDEN}
+)
 
 
 class _Payload(BaseModel):
-    # Each payload declares only the fields valid for its Status; extra="forbid"
+    # Each payload declares only the fields valid for its RecordStatus; extra="forbid"
     # so wrong-field-for-status mistakes raise at construction, not at the
     # downstream consumer.
     model_config = ConfigDict(extra="forbid")
 
 
 class NumericsPayload(_Payload):
-    # OK and NUMERICS_FAIL share the same schema — only the status
+    # OK and NUMERICS_FAIL share the same schema - only the status
     # discriminator differs, set by validators.check_numerics based on the
     # configured pcc/atol/rtol gates.
-    status: Literal[Status.OK, Status.NUMERICS_FAIL]
+    status: Literal[RecordStatus.OK, RecordStatus.NUMERICS_FAIL]
     pcc: float
     atol: float
     rtol: float
@@ -51,36 +53,36 @@ class NumericsPayload(_Payload):
 
 
 class ShapeMismatchPayload(_Payload):
-    status: Literal[Status.SHAPE_MISMATCH] = Status.SHAPE_MISMATCH
+    status: Literal[RecordStatus.SHAPE_MISMATCH] = RecordStatus.SHAPE_MISMATCH
     expected_shape: List[int]
     actual_shape: List[int]
 
 
 class DtypeMismatchPayload(_Payload):
-    status: Literal[Status.DTYPE_MISMATCH] = Status.DTYPE_MISMATCH
+    status: Literal[RecordStatus.DTYPE_MISMATCH] = RecordStatus.DTYPE_MISMATCH
     expected_dtype: str
     actual_dtype: str
 
 
 class ErrorPayload(_Payload):
-    status: Literal[Status.ERROR] = Status.ERROR
+    status: Literal[RecordStatus.ERROR] = RecordStatus.ERROR
 
 
 class SkippedNumericsPayload(_Payload):
-    status: Literal[Status.SKIPPED_NUMERICS] = Status.SKIPPED_NUMERICS
+    status: Literal[RecordStatus.SKIPPED_NUMERICS] = RecordStatus.SKIPPED_NUMERICS
 
 
 class NoGoldenPayload(_Payload):
-    status: Literal[Status.NO_GOLDEN] = Status.NO_GOLDEN
+    status: Literal[RecordStatus.NO_GOLDEN] = RecordStatus.NO_GOLDEN
 
 
 class IrRuntimeMismatchPayload(_Payload):
-    status: Literal[Status.IR_RUNTIME_MISMATCH] = Status.IR_RUNTIME_MISMATCH
+    status: Literal[RecordStatus.IR_RUNTIME_MISMATCH] = RecordStatus.IR_RUNTIME_MISMATCH
     runtime_debug: str
 
 
 class ChiselBugPayload(_Payload):
-    status: Literal[Status.CHISEL_BUG] = Status.CHISEL_BUG
+    status: Literal[RecordStatus.CHISEL_BUG] = RecordStatus.CHISEL_BUG
     traceback: str
 
 
@@ -112,7 +114,7 @@ class ChiselRecord(BaseModel):
     payload: Payload
 
     @property
-    def status(self) -> Status:
+    def status(self) -> RecordStatus:
         return self.payload.status
 
 
@@ -167,19 +169,19 @@ class ChiselReport:
         return self._from_filtered(lambda r: r.program_name == name)
 
     def by_status(
-        self, status: Union[Status, str, Iterable[Union[Status, str]]]
+        self, status: Union[RecordStatus, str, Iterable[Union[RecordStatus, str]]]
     ) -> "ChiselReport":
-        if isinstance(status, (Status, str)):
-            wanted = {Status(status)}
+        if isinstance(status, (RecordStatus, str)):
+            wanted = {RecordStatus(status)}
         else:
-            wanted = {Status(s) for s in status}
+            wanted = {RecordStatus(s) for s in status}
         return self._from_filtered(lambda r: r.status in wanted)
 
     def failures(self) -> "ChiselReport":
-        return self._from_filtered(lambda r: r.status not in NON_FAILURE_STATUSES)
+        return self._from_filtered(lambda r: r.status not in PASS_STATUS)
 
     def passes(self) -> "ChiselReport":
-        return self._from_filtered(lambda r: r.status in NON_FAILURE_STATUSES)
+        return self._from_filtered(lambda r: r.status in PASS_STATUS)
 
     @classmethod
     def from_jsonl(cls, path: str, *, capacity: Optional[int] = None) -> "ChiselReport":

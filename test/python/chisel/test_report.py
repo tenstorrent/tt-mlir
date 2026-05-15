@@ -3,17 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 
+from chisel.recorder import JsonlSink
 from chisel.report import (
     ChiselBugPayload,
     ChiselRecord,
     ChiselReport,
     DtypeMismatchPayload,
     ErrorPayload,
-    JsonlSink,
+    NoGoldenPayload,
     NumericsPayload,
     ShapeMismatchPayload,
     SkippedNumericsPayload,
-    Status,
+    RecordStatus,
 )
 
 
@@ -26,7 +27,7 @@ def _records_for_each_status():
             program_name="prog0",
             program_index=0,
             payload=NumericsPayload(
-                status=Status.OK, pcc=0.999, atol=1e-8, rtol=1e-5, device_id=0
+                status=RecordStatus.OK, pcc=0.999, atol=1e-8, rtol=1e-5, device_id=0
             ),
         ),
         ChiselRecord(
@@ -45,7 +46,11 @@ def _records_for_each_status():
             check="numerics",
             op_asm="some asm",
             payload=NumericsPayload(
-                status=Status.NUMERICS_FAIL, pcc=0.42, atol=1.0, rtol=1.0, device_id=1
+                status=RecordStatus.NUMERICS_FAIL,
+                pcc=0.42,
+                atol=1.0,
+                rtol=1.0,
+                device_id=1,
             ),
         ),
         ChiselRecord(op="ttnn.linear", check="numerics", payload=ErrorPayload()),
@@ -54,6 +59,11 @@ def _records_for_each_status():
             op="ttnn.unknown",
             check="numerics",
             payload=ChiselBugPayload(traceback="boom\n"),
+        ),
+        ChiselRecord(
+            op="ttnn.constant",
+            check="numerics",
+            payload=NoGoldenPayload(),
         ),
     ]
 
@@ -96,7 +106,7 @@ def test_from_jsonl_respects_explicit_capacity(tmp_path):
 
     loaded = ChiselReport.from_jsonl(str(path), capacity=3)
     assert loaded.capacity == 3
-    # ring buffer evicts oldest — verify by tail-match.
+    # ring buffer evicts oldest - verify by tail-match.
     assert loaded.records == _records_for_each_status()[-3:]
 
 
@@ -127,11 +137,11 @@ def test_by_op_and_by_check_and_by_program():
 def test_by_status_accepts_enum_str_and_iterable():
     report = _build_report()
 
-    assert len(report.by_status(Status.OK)) == 1
+    assert len(report.by_status(RecordStatus.OK)) == 1
     assert len(report.by_status("ok")) == 1
 
-    multi = report.by_status([Status.OK, "numerics_fail"])
-    assert {r.status for r in multi} == {Status.OK, Status.NUMERICS_FAIL}
+    multi = report.by_status([RecordStatus.OK, "numerics_fail"])
+    assert {r.status for r in multi} == {RecordStatus.OK, RecordStatus.NUMERICS_FAIL}
     assert len(multi) == 2
 
 
@@ -139,7 +149,7 @@ def test_failures_and_passes_complement():
     report = _build_report()
     failures = report.failures()
     passes = report.passes()
-    # Non-failure statuses: ok, skipped, skipped_numerics → 3 of the 8 records.
+    # Non-failure statuses: ok, skipped_numerics, no_golden -> 3 of the 8 records.
     assert len(passes) == 3
     assert len(failures) == 5
     assert len(failures) + len(passes) == len(report)

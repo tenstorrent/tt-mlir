@@ -4,11 +4,11 @@
 import pytest
 import _ttmlir_runtime as tt_runtime
 
-from chisel.op_configs import get_no_golden_op_names
+from chisel.op_configs import get_op_names_no_golden
 from chisel.ops import get_op_inputs, get_op_outputs
 from utils import iterate_programs
 
-_SKIPPED_OPS: frozenset[str] = get_no_golden_op_names()
+_SKIPPED_OPS: frozenset[str] = get_op_names_no_golden()
 
 
 def test_walk_program_shapes_match_ir(binary, ir_module, subtests):

@@ -16,7 +16,7 @@ def chisel_safe(fn):
     # Swallows exceptions so a chisel bug never kills the ttmlir runtime.
     # ChiselFailure -> structured check record; anything else -> chisel_bug
     # record with traceback. Returns True on clean run, False if a failure
-    # was caught — callers use this to gate dependent work.
+    # was caught - callers use this to gate dependent work.
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs) -> bool:

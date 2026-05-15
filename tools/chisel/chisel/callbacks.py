@@ -5,7 +5,7 @@
 
 Validators raise ChiselFailure on the first failed shape/dtype/PCC check.
 chisel_safe wraps the per-op handler and turns the failure into a structured
-record — any subsequent checks on the same op are skipped. Other exceptions
+record - any subsequent checks on the same op are skipped. Other exceptions
 are recorded as chisel_bug.
 """
 import logging
@@ -33,7 +33,7 @@ from .validators import check_numerics, check_shape_dtype
 logger = logging.getLogger("chisel")
 
 
-class Phase(Enum):
+class CallbackPhase(Enum):
     PRE = "pre"
     POST = "post"
 
@@ -45,16 +45,16 @@ def _op_callback(
     rt_program_context: CallbackContext,
     rt_op_context: OpContext,
     *,
-    phase: Phase,
+    phase: CallbackPhase,
 ) -> Iterator[None]:
     """Open callback scope (and, on PRE, op scope); close them symmetrically."""
     program = ctx.begin_callback(rt_binary, rt_program_context, rt_op_context)
     try:
-        if phase is Phase.PRE:
+        if phase is CallbackPhase.PRE:
             program.begin_op()
         yield
     finally:
-        if phase is Phase.POST:
+        if phase is CallbackPhase.POST:
             program.end_op()
         ctx.end_callback()
 
@@ -110,7 +110,7 @@ def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
 
     mlir_op_inputs = get_op_inputs(op)
     for mlir_input, rt_tensor_ref in zip(mlir_op_inputs, ctx.input_refs, strict=True):
-        # TODO(ndrakulic): Right now we are pulling input device tensors to host potentialy multiple times
+        # TODO(ndrakulic): Right now we are pulling input device tensors to host potentially multiple times
         tensor = _validate_and_retrieve_tensor(ctx, mlir_input, rt_tensor_ref)
         ctx.stashed_inputs[mlir_input.get_name(asm_state)] = tensor
 
@@ -155,17 +155,17 @@ def run_op_callback(
     rt_program_context: CallbackContext,
     rt_op_context: OpContext,
     *,
-    phase: Phase,
+    phase: CallbackPhase,
 ) -> None:
     """Dispatch the PRE or POST handler for the current op."""
     ctx = get_instance()
     with _op_callback(ctx, rt_binary, rt_program_context, rt_op_context, phase=phase):
         config = ctx.get_op_config(ctx.op)
-        if phase is Phase.PRE:
-            ok = _default_pre_op(ctx, config)
-            ctx.pre_failed = not ok
+        if phase is CallbackPhase.PRE:
+            pre_succeeded = _default_pre_op(ctx, config)
+            ctx.pre_failed = not pre_succeeded
         else:
-            # PRE recorded a failure — skip POST to avoid cascading into a
+            # PRE recorded a failure - skip POST to avoid cascading into a
             # chisel_bug from incomplete state.
             if ctx.pre_failed:
                 return
