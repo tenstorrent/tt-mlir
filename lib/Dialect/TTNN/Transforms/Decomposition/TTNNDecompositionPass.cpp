@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/ConcatenateHeadsDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedLayerNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/GroupNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/TopKDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -36,10 +37,14 @@ public:
           &getContext(), validationConfig);
       patterns.add<decomposition::ConcatenateHeadsDecompositionRewritePattern>(
           &getContext(), validationConfig);
+      patterns.add<decomposition::GroupNormDecompositionRewritePattern>(
+          &getContext(), validationConfig);
     } else {
       patterns.add<decomposition::TopKDecompositionRewritePattern>(
           &getContext());
       patterns.add<decomposition::ConcatenateHeadsDecompositionRewritePattern>(
+          &getContext());
+      patterns.add<decomposition::GroupNormDecompositionRewritePattern>(
           &getContext());
     }
 
