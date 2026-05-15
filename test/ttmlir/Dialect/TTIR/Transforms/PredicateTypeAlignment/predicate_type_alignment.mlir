@@ -139,3 +139,42 @@ func.func @edge_typecast_boundary(%arg0: tensor<4x4xi32>) -> tensor<2x8xf32> {
   %0 = "ttir.reshape"(%cast) <{shape = [2 : i32, 8 : i32]}> : (tensor<4x4xf32>) -> tensor<2x8xf32>
   return %0 : tensor<2x8xf32>
 }
+
+// -----
+// Cross-type elementwise binary op: ttnn allows ops like eq/gt to take inputs
+// of one element type and produce a result of a different element type because
+// the kernel inserts the typecast internally. D2M needs the typecast to be
+// explicit because its compute region must be uniformly typed; without the
+// explicit cast `d2m-insert-dst-register-access` would assign a stale DST type
+// (see issue #8193). The pattern picks the result element type as the target
+// and inserts typecasts on the operands that disagree.
+
+// CHECK-LABEL: func.func @cross_type_eq_si32_to_bf16
+// CHECK: "ttir.typecast"(%arg0){{.*}}: (tensor<4x4xsi32>) -> tensor<4x4xbf16>
+// CHECK: "ttir.typecast"(%arg1){{.*}}: (tensor<4x4xsi32>) -> tensor<4x4xbf16>
+// CHECK: "ttir.eq"(%{{.*}}, %{{.*}}) : (tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
+func.func @cross_type_eq_si32_to_bf16(%arg0: tensor<4x4xsi32>, %arg1: tensor<4x4xsi32>) -> tensor<4x4xbf16> {
+  %0 = "ttir.eq"(%arg0, %arg1) : (tensor<4x4xsi32>, tensor<4x4xsi32>) -> tensor<4x4xbf16>
+  return %0 : tensor<4x4xbf16>
+}
+
+// -----
+// CHECK-LABEL: func.func @cross_type_gt_si32_to_bf16
+// CHECK: "ttir.typecast"(%arg0){{.*}}: (tensor<8xsi32>) -> tensor<8xbf16>
+// CHECK: "ttir.typecast"(%arg1){{.*}}: (tensor<8xsi32>) -> tensor<8xbf16>
+// CHECK: "ttir.gt"(%{{.*}}, %{{.*}}) : (tensor<8xbf16>, tensor<8xbf16>) -> tensor<8xbf16>
+func.func @cross_type_gt_si32_to_bf16(%arg0: tensor<8xsi32>, %arg1: tensor<8xsi32>) -> tensor<8xbf16> {
+  %0 = "ttir.gt"(%arg0, %arg1) : (tensor<8xsi32>, tensor<8xsi32>) -> tensor<8xbf16>
+  return %0 : tensor<8xbf16>
+}
+
+// -----
+// Only the operand that disagrees with the result element type gets a
+// typecast inserted; the other is already aligned.
+// CHECK-LABEL: func.func @cross_type_mixed_operands
+// CHECK: "ttir.typecast"(%arg1){{.*}}: (tensor<4xsi32>) -> tensor<4xbf16>
+// CHECK: "ttir.eq"(%arg0, %{{.*}}) : (tensor<4xbf16>, tensor<4xbf16>) -> tensor<4xbf16>
+func.func @cross_type_mixed_operands(%arg0: tensor<4xbf16>, %arg1: tensor<4xsi32>) -> tensor<4xbf16> {
+  %0 = "ttir.eq"(%arg0, %arg1) : (tensor<4xbf16>, tensor<4xsi32>) -> tensor<4xbf16>
+  return %0 : tensor<4xbf16>
+}
