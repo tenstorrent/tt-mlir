@@ -135,9 +135,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   }
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
-  d2m::D2MMarkSynchronizedBuffersOptions markSyncBuffersOptions;
-  { markSyncBuffersOptions.numStreamBuffers = options.numStreamBuffers; }
-  pm.addPass(d2m::createD2MMarkSynchronizedBuffers(markSyncBuffersOptions));
   pm.addPass(d2m::createD2MInsertScratchBuffers());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
@@ -153,6 +150,11 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   d2m::D2MDecomposeMaskingOptions decomposeMaskingOptions;
   { decomposeMaskingOptions.numStreamBuffers = options.numStreamBuffers; }
   pm.addPass(d2m::createD2MDecomposeMasking(decomposeMaskingOptions));
+
+  // Run right before allocate to mark synchronized buffers
+  d2m::D2MMarkSynchronizedBuffersOptions markSyncBuffersOptions;
+  { markSyncBuffersOptions.numStreamBuffers = options.numStreamBuffers; }
+  pm.addPass(d2m::createD2MMarkSynchronizedBuffers(markSyncBuffersOptions));
 
   d2m::D2MAllocateOptions allocateOptions;
   {

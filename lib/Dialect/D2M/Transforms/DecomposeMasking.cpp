@@ -221,23 +221,14 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     auto maskType = MemRefType::get({1, 1}, tileElementType,
                                     MemRefLayoutAttrInterface{}, memorySpace);
 
-    // Set the synchronized buffer attribute since manually introducing a
-    // post-bufferization memref alloc
+    // The synchronized buffer attribute is set by MarkSynchronizedBuffers pass
     auto inputOp = rewriter.create<memref::AllocOp>(loc, inputType);
-    inputOp->setAttr("d2m.synchronized_buffer",
-                     rewriter.getI32IntegerAttr(numStreamBuffers));
     Value input = inputOp.getResult();
     auto outputOp = rewriter.create<memref::AllocOp>(loc, outputType);
-    outputOp->setAttr("d2m.synchronized_buffer",
-                      rewriter.getI32IntegerAttr(numStreamBuffers));
     Value output = outputOp.getResult();
     auto rowMaskCBOp = rewriter.create<memref::AllocOp>(loc, maskType);
-    rowMaskCBOp->setAttr("d2m.synchronized_buffer",
-                         rewriter.getI32IntegerAttr(numStreamBuffers));
     Value rowMaskCB = rowMaskCBOp.getResult();
     auto colMaskCBOp = rewriter.create<memref::AllocOp>(loc, maskType);
-    colMaskCBOp->setAttr("d2m.synchronized_buffer",
-                         rewriter.getI32IntegerAttr(numStreamBuffers));
     Value colMaskCB = colMaskCBOp.getResult();
 
     SmallVector<Value> remoteIndices;
