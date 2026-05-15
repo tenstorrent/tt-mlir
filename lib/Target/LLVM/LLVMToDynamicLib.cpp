@@ -96,6 +96,13 @@ createTargetMachine(const llvm::Triple &targetTriple) {
 
   llvm::TargetOptions options;
 
+  if (targetTriple.isRISCV() && targetTriple.isOSUnknown()) {
+    std::unique_ptr<llvm::TargetMachine> machine(
+        llvmTarget->createTargetMachine(targetTriple, "sifive-x280", "",
+                                        options, llvm::Reloc::Model::Static));
+    return machine;
+  }
+
   std::unique_ptr<llvm::TargetMachine> machine(llvmTarget->createTargetMachine(
       targetTriple, "generic" /* cpu e.g k8 */,
       "" /* cpu features e.g avx512f */, options, llvm::Reloc::Model::PIC_));
@@ -111,12 +118,6 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   LLVMInitializeNativeTarget();
   LLVMInitializeNativeAsmParser();
   LLVMInitializeNativeAsmPrinter();
-
-  // Set target triple if not already set.
-  if (module.getTargetTriple().empty()) {
-    auto defaultTriple = llvm::sys::getDefaultTargetTriple();
-    module.setTargetTriple(llvm::Triple(Twine(defaultTriple)));
-  }
 
   auto targetMachine = createTargetMachine(module.getTargetTriple());
   if (!targetMachine) {
@@ -220,8 +221,8 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
 // Wrapper func to create objects, link them into dylib, and return dylib as
 // binary buffer is successful
 std::optional<llvm::SmallVector<char, 2048>>
-compileAndLinkToSharedLibrary(llvm::Module &module,
-                              llvm::LLVMContext &context) {
+compileAndLinkToLibrary(llvm::Module &module, llvm::LLVMContext &context,
+                        bool sharedLib) {
   const auto tmpDirName = createTempDir();
   const auto tmpObjFileName =
       createTempFile(tmpDirName, module.getName(), ".o");
@@ -264,8 +265,16 @@ compileAndLinkToSharedLibrary(llvm::Module &module,
   return buffer;
 }
 
-llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
-  auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
+llvm::Triple getTriple(bool dynamicLib) {
+  if (dynamicLib) {
+    return llvm::Triple(llvm::sys::getDefaultTargetTriple());
+  }
+  return llvm::Triple("riscv64-unknown-none-elf");
+}
+
+llvm::LogicalResult translateLLVMToLib(Operation *op, llvm::raw_ostream &os,
+                                       bool dynamicLib) {
+  mlir::ModuleOp moduleOp = dyn_cast_if_present<mlir::ModuleOp>(op);
   if (!moduleOp) {
     llvm::errs()
         << "Cannot perform translation. Root operation is not ModuleOp.\n";
@@ -279,12 +288,17 @@ llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
   if (!llvmModule) {
     return llvm::failure();
   }
-  const auto maybeDylibBinary =
-      compileAndLinkToSharedLibrary(*llvmModule.get(), llvmContext);
-  if (!maybeDylibBinary.has_value()) {
+
+  if (llvmModule->getTargetTriple().empty()) {
+    llvmModule->setTargetTriple(getTriple(dynamicLib));
+  }
+
+  const auto maybeLibBinary =
+      compileAndLinkToLibrary(*llvmModule.get(), llvmContext, dynamicLib);
+  if (!maybeLibBinary.has_value()) {
     return llvm::failure();
   }
-  os.write(maybeDylibBinary.value().data(), maybeDylibBinary.value().size());
+  os.write(maybeLibBinary.value().data(), maybeLibBinary.value().size());
   return llvm::success();
 }
 } // namespace mlir::tt::llvm_to_cpu

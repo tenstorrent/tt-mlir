@@ -4853,8 +4853,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(
         cpuModule.getBodyRegion().front().front());
     llvm::SmallVector<char, 2048> binaryBuffer;
     llvm::raw_svector_ostream dylibStream(binaryBuffer);
-    auto result = mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuNestedModule,
-                                                              dylibStream);
+    bool isDynamicLib = (cpuModule.getRole() == ttcore::CPURole::Host);
+    auto result = mlir::tt::llvm_to_cpu::translateLLVMToLib(
+        cpuNestedModule, dylibStream, isDynamicLib);
     if (llvm::succeeded(result)) {
       auto rawFileVector = fbb.CreateVector(
           reinterpret_cast<const uint8_t *>(binaryBuffer.data()),

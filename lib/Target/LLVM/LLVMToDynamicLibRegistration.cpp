@@ -20,7 +20,7 @@ void registerLLVMToDynamicLibrary() {
   TranslateFromMLIRRegistration reg(
       "llvm-to-dylib", "Translate LLVM dialect to dynamic library",
       [](Operation *op, llvm::raw_ostream &os) -> LogicalResult {
-        return translateLLVMToDyLib(op, os);
+        return translateLLVMToLib(op, os, true);
       },
       [](DialectRegistry &registry) {
         registry

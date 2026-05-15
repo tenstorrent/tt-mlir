@@ -19,7 +19,8 @@
 
 namespace mlir::tt::llvm_to_cpu {
 // Convert an LLVM operation to a dylib
-LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os);
+LogicalResult translateLLVMToLib(Operation *op, llvm::raw_ostream &os,
+                                 bool dynamicLib);
 } // namespace mlir::tt::llvm_to_cpu
 
 #endif
