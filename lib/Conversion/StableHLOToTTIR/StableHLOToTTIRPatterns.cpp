@@ -3462,14 +3462,87 @@ private:
   matchAndRewriteInternal(mlir::stablehlo::CompareOp srcOp,
                           mlir::stablehlo::CompareOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
-    mlir::RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
-            srcOp->getResults()[0].getType()));
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    rewriter.replaceOpWithNewOp<DestOp>(srcOp, outputType, adaptor.getLhs(),
-                                        adaptor.getRhs());
+    // If one operand is a `stablehlo.convert(narrow -> wider)` and the other
+    // is a `stablehlo.constant<wider>` whose elements fit in the narrow
+    // type, replace both with the narrow input and a freshly-narrowed
+    // constant so the compare runs in the narrow dtype.
+    Value lhs = srcOp.getLhs();
+    Value rhs = srcOp.getRhs();
+    if (auto peeled = tryPeelUpcast(lhs, rhs, rewriter); succeeded(peeled)) {
+      std::tie(lhs, rhs) = *peeled;
+    }
 
+    rewriter.replaceOpWithNewOp<DestOp>(srcOp, outputType, lhs, rhs);
     return success();
+  }
+
+  // Returns the new `(lhs, rhs)` pair when one of the operands is
+  // `stablehlo.convert(narrow -> wider)` and the other is a
+  // `stablehlo.constant<wider>` whose elements convert to `narrow` via
+  // rmNearestTiesToEven. Tries both lhs/rhs orderings; preserves operand
+  // order on success. Returns failure when the pattern does not apply.
+  static mlir::FailureOr<std::pair<Value, Value>>
+  tryPeelUpcast(Value lhs, Value rhs, ConversionPatternRewriter &rewriter) {
+    auto lhsCvt = lhs.getDefiningOp<mlir::stablehlo::ConvertOp>();
+    auto rhsCvt = rhs.getDefiningOp<mlir::stablehlo::ConvertOp>();
+    auto lhsCst = lhs.getDefiningOp<mlir::stablehlo::ConstantOp>();
+    auto rhsCst = rhs.getDefiningOp<mlir::stablehlo::ConstantOp>();
+
+    mlir::stablehlo::ConvertOp cvt;
+    mlir::stablehlo::ConstantOp cst;
+    bool cvtIsLhs = false;
+    if (lhsCvt && rhsCst) {
+      cvt = lhsCvt;
+      cst = rhsCst;
+      cvtIsLhs = true;
+    } else if (rhsCvt && lhsCst) {
+      cvt = rhsCvt;
+      cst = lhsCst;
+    } else {
+      return mlir::failure();
+    }
+
+    auto narrowTy =
+        mlir::dyn_cast<RankedTensorType>(cvt.getOperand().getType());
+    auto widerTy = mlir::dyn_cast<RankedTensorType>(cvt.getType());
+    auto narrowEt = narrowTy
+                        ? mlir::dyn_cast<FloatType>(narrowTy.getElementType())
+                        : nullptr;
+    auto widerEt =
+        widerTy ? mlir::dyn_cast<FloatType>(widerTy.getElementType()) : nullptr;
+    if (!narrowEt || !widerEt || narrowEt.getWidth() >= widerEt.getWidth()) {
+      return mlir::failure();
+    }
+    auto attr = mlir::dyn_cast<mlir::DenseFPElementsAttr>(cst.getValue());
+    if (!attr) {
+      return mlir::failure();
+    }
+
+    llvm::SmallVector<llvm::APFloat> vals;
+    vals.reserve(attr.getNumElements());
+    for (const llvm::APFloat &v : attr.getValues<llvm::APFloat>()) {
+      llvm::APFloat narrow = v;
+      bool lose = false;
+      auto st = narrow.convert(narrowEt.getFloatSemantics(),
+                               llvm::APFloat::rmNearestTiesToEven, &lose);
+      if (st != llvm::APFloat::opOK && st != llvm::APFloat::opInexact) {
+        return mlir::failure();
+      }
+      vals.push_back(narrow);
+    }
+    auto narrowCstTy = RankedTensorType::get(narrowTy.getShape(), narrowEt,
+                                             narrowTy.getEncoding());
+    Value narrowInput = cvt.getOperand();
+    Value narrowConst = rewriter.create<mlir::stablehlo::ConstantOp>(
+        cst.getLoc(), narrowCstTy,
+        mlir::DenseElementsAttr::get(narrowCstTy, vals));
+    if (cvtIsLhs) {
+      return std::make_pair(narrowInput, narrowConst);
+    }
+    return std::make_pair(narrowConst, narrowInput);
   }
 };
 } // namespace
@@ -5616,6 +5689,13 @@ public:
     if (lastIndex != maxIndex) {
       return rewriter.notifyMatchFailure(
           srcOp, "Not all indices are present in the original array");
+    }
+
+    // Body [0, 1, ..., maxIndex] must be present, i.e. at least one 0 and one
+    // maxIndex. Rejects constant-uniform indices like [1, 1, ..., 1].
+    if (starts == 0 || ends == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Indices do not contain the body [0, 1, ..., maxIndex]");
     }
 
     starts--;
@@ -8384,6 +8464,60 @@ public:
 };
 } // namespace
 
+namespace {
+class StableHLOToTTIROpRoundOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RoundOp> {
+  using OpConversionPattern<mlir::stablehlo::RoundOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RoundOp srcOp,
+                  mlir::stablehlo::RoundOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto input = adaptor.getOperands()[0];
+    auto resultType = dyn_cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Failed to convert result type");
+    }
+
+    auto elementType = resultType.getElementType();
+    if (!mlir::isa<mlir::FloatType>(elementType)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Unsupported element type for RoundOp, expected float type");
+    }
+
+    // Decompose RoundOp (nearest ties to away from zero) into:
+    // round_nearest_afz(x) = sign(x) * floor(abs(x) + 0.5)
+    auto loc = srcOp.getLoc();
+
+    auto halfConst = rewriter.create<ttir::ConstantOp>(
+        loc, resultType,
+        DenseElementsAttr::get(
+            resultType,
+            SmallVector<Attribute>{mlir::FloatAttr::get(elementType, 0.5)}));
+
+    auto absInput = rewriter.create<ttir::AbsOp>(loc, resultType, input);
+
+    auto shiftedInput =
+        rewriter.create<ttir::AddOp>(loc, resultType, absInput, halfConst);
+
+    auto flooredInput =
+        rewriter.create<ttir::FloorOp>(loc, resultType, shiftedInput);
+
+    auto signInput = rewriter.create<ttir::SignOp>(loc, resultType, input);
+
+    auto roundedInput = rewriter.create<ttir::MultiplyOp>(
+        loc, resultType, signInput, flooredInput);
+
+    rewriter.replaceOp(srcOp, roundedInput.getResult());
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -8433,6 +8567,8 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::TanhOp, mlir::tt::ttir::TanhOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
+
+  patterns.add<StableHLOToTTIROpRoundOpConversionPattern>(typeConverter, ctx);
 }
 
 static void

@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -320,7 +321,12 @@ TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
     ttnn::SliceDynamicOp op) {
+  // The tt-metal slice with tensor args (dynamic) requires ROW_MAJOR layout
+  // for the input tensor. The device-only TILE path needs slice_dim and
+  // num_devices which are not provided by the TTIR→TTNN lowering.
+  // https://github.com/tenstorrent/tt-metal/issues/42778
   TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   Type inputType = op.getInput().getType().getElementType();
   uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
   if (inputType.isUnsignedInteger() && bitWidth < 32) {
@@ -329,11 +335,17 @@ TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
   TTNNOperandWorkarounds uInt32Workaround;
   uInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
 
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  if (inputType.isUnsignedInteger() && bitWidth < 32) {
+    outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+  }
+
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(inputWorkaround)
       .addInputOperandWorkaround(uInt32Workaround)
       .addInputOperandWorkaround(uInt32Workaround)
-      .addOutputOperandWorkaround(inputWorkaround);
+      .addOutputOperandWorkaround(outputWorkaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
@@ -900,6 +912,9 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(T op) {
 //    float32 data types only.
 // 3. Reduction ops generates incorrect output for integer input tensor.
 //    tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/21071
+//    Route through Float32 (not BFloat16) so integer values up to 2^24 are
+//    preserved exactly; BFloat16 silently rounds (e.g. 8400 -> 8384).
+//    tt-mlir issue: https://github.com/tenstorrent/tt-mlir/issues/8279
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
     mlir::Operation *op) {
@@ -909,7 +924,7 @@ TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
   TTNNOperandWorkarounds operandWorkaround;
   if (!inputType.isF32() && !inputType.isBF16()) {
     operandWorkaround.tensorDataTypeWorkaround =
-        mlir::tt::ttcore::DataType::BFloat16;
+        mlir::tt::ttcore::DataType::Float32;
   }
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
@@ -1351,8 +1366,8 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 // This operation returns two outputs:
 //   [0] values (same data type as input)
 //   [1] indices (uint16 or uint32 depending on input shape)
-// TopK op pads the dimension to next power of 2, and uses UInt32 for indices if
-// added size >= uint16_t::max
+// TopK op pads the dimension to tile size, and uses UInt32 for indices if
+// padded dimension size > uint16_t::max
 
 // Input is forced to BFloat16 unless it is already BFloat16 or BFP_BFloat8.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
@@ -1384,8 +1399,8 @@ TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
 
   // Calculate padded dim size to determine UInt16 vs UInt32 for indices output.
   auto inputShape = inputType.getShape();
-  int64_t dimSize = inputShape[dimIndex];
-  int64_t paddedDimSize = llvm::PowerOf2Ceil(dimSize);
+  auto paddedShape = utils::getTilePaddedShape(inputShape);
+  int64_t paddedDimSize = paddedShape[dimIndex];
   bool useUint16Indices =
       paddedDimSize <= std::numeric_limits<uint16_t>::max(); // 65535
 

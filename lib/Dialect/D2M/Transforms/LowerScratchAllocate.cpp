@@ -17,13 +17,28 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Information about a single scratch allocation.
+// Information about a single scratch allocation, including its liveness range.
 struct ScratchAllocationInfo {
   ScratchAllocateOp op;
   int64_t slotId;
   int64_t numElements;   // Number of elements (tiles) requested.
   int64_t elementOffset; // Starting element offset in scratch buffer.
+
+  // Liveness range: positions of the definition and last use within the
+  // top-level operation ordering of the entry block.
+  int64_t startPosition = -1;
+  int64_t endPosition = -1;
+
+  // Whether this allocation was packed inside a larger, non-conflicting
+  // allocation's footprint by the offset assignment heuristic.
+  bool packed = false;
 };
+
+// Returns true if two live ranges overlap.
+static bool livesOverlap(const ScratchAllocationInfo &a,
+                         const ScratchAllocationInfo &b) {
+  return a.startPosition <= b.endPosition && b.startPosition <= a.endPosition;
+}
 
 class D2MLowerScratchAllocatePass
     : public impl::D2MLowerScratchAllocateBase<D2MLowerScratchAllocatePass> {
@@ -85,18 +100,18 @@ private:
       return success();
     }
 
-    // Sort by slot ID for deterministic layout.
+    // Sort descending by size so larger allocations are placed first, giving
+    // the best chance for smaller ones to be packed inside them.
     llvm::sort(allocations, [](const auto &a, const auto &b) {
+      if (a.numElements != b.numElements) {
+        return a.numElements > b.numElements;
+      }
       return a.slotId < b.slotId;
     });
 
-    // Compute sequential element offsets.
-    int64_t currentOffset = 0;
-    for (auto &info : allocations) {
-      assert(info.numElements > 0 && "scratch allocation must be non-empty");
-      info.elementOffset = currentOffset;
-      currentOffset += info.numElements;
-    }
+    Block &block = region.front();
+    computeLiveness(allocations, block);
+    int64_t peakUsage = assignOffsets(allocations);
 
     // Verify allocations fit in the scratch buffer.
     assert(!llvm::is_contained(scratchMemRefType.getShape(),
@@ -104,9 +119,9 @@ private:
            "scratch memrefs must be static");
     int64_t scratchCapacity =
         ttmlir::utils::volume<int64_t>(scratchMemRefType.getShape());
-    if (currentOffset > scratchCapacity) {
+    if (peakUsage > scratchCapacity) {
       return genericOp.emitOpError()
-             << "total scratch allocations (" << currentOffset
+             << "peak scratch usage (" << peakUsage
              << " elements) exceed scratch buffer capacity (" << scratchCapacity
              << " elements)";
     }
@@ -120,6 +135,80 @@ private:
     scratchInit.erase();
 
     return success();
+  }
+
+  // Compute liveness ranges for scratch allocations.
+  //
+  // Each allocation's live range spans from its definition to its last use.
+  void computeLiveness(SmallVectorImpl<ScratchAllocationInfo> &allocations,
+                       Block &block) {
+    // Assign sequential position indices to top-level operations in the block.
+    DenseMap<Operation *, int64_t> opPositions;
+    int64_t pos = 0;
+    for (Operation &op : block) {
+      opPositions[&op] = pos++;
+    }
+
+    auto getTopLevelOp = [&](Operation *op) -> Operation * {
+      return block.findAncestorOpInBlock(*op);
+    };
+
+    for (auto &info : allocations) {
+      Operation *topLevelDef = getTopLevelOp(info.op.getOperation());
+      assert(opPositions.contains(topLevelDef) &&
+             "scratch allocation must have a top-level position");
+      info.startPosition = opPositions[topLevelDef];
+      info.endPosition = info.startPosition;
+
+      for (OpOperand &use : info.op.getResult().getUses()) {
+        Operation *topLevelUser = getTopLevelOp(use.getOwner());
+        assert(opPositions.contains(topLevelUser) &&
+               "scratch allocation user must have a top-level position");
+        int64_t userPos = opPositions[topLevelUser];
+        info.endPosition = std::max(info.endPosition, userPos);
+      }
+    }
+  }
+
+  // Assign element offsets using a first-fit-decreasing heuristic.
+  //
+  // Allocations are already sorted descending by size. Each "outer" allocation
+  // reserves a region of scratch memory. Smaller allocations whose live ranges
+  // do not overlap with the outer allocation are packed inside its footprint,
+  // reusing the same memory at different sub-offsets.
+  //
+  // Returns the peak scratch usage (total elements required).
+  int64_t assignOffsets(SmallVectorImpl<ScratchAllocationInfo> &allocations) {
+    int64_t currentOffset = 0;
+    for (size_t i = 0; i < allocations.size(); ++i) {
+      auto &outer = allocations[i];
+      assert(outer.numElements > 0 && "scratch allocation must be non-empty");
+      if (outer.packed) {
+        continue;
+      }
+
+      outer.elementOffset = currentOffset;
+      int64_t innerOffset = currentOffset;
+
+      // Try to pack smaller, non-conflicting allocations inside this one.
+      for (size_t j = i + 1; j < allocations.size(); ++j) {
+        auto &inner = allocations[j];
+        if (inner.packed) {
+          continue;
+        }
+
+        bool fits = (innerOffset + inner.numElements) <=
+                    (currentOffset + outer.numElements);
+        if (!livesOverlap(outer, inner) && fits) {
+          inner.packed = true;
+          inner.elementOffset = innerOffset;
+          innerOffset += inner.numElements;
+        }
+      }
+
+      currentOffset += outer.numElements;
+    }
+    return currentOffset;
   }
 
   /// Replace a scratch_allocate with a rank-reducing subview of the scratch

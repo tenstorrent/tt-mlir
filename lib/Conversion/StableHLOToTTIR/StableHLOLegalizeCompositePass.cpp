@@ -726,10 +726,25 @@ public:
   }
 };
 
-// Special handling for tenstorrent.scaled_dot_product_attention ->
-// ttir.scaled_dot_product_attention
-// Extracts is_causal, scale from composite attributes and sets
-// operandSegmentSizes for AttrSizedOperandSegments
+// Lowers `stablehlo.composite "tenstorrent.scaled_dot_product_attention"` to
+// `ttir.scaled_dot_product_attention`. The composite is emitted by the
+// frontend (tt-xla) wrapper around
+// `torch.nn.functional.scaled_dot_product_attention`.
+//
+// Operand/attribute mapping:
+//   - Operands: [query, key, value] or [query, key, value, attention_mask].
+//     Shapes are passed through unchanged; the TTIR generic verifier enforces
+//     [B, Hq, Sq, D] / [B, Hkv, Sk, D] / [1|B, 1|Hq, Sq, Sk] layouts.
+//   - Attributes: only `is_causal` and `scale` are forwarded from the
+//     composite. Other attributes that PyTorch SDPA may set
+//     (e.g. `sliding_window_size`, `enable_gqa`) are not propagated.
+//
+// Policy decisions baked in below:
+//   1. The 4th operand (`attention_mask`) is forwarded only when
+//      `is_causal == false`, matching the kernel's mutual-exclusivity rule.
+//   2. `attention_sink` is hard-coded to operand-segment size 0; the frontend
+//      cannot supply it yet. Tracked by
+//      https://github.com/tenstorrent/tt-xla/issues/4030.
 class TenstorrentScaledDotProductAttentionConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 
@@ -796,7 +811,26 @@ public:
                                        adaptor.getOperands()[1],
                                        adaptor.getOperands()[2]};
     if (hasAttnMask) {
-      sdpaOperands.push_back(adaptor.getOperands()[3]);
+      // Left-pad mask with unit dims to 4D — matches PyTorch broadcast
+      // semantics.
+      Value mask = adaptor.getOperands()[3];
+      auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+      int64_t maskRank = maskType.getRank();
+      if (maskRank > 4) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "attention_mask rank must be <= 4");
+      }
+      if (maskRank < 4) {
+        SmallVector<int64_t> paddedShape(4 - maskRank, 1);
+        paddedShape.append(maskType.getShape().begin(),
+                           maskType.getShape().end());
+        auto paddedType =
+            RankedTensorType::get(paddedShape, maskType.getElementType());
+        mask = rewriter.create<ttir::ReshapeOp>(
+            srcOp.getLoc(), paddedType, mask,
+            rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
+      }
+      sdpaOperands.push_back(mask);
     }
 
     // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:

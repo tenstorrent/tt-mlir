@@ -23,7 +23,7 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait]> {
+def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait, OpModelExempt]> {
     let summary = "Get Device op.";
     let description = [{
       This op returns a submesh carved out from the parent runtime device.
@@ -122,7 +122,7 @@ def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
+def TTNN_ToDeviceOp : TTNN_Op<"to_device", [OpModelExempt]> {
     let summary = "ToDevice op.";
     let description = [{
       This op sends the input tensor to the given device with the given memory config.
@@ -134,7 +134,7 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
+def TTNN_FromDeviceOp : TTNN_Op<"from_device", [OpModelExempt]> {
     let summary = "FromDevice op.";
     let description = [{
       This op retrieves the input tensor from the given device.
@@ -1597,7 +1597,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
+def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul", [OpModelExempt]> {
     let summary = "Sparse block matrix multiplication with sparsity mask.";
     let description = [{
       The `sparse_matmul` operation performs batched matrix multiplication where
@@ -1648,7 +1648,7 @@ def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
+def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch", [OpModelExempt]> {
     let summary = "Dispatch tokens to expert devices for MoE computation.";
     let description = [{
       Routes tokens to devices holding their selected experts via all-to-all
@@ -1673,7 +1673,7 @@ def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
+def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [OpModelExempt]> {
     let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
     let description = [{
       Routes tokens along with expert scores to devices holding their selected
@@ -1720,7 +1720,7 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
+def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine", [OpModelExempt]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
       Inverse of dispatch: gathers expert computation results from expert devices
@@ -1747,7 +1747,7 @@ def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
     let hasVerifier = 1;
 }
 
-def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine"> {
+def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine", [OpModelExempt]> {
     let summary = "Reduce and combine phase of the MoE pipeline.";
     let description = [{
       Takes dense blocks of expert-computed tokens from the MoE compute kernel,
@@ -1770,7 +1770,7 @@ def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine"> {
     let hasVerifier = 1;
 }
 
-def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap"> {
+def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap", [OpModelExempt]> {
     let summary = "Remap global expert routing to local device experts with sparsity.";
     let description = [{
       Converts global expert routing scores to local per-device expert mapping
@@ -2402,7 +2402,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
 }
 
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
-    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";
     let description = [{
       Fused distributed RMS normalization operation across mesh devices.
@@ -2525,7 +2525,7 @@ def TTNN_RMSNormPreAllGatherOp :  TTNN_Op<"rms_norm_pre_all_gather",
 }
 
 def TTNN_DistributedLayerNormOp : TTNN_Op<"distributed_layer_norm",
-    [AttrSizedOperandSegments]> {
+    [AttrSizedOperandSegments, OpModelExempt]> {
     let summary = "Distributed layer normalization with all-gather op.";
     let description = [{
       Intermediate TTNN op for distributed layer normalization across mesh devices.
@@ -2989,7 +2989,7 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
     let hasVerifier = 1;
 }
 
-def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
+def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait, OpModelExempt]> {
     let summary = "Alloc op.";
     let description = [{
       Tensor Alloc operation
@@ -3071,7 +3071,7 @@ def TTNN_GatherOp : TTNN_Op<"gather", [TTNN_MemoryConfigOpInterface]> {
     }];
 }
 
-def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface, OpModelExempt]> {
     let summary = "All gather op.";
     let description = [{
         Tensor All Gather operation
@@ -3094,7 +3094,7 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
     [TTNN_MemoryConfigOpInterface,
-     TTNN_ComputeKernelConfigOpInterface]> {
+     TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
@@ -3117,7 +3117,7 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface, OpModelExempt]> {
     let summary = "All reduce op.";
     let description = [{
         Tensor All Reduce operation
@@ -3138,7 +3138,7 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInterface, OpModelExempt]> {
     let summary = "Asynchronous all reduce op.";
     let description = [{
         Asynchronous all-reduce collective communication operation. Performs a
@@ -3160,7 +3160,7 @@ def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInter
     let hasVerifier = 1;
 }
 
-def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
+def TTNN_MeshShardOp: TTNN_Op<"mesh_shard", [OpModelExempt]> {
     let summary = "Mesh shard op.";
     let description = [{
         Tensor Mesh Shard operation
@@ -3388,7 +3388,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
+def TTNN_PointToPointOp: TTNN_Op<"point_to_point", [OpModelExempt]> {
   let summary = "Point To Point operation.";
   let description = [{
     Performs point-to-point communication by copying a tensor shard from one device to another
@@ -3410,7 +3410,7 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
   let hasVerifier = 1;
 }
 
-def TTNN_WriteTensorOp : TTNN_InplaceOp<"write_tensor"> {
+def TTNN_WriteTensorOp : TTNN_InplaceOp<"write_tensor", [OpModelExempt]> {
   let summary = "Write tensor op.";
   let description = [{
     Copies host_tensor data into device_tensor through cq_id.
@@ -3430,7 +3430,7 @@ def TTNN_WriteTensorOp : TTNN_InplaceOp<"write_tensor"> {
   let hasVerifier = 1;
 }
 
-def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture"> {
+def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture", [OpModelExempt]> {
   let summary = "Begin trace capture.";
   let description = [{
     Begins trace capture. Returns a scalar tensor containing the trace id.
@@ -3449,7 +3449,7 @@ def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture"> {
   let hasVerifier = 1;
 }
 
-def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture"> {
+def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture", [OpModelExempt]> {
   let summary = "End trace capture.";
   let description = [{
     Ends trace capture for the given trace id. Consumes a scalar tensor containing the trace id.
@@ -3469,7 +3469,7 @@ def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture"> {
   let hasVerifier = 1;
 }
 
-def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace"> {
+def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace", [OpModelExempt]> {
   let summary = "Execute trace.";
   let description = [{
     Executes the captured trace. Consumes a scalar tensor containing the trace id.
@@ -3490,7 +3490,7 @@ def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace"> {
   let hasVerifier = 1;
 }
 
-def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace"> {
+def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace", [OpModelExempt]> {
   let summary = "Capture or execute trace.";
   let description = [{
     Captures or executes the trace. Will have read/write memory effects on the cached trace data.
@@ -3516,7 +3516,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
+def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait, OpModelExempt]> {
     let summary = "Generic operation.";
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
@@ -3678,7 +3678,7 @@ def TTNN_NLPConcatHeadsOp : TTNN_Op<"nlp_concat_heads", [TTNN_MemoryConfigOpInte
   let hasVerifier = 1;
 }
 
-def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
+def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor", [OpModelExempt]> {
   let summary = "Saves a tensor to disk in the TTNN binary format";
   let description = [{
     Saves a tensor to disk in the TTNN binary format. Files must use the `.tensorbin` extension.
@@ -3718,7 +3718,7 @@ def NLPCreateQKVHeadsDecodeOp : TTNN_Op<"nlp_create_qkv_heads_decode", [TTNN_Mem
   let hasVerifier = 1;
 }
 
-def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
+def TTNN_LoadTensorOp : TTNN_Op<"load_tensor", [OpModelExempt]> {
   let summary = "Loads a tensor from disk";
   let description = [{
     Loads a tensor from disk, optionally placing it directly on a device.
@@ -3742,22 +3742,30 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
 def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
-      A version of scaled dot product attention specifically for decode.
-        The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
+      Flash-Decode SDPA for single-query-token decode. Supports MQA and GQA.
 
-        Args:
-            input_tensor_q (AnyRankedTensor): The input tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
-            input_tensor_k (AnyRankedTensor): The input tensor [batch x num_kv_heads x   seq_len x head_size].
-            input_tensor_v (AnyRankedTensor): The input tensor [b x num_kv_heads x   seq_len x head_size].
-            is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
-            attention_mask (AnyRankedTensor, optional): The attention mask [batch x 1 x query_seq_len x kv_seq_len].
-            cur_pos_tensor (AnyRankedTensor): [batch] Tensor of integers of length batch.
-            attention_sink (AnyRankedTensor, optional): The attention sink [num_heads, 32] (must be a single tile wide).
-            scale (float, optional): Defaults to `None`.
-            memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
+      Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sk` (kv seq len),
+      `D` (head size).
 
-        Returns:
-            AnyRankedTensor: The output tensor [1 x b x pnh x dh].
+      Args:
+          query (AnyRankedTensor): `[1 x B x Hq x D]`. Dim 0 must be 1.
+          key (AnyRankedTensor): `[B x Hkv x Sk x D]`.
+          value (AnyRankedTensor): `[B x Hkv x Sk x D]`. Same type as `key`.
+          is_causal (bool, optional): Defaults to `true`. Mutually exclusive
+              with `attention_mask`.
+          attention_mask (AnyRankedTensor, optional): `[1|B x 1 x 1|Hq x Sk]`.
+              Dim 0 broadcasts batch, dim 2 broadcasts heads. Only valid when
+              `is_causal` is `false`.
+          cur_pos_tensor (AnyRankedTensor): 1D `[B]` integer tensor of decode
+              positions.
+          attention_sink (AnyRankedTensor, optional): `[Hq x 32]`, single tile
+              wide.
+          scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+          memory_config (MemoryConfigAttr, optional): Memory configuration.
+              Defaults to `None`.
+
+      Returns:
+          AnyRankedTensor: `[1 x B x Hq x D]` (same type as `query`).
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -3798,8 +3806,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
                        Optional<AnyRankedTensor>:$attention_sink,
                        OptionalAttr<F32Attr>:$scale,
                        OptionalAttr<UI32Attr>:$sliding_window_size,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                       OptionalAttr<TTNN_CoreCoordAttr>:$core_grid);
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3850,22 +3857,32 @@ def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_lat
 def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
     let summary = "Scaled dot product attention operation.";
     let description = [{
-      Scaled dot product attention.
-      The implementation is FlashAttention-2.
+      FlashAttention-2 SDPA. Supports MHA, MQA, and GQA.
+
+      Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sq`/`Sk` (query/kv
+      seq len), `D` (head size).
 
       Args:
-          query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
-          key (AnyRankedTensor): The key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
-          value (AnyRankedTensor): The value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
-          attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
-          is_causal (bool): Whether the attention is causal. Defaults to `true`.
-          scale (float, optional): Defaults to `None`.
-          sliding_window_size (uint, optional): Defaults to `None`. Size of sliding window for attention. If provided && is_causal, only attends to the last `sliding_window_size` tokens. If provided && !is_causal, attends to a window of size `sliding_window_size` centered at the current position.
-          memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
-
+          query (AnyRankedTensor): `[B x Hq x Sq x D]`.
+          key (AnyRankedTensor): `[B x Hkv x Sk x D]`.
+          value (AnyRankedTensor): `[B x Hkv x Sk x D]`. Same type as `key`.
+          attention_mask (AnyRankedTensor, optional): `[1|B x 1|Hq x Sq x Sk]`.
+              Dim 0 broadcasts batch, dim 1 broadcasts heads. Only valid when
+              `is_causal` is `false`. Defaults to `None`.
+          is_causal (bool): Defaults to `true`. Requires `Sq == Sk` and no
+              `attention_mask`.
+          scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+          sliding_window_size (uint, optional): If `is_causal`, attends to the
+              last N tokens; otherwise attends to a window of size N centered at
+              the current position. Defaults to `None`.
+          attention_sink (AnyRankedTensor, optional): `[1 x Hq x 1 x 1]`, one
+              value per query head broadcast across batch and tile dims.
+              Defaults to `None`.
+          memory_config (MemoryConfigAttr, optional): Memory configuration.
+              Defaults to `None`.
 
       Returns:
-          AnyRankedTensor: The output tensor [batch x num_heads x query_seq_len x head_size].
+          AnyRankedTensor: `[B x Hq x Sq x D]` (same type as `query`).
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -3960,7 +3977,7 @@ def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_MemoryConfigOpInterface, TTNN_DtypeO
     let hasVerifier = 1;
 }
 
-def TTNN_DistributeTensorOp : TTNN_Op<"distribute_tensor"> {
+def TTNN_DistributeTensorOp : TTNN_Op<"distribute_tensor", [OpModelExempt]> {
   let summary = "Distribute tensor across mesh devices";
   let description = [{
     Distributes a host-side tensor across multiple devices in a mesh
@@ -3996,7 +4013,7 @@ def TTNN_DistributeTensorOp : TTNN_Op<"distribute_tensor"> {
   let results = (outs AnyRankedTensor:$result); // Distributed tensor
 }
 
-def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor"> {
+def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor", [OpModelExempt]> {
   let summary = "Aggregate distributed tensor back to host";
   let description = [{
     Aggregates a multi-device tensor back into a single host-side tensor
@@ -4132,7 +4149,7 @@ def TTNN_TopKRouterGptOp : TTNN_Op<"topk_router_gpt"> {
   let hasVerifier = 1;
 }
 
-def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
+def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [OpModelExempt]> {
     let summary = "Create global semaphore op.";
     let description = [{
       Creates a global semaphore with the specified core range and initial value.
@@ -4162,7 +4179,7 @@ def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
     let results = (outs TTNN_GlobalSemaphore:$result);
 }
 
-def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore"> {
+def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExempt]> {
     let summary = "Reset global semaphore op.";
     let description = [{
       Resets a global semaphore to the specified value.

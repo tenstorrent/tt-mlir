@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/FunctionTypes.h"
 
@@ -23,24 +24,56 @@ namespace mlir::tt::ttnn {
 // LoadCachedOps within each forward function into a single global cache
 // dictionary. For each forward function containing LoadCachedOps, it:
 //
-//   1. Creates a global cache dictionary (e.g., `_cached_forward`).
+//   1. Creates a global cache dictionary (e.g., `ce_cache_forward`).
 //   2. Inserts a retrieval of the dictionary at the top of the forward function
 //   body.
 //   3. Creates a separate consteval wrapper function and moves the complete
 //   const-eval logic of that forward function into it.
 //   4. Inserts a call to the consteval wrapper function after the dictionary
 //   retrieval in the forward function body. The consteval wrapper function
-//   receives the global cache dictionary and the forward function inputs as
-//   arguments.
+//   receives the global cache dictionary as its first argument. When the
+//   forward function has been split by type (TTNNSplitForwardFuncArgsByType),
+//   only its weights dict is forwarded to the wrapper, since activations
+//   are runtime inputs and never participate in const-eval; otherwise all
+//   forward arguments are passed through.
 //
 //===----------------------------------------------------------------------===//
 
 namespace {
 
-constexpr const char *kCachePrefix = "_cached_";
+constexpr const char *kCachePrefix = "ce_cache_";
 constexpr const char *kConstEvalWrapperNamePrefix = "consteval_";
 
-// Collect the sorteddef-use chain of the given ops.
+// Returns the weights-dict from the forward function signature if it exists.
+// Returns an empty BlockArgument otherwise.
+static BlockArgument findWeightsDictArg(func::FuncOp funcOp) {
+  for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
+    if (funcOp.getArgAttr(i, ttcore::g_originalWeightNamesAttrName)) {
+      return funcOp.getArgument(i);
+    }
+  }
+  return {};
+}
+
+// Returns the forward function arguments that should be passed to the
+// consteval wrapper. If the forward function arguments were split by type, only
+// the weights dictionary is passed. Otherwise, every forward function
+// argument is passed.
+//
+static SmallVector<BlockArgument>
+getConstEvalForwardArgs(func::FuncOp forwardFunc) {
+  SmallVector<BlockArgument> result;
+  if (ttmlir::utils::hasSplitForwardFuncArgsByType(forwardFunc)) {
+    if (BlockArgument weights = findWeightsDictArg(forwardFunc)) {
+      result.push_back(weights);
+    }
+  } else {
+    llvm::append_range(result, forwardFunc.getArguments());
+  }
+  return result;
+}
+
+// Collect the sorted def-use chain of the given ops.
 static llvm::SmallVector<Operation *>
 collectSortedDefUseChain(llvm::SmallVector<Operation *> &ops, Block *block) {
   llvm::SetVector<Operation *> result;
@@ -111,11 +144,12 @@ public:
       // Insert a call to the consteval wrapper function after the cache
       // dictionary retrieval in the forward function.
       builder.setInsertionPointAfter(dict);
-      Block &forwardBody = funcOp.getBody().front();
-      llvm::SmallVector<Value> callArgs;
-      callArgs.push_back(dict.getResult());
-      callArgs.append(forwardBody.getArguments().begin(),
-                      forwardBody.getArguments().end());
+
+      // Collect the arguments to pass to the consteval wrapper function.
+      //
+      SmallVector<Value> callArgs = {dict.getResult()};
+      llvm::append_range(callArgs, getConstEvalForwardArgs(funcOp));
+
       auto cacheDict = builder.create<func::CallOp>(
           funcOp.getLoc(), kConstEvalWrapperNamePrefix + funcOp.getName().str(),
           TypeRange{dictType}, callArgs);
@@ -138,7 +172,7 @@ public:
       llvm::SmallVector<Operation *> loadCachedPtrs(loadCachedOps.begin(),
                                                     loadCachedOps.end());
       llvm::SmallVector<Operation *> defChainOps =
-          collectSortedDefUseChain(loadCachedPtrs, &forwardBody);
+          collectSortedDefUseChain(loadCachedPtrs, &funcOp.getBody().front());
       for (auto *op : llvm::reverse(defChainOps)) {
         if (op->use_empty()) {
           op->erase();
@@ -147,18 +181,25 @@ public:
     }
   }
 
+  // Create the consteval wrapper function.
   LogicalResult
   createConstEvalWrapper(OpBuilder &builder, func::FuncOp forwardFunc,
                          llvm::SmallVector<ttcore::LoadCachedOp> &loadCachedOps,
                          Value cacheDict) {
-    // Create the consteval wrapper function.
     std::string wrapperName =
         kConstEvalWrapperNamePrefix + forwardFunc.getName().str();
     auto dictType = ttcore::DictType::get(&getContext());
-    llvm::SmallVector<Type> wrapperArgTypes;
-    wrapperArgTypes.push_back(dictType);
-    wrapperArgTypes.append(forwardFunc.getArgumentTypes().begin(),
-                           forwardFunc.getArgumentTypes().end());
+
+    // Build the wrapper signature. Consteval cache dictionary is always the
+    // first argument. After that, some or all of the forward function arguments
+    // are passed.
+    //
+    SmallVector<BlockArgument> argsToForward =
+        getConstEvalForwardArgs(forwardFunc);
+
+    llvm::SmallVector<Type> wrapperArgTypes = {dictType};
+    llvm::append_range(wrapperArgTypes, ValueRange(argsToForward).getTypes());
+
     auto wrapperFuncType = builder.getFunctionType(wrapperArgTypes, {dictType});
 
     builder.setInsertionPointAfter(forwardFunc);
@@ -176,9 +217,10 @@ public:
     // arguments.
     IRMapping mapping;
     mapping.map(cacheDict, wrapperBody.getArgument(0));
-    for (unsigned i = 0; i < forwardFunc.getNumArguments(); ++i) {
-      wrapperFunc.setArgAttrs(i + 1, forwardFunc.getArgAttrDict(i));
-      mapping.map(forwardBody.getArgument(i), wrapperBody.getArgument(i + 1));
+    for (auto [idx, forwardArg] : llvm::enumerate(argsToForward)) {
+      mapping.map(forwardArg, wrapperBody.getArgument(idx + 1));
+      wrapperFunc.setArgAttrs(
+          idx + 1, forwardFunc.getArgAttrDict(forwardArg.getArgNumber()));
     }
 
     // Collect all ops from the forward function to clone into the wrapper.

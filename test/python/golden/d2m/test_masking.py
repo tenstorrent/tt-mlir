@@ -96,9 +96,14 @@ def test_complete_tile_masking(
                 output_type=builder.get_metal_tensor_layout(
                     logical_shape,
                     tiled=True,
-                    oobVal=oobval,
                     dim_alignments=aligned_shape,
                 ),
+                unit_attrs=unit_attrs,
+            )
+            to_device = builder.mask(
+                to_device,
+                logical_shape=logical_shape,
+                fill_value=oobval,
                 unit_attrs=unit_attrs,
             )
 
@@ -106,9 +111,7 @@ def test_complete_tile_masking(
             # Keep tiled=True so the final to_layout will properly untilize
             view_with_aligned_logical = builder.view_layout(
                 to_device,
-                output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=True, oobVal=oobval
-                ),
+                output_type=builder.get_metal_tensor_layout(aligned_shape, tiled=True),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
             )
@@ -129,9 +132,10 @@ def test_complete_tile_masking(
     compile_and_execute_d2m(
         module,
         target=target,
-        # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
+        # d2m-decompose-masking must run after outer-loop generation and
+        # before allocation.
         # ttcore-mark-functions-as-forward is needed for flatbuffer translation
-        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-insert-scratch-buffers,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-decompose-masking,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
         print_ir="/tmp/ir_dumps",  # DEBUG: dump IR after each pass to this directory
@@ -162,9 +166,7 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
             # No explicit dim_alignments - uses natural tile alignment
             to_device = builder.tilize(
                 in0,
-                output_type=builder.get_metal_tensor_layout(
-                    shape, tiled=True, oobVal=ttcore.OOBVal.Zero
-                ),
+                output_type=builder.get_metal_tensor_layout(shape, tiled=True),
                 unit_attrs=unit_attrs,
             )
 
@@ -184,9 +186,10 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
     compile_and_execute_d2m(
         module,
         target=target,
-        # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
+        # d2m-decompose-masking must run after outer-loop generation and
+        # before allocation.
         # ttcore-mark-functions-as-forward is needed for flatbuffer translation
-        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-insert-scratch-buffers,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-decompose-masking,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -242,10 +245,15 @@ def test_multicore_tile_masking(
                 output_type=builder.get_metal_tensor_layout(
                     logical_shape,
                     tiled=True,
-                    oobVal=oobval,
                     dim_alignments=aligned_shape,
                     grid=grid_shape,  # Explicit 4x4 grid
                 ),
+                unit_attrs=unit_attrs,
+            )
+            to_device = builder.mask(
+                to_device,
+                logical_shape=logical_shape,
+                fill_value=oobval,
                 unit_attrs=unit_attrs,
             )
 
@@ -253,7 +261,7 @@ def test_multicore_tile_masking(
             view_with_aligned_logical = builder.view_layout(
                 to_device,
                 output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=True, oobVal=oobval, grid=grid_shape
+                    aligned_shape, tiled=True, grid=grid_shape
                 ),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
@@ -273,7 +281,7 @@ def test_multicore_tile_masking(
         module,
         target=target,
         # Use custom pipeline (skips GridSelection since we set grid explicitly)
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-insert-scratch-buffers,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-decompose-masking,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -341,18 +349,21 @@ def test_partial_tile_masking(
                 output_type=builder.get_metal_tensor_layout(
                     logical_shape,
                     tiled=True,
-                    oobVal=oobval,
                     dim_alignments=aligned_shape,
                 ),
+                unit_attrs=unit_attrs,
+            )
+            to_device = builder.mask(
+                to_device,
+                logical_shape=logical_shape,
+                fill_value=oobval,
                 unit_attrs=unit_attrs,
             )
 
             # View as tiled with the ALIGNED logical shape
             view_with_aligned_logical = builder.view_layout(
                 to_device,
-                output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=True, oobVal=oobval
-                ),
+                output_type=builder.get_metal_tensor_layout(aligned_shape, tiled=True),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
             )
@@ -373,9 +384,10 @@ def test_partial_tile_masking(
     compile_and_execute_d2m(
         module,
         target=target,
-        # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
+        # d2m-decompose-masking must run after outer-loop generation and
+        # before allocation.
         # ttcore-mark-functions-as-forward is needed for flatbuffer translation
-        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-insert-scratch-buffers,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-decompose-masking,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -433,10 +445,15 @@ def test_multicore_partial_tile_masking(
                 output_type=builder.get_metal_tensor_layout(
                     logical_shape,
                     tiled=True,
-                    oobVal=oobval,
                     dim_alignments=aligned_shape,
                     grid=grid_shape,  # Explicit 4x4 grid
                 ),
+                unit_attrs=unit_attrs,
+            )
+            to_device = builder.mask(
+                to_device,
+                logical_shape=logical_shape,
+                fill_value=oobval,
                 unit_attrs=unit_attrs,
             )
 
@@ -444,7 +461,7 @@ def test_multicore_partial_tile_masking(
             view_with_aligned_logical = builder.view_layout(
                 to_device,
                 output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=True, oobVal=oobval, grid=grid_shape
+                    aligned_shape, tiled=True, grid=grid_shape
                 ),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
@@ -464,7 +481,7 @@ def test_multicore_partial_tile_masking(
         module,
         target=target,
         # Use custom pipeline (skips GridSelection since we set grid explicitly)
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,d2m-insert-scratch-buffers,d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-decompose-masking,d2m-allocate,d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

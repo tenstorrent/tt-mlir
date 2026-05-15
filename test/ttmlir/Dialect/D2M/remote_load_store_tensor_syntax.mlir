@@ -13,10 +13,10 @@
 
 // Metal layout for remote source tensor: 2x4 grid with 2x4 shard
 // logical_shape = 4x8 (2*2 x 4*2), grid = 2x4, shard = 2x4
-#remote_layout = #ttcore.metal_layout<logical_shape = 4x8, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, dram, sharded>
+#remote_layout = #ttcore.metal_layout<logical_shape = 4x8, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, dram, sharded>
 
 // Metal layout for local tensor: just logical dimensions without sharding
-#local_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#local_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 2x4, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // BUFFERIZE: #[[DRAM:.*]] = #ttcore.memory_space<dram>
 
@@ -35,7 +35,7 @@ func.func @test_remote_load_with_result_tensor(
   // RemoteLoadOp with result (no CB), tensor variant
   // CHECK: %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : tensor<{{.*}}>, tensor<{{.*}}> -> tensor<{{.*}}>
   // BUFFERIZE: %[[ALLOC:[a-zA-Z0-9]+]] = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>>
-  // BUFFERIZE: %{{.*}} = d2m.remote_load %[[ALLOC]] %{{.*}}[%{{.*}}, %{{.*}}] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #[[DRAM]]> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+  // BUFFERIZE: d2m.remote_load %[[ALLOC]] %{{.*}}[%{{.*}}, %{{.*}}] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #[[DRAM]]>
   // BUFFERIZE: return %[[ALLOC]] : memref<2x4x!ttcore.tile<32x32, f32>>
   %result = d2m.remote_load %buffer %remote_src[%c0, %c1] : tensor<2x4x!ttcore.tile<32x32, f32>>, tensor<2x4x2x4x!ttcore.tile<32x32, f32>, #remote_layout> -> tensor<2x4x!ttcore.tile<32x32, f32>>
 
@@ -54,7 +54,7 @@ func.func @test_remote_load_with_result_multicast_tensor(
   // RemoteLoadOp with result and multicast (low-level multicast), tensor variant
   // CHECK: %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%{{.*}}, %{{.*}}] mshape[%{{.*}}, %{{.*}}] : tensor<{{.*}}>, tensor<{{.*}}> -> tensor<{{.*}}>
   // BUFFERIZE: %[[ALLOC_MCAST:[a-zA-Z0-9]+]] = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>>
-  // BUFFERIZE: %{{.*}} = d2m.remote_load %[[ALLOC_MCAST]] %{{.*}}[%{{.*}}, %{{.*}}] mcore[%{{.*}}, %{{.*}}] mshape[%{{.*}}, %{{.*}}] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #[[DRAM]]> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+  // BUFFERIZE: d2m.remote_load %[[ALLOC_MCAST]] %{{.*}}[%{{.*}}, %{{.*}}] mcore[%{{.*}}, %{{.*}}] mshape[%{{.*}}, %{{.*}}] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #[[DRAM]]>
   // BUFFERIZE: return %[[ALLOC_MCAST]] : memref<2x4x!ttcore.tile<32x32, f32>>
   %result = d2m.remote_load %buffer %remote_src[%c0, %c1] mcore[%c0, %c0] mshape[%c1, %c2] : tensor<2x4x!ttcore.tile<32x32, f32>>, tensor<2x4x2x4x!ttcore.tile<32x32, f32>, #remote_layout> -> tensor<2x4x!ttcore.tile<32x32, f32>>
 
@@ -77,7 +77,7 @@ func.func @test_remote_store_with_local_buffer_tensor(
   // Result is required for implicit form. For tensors it can be used, but after bufferization
   // to memrefs it must be unused.
   // CHECK: %{{.*}} = d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : tensor<{{.*}}>, tensor<{{.*}}> -> tensor<{{.*}}>
-  // BUFFERIZE: %{{.*}} = d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #[[DRAM]]>, memref<2x4x!ttcore.tile<32x32, f32>> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #[[DRAM]]>
+  // BUFFERIZE: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #[[DRAM]]>, memref<2x4x!ttcore.tile<32x32, f32>>
   %result = d2m.remote_store %remote_dst[%c0, %c1] %local_buffer : tensor<2x4x2x4x!ttcore.tile<32x32, f32>, #remote_layout>, tensor<2x4x!ttcore.tile<32x32, f32>> -> tensor<2x4x2x4x!ttcore.tile<32x32, f32>, #remote_layout>
 
   return

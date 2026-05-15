@@ -1,14 +1,14 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttcore-one-shot-bufferize --canonicalize %s | FileCheck %s
 
-#indices_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#weight_layout = #ttcore.metal_layout<logical_shape = 8x16, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#output_layout = #ttcore.metal_layout<logical_shape = 2x4x16, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, l1, sharded>
-#indices_ui32_layout = #ttcore.metal_layout<logical_shape = 2x3, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#weight_bf16_layout = #ttcore.metal_layout<logical_shape = 16x8, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#output_bf16_layout = #ttcore.metal_layout<logical_shape = 2x3x8, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, l1, sharded>
-#indices_i32_layout = #ttcore.metal_layout<logical_shape = 3x1, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#weight_i32_layout = #ttcore.metal_layout<logical_shape = 16x1, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#output_i32_layout = #ttcore.metal_layout<logical_shape = 3x1x1, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, l1, sharded>
+#indices_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#weight_layout = #ttcore.metal_layout<logical_shape = 8x16, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#output_layout = #ttcore.metal_layout<logical_shape = 2x4x16, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, l1, sharded>
+#indices_ui32_layout = #ttcore.metal_layout<logical_shape = 2x3, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#weight_bf16_layout = #ttcore.metal_layout<logical_shape = 16x8, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#output_bf16_layout = #ttcore.metal_layout<logical_shape = 2x3x8, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, l1, sharded>
+#indices_i32_layout = #ttcore.metal_layout<logical_shape = 3x1, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#weight_i32_layout = #ttcore.metal_layout<logical_shape = 16x1, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#output_i32_layout = #ttcore.metal_layout<logical_shape = 3x1x1, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, l1, sharded>
 
 // CHECK-LABEL: func.func @embedding_result_bufferizes_in_place
 func.func @embedding_result_bufferizes_in_place(

@@ -1384,7 +1384,7 @@ struct EmitCTypeConverter<::ttnn::CoreRangeSet> {
     llvm::raw_string_ostream rso(buf);
     rso << TypeNameV<::ttnn::CoreRangeSet>;
     rso << "{";
-    rso << EmitCTypeConverter<std::set<::ttnn::CoreRange>>::convert(
+    rso << EmitCTypeConverter<std::vector<::ttnn::CoreRange>>::convert(
         attr.getCoreRanges());
     rso << "}";
     return buf;
@@ -2386,16 +2386,8 @@ public:
     auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
 
-    ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
-        layoutAttr.getContext(), layoutAttr.getBufferType());
-    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
-        ttnn::utils::createShardSpecIfNeeded(layoutAttr,
-                                             deviceAttr.getWorkerGrid()));
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(layoutAttr);
 
     return emit(memoryConfigAttr);
   }

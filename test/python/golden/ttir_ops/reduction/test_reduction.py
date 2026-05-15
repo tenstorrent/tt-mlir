@@ -44,7 +44,21 @@ dim_arg_options = [
 
 
 @pytest.mark.parametrize("shapes", [[(32, 128, 128)], [(1, 1, 1)]], ids=shapes_list_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32
+        | Marks(
+            pytest.mark.xfail(
+                reason="Integer reductions route through fp32 workaround; full-range int32 inputs (~±2^31) exceed fp32's exact-int range (2^24). Needs native int reduction (tt-metal#21071).",
+                strict=False,
+            )
+        ),
+    ],
+    ids=["f32", "bf16", "i32"],
+)
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_names)
@@ -216,12 +230,20 @@ def test_hoisted_cumsum(
     )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(128, 128), (62, 243)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("k", [1, 10, 32])
+@pytest.mark.parametrize("dim", [-1, 1])
+@pytest.mark.parametrize("largest", [True, False])
+@pytest.mark.parametrize("sorted", [True, False])
 @pytest.mark.parametrize("target", ["ttnn", "emitc", "emitpy"])
 def test_topk(
     shape: Shape,
     dtype: torch.dtype,
+    k: int,
+    dim: int,
+    largest: bool,
+    sorted: bool,
     target: str,
     request,
     device,
@@ -232,7 +254,7 @@ def test_topk(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             return builder.topk(
-                in0, k=10, dim=-1, largest=True, sorted=True, unit_attrs=unit_attrs
+                in0, k=k, dim=dim, largest=largest, sorted=sorted, unit_attrs=unit_attrs
             )
 
     compile_and_execute_ttir(
@@ -240,6 +262,7 @@ def test_topk(
         **get_request_kwargs(request),
         target=target,
         device=device,
+        pipeline_options=["enable-ttnn-decomposition-pass=false"],
     )
 
 

@@ -103,8 +103,8 @@ def D2M_ToLayoutOp
         - Some combination of the above
 
       ```mlir
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, system, sharded>
+      #layout1 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
       %1 = "d2m.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
@@ -130,6 +130,51 @@ def D2M_ToLayoutOp
   let hasCanonicalizer = 1;
 }
 
+def D2M_MaskOp
+    : D2M_Op<
+          "mask",
+          [DeclareOpInterfaceMethods<
+               BufferizableOpInterface, ["bufferizesToMemoryRead",
+                                         "bufferizesToMemoryWrite", "bufferize",
+                                         "getAliasingValues", "getBufferType"]>,
+           DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Mask tensor padding outside logical bounds with a fill value";
+  let description = [{
+      `d2m.mask` materializes a padding contract for a tiled tensor. Elements
+      outside `logicalShape` are replaced with `fill_value`; elements inside
+      the logical bounds are copied from `input`.
+
+      This is a tensor-level operation. `d2m-decompose-masking` lowers it to
+      explicit per-core masking loops after bufferization.
+    }];
+
+  let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                       AnyRankedTensorOrMemRef:$output,
+                       DenseI64ArrayAttr:$logicalShape,
+                       TTCore_OOBValAttr:$fill_value);
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let assemblyFormat =
+      [{ $input `,` $output `logical_shape` `=` $logicalShape `fill_value` `=` $fill_value attr-dict `:` type($input) `into` type($output) `->` type($result) }];
+
+  let builders = [OpBuilder<(ins "Value":$input, "Value":$output,
+                                "ArrayRef<int64_t>":$logicalShape,
+                                "ttcore::OOBVal":$fillValue),
+                            [{
+        build($_builder, $_state, output.getType(), input, output,
+              $_builder.getDenseI64ArrayAttr(logicalShape),
+              ttcore::OOBValAttr::get($_builder.getContext(), fillValue));
+      }]>,
+  ];
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  let hasVerifier = 1;
+  let hasFolder = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // Host-Device Transfer Ops
 //===----------------------------------------------------------------------===//
@@ -151,7 +196,7 @@ def D2M_ToDeviceOp
       The `layout` attribute stores the device layout information needed for the transfer.
 
       ```mlir
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
       %1 = d2m.to_device %arg0, %0 layout = #layout : tensor<64x128xf32> into tensor<64x128xf32, #layout>
       ```
     }];
@@ -190,7 +235,7 @@ def D2M_ToHostOp
       The `layout` attribute stores the device layout information needed for the transfer.
 
       ```mlir
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
       %1 = d2m.to_host %arg0, %0 layout = #layout : tensor<64x128xf32, #layout> into tensor<64x128xf32>
       ```
     }];

@@ -1917,38 +1917,6 @@ public:
 
   static_assert(std::is_same_v<D2MCBOp, d2m::WaitOp> ||
                 std::is_same_v<D2MCBOp, d2m::ReserveOp>);
-
-  // Check if there's an explicit push/pop for this CB in the enclosing block,
-  // including nested regions.
-  static bool hasExplicitRelease(D2MCBOp op) {
-    Block *block = op->getBlock();
-    Value cb = op.getCb();
-
-    bool found = false;
-    block->walk([&](Operation *blockOp) {
-      if (found) {
-        return WalkResult::interrupt();
-      }
-      if constexpr (std::is_same_v<D2MCBOp, d2m::ReserveOp>) {
-        if (auto pushOp = dyn_cast<d2m::PushOp>(blockOp)) {
-          if (pushOp.getCb() == cb) {
-            found = true;
-            return WalkResult::interrupt();
-          }
-        }
-      } else if constexpr (std::is_same_v<D2MCBOp, d2m::WaitOp>) {
-        if (auto popOp = dyn_cast<d2m::PopOp>(blockOp)) {
-          if (popOp.getCb() == cb) {
-            found = true;
-            return WalkResult::interrupt();
-          }
-        }
-      }
-      return WalkResult::advance();
-    });
-    return found;
-  }
-
   LogicalResult
   matchAndRewrite(D2MCBOp op, typename D2MCBOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -1973,18 +1941,6 @@ public:
     auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
 
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
-
-    // Only insert automatic release if there's no explicit push/pop
-    if (!hasExplicitRelease(op)) {
-      Block *block = op->getBlock();
-      auto release = rewriter.create<TTKernelReleaseOp>(
-          op.getLoc(), adaptor.getCb(), numPages);
-      if (block->mightHaveTerminator()) {
-        rewriter.moveOpBefore(release, block->getTerminator());
-      } else {
-        rewriter.moveOpAfter(release, &block->back());
-      }
-    }
 
     rewriter.replaceOp(op, adaptor.getCb());
 
@@ -2783,19 +2739,13 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Type cbType = getTypeConverter()->convertType(op.getResult().getType());
-
-    assert(op.getOperandIndex() &&
-           "d2m.get_cb must have an operand_index by the time it reaches "
-           "D2MToTTKernel lowering");
-    int64_t operandIndex = *op.getOperandIndex();
-
     // Append a CBPort entry to the parent function's ArgSpec so that
     // D2MToTTNN can generate the corresponding cb_buffer_index in the
     // kernel descriptor's ct_args.  The operand index tells the runtime
     // which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
+    ArgAttr cbArg =
+        rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getCbOperandIdx());
     size_t ctArgIndex;
     rewriter.modifyOpInPlace(entry, [&]() {
       ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
@@ -2804,6 +2754,7 @@ public:
     // Emit a get_compile_time_arg_val that reads the port from ct_args at
     // runtime. This allows the spatial op to remap CB ports per grid range
     // by overriding compile-time arguments.
+    Type cbType = getTypeConverter()->convertType(op.getResult().getType());
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
         op, cbType, static_cast<int32_t>(ctArgIndex));
     return success();
@@ -2973,8 +2924,7 @@ public:
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
           rewriter.create<ttkernel::NocSemaphoreIncOp>(op.getLoc(), nocAddr,
-                                                       value,
-                                                       /*noc_id=*/nullptr);
+                                                       value);
           rewriter.create<scf::YieldOp>(op.getLoc());
         }
       }
@@ -2996,7 +2946,7 @@ public:
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, semaphoreAddr);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
-                                                               value, nullptr);
+                                                               value);
     } else {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "d2m.semaphore_inc multicast is illegal.");

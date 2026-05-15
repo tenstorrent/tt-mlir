@@ -68,7 +68,8 @@ def SFPI_CmpPredicateAttr : I32EnumAttr<"CmpPredicate", "SFPI comparison predica
 def SFPI_ArchVariantAttr : I32EnumAttr<"ArchVariant", "SFPI architecture variant",
   [
     I32EnumAttrCase<"wormhole", 0, "wormhole">,
-    I32EnumAttrCase<"blackhole", 1, "blackhole">
+    I32EnumAttrCase<"blackhole", 1, "blackhole">,
+    I32EnumAttrCase<"quasar", 2, "quasar">
   ]> {
   let cppNamespace = "::mlir::tt::sfpi";
 }

@@ -2,14 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-MLIR operation utilities: IRModule wrapper and tensor operand extraction.
+MLIR operation utilities: IRModule wrapper, tensor operand extraction, and
+chisel-specific op classification (non-executable / in-place).
 """
-from ttmlir.dialects import func
+from ttmlir.dialects import func, ttcore, ttnn
 from ttmlir.ir import (
     AsmState,
     BlockArgument,
     Context,
     Module,
+    OpOperandList,
     OpResult,
     Operation,
     Value,
@@ -18,22 +20,70 @@ from ttmlir.ir import (
 )
 
 
+# Ops not executable as goldens (device, I/O, control flow).
+_CHISEL_NON_EXECUTABLE_OPS: set = {
+    ttnn.GetDeviceOp,
+    ttnn.LoadTensorOp,
+    ttcore.LoadCachedOp,
+    func.CallOp,
+}
+
+# Op class -> operand role names mutated via `Arg<..., [MemWrite]>` in ODS.
+# Goldens return SSA results first, then one tensor per *provided* memwrite
+# operand (absent Optional operands are skipped - see get_flat_inplace_vals).
+# Hand-maintained;
+# TODO(ndrakulic, #8385): derive from ODS via python_op_schema_codegen.py.
+_CHISEL_INPLACE_OPS: dict[type, tuple[str, ...]] = {
+    ttnn.UpdateCacheOp: ("cache",),
+    ttnn.PagedUpdateCacheOp: ("cache",),
+    ttnn.FillCacheOp: ("cache",),
+    ttnn.PagedFillCacheOp: ("cache",),
+    ttnn.WriteTensorOp: ("device_tensor",),
+    ttnn.DumpTensorOp: (),
+    ttnn.DeallocateOp: (),
+    ttnn.BatchNormTrainingOp: ("running_mean", "running_var"),
+    ttnn.PointToPointOp: ("optional_output_tensor",),
+}
+
+
+def is_non_executable_op(op_class: type) -> bool:
+    return op_class in _CHISEL_NON_EXECUTABLE_OPS
+
+
+def get_inplace_operands(op_class: type) -> tuple[str, ...]:
+    return _CHISEL_INPLACE_OPS.get(op_class, ())
+
+
+def is_tensor_value(val) -> bool:
+    """True if `val` is a tensor-like MLIR Value (has shape and element_type)."""
+    return hasattr(val.type, "shape") and hasattr(val.type, "element_type")
+
+
 def get_op_outputs(op: Operation) -> list[OpResult]:
     """Extract output tensors (results with shape and element_type) from a MLIR operation."""
-    return [
-        result
-        for result in op.results
-        if hasattr(result.type, "shape") and hasattr(result.type, "element_type")
-    ]
+    return [result for result in op.results if is_tensor_value(result)]
 
 
 def get_op_inputs(op: Operation) -> list[Value]:
     """Extract input tensors (operands with shape and element_type) from a MLIR operation."""
-    return [
-        operand
-        for operand in op.operands
-        if hasattr(operand.type, "shape") and hasattr(operand.type, "element_type")
-    ]
+    return [operand for operand in op.operands if is_tensor_value(operand)]
+
+
+def get_flat_inplace_vals(op: Operation) -> list[tuple[str, Value]]:
+    """Return (role, value) pairs for in-place operands present on `op`.
+
+    Absent Optional operands are skipped; OpOperandList is expanded.
+    """
+    vals: list[tuple[str, Value]] = []
+    for role in get_inplace_operands(type(op)):
+        accessor = getattr(op, role, None)
+        if accessor is None:
+            continue
+        if isinstance(accessor, OpOperandList):
+            vals.extend((role, v) for v in accessor)
+        else:
+            vals.append((role, accessor))
+    return vals
 
 
 class IRModule:
@@ -62,13 +112,11 @@ class IRModule:
             ops, outputs = self._extract_function_ops(name)
             self._function_ops[name] = ops
             self._function_outputs[name] = outputs
-        self._asm_state: dict[str, AsmState] = {
-            name: AsmState(self._functions[name]) for name in functions
-        }
+        self._asm_state = AsmState(self.module.operation)
 
-    def get_asm_state(self, function_name: str) -> AsmState:
-        """AsmState for the given function (speeds up get_name calls)."""
-        return self._asm_state[function_name]
+    def get_asm_state(self) -> AsmState:
+        """Module-wide AsmState (speeds up get_name calls)."""
+        return self._asm_state
 
     def get_function(self, function_name: str) -> func.FuncOp:
         """The func.FuncOp for the given function."""
@@ -93,9 +141,8 @@ class IRModule:
         outputs = []
 
         def _visitor(op):
-            # Skip the FuncOp itself — Python bindings only expose walk() on
-            # Operation, not Region, so we walk the FuncOp and skip it to match
-            # the C++ entry.getBody().walk() in FuncOpToProgram.h.
+            # Python bindings only expose walk() on Operation; skip the FuncOp
+            # itself to match C++ entry.getBody().walk() in FuncOpToProgram.h.
             if op == func_op.operation:
                 return WalkResult.ADVANCE
             if op.name == "func.return":

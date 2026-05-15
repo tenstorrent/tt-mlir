@@ -53,11 +53,14 @@ public:
       return true;
     }
     // Eltwise binary ops.
+    // Note: ttnn.gt is not allowed to be fused because there's an issue with
+    // insertDstRegisterAccess pass and it was blocking gpt-oss bringup.
+    // This is tracked in: https://github.com/tenstorrent/tt-mlir/issues/8193
     if (mlir::isa<AddOp, DivideOp, MultiplyOp, SubtractOp, EqualOp, NotEqualOp,
-                  GreaterEqualOp, GreaterThanOp, LessEqualOp, LessThanOp,
-                  LogicalAndOp, LogicalOrOp, LogicalXorOp, LogicalRightShiftOp,
-                  BitwiseAndOp, BitwiseOrOp, BitwiseXorOp, MaximumOp, MinimumOp,
-                  RemainderOp, LogicalLeftShiftOp, Atan2Op, PowTensorOp>(op)) {
+                  GreaterEqualOp, LessEqualOp, LessThanOp, LogicalAndOp,
+                  LogicalOrOp, LogicalXorOp, LogicalRightShiftOp, BitwiseAndOp,
+                  BitwiseOrOp, BitwiseXorOp, MaximumOp, MinimumOp, RemainderOp,
+                  LogicalLeftShiftOp, Atan2Op, PowTensorOp>(op)) {
       return true;
     }
 
@@ -243,7 +246,6 @@ private:
 
     // Get device for creating empty output buffers for DPS.
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
-    ttcore::GridAttr deviceGrid = ttcore::lookupDevice(firstOp).getWorkerGrid();
     llvm::SmallVector<Type> inputTypes;
     llvm::transform(inputs, std::back_inserter(inputTypes),
                     [](Value v) { return v.getType(); });
@@ -262,7 +264,7 @@ private:
                                                  layoutAttr.getDataType());
       auto tensorLayoutAttr =
           LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
-      auto memoryConfigAttr = MemoryConfigAttr::get(layoutAttr, deviceGrid);
+      auto memoryConfigAttr = MemoryConfigAttr::get(layoutAttr);
 
       auto emptyOp = rewriter.create<EmptyOp>(
           loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr,

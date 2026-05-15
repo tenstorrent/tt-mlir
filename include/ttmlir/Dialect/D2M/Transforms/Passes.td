@@ -53,19 +53,22 @@ def D2MInsertScratchBuffers : Pass<"d2m-insert-scratch-buffers", "::mlir::Module
   ];
 }
 
-// Elementwise fusion of d2m.generic ops on tensors
-def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
-  let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
+// Fusion of d2m.generic ops on tensors (elementwise, eltwise->reduction).
+def D2MGenericFusion : Pass<"d2m-generic-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuse compute-only d2m.generic ops (elementwise and eltwise->reduction)";
   let description = [{
-    Performs elementwise fusion for `d2m.generic` producers into consumers when
-    safe to do so. The initial implementation targets compute-only, affine-map
-    form `d2m.generic` with tensor semantics and matching device attributes
-    (grid, threads, block_factors). The pass is intended to run pre-bufferization
-    to reduce intermediary tensors and improve locality.
+    Performs fusion for `d2m.generic` producers into consumers when safe to do
+    so. The initial implementation targets compute-only, affine-map form
+    `d2m.generic` with tensor semantics and matching device attributes (grid,
+    threads, block_factors). Elementwise->elementwise fusion is always enabled;
+    elementwise->reduction fusion (single reduction dim) is opt-in via
+    `enable-eltwise-reduction-fusion`. The pass is intended to run
+    pre-bufferization to reduce intermediary tensors and improve locality.
   }];
 
   list<Option> options = [
-    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"enableEltwiseReductionFusion", "enable-eltwise-reduction-fusion", "bool", "false",
+           "Enable fusion of an elementwise d2m.generic producer into a reduction d2m.generic consumer (single reduction dim).">,
   ];
 
   let dependentDialects = [
@@ -83,7 +86,7 @@ def D2MOpScheduler : Pass<"d2m-op-scheduler", "::mlir::ModuleOp"> {
     under the root, and then uses a Sethi-Ullman scheduling algorithm in conjunction
     with the tree to reorder the ops. This is done such that the final sequence of ops
     requires the minimal number of dst register slices to execute. Adds tag "d2m.scheduled"
-    to the root loop for use by downstream D2MInsertDstRegisterAccess pass.
+    to the root loop for use by downstream D2MInsertDstRegisterAccessScheduled pass.
   }];
 
   list<Option> options = [
@@ -253,73 +256,152 @@ def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
   ];
 }
 
-def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir::ModuleOp"> {
-  let summary = "Insert dst register access.";
+def D2MInsertDstRegisterAccessUnscheduled : Pass<"d2m-insert-dst-register-access-unscheduled", "::mlir::ModuleOp"> {
+  let summary = "Insert DST register access for non-scheduled linalg_root loops.";
   let description = [{
-    This pass inserts a high level representation of the destination
-    register, manages load and store accesses to it, and has primitive
-    support for register allocation.  It's also capable of tracking accesses
-    over affine loop nests and correctly cloning them into copy loop nests.
+    Handles `d2m.linalg_root` loops that do **not** carry `d2m.scheduled`
+    (matmul / reduction lowering): bump allocator, cloned affine copy nests,
+    optional L1 accumulation for tile matmul.
+
+    Run **before** `d2m-insert-dst-register-access-scheduled` when both kinds
+    of roots appear in the same module.  This pass does **not** handle the
+    no-`linalg_root` fallback (canonicalized-away root loops); that is owned
+    by the scheduled pass.
+
+    Precondition: `--d2m-linalg-to-affine` must have been run beforehand
+    (the pass calls `verifyInsertDstRegisterAccessPreconditions`, which walks
+    the module and fails if any `linalg.generic` is still present in the
+    compute regions).
 
     Example, this pass will convert the following code:
     ```mlir
-    ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #tt.memory_space<l1>>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>):
+    ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #l1>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #l1>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #l1>):
       affine.for %i2 = 0 to 3 {
         affine.for %i3 = 0 to 2 {
           affine.for %i4 = 0 to 3 {
-            %0 = affine.load %cb0[%i2, %i4] : memref<3x3x!tt.tile<32x32, f32>, #tt.memory_space<l1>>
-            %1 = affine.load %cb1[%i4, %i3] : memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>
-            %2 = affine.load %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>
+            %0 = affine.load %cb0[%i2, %i4] : memref<3x3x!tt.tile<32x32, f32>, #l1>
+            %1 = affine.load %cb1[%i4, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+            %2 = affine.load %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
             %3 = "d2m.tile_matmul"(%0, %1, %2) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
-            affine.store %3, %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #tt.memory_space<l1>>
+            affine.store %3, %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
           }
         }
-      }
+      } {d2m.linalg_root}
     ```
 
-    Into:
+    Into (3 separate loop nests: CB->DST loads, compute, DST->CB stores):
     ```mlir
     ^compute0(%cb0: memref<3x3x!tt.tile<32x32, f32>, #l1>, %cb1: memref<3x2x!tt.tile<32x32, f32>, #l1>, %cb2: memref<3x2x!tt.tile<32x32, f32>, #l1>):
-      %c0 = arith.constant 0 : index
       %dst = d2m.acquire_dst() : memref<3x2x!tt.tile<32x32, f32>, #dst>
-      %iter2 = d2m.iter_index(2) : index
-      %0 = arith.cmpi ne, %iter2, %c0 : index
-      scf.if %0 {
-        affine.for %arg3 = 0 to 3 {
-          affine.for %arg4 = 0 to 2 {
-            %1 = affine.load %cb2[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #l1>
-            affine.store %1, %dst[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+      affine.for %i2 = 0 to 3 {
+        affine.for %i3 = 0 to 2 {
+          %0 = affine.load %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+          affine.store %0, %dst[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+        }
+      }
+      affine.for %i2 = 0 to 3 {
+        affine.for %i3 = 0 to 2 {
+          affine.for %i4 = 0 to 3 {
+            %0 = affine.load %cb0[%i2, %i4] : memref<3x3x!tt.tile<32x32, f32>, #l1>
+            %1 = affine.load %cb1[%i4, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+            %2 = affine.load %dst[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+            %3 = "d2m.tile_matmul"(%0, %1, %2) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
+            affine.store %3, %dst[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #dst>
           }
         }
       }
-      affine.for %arg3 = 0 to 3 {
-        affine.for %arg4 = 0 to 2 {
-          affine.for %arg5 = 0 to 3 {
-            %1 = affine.load %cb0[%arg3, %arg5] : memref<3x3x!tt.tile<32x32, f32>, #l1>
-            %2 = affine.load %cb1[%arg5, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #l1>
-            %3 = affine.load %dst[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #dst>
-            %4 = "d2m.tile_matmul"(%1, %2, %3) : (!tt.tile<32x32, f32>, !tt.tile<32x32, f32>, !tt.tile<32x32, f32>) -> !tt.tile<32x32, f32>
-            affine.store %4, %dst[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #dst>
-          }
-        }
-      }
-      affine.for %arg3 = 0 to 3 {
-        affine.for %arg4 = 0 to 2 {
-          %1 = affine.load %dst[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #dst>
-          affine.store %1, %cb2[%arg3, %arg4] : memref<3x2x!tt.tile<32x32, f32>, #l1>
+      affine.for %i2 = 0 to 3 {
+        affine.for %i3 = 0 to 2 {
+          %0 = affine.load %dst[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #dst>
+          affine.store %0, %cb2[%i2, %i3] : memref<3x2x!tt.tile<32x32, f32>, #l1>
         }
       }
     ```
-
-    Notes:
-       - Operand loads & stores that implicitly uses the DST are replaced with explicit affine loads & stores that go through the DST.
-       - Generic op automatically inserts conditional guard for reload.
-       - This pass only works on affine ops.
   }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect"];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::func::FuncDialect",
+    "::mlir::scf::SCFDialect"
+  ];
   let options = [
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
-    Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
+    Option<"disableL1Acc", "disable-l1-acc", "bool", /*default=*/"false", "Disable accumulating partials in L1 (force reloading from L1 to DST instead).">,
+  ];
+}
+
+def D2MInsertDstRegisterAccessScheduled : Pass<"d2m-insert-dst-register-access-scheduled", "::mlir::ModuleOp"> {
+  let summary = "Insert DST register access for scheduled linalg_root loops and fallback regions.";
+  let description = [{
+    Handles `d2m.linalg_root` loops that carry `d2m.scheduled` (op-scheduler
+    and related passes): stack allocator, in-place CB/DST copies, `memref`
+    loads/stores under `scf.for` where applicable.  Strips `d2m.scheduled`
+    after processing.
+
+    Also handles the **fallback** when a region has compute but no
+    `d2m.linalg_root` loop at region entry (e.g. single-iteration loop folded
+    away): treats the region as scheduled-shaped and inserts DST access for
+    the flat block.
+
+    Run **after** `d2m-insert-dst-register-access-unscheduled` when both passes
+    are needed.
+
+    Precondition: `--d2m-linalg-to-affine` must have been run beforehand
+    (see the unscheduled pass for details on how the pre-condition is
+    enforced).
+
+    Example, given a `d2m.scheduled` root produced by `--d2m-op-scheduler`
+    over a 3-input fused eltwise:
+    ```mlir
+    ^compute0(%cb0, %cb1, %cb2: memref<2x4x!tt.tile<32x32, f32>, #l1>, %cb3: memref<2x4x!tt.tile<32x32, f32>, #l1>):
+      affine.for %i = 0 to 2 {
+        affine.for %j = 0 to 4 {
+          %0 = affine.load %cb0[%i, %j] : memref<2x4x!tt.tile<32x32, f32>, #l1>
+          %1 = affine.load %cb1[%i, %j] : memref<2x4x!tt.tile<32x32, f32>, #l1>
+          %2 = affine.load %cb2[%i, %j] : memref<2x4x!tt.tile<32x32, f32>, #l1>
+          %3 = "d2m.tile_add"(%0, %1) : (!tt.tile, !tt.tile) -> !tt.tile
+          %4 = "d2m.tile_div"(%3, %2) : (!tt.tile, !tt.tile) -> !tt.tile
+          affine.store %4, %cb3[%i, %j] : memref<2x4x!tt.tile<32x32, f32>, #l1>
+        }
+      } {d2m.linalg_root, d2m.scheduled}
+    ```
+
+    The pass rewrites loads/stores in place against DST and emits a single
+    DST->CB store nest after the compute loop:
+    ```mlir
+    ^compute0(...):
+      %dst = d2m.acquire_dst() : memref<...x!tt.tile<32x32, f32>, #dst>
+      affine.for %i = 0 to 2 {
+        affine.for %j = 0 to 4 {
+          %0 = affine.load %cb0[%i, %j] ... ; -> writes DST slice 0
+          %1 = affine.load %cb1[%i, %j] ... ; -> writes DST slice 1
+          %2 = affine.load %cb2[%i, %j] ... ; -> writes DST slice 2
+          %a = affine.load %dst[...slot 0...] ; ... etc
+          %b = affine.load %dst[...slot 1...]
+          %3 = "d2m.tile_add"(%a, %b) -> stores into DST
+          %c = affine.load %dst[...]
+          %d = affine.load %dst[...slot 2...]
+          %4 = "d2m.tile_div"(%c, %d) -> stores into DST
+        }
+      } {d2m.linalg_root}
+      affine.for %i = 0 to 2 {
+        affine.for %j = 0 to 4 {
+          %v = affine.load %dst[...]
+          affine.store %v, %cb3[%i, %j] ...
+        }
+      }
+    ```
+    Note that the `d2m.scheduled` attribute is consumed by the pass.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::func::FuncDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+  let options = [
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+    Option<"disableL1Acc", "disable-l1-acc", "bool", /*default=*/"false", "Disable accumulating partials in L1 (force reloading from L1 to DST instead).">,
   ];
 }
 
@@ -397,7 +479,9 @@ def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::Mod
   let description = [{
     This pass moves the generic regions to top level functions. This is a useful prerequisite
     step before lowering because it enables us to better separate kernel program lowering from
-    host program lowering.
+    host program lowering. As the common exit point for generic regions, it also
+    resolves remaining virtual-grid metadata needed by kernel ops before
+    outlining.
 
     ```mlir
     func.func @main(/*...*/) {
@@ -571,11 +655,7 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
     Option<"testBufferSizePolicy",
           "test-buffer-size-policy",
           "std::string", /*default=*/"\"auto\"",
-          "Set policy for sizing stream buffers ('auto', 'min', 'max').">,
-    Option<"testAllowAliasedEltwiseBlocking",
-          "test-allow-aliased-eltwise-blocking",
-          "bool", /*default=*/"true",
-          "Allow auto reblocking for eltwise generics even when blocked outputs must leave alias mode.">,
+          "Set policy for sizing stream buffers ('auto', 'bounded', 'min', 'max').">,
   ];
 }
 
@@ -680,53 +760,86 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
 
-def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
-  let summary = "Decompose block_mask ops into linalg.generic with tile arithmetic";
+def D2MOptimizeMasks : Pass<"d2m-optimize-masks", "::mlir::ModuleOp"> {
+  let summary = "Eliminate redundant high-level mask ops";
   let description = [{
-    This pass decomposes high-level `block_mask` operations into linalg.generic
-    with per-tile masking using primitive tile arithmetic. The block_mask op
-    operates at block level (memref of tiles) and masks tiles that are completely
-    outside the logical tensor bounds with a specified OOBVal.
+    This pass walks the IR in program order and tracks the known effective OOB
+    state for values produced by `d2m.mask`.  A later mask is removed when its
+    input is already known to satisfy the requested fill value, or when the
+    tensor has no maskable padded region.
 
-    The decomposition creates a linalg.generic that iterates over tiles and:
-    1. Get current tile indices from linalg.index
-    2. Compute global element offset: tileIdx * 32 (tile size)
-    3. Check if entire tile is OOB: globalOffset >= logicalBound
-    4. Combine row/col OOB flags with OR (any dimension OOB means tile is OOB)
-    5. Blend: result = input * select(oob, 0, 1) + select(oob, fill, 0)
+    Unknown/untracked values are treated as undef for compatibility purposes:
+    they satisfy an undef target, but not a concrete fill requirement.  The pass
+    is intentionally conservative and is the place where richer arithmetic OOB
+    propagation can be added.
 
-    The pass uses arith.select to avoid inf*0=NaN issues when fill is infinity.
+    This pass should run after mask creation/canonicalization and before
+    `d2m-decompose-masking`.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect"
+  ];
+}
+
+def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
+  let summary = "Decompose mask ops into explicit per-tile masking";
+  let description = [{
+    This pass decomposes high-level `d2m.mask` operations into an explicit
+    `d2m.generic` that loads one shard, writes row/column mask tiles in L1,
+    and emits tile loops for interior, edge, corner, and fully OOB regions.
+
+    The decomposition uses row/column mask tiles with `d2m.tile_where`, rather
+    than multiply-by-zero blending, so infinite fill values do not depend on
+    target-specific zero-times-infinity behavior.
 
     Example transformation:
     ```mlir
     // Before:
-    d2m.block_mask %input, %output, %rows, %cols, <zero>
-        : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+    %masked = d2m.mask %input, %output
+        logical_shape = [50, 50] fill_value = <zero>
+        : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
+          into memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
+          -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>
 
-    // After:
-    linalg.generic ... {
-      %row = linalg.index 0 : index
-      %col = linalg.index 1 : index
-      %globalRow = arith.muli %row, %c32 : index
-      %globalCol = arith.muli %col, %c32 : index
-      %rowOOB = arith.cmpi sge, %globalRow, %rows : index
-      %colOOB = arith.cmpi sge, %globalCol, %cols : index
-      %oob = arith.ori %rowOOB, %colOOB : i1
-      %mulFactor = arith.select %oob, %zero, %one : f32
-      %addend = arith.select %oob, %fillVal, %zero : f32
-      %scaled = d2m.tile_mul %in, %mulFactor
-      %result = d2m.tile_add %scaled, %addend
-      linalg.yield %result
+    // After (schematic):
+    d2m.generic {grid = #ttcore.grid<1x1>, threads = [#d2m.thread<unified>]}
+        ins(%input : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>)
+        outs(%output : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #layout, #l1>) {
+      %localInput = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %localOutput = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1>
+      %rowMask = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #cb, #l1>
+      %colMask = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #cb, #l1>
+      d2m.remote_load %localInput, %input[%coreY, %coreX] : ...
+      d2m.write_row_mask_tile(%validRows) to %rowMask : ...
+      d2m.write_col_mask_tile(%validCols) to %colMask : ...
+      scf.for %row = %rowStart to %rowEnd {
+        scf.for %col = %colStart to %colEnd {
+          %tile = memref.load %localInput[%row, %col] : ...
+          %mask = memref.load %rowMask[%c0, %c0] : ...
+          %fill = d2m.tile_fill %fillScalar : ...
+          %result = d2m.tile_where %mask, %tile, %fill : ...
+          memref.store %result, %localOutput[%row, %col] : ...
+        }
+      }
+      d2m.remote_store %output[%coreY, %coreX], %localOutput : ...
     }
     ```
 
-    This pass should run after LowerToLayout and before LinalgToAffine.
+    This pass should run after bufferization/generic loop generation and before
+    allocation.
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::memref::MemRefDialect",
     "::mlir::arith::ArithDialect",
-    "::mlir::linalg::LinalgDialect"
+    "::mlir::scf::SCFDialect"
+  ];
+  let options = [
+    Option<"numStreamBuffers",
+           "num-stream-buffers",
+           "unsigned", /*default=*/"2",
+           "Number of backing buffers to allocate for mask scratch CBs.">
   ];
 }
 

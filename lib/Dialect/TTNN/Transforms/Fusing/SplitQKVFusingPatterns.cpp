@@ -578,10 +578,10 @@ bool validateReshapeLayouts(SmallVector<SliceReshapeMatch> &matches) {
 // ============================================================================
 
 template <typename MatMulOpType>
-mlir::LogicalResult
-createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
-              QKVHead &q, QKVHead &k, QKVHead &v,
-              const FusionValidationConfig &validationConfig) {
+mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
+                                  MatMulOpType matmulOp, QKVHead &q, QKVHead &k,
+                                  QKVHead &v,
+                                  const OpValidationConfig &validationConfig) {
   auto qFinalShape = q.match.getFinalType().getShape();
   int64_t batchSize = qFinalShape[O_BATCH];
   int64_t seqLen = q.seqLen();
@@ -641,14 +641,15 @@ createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
   RankedTensorType vSplitTy = makeSplitOutputType(v.match.getFinalType());
 
   // Validate the fused op before creating it.
-  FusionValidator validator(rewriter.getContext(), validationConfig);
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
   auto numHeadsAttr = rewriter.getUI32IntegerAttr(q.numHeads());
   auto numKVHeadsAttr =
       isGQA ? rewriter.getUI32IntegerAttr(k.numHeads()) : IntegerAttr();
   auto transposeKeyAttr = rewriter.getBoolAttr(false);
 
   auto validationResult =
-      validator.validateFusion<SplitQueryKeyValueAndSplitHeadsOp>(
+      validator.validateOp<SplitQueryKeyValueAndSplitHeadsOp>(
           matmulOp.getOperation(), matmulOp.getLoc(),
           {qSplitTy, kSplitTy, vSplitTy}, inputReshape.getResult(),
           /*kv_input_tensor=*/Value(), numHeadsAttr, numKVHeadsAttr,
@@ -880,8 +881,9 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
                                    vPermuteOp.getType()};
 
   // Validate the fused op before creating it.
-  FusionValidator validator(rewriter.getContext(), validationConfig);
-  auto validationResult = validator.validateFusion<NLPCreateQKVHeadsDecodeOp>(
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
+  auto validationResult = validator.validateOp<NLPCreateQKVHeadsDecodeOp>(
       splitOp.getOperation(), splitOp.getLoc(),
       {qPermuteOp.getType(), kPermuteOp.getType(), vPermuteOp.getType()},
       reshapeOp.getResult(),

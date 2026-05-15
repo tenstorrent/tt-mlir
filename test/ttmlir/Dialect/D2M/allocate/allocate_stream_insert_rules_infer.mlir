@@ -19,7 +19,7 @@
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
 
-#l1_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_ttnn>, <block_sharded>>
+#l1_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_ttnn>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
 #dram_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram_ttnn>, <interleaved>>
 
 module {
@@ -46,12 +46,12 @@ module {
         affine.for %iter1 = 0 to %bf1 {
           affine.for %iter2 = 0 to %bf2 {
             %buffer_lhs = memref.alloc() : memref<2x3x!ttcore.tile<32x32, f32>, #l1>
-            %0 = d2m.remote_load %buffer_lhs %lhs[%iter0, %iter2] : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1> -> memref<2x3x!ttcore.tile<32x32, f32>, #l1>
+            d2m.remote_load %buffer_lhs %lhs[%iter0, %iter2] : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #l1>
             %buffer_rhs = memref.alloc() : memref<3x4x!ttcore.tile<32x32, f32>, #l1>
-            %1 = d2m.remote_load %buffer_rhs %rhs[%iter2, %iter1] : memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<3x4x!ttcore.tile<32x32, f32>, #l1>
+            d2m.remote_load %buffer_rhs %rhs[%iter2, %iter1] : memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
             %buffer_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-            "d2m.tile_matmul_block"(%0, %1, %buffer_out) : (memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> ()
-            %result = d2m.remote_store %r[%iter0, %iter1] %buffer_out : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+            "d2m.tile_matmul_block"(%buffer_lhs, %buffer_rhs, %buffer_out) : (memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> ()
+            d2m.remote_store %r[%iter0, %iter1] %buffer_out : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>
           } {d2m.blocking_loop = 2}
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
@@ -78,8 +78,8 @@ module {
       affine.for %iter0 = 0 to %bf0 {
         affine.for %iter1 = 0 to %bf1 {
           %buffer = memref.alloc() : memref<32x32xf32, #ttcore.memory_space<l1>>
-          %loaded = d2m.remote_load %buffer %view_arg0[%iter0, %iter1] : memref<32x32xf32, #ttcore.memory_space<l1>>, memref<1x1x32x32xf32, #ttcore.view<4>, #ttcore.memory_space<dram>> -> memref<32x32xf32, #ttcore.memory_space<l1>>
-          %stored = d2m.remote_store %out[%iter0, %iter1] %buffer : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<l1>>, memref<32x32xf32, #ttcore.memory_space<l1>> -> memref<32x32xf32, #ttcore.memory_space<l1>>
+          d2m.remote_load %buffer %view_arg0[%iter0, %iter1] : memref<32x32xf32, #ttcore.memory_space<l1>>, memref<1x1x32x32xf32, #ttcore.view<4>, #ttcore.memory_space<dram>>
+          d2m.remote_store %out[%iter0, %iter1] %buffer : memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #ttcore.memory_space<l1>>, memref<32x32xf32, #ttcore.memory_space<l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }
@@ -90,8 +90,8 @@ module {
   // treated as CB-backed if both operands are streamed.
   // CHECK-LABEL: func @test_shared_load_store_buffer_has_cb_if_both_operands_are_streamed
   // CHECK: %[[BUFFER:.*]] = memref.alloc(){{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
-  // CHECK: %[[LOAD:.*]] = d2m.remote_load %[[BUFFER]] {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
-  // CHECK: d2m.remote_store {{.*}} %[[BUFFER]] : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: d2m.remote_load %[[BUFFER]] {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+  // CHECK: d2m.remote_store {{.*}} %[[BUFFER]] : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
   func.func @test_shared_load_store_buffer_has_cb_if_both_operands_are_streamed(%arg0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<dram>>) {
     %view_arg0 = d2m.view_layout %arg0 remapping = #remap4 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<dram>> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>
     %out = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<dram>>
@@ -104,12 +104,12 @@ module {
       affine.for %iter0 = 0 to %bf0 {
         affine.for %iter1 = 0 to %bf1 {
           %buffer = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
-          %loaded = d2m.remote_load %buffer %view_arg0[%iter0, %iter1] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+          d2m.remote_load %buffer %view_arg0[%iter0, %iter1] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>
           %c0 = arith.constant 0 : index
           %elt = memref.load %buffer[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
           %abs = "d2m.tile_abs"(%elt) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
           memref.store %abs, %buffer[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
-          %stored = d2m.remote_store %out[%iter0, %iter1] %buffer : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<dram>>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+          d2m.remote_store %out[%iter0, %iter1] %buffer : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<dram>>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }
@@ -132,9 +132,9 @@ module {
       affine.for %iter0 = 0 to %bf0 {
         affine.for %iter1 = 0 to %bf1 {
           %buffer_in = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #dram>
-          %in = d2m.remote_load %buffer_in %arg0_cast[%iter0, %iter1] : memref<1x1x!ttcore.tile<32x32, f32>, #dram>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram> -> memref<1x1x!ttcore.tile<32x32, f32>, #dram>
+          d2m.remote_load %buffer_in %arg0_cast[%iter0, %iter1] : memref<1x1x!ttcore.tile<32x32, f32>, #dram>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram>
           %buffer_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-          %result = d2m.remote_store %arg1_cast[%iter0, %iter1] %buffer_out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+          d2m.remote_store %arg1_cast[%iter0, %iter1] %buffer_out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }

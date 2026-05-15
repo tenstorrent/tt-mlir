@@ -87,7 +87,7 @@ def build_ttir(
 
 
 @pytest.mark.skip(
-    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
+    "TTNN fusing is only available when optimizer is enabled, but currently optimizer isn't enabled in builder tests: https://github.com/tenstorrent/tt-mlir/issues/5909"
 )
 @pytest.mark.parametrize(
     "shapes",
@@ -103,6 +103,29 @@ def build_ttir(
             (1, 1, 64),  # cos input
             (1, 1, 64),  # sin input
         ],
+        # Phi decode: query path (seq=1, head_dim=32 partial rotary)
+        [
+            (32, 32, 1, 32),  # input [num_heads, batch, seq=1, head_dim/2]
+            (1, 1, 32),  # cos input
+            (1, 1, 32),  # sin input
+        ],
+        # Phi decode: key path after EIO commute pushes reshape back through
+        # RoPE, folding batch into seq: [1, nH=32, B*S=32, D/2=32].
+        # cos/sin seq=1 < input seq=32 so fusion is correctly rejected.
+        # Should fuse once RoPE fusion moves before EIO pass.
+        # https://github.com/tenstorrent/tt-mlir/issues/8341
+        pytest.param(
+            [
+                (1, 32, 32, 32),  # input [1, num_heads, batch, head_dim/2]
+                (1, 1, 32),  # cos input
+                (1, 1, 32),  # sin input
+            ],
+            marks=pytest.mark.xfail(
+                reason="cos/sin seq < input seq — fusion rejected until "
+                "RoPE fusion moves before EIO "
+                "(https://github.com/tenstorrent/tt-mlir/issues/8341)"
+            ),
+        ),
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 3])

@@ -67,6 +67,51 @@ replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
                                    map.getNumDims(), numResultSyms);
 }
 
+/// Returns a new affine map with constant offsets applied to a contiguous
+/// subset of map results.
+inline mlir::AffineMap applyOffsetsToAffineMapResults(
+    mlir::AffineMap map, mlir::ArrayRef<int64_t> offsets, unsigned startIndex) {
+  if (offsets.empty()) {
+    return map;
+  }
+  mlir::MLIRContext *ctx = map.getContext();
+  TT_assertv(startIndex + offsets.size() <= map.getNumResults(),
+             "Result offset range out of bounds");
+  unsigned endIndex = startIndex + offsets.size();
+  llvm::SmallVector<mlir::AffineExpr> remappedResults(map.getResults().begin(),
+                                                      map.getResults().end());
+  for (unsigned i = startIndex; i < endIndex; ++i) {
+    remappedResults[i] = remappedResults[i] +
+                         getAffineConstantExpr(offsets[i - startIndex], ctx);
+  }
+  return mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(),
+                              remappedResults, ctx);
+}
+
+/// Returns a new affine map with constant offsets applied to a contiguous
+/// subset of map input dimensions by replacing dim uses with (dim + offset).
+inline mlir::AffineMap applyOffsetsToAffineMapDims(
+    mlir::AffineMap map, mlir::ArrayRef<int64_t> offsets, unsigned startIndex) {
+  if (offsets.empty()) {
+    return map;
+  }
+  mlir::MLIRContext *ctx = map.getContext();
+  TT_assertv(startIndex + offsets.size() <= map.getNumDims(),
+             "Dim offset range out of bounds");
+  unsigned endIndex = startIndex + offsets.size();
+  llvm::SmallVector<mlir::AffineExpr> dimReplacements;
+  dimReplacements.reserve(map.getNumDims());
+  for (unsigned i = 0; i < map.getNumDims(); ++i) {
+    dimReplacements.push_back(getAffineDimExpr(i, ctx));
+  }
+  for (unsigned i = startIndex; i < endIndex; ++i) {
+    dimReplacements[i] = dimReplacements[i] +
+                         getAffineConstantExpr(offsets[i - startIndex], ctx);
+  }
+  return map.replaceDimsAndSymbols(dimReplacements, {}, map.getNumDims(),
+                                   map.getNumSymbols());
+}
+
 /// Generates an affine map translating ND grid + ND shard coordinates into ND
 /// grid + linearized offset.
 /// Example: strides=[4,2] -> (g0,g1,s0,s1) -> (g0,g1,4*s0+2*s1)

@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "llvm/ADT/DenseMap.h"
 
 #include <functional>
 
@@ -39,6 +40,16 @@ struct CandidateScore {
   uint64_t cbBytes = 0;
 };
 
+// Beam-search state before a full candidate legality and CB cost evaluation.
+struct PartialCandidate {
+  SmallVector<int64_t> dimScales;
+  uint64_t blockingVolume = 1;
+  uint64_t moderationPenalty = 0;
+};
+
+constexpr std::size_t kEltwiseBeamWidth = 64;
+constexpr std::size_t kEltwiseScalesPerDim = 5;
+
 static llvm::BitVector getDimMask(std::size_t rank,
                                   ArrayRef<std::size_t> dims) {
   llvm::BitVector mask(rank, false);
@@ -46,40 +57,6 @@ static llvm::BitVector getDimMask(std::size_t rank,
     mask[dim] = true;
   }
   return mask;
-}
-
-// @return true if the operand needs a dedicated CB by existing rules.
-static bool operandNeedsDedicatedCBByExistingRules(GenericOp genericOp,
-                                                   uint32_t operandIndex) {
-  Value operand = genericOp.getInputsAndOutputs()[operandIndex];
-
-  if (hasNonTrivialView(operand)) {
-    return true;
-  }
-
-  auto operandType = mlir::dyn_cast<MemRefType>(operand.getType());
-  if (!operandType) {
-    return false;
-  }
-  if (ttcore::getMemorySpace(operandType) == ttcore::MemorySpace::DeviceDRAM) {
-    return true;
-  }
-
-  const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-  const auto broadcastDims = indexingMap.getBroadcastDims();
-  const auto iteratorTypes = genericOp.getIteratorTypesValue();
-  for (std::size_t resultIndex = 0; resultIndex < indexingMap.getNumResults();
-       ++resultIndex) {
-    if (llvm::is_contained(broadcastDims, resultIndex)) {
-      return true;
-    }
-    if (iteratorTypes[indexingMap.getDimPosition(resultIndex)] ==
-        ttcore::IteratorType::Reduction) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 /// Classify a generic op's iteration shape for auto-policy search.
@@ -153,6 +130,67 @@ static bool isLexicographicallyLarger(ArrayRef<int64_t> lhs,
   return false;
 }
 
+static SmallVector<int64_t> buildEltwiseScaleSearchOrder(int64_t shardFactor) {
+  SmallVector<int64_t> factors = ttmlir::utils::getFactors(shardFactor);
+  llvm::SmallDenseMap<int64_t, int64_t, 8> factorRanks;
+  factorRanks.reserve(factors.size());
+  for (auto [index, factor] : llvm::enumerate(factors)) {
+    factorRanks[factor] = index;
+  }
+  // Visit moderate divisors first.
+  const auto midpoint = static_cast<int64_t>(factors.size() - 1) / 2;
+  llvm::stable_sort(factors, [&](int64_t lhs, int64_t rhs) {
+    if (lhs == rhs) {
+      return false;
+    }
+    const int64_t lhsPenalty = std::abs(factorRanks[lhs] - midpoint);
+    const int64_t rhsPenalty = std::abs(factorRanks[rhs] - midpoint);
+    if (lhsPenalty != rhsPenalty) {
+      return lhsPenalty < rhsPenalty;
+    }
+    if ((lhs == 1) != (rhs == 1)) {
+      return rhs == 1;
+    }
+    return lhs > rhs;
+  });
+
+  SmallVector<int64_t> limited;
+  // Always include scale factor 1 so bounded search can leave a dim unchanged.
+  limited.reserve(std::min(factors.size(), kEltwiseScalesPerDim));
+  for (int64_t factor : factors) {
+    if (limited.size() == kEltwiseScalesPerDim) {
+      break;
+    }
+    limited.push_back(factor);
+  }
+  if (!llvm::is_contained(limited, int64_t{1})) {
+    limited.pop_back();
+    limited.push_back(1);
+  }
+  return limited;
+}
+
+static bool isBetterPartialCandidate(const PartialCandidate &lhs,
+                                     const PartialCandidate &rhs) {
+  if (lhs.moderationPenalty != rhs.moderationPenalty) {
+    return lhs.moderationPenalty < rhs.moderationPenalty;
+  }
+  if (lhs.blockingVolume != rhs.blockingVolume) {
+    return lhs.blockingVolume > rhs.blockingVolume;
+  }
+  return isLexicographicallyLarger(lhs.dimScales, rhs.dimScales);
+}
+
+static void trimPartialBeam(SmallVectorImpl<PartialCandidate> &beam) {
+  llvm::stable_sort(
+      beam, [&](const PartialCandidate &lhs, const PartialCandidate &rhs) {
+        return isBetterPartialCandidate(lhs, rhs);
+      });
+  if (beam.size() > kEltwiseBeamWidth) {
+    beam.resize(kEltwiseBeamWidth);
+  }
+}
+
 // Compare two automatic-reblocking candidates for the same generic op.
 //
 // Each candidate represents a legal choice of reblocked factors (derived from
@@ -200,8 +238,7 @@ static std::optional<CandidateScore> evaluateCandidate(
     ArrayRef<int64_t> shardExtents, ArrayRef<int64_t> shardFactors,
     ArrayRef<int64_t> originalBlockFactors, ArrayRef<int64_t> dimScales,
     ttcore::DeviceAttr device, ttcore::MemorySpaceAttr l1Attr,
-    uint32_t numBuffers, bool allowAliasedEltwiseBlocking,
-    bool allowIdentityCandidate = false) {
+    uint32_t numBuffers, bool allowIdentityCandidate = false) {
   SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
                                             gridExtents.end());
   SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
@@ -245,14 +282,6 @@ static std::optional<CandidateScore> evaluateCandidate(
 
     // Reject candidates that would result in a too small operand shard shape.
     if (ttmlir::utils::volume<int64_t>(operandShardShape) < 4) {
-      return std::nullopt;
-    }
-
-    // Reject candidates that would result in a dedicated CB being needed for
-    // output operands if aliased eltwise blocking is not allowed.
-    if (genericOp.isOutputOperandIdx(operandIndex) &&
-        !operandNeedsDedicatedCBByExistingRules(genericOp, operandIndex) &&
-        !allowAliasedEltwiseBlocking) {
       return std::nullopt;
     }
 
@@ -344,7 +373,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
                 ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-                bool allowAliasedEltwiseBlocking) {
+                bool useBoundedEltwiseSearch) {
   const SmallVector<int64_t> originalBlockFactors =
       genericOp.getBlockFactorsValue();
 
@@ -361,8 +390,14 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
   //===------------------------------------------------------------------===//
   SmallVector<SmallVector<int64_t>> legalScales;
   legalScales.reserve(config->candidateDims.size());
+  uint64_t boundedSearchSpace = 1;
   for (std::size_t dim : config->candidateDims) {
-    legalScales.push_back(ttmlir::utils::getFactors(shardFactors[dim]));
+    SmallVector<int64_t> dimScales =
+        config->shapeClass == AutoShapeClass::AllParallelEltwise
+            ? buildEltwiseScaleSearchOrder(shardFactors[dim])
+            : ttmlir::utils::getFactors(shardFactors[dim]);
+    boundedSearchSpace *= dimScales.size();
+    legalScales.push_back(std::move(dimScales));
   }
 
   //===------------------------------------------------------------------===//
@@ -374,8 +409,55 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
     bestCandidate = evaluateCandidate(
         genericOp, config->candidateDims, indexingMaps, gridExtents,
         shardExtents, shardFactors, originalBlockFactors, currentDimScales,
-        device, l1Attr, numBuffers, allowAliasedEltwiseBlocking,
-        /*allowIdentityCandidate=*/true);
+        device, l1Attr, numBuffers, /*allowIdentityCandidate=*/true);
+  }
+
+  // Restrict the large eltwise search space to the top kEltwiseBeamWidth
+  // candidates unless the caller explicitly requests exhaustive search.
+  if (useBoundedEltwiseSearch &&
+      config->shapeClass == AutoShapeClass::AllParallelEltwise &&
+      boundedSearchSpace > kEltwiseBeamWidth) {
+    SmallVector<PartialCandidate> beam;
+    beam.push_back(
+        PartialCandidate{SmallVector<int64_t>(currentDimScales), 1, 0});
+
+    for (auto [dimIndex, dim] : llvm::enumerate(config->candidateDims)) {
+      SmallVector<PartialCandidate> expanded;
+      expanded.reserve(beam.size() * legalScales[dimIndex].size());
+      for (const PartialCandidate &partial : beam) {
+        for (auto [scaleRank, scale] : llvm::enumerate(legalScales[dimIndex])) {
+          PartialCandidate candidate = partial;
+          candidate.dimScales[dim] = scale;
+          candidate.blockingVolume *= scale;
+          candidate.moderationPenalty += scaleRank;
+          expanded.push_back(std::move(candidate));
+        }
+      }
+      trimPartialBeam(expanded);
+      beam = std::move(expanded);
+    }
+
+    for (const PartialCandidate &candidate : beam) {
+      std::optional<CandidateScore> score = evaluateCandidate(
+          genericOp, config->candidateDims, indexingMaps, gridExtents,
+          shardExtents, shardFactors, originalBlockFactors, candidate.dimScales,
+          device, l1Attr, numBuffers);
+      if (score &&
+          (!bestCandidate ||
+           isBetterCandidate(config->shapeClass, *score, *bestCandidate))) {
+        bestCandidate = std::move(score);
+      }
+    }
+
+    if (!bestCandidate) {
+      return originalBlockFactors;
+    }
+
+    TT_ALLOC_DEBUG("applying auto policy scales {}, new block factors {}, CB "
+                   "bytes {}",
+                   asSeq(bestCandidate->dimScales),
+                   asSeq(bestCandidate->blockFactors), bestCandidate->cbBytes);
+    return bestCandidate->blockFactors;
   }
 
   std::function<void(std::size_t)> enumerateCandidates =
@@ -385,8 +467,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
           auto candidate = evaluateCandidate(
               genericOp, config->candidateDims, indexingMaps, gridExtents,
               shardExtents, shardFactors, originalBlockFactors,
-              currentDimScales, device, l1Attr, numBuffers,
-              allowAliasedEltwiseBlocking);
+              currentDimScales, device, l1Attr, numBuffers);
           if (candidate && (!bestCandidate ||
                             isBetterCandidate(config->shapeClass, *candidate,
                                               *bestCandidate))) {
@@ -425,8 +506,7 @@ static SmallVector<int64_t> chooseReblockedFactors(
     ArrayRef<ttcore::IteratorType> iteratorTypes, ArrayRef<int64_t> gridExtents,
     ArrayRef<int64_t> shardExtents, ttcore::DeviceAttr device,
     BlockFactorAnalysis::BufferSizePolicy policy,
-    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-    bool allowAliasedEltwiseBlocking) {
+    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers) {
   const SmallVector<int64_t> shardFactors = getShardBlockFactors(genericOp);
   switch (policy) {
   case BlockFactorAnalysis::BufferSizePolicy::Max:
@@ -436,7 +516,11 @@ static SmallVector<int64_t> chooseReblockedFactors(
   case BlockFactorAnalysis::BufferSizePolicy::Auto:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, allowAliasedEltwiseBlocking);
+                           numBuffers, /*useBoundedEltwiseSearch=*/false);
+  case BlockFactorAnalysis::BufferSizePolicy::Bounded:
+    return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
+                           shardExtents, shardFactors, device, l1Attr,
+                           numBuffers, /*useBoundedEltwiseSearch=*/true);
   }
 
   llvm_unreachable("unknown buffer size policy");
@@ -468,8 +552,7 @@ BlockFactorAnalysis::BlockFactorAnalysis(Operation *op, const Options &opts) {
 
     SmallVector<int64_t> reblockedFactors = chooseReblockedFactors(
         genericOp, indexingMaps, iteratorTypes, gridExtents, shardExtents,
-        device, opts.policy, l1Attr, opts.numBuffers,
-        opts.allowAliasedEltwiseBlocking);
+        device, opts.policy, l1Attr, opts.numBuffers);
 
     results[genericOp.getOperation()] = Result{std::move(reblockedFactors)};
   });

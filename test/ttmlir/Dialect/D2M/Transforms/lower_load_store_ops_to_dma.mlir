@@ -233,8 +233,7 @@ module attributes {} {
       %c1 = arith.constant 1 : index
       scf.for %arg1 = %c0 to %c1 step %c1 {
         scf.for %arg2 = %c0 to %c1 step %c1 {
-          %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-          d2m.local_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.local_copy from %cb0 into %cb2 indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
@@ -283,10 +282,8 @@ module attributes {} {
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      %src0 = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.local_copy %src0 into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      %src1 = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.local_copy %src1 into %cb4 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy from %cb0 into %cb2 indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy from %cb2 into %cb4 indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
     }, {
     ^compute0:
       %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
@@ -347,8 +344,7 @@ module attributes {} {
           %0 = arith.addi %core0, %arg2 : index
           %1 = arith.addi %core1, %arg3 : index
           d2m.remote_load %stream_in[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-          %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-          d2m.local_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.local_copy from %cb0 into %cb2 indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
           d2m.remote_store %stream_out[%0, %1] from %cb2 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> from !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
@@ -380,9 +376,7 @@ module attributes {} {
     ^datamovement0:
       %cb_src = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb_dst = d2m.get_cb(3) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      // DMA waits on cb_src (filled by compute via push)
-      %src = d2m.wait %cb_src : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.local_copy %src into %cb_dst indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy from %cb_src into %cb_dst indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
     }, {
     ^compute0:
       // Compute fills cb_src via reserve+push

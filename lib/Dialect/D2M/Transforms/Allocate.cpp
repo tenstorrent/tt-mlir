@@ -282,8 +282,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       << asSeq(llvm::to_vector(obj.availableL1AddrRange)) << "\n";
     s << "\ttest-assume-l1-capacity: " << obj.testAssumeL1Capacity << "\n";
     s << "\ttest-buffer-size-policy: " << obj.testBufferSizePolicy << "\n";
-    s << "\ttest-allow-aliased-eltwise-blocking: "
-      << obj.testAllowAliasedEltwiseBlocking << "\n";
     s << "}";
     return s.str();
   }
@@ -296,6 +294,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   parseBufferSizePolicy(StringRef policy) {
     return llvm::StringSwitch<std::optional<BufferSizePolicy>>(policy)
         .Case("auto", BufferSizePolicy::Auto)
+        .Case("bounded", BufferSizePolicy::Bounded)
         .Case("min", BufferSizePolicy::Min)
         .Case("max", BufferSizePolicy::Max)
         .Default(std::nullopt);
@@ -313,7 +312,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     if (!parsedBufferSizePolicy.has_value()) {
       moduleOp.emitOpError()
           << "invalid test-buffer-size-policy '" << testBufferSizePolicy
-          << "' (expected one of: auto, min, max)";
+          << "' (expected one of: auto, bounded, min, max)";
       return signalPassFailure();
     }
     bufferSizePolicy = *parsedBufferSizePolicy;
@@ -963,7 +962,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     BlockFactorAnalysis::Options bfOpts;
     bfOpts.policy = bufferSizePolicy;
     bfOpts.numBuffers = numStreamBuffers;
-    bfOpts.allowAliasedEltwiseBlocking = testAllowAliasedEltwiseBlocking;
     BlockFactorAnalysis blockFactorAnalysis(funcOp, bfOpts);
 
     [[maybe_unused]] int32_t genericsInExplicitDatamovementForm = 0;
@@ -1364,6 +1362,27 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   L1memInfo, analysis.sequencing))) {
             return failure();
           }
+        } else {
+          // Mark allocs as aliased for HoistCBAllocs pass.
+          const OperandContext *sharedPeerCtx =
+              findSharedPeerOperandContext(genericOp, genericCtx, operandCtx);
+          // If alias exists and is on the peer for load/store pair, don't mark
+          // alias for this operand. Otherwise, mark alias for this operand.
+          if (!sharedPeerCtx || !inferBaseStreamRequirement(
+                                    genericOp, operandCtx,
+                                    ttcore::getMemorySpace(
+                                        operandCtx.operand->get().getType()))) {
+            auto operandIndex = operandCtx.operand->getOperandNumber();
+            Value cbMemref =
+                findLocalBufferForOperandLoadStore(genericOp, operandCtx);
+            if (cbMemref) {
+              if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(
+                      cbMemref.getDefiningOp())) {
+                allocOp->setAttr("d2m.alias_for_operand",
+                                 rewriter.getI64IntegerAttr(operandIndex));
+              }
+            }
+          }
         }
       }
 
@@ -1470,24 +1489,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 }
 
                 if (operandIndex) {
-                  // Update the result type so the load result matches the
-                  // stream type now associated with the operand.
+                  // Update the localBuffer (destination) type so the load
+                  // matches the stream type now associated with the operand.
                   auto typeIt = operandCBTypeByIndex.find(*operandIndex);
                   if (typeIt != operandCBTypeByIndex.end()) {
                     Type newShardType = typeIt->second;
-                    op.getResult().setType(newShardType);
                     updateLocalBufferType(op, newShardType);
                     return;
                   }
                 }
 
-                if (Value localBuffer = op.getLocalBuffer()) {
-                  Type localBufferType = localBuffer.getType();
-                  if (localBufferType != op.getResult().getType()) {
-                    op.getResult().setType(localBufferType);
-                    updateLocalBufferType(op, localBufferType);
-                    return;
-                  }
+                // If a localBuffer is already typed (its defining op assigned
+                // a memref type), trust that and don't override it with the
+                // generic L1 shard type below. This preserves layouts like
+                // #ttcore.cb_layout<...> that were set up by upstream logic.
+                if (op.getLocalBuffer()) {
+                  return;
                 }
 
                 if (op.isImplicitForm()) {
@@ -1502,10 +1519,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                         shardShape, shapedType.getElementType(), nullptr,
                         rewriter.getAttr<ttcore::MemorySpaceAttr>(
                             ttcore::MemorySpace::DeviceL1));
-                    op.getResult().setType(newShardType);
                     updateLocalBufferType(op, newShardType);
                   }
                 }
+              })
+              .Case([&](d2m::TileTilizeBlockOp op) {
+                op.getResult().setType(op.getOutput().getType());
+              })
+              .Case([&](d2m::TileUntilizeBlockOp op) {
+                op.getResult().setType(op.getOutput().getType());
               })
               .Case([&](d2m::RemoteStoreOp op) {
                 Value oldMemref = op.getMemref();
@@ -1733,6 +1755,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return false;
   }
 
+  Value findLocalBufferForOperandLoadStore(d2m::GenericOp genericOp,
+                                           const OperandContext &operandCtx) {
+    Value localBuffer;
+    genericOp->walk([&](Operation *op) {
+      if (auto loadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(op)) {
+        if (loadOp.getMemref() == operandCtx.operand->get()) {
+          localBuffer = loadOp.getLocalBuffer();
+          return WalkResult::interrupt();
+        }
+      } else if (auto storeOp = mlir::dyn_cast<d2m::RemoteStoreOp>(op)) {
+        if (storeOp.getMemref() == operandCtx.operand->get()) {
+          localBuffer = storeOp.getLocalBuffer();
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    });
+    return localBuffer;
+  }
+
   static const OperandContext *
   findOperandContextForAlias(const GenericOpContext &genericCtx, Value alias,
                              const OperandContext &excludeOperandCtx) {
@@ -1830,28 +1872,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                             const GenericOpContext &genericCtx,
                             const OperandContext &operandCtx,
                             MemorySpace memspace) const {
-
-    // Blocked operands must be registered with the memory planner so their
-    // in-generic allocs receive an L1 address. This runs before
-    // reblockGenerics, so the view doesn't exist yet and
-    // isOperandExemptFromStreaming would incorrectly skip the alloc.
-    // Explicit DM generics have no indexing maps and are never reblocked.
-    if (!genericCtx.isExplicitDatamovement &&
-        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
-                                     genericCtx.reblockedFactors)) {
-      return true;
-    }
-
     if (isOperandExemptFromStreaming(operandCtx, memspace)) {
       return false;
     }
-
     return inferStreamRequirement(genericOp, genericCtx, operandCtx, memspace);
   }
 
   /// @return `true` if `operandCtx` is an output that is exempt from stream
   /// insertion. Currently, this is true for outputs when L1 output spilling is
-  /// disabled and the output is not a non-trivial view.
+  /// disabled and the output is a trivial view.
   bool isOperandExemptFromStreaming(const OperandContext &operandCtx,
                                     MemorySpace memspace) const {
     if (isNonTrivialView(operandCtx)) {
@@ -1913,22 +1942,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                               const GenericOpContext &genericCtx,
                               const OperandContext &operandCtx,
                               MemorySpace memspace) const {
-    const bool baseNeedsStream =
-        inferBaseStreamRequirement(genericOp, operandCtx, memspace);
-
-    const bool blocked =
-        !genericCtx.isExplicitDatamovement &&
-        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
-                                     genericCtx.reblockedFactors);
-
-    if (blocked) {
-      if (!operandCtx.isOutput) {
-        return true;
-      }
-      return baseNeedsStream || testAllowAliasedEltwiseBlocking;
-    }
-
-    if (!baseNeedsStream) {
+    if (!inferBaseStreamRequirement(genericOp, operandCtx, memspace)) {
       return false;
     }
 
@@ -2047,7 +2061,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                     ttcore::DeviceAttr device) {
     // A tighter size calculation is possible for memrefs that don't map to
     // CBs which we don't attempt here except to ignore `buffers` multiplier.
-    return device.getMemrefSizeBytes(bufferType, 0, false);
+    int64_t shardSizeBytes = device.getMemrefSizeBytes(bufferType, 0, false);
+
+    if (ttcore::getMemorySpace(bufferType) == MemorySpace::DeviceDRAM) {
+      if (auto shardLayout =
+              mlir::dyn_cast<ttcore::ShardLayoutAttr>(bufferType.getLayout())) {
+        int64_t gridVolume =
+            ttmlir::utils::volume(shardLayout.getGridShape(bufferType));
+        int64_t numDramBanks = ttmlir::utils::volume(
+            llvm::to_vector(device.getDramGrid().getShape()));
+        int64_t shardsPerBank =
+            ttmlir::utils::alignUp(gridVolume, numDramBanks) / numDramBanks;
+        return shardSizeBytes * shardsPerBank;
+      }
+    }
+
+    return shardSizeBytes;
   }
 
   /// @return aligned allocation sizes for a `type` buffer for different

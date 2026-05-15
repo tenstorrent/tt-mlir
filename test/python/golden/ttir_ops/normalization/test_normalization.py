@@ -405,8 +405,6 @@ def test_distributed_rms_norm(
         (1, 1, 32, 512),
         (1, 1, 32, 4096),
         (1, 1, 32, 8192),
-        (32, 128),
-        (1, 32, 128),
     ]:
         pytest.skip(
             f"Hangs on n300 with has_weight=True and shape={shape} after metal uplift "
@@ -665,7 +663,7 @@ def test_distributed_layer_norm(
 
 
 @pytest.mark.parametrize("num_groups", [8, 32])
-@pytest.mark.parametrize("shape", [(1, 8, 8, 480)])
+@pytest.mark.parametrize("shape", [(1, 8, 8, 480), (2, 32, 32, 320)])
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
 @pytest.mark.parametrize(

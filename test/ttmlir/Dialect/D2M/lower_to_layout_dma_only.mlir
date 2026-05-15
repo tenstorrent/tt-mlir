@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-lower-to-layout -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-#layout_src = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#layout_dst = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_src = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#layout_dst = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #map4 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // Test remote input case: remote input, local output - should use remote_load

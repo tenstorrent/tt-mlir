@@ -29,6 +29,69 @@
 using namespace mlir;
 using namespace mlir::tt::d2m;
 
+// Custom assembly format for D2M_ThreadAttr.
+//
+// Format:  `<` threadType (`,` kernelSymbol)? (`,` `noc` `=` nocIndex)? `>`
+//
+// The two optional groups both start with `,`, so the declarative tablegen
+// format cannot disambiguate them: it always tries to parse the kernel symbol
+// after the first comma and fails on `#d2m.thread<datamovement, noc = 0>`.
+// We peek for the `noc` keyword to pick the correct branch.
+mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
+  if (parser.parseLess()) {
+    return {};
+  }
+
+  ::mlir::FailureOr<ThreadType> threadType =
+      ::mlir::FieldParser<ThreadType>::parse(parser);
+  if (::mlir::failed(threadType)) {
+    return {};
+  }
+
+  SymbolRefAttr kernelSymbol;
+  int32_t nocIndex = -1;
+
+  // First optional: either `, @kernel` or `, noc = N`.
+  if (parser.parseOptionalComma().succeeded()) {
+    if (parser.parseOptionalKeyword("noc").succeeded()) {
+      if (parser.parseEqual() || parser.parseInteger(nocIndex)) {
+        return {};
+      }
+    } else {
+      if (parser.parseAttribute(kernelSymbol)) {
+        return {};
+      }
+      // Second optional: only valid if a kernel symbol was given above.
+      if (parser.parseOptionalComma().succeeded()) {
+        if (parser.parseKeyword("noc") || parser.parseEqual() ||
+            parser.parseInteger(nocIndex)) {
+          return {};
+        }
+      }
+    }
+  }
+
+  if (parser.parseGreater()) {
+    return {};
+  }
+
+  return ThreadAttr::get(parser.getContext(), *threadType, kernelSymbol,
+                         nocIndex);
+}
+
+void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
+  printer << "<";
+  printer.printStrippedAttrOrType(getThreadType());
+  if (getKernelSymbol()) {
+    printer << ", ";
+    printer.printAttribute(getKernelSymbol());
+  }
+  if (getNocIndex() != -1) {
+    printer << ", noc = " << getNocIndex();
+  }
+  printer << ">";
+}
+
 #include "ttmlir/Dialect/D2M/IR/D2MOpsDialect.cpp.inc"
 
 struct D2MDialectFoldInterface : public DialectFoldInterface {

@@ -195,9 +195,8 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
           layout.getNormalizedIntervals());
 
   auto tempLayout = ttcore::MetalLayoutAttr::get(
-      operand.getContext(), layout.getLogicalShape(), layout.getOobVal(),
-      layout.getMemorySpace(), layout.getMemoryLayout(),
-      layout.getCollapsedIntervals(), alignments);
+      operand.getContext(), layout.getLogicalShape(), layout.getMemorySpace(),
+      layout.getMemoryLayout(), layout.getCollapsedIntervals(), alignments);
 
   return tempLayout.getPhysicalShape(
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
@@ -222,9 +221,8 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
 
   return ttcore::MetalLayoutAttr::get(
       oldLayout.getContext(), oldLayout.getLogicalShape(),
-      oldLayout.getOobVal(), oldLayout.getMemorySpace(),
-      oldLayout.getMemoryLayout(), oldLayout.getCollapsedIntervals(),
-      newDimAlignments);
+      oldLayout.getMemorySpace(), oldLayout.getMemoryLayout(),
+      oldLayout.getCollapsedIntervals(), newDimAlignments);
 }
 
 mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,

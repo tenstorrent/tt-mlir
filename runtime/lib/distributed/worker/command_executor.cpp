@@ -386,6 +386,30 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
+void CommandExecutor::execute(
+    uint64_t commandId,
+    const fb::CreateUnsafeBorrowedHostTensorCommand *command) {
+  uint64_t sourceGlobalId = command->source_tensor_global_id();
+  uint64_t outputGlobalId = command->output_global_id();
+
+  LOG_ASSERT(tensorPool_.contains(sourceGlobalId),
+             "Source tenso with global id ", sourceGlobalId,
+             " not found in tensor pool");
+
+  ::tt::runtime::Tensor sourceTensor = tensorPool_.at(sourceGlobalId);
+  ::tt::runtime::Tensor borrowedTensor =
+      ::tt::runtime::createUnsafeBorrowedHostTensor(sourceTensor);
+  borrowedTensor.setGlobalId(outputGlobalId);
+  tensorPool_.insert_or_assign(outputGlobalId, borrowedTensor);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(
+          ResponseFactory::buildCreateUnsafeBorrowedHostTensorResponse,
+          commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
 void CommandExecutor::execute(uint64_t commandId,
                               const fb::IsTensorAllocatedCommand *command) {
   uint64_t tensorGlobalId = command->tensor_global_id();
@@ -749,6 +773,10 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
     return execute(
         command->command_id(),
         command->type_as_CreateMultiDeviceHostTensorFromShardsCommand());
+  }
+  case fb::CommandType::CreateUnsafeBorrowedHostTensorCommand: {
+    return execute(command->command_id(),
+                   command->type_as_CreateUnsafeBorrowedHostTensorCommand());
   }
   case fb::CommandType::IsTensorAllocatedCommand: {
     return execute(command->command_id(),

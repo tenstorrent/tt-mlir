@@ -15,13 +15,14 @@ module {
 
 // -----
 
-// Verify that verification fails if tensor memory layout is set to anything other than interleaved for DRAM buffer type.
+// Verify that verification fails if a sharded TTNN layout is missing its
+// core_range_set.
 #dram = #ttnn.buffer_type<dram>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xf32, #dram>, <block_sharded>>
-#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <block_sharded>>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<32x4xf32, #dram>, <width_sharded>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <width_sharded>>
 module {
   func.func @forward(%arg0: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x96xf32, #ttnn_layout1> {
-    // CHECK: error: DRAM buffer type must have Interleaved memory layout.
+    // CHECK: error: sharded TTNN layout (width_sharded) must carry a core_range_set
     %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}>  : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
     return %1 : tensor<32x32xf32, #ttnn_layout1>
   }

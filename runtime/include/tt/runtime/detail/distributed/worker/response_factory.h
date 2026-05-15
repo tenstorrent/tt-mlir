@@ -55,6 +55,9 @@ public:
   static void buildCreateMultiDeviceHostTensorFromShardsResponse(
       ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId);
 
+  static void buildCreateUnsafeBorrowedHostTensorResponse(
+      ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId);
+
   static void
   buildReleaseSubMeshDeviceResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                     uint64_t commandId);
