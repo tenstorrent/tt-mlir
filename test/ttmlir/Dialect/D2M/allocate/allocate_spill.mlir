@@ -2,9 +2,12 @@
 // RUN: FileCheck %s --input-file=%t
 
 // This test uses max-sized stream buffers and verifies that in-generic
-// CB allocs receive cb_layout attributes.
+// CB allocs receive an address and alignment.
 
-// CHECK: cb_layout
+// CHECK: d2m.generic
+// CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64, d2m.synchronized_buffer = 2 : i64} : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
+// CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64, d2m.synchronized_buffer = 2 : i64} : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
+// CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64, d2m.synchronized_buffer = 2 : i64} : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
 
 #l1 = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
@@ -23,10 +26,14 @@ module {
         ins(%lhs, %rhs : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>, memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>)
         outs(%r : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>)  {
     ^compute0():
-      %0 = memref.alloc() : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
-      %1 = memref.alloc() : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
-      %2 = memref.alloc() : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
-      "d2m.tile_matmul_block"(%0, %1, %2) : (memref<16x16x!ttcore.tile<32x32, f32>, #l1>, memref<16x16x!ttcore.tile<32x32, f32>, #l1>, memref<16x16x!ttcore.tile<32x32, f32>, #l1>) -> ()
+      %0 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
+      %1 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
+      %2 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%0, %1 : memref<16x16x!ttcore.tile<32x32, f32>, #l1>, memref<16x16x!ttcore.tile<32x32, f32>, #l1>) outs(%2 : memref<16x16x!ttcore.tile<32x32, f32>, #l1>) {
+      ^bb0(%lhs_elem: !ttcore.tile<32x32, f32>, %rhs_elem: !ttcore.tile<32x32, f32>, %out_elem: !ttcore.tile<32x32, f32>):
+        %result = "d2m.tile_matmul"(%lhs_elem, %rhs_elem, %out_elem) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %result : !ttcore.tile<32x32, f32>
+      }
     }
     return %r : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
   }

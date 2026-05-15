@@ -28,43 +28,16 @@ namespace {
 // Helpers
 // ---------------------------------------------------------------------------
 
-static bool needsDMA(Value memref, Value localBuffer) {
-  // Check if the local buffer is a streaming CB.
-  if (localBuffer) {
-    if (auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType())) {
-      if (mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
-        return true;
-      }
-    }
-  }
-
-  // View ops need datamovement, except for reinterpret view_layout ops
-  // which are just type casts.
-  if (auto *defOp = memref.getDefiningOp()) {
-    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
-      return !viewOp.getReinterpretLayout();
-    }
-    if (mlir::isa<ViewOpInterface>(defOp)) {
-      return true;
-    }
-  }
-  if (auto memrefType = mlir::dyn_cast<MemRefType>(memref.getType())) {
-    if (ttcore::getMemorySpace(memrefType) == ttcore::MemorySpace::DeviceDRAM) {
-      return true;
-    }
-  }
-
-  return false;
+bool isAliasedStore(RemoteStoreOp storeOp) {
+  auto operandAliasOp =
+      mlir::dyn_cast<OperandAliasOp>(storeOp.getLocalBuffer().getDefiningOp());
+  return operandAliasOp && operandAliasOp.getMemref() == storeOp.getMemref();
 }
 
 bool isAliasedLoad(RemoteLoadOp loadOp) {
-  return !needsDMA(loadOp.getMemref(), loadOp.getLocalBuffer()) &&
-         !loadOp.isMcast();
-}
-
-bool isAliasedStore(RemoteStoreOp storeOp) {
-  return !needsDMA(storeOp.getMemref(), storeOp.getLocalBuffer()) &&
-         storeOp.getStartDevice().empty();
+  auto operandAliasOp =
+      mlir::dyn_cast<OperandAliasOp>(loadOp.getLocalBuffer().getDefiningOp());
+  return operandAliasOp && operandAliasOp.getMemref() == loadOp.getMemref();
 }
 
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
