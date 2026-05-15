@@ -6,7 +6,6 @@
 // acquire_dst and move it to just before its first use.
 
 #l1_ = #ttcore.memory_space<l1>
-#cb_layout = #ttcore.cb_layout<4096x4096, 2>
 #shard = #ttcore.shard<4096x4096, 1>
 
 module {
@@ -21,19 +20,19 @@ module {
       %c4096 = arith.constant 4096 : index
       %c32 = arith.constant 32 : index
       %c0 = arith.constant 0 : index
-      %alloc_cb = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>
+      %alloc_cb = memref.alloc() {address = 103712 : i64, alignment = 16 : i64, d2m.synchronized_buffer = 2 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       // Verify ordering: remote_load must come BEFORE acquire_dst
       // CHECK: d2m.remote_load
-      d2m.remote_load %alloc_cb %in[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard, #l1_>
-      %alloc_out = memref.alloc() {alignment = 64 : i64, d2m.alias_for_operand = 1 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      d2m.remote_load %alloc_cb %in[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #shard, #l1_>
+      %alloc_out = d2m.operand_alias %out : memref<1x4x1x1x!ttcore.tile<32x32, f32>, #shard, #l1_> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       // CHECK: d2m.fill_arange_tile
-      d2m.fill_arange_tile to %alloc_cb : memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>
+      d2m.fill_arange_tile to %alloc_cb : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %core0 = d2m.core_index(0) : index
       %core1 = d2m.core_index(1) : index
 
       // Load tile from CB - this value will be moved to DST for the compute op
       // CHECK: memref.load
-      %tile = memref.load %alloc_cb[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #cb_layout, #l1_>
+      %tile = memref.load %alloc_cb[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
 
       // Compute offset for arange
       %1 = arith.muli %core0, %c4096 : index

@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 // This test uses max-sized stream buffers and verifies that in-generic
-// CB allocs receive cb_layout attributes.
+// CB allocs receive an address and alignment.
 
 // CHECK: d2m.generic
 // CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64, d2m.synchronized_buffer = 2 : i64} : memref<16x16x!ttcore.tile<32x32, f32>, #l1>

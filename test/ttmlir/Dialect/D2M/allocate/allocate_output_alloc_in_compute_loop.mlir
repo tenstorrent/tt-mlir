@@ -17,8 +17,7 @@
 module {
   // The output alloc lives inside a compute `scf.for` (no `d2m.blocking_loop`)
   // and is the localBuffer of the output's `d2m.remote_store`. Allocate
-  // must stamp it with `address` and a `cb_layout` so HoistCBAllocs can
-  // later hoist it.
+  // must stamp it with an `address`.
   // CHECK-LABEL: func.func @scf_output_alloc_in_compute_loop
   func.func @scf_output_alloc_in_compute_loop(
       %in: memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>,

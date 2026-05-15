@@ -25,8 +25,16 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    moduleOp->walk(
-        [&](d2m::GenericOp genericOp) { hoistCBAllocs(rewriter, genericOp); });
+    WalkResult result = moduleOp->walk([&](d2m::GenericOp genericOp) {
+      if (failed(hoistCBAllocs(rewriter, genericOp))) {
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    if (result.wasInterrupted()) {
+      signalPassFailure();
+    }
   }
 
 private:
@@ -70,27 +78,35 @@ private:
     return newAllocOp;
   }
 
-  void hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
+  LogicalResult hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
     // Collect allocs to hoist AND their operand indices BEFORE modifying the
     // IR.  Erasing allocs shifts positional lookups.
     SmallVector<memref::AllocOp> allocsToHoist;
+
     for (Region &region : genericOp->getRegions()) {
-      region.walk([&](memref::AllocOp allocOp) {
+      WalkResult walkResult = region.walk([&](memref::AllocOp allocOp) {
         if (allocOp->getAttr("d2m.scratch_buffer")) {
-          TT_assertv(allocOp->getAttrOfType<IntegerAttr>("address"),
-                     "scratch buffer must have address attribute");
+          if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
+            allocOp.emitError("scratch buffer must have address attribute");
+            return WalkResult::interrupt();
+          }
           auto newAllocOp = attachCBLayoutAttribute(rewriter, allocOp, 1);
           allocsToHoist.push_back(newAllocOp);
         } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
           if (allocOp->getAttr("d2m.compute_intermediate")) {
             // Skip hoisting, these are fake buffers added by fusion that are
             // guaranteed to not be used
-            TT_assertv(
-                !allocOp->getAttrOfType<IntegerAttr>("address"),
-                "compute intermediate buffer must not have address attribute");
+            if (allocOp->getAttrOfType<IntegerAttr>("address")) {
+              allocOp.emitError("compute intermediate buffer must not have "
+                                "address attribute");
+              return WalkResult::interrupt();
+            }
           } else {
-            TT_assertv(allocOp->getAttrOfType<IntegerAttr>("address"),
-                       "synchronized buffer must have address attribute");
+            if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
+              allocOp.emitError(
+                  "synchronized buffer must have address attribute");
+              return WalkResult::interrupt();
+            }
             auto newAllocOp = attachCBLayoutAttribute(
                 rewriter, allocOp,
                 allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
@@ -98,11 +114,16 @@ private:
             allocsToHoist.push_back(newAllocOp);
           }
         } else {
-          // We can allow this in the future but asserting for now to check it's
-          // not used.
-          assert(false && "unexpected alloc op attribute");
+          allocOp.emitError("unexpected alloc op: expected d2m.scratch_buffer "
+                            "or d2m.synchronized_buffer attribute");
+          return WalkResult::interrupt();
         }
+        return WalkResult::advance();
       });
+
+      if (walkResult.wasInterrupted()) {
+        return failure();
+      }
     }
 
     for (auto allocOp : allocsToHoist) {
@@ -146,6 +167,8 @@ private:
       genericOp.getAdditionalArgsMutable().append(externalAlias.getResult());
       rewriter.replaceOp(operandAliasOp, externalAlias.getResult());
     });
+
+    return success();
   }
 };
 
