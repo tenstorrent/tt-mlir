@@ -92,7 +92,7 @@ module attributes {ttcore.system_desc = #system_desc} {
                                          %arg1: memref<1x1x4x4x!ttcore.tile<32x32, f32>, #shard_4x4, #l1>) {
     // CHECK-NOT: d2m.mask
     // CHECK: d2m.generic
-    // CHECK: memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: memref.alloc() {{.*}} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     // CHECK: d2m.remote_load
     // CHECK: scf.for
     // CHECK: d2m.remote_store

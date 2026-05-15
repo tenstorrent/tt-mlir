@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=2097152 test-buffer-size-policy=min" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=3407872 test-buffer-size-policy=min" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // This test uses a tight L1 capacity limit but succeeds by using min-sized stream buffers.
@@ -6,7 +6,9 @@
 // CHECK-LABEL: func.func @main()
 // CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}
 // CHECK: d2m.generic {block_factors = [1, 1, 16], grid = #ttcore.grid<1x1>
-// CHECK: cb_layout
+// CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64, d2m.synchronized_buffer = 2 : i64} : memref<16x1x!ttcore.tile<32x32, f32>, #l1>
+// CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64, d2m.synchronized_buffer = 2 : i64} : memref<1x16x!ttcore.tile<32x32, f32>, #l1>
+// CHECK: d2m.operand_alias
 
 #l1 = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
