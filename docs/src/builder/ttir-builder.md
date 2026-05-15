@@ -215,9 +215,9 @@ module {
           yield %3 : i32
         }
         %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
         %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
         emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
@@ -240,9 +240,9 @@ module {
           yield %3 : i32
         }
         %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
         %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
         emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
@@ -273,11 +273,11 @@ module {
           yield %6 : i32
         }
         %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
         %4 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
         %5 = emitc.literal "get_compile_time_arg_val(2)" {ttkernel.cb_ctarg_idx = 2 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
@@ -315,9 +315,9 @@ module {
           yield %3 : i32
         }
         %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
         %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
         emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
@@ -348,11 +348,11 @@ module {
           yield %6 : i32
         }
         %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
         %4 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
         %5 = emitc.literal "get_compile_time_arg_val(2)" {ttkernel.cb_ctarg_idx = 2 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
@@ -390,9 +390,9 @@ module {
           yield %3 : i32
         }
         %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
         %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
         emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
@@ -423,11 +423,11 @@ module {
           yield %6 : i32
         }
         %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
         %4 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
         %5 = emitc.literal "get_compile_time_arg_val(2)" {ttkernel.cb_ctarg_idx = 2 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
         emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
@@ -465,9 +465,9 @@ module {
           yield %3 : i32
         }
         %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
         %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
         emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32

@@ -528,7 +528,7 @@ auto getOpSymbol() {
   } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
     return WRAP_OP(::ttnn::dequantize);
   } else if constexpr (std::is_same_v<OpTy, GlobalAvgPool2dOp>) {
-    return WRAP_OP(::ttnn::global_avg_pool2d);
+    return WRAP_OP(::ttnn::avg_pool2d);
   } else if constexpr (std::is_same_v<OpTy, SiluOp>) {
     return WRAP_OP(::ttnn::silu);
   } else if constexpr (std::is_same_v<OpTy, MishOp>) {
@@ -5717,18 +5717,39 @@ llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::tt::tt_metal::DataType> outputDType;
+  ::ttnn::DataType outputDType = ::ttnn::DataType::BFLOAT16;
   if (dtype.has_value()) {
     outputDType = conversion::getDataType(dtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
+  } else if (outputLayout) {
+    outputDType = conversion::getDataType(outputLayout.getDataType());
   }
+
+  uint32_t batchSize = static_cast<uint32_t>(inputShape[0]);
+  uint32_t inputHeight = static_cast<uint32_t>(inputShape[1]);
+  uint32_t inputWidth = static_cast<uint32_t>(inputShape[2]);
+  uint32_t inputChannels = static_cast<uint32_t>(inputShape[3]);
+  std::optional<int32_t> divisorOverride = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
+  ::ttnn::Layout outputPageLayout =
+      outputLayout ? conversion::getPageLayout(outputLayout)
+                   : ::ttnn::Layout::TILE;
 
   // Create query closure
   auto globalAvgPool2DQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::global_avg_pool2d, device, inputSpec,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                outputDType);
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::avg_pool2d, device, inputSpec, batchSize, inputHeight,
+        inputWidth, inputChannels,
+        /*kernel_size=*/std::array<uint32_t, 2>{inputHeight, inputWidth},
+        /*stride=*/std::array<uint32_t, 2>{1, 1},
+        /*padding=*/std::array<uint32_t, 2>{0, 0},
+        /*ceil_mode=*/false,
+        /*count_include_pad=*/true, divisorOverride,
+        detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* dram_slice_config */,
+        std::nullopt /* applied_shard_scheme */, computeKernelConfig,
+        false /* deallocate_input */, true /* reallocate_halo_output */,
+        outputDType, outputPageLayout, false /* config_tensors_in_dram */);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5750,18 +5771,39 @@ llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::tt::tt_metal::DataType> outputDType;
+  ::ttnn::DataType outputDType = ::ttnn::DataType::BFLOAT16;
   if (dtype.has_value()) {
     outputDType = conversion::getDataType(dtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
+  } else if (outputLayout) {
+    outputDType = conversion::getDataType(outputLayout.getDataType());
   }
+
+  uint32_t batchSize = static_cast<uint32_t>(inputShape[0]);
+  uint32_t inputHeight = static_cast<uint32_t>(inputShape[1]);
+  uint32_t inputWidth = static_cast<uint32_t>(inputShape[2]);
+  uint32_t inputChannels = static_cast<uint32_t>(inputShape[3]);
+  std::optional<int32_t> divisorOverride = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
+  ::ttnn::Layout outputPageLayout =
+      outputLayout ? conversion::getPageLayout(outputLayout)
+                   : ::ttnn::Layout::TILE;
 
   // Create query closure
   auto globalAvgPool2DQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::global_avg_pool2d, device, inputSpec,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            outputDType);
+    return QUERY_OP_RUNTIME(
+        ::ttnn::avg_pool2d, device, inputSpec, batchSize, inputHeight,
+        inputWidth, inputChannels,
+        /*kernel_size=*/std::array<uint32_t, 2>{inputHeight, inputWidth},
+        /*stride=*/std::array<uint32_t, 2>{1, 1},
+        /*padding=*/std::array<uint32_t, 2>{0, 0},
+        /*ceil_mode=*/false,
+        /*count_include_pad=*/true, divisorOverride,
+        detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt /* dram_slice_config */,
+        std::nullopt /* applied_shard_scheme */, computeKernelConfig,
+        false /* deallocate_input */, true /* reallocate_halo_output */,
+        outputDType, outputPageLayout, false /* config_tensors_in_dram */);
   };
 
   return operation::getOpRuntime(globalAvgPool2DQuery);
