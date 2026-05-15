@@ -20,11 +20,11 @@ func.func @single_scratch_store_load() {
   ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
-    %alloc_cb0 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb1 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb0 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb1 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     // CHECK-NOT: d2m.scratch_init
-    %scratch = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    %scratch = memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     d2m.scratch_init %scratch : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
     // CHECK: %[[SV:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 1] [1, 1]
@@ -58,11 +58,11 @@ func.func @two_scratch_conflicting() {
   ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
-    %alloc_cb3 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb4 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb3 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb4 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     // CHECK-NOT: d2m.scratch_init
-    %scratch = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    %scratch = memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     d2m.scratch_init %scratch : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
 
@@ -105,11 +105,11 @@ func.func @packing_non_conflicting() {
   ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
-    %alloc_cb11 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb12 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb11 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb12 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     // CHECK-NOT: d2m.scratch_init
-    %scratch = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    %scratch = memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     d2m.scratch_init %scratch : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
 
@@ -156,10 +156,10 @@ func.func @allocation_between_in_place_read_write() {
   ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
-    %alloc_cb13 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb13 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() {d2m.scratch_buffer} : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
     // CHECK-NOT: d2m.scratch_init
-    %scratch = memref.alloc() : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
+    %scratch = memref.alloc() {d2m.scratch_buffer} : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
     d2m.scratch_init %scratch : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
 
@@ -204,8 +204,8 @@ func.func @no_scratch_noop() {
   ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
-    %alloc_cb6 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb7 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb6 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb7 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
   }
   return
 }
@@ -225,11 +225,11 @@ func.func @scratch_bf16() {
   ins(%in : memref<1x1x2x2x!ttcore.tile<32x32, bf16>, #ttcore.shard<4096x2048, 1>, #l1>)
   outs(%out : memref<1x1x2x2x!ttcore.tile<32x32, bf16>, #ttcore.shard<4096x2048, 1>, #l1>) {
   ^bb0():
-    %alloc_cb8 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, bf16>, #l1>
-    %alloc_cb9 = memref.alloc() : memref<2x2x!ttcore.tile<32x32, bf16>, #l1>
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x4x!ttcore.tile<32x32, bf16>, #l1>
+    %alloc_cb8 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<2x2x!ttcore.tile<32x32, bf16>, #l1>
+    %alloc_cb9 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<2x2x!ttcore.tile<32x32, bf16>, #l1>
+    // CHECK: %[[SCRATCH:.*]] = memref.alloc() {d2m.scratch_buffer} : memref<1x4x!ttcore.tile<32x32, bf16>, #l1>
     // CHECK-NOT: d2m.scratch_init
-    %scratch = memref.alloc() : memref<1x4x!ttcore.tile<32x32, bf16>, #l1>
+    %scratch = memref.alloc() {d2m.scratch_buffer} : memref<1x4x!ttcore.tile<32x32, bf16>, #l1>
     d2m.scratch_init %scratch : memref<1x4x!ttcore.tile<32x32, bf16>, #l1>
     %c0 = arith.constant 0 : index
     // CHECK: memref.subview %[[SCRATCH]][0, 0] [1, 1] [1, 1]

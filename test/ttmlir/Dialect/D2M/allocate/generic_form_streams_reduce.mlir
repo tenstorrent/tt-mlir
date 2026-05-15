@@ -14,7 +14,6 @@ module {
 
   // verify that:
   // - memref addresses get assigned
-  // - CB allocs with CBLayoutAttr are created inside the generic
 
   func.func @reduce_C(%arg0: memref<1x1x64x96xf32, #ttcore.shard<384x4, 1>, #l1_>) ->memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_> {
     %0 = memref.get_global @__constant_32x32xf32 : memref<32x32xf32>
@@ -35,10 +34,14 @@ module {
         ins(%alloc_0, %alloc : memref<2x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
         outs(%alloc_1 : memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)  {
     ^compute0():
-      %arg0_unwrap = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-      %arg1_unwrap = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-      %arg2_unwrap = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-      "d2m.tile_matmul_block"(%arg0_unwrap, %arg1_unwrap, %arg2_unwrap) : (memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+      %arg0_unwrap = memref.alloc() {d2m.synchronized_buffer = 2} : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      %arg1_unwrap = memref.alloc() {d2m.synchronized_buffer = 2} : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      %arg2_unwrap = memref.alloc() {d2m.synchronized_buffer = 2} : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%arg0_unwrap, %arg1_unwrap : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) outs(%arg2_unwrap : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) {
+      ^bb0(%lhs_elem: !ttcore.tile<32x32, f32>, %rhs_elem: !ttcore.tile<32x32, f32>, %out_elem: !ttcore.tile<32x32, f32>):
+        %result = "d2m.tile_matmul"(%lhs_elem, %rhs_elem, %out_elem) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %result : !ttcore.tile<32x32, f32>
+      }
     }
 
     return %alloc_1 : memref<2x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>

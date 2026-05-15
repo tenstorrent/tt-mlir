@@ -37,8 +37,8 @@ module {
       // CHECK: scf.for
       // CHECK-NOT: d2m.blocking_loop
       scf.for %iv = %c0 to %c1 step %c1 {
-        // CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<4x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<{{[0-9]+}}x{{[0-9]+}}, {{[0-9]+}}>, #l1>
-        %alloc = memref.alloc() {alignment = 16 : i64} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+        // CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64, d2m.synchronized_buffer = 2 : i64} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+        %alloc = memref.alloc() {alignment = 16 : i64, d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
         // CHECK: d2m.remote_store
         d2m.remote_store %out_stream[%core0, %core1] %alloc : memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>
       }
@@ -63,8 +63,8 @@ module {
       // CHECK: affine.for
       // CHECK-NOT: d2m.blocking_loop
       affine.for %iv = 0 to 1 {
-        // CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<4x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<{{[0-9]+}}x{{[0-9]+}}, {{[0-9]+}}>, #l1>
-        %alloc = memref.alloc() {alignment = 16 : i64} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+        // CHECK: memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64, d2m.synchronized_buffer = 2 : i64} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+        %alloc = memref.alloc() {alignment = 16 : i64, d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
         // CHECK: d2m.remote_store
         d2m.remote_store %out_stream[%core0, %core1] %alloc : memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>
       }
