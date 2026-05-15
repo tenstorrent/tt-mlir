@@ -2,6 +2,7 @@
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
+#dst = #ttcore.memory_space<dst>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
 #map4 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -793,6 +794,68 @@ module attributes {ttcore.system_desc = #system_desc} {
     memref.dealloc %cb_lhs : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
     memref.dealloc %cb_rhs : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
     memref.dealloc %cb_acc : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+    return
+  }
+
+  // Test 16: Flat-block arange pattern — acquire_dst followed by tile_add,
+  // no surrounding loop.  Both ops have D2MGenericRegionComputeOpTrait, and
+  // acquire_dst's %dst result is used by the tile_add operand chain.
+  // hasUserOutsideRange previously produced overlapping compute regions
+  // [A, B) and [B-1, C), causing wrapInSynchronizedRegion to erase the start
+  // op of the second region, triggering an ilist sentinel crash.  Regression
+  // test: verify no crash and correct DM/compute split.
+  // CHECK-LABEL: func.func @test_arange_flat_acquire_dst_tile_add
+  func.func @test_arange_flat_acquire_dst_tile_add(
+      %arg0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>,
+      %arg1: memref<1x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
+    %alloc = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
+    %alias = d2m.operand_alias %arg1 : memref<1x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+    // DMA thread: remote_load and remote_store; no compute ops.
+    // CHECK: d2m.remote_load
+    // CHECK-NOT: d2m.acquire_dst
+    // Compute thread: CB sync ops surrounding all compute.
+    // CHECK: }, {
+    // CHECK: d2m.wait
+    // CHECK: d2m.acquire_dst
+    // CHECK: "d2m.tile_add"
+    // CHECK: d2m.pop
+    // CHECK-NOT: d2m.remote_load
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x4>, indexing_maps = [],
+                 iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%arg0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
+        outs(%arg1 : memref<1x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
+        additionalArgs(%alloc, %alias :
+            memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>,
+            memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+      %c4096 = arith.constant 4096 : index
+      %c32 = arith.constant 32 : index
+      %c0 = arith.constant 0 : index
+      d2m.remote_load %alloc %arg0[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+      %flat_in = memref.collapse_shape %alloc [[0, 1]] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1> into memref<1x!ttcore.tile<32x32, f32>, #l1>
+      %flat_out = memref.collapse_shape %alias [[0, 1]] : memref<1x1x!ttcore.tile<32x32, f32>, #l1> into memref<1x!ttcore.tile<32x32, f32>, #l1>
+      d2m.fill_arange_tile to %alloc : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
+      %core0 = d2m.core_index(0) : index
+      %core1 = d2m.core_index(1) : index
+      %tile_in = memref.load %flat_in[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1>
+      %dst = d2m.acquire_dst() : memref<4x!ttcore.tile<32x32, f32>, #dst>
+      memref.store %tile_in, %dst[%c0] : memref<4x!ttcore.tile<32x32, f32>, #dst>
+      %t0 = memref.load %dst[%c0] : memref<4x!ttcore.tile<32x32, f32>, #dst>
+      %p0 = arith.muli %core0, %c4096 : index
+      %p1 = arith.muli %core1, %c32 : index
+      %p2 = arith.addi %p0, %p1 : index
+      %p3 = arith.index_cast %p2 : index to i64
+      %p4 = arith.sitofp %p3 : i64 to f32
+      %t1 = "d2m.tile_add"(%t0, %p4) : (!ttcore.tile<32x32, f32>, f32) -> !ttcore.tile<32x32, f32>
+      memref.store %t1, %dst[%c0] : memref<4x!ttcore.tile<32x32, f32>, #dst>
+      %t2 = memref.load %dst[%c0] : memref<4x!ttcore.tile<32x32, f32>, #dst>
+      memref.store %t2, %flat_out[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1>
+      %out_core0 = d2m.core_index(0) : index
+      %out_core1 = d2m.core_index(1) : index
+      d2m.remote_store %arg1[%out_core0, %out_core1] %alias : memref<1x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    }
+    memref.dealloc %alloc : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
     return
   }
 }
