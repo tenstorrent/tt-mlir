@@ -98,3 +98,5 @@ if (TTMLIR_ENABLE_RUNTIME)
 endif()
 
 add_subdirectory(distributed)
+
+add_subdirectory(x280)
