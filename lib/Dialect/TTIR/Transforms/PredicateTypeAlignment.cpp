@@ -28,8 +28,8 @@ buildTensorWithElementType(mlir::RankedTensorType tensorType,
   auto encoding = tensorType.getEncoding();
   auto ttnnLayout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(encoding);
   if (!ttnnLayout) {
-    return mlir::RankedTensorType::get(tensorType.getShape(),
-                                       newScalarElemType, encoding);
+    return mlir::RankedTensorType::get(tensorType.getShape(), newScalarElemType,
+                                       encoding);
   }
   mlir::Type newMemrefElemType = newScalarElemType;
   if (auto tileType =
@@ -38,7 +38,7 @@ buildTensorWithElementType(mlir::RankedTensorType tensorType,
         ttcore::TileType::get(newScalarElemType, tileType.getShape());
   }
   return ttnn::utils::RankedTensorTypeFactory::create(tensorType,
-                                                     newMemrefElemType);
+                                                      newMemrefElemType);
 }
 
 struct PropagateUnaryTensorManipulationResultElementTypePattern
@@ -166,8 +166,7 @@ struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
 
     mlir::Value newLhs = castOperandIfNeeded(op->getOperand(0), lhsType);
     mlir::Value newRhs = castOperandIfNeeded(op->getOperand(1), rhsType);
-    auto newResultType =
-        buildTensorWithElementType(resultType, targetElemType);
+    auto newResultType = buildTensorWithElementType(resultType, targetElemType);
 
     mlir::OperationState state(op->getLoc(), op->getName().getStringRef());
     state.addOperands({newLhs, newRhs});
