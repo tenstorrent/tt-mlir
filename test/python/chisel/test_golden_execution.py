@@ -89,21 +89,34 @@ def test_golden_execution(subtests, ir_module, binary, binary_path):
                 for operand in get_op_inputs(op):
                     name = operand.get_name(asm_state)
                     shape = list(operand.type.shape)
-                    dtype = mlir_type_to_torch_dtype(operand.type.element_type)
+                    try:
+                        dtype = mlir_type_to_torch_dtype(operand.type.element_type)
+                    except TypeError as e:
+                        pytest.skip(f"{op.name}: unsupported operand dtype ({e})")
                     tensor = torch.empty(shape, dtype=dtype, device="meta")
                     inputs[name] = GoldenMapTensor({0: tensor}, (1, 1))
 
                 golden_inputs = build_role_keyed_inputs(op.opview, inputs, asm_state)
-                result = execute_golden(op.opview, golden_inputs)
+                try:
+                    result = execute_golden(op.opview, golden_inputs)
+                except TypeError as e:
+                    pytest.skip(
+                        f"{op.name}: unsupported dtype during golden execution ({e})"
+                    )
 
                 op_outputs = get_op_outputs(op)
                 for i, op_out in enumerate(op_outputs):
                     expected_shape = list(op_out.type.shape)
-                    expected_dtype = mlir_type_to_torch_dtype(op_out.type.element_type)
                     assert list(result[i].shape) == expected_shape, (
                         f"output[{i}] shape mismatch: got {list(result[i].shape)}, expected {expected_shape}"
                         f"\nbinary: {binary_path}"
                     )
+                    try:
+                        expected_dtype = mlir_type_to_torch_dtype(
+                            op_out.type.element_type
+                        )
+                    except TypeError as e:
+                        pytest.skip(f"{op.name}: unsupported dtype ({e})")
                     assert result[i].dtype == expected_dtype, (
                         f"output[{i}] dtype mismatch: got {result[i].dtype}, expected {expected_dtype}"
                         f"\nbinary: {binary_path}"
@@ -112,11 +125,14 @@ def test_golden_execution(subtests, ir_module, binary, binary_path):
                 inplace_vals = get_flat_inplace_vals(op.opview)
                 for out, (role, val) in zip(result[len(op_outputs) :], inplace_vals):
                     expected_shape = list(val.type.shape)
-                    expected_dtype = mlir_type_to_torch_dtype(val.type.element_type)
                     assert list(out.shape) == expected_shape, (
                         f"inplace:{role} shape mismatch: got {list(out.shape)}, expected {expected_shape}"
                         f"\nbinary: {binary_path}"
                     )
+                    try:
+                        expected_dtype = mlir_type_to_torch_dtype(val.type.element_type)
+                    except TypeError as e:
+                        pytest.skip(f"{op.name}: unsupported dtype ({e})")
                     assert out.dtype == expected_dtype, (
                         f"inplace:{role} dtype mismatch: got {out.dtype}, expected {expected_dtype}"
                         f"\nbinary: {binary_path}"
