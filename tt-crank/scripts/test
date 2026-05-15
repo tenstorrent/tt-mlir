@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+# Usage: scripts/test [sim] [-- <ctest-args>...]
+#
+# Run tt-kurbla unit tests against an existing build.
+#
+# Arguments:
+#   sim              Route the runtime through ttsim (sets TT_KURBLA_USE_SIMULATOR=1).
+#   -- <ctest-args>  Extra flags forwarded verbatim to ctest.
+#   -h, --help       Print this message and exit.
+#
+# Examples:
+#   ./scripts/test
+#   ./scripts/test sim -- -R EngineCompileTest --verbose
+#
+# Expects the build to already exist. Run ./scripts/build first.
+
+set -euo pipefail
+
+REPO_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")"/..)
+
+SIM=0
+EXTRA_ARGS=()
+PASSTHROUGH=0
+
+for arg in "$@"; do
+    if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+        sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p }' "${BASH_SOURCE[0]}"
+        exit 0
+    fi
+done
+
+for arg in "$@"; do
+    if [[ $PASSTHROUGH -eq 1 ]]; then
+        EXTRA_ARGS+=("$arg")
+    elif [[ "$arg" == "--" ]]; then
+        PASSTHROUGH=1
+    elif [[ "$arg" == "sim" ]]; then
+        SIM=1
+    else
+        echo "Invalid arg: $arg"
+        exit 1
+    fi
+done
+
+BUILD_DIR="$REPO_DIR/build"
+
+if [[ ! -d "$BUILD_DIR" ]]; then
+    echo "error: build directory '$BUILD_DIR' not found — run ./scripts/build first" >&2
+    exit 1
+fi
+
+if [[ $SIM -eq 1 ]]; then
+    TT_KURBLA_USE_SIMULATOR=1 ctest --test-dir "$BUILD_DIR" --output-on-failure "${EXTRA_ARGS[@]}"
+else
+    ctest --test-dir "$BUILD_DIR" --output-on-failure "${EXTRA_ARGS[@]}"
+fi

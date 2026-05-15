@@ -1,10 +1,13 @@
 # Build directories
 /build/
 /build-*/
+/build_*
+build
 /out/
 
 # Python venv (dev tooling — pre-commit, etc.)
-/.venv/
+/venv/*
+!/venv/activate
 
 # Compile commands (when symlinked or copied into source tree)
 /compile_commands.json

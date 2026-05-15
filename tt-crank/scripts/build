@@ -1,60 +1,48 @@
 #!/usr/bin/env bash
-# tt-kurbla one-shot build wrapper.
+# Usage: scripts/build [preset]
 #
-#   ./scripts/build              # uses the "default" preset
-#   ./scripts/build dev          # any preset name from CMakePresets.json
-#   PRESET=san ./scripts/build   # same effect via env var
+# Configure and build tt-kurbla.
 #
-# Handles the pieces of friction that a raw `cmake --preset` invocation can't:
-# (1) one-shot bootstrap of `.venv` for dev tooling (pre-commit hooks);
-# (2) lazy `git submodule update --init --recursive` if third_party/tt-mlir is empty;
-# (3) `source third_party/tt-mlir/env/activate` so $TTMLIR_TOOLCHAIN_DIR is set
-#     before the tt-mlir external-project configures itself.
+# Arguments:
+#   preset       CMake preset to use (default: debug). See CMakePresets.json.
+#   -h, --help   Print this message and exit.
 #
-# Users who already have the env activated can skip this wrapper and run
-# `cmake --preset <p>` / `cmake --build --preset <p>` / `ctest --preset <p>` directly.
+# Examples:
+#   ./scripts/build
+#   ./scripts/build release
+#
+# Runs build and symlinks build -> build_<preset>
 
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+for arg in "$@"; do
+    if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+        sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p }' "${BASH_SOURCE[0]}"
+        exit 0
+    fi
+done
 
-# Dev venv: hosts pre-commit and future tooling. Idempotent — only runs on first build.
-# To refresh dev tooling, `rm -rf .venv` and re-run.
-if [[ ! -d .venv ]]; then
-    echo "==> bootstrapping .venv (dev tooling)"
-    python3 -m venv .venv
-    .venv/bin/pip install --quiet --upgrade pip
-    .venv/bin/pip install --quiet -r requirements-dev.txt
-    .venv/bin/pre-commit install
-fi
+REPO_DIR=$(realpath $(dirname "${BASH_SOURCE[0]}")/..)
 
-if [[ ! -f third_party/tt-mlir/CMakeLists.txt ]]; then
-    echo "==> third_party/tt-mlir missing; initializing submodules"
-    git submodule update --init --recursive
-fi
-
-# Idempotent: subsequent invocations just set env vars; the first run also builds
-# the LLVM/MLIR toolchain (slow, multi-GB — one time per machine).
-# env/activate uses $(pwd) for TT_MLIR_HOME etc., so source it from tt-mlir's root.
-# It also reads several env vars without `:-` defaults, so relax `-u` for the duration.
-pushd third_party/tt-mlir > /dev/null
-set +u
-# shellcheck disable=SC1091
-source env/activate
-set -u
-popd > /dev/null
-
-PRESET="${1:-${PRESET:-default}}"
-
-# `sim` is a test-only preset — there's no separate configure/build for it.
-# Build with `default`, then have ctest set TT_KURBLA_USE_SIMULATOR=1 via the
-# sim test preset so the unit-test binary routes the runtime through ttsim.
-if [[ "$PRESET" == "sim" ]]; then
-    cmake --preset default
-    cmake --build --preset default
-    ctest --preset sim
+if [[ ! -n "${VIRTUAL_ENV:-}" ]]; then
+    echo "No virtual environment active. Please run: source venv/activate"
+    exit 1
 else
-    cmake --preset "$PRESET"
-    cmake --build --preset "$PRESET"
-    ctest --preset "$PRESET"
+    echo "Active env: $VIRTUAL_ENV"
+    if [[ "$VIRTUAL_ENV" != "$REPO_DIR/venv" ]]; then
+        echo "Wrong venv activated. Expected $REPO_DIR/venv"
+        exit 1
+    fi
 fi
+
+pushd $REPO_DIR > /dev/null
+
+PRESET="${1:-${PRESET:-debug}}" # debug build by default
+echo "Build type: $PRESET"
+
+cmake --preset "$PRESET"
+cmake --build --preset "$PRESET"
+
+ln -sfn $REPO_DIR/build_$PRESET $REPO_DIR/build
+
+popd > /dev/null
