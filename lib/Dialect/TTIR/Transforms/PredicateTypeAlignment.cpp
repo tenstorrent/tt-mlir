@@ -16,12 +16,10 @@ namespace mlir::tt::ttir {
 
 namespace {
 
-// Create a new tensor type with the requested scalar element type. If the
-// input tensor carries a TTNN layout encoding, the layout's memref element
-// type is also updated (preserving any tile wrapping) so the encoding stays
-// consistent with the outer tensor element type. Without this, downstream
-// passes that read the memref element type from the encoding (e.g. when
-// lowering to D2M tile ops) end up with stale types.
+// Replace the element type of `tensorType`. When the tensor carries a TTNN
+// layout encoding, the encoding's memref element type is updated in lock-step
+// (preserving tile wrapping) so downstream passes that read it from the
+// layout do not see stale types.
 mlir::RankedTensorType
 buildTensorWithElementType(mlir::RankedTensorType tensorType,
                            mlir::Type newScalarElemType) {
@@ -73,9 +71,8 @@ struct PropagateUnaryTensorManipulationResultElementTypePattern
       return rewriter.notifyMatchFailure(op, "already propagated");
     }
 
-    auto newResultType = mlir::RankedTensorType::get(resultType.getShape(),
-                                                     inputType.getElementType(),
-                                                     resultType.getEncoding());
+    auto newResultType =
+        buildTensorWithElementType(resultType, inputType.getElementType());
     rewriter.modifyOpInPlace(
         op, [&]() { op->getResult(0).setType(newResultType); });
     return mlir::success();
@@ -108,45 +105,38 @@ struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
     Type rhsElemType = rhsType.getElementType();
     Type resultElemType = resultType.getElementType();
 
-    // Determine the target element type. Walk lhs/rhs/result and try to find
-    // a single non-i1 type they all agree on (skipping i1 so we can promote
-    // boolean operands/result up to a real element type, e.g. (bf16, bf16,
-    // i1) -> (bf16, bf16, bf16)).
-    Type targetElemType;
-    auto accumulateTarget = [&](Type candidate) {
-      if (candidate.isInteger(1)) {
-        return true;
-      }
-      if (!targetElemType) {
-        targetElemType = candidate;
-        return true;
-      }
-      return targetElemType == candidate;
+    // i1 operands/results are promoted up to whichever non-i1 type the other
+    // operands carry, so they don't count when checking for agreement.
+    auto agreesWith = [](Type t, Type target) {
+      return t.isInteger(1) || t == target;
     };
 
-    bool typesAgree = accumulateTarget(lhsElemType) &&
-                      accumulateTarget(rhsElemType) &&
-                      accumulateTarget(resultElemType);
-
-    if (!typesAgree) {
-      // Operand and result element types disagree on a single non-i1 type.
-      // This happens when a TTNN binary op carries an implicit typecast,
-      // e.g. ttnn.eq(si32, si32) -> bf16 or ttnn.gt(si32, si32) -> bf16.
-      // TTNN performs the typecast inside the kernel; D2M requires a
-      // uniformly-typed compute region. Explicate the typecast at the TTIR
-      // level by aligning operands to the result type when it is non-i1.
-      // (When the result is i1, ComparisonResultTypePattern below promotes
-      // it to lhs's element type first, so the typesAgree branch above
-      // handles that case.)
-      if (resultElemType.isInteger(1)) {
-        return rewriter.notifyMatchFailure(
-            op, "operand types disagree and result is i1");
+    Type firstNonI1;
+    for (Type t : {lhsElemType, rhsElemType, resultElemType}) {
+      if (!t.isInteger(1)) {
+        firstNonI1 = t;
+        break;
       }
-      targetElemType = resultElemType;
+    }
+    if (!firstNonI1) {
+      return rewriter.notifyMatchFailure(op, "no non-i1 target element type");
     }
 
-    if (!targetElemType) {
-      return rewriter.notifyMatchFailure(op, "no non-i1 target element type");
+    bool typesAgree = agreesWith(lhsElemType, firstNonI1) &&
+                      agreesWith(rhsElemType, firstNonI1) &&
+                      agreesWith(resultElemType, firstNonI1);
+
+    Type targetElemType;
+    if (typesAgree) {
+      targetElemType = firstNonI1;
+    } else if (!resultElemType.isInteger(1)) {
+      // Cross-type binary like ttnn.eq(si32, si32) -> bf16: TTNN does the
+      // typecast inside its kernel, but D2M needs a uniformly-typed compute
+      // region, so align operands to the result type.
+      targetElemType = resultElemType;
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "cannot infer a single target element type");
     }
 
     if (lhsElemType == targetElemType && rhsElemType == targetElemType &&
