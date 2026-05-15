@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/ConcatenateHeadsDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedLayerNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/TopKDecompositionRewritePattern.h"
@@ -33,8 +34,12 @@ public:
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
       patterns.add<decomposition::TopKDecompositionRewritePattern>(
           &getContext(), validationConfig);
+      patterns.add<decomposition::ConcatenateHeadsDecompositionRewritePattern>(
+          &getContext(), validationConfig);
     } else {
       patterns.add<decomposition::TopKDecompositionRewritePattern>(
+          &getContext());
+      patterns.add<decomposition::ConcatenateHeadsDecompositionRewritePattern>(
           &getContext());
     }
 

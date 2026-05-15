@@ -2,8 +2,8 @@
 // RUN: ttmlir-translate --ttkernel-to-cpp -o %t.cpp %t
 // RUN: FileCheck %s --input-file=%t.cpp
 
+// CHECK: #include "api/dataflow/circular_buffer.h"
 // CHECK: #include "api/dataflow/dataflow_api.h"
-// CHECK: #include "experimental/circular_buffer.h"
 // CHECK: void kernel_main
 func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     // CHECK: int32_t [[C0:.*]] = 32
@@ -13,7 +13,7 @@ func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg
     // CHECK: int32_t [[A1:.*]] = 262144;
     %c262144_i32 = arith.constant 262144 : i32
     %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
-    // CHECK: experimental::CircularBuffer [[CB:cb_ctarg_0]](get_compile_time_arg_val(0));
+    // CHECK: CircularBuffer [[CB:cb_ctarg_0]](get_compile_time_arg_val(0));
     %c1_i32 = arith.constant 1 : i32
     // CHECK: [[CB]].reserve_back
     "ttkernel.cb_reserve_back"(%cb, %c1_i32) : (!ttkernel.cb<8, !ttcore.tile<32x32, f32>>, i32) -> ()

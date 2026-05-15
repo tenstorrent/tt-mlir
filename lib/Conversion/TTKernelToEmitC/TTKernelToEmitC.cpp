@@ -149,7 +149,7 @@ static void assignRuntimeCBArgIndices(func::FuncOp funcOp) {
 
 static bool isCBDeclaration(emitc::VerbatimOp verbatim,
                             llvm::StringRef cbName) {
-  std::string prefix = "experimental::CircularBuffer " + cbName.str() + "(";
+  std::string prefix = "CircularBuffer " + cbName.str() + "(";
   return verbatim.getValue().starts_with(prefix);
 }
 
@@ -206,7 +206,7 @@ static std::string ensureCBDeclaration(Value cb, Operation *useOp,
     rewriter.setInsertionPointToStart(cb.getParentBlock());
   }
 
-  std::string cbDecl = "experimental::CircularBuffer " + cbName + "({});";
+  std::string cbDecl = "CircularBuffer " + cbName + "({});";
   rewriter.create<emitc::VerbatimOp>(useOp->getLoc(), cbDecl, ValueRange{cb});
   return cbName;
 }
