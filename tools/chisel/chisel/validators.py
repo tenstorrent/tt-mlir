@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import torch
@@ -11,29 +11,35 @@ from golden import GoldenMapTensor
 from golden.mapping import mlir_datatype_to_torch_dtype, mlir_type_to_torch_dtype
 from golden.metrics import get_atol_rtol_pcc
 
-from .exceptions import DtypeMismatch, ShapeMismatch
-from .report import ChiselRecord, NumericsPayload, Status
+from .exceptions import ChiselFailure, DtypeMismatch, ShapeMismatch
+from .report import ChiselRecord, NumericsPayload, RecordStatus
 
 logger = logging.getLogger("chisel")
 
 
 @dataclass
-class ChiselChecksConfig:
-    # Settings for chisel's checks; override via
-    # chisel.configure(checks_config=...)
+class PCCConfig:
+    # Settings consumed by the PCC computation itself.
 
-    # Fail if computed PCC < threshold.
-    threshold: float = 0.99
+    # Fail if computed PCC < min_pcc.
+    min_pcc: float = 0.99
 
-    # atol/rtol below are NOT failure thresholds — they are forwarded to
-    # get_pcc → torch.isclose to short-circuit two edge cases:
+    # atol/rtol are NOT failure thresholds - they are forwarded to get_pcc ->
+    # torch.isclose to short-circuit two degenerate cases:
     #   * single-element tensors (one scalar value to compare)
     #   * constant tensors (all elements identical in golden and device)
     # In both cases torch.isclose with these tolerances yields the PCC verdict
-    # directly, because correlation is undefined / 1.0 by convention. They do
-    # Use max_atol/max_rtol below to gate failure on the worst-case diffs.
+    # directly, because correlation is undefined / 1.0 by convention.
     atol: float = 1e-8
     rtol: float = 1e-5
+
+
+@dataclass
+class ChiselChecksConfig:
+    # Settings for chisel's checks; override via
+    # chisel.configure(checks_config=...).
+
+    pcc: PCCConfig = field(default_factory=PCCConfig)
 
     # When set, the numerics check also fails if the computed worst-case
     # absolute/relative diff exceeds the threshold. None = disabled.
@@ -83,22 +89,29 @@ def check_numerics(
     check_shape_dtype(op, check, golden, device)
 
     cfg = ctx.checks_config
+    pcc_cfg = cfg.pcc
     golden_shards = golden.shard_map
     device_shards = device.shard_map
 
+    if golden_shards.keys() != device_shards.keys():
+        raise ChiselFailure(
+            op,
+            check,
+            f"shard id mismatch: golden={sorted(golden_shards)} "
+            f"device={sorted(device_shards)}",
+        )
+
     for device_id, golden_shard in golden_shards.items():
-        if device_id not in device_shards:
-            continue
         device_shard = device_shards[device_id]
         atol, rtol, pcc = get_atol_rtol_pcc(
-            golden_shard, device_shard, cfg.atol, cfg.rtol
+            golden_shard, device_shard, pcc_cfg.atol, pcc_cfg.rtol
         )
-        failed = pcc < cfg.threshold
+        failed = pcc < pcc_cfg.min_pcc
         if cfg.max_atol is not None and atol > cfg.max_atol:
             failed = True
         if cfg.max_rtol is not None and rtol > cfg.max_rtol:
             failed = True
-        status = Status.NUMERICS_FAIL if failed else Status.OK
+        status = RecordStatus.NUMERICS_FAIL if failed else RecordStatus.OK
         ctx.write_record(
             ChiselRecord(
                 op=op.name,

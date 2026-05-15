@@ -9,7 +9,7 @@ from _ttmlir_runtime.binary import Binary
 from _ttmlir_runtime.runtime import CallbackContext, OpContext
 
 from . import context
-from .callbacks import Phase, run_op_callback
+from .callbacks import CallbackPhase, run_op_callback
 from .context import ChiselContext, _UNSET
 from .op_configs import ChiselOpConfig
 from .safety import chisel_safe
@@ -40,7 +40,9 @@ def _pre_op_callback(
     rt_program_context: CallbackContext,
     rt_op_context: OpContext,
 ) -> None:
-    run_op_callback(rt_binary, rt_program_context, rt_op_context, phase=Phase.PRE)
+    run_op_callback(
+        rt_binary, rt_program_context, rt_op_context, phase=CallbackPhase.PRE
+    )
 
 
 @chisel_safe
@@ -50,7 +52,9 @@ def _post_op_callback(
     rt_program_context: CallbackContext,
     rt_op_context: OpContext,
 ) -> None:
-    run_op_callback(rt_binary, rt_program_context, rt_op_context, phase=Phase.POST)
+    run_op_callback(
+        rt_binary, rt_program_context, rt_op_context, phase=CallbackPhase.POST
+    )
 
 
 def bind() -> None:

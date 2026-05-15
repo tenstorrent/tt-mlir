@@ -11,7 +11,7 @@ from .report import (
     NoGoldenPayload,
     Payload,
     ShapeMismatchPayload,
-    Status,
+    RecordStatus,
 )
 from .utils import get_op_asm
 
@@ -32,7 +32,7 @@ class ChiselFailure(Exception):
     # Carries the offending op + a typed payload; converted to a ChiselRecord
     # via to_record(), either by the caller or by chisel_safe on raise.
 
-    status: Status = Status.ERROR
+    status: RecordStatus = RecordStatus.ERROR
 
     def __init__(
         self,
@@ -60,7 +60,7 @@ class ChiselFailure(Exception):
 
 
 class ShapeMismatch(ChiselFailure):
-    status = Status.SHAPE_MISMATCH
+    status = RecordStatus.SHAPE_MISMATCH
 
     def __init__(
         self,
@@ -80,7 +80,7 @@ class ShapeMismatch(ChiselFailure):
 
 
 class DtypeMismatch(ChiselFailure):
-    status = Status.DTYPE_MISMATCH
+    status = RecordStatus.DTYPE_MISMATCH
 
     def __init__(self, op, check: str, expected_dtype, actual_dtype) -> None:
         super().__init__(
@@ -95,7 +95,7 @@ class DtypeMismatch(ChiselFailure):
 
 
 class GoldenNotImplementedError(ChiselFailure):
-    status = Status.NO_GOLDEN
+    status = RecordStatus.NO_GOLDEN
 
     def __init__(self, op) -> None:
         super().__init__(
@@ -107,7 +107,7 @@ class GoldenNotImplementedError(ChiselFailure):
 
 
 class IrRuntimeMismatch(ChiselFailure):
-    status = Status.IR_RUNTIME_MISMATCH
+    status = RecordStatus.IR_RUNTIME_MISMATCH
 
     def __init__(self, op, check: str, runtime_debug: str) -> None:
         super().__init__(

@@ -25,7 +25,7 @@ def get_torch_tensor(tensor: Tensor) -> torch.Tensor:
     dtype = mlir_datatype_to_torch_dtype(rt_dtype)
     shape = tensor.get_shape()
     torch_tensor = torch.frombuffer(rt_data_ptr, dtype=dtype)
-    return torch_tensor.reshape(shape).clone()
+    return torch_tensor.reshape(shape)
 
 
 def retrieve_tensor(
@@ -34,6 +34,10 @@ def retrieve_tensor(
     device_tensor = tt_runtime.retrieve_tensor_from_pool(
         rt_program_context, rt_tensor_ref
     )
+    if device_tensor is None:
+        raise RuntimeError(
+            "retrieve_tensor_from_pool returned no tensor for the requested ref"
+        )
     return GoldenMapTensor({0: get_torch_tensor(device_tensor)}, (1, 1))
 
 

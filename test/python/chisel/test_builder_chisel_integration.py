@@ -15,7 +15,7 @@ def test_chisel_records_one_layer_nn(request, device, tmp_path):
     # multiply(y, y) instead of an activation: the TTNN optimizer fuses
     # activations into ttnn.linear, collapsing two ops into one.
     x_shape = (64, 128)
-    w_shape = (256, 128)  # transpose_b=True → effective rhs is (128, 256)
+    w_shape = (256, 128)  # transpose_b=True -> effective rhs is (128, 256)
     b_shape = (256,)
 
     def module(builder: TTNNBuilder):
@@ -33,7 +33,7 @@ def test_chisel_records_one_layer_nn(request, device, tmp_path):
             y = builder.linear(x, w, bias=b, transpose_b=True)
             return builder.multiply(y, y)
 
-    with chisel.session(results_path="chisel_result.jsonl") as report:
+    with chisel.session(results_path=str(tmp_path / "chisel_result.jsonl")) as report:
         compile_and_execute_ttnn(
             module,
             test_base=request.node.name,
@@ -62,7 +62,7 @@ def test_chisel_records_one_layer_nn(request, device, tmp_path):
         assert op_pcc, f"no PCC record for {op}"
         for r in op_pcc:
             assert (
-                r.status == "ok"
+                r.status == chisel.RecordStatus.OK
             ), f"{op}: PCC check status={r.status} payload={r.payload}"
             assert (
                 r.payload.pcc >= PCC_THRESHOLD
@@ -96,7 +96,7 @@ def test_chisel_dumps_debug_artifacts_on_pcc_fail(request, device, tmp_path):
 
     with chisel.session(
         debug_chisel_dir=str(debug_dir),
-        checks_config=chisel.ChiselChecksConfig(threshold=2.0),
+        checks_config=chisel.ChiselChecksConfig(pcc=chisel.PCCConfig(min_pcc=2.0)),
     ) as report:
         compile_and_execute_ttnn(
             module,
@@ -110,7 +110,7 @@ def test_chisel_dumps_debug_artifacts_on_pcc_fail(request, device, tmp_path):
     pcc_records = [r for r in records if r.check == "numerics"]
     assert pcc_records, "no numerics (PCC) records produced"
     assert all(
-        r.status == chisel.Status.NUMERICS_FAIL for r in pcc_records
+        r.status == chisel.RecordStatus.NUMERICS_FAIL for r in pcc_records
     ), f"expected all PCC records to fail with threshold=2.0, got {[r.status for r in pcc_records]}"
 
     assert debug_dir.is_dir(), f"debug dir not created at {debug_dir}"
@@ -120,7 +120,7 @@ def test_chisel_dumps_debug_artifacts_on_pcc_fail(request, device, tmp_path):
     assert (
         fb_files
     ), f"no flatbuffer dumped under {debug_dir}: {list(debug_dir.iterdir())}"
-    # One dump per binary — the policy is first-failure-wins.
+    # One dump per binary - the policy is first-failure-wins.
     assert len(mlir_files) == 1
     assert len(fb_files) == 1
     for mlir_path, fb_path in zip(mlir_files, fb_files):
@@ -164,7 +164,7 @@ def test_chisel_records_chisel_bug_on_callback_raise(
             return builder.multiply(y, y)
 
     with chisel.session() as report:
-        # Must not raise — chisel_safe is supposed to keep the runtime alive
+        # Must not raise - chisel_safe is supposed to keep the runtime alive
         # even when a chisel callback explodes.
         compile_and_execute_ttnn(
             module,
@@ -175,9 +175,9 @@ def test_chisel_records_chisel_bug_on_callback_raise(
         )
         records = report.records
 
-    assert records, "chisel report is empty — runtime did not produce any records"
+    assert records, "chisel report is empty - runtime did not produce any records"
 
-    bug_records = [r for r in records if r.status == chisel.Status.CHISEL_BUG]
+    bug_records = [r for r in records if r.status == chisel.RecordStatus.CHISEL_BUG]
     assert bug_records, (
         "expected at least one chisel_bug record, got statuses: "
         f"{[r.status for r in records]}"

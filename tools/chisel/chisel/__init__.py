@@ -5,8 +5,8 @@
 from .bind import bind, configure, get_report, register_op_config, session, unbind
 from .context import ChiselContext
 from .op_configs import ChiselOpConfig
-from .report import ChiselRecord, ChiselReport, Status
-from .validators import ChiselChecksConfig
+from .report import ChiselRecord, ChiselReport, RecordStatus
+from .validators import ChiselChecksConfig, PCCConfig
 
 __all__ = [
     "bind",
@@ -20,5 +20,6 @@ __all__ = [
     "ChiselRecord",
     "ChiselReport",
     "ChiselChecksConfig",
-    "Status",
+    "PCCConfig",
+    "RecordStatus",
 ]

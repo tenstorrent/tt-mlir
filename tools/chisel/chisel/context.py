@@ -146,10 +146,12 @@ class ChiselContext:
         rt_program_context: CallbackContext,
         rt_op_context: OpContext,
     ) -> "ProgramState":
-        binary_state = self.binaries[rt_binary.id]
+        binary_state = self.binaries.get(rt_binary.id)
+        if binary_state is None:
+            raise UnexpectedStateError("begin_callback")
 
         program_index = tt_runtime.get_program_index(rt_program_context)
-        program = binary_state.programs[program_index]
+        program = binary_state.programs.get(program_index)
         if program is None:
             raise UnexpectedStateError("begin_callback")
 
@@ -232,7 +234,7 @@ class ChiselContext:
 
 class BinaryState:
     # Owns the IRModule and per-program states. The rt_binary handle is
-    # not stored — it may not be valid across callbacks; use the one
+    # not stored - it may not be valid across callbacks; use the one
     # passed by the current callback.
 
     def __init__(self, rt_binary: Binary) -> None:

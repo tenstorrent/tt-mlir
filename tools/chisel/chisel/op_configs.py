@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, Type
 
 from ttmlir.dialects import func, ttcore, ttnn
+from ttmlir.ir import OpView
 
 logger = logging.getLogger("chisel")
 
@@ -20,69 +21,62 @@ class ChiselOpConfig:
     skip_isolated_pcc: bool = False
 
 
-def default_configs() -> Dict[Type, ChiselOpConfig]:
+def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
     # Returns a fresh dict each call so callers cannot mutate the defaults.
-    configs: Dict[Type, ChiselOpConfig] = {}
-
-    # ttnn.empty produces uninitialized memory — PCC comparison is meaningless.
-    configs[ttnn.EmptyOp] = ChiselOpConfig(skip_isolated_pcc=True)
-
-    # ttnn.generic: IR output count = 0 but FB output count = 1.
-    configs[ttnn.GenericOp] = ChiselOpConfig(no_golden=True)
-
-    # Non-executable ops (device handles, I/O, control flow): no golden to run.
-    configs[func.CallOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.GetDeviceOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.LoadTensorOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.DeallocateOp] = ChiselOpConfig(no_golden=True)
-    configs[ttcore.LoadCachedOp] = ChiselOpConfig(no_golden=True)
-
-    # Trace / control-flow / I/O ops.
-    configs[ttnn.AllocOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.BeginTraceCaptureOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.EndTraceCaptureOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.ExecuteTraceOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.CaptureOrExecuteTraceOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.CreateGlobalSemaphoreOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.ResetGlobalSemaphoreOp] = ChiselOpConfig(no_golden=True)
-
-    # In-place ops (see CHISEL_INPLACE_OPS). TODO: chisel does not yet
-    # validate in-place tensor mutations; skip until support lands.
-    configs[ttnn.UpdateCacheOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.PagedUpdateCacheOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.FillCacheOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.PagedFillCacheOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.WriteTensorOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.BatchNormTrainingOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.PointToPointOp] = ChiselOpConfig(no_golden=True)
-
-    # Quantization ops not currently supported.
-    configs[ttnn.QuantizeOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.DequantizeOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.RequantizeOp] = ChiselOpConfig(no_golden=True)
-
-    # No golden registered yet
-    configs[ttnn.NLPCreateQKVHeadsDecodeOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.RotaryEmbeddingLlamaOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.RotaryEmbeddingOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.ConstantOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.MeshShardOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.MeshPartitionOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.NLPConcatHeadsOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.NLPConcatHeadsDecodeOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.BitcastConvertOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.AsinhOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.DistributedLayerNormOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.RMSNormPreAllGatherOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.SamplingOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.SelectiveReduceCombineOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.AllToAllDispatchMetadataOp] = ChiselOpConfig(no_golden=True)
-    configs[ttnn.D2MSubgraphOp] = ChiselOpConfig(no_golden=True)
-
-    return configs
+    # In-place ops (UpdateCacheOp, FillCacheOp, etc.) are flagged no_golden
+    # because chisel does not yet validate in-place tensor mutations.
+    return {
+        # ttnn.empty produces uninitialized memory - PCC comparison is meaningless.
+        ttnn.EmptyOp: ChiselOpConfig(skip_isolated_pcc=True),
+        # ttnn.generic: IR output count = 0 but FB output count = 1.
+        ttnn.GenericOp: ChiselOpConfig(no_golden=True),
+        # Non-executable ops (device handles, I/O, control flow): no golden to run.
+        func.CallOp: ChiselOpConfig(no_golden=True),
+        ttnn.GetDeviceOp: ChiselOpConfig(no_golden=True),
+        ttnn.LoadTensorOp: ChiselOpConfig(no_golden=True),
+        ttnn.DeallocateOp: ChiselOpConfig(no_golden=True),
+        ttcore.LoadCachedOp: ChiselOpConfig(no_golden=True),
+        # Trace / control-flow / I/O ops.
+        ttnn.AllocOp: ChiselOpConfig(no_golden=True),
+        ttnn.BeginTraceCaptureOp: ChiselOpConfig(no_golden=True),
+        ttnn.EndTraceCaptureOp: ChiselOpConfig(no_golden=True),
+        ttnn.ExecuteTraceOp: ChiselOpConfig(no_golden=True),
+        ttnn.CaptureOrExecuteTraceOp: ChiselOpConfig(no_golden=True),
+        ttnn.CreateGlobalSemaphoreOp: ChiselOpConfig(no_golden=True),
+        ttnn.ResetGlobalSemaphoreOp: ChiselOpConfig(no_golden=True),
+        # In-place ops (see CHISEL_INPLACE_OPS).
+        ttnn.UpdateCacheOp: ChiselOpConfig(no_golden=True),
+        ttnn.PagedUpdateCacheOp: ChiselOpConfig(no_golden=True),
+        ttnn.FillCacheOp: ChiselOpConfig(no_golden=True),
+        ttnn.PagedFillCacheOp: ChiselOpConfig(no_golden=True),
+        ttnn.WriteTensorOp: ChiselOpConfig(no_golden=True),
+        ttnn.BatchNormTrainingOp: ChiselOpConfig(no_golden=True),
+        ttnn.PointToPointOp: ChiselOpConfig(no_golden=True),
+        # Quantization ops not currently supported.
+        ttnn.QuantizeOp: ChiselOpConfig(no_golden=True),
+        ttnn.DequantizeOp: ChiselOpConfig(no_golden=True),
+        ttnn.RequantizeOp: ChiselOpConfig(no_golden=True),
+        # No golden registered yet.
+        ttnn.NLPCreateQKVHeadsDecodeOp: ChiselOpConfig(no_golden=True),
+        ttnn.RotaryEmbeddingLlamaOp: ChiselOpConfig(no_golden=True),
+        ttnn.RotaryEmbeddingOp: ChiselOpConfig(no_golden=True),
+        ttnn.ConstantOp: ChiselOpConfig(no_golden=True),
+        ttnn.MeshShardOp: ChiselOpConfig(no_golden=True),
+        ttnn.MeshPartitionOp: ChiselOpConfig(no_golden=True),
+        ttnn.NLPConcatHeadsOp: ChiselOpConfig(no_golden=True),
+        ttnn.NLPConcatHeadsDecodeOp: ChiselOpConfig(no_golden=True),
+        ttnn.BitcastConvertOp: ChiselOpConfig(no_golden=True),
+        ttnn.AsinhOp: ChiselOpConfig(no_golden=True),
+        ttnn.DistributedLayerNormOp: ChiselOpConfig(no_golden=True),
+        ttnn.RMSNormPreAllGatherOp: ChiselOpConfig(no_golden=True),
+        ttnn.SamplingOp: ChiselOpConfig(no_golden=True),
+        ttnn.SelectiveReduceCombineOp: ChiselOpConfig(no_golden=True),
+        ttnn.AllToAllDispatchMetadataOp: ChiselOpConfig(no_golden=True),
+        ttnn.D2MSubgraphOp: ChiselOpConfig(no_golden=True),
+    }
 
 
-def get_no_golden_op_names() -> frozenset[str]:
+def get_op_names_no_golden() -> frozenset[str]:
     return frozenset(
         op_type.OPERATION_NAME
         for op_type, config in default_configs().items()

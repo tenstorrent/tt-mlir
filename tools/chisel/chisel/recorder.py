@@ -7,7 +7,7 @@ from typing import Tuple, Optional, Set, TextIO
 
 from _ttmlir_runtime.binary import Binary
 
-from .report import ChiselRecord, ChiselReport, Status, NON_FAILURE_STATUSES
+from .report import ChiselRecord, ChiselReport, PASS_STATUS
 
 logger = logging.getLogger("chisel")
 
@@ -34,8 +34,8 @@ class JsonlSink:
 
 
 class ChiselRecorder:
-    # Owns the in-memory ring buffer, the optional JSONL sink, and the
-    # per-binary debug-dump policy.
+    """Owns the in-memory ring buffer, the optional JSONL sink, and the
+    per-binary debug-dump policy."""
 
     def __init__(self) -> None:
         self.report: ChiselReport = ChiselReport()
@@ -89,20 +89,20 @@ class ChiselRecorder:
         self.report.append(record)
         if self._sink is not None:
             self._sink.write(record)
-        self._maybe_dump_debug(record, program, binary_state)
+        self._dump_debug(record, program, binary_state)
 
-    def _maybe_dump_debug(
+    def _dump_debug(
         self,
         record: ChiselRecord,
         program: Optional["ProgramState"],
         binary_state: Optional["BinaryState"],
     ) -> None:
-        # On the first failure for a given binary, dump the source MLIR and
-        # flatbuffer so the user can debug offline. Records carry binary_id +
-        # program_name/program_index, so one dump per binary is enough.
+        """On the first failure for a given binary, dump the source MLIR and
+        flatbuffer so the user can debug offline. Records carry binary_id +
+        program_name/program_index, so one dump per binary is enough."""
         if self._debug_chisel_dir is None:
             return
-        if record.status in NON_FAILURE_STATUSES:
+        if record.status in PASS_STATUS:
             return
         if program is None or binary_state is None or program._rt_binary is None:
             return
@@ -110,7 +110,7 @@ class ChiselRecorder:
         if binary_id in self._dumped_binaries:
             return
         self._dumped_binaries.add(binary_id)
-        paths = dump_debug_artifacts(
+        paths = _dump_debug_artifacts(
             self._debug_chisel_dir,
             binary_id=binary_id,
             mlir_source=binary_state.mlir_source,
@@ -131,7 +131,7 @@ class ChiselRecorder:
         )
 
 
-def dump_debug_artifacts(
+def _dump_debug_artifacts(
     debug_dir: str,
     *,
     binary_id: int,
@@ -139,7 +139,7 @@ def dump_debug_artifacts(
     rt_binary: Binary,
 ) -> Optional[Tuple[str, str]]:
     # Writes binary_{id}.mlir and binary_{id}.ttnn under debug_dir. Returns
-    # the paths, or None on failure — failure is logged, never raised, since
+    # the paths, or None on failure - failure is logged, never raised, since
     # this is a debug aid that must not break the run.
     try:
         os.makedirs(debug_dir, exist_ok=True)
@@ -151,5 +151,5 @@ def dump_debug_artifacts(
         rt_binary.store(fb_path)
         return mlir_path, fb_path
     except Exception:
-        logger.exception("chisel debug dump failed")
+        logger.exception("Chisel debug dump failed.")
         return None
