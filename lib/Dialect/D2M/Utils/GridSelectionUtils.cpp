@@ -151,9 +151,15 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
   ttcore::MetalLayoutAttr layout =
       mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-  // For now, only non-collapsed 2D virtual grids on L1 are supported.
-  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) ||
-      layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+  if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+    return false;
+  }
+  // Collapsed logical dims are still safe for rank-2 physical sharding: the
+  // virtual grid maps only grid coordinates, after collapse has already
+  // produced a 2D physical shape. Keep higher-rank collapsed layouts on the
+  // old block-sharded path until they have dedicated coverage.
+  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) &&
+      physicalShape.size() != 2) {
     return false;
   }
   if (physicalShape.size() != 2) {

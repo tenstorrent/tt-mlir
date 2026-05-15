@@ -37,17 +37,16 @@ module attributes {ttcore.device = #any_device} {
 }
 
 // CHECK-LABEL: func.func @test_adjusted_grid
-// GridSelection materializes 1x8 storage, collapses tensors to 1x1 for the
-// output-driven generic grid, then re-expands inputs and block factors to the
-// execution plan needed by the generic.
+// GridSelection materializes inputs as 1x8 storage, collapses tensors to 1x1
+// for the output-driven generic grid, then re-expands only participating input
+// operands and block factors to the execution plan needed by the generic.
 // CHECK: %[[IN0_TO:.*]] = d2m.to_layout
 // CHECK: %[[IN0_1X1:.*]] = d2m.view_layout %[[IN0_TO]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
 // CHECK: %[[IN1_TO:.*]] = d2m.to_layout
 // CHECK: %[[IN1_1X1:.*]] = d2m.view_layout %[[IN1_TO]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
-// CHECK: %[[OUT_BASE:.*]] = d2m.empty() : tensor<1x8x32x32xf32, {{.*}}>
+// CHECK: %[[OUT:.*]] = d2m.empty() : tensor<1x1x32x256xf32, {{.*}}>
 // CHECK: %[[IN0_1X8:.*]] = d2m.view_layout %[[IN0_1X1]] {{.*}} : tensor<1x1x32x256xf32, {{.*}}> -> tensor<1x8x32x32xf32, {{.*}}>
 // CHECK: %[[IN1_1X8:.*]] = d2m.view_layout %[[IN1_1X1]] {{.*}} : tensor<1x1x32x256xf32, {{.*}}> -> tensor<1x8x32x32xf32, {{.*}}>
-// CHECK: %[[OUT_1X1:.*]] = d2m.view_layout %[[OUT_BASE]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
 // CHECK: %[[GEN:.*]] = d2m.generic {block_factors = [1, 8], grid = #ttcore.grid<1x1>
 // CHECK: ins(%[[IN0_1X8]], %[[IN1_1X8]] : tensor<1x8x32x32xf32, {{.*}}>, tensor<1x8x32x32xf32, {{.*}}>)
-// CHECK: outs(%[[OUT_1X1]] : tensor<1x1x32x256xf32, {{.*}}>)
+// CHECK: outs(%[[OUT]] : tensor<1x1x32x256xf32, {{.*}}>)

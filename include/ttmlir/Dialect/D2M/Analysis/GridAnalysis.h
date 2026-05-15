@@ -12,6 +12,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <cstdint>
 #include <memory>
 
 namespace mlir::tt::d2m {
@@ -79,7 +80,7 @@ struct GridAnalysis {
       ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
       ArrayRef<llvm::SmallVector<int64_t>> physicalShapes,
       ArrayRef<int64_t> targetGrid, bool ttnnMode = false,
-      bool requireCurrentTypeReblockable = false);
+      bool requireCurrentTypeReblockable = false, uint64_t usableL1Bytes = 0);
 
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.
@@ -94,6 +95,7 @@ private:
   llvm::DenseMap<Operation *, std::unique_ptr<GenericGridAnalysisResult>>
       results;
   llvm::SmallVector<int64_t> deviceGridShape;
+  uint64_t usableL1Bytes;
   bool ttnnMode;
 };
 
