@@ -8,6 +8,7 @@
 
 #include "mlir/Transforms/Passes.h"
 #include "stablehlo/transforms/optimization/Passes.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::stablehlo {
 //===----------------------------------------------------------------------===//
@@ -124,7 +125,18 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Fuse custom_calls with surrounding CCL ops into
   // distributed variants that handle cross-device communication internally.
-  pm.addPass(createFuseDistributedCustomCallsPass());
+  // TODO(#0): Disabled — RMSAllGatherMeshWorkloadFactory::create_at calls
+  // mesh_device->get_device(mesh_coord) which asserts is_local() on
+  // multi-host. The unfused all_gather + rms_norm + all_slice path works
+  // correctly. Re-enable once tt-metal fixes the fused_rms_minimal kernel
+  // for multi-host (see distributed_rmsnorm_multihost_bug.md).
+  llvm::errs()
+      << "WARNING: FuseDistributedCustomCallsPass is disabled due to a "
+         "multi-host bug in tt-metal's fused_rms_minimal kernel "
+         "(RMSAllGatherMeshWorkloadFactory::create_at calls "
+         "get_device on remote mesh coordinates). "
+         "RMSNorm will use the unfused all_gather + rms_norm path.\n";
+  // pm.addPass(createFuseDistributedCustomCallsPass());
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());
