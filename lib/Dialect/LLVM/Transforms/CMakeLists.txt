@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRLLVMTransforms
+        PromoteToStaticAllocation.cpp
         EmitWrapperFuncs.cpp
         NonContiguousMemrefCopyToLinalg.cpp
 

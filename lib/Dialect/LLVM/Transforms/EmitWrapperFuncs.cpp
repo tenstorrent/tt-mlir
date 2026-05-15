@@ -28,6 +28,11 @@ namespace mlir::tt::llvm_util {
 // - pack returned memref descriptors into WrappedTensors and return them
 //   as an array of WrappedTensors
 void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
+  auto cpuModule = moduleOp->getParentOfType<ttcore::CPUModuleOp>();
+  if (cpuModule && cpuModule.getRole() == ttcore::CPURole::Device) {
+    return;
+  }
+
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
 

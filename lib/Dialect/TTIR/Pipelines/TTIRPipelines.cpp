@@ -219,11 +219,9 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   manager.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
 
-  manager.addPass(mlir::bufferization::createBufferResultsToOutParamsPass());
-  mlir::bufferization::PromoteBuffersToStackPassOptions promoteToStackOptions;
-  promoteToStackOptions.maxAllocSizeInBytes = 1024 * 1024;
-  manager.addPass(mlir::bufferization::createPromoteBuffersToStackPass(
-      promoteToStackOptions));
+  // On device CPU modules, convert function results to out-params and promote
+  // buffer allocations to stack to avoid dynamic allocations.
+  manager.addPass(mlir::tt::llvm_util::createPromoteToStaticAllocationPass());
 
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
@@ -315,7 +313,7 @@ void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
   cpuPm.addPass(createTosaToArithPass());
 
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
-  // cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
+  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
 
 //===----------------------------------------------------------------------===//

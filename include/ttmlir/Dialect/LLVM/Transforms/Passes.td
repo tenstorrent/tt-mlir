@@ -17,4 +17,8 @@ def NonContiguousMemrefCopyToLinalgPass : Pass<"::mlir::ModuleOp"> {
   let summary = "Lower memref.copy which operates on non-contiguous (strided, non-identity) tensors to linalg.generic";
 }
 
+def PromoteToStaticAllocationPass : Pass<"promote-to-static-allocation", "::mlir::ModuleOp"> {
+  let summary = "Convert function results to out-params and promote buffer allocations to stack for device CPU modules";
+}
+
 #endif
