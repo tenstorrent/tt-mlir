@@ -16,7 +16,7 @@ import pytest
 import torch
 
 from conftest import get_request_kwargs
-from test_utils import shape_str
+from test_utils import shape_str, SkipIf
 
 from builder.base.builder_utils import get_artifact_dir
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -163,7 +163,7 @@ _RAND_SHAPES = [(32, 32), (128, 128), (64, 128)]
 @pytest.mark.parametrize("shape", _RAND_SHAPES, ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16],
+    [torch.float32, torch.bfloat16 | SkipIf("sim")],
     ids=["f32", "bf16"],
 )
 @pytest.mark.parametrize(
@@ -246,7 +246,7 @@ def test_rand_different_seeds_differ(target: str, request, device):
 @pytest.mark.parametrize("shape", _RAND_SHAPES, ids=shape_str)
 @pytest.mark.parametrize(
     "int_dtype",
-    [torch.int32],
+    [torch.int32 | SkipIf("sim")],
     ids=["i32"],
 )
 @pytest.mark.parametrize(
@@ -302,7 +302,9 @@ def test_rand_int(
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16 | SkipIf("sim")], ids=["f32", "bf16"]
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_rand_unary(
     shape,
