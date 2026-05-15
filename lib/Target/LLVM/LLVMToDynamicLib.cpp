@@ -22,6 +22,7 @@
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Program.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
@@ -32,6 +33,7 @@
 #include "lld/Common/Driver.h"
 
 #include "mlir/IR/BuiltinOps.h"
+#include <cstdlib>
 #include <fstream>
 
 LLD_HAS_DRIVER(elf)
@@ -118,6 +120,11 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   LLVMInitializeNativeTarget();
   LLVMInitializeNativeAsmParser();
   LLVMInitializeNativeAsmPrinter();
+  LLVMInitializeRISCVTargetInfo();
+  LLVMInitializeRISCVTarget();
+  LLVMInitializeRISCVTargetMC();
+  LLVMInitializeRISCVAsmParser();
+  LLVMInitializeRISCVAsmPrinter();
 
   auto targetMachine = createTargetMachine(module.getTargetTriple());
   if (!targetMachine) {
@@ -193,6 +200,126 @@ linkDynamicLibrary(llvm::StringRef libraryName,
   }
 
   return llvm::success();
+}
+
+llvm::LogicalResult linkFirmware(llvm::StringRef elfOutput,
+                                 llvm::StringRef linkerScript,
+                                 ArrayRef<llvm::StringRef> objectFiles) {
+  SmallVector<const char *, 16> args;
+  args.push_back("ld.lld");
+  args.push_back("-o");
+
+  llvm::SmallString<128> outputStr(elfOutput);
+  args.push_back(outputStr.c_str());
+
+  args.push_back("-T");
+  llvm::SmallString<128> ldScriptStr(linkerScript);
+  args.push_back(ldScriptStr.c_str());
+
+  args.push_back("--build-id=none");
+  args.push_back("-nostdlib");
+
+  SmallVector<llvm::SmallString<128>, 8> inputStrs;
+  for (const auto &obj : objectFiles) {
+    inputStrs.emplace_back(obj);
+    args.push_back(inputStrs.back().c_str());
+  }
+
+  lld::Result result = lld::lldMain(args, llvm::outs(), llvm::errs(),
+                                    {{lld::Gnu, &lld::elf::link}});
+  if (result.retCode != 0) {
+    llvm::errs() << "LLD firmware linking failed with return code: "
+                 << result.retCode << "\n";
+    return llvm::failure();
+  }
+  return llvm::success();
+}
+
+llvm::LogicalResult elfToFlatBinary(llvm::StringRef elfPath,
+                                    llvm::StringRef binPath) {
+  auto objcopyPath = llvm::sys::findProgramByName("llvm-objcopy-20");
+  if (!objcopyPath) {
+    objcopyPath = llvm::sys::findProgramByName("llvm-objcopy");
+  }
+  if (!objcopyPath) {
+    llvm::errs() << "llvm-objcopy not found on PATH\n";
+    return llvm::failure();
+  }
+
+  llvm::StringRef args[] = {*objcopyPath, "-O", "binary", elfPath, binPath};
+  std::string errMsg;
+  int rc = llvm::sys::ExecuteAndWait(*objcopyPath, args, std::nullopt, {}, 0, 0,
+                                     &errMsg);
+  if (rc != 0) {
+    llvm::errs() << "llvm-objcopy failed: " << errMsg << "\n";
+    return llvm::failure();
+  }
+  return llvm::success();
+}
+
+std::optional<llvm::SmallVector<char, 2048>>
+compileAndLinkToFirmware(llvm::Module &module, llvm::LLVMContext &context) {
+  const char *fwDirEnv = std::getenv("TTMLIR_X280_FIRMWARE_DIR");
+  if (!fwDirEnv) {
+    llvm::errs() << "TTMLIR_X280_FIRMWARE_DIR environment variable not set\n";
+    return std::nullopt;
+  }
+
+  llvm::SmallString<128> firmwarePath(fwDirEnv);
+  llvm::sys::path::append(firmwarePath, "x280_firmware.o");
+  llvm::SmallString<128> ldScriptPath(fwDirEnv);
+  llvm::sys::path::append(ldScriptPath, "fw.ld");
+
+  if (!llvm::sys::fs::exists(firmwarePath)) {
+    llvm::errs() << "X280 firmware not found: " << firmwarePath << "\n";
+    return std::nullopt;
+  }
+  if (!llvm::sys::fs::exists(ldScriptPath)) {
+    llvm::errs() << "X280 linker script not found: " << ldScriptPath << "\n";
+    return std::nullopt;
+  }
+
+  const auto tmpDirName = createTempDir();
+  const auto cpuObjFile = createTempFile(tmpDirName, "cpu", ".o");
+
+  if (llvm::failed(compileToObject(module, context, cpuObjFile))) {
+    llvm::errs() << "Failed to compile LLVM IR to object for X280 firmware\n";
+    return std::nullopt;
+  }
+
+  auto elfFile = createTempFile(tmpDirName, "fw", ".elf");
+  if (llvm::failed(linkFirmware(
+          elfFile, ldScriptPath,
+          {llvm::StringRef(firmwarePath), llvm::StringRef(cpuObjFile)}))) {
+    return std::nullopt;
+  }
+
+  auto binFile = createTempFile(tmpDirName, "fw", ".bin");
+  if (llvm::failed(elfToFlatBinary(elfFile, binFile))) {
+    return std::nullopt;
+  }
+
+  std::ifstream file(binFile.c_str(), std::ios::binary | std::ios::ate);
+  if (!file.is_open()) {
+    llvm::errs() << "Could not open firmware binary: " << binFile << "\n";
+    return std::nullopt;
+  }
+
+  std::streamsize size = file.tellg();
+  file.seekg(0, std::ios::beg);
+  llvm::SmallVector<char, 2048> buffer(size);
+  if (!file.read(buffer.data(), size)) {
+    llvm::errs() << "Failed to read firmware binary: " << binFile << "\n";
+    return std::nullopt;
+  }
+
+  if (cleanupTempFiles) {
+    llvm::sys::fs::remove_directories(tmpDirName);
+  } else {
+    llvm::outs() << "wrote firmware temp files to: " << tmpDirName << "\n";
+  }
+
+  return buffer;
 }
 
 // Verify that all operations in given module are in LLVM Dialect.
@@ -301,4 +428,35 @@ llvm::LogicalResult translateLLVMToLib(Operation *op, llvm::raw_ostream &os,
   os.write(maybeLibBinary.value().data(), maybeLibBinary.value().size());
   return llvm::success();
 }
+
+llvm::LogicalResult translateLLVMToFirmware(Operation *op,
+                                            llvm::raw_ostream &os) {
+  mlir::ModuleOp moduleOp = dyn_cast_if_present<mlir::ModuleOp>(op);
+  if (!moduleOp) {
+    llvm::errs()
+        << "Cannot perform firmware translation. Root operation is not "
+           "ModuleOp.\n";
+    return llvm::failure();
+  }
+  if (llvm::failed(verifyAllLLVM(moduleOp))) {
+    return llvm::failure();
+  }
+  llvm::LLVMContext llvmContext;
+  auto llvmModule = convertToLLVMModule(moduleOp, llvmContext);
+  if (!llvmModule) {
+    return llvm::failure();
+  }
+
+  if (llvmModule->getTargetTriple().empty()) {
+    llvmModule->setTargetTriple(getTriple(false));
+  }
+
+  auto maybeBinary = compileAndLinkToFirmware(*llvmModule, llvmContext);
+  if (!maybeBinary.has_value()) {
+    return llvm::failure();
+  }
+  os.write(maybeBinary->data(), maybeBinary->size());
+  return llvm::success();
+}
+
 } // namespace mlir::tt::llvm_to_cpu

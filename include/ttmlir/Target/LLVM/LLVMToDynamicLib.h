@@ -21,6 +21,12 @@ namespace mlir::tt::llvm_to_cpu {
 // Convert an LLVM operation to a dylib
 LogicalResult translateLLVMToLib(Operation *op, llvm::raw_ostream &os,
                                  bool dynamicLib);
+
+// Compile an LLVM operation to a RISC-V object, link it with the prebuilt X280
+// firmware harness (x280_harness.o + fw.ld), and write the resulting flat
+// binary to `os`. The firmware directory is resolved from the
+// TTMLIR_X280_FIRMWARE_DIR environment variable.
+LogicalResult translateLLVMToFirmware(Operation *op, llvm::raw_ostream &os);
 } // namespace mlir::tt::llvm_to_cpu
 
 #endif

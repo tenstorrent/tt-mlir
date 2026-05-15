@@ -44,6 +44,8 @@ if (TTMLIR_ENABLE_RUNTIME)
     COMMENT "Linking x280_firmware.o (partial link)"
   )
 
+  configure_file(${X280_SRC_DIR}/fw.ld ${X280_FW_DIR}/fw.ld COPYONLY)
+
   add_custom_target(x280_firmware ALL
     DEPENDS ${X280_FW_DIR}/x280_firmware.o
   )

@@ -129,7 +129,7 @@ static void noc_word_copy(uintptr_t dst, uintptr_t src, uint64_t bytes) {
  * documentation for the per-rank layout rules. For a 1-D contiguous buffer
  * we set alloc == aligned, offset = 0, size = N, stride = 1.
  */
-extern void cpu_hoisted_ttir_abs_c4841e58(void *in_alloc, void *in_aligned,
+extern void cpu_hoisted_ttir_abs_c1787f11(void *in_alloc, void *in_aligned,
                                           int64_t in_offset, int64_t in_size,
                                           int64_t in_stride, void *out_alloc,
                                           void *out_aligned, int64_t out_offset,
@@ -183,7 +183,7 @@ __attribute__((noreturn)) void fw_main(void) {
   }
 
   /* Run the MLIR-lowered kernel on the contiguous staging buffer. */
-  cpu_hoisted_ttir_abs_c4841e58(input_buf, input_buf,
+  cpu_hoisted_ttir_abs_c1787f11(input_buf, input_buf,
                                 /*offset=*/0,
                                 /*size=*/(int64_t)KERNEL_ELEMS,
                                 /*stride=*/1, output_buf, output_buf, 0,

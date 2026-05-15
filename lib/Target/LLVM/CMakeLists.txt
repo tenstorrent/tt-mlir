@@ -24,6 +24,12 @@ else()
 message(FATAL_ERROR "LLVM codegen/ASM parser libs: This HW architecture (${CMAKE_SYSTEM_PROCESSOR}) is not configured in cmake lib dependencies.")
 endif()
 
+list(APPEND LLVM_LIBS
+    LLVMRISCVInfo
+    LLVMRISCVCodeGen
+    LLVMRISCVAsmParser
+)
+
 add_mlir_translation_library(TTLLVMToDynamicLib
     LLVMToDynamicLib.cpp
     LLVMToDynamicLibRegistration.cpp
