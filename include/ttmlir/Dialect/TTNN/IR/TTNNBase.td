@@ -43,23 +43,35 @@ def TTNN_Dialect : Dialect {
 }
 
 //===----------------------------------------------------------------------===//
+// TTNN traits definition for OpModel.
+//===----------------------------------------------------------------------===//
+
+// Returns [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ...>] when
+// OpModelExempt is absent from traits, or [] when present.
+class IfOpModelRequired<list<Trait> traits> {
+  list<Trait> value = !if(!empty(!filter(t, traits, !eq(t, OpModelExempt))),
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface,
+        ["getOpConstraints", "getOpRuntime"]>], []);
+}
+
+//===----------------------------------------------------------------------===//
 // Base TTNN operation definition.
 //===----------------------------------------------------------------------===//
 
 class TTNN_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [Pure, CheckTileTypeTrait, TTNN_WorkaroundInterface,
-        DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
+        Op<TTNN_Dialect, mnemonic, [Pure, CheckTileTypeTrait, TTNN_WorkaroundInterface] #
+        IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface,
-        DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface] #
+        IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_MemFreeOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, TTNN_WorkaroundInterface,
-        DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, TTNN_WorkaroundInterface] #
+        IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_MemoryEffectOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface,
-        DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
+        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface] #
+        IfOpModelRequired<traits>.value # traits>;
 
 #endif

@@ -1068,13 +1068,14 @@ void L1SpillManagement<MemoryTracker>::run() {
 
     // Ops with L1 output annotation get full processing.
     // DRAM-output ops (no annotation) still need CB overlap checking against
-    // live L1 tensors -- skip only if the op can't be validated or there are
-    // no live L1 tensors that could clash.
+    // live L1 tensors -- skip only if there are no live L1 tensors that could
+    // clash. Ops that can't be checked return NotImplemented from validation,
+    // which triggers a full spill regardless of live set size.
     auto l1Attr = op->getAttrOfType<IntegerAttr>("ttnn.output_l1_usage");
     uint64_t opL1Usage = l1Attr ? l1Attr.getValue().getZExtValue() : 0;
 
     if (!l1Attr) {
-      if (!mlir::dyn_cast<OpModel>(op) || liveValues.empty()) {
+      if (liveValues.empty()) {
         continue;
       }
     }
