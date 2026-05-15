@@ -27,6 +27,13 @@ from ._src.builder import (
     permute,
     to_host,
 )
+from ._src.rewrite import (
+    pattern,
+    from_value,
+    from_device,
+    infer_layout,
+    apply_patterns,
+)
 
 
 @syntax("remote_load")

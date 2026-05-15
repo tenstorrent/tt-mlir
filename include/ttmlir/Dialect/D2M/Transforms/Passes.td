@@ -1254,4 +1254,33 @@ def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::Module
   ];
 }
 
+def D2MPythonRewrites : Pass<"d2m-python-rewrites", "::mlir::ModuleOp"> {
+  let summary = "Apply Python-defined pattern rewrites via d2m-jit.";
+  let description = [{
+    Embeds a Python interpreter, loads each user-supplied `.py` file
+    listed in `module-path` (which is expected to register one or more
+    `@d2m_jit.pattern` decorators on import), and runs
+    `d2m_jit.apply_patterns(module)` on the current `ModuleOp`. The
+    Python rewrites mutate the same MLIR module the pass owns.
+
+    Adding a new pattern is then a matter of dropping a new `.py` file
+    in next to your driver and re-running -- no C++ rebuild required.
+
+    Requires the build to be configured with `-DTTMLIR_ENABLE_D2M_JIT=ON`;
+    otherwise the pass fails fast with a diagnostic at run time.
+  }];
+  let options = [
+    ListOption<"modulePaths", "module-path", "std::string",
+               "Path(s) to .py files registering d2m-jit patterns. May be "
+               "repeated; the pass imports them in order before running.">,
+  ];
+  // We don't construct any dialect ops directly in C++ — Python handles
+  // dialect setup against the host module's existing context. Listing
+  // only D2M here so the pass infrastructure has the same expectation
+  // as the rest of the suite.
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+  ];
+}
+
 #endif
