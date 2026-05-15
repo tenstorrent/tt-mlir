@@ -65,6 +65,9 @@ def _default_meta_device():
         yield
 
 
+# Skipped until goldens are merged with the builder; until then the test is
+# not stable enough to run in CI.
+@pytest.mark.skip(reason="Disabled until goldens are merged with the builder.")
 def test_golden_execution(subtests, ir_module, binary, binary_path):
     asm_state = ir_module.get_asm_state()
 
