@@ -105,6 +105,36 @@ public:
         mlir::FunctionType::get(ctx, newArgTypes, newResultTypes));
   }
 
+  // Walk backward from `value`, updating the element dtype of every value
+  // along the cache path until reaching the target dtype or a block argument.
+  static void propagateDtypeTowardRoot(Value value,
+                                       ttcore::DataType targetDtype) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
+    if (!tensorType) {
+      return;
+    }
+
+    auto newType =
+        ttnn::utils::RankedTensorTypeFactory::create(tensorType, targetDtype);
+    if (value.getType() == newType) {
+      return;
+    }
+
+    value.setType(newType);
+
+    if (mlir::isa<BlockArgument>(value)) {
+      return;
+    }
+
+    mlir::Type originalElemType = tensorType.getElementType();
+    for (Value operand : value.getDefiningOp()->getOperands()) {
+      auto operandType = mlir::dyn_cast<RankedTensorType>(operand.getType());
+      if (operandType && operandType.getElementType() == originalElemType) {
+        propagateDtypeTowardRoot(operand, targetDtype);
+      }
+    }
+  }
+
   // Inserts a ttnn.typecast before `op`'s input operand if it is not already
   // the target dtype.
   template <typename OpTy>
@@ -154,6 +184,7 @@ public:
         llvm::TypeSwitch<Operation *>(op)
             .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp>(
                 [&](auto cacheOp) {
+                  propagateDtypeTowardRoot(cacheOp.getCache(), dtype);
                   insertTypecastIfNeeded(builder, cacheOp, dtype);
                 });
       });
