@@ -75,6 +75,12 @@ struct PerfTargets {
   uint64_t embeddingParamMemoryBytes = 0;
   uint64_t effectiveParamCount = 0;
   uint64_t effectiveParamMemoryBytes = 0;
+  // BFP8-recomputed bytes used in the DRAM roofline. Independent of the
+  // actual tensor dtype in the IR — see the rationale where these are
+  // populated. Reported in JSON as `params.effective_memory_bytes_bfp8`
+  // and `kv_cache.memory_bytes_bfp8`.
+  uint64_t effectiveParamMemoryBytesBfp8 = 0;
+  uint64_t kvCacheMemoryBytesBfp8 = 0;
 
   uint64_t matmulFlops = 0;
   uint64_t linearFlops = 0;
@@ -575,15 +581,38 @@ private:
     collectArgumentStats(t, forwardFunc);
     collectComputeStats(t, forwardFunc);
 
-    // Effective weight bytes that have to be read from DRAM each step. We
-    // exclude the embedding-feeding parameter because the input embedding
-    // lookup only touches one row per token (sparse access, ~kB per step),
-    // not the full V*H weight — and when tied weights are preserved, that
-    // same tensor serves the LM head matmul once, which we account for via
-    // the matmul FLOPs and the const-eval'd LM-head weight (a separate arg
-    // in tt-xla's untied compile). See PerfTargets fields for context.
+    // Effective weight bytes that have to be read from DRAM each step.
+    //
+    // Two adjustments vs the raw tensor memory we reported:
+    //   1. Subtract the embedding-feeding parameter — the embedding op only
+    //      touches one row per token, not the full V*H weight. And when
+    //      tied weights are preserved that same tensor also serves the LM
+    //      head matmul once, which we account for via the matmul FLOPs +
+    //      the const-eval'd LM-head weight (a separate arg in tt-xla's
+    //      untied compile).
+    //   2. Assume BFP8 storage for every weight and KV-cache element,
+    //      regardless of the actual encoded dtype in the IR. Rationale:
+    //      tt-mlir's TTNN runtime pipeline pushes weights through
+    //      `ttnn-weight-dtype-conversion` to BFP8 by default (the
+    //      `ttcore.weight_dtype = "bfp_bf8"` attribute we see on every
+    //      parameter arg). Pure BF16 weights are the exception (small
+    //      norms, embeddings) and rounding them down to BFP8 doesn't
+    //      change the DRAM math materially. This makes the DRAM roofline
+    //      independent of how the upstream front-end annotates dtypes —
+    //      so different export pipelines give the same ceiling on the
+    //      same model.
+    //
+    // BFP8 tile is 1056 bytes per 32x32 tile = 1056/1024 ≈ 1.03125
+    // bytes / scalar element.
+    constexpr double kBfp8BytesPerElement = 1056.0 / 1024.0;
+    auto bytesAtBfp8 = [](uint64_t count) {
+      return static_cast<uint64_t>(
+          static_cast<double>(count) * kBfp8BytesPerElement + 0.5);
+    };
+    t.effectiveParamMemoryBytesBfp8 = bytesAtBfp8(t.effectiveParamCount);
+    t.kvCacheMemoryBytesBfp8 = bytesAtBfp8(t.kvCacheCount);
     uint64_t totalWeightBytes =
-        t.effectiveParamMemoryBytes + t.kvCacheMemoryBytes;
+        t.effectiveParamMemoryBytesBfp8 + t.kvCacheMemoryBytesBfp8;
     if (t.dramBandwidthBytesPerSec > 0) {
       t.dramRooflineTimeSec = static_cast<double>(totalWeightBytes) /
                               static_cast<double>(t.dramBandwidthBytesPerSec);
@@ -657,6 +686,11 @@ private:
     params["effective_memory_gb"] =
         static_cast<double>(t.effectiveParamMemoryBytes) /
         (1024.0 * 1024.0 * 1024.0);
+    // BFP8-uniform memory used for the DRAM-roofline calc, independent of
+    // the actual encoded dtype in the IR. See computePerfTargets for the
+    // rationale.
+    params["effective_memory_bytes_bfp8"] =
+        static_cast<int64_t>(t.effectiveParamMemoryBytesBfp8);
     pt["params"] = std::move(params);
 
     llvm::json::Object kv;
@@ -664,6 +698,7 @@ private:
     kv["memory_bytes"] = static_cast<int64_t>(t.kvCacheMemoryBytes);
     kv["memory_gb"] =
         static_cast<double>(t.kvCacheMemoryBytes) / (1024.0 * 1024.0 * 1024.0);
+    kv["memory_bytes_bfp8"] = static_cast<int64_t>(t.kvCacheMemoryBytesBfp8);
     pt["kv_cache"] = std::move(kv);
 
     llvm::json::Object inp;
