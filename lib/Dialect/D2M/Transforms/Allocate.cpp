@@ -386,7 +386,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(convertAliasedLoadStore(funcOp, analysis))) {
+    if (failed(materializeAliasedLoadStore(funcOp, analysis))) {
       return failure();
     }
 
