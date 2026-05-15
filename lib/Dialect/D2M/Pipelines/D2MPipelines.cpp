@@ -135,7 +135,9 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   }
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
-  pm.addPass(d2m::createD2MMarkSynchronizedBuffers());
+  d2m::D2MMarkSynchronizedBuffersOptions markSyncBuffersOptions;
+  { markSyncBuffersOptions.numStreamBuffers = options.numStreamBuffers; }
+  pm.addPass(d2m::createD2MMarkSynchronizedBuffers(markSyncBuffersOptions));
   pm.addPass(d2m::createD2MInsertScratchBuffers());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
