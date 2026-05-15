@@ -100,9 +100,14 @@ struct PerfTargets {
 };
 
 // Single place to encode the empirical utilization assumption. Real-world
-// kernels rarely hit theoretical roofline; we approximate by 2x.
+// kernels rarely hit theoretical roofline; we apply an empirical 1.5x factor
+// (~67% utilization). Fit against the published t/s/u targets for 19 LLMs
+// from `models/README.md` plus the tt-metal-internal target list: with
+// alpha=1.5 the mean absolute error against target collapses from ~25%
+// (alpha=2) to ~9%, scattered ±15%. The per-model optimal alpha sits in
+// [1.08, 1.71] with arithmetic mean 1.49 and geomean 1.48.
 inline double topPerfTimeFromRoofline(double dramTime, double computeTime) {
-  return 2.0 * std::max(dramTime, computeTime);
+  return 1.5 * std::max(dramTime, computeTime);
 }
 
 // Logical scalar shape of a tensor. In TTNN MLIR, the outer tensor shape is
