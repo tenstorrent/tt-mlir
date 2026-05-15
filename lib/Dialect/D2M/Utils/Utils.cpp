@@ -91,6 +91,15 @@ Type getRegionLargestDstElemTypeOrNull(Region &region) {
   return findLargestDstElemType(region);
 }
 
+bool isI32ElementType(Type type) {
+  auto intType = mlir::dyn_cast<IntegerType>(type);
+  return intType && intType.getWidth() == 32;
+}
+
+bool isSupportedArgMaxInputElementType(Type type) {
+  return mlir::isa<Float32Type, BFloat16Type>(type) || isI32ElementType(type);
+}
+
 ShapedType reblockShapedType(ShapedType oldType,
                              ArrayRef<int64_t> newGridShape) {
   TT_assert(oldType.hasStaticShape());
