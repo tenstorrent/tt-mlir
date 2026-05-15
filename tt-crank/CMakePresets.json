@@ -7,76 +7,18 @@
     },
     "configurePresets": [
         {
-            "name": "_base-unix",
+            "name": "_clang-base",
             "hidden": true,
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build/${presetName}",
-            "condition": {
-                "type": "equals",
-                "lhs": "${hostSystemName}",
-                "rhs": "Linux"
-            },
+            "binaryDir": "${sourceDir}/build_${presetName}",
             "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         },
         {
-            "name": "_gcc-base",
-            "hidden": true,
-            "inherits": "_base-unix",
-            "cacheVariables": {
-                "CMAKE_C_COMPILER": "gcc",
-                "CMAKE_CXX_COMPILER": "g++"
-            }
-        },
-        {
-            "name": "_clang-base",
-            "hidden": true,
-            "inherits": "_base-unix",
-            "cacheVariables": {
-                "CMAKE_C_COMPILER": "clang",
-                "CMAKE_CXX_COMPILER": "clang++"
-            }
-        },
-        {
-            "name": "default",
-            "displayName": "Release (gcc)",
-            "description": "Default Release build with gcc; the \"just works\" preset",
-            "inherits": "_gcc-base",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
-            }
-        },
-        {
-            "name": "dev",
-            "displayName": "Developer (gcc, RelWithDebInfo + checks)",
-            "description": "RelWithDebInfo + warnings-as-errors + clang-tidy; daily developer loop",
-            "inherits": "_gcc-base",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "TT_KURBLA_WARNINGS_AS_ERRORS": "ON",
-                "TT_KURBLA_ENABLE_CLANG_TIDY": "ON"
-            }
-        },
-        {
             "name": "debug",
-            "displayName": "Debug (gcc)",
-            "inherits": "_gcc-base",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
-        },
-        {
-            "name": "clang-release",
-            "displayName": "Release (clang)",
-            "description": "Release build with clang; portability sanity check",
-            "inherits": "_clang-base",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
-            }
-        },
-        {
-            "name": "clang-debug",
             "displayName": "Debug (clang)",
             "inherits": "_clang-base",
             "cacheVariables": {
@@ -84,10 +26,18 @@
             }
         },
         {
+            "name": "release",
+            "displayName": "Release (clang)",
+            "inherits": "_clang-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
             "name": "san",
             "displayName": "Sanitizers (gcc, ASan + UBSan)",
             "description": "RelWithDebInfo + ASan + UBSan on first-party code; tt-mlir stays unsanitized",
-            "inherits": "_gcc-base",
+            "inherits": "_clang-base",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "TT_KURBLA_ENABLE_ASAN": "ON",
@@ -96,27 +46,17 @@
         }
     ],
     "buildPresets": [
-        {"name": "default",       "configurePreset": "default"},
-        {"name": "dev",           "configurePreset": "dev"},
-        {"name": "debug",         "configurePreset": "debug"},
-        {"name": "clang-release", "configurePreset": "clang-release"},
-        {"name": "clang-debug",   "configurePreset": "clang-debug"},
-        {"name": "san",           "configurePreset": "san"}
-    ],
-    "testPresets": [
-        {"name": "default",       "configurePreset": "default",       "output": {"outputOnFailure": true}},
-        {"name": "dev",           "configurePreset": "dev",           "output": {"outputOnFailure": true}},
-        {"name": "debug",         "configurePreset": "debug",         "output": {"outputOnFailure": true}},
-        {"name": "clang-release", "configurePreset": "clang-release", "output": {"outputOnFailure": true}},
-        {"name": "clang-debug",   "configurePreset": "clang-debug",   "output": {"outputOnFailure": true}},
-        {"name": "san",           "configurePreset": "san",           "output": {"outputOnFailure": true}},
         {
-            "name": "sim",
-            "displayName": "Tests (ttsim)",
-            "description": "Runs the default build's tests with the runtime routed through ttsim",
-            "configurePreset": "default",
-            "output": {"outputOnFailure": true},
-            "environment": {"TT_KURBLA_USE_SIMULATOR": "1"}
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "san",
+            "configurePreset": "san"
         }
     ]
 }

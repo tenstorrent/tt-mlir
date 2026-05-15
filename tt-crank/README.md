@@ -8,7 +8,6 @@ See [`architecture-overview.md`](architecture-overview.md) for the high-level de
 
 - Linux (x86_64)
 - CMake ≥ 3.24, Ninja
-- gcc ≥ 11 or clang ≥ 14 (system)
 - clang ≥ 20 via the tt-mlir toolchain (built / activated by `env/activate`)
 - `ccache` (optional — used automatically if on `PATH`)
 
@@ -19,53 +18,51 @@ The first build builds the LLVM/MLIR toolchain that `tt-mlir` depends on — mul
 ```sh
 git clone --recurse-submodules <repo> tt-kurbla
 cd tt-kurbla
-./scripts/build      # bootstrap .venv → init submodules → source env/activate → configure → build → test
+source venv/activate
+./scripts/build
 ```
 
-`scripts/build` also creates a project-local `.venv` and installs the pre-commit git hook on first run. See [Dev tooling](#dev-tooling).
-
-## Daily build
-
-After first-time setup, either of these works:
+## Daily build & test
 
 ```sh
-./scripts/build [preset]     # wrapper handles env activation + cmake invocation
+./scripts/build [preset]     # configure + build (default: debug)
+./scripts/test [sim]         # run tests against the current build
 ```
 
 ```sh
 # Or, with the env already activated in your shell:
-cd third_party/tt-mlir && source env/activate && cd -
 cmake --preset <preset>
 cmake --build --preset <preset>
-ctest --preset <preset>
 ```
+
+Pass `--help` to either script for full usage.
 
 ## Preset cheat sheet
 
-| Preset          | Build type     | Compiler | Extras                                                  |
-|---              |---             |---       |---                                                      |
-| `default`       | Release        | gcc      | The "just works" preset                                 |
-| `dev`           | RelWithDebInfo | gcc      | `-Werror` + clang-tidy; the daily-dev preset            |
-| `debug`         | Debug          | gcc      |                                                         |
-| `clang-release` | Release        | clang    | Portability sanity                                      |
-| `clang-debug`   | Debug          | clang    |                                                         |
-| `san`           | RelWithDebInfo | gcc      | ASan + UBSan on first-party code (tt-mlir unsanitized)  |
+| Preset    | Build type     | Compiler | Extras                                       |
+|---        |---             |---       |---                                           |
+| `debug`   | Debug          | clang    | Default preset                               |
+| `release` | Release        | clang    |                                              |
+| `san`     | RelWithDebInfo | clang    | ASan + UBSan on first-party code (tt-mlir unsanitized) |
+
+Build directories are created as `build_<preset>/`. `scripts/build` symlinks `build/` to the most recently built preset, which is what `scripts/test` uses.
 
 ### Running through ttsim
 
-Every build already stages `tenstorrent/ttsim` alongside its SoC descriptor — no separate configure flag. The simulator routing is baked into `libtt_kurbla.so`: a static-init shim in `src/engine/sim_env.cpp` flips the tt-metal env at library-load time whenever `TT_KURBLA_USE_SIMULATOR=1` is set, so any consumer (tests, Python, future bindings) picks it up automatically.
+Every build already stages `tenstorrent/ttsim` alongside its SoC descriptor — no separate configure flag. Pass `sim` to `scripts/test` to route the runtime through the simulator:
 
 ```sh
-./scripts/build sim                            # builds with `default`, then ctest --preset sim
-ctest --preset sim                             # if you already have a default build
-TT_KURBLA_USE_SIMULATOR=1 ctest --preset dev   # any build dir works — the env var is the actual switch
-TT_KURBLA_USE_SIMULATOR=1 python my_script.py  # same switch routes the Python extension through ttsim
+./scripts/build                # build (debug preset)
+./scripts/test sim             # run tests via ttsim
+./scripts/test sim -- -R EngineCompileTest   # filter tests + ttsim
 ```
+
+`TT_KURBLA_USE_SIMULATOR=1` is the underlying switch — set it directly to use ttsim with any other runner (Python extension, manual binary invocation, etc.).
 
 Override the source tree of `tt-mlir` without editing the submodule:
 
 ```sh
-cmake --preset default -DTTMLIR_SOURCE_DIR_OVERRIDE=/path/to/sibling/tt-mlir
+cmake --preset debug -DTTMLIR_SOURCE_DIR_OVERRIDE=/path/to/sibling/tt-mlir
 ```
 
 ## Layout
@@ -74,14 +71,16 @@ cmake --preset default -DTTMLIR_SOURCE_DIR_OVERRIDE=/path/to/sibling/tt-mlir
 tt-kurbla/
 ├── CMakeLists.txt
 ├── CMakePresets.json
-├── cmake/                 # CompilerWarnings, Sanitizers, StaticAnalyzers, Cache
-├── scripts/build          # one-shot wrapper (env + cmake + test)
+├── cmake/                 # CompilerWarnings, Sanitizers, StaticAnalyzers, Cache, SystemIncludes
+├── scripts/
+│   ├── build              # configure + build wrapper
+│   └── test               # test runner wrapper (supports sim)
 ├── src/                   # public + private headers + sources, by component
 │   ├── version.{hpp,cpp.in}
 │   └── engine/            # compile / runtime API (POC)
 ├── tests/                 # unit tests, one file per src component
 ├── third_party/
-│   ├── CMakeLists.txt     # ExternalProject_Add(tt-mlir)
+│   ├── CMakeLists.txt     # ExternalProject_Add(tt-mlir), FetchContent(tt-logger)
 │   └── tt-mlir/           # submodule
 └── architecture-overview.md
 ```
@@ -90,12 +89,11 @@ Headers live alongside their `.cpp` under `src/<component>/...` — no separate 
 
 ## Dev tooling
 
-`scripts/build` bootstraps `.venv/` and installs the `pre-commit` git hook on first run.
+`venv/activate` sets up the project environment. Pre-commit hooks are installed on first `./scripts/build` run.
 
 ```sh
-.venv/bin/pre-commit run --all-files    # run all hooks across the tree
-.venv/bin/pre-commit uninstall          # remove the git hook
-rm -rf .venv                            # refresh dev tooling on next ./scripts/build
+pre-commit run --all-files    # run all hooks across the tree
+pre-commit uninstall          # remove the git hook
 ```
 
 ## Status
