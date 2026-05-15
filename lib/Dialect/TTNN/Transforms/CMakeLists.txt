@@ -22,6 +22,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNFileSplit.cpp
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
+        Decomposition/ConcatenateHeadsDecompositionRewritePattern.cpp
         Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
         Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
         Decomposition/TopKDecompositionRewritePattern.cpp
@@ -46,7 +47,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
-        Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
