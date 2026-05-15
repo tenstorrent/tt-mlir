@@ -213,6 +213,13 @@ public:
       return failure();
     }
 
+    // For CCLs case (i.e. generic with fabric connection config is present),
+    // we use only a single datamovement thread since we only have a single
+    // fabric connection manager per core for now.
+    if (generic.getFabricConnectionConfigAttr()) {
+      return success();
+    }
+
     Region &dmRegion = generic.getRegion(0);
     if (dmRegion.empty()) {
       return failure();
@@ -357,13 +364,7 @@ public:
     unsigned numDatamovementThreads = chipDesc.getNumDatamovementThreads();
 
     // If only 1 DMA thread available, nothing to schedule.
-    // for ccl case, simple splitting is to use 1 thread; more advanced
-    // splitting would be to split on fabric ops into fabric threads and non
-    // fabric dma ops into reaminging threads so we have two classes of threads
-    // essntially, so we split fabric ops using number of fabric threads
-    // available and remaining dma ops based on all dma threads available fabric
-    // ops are a subclasss of normal dma ops
-    if (true) {
+    if (numDatamovementThreads <= 1) {
       return;
     }
 

@@ -3484,8 +3484,8 @@ public:
     Type tiledElementType = ttcore::TileType::get(
         tensorType.getElementType(), ttcore::TileType::getDefaultShape());
     ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
-        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
+        rewriter.getContext(), logicalShape, memorySpaces[0],
+        ttcore::TensorMemoryLayout::Sharded);
     auto optimalGrid = d2m::utils::computeOptimalBlockShardedGrid(
         layout.getPhysicalShape(ttcore::TileType::getDefaultShape()),
         workerGridShape);
@@ -3504,8 +3504,8 @@ public:
     Type elementType = mlir::IntegerType::get(rewriter.getContext(), 32,
                                               mlir::IntegerType::Unsigned);
     ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), workerGridShape, ttcore::OOBVal::Undef,
-        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded,
+        rewriter.getContext(), workerGridShape, memorySpaces[0],
+        ttcore::TensorMemoryLayout::Sharded,
         ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
             rewriter.getContext(), workerGridShape.size()),
         {1, 1});
@@ -3888,7 +3888,7 @@ public:
         rewriter.getArrayAttr(emptyIteratorTypes),
         rewriter.getArrayAttr(
             rewriter.getAttr<d2m::ThreadAttr>(d2m::ThreadType::Unified)),
-        /*scratch_inputs=*/nullptr, fabricConnectionConfig, /*numRegions=*/1);
+        fabricConnectionConfig, /*numRegions=*/1);
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
