@@ -10,8 +10,6 @@
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 #include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -28,11 +26,6 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
-#include "mlir/IR/Builders.h"
-#include "mlir/Support/WalkResult.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 #include <optional>
 
@@ -362,13 +355,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // memrefs or views of those).
     //
     // The IR is allowed to contain "standalone" allocs that don't feed into
-    // generic ops (TODO(vroubtsov) these won't become CBs, so can this
-    // assumption be removed?). Conversely, generic ops are allowed to have
+    // generic ops. Conversely, generic ops are allowed to have
     // their operands rooted at memrefs that are not allocated within `funcOp`,
     // e.g. passed in as func arguments. Therefore, the two
     // sets of memref values, (a) those allocated within `funcOp` and (b) those
     // defining generic op operands are incomparable (neither is a subset of the
-    // other). We try to track this carefully.
+    // other). We try to track this carefully. We also allow memref allocs
+    // inside generic ops that are not tied to any operand loads/stores (e.g.
+    // scratch buffers).
 
     FuncAnalysisData analysis;
 
@@ -412,7 +406,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(remapMemorySpacesOnOperandViews(funcOp, analysis))) {
+    if (failed(updateMemorySpaces(funcOp, analysis))) {
       return failure();
     }
 
@@ -1214,13 +1208,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
-  /// Sweep through all collected generic ops and make several in-place
-  /// modifications:
-  ///  - modify root alloc ops and any view layout ops to be in the final
-  ///    memspace decided by the planner;
-  ///
-  LogicalResult remapMemorySpacesOnOperandViews(func::FuncOp funcOp,
-                                                FuncAnalysisData &analysis) {
+  /// Sweep through all collected generic ops and modify root
+  /// alloc ops and any view layout ops to be in the final
+  /// memspace decided by the planner.
+  LogicalResult updateMemorySpaces(func::FuncOp funcOp,
+                                   FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
 
     llvm::DenseSet<Operation *> visited;
@@ -1264,8 +1256,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
-  LogicalResult convertAliasedLoadStore(func::FuncOp funcOp,
-                                        FuncAnalysisData &analysis) {
+  LogicalResult materializeAliasedLoadStore(func::FuncOp funcOp,
+                                            FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       const auto &genericOpRef = genericOp;
