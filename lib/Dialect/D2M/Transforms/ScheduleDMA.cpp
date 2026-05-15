@@ -213,6 +213,13 @@ public:
       return failure();
     }
 
+    // For CCLs case (i.e. generic with fabric connection config is present),
+    // we use only a single datamovement thread since we only have a single
+    // fabric connection manager per core for now.
+    if (generic.getFabricConnectionConfigAttr()) {
+      return success();
+    }
+
     Region &dmRegion = generic.getRegion(0);
     if (dmRegion.empty()) {
       return failure();

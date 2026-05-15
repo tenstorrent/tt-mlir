@@ -1617,7 +1617,6 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
       getLoc(), result.getType(), *memrefBuffer);
   rewriter.replaceAllUsesWith(result, toTensor.getResult());
   rewriter.eraseOp(*this);
-
   return mlir::success();
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
