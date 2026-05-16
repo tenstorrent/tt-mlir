@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -157,7 +158,8 @@ public:
       //                     constant_delta) [)]  →  return operand
       SmallVector<WritebackInfo> candidates;
 
-      for (auto retVal : returnOp.getOperands()) {
+      for (auto en : llvm::enumerate(returnOp.getOperands())) {
+        Value retVal = en.value();
         // Optionally look through an outer mesh_shard.
         Value addResult = retVal;
         if (auto outerShard = retVal.getDefiningOp<MeshShardOp>()) {
@@ -241,19 +243,96 @@ public:
       // is value-preserving. The CSE pass that follows will then deduplicate
       // the now-identical add/repeat/delta ops, collapsing N per-layer ops
       // to 1.
+      //
+      // We drop the eliminated args from the function signature so downstream
+      // passes don't carry the dead arg through as an identity passthrough in
+      // @main, which costs runtime perf for every layer. We intentionally do
+      // NOT drop the matching return slots: replaceAllUsesWith above already
+      // retargeted the return op's operands to the canonical SSA value, so the
+      // return is still valid and the function's result type list is unchanged.
+      // Keeping the return slots avoids forcing the caller (e.g. tt-xla) to
+      // also drop matching output buffers, which would require non-trivial
+      // host-side plumbing for relatively small device->host savings.
+      llvm::BitVector argsToErase(funcOp.getNumArguments());
+
+      // Track the canonical arg chosen per type so the second phase
+      // (unification of args without a matching write-back) can route to the
+      // same canonical and avoid splitting groups.
+      llvm::DenseMap<mlir::Type, BlockArgument> canonicalByType;
+
       for (auto &[key, group] : groups) {
         if (group.size() <= 1) {
           continue;
         }
 
         BlockArgument canonicalArg = group.back().blockArg;
+        canonicalByType[key.second] = canonicalArg;
         for (size_t i = 0; i + 1 < group.size(); ++i) {
-          BlockArgument eliminatedArg = group[i].blockArg;
+          const WritebackInfo &eliminated = group[i];
+          BlockArgument eliminatedArg = eliminated.blockArg;
           if (eliminatedArg == canonicalArg) {
             continue;
           }
           eliminatedArg.replaceAllUsesWith(canonicalArg);
+          argsToErase.set(eliminatedArg.getArgNumber());
         }
+      }
+
+      // Phase 2: unify any remaining cumulative_length args that don't have a
+      // matching write-back add/return pattern (e.g. production decode-only
+      // graphs where the per-layer position is consumed by `ttir.update_cache`
+      // but never written back to a return slot). Membership in
+      // `cumulativeLengthArgs` is the safety proof: each such arg was traced
+      // back from a cache-update position, so all of them carry the same
+      // lockstep-invariant value at function entry and can share a single SSA
+      // value.
+      //
+      // Grouping key is the block-arg type, matching Phase 1. If Phase 1
+      // already picked a canonical for a given type, we route Phase 2's
+      // eliminations to that same canonical so a single SSA value covers the
+      // whole group.
+      llvm::DenseMap<mlir::Type, SmallVector<BlockArgument>> remainingByType;
+      for (BlockArgument arg : cumulativeLengthArgs) {
+        if (argsToErase.test(arg.getArgNumber())) {
+          continue;
+        }
+        remainingByType[arg.getType()].push_back(arg);
+      }
+
+      for (auto &[type, args] : remainingByType) {
+        if (args.size() <= 1 && !canonicalByType.count(type)) {
+          continue;
+        }
+        BlockArgument canonicalArg;
+        auto it = canonicalByType.find(type);
+        if (it != canonicalByType.end()) {
+          canonicalArg = it->second;
+        } else {
+          // Pick the last arg (matches Phase 1's group.back() convention).
+          canonicalArg = args.back();
+          canonicalByType[type] = canonicalArg;
+        }
+        for (BlockArgument arg : args) {
+          if (arg == canonicalArg) {
+            continue;
+          }
+          arg.replaceAllUsesWith(canonicalArg);
+          argsToErase.set(arg.getArgNumber());
+        }
+      }
+
+      if (argsToErase.none()) {
+        return;
+      }
+
+      // Update the function signature: drop the eliminated arguments only.
+      // eraseArguments rewrites the entry-block arg list and the function
+      // type's input list. The result list is intentionally left untouched.
+      if (failed(funcOp.eraseArguments(argsToErase))) {
+        funcOp.emitError(
+            "ConsolidateStaticCacheUpdates: failed to erase orphaned arguments");
+        signalPassFailure();
+        return;
       }
     });
   }
