@@ -25,10 +25,10 @@ module {
   }
 
   func.func @decode(%input: tensor<1x1x32x32xbf16, #dram_interleaved_encoding>, %cos: tensor<1x1x32x32xbf16, #dram_interleaved_encoding>, %sin: tensor<1x1x32x32xbf16, #dram_interleaved_encoding>, %trans_mat: tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding> {
-    %0 = "ttnn.to_memory_config"(%input) <{memory_config = #height_sharded_mem_config }> : (tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
-    %1 = "ttnn.to_memory_config"(%cos) <{memory_config = #height_sharded_mem_config }> : (tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
-    %2 = "ttnn.to_memory_config"(%sin) <{memory_config = #height_sharded_mem_config }> : (tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
-    %3 = "ttnn.to_memory_config"(%trans_mat) <{memory_config = #height_sharded_mem_config }> : (tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
+    %0 = "ttnn.to_memory_config"(%input) : (tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
+    %1 = "ttnn.to_memory_config"(%cos) : (tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
+    %2 = "ttnn.to_memory_config"(%sin) : (tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
+    %3 = "ttnn.to_memory_config"(%trans_mat) : (tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
     %4 = "ttnn.rotary_embedding_llama"(%0, %1, %2, %3) <{ is_decode_mode = true }> : (tensor<1x1x32x32xbf16, #height_sharded_encoding>, tensor<1x1x32x32xbf16, #height_sharded_encoding>, tensor<1x1x32x32xbf16, #height_sharded_encoding>, tensor<1x1x32x32xbf16, #height_sharded_encoding>) -> tensor<1x1x32x32xbf16, #height_sharded_encoding>
     return %4 : tensor<1x1x32x32xbf16, #height_sharded_encoding>
   }

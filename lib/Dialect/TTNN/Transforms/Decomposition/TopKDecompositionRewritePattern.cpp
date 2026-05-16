@@ -32,8 +32,7 @@ LogicalResult TopKDecompositionRewritePattern::matchAndRewrite(
         topkOp.getOperation(), topkOp.getLoc(),
         {valuesResultType, indicesResultType}, topkOp.getInputTensor(),
         topkOp.getKAttr(), topkOp.getDimAttr(), topkOp.getLargestAttr(),
-        topkOp.getSortedAttr(),
-        /*memory_config=*/nullptr);
+        topkOp.getSortedAttr());
 
     if (validationResult.isSuccess()) {
       // Op is valid — keep it as-is.
@@ -68,8 +67,7 @@ LogicalResult TopKDecompositionRewritePattern::matchAndRewrite(
       topkOp.getLoc(), sortValuesType, sortIndicesType, topkOp.getInputTensor(),
       IntegerAttr::get(si8Type, static_cast<int8_t>(dim)),
       rewriter.getBoolAttr(largest), // descending = largest
-      rewriter.getBoolAttr(false),   // stable = false
-      ttnn::MemoryConfigAttr());     // memory_config
+      rewriter.getBoolAttr(false));  // stable = false
 
   // Build slice attributes: begins=0, ends=inputShape (except ends[dim]=k),
   // step=1.

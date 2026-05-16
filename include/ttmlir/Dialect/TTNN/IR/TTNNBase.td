@@ -8,6 +8,7 @@
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.td"
+include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.td"
 include "ttmlir/Dialect/TTNN/Interfaces/TTNNWorkaroundInterface.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNTraits.td"
 
@@ -59,19 +60,19 @@ class IfOpModelRequired<list<Trait> traits> {
 //===----------------------------------------------------------------------===//
 
 class TTNN_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [Pure, CheckTileTypeTrait, TTNN_WorkaroundInterface] #
+        Op<TTNN_Dialect, mnemonic, [Pure, CheckTileTypeTrait, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>] #
         IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface] #
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>] #
         IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_MemFreeOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, TTNN_WorkaroundInterface] #
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>] #
         IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_MemoryEffectOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface] #
+        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>] #
         IfOpModelRequired<traits>.value # traits>;
 
 #endif

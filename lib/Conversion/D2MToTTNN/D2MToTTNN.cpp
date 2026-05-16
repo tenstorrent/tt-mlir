@@ -15,7 +15,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineMap.h"
@@ -488,7 +487,6 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
     auto emptyLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr);
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(op);
@@ -496,7 +494,7 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
         loc, emptyTensorType, device,
         ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
         ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
-        ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()), memcfg);
+        ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()));
 
     valueMapping[op.getResult()] = emptyOp.getResult();
     for (auto castOp : castsToMap) {
@@ -511,7 +509,6 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
 struct TensorAllocAttrs {
   ttcore::DataTypeAttr dtype;
   ttnn::LayoutAttr layout;
-  ttnn::MemoryConfigAttr memcfg;
 };
 
 static FailureOr<TensorAllocAttrs>
@@ -522,19 +519,12 @@ getTensorAllocAttrs(Operation *op, RankedTensorType tensorType) {
   if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
     return TensorAllocAttrs{
         ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType()),
-        ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout()),
-        ttnn::MemoryConfigAttr::get(layoutAttr)};
+        ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout())};
   }
   if (auto ndLayoutAttr = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
-    auto bufferType =
-        ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
-    auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
     return TensorAllocAttrs{
         ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType()),
-        ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout()),
-        ttnn::MemoryConfigAttr::get(ctx, ndLayoutAttr.getMemLayout(),
-                                    bufferType, /*shardSpec=*/std::nullopt,
-                                    ndShardSpec)};
+        ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout())};
   }
   return op->emitOpError("unsupported encoding type"), failure();
 }
@@ -552,9 +542,8 @@ static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  auto emptyOp = rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device,
-                                                shape, attrs->dtype,
-                                                attrs->layout, attrs->memcfg);
+  auto emptyOp = rewriter.create<ttnn::EmptyOp>(
+      op.getLoc(), tensorType, device, shape, attrs->dtype, attrs->layout);
   valueMapping[op.getResult()] = emptyOp.getResult();
   return success();
 }
@@ -755,7 +744,7 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
 
   rewriter.setInsertionPoint(op);
   rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
-      op, ios, ttnnGenericAdditionalArgs, program, ttnn::MemoryConfigAttr());
+      op, ios, ttnnGenericAdditionalArgs, program);
   return success();
 }
 
@@ -1018,8 +1007,7 @@ static LogicalResult convertSingleSpatial(d2m::SpatialOp spatialOp,
   rewriter.setInsertionPoint(spatialOp);
   rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
       spatialOp, remapTable.getUnifiedIO(),
-      remapTable.getUnifiedAdditionalArgs(), mergedProgram,
-      ttnn::MemoryConfigAttr());
+      remapTable.getUnifiedAdditionalArgs(), mergedProgram);
   return success();
 }
 

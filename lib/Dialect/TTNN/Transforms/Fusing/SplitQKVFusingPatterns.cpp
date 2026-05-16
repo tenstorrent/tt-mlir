@@ -394,8 +394,7 @@ Value reorderTensorViaSliceConcat(mlir::PatternRewriter &rewriter,
       utils::RankedTensorTypeFactory::create(tensorType, concatShape);
 
   auto concatOp = rewriter.create<ConcatOp>(matmulOp.getLoc(), concatTy, slices,
-                                            static_cast<int32_t>(sliceDim),
-                                            MemoryConfigAttr());
+                                            static_cast<int32_t>(sliceDim));
 
   return concatOp.getResult();
 }
@@ -625,7 +624,7 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
 
   auto inputReshape = rewriter.create<ReshapeOp>(
       matmulOp.getLoc(), reshapeInputTy, splitInput,
-      rewriter.getI32ArrayAttr(inputReshapeShapeI32), MemoryConfigAttr());
+      rewriter.getI32ArrayAttr(inputReshapeShapeI32));
 
   // Build split op output types in the matmul's element type. If the
   // downstream chain contains typecasts, the final types may differ — we
@@ -653,7 +652,7 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
           matmulOp.getOperation(), matmulOp.getLoc(),
           {qSplitTy, kSplitTy, vSplitTy}, inputReshape.getResult(),
           /*kv_input_tensor=*/Value(), numHeadsAttr, numKVHeadsAttr,
-          transposeKeyAttr, MemoryConfigAttr());
+          transposeKeyAttr);
 
   if (!validationResult.isSuccess()) {
     return mlir::failure();
@@ -663,7 +662,7 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
       matmulOp.getLoc(), TypeRange{qSplitTy, kSplitTy, vSplitTy},
       inputReshape.getResult(),
       Value(), // no separate KV input
-      numHeadsAttr, numKVHeadsAttr, transposeKeyAttr, MemoryConfigAttr());
+      numHeadsAttr, numKVHeadsAttr, transposeKeyAttr);
 
   // Helper to insert a typecast if the split output dtype differs from what
   // the downstream ops expect.
@@ -871,7 +870,7 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
       utils::RankedTensorTypeFactory::create(inputType, reshapeShape);
   auto reshapeOp = rewriter.create<ReshapeOp>(
       splitOp.getLoc(), reshapeType, splitOp.getInputTensor(),
-      rewriter.getI32ArrayAttr(reshapeShapeI32), MemoryConfigAttr());
+      rewriter.getI32ArrayAttr(reshapeShapeI32));
 
   bool isGQA = (numHeads != numKVHeads);
   auto numHeadsAttr = rewriter.getUI32IntegerAttr(numHeads);
@@ -889,7 +888,7 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
       reshapeOp.getResult(),
       /*batch_offset=*/Value(), numHeadsAttr, numKVHeadsAttr,
       /*overlap_qk_coregrid=*/BoolAttr(),
-      /*slice_size=*/IntegerAttr(), MemoryConfigAttr());
+      /*slice_size=*/IntegerAttr());
 
   if (!validationResult.isSuccess()) {
     return mlir::failure();
@@ -899,7 +898,7 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
       splitOp.getLoc(), resultTypes, reshapeOp.getResult(),
       /*batch_offset=*/Value(), numHeadsAttr, numKVHeadsAttr,
       /*overlap_qk_coregrid=*/BoolAttr(),
-      /*slice_size=*/IntegerAttr(), MemoryConfigAttr());
+      /*slice_size=*/IntegerAttr());
 
   // Replace permute ops with decode op outputs.
   rewriter.replaceOp(qPermuteOp, decodeOp.getQuery());

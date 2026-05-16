@@ -1278,14 +1278,6 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
     opResult.setType(newType);
   }
 
-  // For ToMemoryConfigOp, update the memory_config attribute to match.
-  if (auto tmcOp = mlir::dyn_cast<ToMemoryConfigOp>(op)) {
-    auto dramLayout = mlir::cast<TTNNLayoutAttr>(
-        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding());
-    MemoryConfigAttr dramMemConfig = MemoryConfigAttr::get(dramLayout);
-    tmcOp.setMemoryConfigAttr(dramMemConfig);
-  }
-
   // Remove L1 usage annotation since the output is now DRAM.
   op->removeAttr("ttnn.output_l1_usage");
 
@@ -1405,8 +1397,6 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
 
-  MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(dramLayout);
-
   OpBuilder builder(defOp->getContext());
   if (insertBefore) {
     builder.setInsertionPoint(insertBefore);
@@ -1426,8 +1416,8 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
     uses.emplace_back(use.getOwner(), use.getOperandNumber());
   }
 
-  Operation *spillOp = builder.create<ToMemoryConfigOp>(loc, newTensorType,
-                                                        result, memConfigAttr);
+  Operation *spillOp =
+      builder.create<ToMemoryConfigOp>(loc, newTensorType, result);
 
   for (auto &[useOp, operandIdx] : uses) {
     useOp->setOperand(operandIdx, spillOp->getResult(0));
@@ -1457,16 +1447,13 @@ void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
   RankedTensorType reshardType =
       utils::RankedTensorTypeFactory::create(spillTensorType, originalL1Layout);
 
-  // Build MemoryConfigAttr for the reshard target.
-  MemoryConfigAttr memConfig = MemoryConfigAttr::get(originalL1Layout);
-
   // Insert ToMemoryConfigOp before consumer.
   OpBuilder builder(consumer);
   Location loc =
       ttmlir::utils::appendLocationSuffix(consumer->getLoc(), "_reshard");
 
-  auto reshardOp = builder.create<ToMemoryConfigOp>(loc, reshardType,
-                                                    spillOutput, memConfig);
+  auto reshardOp =
+      builder.create<ToMemoryConfigOp>(loc, reshardType, spillOutput);
   consumer->setOperand(operandIdx, reshardOp->getResult(0));
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,

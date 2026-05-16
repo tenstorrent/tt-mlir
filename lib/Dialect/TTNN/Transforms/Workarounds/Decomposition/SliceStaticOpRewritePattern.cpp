@@ -82,7 +82,6 @@ SliceStaticOpRewritePattern::matchAndRewrite(ttnn::SliceStaticOp srcOp,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
       permutedInputType, srcOp.getInput(),
       rewriter.getDenseI64ArrayAttr(permutation),
-      /*memory_config=*/ttnn::MemoryConfigAttr(),
       /*pad_value=*/mlir::FloatAttr());
 
   // Remap begins/ends/steps: new_attr[d] = old_attr[permutation[d]] because
@@ -126,7 +125,6 @@ SliceStaticOpRewritePattern::matchAndRewrite(ttnn::SliceStaticOp srcOp,
   auto inversePermute = rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
       srcOp, outputType, sliceOp,
       rewriter.getDenseI64ArrayAttr(inversePermutation),
-      /*memory_config=*/ttnn::MemoryConfigAttr(),
       /*pad_value=*/mlir::FloatAttr());
   inversePermute->setLoc(ttmlir::utils::appendLocationSuffix(
       inversePermute.getLoc(), "_permuteInverse"));

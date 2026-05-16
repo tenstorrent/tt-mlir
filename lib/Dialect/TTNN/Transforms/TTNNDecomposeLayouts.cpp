@@ -189,11 +189,8 @@ private:
     auto outputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
 
-    assert(op.getMemoryConfig().has_value());
-    MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
-
     input.bufferType = inputLayoutAttr.getBufferType();
-    output.bufferType = outputMemoryConfig.getBufferType().getValue();
+    output.bufferType = outputLayoutAttr.getBufferType();
 
     input.layoutEnum = inputLayoutAttr.getLayout();
     output.layoutEnum = outputLayoutAttr.getLayout();
@@ -203,7 +200,7 @@ private:
     output.dataType = op.getDtype().value();
 
     input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
-    output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
+    output.tensorMemoryLayout = outputLayoutAttr.getMemLayout();
 
     input.gridShape =
         llvm::SmallVector<int64_t>(inputLayoutAttr.getGridShape());
@@ -335,13 +332,12 @@ private:
             .build();
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newEncoding);
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(newEncoding);
 
     mlir::Value device = utils::getOrInsertDevice(rewriter, op);
 
-    return this->createOp<ttnn::ToDeviceOp>(
-        rewriter, op, newResultType, currentInput, device, memoryConfigAttr);
+    // Create new ranked tensor type with host memory buffer type
+    return this->createOp<ttnn::ToDeviceOp>(rewriter, op, newResultType,
+                                            currentInput, device);
   }
 
   // FromDeviceOp
@@ -376,8 +372,7 @@ private:
 
     return this->createOp<ttnn::ToLayoutOp>(rewriter, op, newResultType,
                                             currentInput, layoutAttr,
-                                            /*dtype*/ nullptr,
-                                            /*memory_config*/ nullptr);
+                                            /*dtype*/ nullptr);
   }
 
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
@@ -468,10 +463,8 @@ private:
             .build();
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(newLayout);
     mlir::Value result = this->createOp<ttnn::ToMemoryConfigOp>(
-        rewriter, op, newResultType, currentInput, memoryConfigAttr);
+        rewriter, op, newResultType, currentInput);
 
     if (needsWorkaround) {
       ttcore::DataTypeAttr origDtypeAttr =
@@ -538,13 +531,6 @@ private:
     RankedTensorType dramType =
         RankedTensorType::get(shape, inputType.getElementType(), dramEncoding);
 
-    MemoryConfigAttr dramMemConfig = MemoryConfigAttr::get(
-        op.getContext(),
-        TensorMemoryLayoutAttr::get(op.getContext(),
-                                    TensorMemoryLayout::Interleaved),
-        BufferTypeAttr::get(op.getContext(), BufferType::DRAM),
-        /*shard_spec=*/std::nullopt);
-
     rewriter.setInsertionPoint(op);
 
     if (dataType == ttcore::DataType::UInt16) {
@@ -553,11 +539,11 @@ private:
       mlir::Value hostVal =
           rewriter.create<FromDeviceOp>(op.getLoc(), hostType, currentInput);
       mlir::Value device = utils::getOrInsertDevice(rewriter, op);
-      currentInput = rewriter.create<ToDeviceOp>(op.getLoc(), dramType, hostVal,
-                                                 device, dramMemConfig);
+      currentInput =
+          rewriter.create<ToDeviceOp>(op.getLoc(), dramType, hostVal, device);
     } else {
-      currentInput = rewriter.create<ToMemoryConfigOp>(
-          op.getLoc(), dramType, currentInput, dramMemConfig);
+      currentInput = rewriter.create<ToMemoryConfigOp>(op.getLoc(), dramType,
+                                                       currentInput);
     }
 
     // Step 2: Pad to tile-aligned dimensions.
@@ -588,8 +574,7 @@ private:
     currentInput = rewriter.create<PadOp>(
         op.getLoc(), paddedType, currentInput,
         rewriter.getDenseI32ArrayAttr(padding), rewriter.getF32FloatAttr(0.0f),
-        /*use_multicore=*/rewriter.getBoolAttr(true),
-        /*memory_config=*/nullptr);
+        /*use_multicore=*/rewriter.getBoolAttr(true));
 
     // Step 3: Tilize on padded DRAM tensor.
     RankedTensorType paddedTiledType = utils::RankedTensorTypeFactory::create(
@@ -599,7 +584,7 @@ private:
         ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
     currentInput = rewriter.create<ttnn::ToLayoutOp>(
         op.getLoc(), paddedTiledType, currentInput, layoutAttr,
-        /*dtype=*/nullptr, /*memory_config=*/nullptr);
+        /*dtype=*/nullptr);
 
     // Step 4: Slice back to original shape.
     SmallVector<int32_t> begins(rank, 0);
