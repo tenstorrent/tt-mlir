@@ -55,6 +55,19 @@ module {
     return %result : tensor<1x256x512xbf16>
   }
 
+  // Pi0 action_in_proj: matmul shape [50, 1024], bias [1, 1, 1024], output typed as matmul.
+  // Broadcast shape is [1, 50, 1024]. Pattern inserts linear(broadcast) + reshape(matmul).
+  // See: https://github.com/tenstorrent/tt-xla/issues/4633
+  func.func @pi0_action_in_proj_matmul_typed_output(%arg0: tensor<50x32xbf16>, %arg1: tensor<1024x32xbf16>, %bias: tensor<1x1x1024xbf16>) -> tensor<50x1024xbf16> {
+    // CHECK-LABEL: func.func @pi0_action_in_proj_matmul_typed_output
+    // CHECK: "ttnn.linear"
+    // CHECK-SAME: -> tensor<1x50x1024xbf16
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: -> tensor<50x1024xbf16
+    %result = "ttnn.linear"(%arg0, %arg1, %bias) <{transpose_a = false, transpose_b = true}> : (tensor<50x32xbf16>, tensor<1024x32xbf16>, tensor<1x1x1024xbf16>) -> tensor<50x1024xbf16>
+    return %result : tensor<50x1024xbf16>
+  }
+
   // No bias. Pattern should NOT fire.
   func.func @linear_no_bias_no_change(%arg0: tensor<256x1024xbf16>, %arg1: tensor<1024x512xbf16>) -> tensor<256x512xbf16> {
     // CHECK-LABEL: func.func @linear_no_bias_no_change

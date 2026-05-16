@@ -13,11 +13,14 @@
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 // When the fused LinearOp kernel is used (padded bias second-to-last dim ==
-// TILE_HEIGHT), the hardware output shape is the matmul shape, not the
-// broadcasted shape. This pattern adjusts the LinearOp output from the
-// broadcasted shape to the matmul shape and inserts a ReshapeOp to restore the
-// original shape.
+// TILE_HEIGHT), tt-metal may return the matmul rank or the bias-broadcast rank
+// depending on how the op was typed. This pattern inserts an explicit
+// linear + reshape so downstream consumers (e.g. ttnn.concat) always see the
+// rank declared in the IR:
+//   - broadcast-typed linear: linear(matmul rank) -> reshape(broadcast rank)
+//   - matmul-typed linear:    linear(broadcast rank) -> reshape(matmul rank)
 // See: https://github.com/tenstorrent/tt-metal/issues/39392
+//      https://github.com/tenstorrent/tt-xla/issues/4633
 class LinearOpOutputShapeRewritePattern
     : public OpRewritePattern<ttnn::LinearOp> {
 public:

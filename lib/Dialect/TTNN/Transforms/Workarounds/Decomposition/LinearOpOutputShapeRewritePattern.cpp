@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
 
-#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -55,6 +54,25 @@ computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA, bool transposeA,
   return outputShape;
 }
 
+static RankedTensorType createTensorTypeWithShape(RankedTensorType tensorType,
+                                                  ArrayRef<int64_t> shape) {
+  if (mlir::isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding())) {
+    return utils::RankedTensorTypeFactory::create(tensorType, shape);
+  }
+  return RankedTensorType::get(shape, tensorType.getElementType());
+}
+
+static ttnn::ReshapeOp createReshapeWithShape(
+    mlir::TypedValue<RankedTensorType> input, ArrayRef<int64_t> newShape,
+    PatternRewriter &rewriter, mlir::Location loc) {
+  RankedTensorType outputType =
+      createTensorTypeWithShape(input.getType(), newShape);
+  llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+  return rewriter.create<ttnn::ReshapeOp>(loc, outputType, input,
+                                          rewriter.getI32ArrayAttr(newShapeI32),
+                                          /*memory_config=*/nullptr);
+}
+
 LogicalResult LinearOpOutputShapeRewritePattern::matchAndRewrite(
     ttnn::LinearOp srcOp, PatternRewriter &rewriter) const {
 
@@ -93,20 +111,55 @@ LogicalResult LinearOpOutputShapeRewritePattern::matchAndRewrite(
       computeMatmulOutputShape(inputAType.getShape(), srcOp.getTransposeA(),
                                inputBType.getShape(), srcOp.getTransposeB());
 
-  RankedTensorType currentOutputType = srcOp.getResult().getType();
-  ArrayRef<int64_t> currentOutputShape = currentOutputType.getShape();
-
-  // If the output shape already equals the matmul shape, nothing to do.
-  if (llvm::equal(currentOutputShape, matmulShape)) {
+  llvm::SmallVector<int64_t> broadcastShape;
+  if (!mlir::OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
+                                                broadcastShape)) {
     return failure();
   }
 
-  // Replace LinearOp with matmul-shaped output + ReshapeOp.
-  auto matmulOutputType =
-      utils::RankedTensorTypeFactory::create(currentOutputType, matmulShape);
+  // No rank mismatch between matmul and bias-broadcast results.
+  if (llvm::equal(matmulShape, broadcastShape)) {
+    return failure();
+  }
+
+  RankedTensorType currentOutputType = srcOp.getResult().getType();
+  ArrayRef<int64_t> currentOutputShape = currentOutputType.getShape();
+
+  const bool outputIsMatmul = llvm::equal(currentOutputShape, matmulShape);
+  const bool outputIsBroadcast =
+      llvm::equal(currentOutputShape, broadcastShape);
+
+  // Only handle graphs where consumers expect one of the two valid linear
+  // output shapes (see LinearOp::verify).
+  if (!outputIsMatmul && !outputIsBroadcast) {
+    return failure();
+  }
+
+  // Already rewritten: linear(intermediate) -> reshape(final). Greedy rewrite
+  // has no iteration limit, so without this check the pattern oscillates.
+  if (srcOp.getResult().hasOneUse()) {
+    if (auto reshapeOp =
+            dyn_cast<ttnn::ReshapeOp>(*srcOp.getResult().user_begin())) {
+      ArrayRef<int64_t> reshapeOut =
+          reshapeOp.getResult().getType().getShape();
+      if ((outputIsBroadcast && llvm::equal(reshapeOut, matmulShape)) ||
+          (outputIsMatmul && llvm::equal(reshapeOut, broadcastShape))) {
+        return failure();
+      }
+    }
+  }
+
+  // Fused linear may return the broadcast rank at runtime while the IR types the
+  // op as matmul rank (or vice versa). Insert linear + explicit reshape so
+  // downstream ops (e.g. ttnn.concat) see a consistent rank.
+  // - broadcast-typed output: linear(matmul) -> reshape(broadcast)
+  // - matmul-typed output:    linear(broadcast) -> reshape(matmul)
+  const auto linearOutputType = createTensorTypeWithShape(
+      currentOutputType,
+      outputIsBroadcast ? matmulShape : broadcastShape);
 
   auto newLinearOp = rewriter.create<ttnn::LinearOp>(
-      srcOp.getLoc(), matmulOutputType, srcOp.getA(), srcOp.getB(),
+      srcOp.getLoc(), linearOutputType, srcOp.getA(), srcOp.getB(),
       srcOp.getBias(), srcOp.getTransposeA(), srcOp.getTransposeB(),
       /*matmul_program_config=*/nullptr, srcOp.getActivationAttr(),
       /*compute_config=*/srcOp.getComputeConfigAttr());
@@ -115,8 +168,7 @@ LogicalResult LinearOpOutputShapeRewritePattern::matchAndRewrite(
     newLinearOp->setAttr("ttcore.weight_dtype", weightDtype);
   }
 
-  // Reshape back to the original broadcasted shape.
-  ttnn::ReshapeOp reshapeOp = ttir_to_ttnn::utils::generateReshape(
+  ttnn::ReshapeOp reshapeOp = createReshapeWithShape(
       newLinearOp.getResult(), currentOutputShape, rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(),
                                           "_output_shape_workaround"));
