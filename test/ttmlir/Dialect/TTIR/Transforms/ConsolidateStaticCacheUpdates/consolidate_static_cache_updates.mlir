@@ -57,11 +57,20 @@ module {
 }
 
 // Positive case: TP-style per-layer pattern with different block args.
-// The pass unifies %arg0 and %arg1 → %arg2 (canonical).
-// CSE then deduplicates the 3 identical adds to 1.  Safe because all per-layer
-// cumulative_lengths hold equal values at function entry (lockstep invariant).
+// The pass unifies %arg0 and %arg1 → %arg2 (canonical) and erases the
+// eliminated args from the function signature. CSE then deduplicates the 3
+// identical adds to 1. Safe because all per-layer cumulative_lengths hold
+// equal values at function entry (lockstep invariant).
+//
+// After the pass + CSE the function takes only 1 cumulative_length arg, but
+// the result type list is intentionally LEFT UNCHANGED: replaceAllUsesWith
+// already retargeted every return-op operand to the canonical SSA value, so
+// the 3 cumlen return slots survive and all point to the same value. This
+// keeps the caller's output-buffer plumbing unchanged.
 module {
   // CHECK-LABEL: func.func @consolidate_per_layer
+  // CHECK-SAME:    (%arg0: tensor<1xi32>, %arg1: tensor<1x8x16x128xbf16>, %arg2: tensor<1x8x1x128xbf16>)
+  // CHECK-SAME:    -> (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1x8x16x128xbf16>)
   func.func @consolidate_per_layer(
       %arg0: tensor<1xi32>,
       %arg1: tensor<1xi32>,
@@ -82,18 +91,24 @@ module {
         : (tensor<1x8x16x128xbf16>, tensor<1x8x1x128xbf16>, tensor<1xi32>) -> tensor<1x8x16x128xbf16>
     // CHECK:     [[ADD:%.+]] = "ttir.add"
     // CHECK-NOT: "ttir.add"
-    // CHECK: return [[ADD]], [[ADD]], [[ADD]]
+    // CHECK:     [[CACHE:%.+]] = "ttir.update_cache"
+    // CHECK:     return [[ADD]], [[ADD]], [[ADD]], {{.*}} : tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1x8x16x128xbf16>
     return %a0, %a1, %a2, %c2 : tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1x8x16x128xbf16>
   }
 }
 
-// Positive case: per-layer block args with internal uses.  The pass replaces
-// all uses of %arg0 and %arg1 with canonical %arg2.  CSE collapses the 3
-// identical write-back adds to 1.  The internal add uses %arg2 after unification.
-// %arg3 is NOT a cumulative_length (no update_cache anchors it), so it is
-// untouched by the pass.
+// Positive case: per-layer block args with internal uses. The pass replaces
+// all uses of %arg0 and %arg1 with canonical %arg2 and erases the eliminated
+// args from the function signature. CSE collapses the 3 identical write-back
+// adds to 1. The internal add uses the canonical arg after unification. The
+// original %arg3 (non-cumulative_length) is NOT erased — it is anchored by no
+// update_cache op and survives. After erasure the signature is
+// (cumlen, non_cumlen, cache, input). The result type list is left unchanged
+// — all 3 cumlen return slots survive and route to the single canonical add.
 module {
   // CHECK-LABEL: func.func @consolidate_block_args_internal_uses
+  // CHECK-SAME:    (%arg0: tensor<1xi32>, %arg1: tensor<1xi32>, %arg2: tensor<1x8x16x128xbf16>, %arg3: tensor<1x8x1x128xbf16>)
+  // CHECK-SAME:    -> (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1x8x16x128xbf16>)
   func.func @consolidate_block_args_internal_uses(
       %arg0: tensor<1xi32>,
       %arg1: tensor<1xi32>,
@@ -117,12 +132,13 @@ module {
         : (tensor<1x8x16x128xbf16>, tensor<1x8x1x128xbf16>, tensor<1xi32>) -> tensor<1x8x16x128xbf16>
     %c2 = "ttir.update_cache"(%c1, %input, %arg2) <{batch_offset = 0 : i32}>
         : (tensor<1x8x16x128xbf16>, tensor<1x8x1x128xbf16>, tensor<1xi32>) -> tensor<1x8x16x128xbf16>
-    // After arg unification + CSE: one write-back add survives, %arg0/%arg1 gone.
-    // CHECK:     [[KEPT:%.+]] = "ttir.add"(%arg2,
-    // CHECK-NOT: "ttir.add"(%arg0,
-    // CHECK-NOT: "ttir.add"(%arg1,
-    // CHECK:     [[INT:%.+]] = "ttir.add"(%arg2, %arg3)
-    // CHECK:     return [[KEPT]], [[KEPT]], [[KEPT]], [[INT]]
+    // After arg unification + CSE: one write-back add survives. The original
+    // %arg2 (canonical cumlen) is now %arg0 in the trimmed signature; the
+    // original %arg3 (non-cumlen) is now %arg1.
+    // CHECK:     [[DELTA:%.+]] = "ttir.full"
+    // CHECK:     [[KEPT:%.+]] = "ttir.add"(%arg0, [[DELTA]])
+    // CHECK:     [[INT:%.+]] = "ttir.add"(%arg0, %arg1)
+    // CHECK:     return [[KEPT]], [[KEPT]], [[KEPT]], [[INT]], {{.*}} : tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1x8x16x128xbf16>
     return %a0, %a1, %a2, %internal, %c2 : tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1x8x16x128xbf16>
   }
 }

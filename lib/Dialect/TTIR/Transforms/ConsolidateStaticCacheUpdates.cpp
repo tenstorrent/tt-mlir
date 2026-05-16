@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -157,7 +158,8 @@ public:
       //                     constant_delta) [)]  →  return operand
       SmallVector<WritebackInfo> candidates;
 
-      for (auto retVal : returnOp.getOperands()) {
+      for (auto en : llvm::enumerate(returnOp.getOperands())) {
+        Value retVal = en.value();
         // Optionally look through an outer mesh_shard.
         Value addResult = retVal;
         if (auto outerShard = retVal.getDefiningOp<MeshShardOp>()) {
@@ -241,6 +243,18 @@ public:
       // is value-preserving. The CSE pass that follows will then deduplicate
       // the now-identical add/repeat/delta ops, collapsing N per-layer ops
       // to 1.
+      //
+      // We drop the eliminated args from the function signature so downstream
+      // passes don't carry the dead arg through as an identity passthrough in
+      // @main, which costs runtime perf for every layer. We intentionally do
+      // NOT drop the matching return slots: replaceAllUsesWith above already
+      // retargeted the return op's operands to the canonical SSA value, so the
+      // return is still valid and the function's result type list is unchanged.
+      // Keeping the return slots avoids forcing the caller (e.g. tt-xla) to
+      // also drop matching output buffers, which would require non-trivial
+      // host-side plumbing for relatively small device->host savings.
+      llvm::BitVector argsToErase(funcOp.getNumArguments());
+
       for (auto &[key, group] : groups) {
         if (group.size() <= 1) {
           continue;
@@ -248,12 +262,28 @@ public:
 
         BlockArgument canonicalArg = group.back().blockArg;
         for (size_t i = 0; i + 1 < group.size(); ++i) {
-          BlockArgument eliminatedArg = group[i].blockArg;
+          const WritebackInfo &eliminated = group[i];
+          BlockArgument eliminatedArg = eliminated.blockArg;
           if (eliminatedArg == canonicalArg) {
             continue;
           }
           eliminatedArg.replaceAllUsesWith(canonicalArg);
+          argsToErase.set(eliminatedArg.getArgNumber());
         }
+      }
+
+      if (argsToErase.none()) {
+        return;
+      }
+
+      // Update the function signature: drop the eliminated arguments only.
+      // eraseArguments rewrites the entry-block arg list and the function
+      // type's input list. The result list is intentionally left untouched.
+      if (failed(funcOp.eraseArguments(argsToErase))) {
+        funcOp.emitError(
+            "ConsolidateStaticCacheUpdates: failed to erase orphaned arguments");
+        signalPassFailure();
+        return;
       }
     });
   }
