@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -79,22 +80,22 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
                       AffineMap::getMultiDimIdentityMap(shardShape.size(), ctx),
                       ttnn::BufferTypeAttr::get(ctx, bufferType));
 
-  ttcore::GridAttr grid;
+  llvm::SmallVector<int64_t> ttnnGridShape;
   ttnn::TensorMemoryLayout memLayoutEnum;
   ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
 
   if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
-    grid = ttcore::GridAttr::get(ctx, SmallVector<int64_t>(2, 1));
+    ttnnGridShape = {1, 1};
     memLayoutEnum = ttnn::TensorMemoryLayout::Interleaved;
   } else {
     auto virtMap = d2m::utils::getVirtualGridForwardMapping(memrefValue);
 
     if (!virtMap) {
-      grid = ttcore::GridAttr::get(ctx, gridShape);
+      ttnnGridShape.assign(gridShape.begin(), gridShape.end());
       memLayoutEnum = ttnn::TensorMemoryLayout::BlockSharded;
     } else {
-      grid = ttcore::GridAttr::get(
-          ctx, d2m::utils::getPhysicalGridShape(memrefValue));
+      auto physicalGrid = d2m::utils::getPhysicalGridShape(memrefValue);
+      ttnnGridShape.assign(physicalGrid.begin(), physicalGrid.end());
       TT_assertv(gridShape.size() >= 2u,
                  "Expected at least 2 dimensions in grid shape");
       int64_t gridY = gridShape[gridShape.size() - 2];
@@ -110,9 +111,21 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
   auto linearMap = AffineMap::getMultiDimIdentityMap(kRank, ctx);
   auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
 
+  // The gridShape is already in physical core coords; emit a single rectangle
+  // at the origin.
+  ttnn::CoreRangeSetAttr coreRangeSet{};
+  if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+    coreRangeSet = ttnn::CoreRangeSetAttr::get(
+        ctx, ttnn::CoreRangeAttr::get(
+                 ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+                 ttnn::CoreCoordAttr::get(ctx, ttnnGridShape[1] - 1,
+                                          ttnnGridShape[0] - 1)));
+  }
+
   return {ttnn::TTNNLayoutAttr::get(
-      ctx, linearMap, grid, shardMemref, memLayout, /*tensorMesh=*/nullptr,
-      /*ignorePhysicalLayout=*/false, /*exactGrid=*/true)};
+      ctx, linearMap, ttnnGridShape, shardMemref, memLayout,
+      /*tensorMesh=*/nullptr,
+      /*ignorePhysicalLayout=*/false, coreRangeSet)};
 }
 
 static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
@@ -144,9 +157,55 @@ convertMathFidelity(ttmetal::MathFidelity fidelity) {
   llvm_unreachable("Invalid MathFidelity");
 }
 
+static ttnn::CoreRangeSetAttr coreRangeSetFromGeneric(MLIRContext *ctx,
+                                                      d2m::GenericOp op) {
+  ttcore::GridAttr grid = op.getGrid();
+  AffineMap virtToPhysMap = grid.getVirtToPhysicalMap();
+  ArrayRef<int64_t> gridShape = grid.getShape();
+  if (virtToPhysMap.isEmpty()) {
+    auto physicalGridShape = op.getPhysicalGridShape();
+    return ttnn::CoreRangeSetAttr::get(
+        ctx, ttnn::CoreRangeAttr::get(
+                 ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+                 ttnn::CoreCoordAttr::get(ctx, physicalGridShape[1] - 1,
+                                          physicalGridShape[0] - 1)));
+  }
+
+  TT_assertv(gridShape.size() == virtToPhysMap.getNumDims(),
+             "virt_to_physical num dims {} must match grid rank {}",
+             virtToPhysMap.getNumDims(), gridShape.size());
+  TT_assertv((virtToPhysMap.getNumResults() == 2u ||
+              virtToPhysMap.getNumResults() == 3u),
+             "virt_to_physical must have 2 or 3 results (got {})",
+             virtToPhysMap.getNumResults());
+
+  if (virtToPhysMap.getNumResults() == 3u) {
+    virtToPhysMap = virtToPhysMap.getSubMap({1, 2});
+  }
+
+  llvm::SmallVector<int64_t> start(gridShape.size(), 0);
+  llvm::SmallVector<int64_t> end;
+  end.reserve(gridShape.size());
+  for (int64_t dim : gridShape) {
+    end.push_back(dim - 1);
+  }
+  d2m::utils::BoundingBox physBox = d2m::utils::getProjectedBoundingBox(
+      d2m::utils::BoundingBox{start, end}, virtToPhysMap);
+  auto coreStart =
+      ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(physBox.start[1]),
+                               static_cast<uint64_t>(physBox.start[0]));
+  auto coreEnd =
+      ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(physBox.end[1]),
+                               static_cast<uint64_t>(physBox.end[0]));
+  return ttnn::CoreRangeSetAttr::get(
+      ctx, llvm::ArrayRef{ttnn::CoreRangeAttr::get(ctx, coreStart, coreEnd)});
+}
+
 static mlir::Attribute
 convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
-                 const llvm::DenseMap<size_t, size_t> &semIndexMap) {
+                 const llvm::DenseMap<size_t, size_t> &semIndexMap,
+                 const DenseMap<uint32_t, uint32_t> &additionalArgMapping,
+                 const DenseMap<size_t, size_t> &cbOperandIndexToPortMapping) {
   switch (arg.getArgType()) {
   case ttkernel::ArgType::BufferAddress: {
     return builder.getAttr<ttnn::KernelArgAddressOfTensorAttr>(
@@ -154,7 +213,7 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
   }
   case ttkernel::ArgType::CBPort: {
     return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
-        arg.getOperandIndex());
+        cbOperandIndexToPortMapping.at(arg.getOperandIndex()));
   }
   case ttkernel::ArgType::LocalSemaphore: {
     auto it = semIndexMap.find(arg.getOperandIndex());
@@ -168,7 +227,7 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
   }
   case ttkernel::ArgType::GlobalSemaphore: {
     return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
-        arg.getOperandIndex());
+        additionalArgMapping.at(arg.getOperandIndex()));
   }
   case ttkernel::ArgType::Scalar: {
     return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
@@ -227,12 +286,13 @@ createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
   return semaphoreDescriptors;
 }
 
-static SmallVector<mlir::Attribute>
-createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
-                        const ttnn::CoreRangeSetAttr &coreRangeSet,
-                        const SymbolTable &symbolTable,
-                        ttmetal::MathFidelity mathFidelity,
-                        const llvm::DenseMap<size_t, size_t> &semIndexMap) {
+static SmallVector<mlir::Attribute> createKernelDescriptors(
+    Builder &builder, const ArrayAttr &threads,
+    const ttnn::CoreRangeSetAttr &coreRangeSet, const SymbolTable &symbolTable,
+    ttmetal::MathFidelity mathFidelity,
+    const llvm::DenseMap<size_t, size_t> &semIndexMap,
+    const DenseMap<uint32_t, uint32_t> &additionalArgMapping,
+    const DenseMap<size_t, size_t> &cbOperandIndexToPortMapping) {
   SmallVector<mlir::Attribute> kernelConfigs(threads.size());
   int unassignedNocCounter = 0;
   for (const auto [i, thread] : llvm::enumerate(threads)) {
@@ -254,10 +314,14 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
     llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
     llvm::SmallVector<mlir::Attribute> kernelCRTArgs(crtArgs.size());
     for (const auto [i, arg] : llvm::enumerate(crtArgs)) {
-      kernelCRTArgs[i] = convertKernelArg(builder, arg, semIndexMap);
+      kernelCRTArgs[i] =
+          convertKernelArg(builder, arg, semIndexMap, additionalArgMapping,
+                           cbOperandIndexToPortMapping);
     }
     for (const auto [i, arg] : llvm::enumerate(ctArgs)) {
-      kernelCTArgs[i] = convertKernelArg(builder, arg, semIndexMap);
+      kernelCTArgs[i] =
+          convertKernelArg(builder, arg, semIndexMap, additionalArgMapping,
+                           cbOperandIndexToPortMapping);
     }
 
     // Create KernelDescriptor.
@@ -301,69 +365,54 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
   return kernelConfigs;
 }
 
-enum class OperandLocality {
-  L1Local,
-  L1Remote,
-  DRAM,
-};
-
-struct GenericOperandInfo {
-  Value ioTensor;
-  Value cbMemref;
-  bool isOutput;
-  OperandLocality locality;
-  unsigned operandIdx;
-};
-
-static ttnn::KernelCBAttr
-createCBDescriptor(Builder &builder, Value cbMemrefValue, size_t cbIndex,
-                   const ttcore::DeviceAttr &device,
-                   const ttnn::CoreRangeSetAttr &coreRangeSet,
-                   std::optional<OperandLocality> locality = std::nullopt) {
+static std::pair<SmallVector<ttnn::KernelCBAttr>, DenseMap<size_t, size_t>>
+createCBDescriptors(Builder &builder, d2m::GenericOp op,
+                    const ttcore::DeviceAttr &device,
+                    const ttnn::CoreRangeSetAttr &coreRangeSet) {
   MLIRContext *ctx = builder.getContext();
-  auto cbMemref = mlir::cast<MemRefType>(cbMemrefValue.getType());
-  TT_assertv(mlir::isa<ttcore::TileType>(cbMemref.getElementType()),
-             "Only TileType supported.");
-  ttcore::DataType dtype =
-      ttcore::elementTypeToDataType(cbMemref.getElementType());
-  size_t pageSize = device.getMemrefCBPageSizeBytes(cbMemref);
-  size_t totalSize = device.getMemrefSizeBytes(cbMemref, pageSize, true);
-
-  ttnn::KernelCBFormatAttr cbFormat =
-      ttnn::KernelCBFormatAttr::get(ctx, cbIndex, dtype, pageSize);
-
-  ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-  if (locality && *locality == OperandLocality::L1Local) {
-    globalCBIndexOfTensor =
-        ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, cbIndex);
-  }
-
-  return ttnn::KernelCBAttr::get(ctx, totalSize, coreRangeSet, {cbFormat},
-                                 globalCBIndexOfTensor);
-}
-
-static SmallVector<ttnn::KernelCBAttr> createCBDescriptors(
-    Builder &builder, const SmallVector<GenericOperandInfo> &infos,
-    ArrayRef<Value> extraCBMemrefs, const ttcore::DeviceAttr &device,
-    const ttnn::CoreRangeSetAttr &coreRangeSet) {
-  if (infos.empty() && extraCBMemrefs.empty()) {
-    llvm_unreachable("Expected circular buffers.");
-  }
-
   SmallVector<ttnn::KernelCBAttr> cbDescriptors;
-  cbDescriptors.reserve(infos.size() + extraCBMemrefs.size());
+  DenseMap<size_t, size_t> cbOperandIndexToPort;
+  size_t cbPorts = 0;
+  // Add additional args.
+  unsigned ioSize = op.getInputsAndOutputs().size();
+  for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
+    auto operandIndex = ioSize + i;
+    auto operand = op.getOperands()[operandIndex];
+    // Check for hoisted CB buffer
+    auto cbMemref = mlir::dyn_cast_if_present<MemRefType>(operand.getType());
+    if (!cbMemref) {
+      continue;
+    }
 
-  for (auto [i, info] : llvm::enumerate(infos)) {
-    cbDescriptors.push_back(createCBDescriptor(
-        builder, info.cbMemref, i, device, coreRangeSet, info.locality));
+    TT_assertv(mlir::isa<ttcore::TileType>(cbMemref.getElementType()),
+               "Only TileType supported.");
+    ttcore::DataType dtype =
+        ttcore::elementTypeToDataType(cbMemref.getElementType());
+    size_t pageSize = device.getMemrefCBPageSizeBytes(cbMemref);
+    size_t totalSize = device.getMemrefSizeBytes(cbMemref, pageSize, true);
+
+    ttnn::KernelCBFormatAttr cbFormat =
+        ttnn::KernelCBFormatAttr::get(ctx, cbPorts, dtype, pageSize);
+
+    ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
+    if (auto aliasOp =
+            mlir::dyn_cast<d2m::OperandAliasOp>(operand.getDefiningOp())) {
+      // OperandAliasOp's input is the generic's operand that this CB aliases.
+      globalCBIndexOfTensor =
+          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(
+              ctx, op.getOperandIndex(aliasOp.getMemref()));
+    } else {
+      assert(mlir::isa<memref::AllocOp>(operand.getDefiningOp()) &&
+             "expected alloc or alias op for cb memref");
+    }
+
+    cbDescriptors.push_back(ttnn::KernelCBAttr::get(
+        ctx, totalSize, coreRangeSet, {cbFormat}, globalCBIndexOfTensor));
+    cbOperandIndexToPort[operandIndex] = cbPorts;
+    cbPorts++;
   }
 
-  for (Value extraCBMemref : extraCBMemrefs) {
-    cbDescriptors.push_back(createCBDescriptor(
-        builder, extraCBMemref, cbDescriptors.size(), device, coreRangeSet));
-  }
-
-  return cbDescriptors;
+  return {cbDescriptors, cbOperandIndexToPort};
 }
 
 static LogicalResult
@@ -428,8 +477,8 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
                      convertedLayoutAttr.getShardShape(),
                  "ttnn_metal_layout_cast and converted type must have the same "
                  "shard shape");
-      TT_assertv(castLayoutAttr.getGrid().getShape() ==
-                     convertedLayoutAttr.getGrid().getShape(),
+      TT_assertv(castLayoutAttr.getGridShape() ==
+                     convertedLayoutAttr.getGridShape(),
                  "ttnn_metal_layout_cast and converted type must have the same "
                  "grid shape");
 
@@ -439,8 +488,7 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
     auto emptyLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr,
-                                              deviceAttr.getWorkerGrid());
+    auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr);
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(op);
@@ -470,13 +518,12 @@ static FailureOr<TensorAllocAttrs>
 getTensorAllocAttrs(Operation *op, RankedTensorType tensorType) {
   MLIRContext *ctx = op->getContext();
   auto encoding = tensorType.getEncoding();
-  auto deviceAttr = ttcore::lookupDevice(op);
 
   if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
     return TensorAllocAttrs{
         ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType()),
         ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout()),
-        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid())};
+        ttnn::MemoryConfigAttr::get(layoutAttr)};
   }
   if (auto ndLayoutAttr = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
     auto bufferType =
@@ -616,22 +663,19 @@ static LogicalResult convertSemaphores(ModuleOp moduleOp,
   return success();
 }
 
-static std::pair<Value, OperandLocality>
-findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping,
-             OperandLocality currentLocality = OperandLocality::L1Local) {
+static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
   auto iter = valueMapping.find(operand);
   if (iter != valueMapping.end()) {
     auto tensorType = dyn_cast<RankedTensorType>(iter->second.getType());
     TT_assertv(tensorType, "expected mapped value to be a ranked tensor");
     TT_assertv(isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
                "expected mapped value to be a TTNN tensor");
-    return {iter->second, currentLocality};
+    return iter->second;
   }
 
   auto *def = operand.getDefiningOp();
   if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
-    return findIOTensor(view.getInput(), valueMapping,
-                        OperandLocality::L1Remote);
+    return findIOTensor(view.getInput(), valueMapping);
   }
   if (auto cast = dyn_cast<ttir::TTNNMetalLayoutCastOp>(def)) {
     // Input is already a TTNN tensor.
@@ -639,51 +683,10 @@ findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping,
     TT_assertv(tensorType, "expected input to be a ranked tensor");
     TT_assertv(isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
                "expected input to be a ranked tensor");
-    return {cast.getInput(), currentLocality};
+    return cast.getInput();
   }
 
   llvm_unreachable("unexpected operand def chain");
-}
-
-static Value findCBMemref(Value operand) {
-  Operation *def = operand.getDefiningOp();
-  if (!def) {
-    TT_assertv(isa<MemRefType>(operand.getType()),
-               "expected operand to be a memref");
-    return operand;
-  }
-
-  TT_assertv(isa<MemRefType>(operand.getType()),
-             "expected operand to be a memref");
-  return operand;
-}
-
-static SmallVector<GenericOperandInfo>
-analyzeGenericOperands(d2m::GenericOp op,
-                       DenseMap<Value, Value> &valueMapping) {
-  SmallVector<GenericOperandInfo> infos;
-  unsigned idx = 0;
-
-  for (Value input : op.getInputs()) {
-    auto [tensor, locality] = findIOTensor(input, valueMapping);
-    infos.push_back({tensor, findCBMemref(input),
-                     /*isOutput=*/false, locality, idx++});
-  }
-  for (Value output : op.getOutputs()) {
-    auto [tensor, locality] = findIOTensor(output, valueMapping);
-    infos.push_back({tensor, findCBMemref(output),
-                     /*isOutput=*/true, locality, idx++});
-  }
-
-  for (auto &info : infos) {
-    auto ttnnTensor = mlir::cast<RankedTensorType>(info.ioTensor.getType());
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(ttnnTensor.getEncoding());
-    if (ttnnLayout.getBufferType() == ttnn::BufferType::DRAM) {
-      info.locality = OperandLocality::DRAM;
-    }
-  }
-  return infos;
 }
 
 static LogicalResult convertSingleGeneric(d2m::GenericOp op,
@@ -694,46 +697,24 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   auto device = ttcore::lookupDevice(op->getParentOp());
   TT_assert(device);
 
-  // Compute core range set.
-  // Note: TTNN grids are (Width, Height), while D2M grids are (Height, Width).
-  auto physicalGridShape = op.getPhysicalGridShape();
-  llvm::SmallVector<int64_t> endCoreRange = {physicalGridShape[1] - 1,
-                                             physicalGridShape[0] - 1};
+  ttnn::CoreRangeSetAttr coreRangeSet = coreRangeSetFromGeneric(ctx, op);
 
-  ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
-      ctx,
-      ttnn::CoreRangeAttr::get(
-          ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-          ttnn::CoreCoordAttr::get(ctx, endCoreRange[0], endCoreRange[1])));
-
-  SmallVector<GenericOperandInfo> infos =
-      analyzeGenericOperands(op, valueMapping);
-
-  SmallVector<Value> additionalArgs;
-  SmallVector<Value> extraCBMemrefs;
-  for (Value arg : op.getAdditionalArgs()) {
-    if (auto cbForOp = arg.getDefiningOp()
-                           ? arg.getDefiningOp()->getAttrOfType<IntegerAttr>(
-                                 "d2m.cb_for_operand")
-                           : IntegerAttr()) {
-      unsigned targetIdx = static_cast<unsigned>(cbForOp.getInt());
-      TT_assertv(targetIdx < infos.size(), "d2m.cb_for_operand out of range");
-      infos[targetIdx].cbMemref = arg;
-      // The CB has its own L1 allocation (not backed by the input tensor).
-      infos[targetIdx].locality = OperandLocality::L1Remote;
-    } else if (isa<MemRefType>(arg.getType())) {
-      // Standalone hoisted CBs (for example scratch backing storage) occupy CB
-      // slots but are not TTNN generic additional arguments.
-      extraCBMemrefs.push_back(arg);
-    } else if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
-               isa<RankedTensorType>(arg.getType())) {
+  SmallVector<Value> ttnnGenericAdditionalArgs;
+  // Additional args in the d2m.generic don't map 1:1 to the ttnn.generic's
+  // additional args (d2m generic's additional args has cbs whereas ttnn
+  // generic's additional args does not) so we need to create mapping to adjust
+  // the kernel descriptors later.
+  DenseMap<uint32_t, uint32_t> additionalArgMapping;
+  for (const auto [idx, arg] : llvm::enumerate(op.getAdditionalArgs())) {
+    if (isa<d2m::GlobalSemaphoreType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
-      additionalArgs.push_back(mapped);
-    } else if (isa<d2m::GlobalSemaphoreType>(arg.getType())) {
-      Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
-      additionalArgs.push_back(mapped);
+      additionalArgMapping[op.getInputsAndOutputs().size() + idx] =
+          op.getInputsAndOutputs().size() + ttnnGenericAdditionalArgs.size();
+      ttnnGenericAdditionalArgs.push_back(mapped);
     } else if (isa<d2m::LocalSemaphoreType>(arg.getType())) {
       // Local semaphores are described via createSemaphoreDescriptors; skip.
+    } else if (isa<MemRefType>(arg.getType())) {
+      // CBs are described via createCBDescriptors; skip.
     } else {
       return op.emitOpError(
                  "unexpected operand type in d2m.generic's additionalArgs: ")
@@ -741,8 +722,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
     }
   }
 
-  SmallVector<ttnn::KernelCBAttr> cbDescriptors = createCBDescriptors(
-      rewriter, infos, extraCBMemrefs, device, coreRangeSet);
+  auto [cbDescriptors, cbOperandIndexToPortMapping] =
+      createCBDescriptors(rewriter, op, device, coreRangeSet);
 
   SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
   // Build the semaphore mapping first so createKernelDescriptors can use it.
@@ -751,16 +732,17 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
                                  opSymTable, semIndexMap);
 
-  SmallVector<mlir::Attribute> kernelDescriptors =
-      createKernelDescriptors(rewriter, op.getThreads(), coreRangeSet,
-                              opSymTable, mathFidelity, semIndexMap);
+  SmallVector<mlir::Attribute> kernelDescriptors = createKernelDescriptors(
+      rewriter, op.getThreads(), coreRangeSet, opSymTable, mathFidelity,
+      semIndexMap, additionalArgMapping, cbOperandIndexToPortMapping);
 
   ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
       ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
 
   SmallVector<Value> ios;
-  for (auto &info : infos) {
-    ios.push_back(info.ioTensor);
+  for (Value input : op.getInputsAndOutputs()) {
+    auto tensor = findIOTensor(input, valueMapping);
+    ios.push_back(tensor);
   }
   // Runtime ttnn::generic_op currently requires at least one input and one
   // output tensor in io_tensors. Some generator-style generics (e.g. fill ->
@@ -772,8 +754,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   }
 
   rewriter.setInsertionPoint(op);
-  rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, ios, additionalArgs, program,
-                                               ttnn::MemoryConfigAttr());
+  rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
+      op, ios, ttnnGenericAdditionalArgs, program, ttnn::MemoryConfigAttr());
   return success();
 }
 
@@ -800,20 +782,9 @@ static LogicalResult convertGenerics(ModuleOp moduleOp,
 // is built by walking regions in order and appending each input/output Value
 // the first time it is seen (dedupe by SSA Value identity). Additional operands
 // are concatenated per region. Kernel/CB attrs remap via SpatialRemapTable;
-// kernels, CBs, and semaphores use each region's spatial grid core_ranges.
+// kernels, CBs, and semaphores preserve per-region core_ranges from converted
+// ttnn.generics.
 // ===----------------------------------------------------------------------===//
-
-static ttnn::CoreRangeSetAttr
-ttCoreRangeToTtnnCoreRangeSet(MLIRContext *ctx, ttcore::CoreRangeAttr cr) {
-  auto sc = cr.getStartCoord();
-  auto ec = cr.getEndCoord();
-  auto tts = ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(sc.getX()),
-                                      static_cast<uint64_t>(sc.getY()));
-  auto tte = ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(ec.getX()),
-                                      static_cast<uint64_t>(ec.getY()));
-  return ttnn::CoreRangeSetAttr::get(
-      ctx, llvm::ArrayRef{ttnn::CoreRangeAttr::get(ctx, tts, tte)});
-}
 
 class SpatialRemapTable {
   using LocalKey = std::pair<ttnn::GenericOp, size_t>;
@@ -912,8 +883,7 @@ remapSpatialKernelArgs(MLIRContext *ctx, ArrayRef<Attribute> args,
 static Attribute
 remapSpatialKernelDescriptor(MLIRContext *ctx, Attribute kernelAttr,
                              ttnn::GenericOp generic,
-                             const SpatialRemapTable &remapTable,
-                             ttnn::CoreRangeSetAttr gridCoreRanges) {
+                             const SpatialRemapTable &remapTable) {
   auto iface = mlir::dyn_cast<ttnn::KernelInterface>(kernelAttr);
   if (!iface) {
     return kernelAttr;
@@ -927,23 +897,23 @@ remapSpatialKernelDescriptor(MLIRContext *ctx, Attribute kernelAttr,
   return llvm::TypeSwitch<Attribute, Attribute>(kernelAttr)
       .Case<ttnn::ComputeKernelAttr>([&](ttnn::ComputeKernelAttr compute) {
         return ttnn::ComputeKernelAttr::get(
-            ctx, compute.getSymbolRef(), gridCoreRanges,
+            ctx, compute.getSymbolRef(), compute.getCoreRanges(),
             compute.getMathFidelity(), compute.getFp32DestAccEn(),
             compute.getDstFullSyncEn(), compute.getUnpackToDestModes(),
             compute.getBfp8PackPrecise(), compute.getMathApproxMode(), crt, ct);
       })
       .Case<ttnn::DataMovementKernelAttr>([&](ttnn::DataMovementKernelAttr dm) {
         return ttnn::DataMovementKernelAttr::get(
-            ctx, dm.getSymbolRef(), gridCoreRanges, dm.getProcessor(),
+            ctx, dm.getSymbolRef(), dm.getCoreRanges(), dm.getProcessor(),
             dm.getNocIndex(), dm.getNocMode(), crt, ct);
       })
       .Case<ttnn::ReadKernelAttr>([&](ttnn::ReadKernelAttr read) {
         return ttnn::ReadKernelAttr::get(ctx, read.getSymbolRef(),
-                                         gridCoreRanges, crt, ct);
+                                         read.getCoreRanges(), crt, ct);
       })
       .Case<ttnn::WriteKernelAttr>([&](ttnn::WriteKernelAttr write) {
         return ttnn::WriteKernelAttr::get(ctx, write.getSymbolRef(),
-                                          gridCoreRanges, crt, ct);
+                                          write.getCoreRanges(), crt, ct);
       })
       .Default([](Attribute attr) { return attr; });
 }
@@ -951,8 +921,7 @@ remapSpatialKernelDescriptor(MLIRContext *ctx, Attribute kernelAttr,
 static ttnn::KernelCBAttr
 adjustSpatialCBDescriptor(MLIRContext *ctx, ttnn::KernelCBAttr cb,
                           ttnn::GenericOp generic,
-                          const SpatialRemapTable &remapTable,
-                          ttnn::CoreRangeSetAttr gridCoreRanges) {
+                          const SpatialRemapTable &remapTable) {
   SmallVector<ttnn::KernelCBFormatAttr> formats;
   formats.append(cb.getFormats().begin(), cb.getFormats().end());
   ttnn::KernelCBGlobalBufferAddressOfTensorAttr bufferToUse = cb.getBuffer();
@@ -963,7 +932,7 @@ adjustSpatialCBDescriptor(MLIRContext *ctx, ttnn::KernelCBAttr cb,
           ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, *unified);
     }
   }
-  return ttnn::KernelCBAttr::get(ctx, cb.getTotalSize(), gridCoreRanges,
+  return ttnn::KernelCBAttr::get(ctx, cb.getTotalSize(), cb.getCoreRanges(),
                                  formats, bufferToUse);
 }
 
@@ -1019,27 +988,22 @@ static LogicalResult convertSingleSpatial(d2m::SpatialOp spatialOp,
     remapTable.addOperands(generic);
   }
 
-  mlir::ArrayAttr spatialGridRanges = spatialOp.getGridRanges();
   SmallVector<Attribute> mergedKernels;
   SmallVector<ttnn::KernelCBAttr> mergedCBs;
   SmallVector<ttnn::KernelSemaphoreAttr> mergedSemaphores;
-  for (const auto [regionIdx, generic] : llvm::enumerate(regionGenerics)) {
-    auto regionCoreRange =
-        mlir::cast<ttcore::CoreRangeAttr>(spatialGridRanges[regionIdx]);
-    ttnn::CoreRangeSetAttr gridCoreRanges =
-        ttCoreRangeToTtnnCoreRangeSet(ctx, regionCoreRange);
+  for (ttnn::GenericOp generic : regionGenerics) {
     auto program = llvm::cast<ttnn::ProgramAttr>(generic.getProgram());
     for (Attribute kernelAttr : program.getKernels()) {
-      mergedKernels.push_back(remapSpatialKernelDescriptor(
-          ctx, kernelAttr, generic, remapTable, gridCoreRanges));
+      mergedKernels.push_back(
+          remapSpatialKernelDescriptor(ctx, kernelAttr, generic, remapTable));
     }
     for (ttnn::KernelCBAttr cb : program.getCbs()) {
-      mergedCBs.push_back(adjustSpatialCBDescriptor(
-          ctx, cb, generic, remapTable, gridCoreRanges));
+      mergedCBs.push_back(
+          adjustSpatialCBDescriptor(ctx, cb, generic, remapTable));
     }
     for (ttnn::KernelSemaphoreAttr sem : program.getSemaphores()) {
       mergedSemaphores.push_back(ttnn::KernelSemaphoreAttr::get(
-          ctx, sem.getId(), sem.getCoreType(), gridCoreRanges,
+          ctx, sem.getId(), sem.getCoreType(), sem.getCoreRanges(),
           sem.getInitialValue()));
     }
   }
@@ -1089,7 +1053,7 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
     if (op.use_empty()) {
       return;
     }
-    Value resolved = findIOTensor(op.getOperand(), valueMapping).first;
+    Value resolved = findIOTensor(op.getOperand(), valueMapping);
     op.getResult().replaceAllUsesWith(resolved);
   });
 
@@ -1099,8 +1063,8 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
   moduleOp.walk([&](Operation *op) {
     if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
             d2m::ResetGlobalSemaphoreOp, d2m::CreateGlobalSemaphoreOp,
-            d2m::CreateLocalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
-            op)) {
+            d2m::CreateLocalSemaphoreOp, memref::DeallocOp, memref::AllocOp,
+            d2m::OperandAliasOp>(op)) {
       opsToErase.push_back(op);
     }
   });

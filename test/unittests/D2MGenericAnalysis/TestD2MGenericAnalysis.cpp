@@ -911,9 +911,9 @@ func.func @test(
     %block1 = d2m.block_index(1) : index
     %block2_6 = d2m.block_index(2) : index
     %alloc_7 = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>>
-    %0 = d2m.remote_load %alloc_7 %in0[%block0, %block2] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<8x8x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    d2m.remote_load %alloc_7 %in0[%block0, %block2] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<8x8x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>
     %alloc_8 = memref.alloc() {alignment = 64 : i64} : memref<4x8x!ttcore.tile<32x32, f32>>
-    %1 = d2m.remote_load %alloc_8 %in1[%block2_6, %block1] mcast[%c1] : memref<4x8x!ttcore.tile<32x32, f32>>, memref<8x8x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>> -> memref<4x8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    d2m.remote_load %alloc_8 %in1[%block2_6, %block1] mcast[%c1] : memref<4x8x!ttcore.tile<32x32, f32>>, memref<8x8x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>
     %alloc_9 = memref.alloc() {alignment = 64 : i64} : memref<2x8x!ttcore.tile<32x32, f32>>
     linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%alloc_7, %alloc_8 : memref<2x4x!ttcore.tile<32x32, f32>>, memref<4x8x!ttcore.tile<32x32, f32>>) outs(%alloc_9 : memref<2x8x!ttcore.tile<32x32, f32>>) {
     ^bb0(%in_tile: !ttcore.tile<32x32, f32>, %in_12: !ttcore.tile<32x32, f32>, %out_tile: !ttcore.tile<32x32, f32>):
@@ -922,7 +922,7 @@ func.func @test(
     }
     %block0_10 = d2m.block_index(0) : index
     %block1_11 = d2m.block_index(1) : index
-    %2 = d2m.remote_store %out[%block0_10, %block1_11] %alloc_9 : memref<8x8x2x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>, memref<2x8x!ttcore.tile<32x32, f32>> -> memref<8x8x2x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>
+    d2m.remote_store %out[%block0_10, %block1_11] %alloc_9 : memref<8x8x2x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>, memref<2x8x!ttcore.tile<32x32, f32>>
   }
   return
 }
@@ -1033,7 +1033,8 @@ func.func @test(
   generic.walk([&](d2m::SynchronizedRegionOp op) { foundSyncOp = true; });
   EXPECT_FALSE(foundSyncOp);
 
-  // Verify same number of ops after unwrapping (arith.constant is duplicated).
+  // Verify same number of ops after unwrapping (arith.constant and
+  // memref.collapse_shape are duplicated).
   Block &blockAfter = generic.getRegion(0).front();
   Block::iterator startAfter = blockAfter.begin();
   Block::iterator endAfter = blockAfter.end();
@@ -1041,10 +1042,10 @@ func.func @test(
   for (auto it = startAfter; it != endAfter; ++it) {
     ++opsAfterUnwrap;
   }
-  EXPECT_EQ(opsAfterUnwrap, opsBeforeWrap + 1u);
+  EXPECT_EQ(opsAfterUnwrap, opsBeforeWrap + 4u);
 
   // Verify IR structure is restored by checking op types (arith.constant is
-  // duplicated).
+  // and memref.collapse_shape are duplicated).
   size_t collapseCount = 0, loadCount = 0, storeCount = 0, addCount = 0,
          constantCount = 0;
   for (auto it = startAfter; it != endAfter; ++it) {
@@ -1065,7 +1066,7 @@ func.func @test(
     }
   }
   ASSERT_EQ(constantCount, 2u);
-  EXPECT_EQ(collapseCount, 3u);
+  EXPECT_EQ(collapseCount, 6u);
   EXPECT_EQ(loadCount, 2u);
   EXPECT_EQ(storeCount, 1u);
   EXPECT_EQ(addCount, 1u);

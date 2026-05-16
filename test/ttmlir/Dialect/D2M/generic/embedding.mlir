@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --split-input-file --canonicalize %s | FileCheck %s
 
-#indices_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#weight_layout = #ttcore.metal_layout<logical_shape = 8x16, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#output_layout = #ttcore.metal_layout<logical_shape = 2x4x16, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, l1, sharded>
+#indices_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#weight_layout = #ttcore.metal_layout<logical_shape = 8x16, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#output_layout = #ttcore.metal_layout<logical_shape = 2x4x16, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, l1, sharded>
 
 module {
   // CHECK-LABEL: func.func @tensor_embedding_result

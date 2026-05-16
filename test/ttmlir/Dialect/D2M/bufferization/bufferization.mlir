@@ -7,11 +7,11 @@
 #map2 = affine_map<(d0, d1, d2) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
-#layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>
-#layout1 = #ttcore.metal_layout<logical_shape = 128x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>
-#layout2 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>
-#layout3 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>
-#layout4 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, l1, sharded>
+#layout1 = #ttcore.metal_layout<logical_shape = 128x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, l1, sharded>
+#layout2 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, l1, sharded>
+#layout3 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, l1, sharded>
+#layout4 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, l1, sharded>
 #remap4 = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 
 func.func @to_layout() -> tensor<1x2x2x2x!ttcore.tile<32x32, f32>, #layout3> {
@@ -30,7 +30,7 @@ func.func @view_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4> {
   return %view : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4>
 }
 
-#layout5 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, interleaved>
+#layout5 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, l1, interleaved>
 func.func @interleaved_tensor_memory_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout5> {
   // CHECK: memref.alloc() : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #l1>
   %1 = d2m.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout5>
@@ -38,8 +38,8 @@ func.func @interleaved_tensor_memory_layout() -> tensor<1x1x2x4x!ttcore.tile<32x
 }
 
 // Test remote_load and remote_store bufferization - loads from a view with a different index_map
-#layout_view = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>
-#layout_grid2x2 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded>
+#layout_view = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, l1, sharded>
+#layout_grid2x2 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, l1, sharded>
 #view_map = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 #map3 = affine_map<(d0, d1) -> (d0, d1)>
 // CHECK-LABEL: func.func @dma_bufferization
@@ -61,9 +61,9 @@ func.func @dma_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layo
     %iter1 = d2m.block_index(1) : index
     // CHECK: %[[BUFFER:.*]] = memref.alloc
     %buffer = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
-    // CHECK: d2m.remote_load %{{.*}} %[[VIEW]][{{.*}}, {{.*}}] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    // CHECK: d2m.remote_load %{{.*}} %[[VIEW]][{{.*}}, {{.*}}] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     %load_result = d2m.remote_load %buffer %view[%iter0, %iter1] : tensor<1x1x!ttcore.tile<32x32, f32>>, tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view> -> tensor<1x1x!ttcore.tile<32x32, f32>>
-    // CHECK: d2m.remote_store %[[ALLOC1]][{{.*}}, {{.*}}] {{.*}} : memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>> -> memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK: d2m.remote_store %[[ALLOC1]][{{.*}}, {{.*}}] {{.*}} : memref<2x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>>
     %store_result = d2m.remote_store %output[%iter0, %iter1] %load_result : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>, tensor<1x1x!ttcore.tile<32x32, f32>> -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>
 
     // CHECK: %[[DST_BUFFER:.*]] = memref.alloc
@@ -79,33 +79,33 @@ func.func @dma_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layo
 
 // Check that the logicalSizes attribute is preserved for row-major concat.
 // CHECK-LABEL: func.func @test_composite_view_logical_sizes
-func.func @test_composite_view_logical_sizes() -> tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>> {
-  %0 = d2m.empty() : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
-  %1 = d2m.empty() : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x8, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
-  %2 = d2m.empty() : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
+func.func @test_composite_view_logical_sizes() -> tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>> {
+  %0 = d2m.empty() : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
+  %1 = d2m.empty() : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x8, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
+  %2 = d2m.empty() : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
   // CHECK: "d2m.composite_view"({{.+}}) <{dim = 1 : si32, logicalSizes = array<i64: 4, 8, 16>}> : (memref{{.+}}, memref{{.+}}, memref{{.+}}) -> memref
   %3 = "d2m.composite_view"(%0, %1, %2) <{dim = 1 : si32, logicalSizes = array<i64: 4, 8, 16>}> :
-      (tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>,
-       tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x8, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>,
-       tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>) ->
-       tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
-  %4 = d2m.empty() : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
+      (tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>,
+       tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x8, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>,
+       tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>) ->
+       tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
+  %4 = d2m.empty() : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
   // CHECK: d2m.generic
   %5 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
-      ins(%3 : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>)
-      outs(%4 : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>)
+      ins(%3 : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>)
+      outs(%4 : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>)
    {
     %6 = tensor.empty() : tensor<32x32xf32>
     %block0 = d2m.block_index(0) : index
     %block1 = d2m.block_index(1) : index
     %7 = d2m.remote_load %6 %3[%block0, %block1] :
-        tensor<32x32xf32>, tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>> ->
+        tensor<32x32xf32>, tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>> ->
         tensor<32x32xf32>
     %8 = d2m.remote_store %4[%block0, %block1] %7 :
-        tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>,
+        tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>,
         tensor<32x32xf32> ->
-        tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
-    d2m.yield %8 : (tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>)
-  } : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
-  return %5 : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>>
+        tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
+    d2m.yield %8 : (tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>)
+  } : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
+  return %5 : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
 }

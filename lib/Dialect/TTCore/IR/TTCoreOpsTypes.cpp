@@ -39,6 +39,31 @@
 namespace mlir::tt::ttcore {
 
 namespace {
+SystemDescAttr
+createDefaultQuasarSystemDesc(mlir::MLIRContext *context,
+                              const ::llvm::SmallVector<int64_t> &meshShape) {
+  llvm::SmallVector<ChipDescAttr> chipDescs;
+  llvm::SmallVector<uint32_t> chipIndicesList;
+  llvm::SmallVector<ChipCapabilityAttr> chipCapabilities;
+  llvm::SmallVector<ChipChannelAttr> chipChannelList;
+
+  return SystemDescAttr::get(
+      context,
+      // CPU Descriptors.
+      {CPUDescAttr::get(context, CPURole::Host,
+                        mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
+      // Chip Descriptors.
+      chipDescs,
+      // Chip Descriptor Indices.
+      chipIndicesList,
+      // Chip Capabilities.
+      chipCapabilities,
+      // Chip Mesh Coordinates.
+      {ChipCoordAttr::get(context, 0, 0, 0, 0)},
+      // Chip Channel Connections.
+      chipChannelList);
+}
+
 SystemDescAttr createDefaultBlackholeSystemDesc(
     mlir::MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
   // Set default values
@@ -297,6 +322,8 @@ SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
     return createDefaultWormholeSystemDesc(context, meshShape);
   case Arch::Blackhole:
     return createDefaultBlackholeSystemDesc(context, meshShape);
+  case Arch::Quasar:
+    return createDefaultQuasarSystemDesc(context, meshShape);
   }
 }
 
@@ -377,6 +404,9 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
       break;
     case ::tt::target::Arch::Blackhole:
       arch = Arch::Blackhole;
+      break;
+    case ::tt::target::Arch::Quasar:
+      arch = Arch::Quasar;
       break;
     }
 
@@ -1177,18 +1207,18 @@ createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
 
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout) {
   auto [collapsedIntervals, dimAlignmentsVec] =
       createDefaultCollapsedIntervalsAndAlignments(context, logicalShape);
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout);
+             memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals) {
   llvm::SmallVector<int64_t> normalizedIntervals =
@@ -1196,17 +1226,17 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
   llvm::SmallVector<int64_t> dimAlignmentsVec =
       computeTileAlignments(logicalShape, normalizedIntervals);
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, memoryLayout);
+             memorySpace, memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
-  return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
+  return get(context, logicalShape, dimAlignments, collapsedIntervals,
              memorySpace, memoryLayout);
 }
 
@@ -1230,8 +1260,8 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<int64_t> logicalShape,
     ::llvm::ArrayRef<int64_t> dimAlignments,
-    DenseIntElementsAttr collapsedIntervals, OOBVal oobVal,
-    MemorySpace memorySpace, TensorMemoryLayout memoryLayout) {
+    DenseIntElementsAttr collapsedIntervals, MemorySpace memorySpace,
+    TensorMemoryLayout memoryLayout) {
 
   int64_t logicalRank = logicalShape.size();
 

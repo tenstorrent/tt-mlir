@@ -18,9 +18,10 @@ module {
             %2 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
             yield %2 : i32
         }
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %0 : i32
         return
     }
     func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
@@ -28,9 +29,10 @@ module {
             %2 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
             yield %2 : i32
         }
-        %1 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_wait_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        %1 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %0 : i32
         return
     }
     func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {

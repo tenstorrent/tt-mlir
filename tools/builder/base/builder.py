@@ -12,6 +12,7 @@ import os
 from collections import OrderedDict
 
 from ttmlir.ir import *
+from ttmlir import util
 from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn, debug
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function, apply_sharding
@@ -747,6 +748,70 @@ class Builder(metaclass=BuilderMeta):
     ) -> ttnn.ir.TTNNLayoutAttr:
         raise NotImplementedError("Subclasses must implement create_tensor_encoding")
 
+    # ----- Private TTNN Tensor Generation Helpers -----
+
+    def _create_ttnn_tensor_encoding(
+        self,
+        shape: Shape,
+        element_type: Union[torch.dtype, TypeInfo],
+        layout: ttnn.ir.LayoutAttr = ttnn.Layout.Tile,
+        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
+        tensor_memory_layout: Optional[
+            ttnn.ir.TensorMemoryLayout
+        ] = ttnn.TensorMemoryLayout.Interleaved,
+        grid_shape: Optional[List[int]] = None,
+        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        """
+        TTNN tensors require encoding information to describe layout and placement.
+        This helper creates a TTNN tensor encoding using the requested layout,
+        buffer type, and tensor memory layout.
+
+        By default it produces a DRAM, interleaved, tiled encoding. It also
+        supports RowMajor layout, SystemMemory buffers (which do not use a
+        tensor memory layout), and sharded layouts when a non-interleaved
+        tensor_memory_layout and explicit core_range_set are provided.
+        """
+        if grid_shape is None:
+            grid_shape = [1, 1]
+        if isinstance(element_type, torch.dtype):
+            element_type = self._get_type_from_torch_dtype(element_type)
+        with self._ctx, self._loc:
+            if layout == ttnn.Layout.Tile:
+                data_type = util.element_type_to_data_type(element_type)
+                layout_element_type = ttcore.ir.TileType.get(
+                    self._ctx, 32, 32, data_type
+                )
+            elif layout == ttnn.Layout.RowMajor:
+                layout_element_type = element_type
+            else:
+                raise ValueError(f"Unsupported layout: {layout}")
+
+            if buffer_type == ttnn.BufferType.SystemMemory:
+                tensor_memory_layout = None
+
+            is_sharded = (
+                tensor_memory_layout is not None
+                and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
+            )
+
+            if is_sharded and core_range_set is None:
+                raise ValueError(
+                    "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
+                    "the builder does not synthesize one because the canonical "
+                    "placement depends on the target arch's worker/DRAM grid."
+                )
+
+            return ttnn.ir.TTNNLayoutAttr.get(
+                self._ctx,
+                shape,
+                layout_element_type,
+                buffer_type,
+                grid_shape,
+                core_range_set,
+                tensor_memory_layout,
+            )
+
     # ----- Shared Metal Tensor Layout -----
 
     def get_metal_tensor_layout(
@@ -754,7 +819,6 @@ class Builder(metaclass=BuilderMeta):
         logical_shape: Shape,
         tiled=False,
         element_dtype: torch.dtype = torch.float32,
-        oobVal=None,  # Will default to ttcore.OOBVal.Undef in the utility
         memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
         grid: Optional[Tuple[int, int]] = None,
         index_map: Optional[AffineMap] = None,
@@ -766,8 +830,6 @@ class Builder(metaclass=BuilderMeta):
         from ttmlir.dialects import ttcore
 
         # Set defaults if not provided
-        if oobVal is None:
-            oobVal = ttcore.OOBVal.Undef
         if memorySpace is None:
             memorySpace = ttcore.MemorySpace.DeviceL1
         if memory_layout is None:
@@ -778,7 +840,6 @@ class Builder(metaclass=BuilderMeta):
             logical_shape,
             tiled,
             element_dtype,
-            oobVal,
             memorySpace,
             grid,
             index_map,
@@ -1346,17 +1407,49 @@ class Builder(metaclass=BuilderMeta):
 
     # ----- Helper decorator functions ----
 
-    def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
-        def wrapper(fn):
+    def func(
+        self,
+        input_shapes: List[List[int]],
+        input_types: List[torch.dtype],
+        ttnn_inputs: bool = False,
+        custom_inputs: Optional[List[dict]] = None,
+    ):
+        if ttnn_inputs or custom_inputs:
+            encoding_fn = self._create_ttnn_tensor_encoding
+        else:
             encoding_fn = self.create_tensor_encoding
-            fn_input_types = [
-                self._create_ranked_tensor_type(
-                    shape,
-                    self._get_type_from_torch_dtype(dtype),
-                    encoding_fn(shape, dtype) if encoding_fn else None,
-                )
-                for shape, dtype in zip(input_shapes, input_types)
-            ]
+
+        def wrapper(fn):
+            # Handle custom_inputs if provided
+            if custom_inputs:
+                fn_input_types = []
+                for idx, (shape, dtype) in enumerate(zip(input_shapes, input_types)):
+                    if idx < len(custom_inputs) and encoding_fn:
+                        # Use custom layout kwargs for this input
+                        kwargs = custom_inputs[idx]
+                        encoding = encoding_fn(shape, dtype, **kwargs)
+                    elif encoding_fn:
+                        # Use default encoding
+                        encoding = encoding_fn(shape, dtype)
+                    else:
+                        encoding = None
+
+                    fn_input_types.append(
+                        self._create_ranked_tensor_type(
+                            shape,
+                            self._get_type_from_torch_dtype(dtype),
+                            encoding,
+                        )
+                    )
+            else:
+                fn_input_types = [
+                    self._create_ranked_tensor_type(
+                        shape,
+                        self._get_type_from_torch_dtype(dtype),
+                        encoding_fn(shape, dtype) if encoding_fn else None,
+                    )
+                    for shape, dtype in zip(input_shapes, input_types)
+                ]
 
             ordered_inputs = []
             ordered_outputs = []

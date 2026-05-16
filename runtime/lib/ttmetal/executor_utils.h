@@ -15,6 +15,7 @@
 #include "ttmlir/Target/TTMetal/types_generated.h"
 
 #include "tt-metalium/allocator.hpp"
+#include "tt-metalium/buffer_distribution_spec.hpp"
 #include "tt-metalium/distributed.hpp"
 
 namespace tt::runtime::ttmetal {
@@ -148,8 +149,39 @@ createMeshBufferForShardedMetalBuffer(
                                     meshDevice->num_cols() *
                                     shardedBufferConfig->size();
 
-  tt_metal::BufferShardingArgs bufferShardingArgs(
-      metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
+  auto createBufferShardingArgs = [&]() {
+    const target::metal::BufferDistributionSpec *distributionSpec =
+        shardedBufferConfig->buffer_distribution_spec();
+    if (!distributionSpec) {
+      return tt_metal::BufferShardingArgs(
+          metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
+    }
+
+    // The flatbuffer stores the page-domain BufferDistributionSpec directly.
+    auto toShape = [](const ::flatbuffers::Vector<uint32_t> *shapeVector) {
+      tt_metal::Shape::Container shape;
+      shape.reserve(shapeVector->size());
+      for (uint32_t dim : *shapeVector) {
+        shape.push_back(dim);
+      }
+      return tt_metal::Shape(std::move(shape));
+    };
+
+    std::vector<tt_metal::CoreCoord> cores;
+    cores.reserve(distributionSpec->cores()->size());
+    for (const target::Dim2d *core : *distributionSpec->cores()) {
+      cores.emplace_back(core->x(), core->y());
+    }
+
+    tt_metal::BufferDistributionSpec metalDistributionSpec(
+        toShape(distributionSpec->tensor_shape_in_pages()),
+        toShape(distributionSpec->shard_shape_in_pages()), std::move(cores));
+    return tt_metal::BufferShardingArgs(
+        std::move(metalDistributionSpec), metalShardSpecBuffer,
+        tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
+  };
+
+  tt_metal::BufferShardingArgs bufferShardingArgs = createBufferShardingArgs();
 
   auto localBufferConfig = distributed::DeviceLocalBufferConfig{
       .page_size = shardedBufferConfig->page_size(),
@@ -297,6 +329,7 @@ inline void writeHostTensorToMeshBuffer(
     std::shared_ptr<distributed::MeshBuffer> meshBuffer, bool blockingCQ) {
   std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
           [&](const TensorDesc &) {
             void *src = input.data.get();
             LOG_ASSERT(src);
@@ -322,6 +355,7 @@ inline void readHostTensorFromMeshBuffer(
     bool blockingCQ) {
   std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
           [&](const TensorDesc &) {
             void *dst = output.data.get();
             LOG_ASSERT(dst);
@@ -345,6 +379,7 @@ inline void checkHostTensorSizeMatchWithMeshBufferSize(
     const Tensor &tensor, std::shared_ptr<distributed::MeshBuffer> meshBuffer) {
   std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
           [&](const TensorDesc &tensorDesc) {
             LOG_ASSERT(meshBuffer.get()->size() == tensorDesc.sizeBytes());
           },

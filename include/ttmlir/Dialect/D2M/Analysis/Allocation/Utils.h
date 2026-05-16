@@ -244,7 +244,8 @@ auto asShape(const T &obj)
 ///     llvm::dbgs() << asOperand(...) << ...
 /// @endcode
 struct AsOperandPrinter {
-  mlir::AsmState state;
+  mlir::Operation *stateOp = nullptr;
+  mutable std::optional<mlir::AsmState> state;
 
   struct PrintAdaptor {
     AsOperandPrinter *parent;
@@ -255,18 +256,26 @@ struct AsOperandPrinter {
                                          const PrintAdaptor &adaptor) {
       if (adaptor.op != nullptr) {
         if (adaptor.op->getNumResults() > 0) {
-          adaptor.op->getResult(0).printAsOperand(os, adaptor.parent->state);
+          adaptor.op->getResult(0).printAsOperand(os,
+                                                  adaptor.parent->getState());
         } else {
           os << adaptor.op->getName();
         }
       } else {
-        adaptor.value->printAsOperand(os, adaptor.parent->state);
+        adaptor.value->printAsOperand(os, adaptor.parent->getState());
       }
       return os;
     }
   };
 
-  AsOperandPrinter(mlir::Operation *state) : state(state) {}
+  AsOperandPrinter(mlir::Operation *stateOp) : stateOp(stateOp) {}
+
+  mlir::AsmState &getState() const {
+    if (!state) {
+      state.emplace(stateOp);
+    }
+    return *state;
+  }
 
   PrintAdaptor operator()(mlir::Operation *op) { return {this, op, nullptr}; }
   PrintAdaptor operator()(mlir::Value &value) {
@@ -408,8 +417,7 @@ inline bool hasNonTrivialView(Value value) {
            hasNonTrivialView(viewOp.getInput());
   }
   if (auto compositeViewOp = mlir::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
-    return llvm::any_of(compositeViewOp.getCompositeInputs(),
-                        hasNonTrivialView);
+    return true;
   }
   if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
     return hasNonTrivialView(castOp.getInput());

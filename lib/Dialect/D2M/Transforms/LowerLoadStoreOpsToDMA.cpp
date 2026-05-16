@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -40,57 +39,15 @@ static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op) {
   auto genericOp = op->getParentOfType<GenericOp>();
   TT_assertv(genericOp, "RemoteLoadOp must be inside a GenericOp");
 
-  unsigned ioSize = genericOp.getInputsAndOutputs().size();
-  int64_t nonMemrefCount = 0;
-  Value sem0, sem1;
-  for (Value arg : genericOp.getAdditionalArgs()) {
-    if (!mlir::isa<MemRefType>(arg.getType())) {
-      int64_t absIdx = static_cast<int64_t>(ioSize) + nonMemrefCount;
-      if (absIdx == sem0AbsIdx) {
-        sem0 = arg;
-      }
-      if (absIdx == sem1AbsIdx) {
-        sem1 = arg;
-      }
-      nonMemrefCount++;
-    }
-  }
-  TT_assertv(sem0, "Could not find receiversReady semaphore in additionalArgs");
-  TT_assertv(sem1, "Could not find senderFinished semaphore in additionalArgs");
+  Value sem0 = genericOp.getOperands()[sem0AbsIdx];
+  Value sem1 = genericOp.getOperands()[sem1AbsIdx];
+
+  TT_assertv((sem0 != nullptr && mlir::isa<LocalSemaphoreType>(sem0.getType())),
+             "Could not find receiversReady semaphore in generic args");
+  TT_assertv((sem1 != nullptr && mlir::isa<LocalSemaphoreType>(sem1.getType())),
+             "Could not find senderFinished semaphore in generic args");
 
   return {sem0, sem1};
-}
-
-static SmallVector<Value>
-mapVirtualToPhysicalCoreIndex(OpBuilder &builder, Location loc,
-                              ttcore::GridAttr grid,
-                              ValueRange virtualCoreIndex) {
-  SmallVector<Value> physicalCoreIndex(virtualCoreIndex.begin(),
-                                       virtualCoreIndex.end());
-  AffineMap map = grid.getVirtToPhysicalMap();
-  if (map.isEmpty()) {
-    return physicalCoreIndex;
-  }
-
-  TT_assertv(map.getNumInputs() == virtualCoreIndex.size(),
-             "Expected virtual-to-physical grid map input rank to match core "
-             "index rank.");
-  unsigned firstCoreResult =
-      map.getNumResults() == virtualCoreIndex.size() ? 0 : 1;
-  TT_assertv(map.getNumResults() >= firstCoreResult + virtualCoreIndex.size(),
-             "Expected virtual-to-physical grid map to have enough core "
-             "coordinate results.");
-
-  physicalCoreIndex.clear();
-  physicalCoreIndex.reserve(virtualCoreIndex.size());
-  for (unsigned i = 0; i < virtualCoreIndex.size(); ++i) {
-    AffineMap selectedMap = AffineMap::get(
-        map.getNumDims(), map.getNumSymbols(),
-        {map.getResult(firstCoreResult + i)}, builder.getContext());
-    physicalCoreIndex.push_back(builder.create<affine::AffineApplyOp>(
-        loc, selectedMap, virtualCoreIndex));
-  }
-  return physicalCoreIndex;
 }
 
 namespace {
@@ -105,30 +62,17 @@ public:
     Value cb = remoteLoad.getCb();
     Value remoteMemref = remoteLoad.getMemref();
 
-    // Get parent generic op for grid mapping (needed for CoreIndexOp).
-    auto genericOp = remoteLoad->getParentOfType<GenericOp>();
-    TT_assertv(genericOp, "RemoteLoad must be inside a GenericOp");
-
-    // Derive which dimensions are multicast from mcastShape.
-    // A dimension is multicast if mcastShape[i] > 1.
-    // Also calculate mcast volume.
-    SmallVector<bool> isMcastDim;
-    size_t mcastVolume = 1;
-    for (Value mcastDimVal : remoteLoad.getMcastShape()) {
-      int64_t dimSize = 1;
-      if (auto constantOp = mcastDimVal.getDefiningOp<arith::ConstantOp>()) {
-        if (auto intAttr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
-          dimSize = intAttr.getInt();
-        }
-      }
-      isMcastDim.push_back(dimSize > 1);
-      mcastVolume *= dimSize;
-    }
-
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
                                                    rewriter.getIndexAttr(1));
+
+    // Calculate mcast volume dynamically by multiplying all mcastShape dims.
+    Value mcastVolume = one;
+    for (Value mcastDimVal : remoteLoad.getMcastShape()) {
+      mcastVolume =
+          rewriter.create<arith::MulIOp>(loc, mcastVolume, mcastDimVal);
+    }
 
     // Get pre-allocated semaphores for synchronization.
     // These must have been set by D2MPreallocateMcastSemaphores pass.
@@ -138,29 +82,26 @@ public:
 
     // Number of receivers is mcastVolume - 1 (excluding sender itself).
     // The sender waits for this many semaphore increments before multicasting.
-    Value numReceiversVal = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume - 1));
+    Value numReceiversVal =
+        rewriter.create<arith::SubIOp>(loc, mcastVolume, one);
 
     // Determine if this core is the sender.
     // The sender is at position mcastStartIndex[i] for each multicast
     // dimension. We need to check that ALL multicast dimensions have core_index
-    // == mcastStartIndex. Pass grid mapping for proper virtualization support.
+    // == mcastStartIndex.
     Value isSender = nullptr;
-    AffineMap gridMapping = genericOp.getGrid().getPhysicalToVirtMap();
     ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
-    for (size_t i = 0; i < isMcastDim.size(); ++i) {
-      if (isMcastDim[i]) {
-        Value coreIdx = rewriter.create<CoreIndexOp>(
-            loc, static_cast<int64_t>(i), gridMapping);
-        Value condition = rewriter.create<arith::CmpIOp>(
-            loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx,
-            mcastStartIndex[i]);
-        if (isSender) {
-          isSender = rewriter.create<arith::AndIOp>(loc, isSender, condition)
-                         .getResult();
-        } else {
-          isSender = condition;
-        }
+    for (auto [i, mcastIdx] : llvm::enumerate(mcastStartIndex)) {
+      Value coreIdx =
+          rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(i));
+      Value condition = rewriter.create<arith::CmpIOp>(
+          loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx,
+          mcastIdx);
+      if (isSender) {
+        isSender = rewriter.create<arith::AndIOp>(loc, isSender, condition)
+                       .getResult();
+      } else {
+        isSender = condition;
       }
     }
     TT_assertv(isSender, "No multicast dimensions found in mcastShape");
@@ -174,10 +115,6 @@ public:
     rewriter.create<scf::IfOp>(
         loc, isSender,
         [&](OpBuilder &builder, Location loc) {
-          SmallVector<Value> physicalMcastStartIndex =
-              mapVirtualToPhysicalCoreIndex(builder, loc, genericOp.getGrid(),
-                                            mcastStartIndex);
-
           // Sender: shard-level DMA read from remote.
           Value dmaTx = builder.create<DMAReadOp>(loc, remoteMemref,
                                                   gridIndices, localMemref);
@@ -194,13 +131,13 @@ public:
           // ReserveOp) as both source and destination - this is the Producer
           // buffer that was just filled by the DMA read above.
           Value mcastTx = builder.create<DMAWriteOp>(
-              loc, localMemref, localMemref, physicalMcastStartIndex,
+              loc, localMemref, localMemref, mcastStartIndex,
               remoteLoad.getMcastShape());
           builder.create<DMAWaitOp>(loc, mcastTx);
 
           // Signal receivers that sender is finished.
           builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
-                                         physicalMcastStartIndex,
+                                         mcastStartIndex,
                                          remoteLoad.getMcastShape(),
                                          /*startDevice=*/ValueRange(),
                                          /*deviceMcastShape=*/ValueRange());
@@ -208,34 +145,10 @@ public:
           builder.create<scf::YieldOp>(loc);
         },
         [&](OpBuilder &builder, Location loc) {
-          // Receiver: signal ready and wait for sender to finish.
-          SmallVector<Value> senderCoreIndex;
-          Value zeroIdx = builder.create<arith::ConstantOp>(
-              loc, builder.getIndexType(), builder.getIndexAttr(0));
-
-          // Build sender core index by reading actual core positions.
-          // For dimensions that are multicast, sender is at mcastStartIndex.
-          // For non-multicast dimensions, use current core position.
-          // Pass grid mapping for proper virtualization support.
-          for (size_t i = 0; i < isMcastDim.size(); ++i) {
-            if (isMcastDim[i]) {
-              // Multicast dimension - sender is at mcastStartIndex.
-              senderCoreIndex.push_back(mcastStartIndex[i]);
-            } else {
-              // Non-multicast dimension - use current core's position.
-              Value currentCoreIdx = builder.create<CoreIndexOp>(
-                  loc, static_cast<int64_t>(i), gridMapping);
-              senderCoreIndex.push_back(currentCoreIdx);
-            }
-          }
-
-          SmallVector<Value> physicalSenderCoreIndex =
-              mapVirtualToPhysicalCoreIndex(builder, loc, genericOp.getGrid(),
-                                            senderCoreIndex);
           builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
-                                         physicalSenderCoreIndex);
+                                         mcastStartIndex);
           builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
-                                          zeroIdx);
+                                          zero);
 
           // Note: CB already reserved before the if/else, so receiver has
           // proper access to the multicast data.
@@ -360,26 +273,21 @@ public:
     }
 
     Location loc = dmaCopy.getLoc();
-    Value cb = dmaCopy.getCb();
+    Value srcCb = dmaCopy.getSrcCb();
+    Value dstCb = dmaCopy.getDstCb();
 
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+    Value srcMemref = rewriter.create<WaitOp>(loc, srcCb).getResult();
+    Value dstMemref = rewriter.create<ReserveOp>(loc, dstCb).getResult();
 
-    Value src = dmaCopy.getSrc();
     auto memTxType = rewriter.getType<MemTxType>(DMAType::Read);
     auto newCopy = rewriter.create<LocalCopyOp>(
-        loc, memTxType, src, localMemref, dmaCopy.getIndexingMaps());
-
+        loc, memTxType, srcMemref, dstMemref, dmaCopy.getIndexingMaps());
     rewriter.eraseOp(dmaCopy);
 
     rewriter.create<DMAWaitOp>(loc, newCopy.getResult());
-    rewriter.create<PushOp>(loc, cb);
+    rewriter.create<PushOp>(loc, dstCb);
+    rewriter.create<PopOp>(loc, srcCb);
 
-    // Pop the source CB to signal consumption.  This pop was deferred from
-    // the splitter because local_copy is a DM op — the pop must live on the
-    // DM thread.  Assuption is that exactly one thread consumes from this CB.
-    if (auto srcWait = src.getDefiningOp<WaitOp>()) {
-      rewriter.create<PopOp>(loc, srcWait.getCb());
-    }
     return success();
   }
 };

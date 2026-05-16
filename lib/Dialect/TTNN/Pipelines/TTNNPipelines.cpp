@@ -10,12 +10,12 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Conversion/TTNNToTTIR/TTNNToTTIR.h"
+#include "ttmlir/Dialect/D2M/Pipelines/D2MPipelines.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
@@ -239,9 +239,7 @@ void createTTNNPipelineWorkaroundPass(
       options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
 
-  if (options.optimizerPassEnabled) {
-    workaroundOptions.optimizerEnabled = true;
-  }
+  workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());
@@ -326,7 +324,31 @@ void createTTIRToTTNNCommonPipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
-    devicePm.addPass(createTTNNDecomposition());
+
+    // Create TTNN decomposition pass, optionally with op-model validation.
+    if (options.ttnnDecompositionEnabled) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+      if (options.optimizerPassEnabled) {
+        DevicePassesWrapperOptions decompWrapperOptions;
+        decompWrapperOptions.devicePtr = options.devicePtr;
+        decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+
+        uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
+        devicePm.addPass(createDevicePassesWrapper(
+            [decompFallbackAttempts](OpPassManager &innerPm) {
+              TTNNDecompositionOptions decompOptions;
+              decompOptions.enableOpConstraints = true;
+              decompOptions.maxFallbackAttempts = decompFallbackAttempts;
+              innerPm.addPass(
+                  mlir::tt::ttnn::createTTNNDecomposition(decompOptions));
+            },
+            decompWrapperOptions));
+      } else
+#endif
+      {
+        devicePm.addPass(createTTNNDecomposition());
+      }
+    }
 
     if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());
@@ -420,6 +442,10 @@ void createTTIRToTTNNCommonPipeline(
     }
 
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+
+    // Workarounds pass and Layout decompositions can leave behind redundant
+    // typecast->typecast chains. Canonicalize them away to save memory.
+    devicePm.addPass(mlir::createCanonicalizerPass());
 
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
@@ -546,8 +572,11 @@ void createTTNNCommonToEmitPyPipeline(
     devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
     devicePm.addPass(createTTNNPrepareModuleForExport());
   } else {
-    // In canonical path, run tuplification + input generation/loading.
+    // In canonical path, split forward functions inputs that have
+    // ttcore.argument_type attribute set on all args into activations and
+    // weights first. Then tuplify everything else.
     //
+    devicePm.addPass(createTTNNSplitForwardFuncArgsByType());
     devicePm.addPass(createTTNNTuplifyTensors());
 
     if (options.loadInputTensorsFromDisk) {
@@ -620,12 +649,13 @@ void createTTNNPipelineD2MPass(OpPassManager &pm,
 
   // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
   // only works on top-level modules (doesn't run module has a parent op).
-  ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
+  ttmetal::D2MPipelineOptions ttmetalOptions;
   ttmetalOptions.ttnnMode = true;
   ttmetalOptions.enableElementwiseFusion = options.enableElementwiseFusion;
-  ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
-  ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);
-  ttmetal::createTTIRToTTMetalBackendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MFrontendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MBackendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MToTTKernelPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MToTTNNPipeline(pm, ttmetalOptions);
 }
 
 //===----------------------------------------------------------------------===//

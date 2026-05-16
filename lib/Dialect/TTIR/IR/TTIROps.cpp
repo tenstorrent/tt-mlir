@@ -40,6 +40,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -143,6 +144,360 @@ constantFoldTM(mlir::Operation *op, mlir::Attribute inputAttr, Fun indexMap) {
   return nullptr;
 }
 
+// Wrapper to avoid repetitive writing of template arguments of constFoldCastOp.
+template <
+    class AttrElementT, class TargetAttrElementT,
+    class ElementValueT = typename AttrElementT::ValueType,
+    class TargetElementValueT = typename TargetAttrElementT::ValueType,
+    class CalculationT = function_ref<TargetElementValueT(ElementValueT, bool)>>
+Attribute foldCast(ArrayRef<Attribute> operands, Type resType,
+                   CalculationT &&calculate) {
+  return mlir::constFoldCastOp<AttrElementT, TargetAttrElementT, ElementValueT,
+                               TargetElementValueT, void, CalculationT>(
+      operands, resType, std::forward<CalculationT>(calculate));
+}
+
+// Helper to perform constant folding of elementwise unary operators when
+// element type is float. `floatMap` should perform a unary operation on
+// `APFloat` values respectively.
+template <typename Fun>
+static ::mlir::Attribute
+constantFoldEltwiseUnaryFloat(mlir::Operation *op, mlir::Attribute inputAttr,
+                              Fun floatMap) {
+  mlir::DenseElementsAttr input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(inputAttr);
+  if (!input || !input.getElementType().isFloat()) {
+    return nullptr;
+  }
+
+  if (op->getOperand(0).getType() != op->getResult(0).getType()) {
+    return nullptr;
+  }
+  if (!input.isSplat() && !shouldFold(op)) {
+    return nullptr;
+  }
+
+  return input.mapValues(input.getElementType(),
+                         [floatMap](const llvm::APFloat &value) {
+                           llvm::APFloat result = floatMap(value);
+                           // `mapValues` expects the lambda to return an APInt,
+                           // so we reinterpret the bits of the APFloat result
+                           // as an APInt before returning.
+                           return result.bitcastToAPInt();
+                         });
+}
+
+// Helper to perform constant folding of elementwise unary operators when
+// element type is integer. `intMap` should perform a unary operation on `APInt`
+// values respectively.
+template <typename Fun>
+static ::mlir::Attribute constantFoldEltwiseUnaryInt(mlir::Operation *op,
+                                                     mlir::Attribute inputAttr,
+                                                     Fun intMap) {
+  mlir::DenseElementsAttr input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(inputAttr);
+  if (!input || !input.getElementType().isInteger()) {
+    return nullptr;
+  }
+
+  if (op->getOperand(0).getType() != op->getResult(0).getType()) {
+    // Avoid implicit type conversion in folders since it does not happen often.
+    return nullptr;
+  }
+  if (!input.isSplat() && !shouldFold(op)) {
+    return nullptr;
+  }
+
+  return input.mapValues(input.getElementType(), intMap);
+}
+
+// Helper to perform constant folding of elementwise unary operators. `floatMap`
+// and `intMap` should perform a unary operation on `APFloat` and `APInt` values
+// respectively.
+template <typename FloatMap, typename IntMap>
+static ::mlir::OpFoldResult
+constantFoldEltwiseUnary(mlir::Operation *op, mlir::Attribute inputAttr,
+                         FloatMap floatMap, IntMap intMap) {
+  mlir::DenseElementsAttr input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(inputAttr);
+  if (!input) {
+    return nullptr;
+  }
+
+  if (input.getElementType().isFloat()) {
+    return constantFoldEltwiseUnaryFloat(op, inputAttr, floatMap);
+  }
+  if (input.getElementType().isInteger()) {
+    return constantFoldEltwiseUnaryInt(op, inputAttr, intMap);
+  }
+  return nullptr;
+}
+
+static bool checkFoldEltwiseBinaryConditions(mlir::Operation *op,
+                                             mlir::DenseElementsAttr lhs,
+                                             mlir::DenseElementsAttr rhs) {
+  if (!lhs || !rhs) {
+    return false;
+  }
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  if (lhs.getElementType() != rhs.getElementType() ||
+      lhs.getElementType() != resultType.getElementType()) {
+    // Avoid implicit type conversion in folders since it does not happen often.
+    return false;
+  }
+  if (!(lhs.isSplat() && rhs.isSplat()) && !shouldFold(op)) {
+    return false;
+  }
+
+  // If exactly one input is not a splat we require it to have the same shape as
+  // the output. Otherwise we could lose an optimization opportunity by
+  // materializing a large constant which could be represented by small tensor +
+  // implicit broadcast.
+  if (lhs.isSplat() && !rhs.isSplat() && rhs.getType() != resultType) {
+    return false;
+  }
+  if (!lhs.isSplat() && rhs.isSplat() && lhs.getType() != resultType) {
+    return false;
+  }
+
+  return true;
+}
+
+static mlir::DenseElementsAttr
+addLeadingDimsToMatchShape(mlir::DenseElementsAttr input,
+                           llvm::ArrayRef<int64_t> targetShape) {
+  ShapedType inputType = input.getType();
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  assert(inputShape.size() <= targetShape.size() &&
+         "Input rank must be less than or equal to target rank");
+
+  if (inputShape.size() == targetShape.size()) {
+    return input;
+  }
+
+  llvm::SmallVector<int64_t> newShape(targetShape.size() - inputShape.size(),
+                                      1);
+  newShape.append(inputShape.begin(), inputShape.end());
+  auto newType =
+      mlir::RankedTensorType::get(newShape, inputType.getElementType());
+  return input.reshape(newType);
+}
+
+template <typename ElementType, typename Fun>
+static ::mlir::OpFoldResult
+foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
+                        mlir::DenseElementsAttr rhs, Fun mapFn) {
+  if (!checkFoldEltwiseBinaryConditions(op, lhs, rhs)) {
+    return nullptr;
+  }
+
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+
+  // If both inputs are splats, just use the splat values.
+  if (lhs.isSplat() && rhs.isSplat()) {
+    auto lhsSplatValue = lhs.getSplatValue<ElementType>();
+    auto rhsSplatValue = rhs.getSplatValue<ElementType>();
+    ElementType result = mapFn(lhsSplatValue, rhsSplatValue);
+    return mlir::SplatElementsAttr::get(resultType, result);
+  }
+
+  llvm::SmallVector<ElementType> resultValues;
+  resultValues.reserve(resultType.getNumElements());
+
+  // If one input is a splat and the other has the same shape as the output,
+  // iterate over the non-splat values and calculate the result.
+  if (lhs.isSplat() && rhs.getType() == resultType) {
+    auto lhsValue = lhs.getSplatValue<ElementType>();
+    for (const auto &rhsValue : rhs.getValues<ElementType>()) {
+      resultValues.push_back(mapFn(lhsValue, rhsValue));
+    }
+    return mlir::DenseElementsAttr::get(resultType, resultValues);
+  }
+  if (rhs.isSplat() && lhs.getType() == resultType) {
+    auto rhsValue = rhs.getSplatValue<ElementType>();
+    for (const auto &lhsValue : lhs.getValues<ElementType>()) {
+      resultValues.push_back(mapFn(lhsValue, rhsValue));
+    }
+    return mlir::DenseElementsAttr::get(resultType, resultValues);
+  }
+
+  // If we have tensors of different shapes, we need to add leading dimensions
+  // of size 1 to the smaller one.
+  lhs = addLeadingDimsToMatchShape(lhs, resultType.getShape());
+  rhs = addLeadingDimsToMatchShape(rhs, resultType.getShape());
+
+  auto lhsValues = lhs.getValues<ElementType>();
+  auto rhsValues = rhs.getValues<ElementType>();
+  llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+  llvm::ArrayRef<int64_t> lhsShape = lhs.getType().getShape();
+  llvm::ArrayRef<int64_t> rhsShape = rhs.getType().getShape();
+  llvm::SmallVector<int64_t> resultStrides = mlir::computeStrides(resultShape);
+  llvm::SmallVector<int64_t> lhsStrides = mlir::computeStrides(lhsShape);
+  llvm::SmallVector<int64_t> rhsStrides = mlir::computeStrides(rhsShape);
+  auto mapCoord = [](const llvm::SmallVector<int64_t> &resultCoord,
+                     llvm::ArrayRef<int64_t> operandShape) {
+    llvm::SmallVector<int64_t> operandCoord(resultCoord.size());
+    for (size_t i = 0; i != operandShape.size(); ++i) {
+      operandCoord[i] = operandShape[i] == 1 ? 0 : resultCoord[i];
+    }
+    return operandCoord;
+  };
+
+  // Iterate over the result elements and compute the positions of the input
+  // elements to which the map function should be applied.
+  for (int64_t i = 0; i != resultType.getNumElements(); ++i) {
+    llvm::SmallVector<int64_t> resultCoord =
+        mlir::delinearize(i, resultStrides);
+    int64_t lhsIndex =
+        mlir::linearize(mapCoord(resultCoord, lhsShape), lhsStrides);
+    int64_t rhsIndex =
+        mlir::linearize(mapCoord(resultCoord, rhsShape), rhsStrides);
+    resultValues.push_back(mapFn(lhsValues[lhsIndex], rhsValues[rhsIndex]));
+  }
+  return mlir::DenseElementsAttr::get(resultType, resultValues);
+}
+
+// Helper to perform constant folding of elementwise unary operators. `floatMap`
+// should perform a unary operation on `APFloat` values.
+template <typename Fun>
+static ::mlir::OpFoldResult
+constantFoldEltwiseBinaryFloat(mlir::Operation *op, mlir::Attribute lhsAttr,
+                               mlir::Attribute rhsAttr, Fun floatMap) {
+  mlir::DenseElementsAttr lhs =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(lhsAttr);
+  mlir::DenseElementsAttr rhs =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(rhsAttr);
+  if (!lhs || !lhs.getElementType().isFloat()) {
+    return nullptr;
+  }
+  return foldEltwiseBinaryHelper<llvm::APFloat>(op, lhs, rhs, floatMap);
+}
+
+// Helper to perform constant folding of elementwise unary operators. `intMap`
+// should perform a unary operation on `APInt` values.
+template <typename Fun>
+static ::mlir::OpFoldResult
+constantFoldEltwiseBinaryInt(mlir::Operation *op, mlir::Attribute lhsAttr,
+                             mlir::Attribute rhsAttr, Fun intMap) {
+  mlir::DenseElementsAttr lhs =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(lhsAttr);
+  mlir::DenseElementsAttr rhs =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(rhsAttr);
+  if (!lhs || !lhs.getElementType().isInteger()) {
+    return nullptr;
+  }
+  return foldEltwiseBinaryHelper<llvm::APInt>(op, lhs, rhs, intMap);
+}
+
+// Helper to perform constant folding of elementwise unary operators. `floatMap`
+// and `intMap` should perform a unary operation on `APFloat` and `APInt` values
+// respectively.
+template <typename FloatMap, typename IntMap>
+static ::mlir::OpFoldResult
+constantFoldEltwiseBinary(mlir::Operation *op, mlir::Attribute lhsAttr,
+                          mlir::Attribute rhsAttr, FloatMap floatMap,
+                          IntMap intMap) {
+  if (auto foldResult =
+          constantFoldEltwiseBinaryFloat(op, lhsAttr, rhsAttr, floatMap)) {
+    return foldResult;
+  }
+  if (auto foldResult =
+          constantFoldEltwiseBinaryInt(op, lhsAttr, rhsAttr, intMap)) {
+    return foldResult;
+  }
+  return nullptr;
+}
+
+// Callable that maps a C++ float function over `APFloat`s by converting them to
+// f32 and back to the original type. This allows folding with non standard
+// float types like bf16 using functions from C++ standard library.
+template <typename Fun>
+class ApplyToAPFloat {
+public:
+  explicit ApplyToAPFloat(Fun fn) : fn{fn} {}
+
+  template <typename... Args>
+  llvm::APFloat operator()(Args... args) const {
+
+    auto convert = [](const llvm::APFloat &value) {
+      if (&value.getSemantics() == &llvm::APFloat::IEEEsingle()) {
+        return value.convertToFloat();
+      }
+      llvm::APFloat floatVal(value);
+      bool losesInfo{};
+      floatVal.convert(llvm::APFloat::IEEEsingle(),
+                       llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+      return floatVal.convertToFloat();
+    };
+
+    float result = fn(convert(args)...);
+
+    llvm::APFloat finalResult(result);
+    auto &semantics =
+        std::get<0>(std::forward_as_tuple(args...)).getSemantics();
+    if (&semantics == &llvm::APFloat::IEEEsingle()) {
+      return finalResult;
+    }
+    bool losesInfo{};
+    finalResult.convert(semantics, llvm::APFloat::rmNearestTiesToEven,
+                        &losesInfo);
+    return finalResult;
+  }
+
+private:
+  Fun fn;
+};
+
+// Callable that maps a binary predicate over APInt or APFloat values and
+// returns 1 if true and 0 if false.
+template <typename Fun>
+class PredicateToNumericAdapter {
+public:
+  explicit PredicateToNumericAdapter(Fun pred) : pred{pred} {}
+
+  llvm::APInt operator()(const llvm::APInt &lhs, const llvm::APInt &rhs) const {
+    return llvm::APInt(lhs.getBitWidth(), pred(lhs, rhs) ? 1 : 0);
+  }
+
+  llvm::APFloat operator()(const llvm::APFloat &lhs,
+                           const llvm::APFloat &rhs) const {
+    if (pred(lhs, rhs)) {
+      return llvm::APFloat::getOne(lhs.getSemantics());
+    }
+    return llvm::APFloat::getZero(lhs.getSemantics());
+  }
+
+private:
+  Fun pred;
+};
+
+// Deduction guides to avoid having to write the template parameter at the
+// call site.
+template <typename Fun>
+ApplyToAPFloat(Fun) -> ApplyToAPFloat<Fun>;
+template <typename Fun>
+PredicateToNumericAdapter(Fun) -> PredicateToNumericAdapter<Fun>;
+
+// Helper to check if any element of an ElementsAttr satisfies a predicate. If
+// the attribute is a splat, only checks the splat value.
+template <typename ElementType, typename Fun>
+static bool anyOf(mlir::ElementsAttr elems, Fun pred) {
+  if (elems.isSplat()) {
+    return pred(elems.getSplatValue<ElementType>());
+  }
+  return llvm::any_of(elems.getValues<ElementType>(), pred);
+}
+
+// Helper to check if every element of an ElementsAttr satisfies a predicate.
+// If the attribute is a splat, only checks the splat value.
+template <typename ElementType, typename Fun>
+static bool allOf(mlir::ElementsAttr elems, Fun pred) {
+  if (elems.isSplat()) {
+    return pred(elems.getSplatValue<ElementType>());
+  }
+  return llvm::all_of(elems.getValues<ElementType>(), pred);
+}
+
 //===----------------------------------------------------------------------===//
 // AddOp
 //===----------------------------------------------------------------------===//
@@ -219,38 +574,74 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
   return newAdd.getOperation();
 }
 
+::mlir::OpFoldResult mlir::tt::ttir::AddOp::fold(FoldAdaptor adaptor) {
+  auto add = std::plus<>();
+  return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                   add, add);
+}
+
+//===----------------------------------------------------------------------===//
+// BitwiseAndOp
+//===----------------------------------------------------------------------===//
+
+// BitwiseAndOp folder
+::mlir::OpFoldResult mlir::tt::ttir::BitwiseAndOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseBinaryInt(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                      std::bit_and<>());
+}
+
+//===----------------------------------------------------------------------===//
+// BitwiseOrOp
+//===----------------------------------------------------------------------===//
+
+// BitwiseOrOp folder
+::mlir::OpFoldResult mlir::tt::ttir::BitwiseOrOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseBinaryInt(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                      std::bit_or<>());
+}
+
 //===----------------------------------------------------------------------===//
 // BitwiseXorOp
 //===----------------------------------------------------------------------===//
 
-// BitwiseXorOp canonicalization
-void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  // x ^ x == 0
-  patterns.add(
-      +[](mlir::tt::ttir::BitwiseXorOp op, mlir::PatternRewriter &rewriter) {
-        if (op.getLhs() != op.getRhs()) {
-          return mlir::failure();
-        }
+// Canonicalize: x ^ x -> 0
+static ::mlir::OpFoldResult
+foldBitwiseXorToZero(mlir::tt::ttir::BitwiseXorOp op) {
+  if (op.getLhs() != op.getRhs()) {
+    return nullptr;
+  }
 
-        mlir::RankedTensorType tensorType = op.getResult().getType();
-        auto elementType = tensorType.getElementType();
-        Attribute zeroAttr;
-        if (mlir::isa<mlir::FloatType>(elementType)) {
-          zeroAttr = mlir::FloatAttr::get(elementType, 0.0);
-        } else if (mlir::isa<mlir::IntegerType>(elementType)) {
-          zeroAttr = mlir::IntegerAttr::get(elementType, 0);
-        } else {
-          return mlir::failure();
-        }
-        auto resultType = mlir::SplatElementsAttr::get(tensorType, zeroAttr);
+  mlir::RankedTensorType tensorType = op.getResult().getType();
+  auto elementType = tensorType.getElementType();
+  Attribute zeroAttr;
+  if (mlir::isa<mlir::FloatType>(elementType)) {
+    zeroAttr = mlir::FloatAttr::get(elementType, 0.0);
+  } else if (mlir::isa<mlir::IntegerType>(elementType)) {
+    zeroAttr = mlir::IntegerAttr::get(elementType, 0);
+  } else {
+    return nullptr;
+  }
+  return mlir::SplatElementsAttr::get(tensorType, zeroAttr);
+}
 
-        rewriter.replaceOpWithNewOp<ttir::ConstantOp>(
-            op, op->getOperand(0).getType(), resultType);
-        return mlir::success();
-      });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+static ::mlir::OpFoldResult
+constantFoldBitwiseXor(mlir::tt::ttir::BitwiseXorOp op,
+                       mlir::tt::ttir::BitwiseXorOp::FoldAdaptor adaptor) {
+  return constantFoldEltwiseBinaryInt(op, adaptor.getLhs(), adaptor.getRhs(),
+                                      std::bit_xor<>());
+}
+
+// BitwiseXorOp folder
+::mlir::OpFoldResult mlir::tt::ttir::BitwiseXorOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldBitwiseXorToZero(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constantFoldBitwiseXor(*this, adaptor)) {
+    return foldResult;
+  }
+
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -363,12 +754,6 @@ static bool isConstantOne(mlir::Value value) {
   return attr && isOneAttr(attr);
 }
 
-// Helper to extract the shape of a RankedTensorType as a vector of i32.
-static llvm::SmallVector<int32_t>
-getShapeAsI32(mlir::RankedTensorType tensorType) {
-  return llvm::to_vector_of<int32_t>(tensorType.getShape());
-}
-
 //===----------------------------------------------------------------------===//
 // LogicalAndOp
 //===----------------------------------------------------------------------===//
@@ -402,46 +787,57 @@ static bool isBooleanValued(mlir::Value value) {
 }
 
 // LogicalAndOp canonicalization:
-//   and(zero, x)    -> ZerosOp   (absorbing)
-//   and(nonzero, x) -> x         (identity, when x is boolean-valued)
-//   and(nonzero, nonzero) -> OnesOp (both constant nonzero)
-void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  patterns.add(
-      +[](mlir::tt::ttir::LogicalAndOp op, mlir::PatternRewriter &rewriter) {
-        auto resultType =
-            mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+// and(zero, x) -> zero (absorbing)
+static ::mlir::OpFoldResult
+foldAbsorbingLogicalAnd(mlir::tt::ttir::LogicalAndOp op) {
+  if (isConstantZero(op.getLhs()) || isConstantZero(op.getRhs())) {
+    return mlir::SplatElementsAttr::get(
+        op.getResult().getType(),
+        makeScalarAttr(op.getResult().getType().getElementType(), 0.0));
+  }
+  return nullptr;
+}
 
-        // Absorbing: and(zero, x) -> 0
-        if (isConstantZero(op.getLhs()) || isConstantZero(op.getRhs())) {
-          rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(
-              op, resultType,
-              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
-          return mlir::success();
-        }
+// LogicalAndOp canonicalization:
+// and(nonzero, x) -> x (identity, when x is boolean-valued)
+static ::mlir::OpFoldResult
+foldIdentityLogicalAnd(mlir::tt::ttir::LogicalAndOp op) {
+  if (isConstantNonZero(op.getLhs()) && isBooleanValued(op.getRhs())) {
+    return op.getRhs();
+  }
+  if (isConstantNonZero(op.getRhs()) && isBooleanValued(op.getLhs())) {
+    return op.getLhs();
+  }
+  return nullptr;
+}
 
-        // Identity: and(nonzero, x) -> x when x is boolean-valued
-        if (isConstantNonZero(op.getLhs()) && isBooleanValued(op.getRhs())) {
-          rewriter.replaceOp(op, op.getRhs());
-          return mlir::success();
-        }
-        if (isConstantNonZero(op.getRhs()) && isBooleanValued(op.getLhs())) {
-          rewriter.replaceOp(op, op.getLhs());
-          return mlir::success();
-        }
-
-        // Both constant nonzero -> OnesOp
-        if (isConstantNonZero(op.getLhs()) && isConstantNonZero(op.getRhs())) {
-          rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(
-              op, resultType,
-              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
-          return mlir::success();
-        }
-
-        return mlir::failure();
+static ::mlir::OpFoldResult
+constantFoldLogicalAnd(mlir::tt::ttir::LogicalAndOp op,
+                       mlir::tt::ttir::LogicalAndOp::FoldAdaptor adaptor) {
+  return constantFoldEltwiseBinary(
+      op, adaptor.getLhs(), adaptor.getRhs(),
+      [](const llvm::APFloat &lhs, const llvm::APFloat &rhs) {
+        return !lhs.isZero() && !rhs.isZero()
+                   ? llvm::APFloat::getOne(lhs.getSemantics())
+                   : llvm::APFloat::getZero(lhs.getSemantics());
+      },
+      [](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        return llvm::APInt(lhs.getBitWidth(),
+                           !lhs.isZero() && !rhs.isZero() ? 1 : 0);
       });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::LogicalAndOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldAbsorbingLogicalAnd(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult = foldIdentityLogicalAnd(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult = constantFoldLogicalAnd(*this, adaptor)) {
+    return foldResult;
+  }
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -449,46 +845,57 @@ void mlir::tt::ttir::LogicalAndOp::getCanonicalizationPatterns(
 //===----------------------------------------------------------------------===//
 
 // LogicalOrOp canonicalization:
-//   or(nonzero, x) -> OnesOp   (absorbing)
-//   or(zero, x)    -> x        (identity, when x is boolean-valued)
-//   or(zero, zero)  -> ZerosOp  (both constant zero)
-void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  patterns.add(
-      +[](mlir::tt::ttir::LogicalOrOp op, mlir::PatternRewriter &rewriter) {
-        auto resultType =
-            mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+// or(nonzero, x) -> 1 (absorbing)
+static ::mlir::OpFoldResult
+foldAbsorbingLogicalOr(mlir::tt::ttir::LogicalOrOp op) {
+  if (isConstantNonZero(op.getLhs()) || isConstantNonZero(op.getRhs())) {
+    auto resultType = op.getResult().getType();
+    return mlir::SplatElementsAttr::get(
+        resultType, makeScalarAttr(resultType.getElementType(), 1.0));
+  }
+  return nullptr;
+}
 
-        // Absorbing: or(nonzero, x) -> 1
-        if (isConstantNonZero(op.getLhs()) || isConstantNonZero(op.getRhs())) {
-          rewriter.replaceOpWithNewOp<mlir::tt::ttir::OnesOp>(
-              op, resultType,
-              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
-          return mlir::success();
-        }
+// LogicalOrOp canonicalization:
+// or(zero, x) -> x (identity, when x is boolean-valued)
+static ::mlir::OpFoldResult
+foldIdentityLogicalOr(mlir::tt::ttir::LogicalOrOp op) {
+  if (isConstantZero(op.getLhs()) && isBooleanValued(op.getRhs())) {
+    return op.getRhs();
+  }
+  if (isConstantZero(op.getRhs()) && isBooleanValued(op.getLhs())) {
+    return op.getLhs();
+  }
+  return nullptr;
+}
 
-        // Identity: or(zero, x) -> x when x is boolean-valued
-        if (isConstantZero(op.getLhs()) && isBooleanValued(op.getRhs())) {
-          rewriter.replaceOp(op, op.getRhs());
-          return mlir::success();
-        }
-        if (isConstantZero(op.getRhs()) && isBooleanValued(op.getLhs())) {
-          rewriter.replaceOp(op, op.getLhs());
-          return mlir::success();
-        }
-
-        // Both constant zero -> ZerosOp
-        if (isConstantZero(op.getLhs()) && isConstantZero(op.getRhs())) {
-          rewriter.replaceOpWithNewOp<mlir::tt::ttir::ZerosOp>(
-              op, resultType,
-              rewriter.getDenseI32ArrayAttr(getShapeAsI32(resultType)));
-          return mlir::success();
-        }
-
-        return mlir::failure();
+static ::mlir::OpFoldResult
+constantFoldLogicalOr(mlir::tt::ttir::LogicalOrOp op,
+                      mlir::tt::ttir::LogicalOrOp::FoldAdaptor adaptor) {
+  return constantFoldEltwiseBinary(
+      op, adaptor.getLhs(), adaptor.getRhs(),
+      [](const llvm::APFloat &lhs, const llvm::APFloat &rhs) {
+        return !lhs.isZero() || !rhs.isZero()
+                   ? llvm::APFloat::getOne(lhs.getSemantics())
+                   : llvm::APFloat::getZero(lhs.getSemantics());
+      },
+      [](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        return llvm::APInt(lhs.getBitWidth(),
+                           !lhs.isZero() || !rhs.isZero() ? 1 : 0);
       });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::LogicalOrOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldAbsorbingLogicalOr(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult = foldIdentityLogicalOr(*this)) {
+    return foldResult;
+  }
+  if (auto foldResult = constantFoldLogicalOr(*this, adaptor)) {
+    return foldResult;
+  }
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -508,6 +915,51 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+// ClampScalarOp folder
+::mlir::OpFoldResult mlir::tt::ttir::ClampScalarOp::fold(FoldAdaptor adaptor) {
+  auto input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getInput());
+  if (!input) {
+    return nullptr;
+  }
+
+  if (auto floatType =
+          mlir::dyn_cast<mlir::FloatType>(input.getElementType())) {
+    auto min = ttmlir::utils::attributeToAPFloat(getMin());
+    auto max = ttmlir::utils::attributeToAPFloat(getMax());
+    if (&floatType.getFloatSemantics() != &llvm::APFloat::IEEEsingle()) {
+      bool losesInfo{};
+      min.convert(floatType.getFloatSemantics(),
+                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+      max.convert(floatType.getFloatSemantics(),
+                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+    }
+    return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                         [min, max](const llvm::APFloat &val) {
+                                           return std::clamp(val, min, max);
+                                         });
+  }
+
+  if (auto intType =
+          mlir::dyn_cast<mlir::IntegerType>(input.getElementType())) {
+    double minDouble = ttmlir::utils::attributeToDouble(getMin());
+    double maxDouble = ttmlir::utils::attributeToDouble(getMax());
+    auto min = llvm::APInt(intType.getWidth(), static_cast<int64_t>(minDouble));
+    auto max = llvm::APInt(intType.getWidth(), static_cast<int64_t>(maxDouble));
+    bool isUnsigned = intType.isUnsigned();
+    return constantFoldEltwiseUnaryInt(
+        *this, adaptor.getInput(),
+        [min, max, isUnsigned](const llvm::APInt &val) {
+          if (isUnsigned) {
+            return llvm::APIntOps::umax(min, llvm::APIntOps::umin(val, max));
+          }
+          return llvm::APIntOps::smax(min, llvm::APIntOps::smin(val, max));
+        });
+  }
+
+  return nullptr;
 }
 
 // ClampScalarOp canonicalization
@@ -600,6 +1052,37 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   return success();
 }
 
+// LogicalRightShiftOp folder
+::mlir::OpFoldResult
+mlir::tt::ttir::LogicalRightShiftOp::fold(FoldAdaptor adaptor) {
+  unsigned width = getLhs().getType().getElementType().getIntOrFloatBitWidth();
+  auto rhs = mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getRhs());
+  if (!rhs) {
+    return nullptr;
+  }
+  if (rhs.getElementType().isSignedInteger() &&
+      anyOf<llvm::APInt>(rhs, std::mem_fn(&llvm::APInt::isNegative))) {
+    return nullptr;
+  }
+
+  // If every shift amount is >= the LHS bit width, the result is all zeros
+  // regardless of LHS.
+  if (allOf<llvm::APInt>(
+          rhs, [width](const llvm::APInt &val) { return val.uge(width); })) {
+    auto resultType = mlir::cast<ShapedType>(getResult().getType());
+    return SplatElementsAttr::get(resultType, llvm::APInt(width, 0));
+  }
+
+  return constantFoldEltwiseBinaryInt(
+      *this, adaptor.getLhs(), adaptor.getRhs(),
+      [](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        if (rhs.uge(lhs.getBitWidth())) {
+          return llvm::APInt::getZero(lhs.getBitWidth());
+        }
+        return lhs.lshr(rhs);
+      });
+}
+
 //===----------------------------------------------------------------------===//
 // LogicalLeftShiftOp
 //===----------------------------------------------------------------------===//
@@ -634,6 +1117,28 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+// LogicalLeftShiftOp folder
+::mlir::OpFoldResult
+mlir::tt::ttir::LogicalLeftShiftOp::fold(FoldAdaptor adaptor) {
+  auto rhs = mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getRhs());
+  if (!rhs) {
+    return nullptr;
+  }
+  if (rhs.getElementType().isSignedInteger() &&
+      anyOf<llvm::APInt>(rhs, std::mem_fn(&llvm::APInt::isNegative))) {
+    return nullptr;
+  }
+
+  return constantFoldEltwiseBinaryInt(
+      *this, adaptor.getLhs(), adaptor.getRhs(),
+      [](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        if (rhs.uge(lhs.getBitWidth())) {
+          return llvm::APInt::getZero(lhs.getBitWidth());
+        }
+        return lhs.shl(rhs);
+      });
 }
 
 //===----------------------------------------------------------------------===//
@@ -966,38 +1471,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       getContext(), 32, IntegerType::SignednessSemantics::Unsigned);
   auto resultType = RankedTensorType::get(/*shape=*/{1}, resultElType);
   return mlir::DenseElementsAttr::get<uint32_t>(resultType, dimSize);
-}
-
-//===----------------------------------------------------------------------===//
-// NegOp
-//===----------------------------------------------------------------------===//
-
-// NegOp folder
-::mlir::OpFoldResult mlir::tt::ttir::NegOp::fold(FoldAdaptor adaptor) {
-  Attribute attr = adaptor.getInput();
-  if (!attr) {
-    return nullptr;
-  }
-  if (!shouldFold(*this)) {
-    return nullptr;
-  }
-
-  if (auto denseAttr = dyn_cast<DenseElementsAttr>(attr)) {
-    Type elementType = denseAttr.getElementType();
-    if (elementType.isInteger()) {
-      return denseAttr.mapValues(elementType,
-                                 [](const APInt &val) { return -val; });
-    }
-    if (elementType.isFloat()) {
-      return denseAttr.mapValues(elementType, [](const llvm::APFloat &val) {
-        // Negate the float and reinterpret its raw bits as an integer for
-        // DenseElementsAttr's internal storage.
-        return (-val).bitcastToAPInt();
-      });
-    }
-  }
-
-  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -3317,8 +3790,7 @@ constantFoldTypecast(mlir::tt::ttir::TypecastOp op,
 
   if (inputElementType.isFloat()) {
     if (auto targetType = mlir::dyn_cast<FloatType>(outputElementType)) {
-      return constFoldCastOp<mlir::FloatAttr, mlir::FloatAttr, llvm::APFloat,
-                             llvm::APFloat, void>(
+      return foldCast<mlir::FloatAttr, mlir::FloatAttr>(
           adaptor.getOperands(), outputType,
           [targetType](llvm::APFloat value, bool &castStatus) -> llvm::APFloat {
             bool losesInfo{};
@@ -3331,8 +3803,7 @@ constantFoldTypecast(mlir::tt::ttir::TypecastOp op,
     }
 
     if (auto targetType = mlir::dyn_cast<IntegerType>(outputElementType)) {
-      return constFoldCastOp<mlir::FloatAttr, mlir::IntegerAttr, llvm::APFloat,
-                             llvm::APInt, void>(
+      return foldCast<mlir::FloatAttr, mlir::IntegerAttr>(
           adaptor.getOperands(), outputType,
           [targetType](const llvm::APFloat &value,
                        bool &castStatus) -> llvm::APInt {
@@ -3349,8 +3820,7 @@ constantFoldTypecast(mlir::tt::ttir::TypecastOp op,
 
   if (auto sourceType = mlir::dyn_cast<mlir::IntegerType>(inputElementType)) {
     if (auto targetType = mlir::dyn_cast<FloatType>(outputElementType)) {
-      return constFoldCastOp<mlir::IntegerAttr, mlir::FloatAttr, llvm::APInt,
-                             llvm::APFloat, void>(
+      return foldCast<mlir::IntegerAttr, mlir::FloatAttr>(
           adaptor.getOperands(), outputType,
           [sourceType, targetType](const llvm::APInt &value,
                                    bool &castStatus) -> llvm::APFloat {
@@ -3366,8 +3836,7 @@ constantFoldTypecast(mlir::tt::ttir::TypecastOp op,
     }
 
     if (auto targetType = mlir::dyn_cast<IntegerType>(outputElementType)) {
-      return constFoldCastOp<mlir::IntegerAttr, mlir::IntegerAttr, llvm::APInt,
-                             llvm::APInt, void>(
+      return foldCast<mlir::IntegerAttr, mlir::IntegerAttr>(
           adaptor.getOperands(), outputType,
           [sourceType, targetType](const llvm::APInt &value,
                                    bool &castStatus) -> llvm::APInt {
@@ -3581,6 +4050,98 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   }
 
   return success();
+}
+
+// EmbeddingOp canonicalization
+//
+// Squeeze unit dimensions out of the index tensor before the embedding lookup,
+// then reshape the result back to the original output shape.
+//
+//   Examples:
+//   Embedding([A,1],   [N,B]) -> Reshape(Embedding([A],   [N,B]), [A,1,B])
+//   Embedding([1,A],   [N,B]) -> Reshape(Embedding([A],   [N,B]), [1,A,B])
+//   Embedding([1,A,1], [N,B]) -> Reshape(Embedding([A],   [N,B]), [1,A,1,B])
+//
+// The pattern does not run when:
+//   - The input has no unit dimensions (nothing to squeeze).
+//   - The input is not produced by a ReshapeOp or the output is not connected
+//   to a ReshapeOp.
+//
+// If index tensor is all unit dimensions, it is reshaped to a scalar index
+// tensor.
+//   Embedding([1,1,1], [N,B]) -> Reshape(Embedding([1], [N,B]), [1,B])
+//
+void mlir::tt::ttir::EmbeddingOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](mlir::tt::ttir::EmbeddingOp op,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    // Do not apply when the indices are not produced by a ReshapeOp or when the
+    // output is not connected to a ReshapeOp.
+    bool inputFromReshape =
+        op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>() != nullptr;
+    bool outputToReshape =
+        !op->use_empty() &&
+        llvm::all_of(op->getUsers(), [](mlir::Operation *user) {
+          return mlir::isa<mlir::tt::ttir::ReshapeOp>(user);
+        });
+    if (!inputFromReshape || !outputToReshape) {
+      return failure();
+    }
+
+    RankedTensorType inputType = op.getInput().getType();
+
+    // Compute the squeezed shape by dropping all unit dimensions.
+    SmallVector<int64_t> squeezedShape;
+    for (int64_t dim : inputType.getShape()) {
+      if (dim != 1) {
+        squeezedShape.push_back(dim);
+      }
+    }
+
+    // Index tensor is made up of unit dimensions only, so push back a 1.
+    if (squeezedShape.empty()) {
+      squeezedShape.push_back(1);
+    }
+
+    // Nothing to do when there are no unit dimensions to remove.
+    if (static_cast<int64_t>(squeezedShape.size()) == inputType.getRank()) {
+      return failure();
+    }
+
+    RankedTensorType resultType = op.getType();
+    assert(!resultType.getEncoding() && "EmbeddingOp should not have a layout");
+
+    int64_t B = resultType.getDimSize(resultType.getRank() - 1);
+
+    // Reshape input to the squeezed index shape.
+    auto squeezedInputType =
+        RankedTensorType::get(squeezedShape, inputType.getElementType());
+    SmallVector<int32_t> squeezedInputShapeAttr(squeezedShape.begin(),
+                                                squeezedShape.end());
+    auto squeezedInput = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+        op.getLoc(), squeezedInputType, op.getInput(),
+        rewriter.getI32ArrayAttr(squeezedInputShapeAttr));
+
+    // Create a new embedding op with result shape: squeezedShape + [B].
+    SmallVector<int64_t> newResultShape(squeezedShape);
+    newResultShape.push_back(B);
+    auto newResultType =
+        RankedTensorType::get(newResultShape, resultType.getElementType());
+    auto newEmbedding = rewriter.create<mlir::tt::ttir::EmbeddingOp>(
+        op.getLoc(), newResultType, squeezedInput.getResult(), op.getWeight());
+
+    // Reshape back to the original result shape so all consumers are
+    // unaffected.
+    SmallVector<int32_t> origResultShape;
+    for (int64_t dim : resultType.getShape()) {
+      origResultShape.push_back(static_cast<int32_t>(dim));
+    }
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
+        op, resultType, newEmbedding.getResult(),
+        rewriter.getI32ArrayAttr(origResultShape));
+
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -6615,6 +7176,12 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
+// Enforces the decode SDPA layout:
+//   Q:    [1, B, Hq, D]      (dim 0 must be 1)
+//   K, V: [B, Hkv, Sk, D]    (Hq % Hkv == 0)
+//   Mask: [1|B, 1, 1|Hq, Sk] (dim 1 must be 1; dim 0/dim 2 may broadcast)
+//   cur_pos_tensor: 1D int tensor of length B
+// `is_causal` and `attention_mask` are mutually exclusive.
 ::mlir::LogicalResult
 mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
 
@@ -6685,13 +7252,14 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != 1) {
-      return emitOpError("Attention mask dim 0 must be 1");
-    }
-    if (attentionMaskType.getShape()[1] != 1 &&
-        attentionMaskType.getShape()[1] != batchSize) {
+    // Mask layout: [batch_or_1, 1, num_heads_or_1, kv_seq_len].
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
       return emitOpError("Attention mask batch size must be 1 (broadcast) or "
                          "match query batch size");
+    }
+    if (attentionMaskType.getShape()[1] != 1) {
+      return emitOpError("Attention mask dim 1 must be 1");
     }
     if (attentionMaskType.getShape()[2] != 1 &&
         attentionMaskType.getShape()[2] != nQueryHeads) {
@@ -6861,6 +7429,12 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
+// Enforces the generic SDPA layout:
+//   Q:    [B, Hq, Sq, D]
+//   K, V: [B, Hkv, Sk, D]    (Hq % Hkv == 0)
+//   Mask: [1|B, 1|Hq, Sq, Sk] (dim 0/dim 1 may broadcast)
+// `is_causal` and `attention_mask` are mutually exclusive; `is_causal` also
+// requires Sq == Sk.
 ::mlir::LogicalResult mlir::tt::ttir::ScaledDotProductAttentionOp::verify() {
 
   RankedTensorType queryType = getQuery().getType();
@@ -7321,6 +7895,444 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AbsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::AbsOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnary(
+      *this, adaptor.getInput(),
+      [](const llvm::APFloat &x) { return llvm::abs(x); },
+      [](const llvm::APInt &x) { return x.abs(); });
+}
+
+//===----------------------------------------------------------------------===//
+// AtanOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::AtanOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::atanf));
+}
+
+//===----------------------------------------------------------------------===//
+// BitwiseNotOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::BitwiseNotOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryInt(*this, adaptor.getInput(),
+                                     [](const llvm::APInt &x) { return ~x; });
+}
+
+//===----------------------------------------------------------------------===//
+// CbrtOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::CbrtOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::cbrtf));
+}
+
+//===----------------------------------------------------------------------===//
+// CeilOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::CeilOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::ceilf));
+}
+
+//===----------------------------------------------------------------------===//
+// CosOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::CosOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::cosf));
+}
+
+//===----------------------------------------------------------------------===//
+// ExpOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::ExpOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::expf));
+}
+
+//===----------------------------------------------------------------------===//
+// Expm1Op
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::Expm1Op::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::expm1f));
+}
+
+//===----------------------------------------------------------------------===//
+// FloorOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::FloorOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::floorf));
+}
+
+//===----------------------------------------------------------------------===//
+// IsFiniteOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::IsFiniteOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(
+      *this, adaptor.getInput(), [](const llvm::APFloat &x) {
+        return x.isFinite() ? llvm::APFloat::getOne(x.getSemantics())
+                            : llvm::APFloat::getZero(x.getSemantics());
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// LogOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::LogOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::logf));
+}
+
+//===----------------------------------------------------------------------===//
+// Log1pOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::Log1pOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::log1pf));
+}
+
+//===----------------------------------------------------------------------===//
+// LogicalNotOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::LogicalNotOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnary(
+      *this, adaptor.getInput(),
+      [](const llvm::APFloat &x) {
+        return llvm::APFloat(x.getSemantics(), x.isZero() ? 1 : 0);
+      },
+      [](const llvm::APInt &x) {
+        return llvm::APInt(x.getBitWidth(), x.isZero() ? 1 : 0,
+                           /*isSigned=*/false);
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// NegOp
+//===----------------------------------------------------------------------===//
+
+// NegOp folder
+::mlir::OpFoldResult mlir::tt::ttir::NegOp::fold(FoldAdaptor adaptor) {
+  auto neg = std::negate<>();
+  return constantFoldEltwiseUnary(*this, adaptor.getInput(), neg, neg);
+}
+
+//===----------------------------------------------------------------------===//
+// ReciprocalOp
+//===----------------------------------------------------------------------===//
+
+static bool anyZero(mlir::ElementsAttr elems) {
+  if (elems.getElementType().isFloat()) {
+    return anyOf<llvm::APFloat>(elems, std::mem_fn(&llvm::APFloat::isZero));
+  }
+  if (elems.getElementType().isInteger()) {
+    return anyOf<llvm::APInt>(elems, std::mem_fn(&llvm::APInt::isZero));
+  }
+  return false;
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::ReciprocalOp::fold(FoldAdaptor adaptor) {
+  auto input =
+      mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getInput());
+  if (!input || anyZero(input)) {
+    // Don't fold if the result is inf because runtime doesn't support it fully.
+    return nullptr;
+  }
+  return constantFoldEltwiseUnaryFloat(
+      *this, adaptor.getInput(), [](const llvm::APFloat &x) {
+        return llvm::APFloat::getOne(x.getSemantics()) / x;
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// RsqrtOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::RsqrtOp::fold(FoldAdaptor adaptor) {
+  auto input =
+      mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getInput());
+  if (!input || anyZero(input)) {
+    // Don't fold if the result is inf because runtime doesn't support it fully.
+    return nullptr;
+  }
+
+  auto rsqrt = ApplyToAPFloat([](float x) { return 1.0f / ::sqrtf(x); });
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(), rsqrt);
+}
+
+//===----------------------------------------------------------------------===//
+// SignOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::SignOp::fold(FoldAdaptor adaptor) {
+  auto intType = mlir::dyn_cast<mlir::IntegerType>(getType().getElementType());
+  bool isUnsigned = intType && intType.isUnsignedInteger();
+  return constantFoldEltwiseUnary(
+      *this, adaptor.getInput(),
+      [](const llvm::APFloat &x) {
+        if (x.isZero()) {
+          return llvm::APFloat::getZero(x.getSemantics());
+        }
+        if (x.isNegative()) {
+          return llvm::APFloat::getOne(x.getSemantics(), /*Negative=*/true);
+        }
+        if (x.isNaN()) {
+          return x;
+        }
+        // x is positive.
+        return llvm::APFloat::getOne(x.getSemantics());
+      },
+      [isUnsigned](const llvm::APInt &x) {
+        if (x.isZero()) {
+          return llvm::APInt::getZero(x.getBitWidth());
+        }
+        if (isUnsigned || x.isStrictlyPositive()) {
+          return llvm::APInt(x.getBitWidth(), 1);
+        }
+        return llvm::APInt(x.getBitWidth(), -1, true);
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// SinOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::SinOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::sinf));
+}
+
+//===----------------------------------------------------------------------===//
+// SqrtOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::SqrtOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::sqrtf));
+}
+
+//===----------------------------------------------------------------------===//
+// TanOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::TanOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseUnaryFloat(*this, adaptor.getInput(),
+                                       ApplyToAPFloat(::tanf));
+}
+
+//===----------------------------------------------------------------------===//
+// Atan2Op
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::Atan2Op::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseBinaryFloat(
+      *this, adaptor.getLhs(), adaptor.getRhs(), ApplyToAPFloat(::atan2f));
+}
+
+//===----------------------------------------------------------------------===//
+// DivOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::DivOp::fold(FoldAdaptor adaptor) {
+  auto rhs = mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getRhs());
+  if (!rhs || anyZero(rhs)) {
+    // Don't fold if the result is inf because runtime doesn't support it fully.
+    // Also don't fold if an int is divided by zero.
+    return nullptr;
+  }
+
+  auto intType = mlir::dyn_cast<mlir::IntegerType>(getType().getElementType());
+  auto isUnsigned = intType && intType.isUnsignedInteger();
+
+  return constantFoldEltwiseBinary(
+      *this, adaptor.getLhs(), adaptor.getRhs(), std::divides<>(),
+      [isUnsigned](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        if (isUnsigned) {
+          return lhs.udiv(rhs);
+        }
+        return lhs.sdiv(rhs);
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// EqualOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::EqualOp::fold(FoldAdaptor adaptor) {
+  auto eq = PredicateToNumericAdapter(std::equal_to<>());
+  return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                   eq, eq);
+}
+
+//===----------------------------------------------------------------------===//
+// NotEqualOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::NotEqualOp::fold(FoldAdaptor adaptor) {
+  auto ne = PredicateToNumericAdapter(std::not_equal_to<>());
+  return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                   ne, ne);
+}
+
+//===----------------------------------------------------------------------===//
+// GreaterEqualOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::GreaterEqualOp::fold(FoldAdaptor adaptor) {
+  auto intType = mlir::dyn_cast<mlir::IntegerType>(getType().getElementType());
+  auto isUnsigned = intType && intType.isUnsignedInteger();
+  return constantFoldEltwiseBinary(
+      *this, adaptor.getLhs(), adaptor.getRhs(),
+      PredicateToNumericAdapter(std::greater_equal<>()),
+      [isUnsigned](llvm::APInt lhs, llvm::APInt rhs) {
+        if (isUnsigned) {
+          return llvm::APInt(lhs.getBitWidth(), lhs.uge(rhs) ? 1 : 0);
+        }
+        return llvm::APInt(lhs.getBitWidth(), lhs.sge(rhs) ? 1 : 0);
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// GreaterThanOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::GreaterThanOp::fold(FoldAdaptor adaptor) {
+  auto intType = mlir::dyn_cast<mlir::IntegerType>(getType().getElementType());
+  auto isUnsigned = intType && intType.isUnsignedInteger();
+  return constantFoldEltwiseBinary(
+      *this, adaptor.getLhs(), adaptor.getRhs(),
+      PredicateToNumericAdapter(std::greater<>()),
+      [isUnsigned](llvm::APInt lhs, llvm::APInt rhs) {
+        if (isUnsigned) {
+          return llvm::APInt(lhs.getBitWidth(), lhs.ugt(rhs) ? 1 : 0);
+        }
+        return llvm::APInt(lhs.getBitWidth(), lhs.sgt(rhs) ? 1 : 0);
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// MaximumOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::MaximumOp::fold(FoldAdaptor adaptor) {
+  auto intType = mlir::dyn_cast<mlir::IntegerType>(getType().getElementType());
+  auto isUnsigned = intType && intType.isUnsignedInteger();
+  return constantFoldEltwiseBinary(
+      *this, adaptor.getLhs(), adaptor.getRhs(),
+      [](const llvm::APFloat &x, const llvm::APFloat &y) {
+        return std::max(x, y);
+      },
+      [isUnsigned](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        if (isUnsigned) {
+          return llvm::APIntOps::umax(lhs, rhs);
+        }
+        return llvm::APIntOps::smax(lhs, rhs);
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// MinimumOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::MinimumOp::fold(FoldAdaptor adaptor) {
+  auto intType = mlir::dyn_cast<mlir::IntegerType>(getType().getElementType());
+  auto isUnsigned = intType && intType.isUnsignedInteger();
+  return constantFoldEltwiseBinary(
+      *this, adaptor.getLhs(), adaptor.getRhs(),
+      [](const llvm::APFloat &x, const llvm::APFloat &y) {
+        return std::min(x, y);
+      },
+      [isUnsigned](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        if (isUnsigned) {
+          return llvm::APIntOps::umin(lhs, rhs);
+        }
+        return llvm::APIntOps::smin(lhs, rhs);
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// MultiplyOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::MultiplyOp::fold(FoldAdaptor adaptor) {
+  auto multiply = std::multiplies<>();
+  return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                   multiply, multiply);
+}
+
+//===----------------------------------------------------------------------===//
+// PowOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::PowOp::fold(FoldAdaptor adaptor) {
+  return constantFoldEltwiseBinaryFloat(
+      *this, adaptor.getLhs(), adaptor.getRhs(), ApplyToAPFloat(::powf));
+}
+
+//===----------------------------------------------------------------------===//
+// RemainderOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::RemainderOp::fold(FoldAdaptor adaptor) {
+  auto rhs = mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getRhs());
+  if (!rhs || anyZero(rhs)) {
+    return nullptr;
+  }
+
+  auto intType = mlir::dyn_cast<mlir::IntegerType>(getType().getElementType());
+  auto isUnsigned = intType && intType.isUnsignedInteger();
+  return constantFoldEltwiseBinary(
+      *this, adaptor.getLhs(), adaptor.getRhs(),
+      ApplyToAPFloat([](float lhs, float rhs) {
+        auto rem = std::fmod(lhs, rhs);
+        if (rhs != 0 && ((rem < 0 && rhs > 0) || (rem > 0 && rhs < 0))) {
+          // Adjust result to match TTNN's behavior, which always returns a
+          // result with the same sign as the divisor (rhs).
+          rem += rhs;
+        }
+        return rem;
+      }),
+      [isUnsigned](const llvm::APInt &lhs, const llvm::APInt &rhs) {
+        if (isUnsigned) {
+          return lhs.urem(rhs);
+        }
+        llvm::APInt rem = lhs.srem(rhs);
+        if (!rem.isZero() && lhs.isNegative() != rhs.isNegative()) {
+          // Adjust result to match TTNN's behavior, which always returns a
+          // result with the same sign as the divisor (rhs).
+          rem += rhs;
+        }
+        return rem;
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// SubtractOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult mlir::tt::ttir::SubtractOp::fold(FoldAdaptor adaptor) {
+  auto subtract = std::minus<>();
+  return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                   subtract, subtract);
 }
 
 } // namespace mlir::tt::ttir

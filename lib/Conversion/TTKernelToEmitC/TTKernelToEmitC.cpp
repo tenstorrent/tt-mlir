@@ -106,6 +106,111 @@ datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
 
+static std::string getCBName(Value cb) {
+  std::string prefix = "";
+  IntegerAttr cbIdxAttr = nullptr;
+
+  if (auto *defOp = cb.getDefiningOp()) {
+    if (auto attr =
+            defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_ctarg_idx")) {
+      prefix = "cb_ctarg_";
+      cbIdxAttr = attr;
+    } else if (auto attr =
+                   defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx")) {
+      prefix = "cb_arg_";
+      cbIdxAttr = attr;
+    }
+  }
+
+  TT_assertv(cbIdxAttr, "CB value must have a stable lowering name");
+  return prefix + std::to_string(cbIdxAttr.getInt());
+}
+
+// Assign deterministic names to non-compile-time CB arguments before dialect
+// conversion. Runtime and common runtime arguments use their own common index
+// space, derived from the function-local source-order to be stable &
+// non-conflicting.
+static void assignRuntimeCBArgIndices(func::FuncOp funcOp) {
+  int32_t nextCBArgIndex = 0;
+  funcOp.walk([&](Operation *op) {
+    if (!isa<ttkernel::GetArgValOp, ttkernel::GetCommonArgValOp>(op)) {
+      return;
+    }
+
+    if (!isa<ttkernel::CBType>(op->getResult(0).getType())) {
+      return;
+    }
+
+    op->setAttr("ttkernel.cb_arg_idx",
+                IntegerAttr::get(IntegerType::get(op->getContext(), 32),
+                                 nextCBArgIndex++));
+  });
+}
+
+static bool isCBDeclaration(emitc::VerbatimOp verbatim,
+                            llvm::StringRef cbName) {
+  std::string prefix = "CircularBuffer " + cbName.str() + "(";
+  return verbatim.getValue().starts_with(prefix);
+}
+
+// Check whether a CB declaration for `cbName` exists & dominates `useOp`, to
+// avoid duplication.
+//
+// To handle declarations that live in outer enclosing blocks, walk upward
+// through the lexical parent chain and scan ops that appear before the current
+// use at each nesting level. Since the IR is all-SCF at this stage, this
+// strategy is equivalent but faster than full-funcOp level dominance analysis.
+static bool hasDominatingCBDeclaration(Operation *useOp,
+                                       llvm::StringRef cbName) {
+  Operation *currentOp = useOp;
+  Block *currentBlock = currentOp->getBlock();
+
+  while (currentBlock) {
+    for (Operation &op : *currentBlock) {
+      if (&op == currentOp) {
+        break;
+      }
+      if (auto verbatimOp = mlir::dyn_cast<emitc::VerbatimOp>(op);
+          verbatimOp && isCBDeclaration(verbatimOp, cbName)) {
+        return true;
+      }
+    }
+
+    if (Operation *parentOp = currentBlock->getParentOp()) {
+      currentOp = parentOp;
+      currentBlock = parentOp->getBlock();
+    } else {
+      break;
+    }
+  }
+
+  return false;
+}
+
+// Lazily emit a CB declaration only when a CB method is actually invoked
+// (compute API only uses CB IDs).
+static std::string ensureCBDeclaration(Value cb, Operation *useOp,
+                                       ConversionPatternRewriter &rewriter) {
+  std::string cbName = getCBName(cb);
+  if (hasDominatingCBDeclaration(useOp, cbName)) {
+    return cbName;
+  }
+
+  // Place the declaration right after the value's definition so it dominates
+  // every use site, including those in nested regions (e.g. loop bodies). For
+  // block arguments (no defining op), use the block start.
+  OpBuilder::InsertionGuard guard(rewriter);
+  if (Operation *defOp = cb.getDefiningOp()) {
+    rewriter.setInsertionPointAfter(defOp);
+  } else {
+    rewriter.setInsertionPointToStart(cb.getParentBlock());
+  }
+
+  std::string cbDecl = "CircularBuffer " + cbName + "({});";
+  rewriter.create<emitc::VerbatimOp>(useOp->getLoc(), cbDecl, ValueRange{cb});
+  return cbName;
+}
+
 // Type converter used for TTKernel/TTMetal conversions:
 namespace {
 class TTKernelToEmitCTypeConverter : public TypeConverter {
@@ -332,6 +437,19 @@ public:
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "true"));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::NocSemaphoreIncOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::NocSemaphoreIncMulticastOp>) {
+      // The metal C signature defaults `posted` to false, so emit a template
+      // arg only when the producer explicitly opts into posted semantics.
+      auto posted = op.getPosted();
+      if (!posted || !*posted) {
+        return ArrayAttr();
+      }
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "true"));
+      return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceInitOp>) {
       // sfpu_reduce_init<PoolType, DataFormat>()
       SmallVector<Attribute, 2> template_args;
@@ -355,14 +473,6 @@ public:
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(emitc::OpaqueAttr::get(
           op.getContext(), getBroadcastType(op.getBcastType())));
-      return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> ||
-                         std::is_same_v<SourceOp,
-                                        ttkernel::GetCommonArgValOp>) {
-      SmallVector<Attribute, 1> template_args;
-
-      template_args.push_back(
-          emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp,
                                         ttkernel::GetNocAddrFromBankIDOp>) {
@@ -572,20 +682,137 @@ public:
 } // namespace
 
 namespace {
-class TTKernelToEmitCGetCompileArgValRewriter
-    : public OpConversionPattern<ttkernel::GetCompileArgValOp> {
+template <typename SourceOp>
+class TTKernelToEmitCArgValRewriter : public OpConversionPattern<SourceOp> {
 public:
-  using OpConversionPattern<ttkernel::GetCompileArgValOp>::OpConversionPattern;
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+
+  StringRef getOpName(SourceOp op) const {
+    auto name = op.getOperation()->getName().getStringRef();
+    if (name.starts_with("ttkernel.")) {
+      return name.drop_front(9);
+    }
+    return name;
+  }
+
+  ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
+    if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> ||
+                  std::is_same_v<SourceOp, ttkernel::GetCommonArgValOp>) {
+      SmallVector<Attribute, 1> templateArgs;
+      templateArgs.push_back(
+          emitc::OpaqueAttr::get(builder.getContext(), "uint32_t"));
+      return ArrayAttr::get(op.getContext(), templateArgs);
+    }
+    return ArrayAttr();
+  }
+
+  Value createRawValue(SourceOp op, typename SourceOp::Adaptor adaptor,
+                       Type resultType,
+                       ConversionPatternRewriter &rewriter) const {
+    if constexpr (std::is_same_v<SourceOp, ttkernel::GetCompileArgValOp>) {
+      auto literal = rewriter.create<emitc::LiteralOp>(
+          op.getLoc(), resultType,
+          (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
+              .str());
+      if (mlir::isa<ttkernel::CBType>(op.getResult().getType())) {
+        literal->setAttr("ttkernel.cb_ctarg_idx",
+                         rewriter.getI32IntegerAttr(op.getArgIndex()));
+      }
+      return literal.getResult();
+    }
+
+    auto call = rewriter.create<emitc::CallOpaqueOp>(
+        op.getLoc(), resultType, getOpName(op), nullptr,
+        getTemplateArgs(rewriter, op), adaptor.getOperands());
+
+    // Relay the preassigned CB runtime arg index.
+    if (mlir::isa<ttkernel::CBType>(op.getResult().getType())) {
+      auto idxAttr =
+          op->template getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx");
+      assert(idxAttr && "CB runtime arg must have a stable lowering name");
+      call->setAttr("ttkernel.cb_arg_idx", idxAttr);
+    }
+
+    return call.getResult(0);
+  }
 
   LogicalResult
-  matchAndRewrite(ttkernel::GetCompileArgValOp op, OpAdaptor adaptor,
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
-        (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
-            .str());
+    Type resultType =
+        this->getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(op, "Failed to convert result type");
+    }
+
+    Value rawValue = createRawValue(op, adaptor, resultType, rewriter);
+    rewriter.replaceOp(op, rawValue);
     return success();
   }
+};
+} // namespace
+
+namespace {
+template <typename SourceOp>
+class TTKernelToEmitCCBVoidMethodRewriter
+    : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelToEmitCCBVoidMethodRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx,
+      std::string methodName)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx),
+        methodName(std::move(methodName)) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    TT_assert(operands.size() == 2u);
+
+    std::string callStr =
+        ensureCBDeclaration(operands.front(), op.getOperation(), rewriter) +
+        "." + methodName + "({});";
+
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr,
+                                       operands.drop_front());
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+private:
+  std::string methodName;
+};
+} // namespace
+
+namespace {
+template <typename SourceOp>
+class TTKernelToEmitCCBResultMethodRewriter
+    : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelToEmitCCBResultMethodRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx,
+      std::string methodName)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx),
+        methodName(std::move(methodName)) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType =
+        this->getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return rewriter.notifyMatchFailure(op, "Failed to convert result type");
+    }
+
+    std::string cbName =
+        ensureCBDeclaration(adaptor.getCb(), op.getOperation(), rewriter);
+    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
+        op, resultType, cbName + "." + methodName + "()");
+    return success();
+  }
+
+private:
+  std::string methodName;
 };
 } // namespace
 
@@ -1297,6 +1524,8 @@ public:
       return success();
     }
 
+    assignRuntimeCBArgIndices(funcOp);
+
     ConversionTarget target(*funcOp.getContext());
     target.addLegalDialect<emitc::EmitCDialect>();
     target.addLegalDialect<func::FuncDialect>();
@@ -1323,14 +1552,15 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelBitcastOpRewriter, TTKernelToEmitCGetCompileArgValRewriter,
+        TTKernelBitcastOpRewriter,
+        TTKernelToEmitCArgValRewriter<ttkernel::GetCompileArgValOp>,
+        TTKernelToEmitCArgValRewriter<ttkernel::GetArgValOp>,
+        TTKernelToEmitCArgValRewriter<ttkernel::GetCommonArgValOp>,
         TTKernelToEmitCDPrintRewriter,
         TTKernelToEmitCGetDeviceIdFromLogicalMeshPositionOpRewriter,
         TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetCommonArgValOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,
@@ -1340,15 +1570,12 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnpackStallOnPackOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>,
 
         // Compute kernel hardware startup
         TTKernelToEmitCOpaqueRewriter<ttkernel::ComputeKernelHWStartupOp>,
@@ -1594,16 +1821,32 @@ public:
             ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CloseFabricConnectionsOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrFromBankIDOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>>(
         typeConverter, funcOp.getContext());
 
+    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPushBackOp>>(
+        typeConverter, funcOp.getContext(), "push_back");
+    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPopFrontOp>>(
+        typeConverter, funcOp.getContext(), "pop_front");
+    patterns
+        .add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBReserveBackOp>>(
+            typeConverter, funcOp.getContext(), "reserve_back");
+    patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBWaitFrontOp>>(
+        typeConverter, funcOp.getContext(), "wait_front");
+    patterns
+        .add<TTKernelToEmitCCBResultMethodRewriter<ttkernel::GetWritePtrOp>>(
+            typeConverter, funcOp.getContext(), "get_write_ptr");
+    patterns.add<TTKernelToEmitCCBResultMethodRewriter<ttkernel::GetReadPtrOp>>(
+        typeConverter, funcOp.getContext(), "get_read_ptr");
+
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
         typeConverter, funcOp.getContext(), "get_noc_addr");
+    patterns
+        .add<TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncAtomicBarrierOp>>(
+            typeConverter, funcOp.getContext());
 
     patterns.add<TTKernelInvokeSFPIOpRewriter>(typeConverter,
                                                funcOp.getContext());

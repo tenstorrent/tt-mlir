@@ -64,13 +64,10 @@ An MLIR module containing an MLIR op graph defined by `fn` and the `TTIRBuilder`
 ```mlir
 module {
   func.func @model(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>, %arg2: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %0 = ttir.empty() : tensor<32x32xf32>
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-    %2 = ttir.empty() : tensor<32x32xf32>
-    %3 = "ttir.multiply"(%arg1, %1, %2) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-    %4 = ttir.empty() : tensor<32x32xf32>
-    %5 = "ttir.multiply"(%3, %arg2, %4) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-    return %5 : tensor<32x32xf32>
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = "ttir.multiply"(%arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %2 = "ttir.multiply"(%1, %arg2) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %2 : tensor<32x32xf32>
   }
 }
 ```
@@ -162,270 +159,327 @@ An MLIR module lowered into TTMetal
 
 ```mlir
 #l1 = #ttcore.memory_space<l1>
-#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux-gnu"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 1024, erisc_l1_unreserved_base = 1024, dram_unreserved_base = 1024, dram_unreserved_end = 1073741824, physical_helper_cores = {dram = [ 8x0,  9x0,  10x0,  8x1,  9x1,  10x1,  8x2,  9x2,  10x2,  8x3,  9x3,  10x3]}, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], num_cbs = 32, num_compute_threads = 1, num_datamovement_threads = 2}], [0], [3 : i32], [ 0x0x0x0]>
+#system_desc = #ttcore.system_desc<[{role = host, target_triple = "x86_64-pc-linux"}], [{arch = <wormhole_b0>, grid = 8x8, coord_translation_offsets = 18x18, l1_size = 1499136, num_dram_channels = 12, dram_channel_size = 1073741824, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32, l1_unreserved_base = 103712, erisc_l1_unreserved_base = 98304, dram_unreserved_base = 32, dram_unreserved_end = 1073119552, supported_data_types = [<f32>, <f16>, <bf16>, <bfp_f8>, <bfp_bf8>, <bfp_f4>, <bfp_bf4>, <bfp_f2>, <bfp_bf2>, <u32>, <u16>, <u8>, <si32>], supported_tile_sizes = [ 4x16,  16x16,  32x16,  4x32,  16x32,  32x32], dst_physical_size_tiles = 16, num_cbs = 64, num_compute_threads = 1, num_datamovement_threads = 2, dram_grid = 1x12, dram_bank_to_logical_worker_noc0 = [(7, 3), (0, 0), (4, 0), (5, 0), (0, 4), (7, 7), (1, 4), (3, 6), (6, 4), (2, 4), (4, 4), (5, 4)], dram_bank_to_logical_worker_noc1 = [(7, 3), (0, 0), (4, 0), (5, 0), (0, 4), (7, 7), (1, 4), (3, 6), (6, 4), (2, 4), (4, 4), (5, 4)]}], [0], [1 : i32], [ 0x0x0x0]>
 module {
   ttcore.device_module {
     builtin.module attributes {ttcore.system_desc = #system_desc} {
-      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (0, 0, (((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv s4) mod 12, ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) floordiv (s4 * 12) + ((d0 * s1) * (s2 * s3) + d1 * (s2 * s3) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
-      func.func @model(%arg0: memref<32x32xf32>, %arg1: memref<32x32xf32>, %arg2: memref<32x32xf32>) -> memref<32x32xf32> {
-        %0 = "ttmetal.create_buffer"() <{address = 9216 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-        %1 = "ttmetal.create_buffer"() <{address = 1024 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>
-        "ttmetal.enqueue_write_buffer"(%arg0, %1) : (memref<32x32xf32>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        "ttmetal.enqueue_program"(%1, %0, %1, %0) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>, #ttmetal.compute_config<@compute_kernel1, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, hifi4, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%1) : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        %2 = "ttmetal.create_buffer"() <{address = 1024 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-        %3 = "ttmetal.create_buffer"() <{address = 5120 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>
-        "ttmetal.enqueue_write_buffer"(%arg1, %3) : (memref<32x32xf32>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        "ttmetal.enqueue_program"(%3, %2, %3, %2) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel2, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>, #ttmetal.compute_config<@compute_kernel3, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, hifi4, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%3) : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        %4 = "ttmetal.create_buffer"() <{address = 13312 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-        "ttmetal.enqueue_program"(%0, %2, %4, %0, %2, %4) <{cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel4, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel5, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel6, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, hifi4, false, false, [default]>], operandSegmentSizes = array<i32: 3, 3>}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%0) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%2) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        %5 = "ttmetal.create_buffer"() <{address = 1024 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-        %6 = "ttmetal.create_buffer"() <{address = 5120 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>
-        "ttmetal.enqueue_write_buffer"(%arg1, %6) : (memref<32x32xf32>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        "ttmetal.enqueue_program"(%6, %5, %6, %5) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel7, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>, #ttmetal.compute_config<@compute_kernel8, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, hifi4, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%6) : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        %7 = "ttmetal.create_buffer"() <{address = 17408 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-        "ttmetal.enqueue_program"(%5, %4, %7, %5, %4, %7) <{cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel9, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel10, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel11, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, hifi4, false, false, [default]>], operandSegmentSizes = array<i32: 3, 3>}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%5) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%4) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        %8 = "ttmetal.create_buffer"() <{address = 9216 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-        %9 = "ttmetal.create_buffer"() <{address = 1024 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>
-        "ttmetal.enqueue_write_buffer"(%arg2, %9) : (memref<32x32xf32>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        "ttmetal.enqueue_program"(%9, %8, %9, %8) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel12, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>, #ttmetal.compute_config<@compute_kernel13, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, hifi4, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%9) : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        %10 = "ttmetal.create_buffer"() <{address = 5120 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>
-        "ttmetal.enqueue_program"(%7, %8, %10, %7, %8, %10) <{cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel14, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel15, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel16, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, hifi4, false, false, [default]>], operandSegmentSizes = array<i32: 3, 3>}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%8) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%7) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
+      ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+      func.func @model(%arg0: memref<32x32xf32>, %arg1: memref<32x32xf32>, %arg2: memref<32x32xf32>) -> memref<32x32xf32> attributes {tt.function_type = "forward_device"} {
+        %0 = "ttmetal.create_buffer"() <{address = 107808 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+        %1 = "ttmetal.create_buffer"() <{address = 103712 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>
+        "ttmetal.enqueue_write_buffer"(%arg0, %1) : (memref<32x32xf32>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        "ttmetal.enqueue_program"(%1, %0, %1, %0) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< >, noc0>, #ttmetal.compute_config<@compute_kernel1, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[1]>, <cb_port[0]>]>, hifi4, true, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%1) : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        %2 = "ttmetal.create_buffer"() <{address = 103712 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+        %3 = "ttmetal.create_buffer"() <{address = 111904 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>
+        "ttmetal.enqueue_write_buffer"(%arg1, %3) : (memref<32x32xf32>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        "ttmetal.enqueue_program"(%3, %2, %3, %2) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel2, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< >, noc0>, #ttmetal.compute_config<@compute_kernel3, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[1]>, <cb_port[0]>]>, hifi4, true, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%3) : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        %4 = "ttmetal.create_buffer"() <{address = 116000 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+        "ttmetal.enqueue_program"(%0, %2, %4, %0, %2, %4) <{cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel4, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< >, noc0>, #ttmetal.compute_config<@compute_kernel5, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[1]>, <cb_port[0]>]>, hifi4, true, false, false, [default]>], operandSegmentSizes = array<i32: 3, 3>}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%0) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%2) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        %5 = "ttmetal.create_buffer"() <{address = 111904 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+        %6 = "ttmetal.create_buffer"() <{address = 103712 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>
+        "ttmetal.enqueue_write_buffer"(%arg1, %6) : (memref<32x32xf32>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        "ttmetal.enqueue_program"(%6, %5, %6, %5) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel6, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< >, noc0>, #ttmetal.compute_config<@compute_kernel7, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[1]>, <cb_port[0]>]>, hifi4, true, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%6) : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        %7 = "ttmetal.create_buffer"() <{address = 107808 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+        "ttmetal.enqueue_program"(%5, %4, %7, %5, %4, %7) <{cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel8, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< >, noc0>, #ttmetal.compute_config<@compute_kernel9, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[1]>, <cb_port[0]>]>, hifi4, true, false, false, [default]>], operandSegmentSizes = array<i32: 3, 3>}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%5) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%4) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        %8 = "ttmetal.create_buffer"() <{address = 111904 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+        %9 = "ttmetal.create_buffer"() <{address = 103712 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>
+        "ttmetal.enqueue_write_buffer"(%arg2, %9) : (memref<32x32xf32>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        "ttmetal.enqueue_program"(%9, %8, %9, %8) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel10, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< >, noc0>, #ttmetal.compute_config<@compute_kernel11, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[1]>, <cb_port[0]>]>, hifi4, true, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%9) : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        %10 = "ttmetal.create_buffer"() <{address = 103712 : i64}> : () -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+        "ttmetal.enqueue_program"(%7, %8, %10, %7, %8, %10) <{cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel12, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< >, noc0>, #ttmetal.compute_config<@compute_kernel13, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[1]>, <cb_port[0]>]>, hifi4, true, false, false, [default]>], operandSegmentSizes = array<i32: 3, 3>}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%7) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%8) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
         %alloc = memref.alloc() : memref<32x32xf32>
-        %11 = "ttmetal.create_buffer"() <{address = 1024 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>
-        "ttmetal.enqueue_program"(%10, %11, %10, %11) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel17, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>, #ttmetal.compute_config<@compute_kernel18, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, hifi4, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
-        "ttmetal.deallocate_buffer"(%10) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1>) -> ()
-        "ttmetal.enqueue_read_buffer"(%11, %alloc) : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>, memref<32x32xf32>) -> ()
+        %11 = "ttmetal.create_buffer"() <{address = 107808 : i64}> : () -> memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>
+        "ttmetal.enqueue_program"(%10, %11, %10, %11) <{cb_ports = array<i64: 0, 1>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel14, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< >, noc0>, #ttmetal.compute_config<@compute_kernel15, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[1]>, <cb_port[0]>]>, hifi4, true, false, false, [default]>], operandSegmentSizes = array<i32: 2, 2>}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%10) : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> ()
+        "ttmetal.enqueue_read_buffer"(%11, %alloc) : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>, memref<32x32xf32>) -> ()
         "ttmetal.finish"() : () -> ()
-        "ttmetal.deallocate_buffer"(%11) : (memref<1x1x32x32xf32, #ttcore.shard<128x4>, #l1>) -> ()
+        "ttmetal.deallocate_buffer"(%11) : (memref<1x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>) -> ()
         return %alloc : memref<32x32xf32>
       }
-      func.func private @datamovement_kernel0() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
         return
       }
-      func.func private @compute_kernel1() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %2 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "tilize_init"(%1, %0, %2) : (!emitc.opaque<"::tt::CB">, i32, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "experimental::tilize_block"(%1, %2, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @compute_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        %0 = emitc.expression  : () -> i32 {
+          %3 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+          yield %3 : i32
+        }
+        %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %0 : i32
+        emitc.call_opaque "compute_kernel_hw_startup"(%2, %1) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "tilize_init"(%2, %0, %1) : (!emitc.opaque<"::tt::CB">, i32, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "experimental::tilize_block"(%2, %1, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.pop_front({});" args %0 : i32
         return
       }
-      func.func private @datamovement_kernel2() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @datamovement_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
         return
       }
-      func.func private @compute_kernel3() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %2 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "tilize_init"(%1, %0, %2) : (!emitc.opaque<"::tt::CB">, i32, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "experimental::tilize_block"(%1, %2, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @compute_kernel3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        %0 = emitc.expression  : () -> i32 {
+          %3 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+          yield %3 : i32
+        }
+        %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %0 : i32
+        emitc.call_opaque "compute_kernel_hw_startup"(%2, %1) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "tilize_init"(%2, %0, %1) : (!emitc.opaque<"::tt::CB">, i32, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "experimental::tilize_block"(%2, %1, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.pop_front({});" args %0 : i32
         return
       }
-      func.func private @datamovement_kernel4() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @datamovement_kernel4() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
         return
       }
-      func.func private @datamovement_kernel5() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        return
-      }
-      func.func private @compute_kernel6() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
-        %1 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+      func.func private @compute_kernel5() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        %0 = emitc.expression  : () -> !emitc.size_t {
+          %6 = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
+          yield %6 : !emitc.size_t
+        }
+        %1 = emitc.expression  : () -> !emitc.size_t {
+          %6 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
+          yield %6 : !emitc.size_t
+        }
+        %2 = emitc.expression  : () -> i32 {
+          %6 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+          yield %6 : i32
+        }
+        %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+        %4 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
+        %5 = emitc.literal "get_compile_time_arg_val(2)" {ttkernel.cb_ctarg_idx = 2 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.verbatim "cb_ctarg_2.reserve_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.reserve_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %2 : i32
         emitc.call_opaque "tile_regs_acquire"() : () -> ()
-        %2 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %3 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        %4 = emitc.literal "get_compile_time_arg_val(2)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%3, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "binary_op_init_common"(%2, %3, %4) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "add_tiles_init"(%2, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "add_tiles"(%2, %3, %0, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "copy_tile_init"(%5) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%5, %1, %1) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "copy_tile_init"(%4) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%4, %1, %0) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "add_binary_tile_init"() : () -> ()
+        emitc.call_opaque "add_binary_tile"(%1, %0, %1) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
         emitc.call_opaque "tile_regs_commit"() : () -> ()
         emitc.call_opaque "tile_regs_wait"() : () -> ()
-        emitc.call_opaque "pack_tile"(%0, %4, %0) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
+        emitc.call_opaque "pack_tile"(%1, %3, %1) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
         emitc.call_opaque "tile_regs_release"() : () -> ()
-        emitc.call_opaque "cb_push_back"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%3, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.pop_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.pop_front({});" args %2 : i32
         return
       }
-      func.func private @datamovement_kernel7() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @datamovement_kernel6() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
         return
       }
-      func.func private @compute_kernel8() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %2 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "tilize_init"(%1, %0, %2) : (!emitc.opaque<"::tt::CB">, i32, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "experimental::tilize_block"(%1, %2, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @compute_kernel7() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        %0 = emitc.expression  : () -> i32 {
+          %3 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+          yield %3 : i32
+        }
+        %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %0 : i32
+        emitc.call_opaque "compute_kernel_hw_startup"(%2, %1) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "tilize_init"(%2, %0, %1) : (!emitc.opaque<"::tt::CB">, i32, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "experimental::tilize_block"(%2, %1, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.pop_front({});" args %0 : i32
         return
       }
-      func.func private @datamovement_kernel9() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @datamovement_kernel8() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
         return
       }
-      func.func private @datamovement_kernel10() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        return
-      }
-      func.func private @compute_kernel11() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
-        %1 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+      func.func private @compute_kernel9() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        %0 = emitc.expression  : () -> !emitc.size_t {
+          %6 = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
+          yield %6 : !emitc.size_t
+        }
+        %1 = emitc.expression  : () -> !emitc.size_t {
+          %6 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
+          yield %6 : !emitc.size_t
+        }
+        %2 = emitc.expression  : () -> i32 {
+          %6 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+          yield %6 : i32
+        }
+        %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+        %4 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
+        %5 = emitc.literal "get_compile_time_arg_val(2)" {ttkernel.cb_ctarg_idx = 2 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.verbatim "cb_ctarg_2.reserve_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.reserve_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %2 : i32
         emitc.call_opaque "tile_regs_acquire"() : () -> ()
-        %2 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %3 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        %4 = emitc.literal "get_compile_time_arg_val(2)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%3, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "binary_op_init_common"(%2, %3, %4) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "mul_tiles_init"(%2, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "mul_tiles"(%2, %3, %0, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "copy_tile_init"(%5) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%5, %1, %1) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "copy_tile_init"(%4) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%4, %1, %0) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "mul_binary_tile_init"() : () -> ()
+        emitc.call_opaque "mul_binary_tile"(%1, %0, %1) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
         emitc.call_opaque "tile_regs_commit"() : () -> ()
         emitc.call_opaque "tile_regs_wait"() : () -> ()
-        emitc.call_opaque "pack_tile"(%0, %4, %0) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
+        emitc.call_opaque "pack_tile"(%1, %3, %1) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
         emitc.call_opaque "tile_regs_release"() : () -> ()
-        emitc.call_opaque "cb_push_back"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%3, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.pop_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.pop_front({});" args %2 : i32
         return
       }
-      func.func private @datamovement_kernel12() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @datamovement_kernel10() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
         return
       }
-      func.func private @compute_kernel13() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %2 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "tilize_init"(%1, %0, %2) : (!emitc.opaque<"::tt::CB">, i32, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "experimental::tilize_block"(%1, %2, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @compute_kernel11() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        %0 = emitc.expression  : () -> i32 {
+          %3 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+          yield %3 : i32
+        }
+        %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %0 : i32
+        emitc.call_opaque "compute_kernel_hw_startup"(%2, %1) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "tilize_init"(%2, %0, %1) : (!emitc.opaque<"::tt::CB">, i32, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "experimental::tilize_block"(%2, %1, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.pop_front({});" args %0 : i32
         return
       }
-      func.func private @datamovement_kernel14() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @datamovement_kernel12() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
         return
       }
-      func.func private @datamovement_kernel15() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        return
-      }
-      func.func private @compute_kernel16() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
-        %1 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+      func.func private @compute_kernel13() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        %0 = emitc.expression  : () -> !emitc.size_t {
+          %6 = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
+          yield %6 : !emitc.size_t
+        }
+        %1 = emitc.expression  : () -> !emitc.size_t {
+          %6 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
+          yield %6 : !emitc.size_t
+        }
+        %2 = emitc.expression  : () -> i32 {
+          %6 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+          yield %6 : i32
+        }
+        %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+        %4 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %4 : !emitc.opaque<"::tt::CB">
+        %5 = emitc.literal "get_compile_time_arg_val(2)" {ttkernel.cb_ctarg_idx = 2 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_2({});" args %5 : !emitc.opaque<"::tt::CB">
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "init_sfpu"(%5, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.verbatim "cb_ctarg_2.reserve_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.reserve_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %2 : i32
         emitc.call_opaque "tile_regs_acquire"() : () -> ()
-        %2 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %3 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        %4 = emitc.literal "get_compile_time_arg_val(2)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%3, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "binary_op_init_common"(%2, %3, %4) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "mul_tiles_init"(%2, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "mul_tiles"(%2, %3, %0, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "copy_tile_init"(%5) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%5, %1, %1) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "copy_tile_init"(%4) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%4, %1, %0) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "mul_binary_tile_init"() : () -> ()
+        emitc.call_opaque "mul_binary_tile"(%1, %0, %1) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
         emitc.call_opaque "tile_regs_commit"() : () -> ()
         emitc.call_opaque "tile_regs_wait"() : () -> ()
-        emitc.call_opaque "pack_tile"(%0, %4, %0) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
+        emitc.call_opaque "pack_tile"(%1, %3, %1) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
         emitc.call_opaque "tile_regs_release"() : () -> ()
-        emitc.call_opaque "cb_push_back"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%3, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%4, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_2.pop_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.wait_front({});" args %2 : i32
+        emitc.verbatim "cb_ctarg_0.pop_front({});" args %2 : i32
         return
       }
-      func.func private @datamovement_kernel17() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @datamovement_kernel14() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
         return
       }
-      func.func private @compute_kernel18() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-        %1 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %2 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "cb_reserve_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "untilize_init"(%1) : (!emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "experimental::untilize_block"(%1, %2, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+      func.func private @compute_kernel15() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        %0 = emitc.expression  : () -> i32 {
+          %3 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
+          yield %3 : i32
+        }
+        %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        %2 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %2 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.reserve_back({});" args %0 : i32
+        emitc.call_opaque "compute_kernel_hw_startup"(%2, %1) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "pack_untilize_init"(%2, %1) {template_args = [#emitc.opaque<"1">, #emitc.opaque<"1">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "experimental::pack_untilize_block"(%2, %1, %0, %0) {template_args = [#emitc.opaque<"1">, #emitc.opaque<"1">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, i32, i32) -> ()
+        emitc.call_opaque "pack_untilize_uninit"(%1) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.verbatim "cb_ctarg_1.pop_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.push_back({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.wait_front({});" args %0 : i32
+        emitc.verbatim "cb_ctarg_0.pop_front({});" args %0 : i32
         return
       }
     }

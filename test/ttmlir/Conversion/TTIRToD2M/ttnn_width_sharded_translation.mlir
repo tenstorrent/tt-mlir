@@ -4,38 +4,38 @@
 #l1 = #ttnn.buffer_type<l1>
 
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 32x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 64x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 2x32x384, dim_alignments = 1x32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 2x2x32x384, dim_alignments = 1x1x32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 // CHECK-DAG: #layout{{[0-9]*}} = #ttcore.metal_layout<logical_shape = 32x4096, dim_alignments = 32x32, collapsed_intervals
-// CHECK-DAG-SAME: undef, l1, sharded>
+// CHECK-DAG-SAME: l1, sharded>
 
 
 // Width Sharded - Rank 2 layouts
 // 32x384 on 6x2
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <6x2>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <6x2>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (1, 5)>]>>
 // 32x384 on 2x6
-#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <2x6>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, exactGrid = true>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <2x6>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (5, 1)>]>>
 // 64x384 on 6x2
-#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <6x2>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, exactGrid = true>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <6x2>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (1, 5)>]>>
 // 64x384 on 2x6
-#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <2x6>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, exactGrid = true>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <2x6>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (5, 1)>]>>
 
 
 // Width Sharded - Rank 3 layouts
 // 2x32x384 on 6x2
-#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <6x2>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, exactGrid = true>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <6x2>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (1, 5)>]>>
 
 // Width Sharded - Rank 4 layouts
 // 2x2x32x384 on 6x2
-#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1 * 32 + d2, d3), <6x2>, memref<4x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, exactGrid = true>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1 * 32 + d2, d3), <6x2>, memref<4x1x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (1, 5)>]>>
 
 // Width Sharded - Extreme aspect ratio
-#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x16x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, exactGrid = true>
+#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x16x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 0)>]>>
 
 
 module {

@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_COMMON_COMMON_H
 
 #include <optional>
+#include <vector>
 
 #define FMT_HEADER_ONLY
 #include "tt-metalium/cluster.hpp"
@@ -73,16 +74,20 @@ toMetalFabricConfig(tt::runtime::FabricConfig cfg) {
 
 inline tt::tt_metal::CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
-  std::set<tt::tt_metal::CoreRange> coreRanges;
+  // Even though `CoreRangeSet`'s naming implies usage of std::set,
+  // it's important that the order of core ranges is preserved,
+  // so we use std::vector here to maintain the order as originally defined.
+  std::vector<tt::tt_metal::CoreRange> coreRanges;
+  coreRanges.reserve(coreRangeSet->size());
   for (const ::tt::target::Dim2dRange *coreRange : *coreRangeSet) {
     tt::tt_metal::CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
     // End is inclusive
     tt::tt_metal::CoreCoord end(
         coreRange->loc().x() + coreRange->size().x() - 1,
         coreRange->loc().y() + coreRange->size().y() - 1);
-    coreRanges.emplace(start, end);
+    coreRanges.emplace_back(start, end);
   }
-  return tt::tt_metal::CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(std::move(coreRanges));
 }
 
 inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
@@ -115,7 +120,7 @@ inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   case ::tt::ARCH::BLACKHOLE:
     return ::tt::target::Arch::Blackhole;
   case ::tt::ARCH::QUASAR:
-    LOG_FATAL("Quasar architecture is not supported");
+    return ::tt::target::Arch::Quasar;
   case ::tt::ARCH::Invalid:
     LOG_FATAL("Invalid architecture");
   }

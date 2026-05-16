@@ -884,8 +884,7 @@ def D2M_TileSFPUReduceMaxOp : D2M_GenericRegionComputeOp<"tile_sfpu_reduce_max",
   let hasVerifier = 1;
 }
 
-// TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
-def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast"> {
   let summary = "D2M Tile Broadcast Op";
   let description = [{
     The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
@@ -951,7 +950,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -985,7 +984,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -1015,7 +1014,7 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
-def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill", [D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Fill Tile Op";
     let description = [{
         The `tile_fill` operation creates a tile filled with a constant scalar value.
@@ -1080,69 +1079,6 @@ def D2M_TileRandOp : D2M_GenericRegionComputeOp<"tile_rand"> {
         }
         bool getDstRegInPlace() { return false; }
     }];
-}
-
-def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
-  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  , D2M_SkipOpEltwiseFusionTrait
-  , AttrSizedOperandSegments
-  ]> {
-    let summary = "Mask block elements outside logical bounds with fill value";
-    let description = [{
-        The `block_mask` operation masks elements in a block/memref that fall outside
-        the logical tensor bounds, replacing them with a specified fill value.
-
-        This op operates at the block level (memref of tiles) and handles both complete
-        tile masking (tiles entirely outside bounds) and partial tile masking (tiles
-        that straddle the boundary).
-
-        The logical_rows and logical_cols are Index values specifying the logical
-        dimensions for this core's shard. These can be computed dynamically based on
-        the core's position in the grid, enabling multicore support.
-
-        For partial tile masking, row_mask_cb and col_mask_cb contain scratch mask
-        tiles written by a corresponding BlockMaskWriteOp in the DM region. These are
-        single-tile CBs where each element is 1.0 if valid or 0.0 if OOB.
-
-        This is a high-level op that gets decomposed in a later pass into multiple
-        loop nests that handle interior tiles, edge tiles, and corner tiles separately.
-
-        Example:
-        ```mlir
-        // With mask CBs for partial masking:
-        d2m.block_mask %input, %output, %row_mask_cb, %col_mask_cb,
-                       %logical_rows, %logical_cols, <zero>
-            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>,
-               memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>)
-        ```
-    }];
-
-    let arguments = (ins
-        AnyRankedTensorOrMemRef:$input,
-        AnyRankedTensorOrMemRef:$output,
-        Optional<AnyRankedTensorOrMemRef>:$row_mask_cb,
-        Optional<AnyRankedTensorOrMemRef>:$col_mask_cb,
-        Index:$logical_rows,
-        Index:$logical_cols,
-        TTCore_OOBValAttr:$fill_value);
-
-    let results = (outs AnyRankedTensorOrMemRef:$result);
-
-    // Use default format with AttrSizedOperandSegments - the operand_segment_sizes
-    // attribute is automatically added/parsed to track optional operand presence.
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-      bool hasMaskCBs() { return getRowMaskCb() != nullptr && getColMaskCb() != nullptr; }
-    }];
-
-    let hasVerifier = 1;
 }
 
 def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {
@@ -1466,10 +1402,10 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
         : memref<...>, memref<...>
       ```
 
-      Explicit CB form (after LowerLoadStoreOpsToExplicitCBForm):
+      Explicit CB form (after SplitUnifiedThread):
       ```mlir
-      d2m.local_copy %src into %cb indexing_maps = [#src_map, #dst_map]
-        : memref<...> into !d2m.cb<memref<...>>
+      d2m.local_copy from %srcCb into %dstCb indexing_maps = [#src_map, #dst_map]
+        : from !d2m.cb<memref<...>> into !d2m.cb<memref<...>>
       ```
 
       Memref form with MemTx result (after LowerLoadStoreOpsToDMA):
@@ -1481,9 +1417,10 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
     }];
 
     let arguments = (ins
-      AnyRankedTensorOrMemRef:$src,
+      Optional<AnyRankedTensorOrMemRef>:$src,
       Optional<AnyRankedTensorOrMemRef>:$dst,
-      Optional<D2M_CB>:$cb,
+      Optional<D2M_CB>:$srcCb,
+      Optional<D2M_CB>:$dstCb,
       AffineMapArrayAttr:$indexing_maps
     );
 
@@ -1495,20 +1432,21 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
         Type dstType = dst.getType();
         TypeRange resultTypes = mlir::isa<RankedTensorType>(dstType)
             ? TypeRange(dstType) : TypeRange{};
-        build($_builder, $_state, resultTypes, src, dst, /*cb=*/Value{},
+        build($_builder, $_state, resultTypes, src, dst, /*srcCb=*/Value{}, /*dstCb=*/Value{},
               indexingMaps);
       }]>,
       // MemTx result form (post-LowerLoadStoreOpsToDMA): memref operands, !d2m.mem_tx result.
       OpBuilder<(ins "Type":$resultType, "Value":$src, "Value":$dst, "ArrayAttr":$indexingMaps), [{
         build($_builder, $_state, TypeRange(resultType), src, dst,
-              /*cb=*/Value{}, indexingMaps);
+              /*srcCb=*/Value{}, /*dstCb=*/Value{}, indexingMaps);
       }]>
     ];
 
     let assemblyFormat = [{
-      $src (`,` $dst^)? (`into` $cb^)?
+      (`from` $srcCb^ `into` $dstCb)?
+      ($src^ `,` $dst)?
       `indexing_maps` `=` $indexing_maps
-      attr-dict `:` type($src) (`,` type($dst)^)? (`into` type($cb)^)?
+      attr-dict `:` type(operands)
       (`->` type($result)^)?
     }];
 
@@ -1519,10 +1457,10 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       MutableOperandRange getDpsInitsMutable() { return getDstMutable(); }
 
       // Returns true if in explicit CB form (has CB, no dst).
-      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+      bool isExplicitCBForm() { return static_cast<bool>(getDstCb()) && static_cast<bool>(getSrcCb()); }
 
       // Returns true if in implicit form (has dst, no CB).
-      bool isImplicitForm() { return static_cast<bool>(getDst()); }
+      bool isImplicitForm() { return static_cast<bool>(getDst()) && static_cast<bool>(getSrc()); }
 
       // Returns true if the result is a !d2m.mem_tx (post-LowerLoadStoreOpsToDMA).
       bool hasMemTxResult() {
@@ -1530,16 +1468,26 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       }
 
       // Returns the CB type, or null if CB is not present.
-      CBType getCbType() {
-        Value cb = getCb();
+      CBType getDstCbType() {
+        Value cb = getDstCb();
         if (!cb) return CBType();
         return mlir::cast<CBType>(cb.getType());
       }
 
+      // Returns the source CB type, or null if CB is not present.
+      CBType getSrcCbType() {
+        Value cb = getSrcCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
 
       // Returns the source memref type. Only valid post-bufferization.
       MemRefType getSrcMemRefType() {
-        return mlir::cast<MemRefType>(getSrc().getType());
+        if (getSrc())
+          return mlir::cast<MemRefType>(getSrc().getType());
+        if (getSrcCb())
+          return getSrcCbType().template getUnderlyingAs<MemRefType>();
+        llvm_unreachable("LocalCopyOp has neither src nor cb");
       }
 
       // Returns the destination memref type from dst or CB underlying type.
@@ -1547,8 +1495,8 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       MemRefType getDstMemRefType() {
         if (getDst())
           return mlir::cast<MemRefType>(getDst().getType());
-        if (getCb())
-          return getCbType().template getUnderlyingAs<MemRefType>();
+        if (getDstCb())
+          return getDstCbType().template getUnderlyingAs<MemRefType>();
         llvm_unreachable("LocalCopyOp has neither dst nor cb");
       }
 
@@ -1556,9 +1504,18 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       ShapedType getDstShapedType() {
         if (getDst())
           return mlir::cast<ShapedType>(getDst().getType());
-        if (getCb())
-          return getCbType().template getUnderlyingAs<ShapedType>();
+        if (getDstCb())
+          return getDstCbType().template getUnderlyingAs<ShapedType>();
         llvm_unreachable("LocalCopyOp has neither dst nor cb");
+      }
+
+      // Returns the source shaped type (works for both tensor and memref).
+      ShapedType getSrcShapedType() {
+        if (getSrc())
+          return mlir::cast<ShapedType>(getSrc().getType());
+        if (getSrcCb())
+          return getSrcCbType().template getUnderlyingAs<ShapedType>();
+        llvm_unreachable("LocalCopyOp has neither src nor cb");
       }
 
       /// Returns the CB port number. Op must be in explicit CB form.
@@ -1569,16 +1526,16 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       }
 
       bool isConsumer(mlir::OpOperand &operand) {
-        return &getSrcMutable() == &operand;
+        return llvm::any_of(getSrcMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
     }];
 
   let extraClassDefinition = [{
     unsigned $cppClass::getCBPort() {
       assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
-      auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+      auto getCBOp = getDstCb().getDefiningOp<GetCBOp>();
       assert(getCBOp && "CB operand must be defined by a GetCBOp");
-      return getCBOp.getPort();
+      return getCBOp.getCbOperandIdx();
     }
   }];
 }
@@ -1733,12 +1690,22 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       operation has multiple modes; the explicit CB form and unicast/multicast
       modes are both orthogonal and can be mixed and matched.
 
-      The basic form takes a local buffer as input and loads data into it:
+      The basic form takes a local buffer as input and loads data into it.
+      In tensor form (pre-bufferization), the op produces a result that aliases
+      the local buffer:
+
+      ```mlir
+      %result = d2m.remote_load %buffer %generic_operand[%i, %j]
+        : tensor<SY x SX x f32, ...>, tensor<GY x GX x SY x SX x f32, ...>
+        -> tensor<SY x SX x f32, ...>
+      ```
+
+      In memref form (post-bufferization), the op has no result; data is loaded
+      in-place into the local buffer:
 
       ```mlir
       d2m.remote_load %buffer %generic_operand[%i, %j]
         : memref<SY x SX x f32, ...>, memref<GY x GX x SY x SX x f32, ...>
-        -> memref<SY x SX x f32, ...>
       ```
 
       The explicit CB form takes a CB (from `d2m.get_cb`) as additional input;
@@ -1750,8 +1717,9 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         : memref<GY x GX x SY x SX x f32, ...> into !d2m.cb<memref<SY x SX x f32, ...>>
       ```
 
-      In implicit form, the result matches the shard memref/tensor type and aliases
-      the input buffer.
+      In implicit tensor form (pre-bufferization), the result matches the shard
+      tensor type and aliases the input buffer. In implicit memref form
+      (post-bufferization), there is no result.
 
       ## High-Level Multicast Mode
 
@@ -1765,13 +1733,12 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       NOTE: If implementing the high-level multicast is not feasible, the
       operation will be lowered to an equivalent unicast remote load instead.
 
-      Example with high-level multicast (implicit form):
+      Example with high-level multicast (implicit memref form):
 
       ```mlir
       // Cooperative multicast along dimension 0
       d2m.remote_load %buffer %memref[%i, %j] mcast[%c0]
         : memref<4x6xf32, #l1_>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
-        -> memref<4x6xf32, #l1_>
       ```
 
       ## Low-Level Multicast Mode
@@ -1789,13 +1756,12 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         starting at `mcastStartIndex` with shape `mcastShape`
         - Receivers wait for the sender to complete
 
-      Example with low-level multicast (implicit form):
+      Example with low-level multicast (implicit memref form):
 
       ```mlir
       // Core 0 gathers and multicasts to a 1x4 region starting at mcore[0, 1]
       d2m.remote_load %buffer %memref[%i, %j] mcore[%c0, %c1] mshape[%c1, %c4]
         : memref<4x6xf32, #l1_>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
-        -> memref<4x6xf32, #l1_>
       ```
 
       Constraints:
@@ -1858,6 +1824,23 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
                      "ValueRange":$mcastDims),
       [{
         build($_builder, $_state, resultType, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), mcastDims);
+      }]>,
+      // Memref form, no result (post-bufferization DPS form)
+      OpBuilder<(ins "Value":$localBuffer, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), ValueRange());
+      }]>,
+      // Memref form with low-level multicast, no result
+      OpBuilder<(ins "Value":$localBuffer, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, localBuffer, memref, indices, /*cb=*/Value{}, mcastStartIndex, mcastShape, ValueRange());
+      }]>,
+      // Memref form with high-level multicast, no result
+      OpBuilder<(ins "Value":$localBuffer, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastDims),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), mcastDims);
       }]>
     ];
 
@@ -1914,7 +1897,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
         auto getCBOp = getCb().getDefiningOp<GetCBOp>();
         assert(getCBOp && "CB operand must be defined by a GetCBOp");
-        return getCBOp.getPort();
+        return getCBOp.getCbOperandIdx();
       }
 
       /// Returns true if the circular buffer operand is present (explicit CB form).
@@ -1951,8 +1934,15 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       /// Returns the affine map operands (the grid indices).
       Operation::operand_range getMapOperands() { return getIndices(); }
 
-      /// Returns the value read by this operation.
-      Value getValue() { return getResult(); }
+      /// Returns the value read by this operation. In tensor form this is
+      /// the SSA result; in the post-bufferization memref form (no result),
+      /// the destination localBuffer plays that role.
+      Value getValue() {
+        if (Value result = getResult()) {
+          return result;
+        }
+        return getLocalBuffer();
+      }
 
       /// Returns an AffineMapAttr wrapping the affine map for this operation.
       AffineMapAttr getAffineMapAttr() {
@@ -2014,24 +2004,35 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       - Implicit form takes a plain memref/tensor as input to store; it doesn't
       assume a particular buffering implementation (CBs, scratchpad, etc).
 
+      In tensor form (pre-bufferization), the op produces a result that aliases
+      the operand:
+
+      ```mlir
+      // For an operand with device shape (GY x GX) x (SY x SX)
+      %result = d2m.remote_store %generic_operand[%i, %j] %buf
+        : tensor<GY x GX x SY x SX x f32, ...>, tensor<SY x SX x f32, ...>
+        -> tensor<GY x GX x SY x SX x f32, ...>
+      ```
+
+      In memref form (post-bufferization), the op has no result:
+
       ```mlir
       // For an operand with device shape (GY x GX) x (SY x SX)
       d2m.remote_store %generic_operand[%i, %j] %buf
         : memref<GY x GX x SY x SX x f32, ...>, memref<SY x SX x f32, ...>
-        -> memref<GY x GX x SY x SX x f32, ...>
       ```
 
       - Explicit CB form stores data from a concrete CB (from `d2m.get_cb`) to the remote operand.
 
       ```mlir
       d2m.remote_store %generic_operand[%i, %j] from %cb
-        : memref<GY x GX x SY x SX x f32, ...>, !d2m.cb<memref<SY x SX x f32, ...>>
-        -> memref<GY x GX x SY x SX x f32, ...>
+        : memref<GY x GX x SY x SX x f32, ...> from !d2m.cb<memref<SY x SX x f32, ...>>
       ```
 
-      In both forms, the result matches the type of the operand memref/tensor.
-      This allows using the result as yield value in a generic region, as well
-      as forming a complete use-chain from remote_load to remote_store.
+      In tensor form (pre-bufferization), the result matches the type of the
+      operand tensor, allowing it to be used as a yield value in a generic region
+      and forming a complete use-chain from remote_load to remote_store. In memref
+      form (post-bufferization), there is no result.
 
       Constraints:
       - The number of indices must equal N/2, where N is the memref/tensor rank.
@@ -2075,6 +2076,11 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       [{
         build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, startDevice, deviceMcastShape, semaphore, semaphoreIndices);
       }]>
+      // Implicit memref form (no result, DPS form) does not have a dedicated
+      // convenience builder because its C++ signature would overlap with the
+      // existing CB-form builder above (both are (Value, ValueRange, Value)).
+      // Callers should use the raw build() entry point with an explicit
+      // TypeRange{} for results.
     ];
 
     let assemblyFormat = [{
@@ -2129,7 +2135,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
         auto getCBOp = getCb().getDefiningOp<GetCBOp>();
         assert(getCBOp && "CB operand must be defined by a GetCBOp");
-        return getCBOp.getPort();
+        return getCBOp.getCbOperandIdx();
       }
 
       /// Returns true if the circular buffer operand is present (explicit CB form).
@@ -2917,14 +2923,11 @@ def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
 //===----------------------------------------------------------------------===//
 
 def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
-    let summary = "Get a circular buffer for the given port.";
+    let summary = "Get a circular buffer for the given cb operand index.";
     let description = [{
-      Obtain a CB handle for the specified port number.  Each unique port maps
-      to exactly one physical circular buffer.
+      Obtain a CB handle for the specified cb operand in the generic.
 
-      The port number is a local identifier — it does not correspond to the
-      parent generic op's operand index.  The binding between a CB port and a
-      generic operand is established by `remote_load`/`remote_store` ops.
+      The cb_operand_idx corresponds to the parent generic op's operand index.
 
       ```mlir
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
@@ -2932,12 +2935,11 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
       ```
     }];
 
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port,
-                         OptionalAttr<I64Attr>:$operand_index,
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$cb_operand_idx,
                          OptionalAttr<D2M_ResolutionStageAttr>:$resolution_stage);
     let results = (outs D2M_CB:$result);
 
-    let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
+    let assemblyFormat = [{ `(` $cb_operand_idx `)` (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
 }
 
 def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg", [Pure]> {
@@ -2969,7 +2971,9 @@ def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg", [Pure]> {
 //===----------------------------------------------------------------------===//
 
 def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , D2M_SynchronizableOpInterface
+  ]> {
     let summary = "Write row mask pattern to a tile CB";
     let description = [{
         The `write_row_mask_tile` operation writes a row mask pattern
@@ -2982,11 +2986,21 @@ def D2M_WriteRowMaskTileOp : D2M_GenericRegionOp<"write_row_mask_tile",
     let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validRows,
                          AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
 
+    let extraClassDeclaration = [{
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutputMutable() == &operand;
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) { return false; }
+    }];
+
     let assemblyFormat = [{ `(` $validRows `)` `to` $output attr-dict `:` type($validRows) `,` type($output) }];
 }
 
 def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , D2M_SynchronizableOpInterface
+  ]> {
     let summary = "Write column mask pattern to a tile CB";
     let description = [{
         The `write_col_mask_tile` operation writes a column mask pattern
@@ -2998,6 +3012,14 @@ def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
 
     let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validCols,
                          AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$output);
+
+    let extraClassDeclaration = [{
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutputMutable() == &operand;
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) { return false; }
+    }];
 
     let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
 }
@@ -3036,7 +3058,8 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
   DeclareOpInterfaceMethods<BufferizableOpInterface,
     ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
     "getAliasingValues", "getBufferType"]>,
-  D2M_SkipOpEltwiseFusionTrait]> {
+  D2M_SkipOpEltwiseFusionTrait,
+  D2M_SynchronizableOpInterface]> {
   let summary = "Generate arange values in a block/memref";
   let description = [{
       The `arange_block` operation fills a block/memref with arange values:
@@ -3084,6 +3107,8 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let extraClassDeclaration = [{
     MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    bool isProducer(mlir::OpOperand &operand) { return &operand == &getOutputMutable(); }
+    bool isConsumer(mlir::OpOperand &operand) { return &operand == &getIndexTileTensorMutable(); }
   }];
 
   let hasVerifier = 1;
@@ -3157,6 +3182,39 @@ def D2M_PrintOp : D2M_GenericRegionOp<"print", [MemoryEffects<[MemRead, MemWrite
                      ::mlir::ValueRange{std::forward<Args>(argv)...});
       }
     }];
+}
+
+def D2M_OperandAliasOp : D2M_GenericRegionOp<"operand_alias", [
+    MemoryEffects<[MemRead, MemWrite]>
+  ]> {
+  let summary = "Alias a shard of an input buffer without allocation.";
+  let description = [{
+    The `alias_buffer` operation declares that a local buffer within a generic
+    region directly aliases (shares storage with) a shard of an input operand
+    rather than requiring a separate allocation. It takes a full sharded memref
+    (with grid dimensions) and returns a memref containing only the shard
+    portion (grid dimensions stripped).
+
+    This op is introduced by the allocator pass for operands that do not
+    require streaming. It encodes in the IR that no separate buffer
+    allocation is needed; the compute kernel operates directly on the
+    input data in place. Downstream passes convert this op into circular
+    buffer operations (reserve/push/wait/pop).
+
+    ```mlir
+    d2m.generic ins(%input : memref<1x1x32x32xf32, ...>) ... {
+      %shard = d2m.alias_buffer %input :
+          memref<1x1x32x32xf32, ...> -> memref<32x32xf32, ...>
+    }
+    ```
+  }];
+
+  let arguments = (ins AnyNon0RankedMemRef:$memref);
+  let results = (outs AnyNon0RankedMemRef:$aliasedBuffer);
+
+  let assemblyFormat = [{
+    $memref attr-dict `:` type($memref) `->` type($aliasedBuffer)
+  }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

@@ -259,6 +259,56 @@ def test_gather(
 
 
 @pytest.mark.parametrize(
+    "input_shape,index_shape,dim",
+    [
+        ((32, 64), (32, 16), 1),
+        ((64, 32), (16, 32), 0),
+        ((2, 32, 64), (2, 32, 16), 2),
+        ((2, 4, 32, 64), (2, 4, 32, 16), 3),
+    ],
+    ids=["2d_dim1", "2d_dim0", "3d_dim2", "4d_dim3"],
+)
+def test_gather_si32_negative_index_workaround(
+    input_shape: Shape,
+    index_shape: Shape,
+    dim: int,
+    request,
+    device,
+):
+    def module(builder: TTNNBuilder):
+        @builder.func(
+            [input_shape, index_shape],
+            [torch.bfloat16, torch.int32],
+        )
+        def gather(in0: Operand, index: Operand, builder: TTNNBuilder):
+            max_idx = input_shape[dim]
+            in0_t = torch.randn(input_shape, dtype=torch.bfloat16)
+            idx = torch.randint(0, max_idx, index_shape, dtype=torch.int32)
+            neg_mask = torch.rand(index_shape) < 0.25
+            idx[neg_mask] = -1
+            safe_idx = idx.clamp(min=0)
+
+            # Pre-seed both inputs with safe values so the builder's internal
+            # torch.gather doesn't choke on -1.
+            builder.set_goldens({in0: in0_t, index: safe_idx}, {})
+
+            gather_op = builder.gather(in0, index, dim=dim)
+
+            expected = torch.gather(
+                in0_t.to(torch.float32), dim, safe_idx.to(torch.int64)
+            ).to(torch.bfloat16)
+            expected[neg_mask] = float("nan")
+            builder.set_goldens({index: idx}, {gather_op: expected})
+            return gather_op
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
     "candidates,vocab_size",
     [
         (128, 128256),  # Llama-3.x
@@ -374,7 +424,16 @@ def test_all_gather(
         full_input_shape[d] *= factor
 
     def module(builder: TTNNBuilder):
-        @builder.func([full_input_shape], [dtype], host_inputs=True)
+        @builder.func(
+            [full_input_shape],
+            [dtype],
+            custom_inputs=[
+                {
+                    "layout": ttnn.Layout.RowMajor,
+                    "buffer_type": ttnn.BufferType.SystemMemory,
+                }
+            ],
+        )
         def all_gather(in0: Operand, builder: TTNNBuilder):
             device = builder.get_device()
 
@@ -480,7 +539,16 @@ def test_reduce_scatter(
         )
 
     def module(builder: TTNNBuilder):
-        @builder.func([full_input_shape], [dtype], host_inputs=True)
+        @builder.func(
+            [full_input_shape],
+            [dtype],
+            custom_inputs=[
+                {
+                    "layout": ttnn.Layout.RowMajor,
+                    "buffer_type": ttnn.BufferType.SystemMemory,
+                }
+            ],
+        )
         def reduce_scatter(in0: Operand, builder: TTNNBuilder):
             device = builder.get_device()
 

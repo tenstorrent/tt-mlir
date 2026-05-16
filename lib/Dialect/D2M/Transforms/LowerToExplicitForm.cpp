@@ -110,7 +110,6 @@ static void lowerBlockOffsetOps(IRRewriter &rewriter, GenericOp generic,
                                 ArrayRef<int64_t> blockFactors) {
   SmallVector<int64_t> loopDimToGridDim =
       buildLoopDimToGridDimMap(generic, blockFactors.size());
-  AffineMap gridMapping = generic.getGrid().getPhysicalToVirtMap();
 
   SmallVector<BlockOffsetOp> blockOffsetOps;
   generic.walk([&](BlockOffsetOp op) { blockOffsetOps.push_back(op); });
@@ -132,8 +131,7 @@ static void lowerBlockOffsetOps(IRRewriter &rewriter, GenericOp generic,
 
     Value blockFactorConstant = arith::ConstantIndexOp::create(
         rewriter, op.getLoc(), blockFactors[dim]);
-    Value coreIndex =
-        rewriter.create<CoreIndexOp>(op.getLoc(), gridDim, gridMapping);
+    Value coreIndex = rewriter.create<CoreIndexOp>(op.getLoc(), gridDim);
     Value blockOffset = rewriter.create<arith::MulIOp>(
         op.getLoc(), blockFactorConstant, coreIndex);
     rewriter.replaceOp(op, blockOffset);

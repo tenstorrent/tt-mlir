@@ -2,8 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -12,6 +14,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRRANKNORMALIZATION
@@ -53,6 +56,29 @@ static bool needsRankExpansion(Type type) {
     return tensorType.getRank() < minRank;
   }
   return false;
+}
+
+/// Collects functions that participate in rank normalization:
+///   - external functions whose signature needs rank expansion;
+///   - all other non-external functions, except const_eval helpers (which are
+///     intentionally TTNN-only with rank<2 signatures).
+static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
+  DenseSet<func::FuncOp> result;
+  module.walk([&](func::FuncOp funcOp) {
+    if (funcOp.isExternal()) {
+      if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+          llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
+        result.insert(funcOp);
+      }
+      return;
+    }
+
+    if (ttmlir::utils::isConstEvalFunc(funcOp)) {
+      return;
+    }
+    result.insert(funcOp);
+  });
+  return result;
 }
 
 /// TypeConverter that expands tensor types with rank < minRank.
@@ -123,6 +149,8 @@ public:
       updateArangeDimension(arangeOp);
     } else if (auto sliceOp = dyn_cast<ttir::SliceStaticOp>(newOp)) {
       updateSliceStaticAttrs(sliceOp);
+    } else if (auto broadcastOp = dyn_cast<ttir::BroadcastOp>(newOp)) {
+      updateBroadcastDimensionsAttr(broadcastOp);
     } else if (auto fullOp = dyn_cast<ttir::FullOp>(newOp)) {
       updateDenseI32ShapeAttr(fullOp);
     } else if (auto zerosOp = dyn_cast<ttir::ZerosOp>(newOp)) {
@@ -202,6 +230,38 @@ private:
 
     OpBuilder builder(reshapeOp.getContext());
     reshapeOp.setShapeAttr(builder.getI32ArrayAttr(expandShape(currentShape)));
+  }
+
+  static void updateBroadcastDimensionsAttr(ttir::BroadcastOp broadcastOp) {
+    auto inputType =
+        dyn_cast<RankedTensorType>(broadcastOp.getInput().getType());
+    if (!inputType) {
+      return;
+    }
+
+    ArrayRef<int64_t> currentBroadcastDimensions =
+        broadcastOp.getBroadcastDimensions();
+    if (static_cast<int64_t>(currentBroadcastDimensions.size()) ==
+        inputType.getRank()) {
+      return;
+    }
+
+    if (static_cast<int64_t>(currentBroadcastDimensions.size()) >
+        inputType.getRank()) {
+      TT_assertv(false,
+                 "broadcast_dimensions rank ({}) exceeds input rank ({})",
+                 currentBroadcastDimensions.size(), inputType.getRank());
+    }
+
+    int64_t numDimsToAdd =
+        inputType.getRank() - currentBroadcastDimensions.size();
+    SmallVector<int64_t> newBroadcastDimensions(numDimsToAdd, 1);
+    newBroadcastDimensions.append(currentBroadcastDimensions.begin(),
+                                  currentBroadcastDimensions.end());
+
+    OpBuilder builder(broadcastOp.getContext());
+    broadcastOp.setBroadcastDimensionsAttr(
+        builder.getDenseI64ArrayAttr(newBroadcastDimensions));
   }
 
   static void updateSliceStaticAttrs(ttir::SliceStaticOp sliceOp) {
@@ -297,19 +357,32 @@ public:
 
     RankNormalizationTypeConverter typeConverter;
     ConversionTarget target(*ctx);
+    target.addLegalDialect<ttnn::TTNNDialect>();
+
+    auto participatingFuncs = collectParticipatingFuncs(module);
 
     target.markUnknownOpDynamicallyLegal([&](Operation *op) {
-      if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
-          llvm::any_of(op->getResultTypes(), needsRankExpansion)) {
-        return false;
-      }
+      bool needsRewrite;
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
-            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
-          return false;
-        }
+        needsRewrite =
+            llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
+      } else {
+        needsRewrite =
+            llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
+            llvm::any_of(op->getResultTypes(), needsRankExpansion);
       }
-      return true;
+      if (!needsRewrite) {
+        return true;
+      }
+
+      func::FuncOp parentFunc = isa<func::FuncOp>(op)
+                                    ? cast<func::FuncOp>(op)
+                                    : op->getParentOfType<func::FuncOp>();
+      if (parentFunc && !participatingFuncs.contains(parentFunc)) {
+        return true;
+      }
+      return false;
     });
 
     RewritePatternSet patterns(ctx);

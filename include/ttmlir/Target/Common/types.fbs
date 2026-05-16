@@ -12,7 +12,8 @@ struct Dim2dRange {
 
 enum Arch: uint {
   Wormhole_b0,
-  Blackhole
+  Blackhole,
+  Quasar
 }
 
 enum DataType: uint16 {

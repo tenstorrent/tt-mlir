@@ -45,8 +45,8 @@ def TTIR_ToLayoutOp : TTIR_DPSOp<"to_layout",
         - Some combination of the above
 
       ```llvm
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, system, sharded>
+      #layout1 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
       %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
@@ -335,6 +335,8 @@ def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
         -x if x < 0
       }
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
@@ -368,6 +370,8 @@ def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
 
       Mathematical definition: cbrt(x) = ∛x = x^(1/3)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil", [TTIR_Idempotence]> {
@@ -405,6 +409,8 @@ def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil", [TTIR_Idempotence]> {
 
       Mathematical definition: ceil(x) = ⌈x⌉ = min{n ∈ ℤ | n ≥ x}
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
@@ -424,6 +430,8 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
       // [[0.9601, 0.5403, -0.9553, -0.1365], ... ]
       ```
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_AcosOp: TTIR_ElementwiseUnaryOp<"acos"> {
@@ -479,6 +487,8 @@ def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
 
       Mathematical definition: floor(x) = ⌊x⌋ = max{n ∈ ℤ | n ≤ x}
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_FracOp: TTIR_ElementwiseUnaryOp<"frac"> {
@@ -539,6 +549,8 @@ def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
 
       Mathematical definition: isfinite(x) = x ∈ ℝ
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
@@ -560,6 +572,8 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
 
       Mathematical definition: logical_not(x) = !x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]> {
@@ -588,6 +602,8 @@ def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]
 
       Mathematical definition: bitwise_not(x) = ~x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MishOp: TTIR_ElementwiseUnaryOp<"mish"> {
@@ -657,6 +673,8 @@ def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
 
       Mathematical definition: tan(x) = sin(x) / cos(x)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_AtanOp: TTIR_ElementwiseUnaryOp<"atan"> {
@@ -686,6 +704,8 @@ def TTIR_AtanOp: TTIR_ElementwiseUnaryOp<"atan"> {
 
       Mathematical definition: atan(x) = tan⁻¹(x), where the result is in the range [-π/2, π/2]
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
@@ -731,6 +751,8 @@ def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal", [TTIR_Involution]>
 
       Mathematical definition: reciprocal(x) = 1 / x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [TTIR_Idempotence]> {
@@ -798,6 +820,8 @@ def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
 
       Mathematical definition: rsqrt(x) = 1 / sqrt(x)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
@@ -917,6 +941,8 @@ def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
         -1 if x < 0
       }
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_SignbitOp: TTIR_ElementwiseUnaryOp<"signbit"> {
@@ -944,6 +970,8 @@ def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
       // [[0.9601, 0.5403, -0.3, 4.5], ... ]
       ```
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_AsinOp: TTIR_ElementwiseUnaryOp<"asin"> {
@@ -1017,6 +1045,8 @@ def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
 
       Mathematical definition: sqrt(x) = √x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_SquareOp : TTIR_ElementwiseUnaryOp<"square"> {
@@ -1121,6 +1151,8 @@ def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
 
       Mathematical definition: log(x) = ln(x), where ln is the natural logarithm
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_Log1pOp: TTIR_ElementwiseUnaryOp<"log1p"> {
@@ -1152,6 +1184,8 @@ def TTIR_Log1pOp: TTIR_ElementwiseUnaryOp<"log1p"> {
 
       Mathematical definition: log1p(x) = ln(1 + x)
       }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
@@ -1184,6 +1218,8 @@ def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
 
     Mathematical definition: expm1(x) = e^x - 1
   }];
+
+  let hasFolder = 1;
 }
 
 def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
@@ -1205,6 +1241,8 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
 
       Mathematical definition: exp(x) = e^x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_Exp2Op: TTIR_ElementwiseUnaryOp<"exp2"> {
@@ -1374,6 +1412,8 @@ def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
 
       Mathematical definition: equal(x, y) = x == y
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise ne(x, x) == 0.
@@ -1410,6 +1450,8 @@ def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
 
       Mathematical definition: not_equal(x, y) = x != y
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise ge(x, x) == 1.
@@ -1443,6 +1485,8 @@ def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
 
       Mathematical definition: greater_equal(x, y) = x >= y
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise gt(x, x) == 0.
@@ -1476,6 +1520,8 @@ def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
 
       Mathematical definition: greater_than(x, y) = x > y
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise le(x, x) == 1.
@@ -1579,7 +1625,7 @@ def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdem
       Mathematical definition: logical_and(x, y) = x && y
     }];
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence]> {
@@ -1613,7 +1659,7 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempo
       Mathematical definition: logical_or(x, y) = x || y
     }];
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
@@ -1679,6 +1725,8 @@ def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdem
 
       Mathematical definition: bitwise_and(x, y) = x & y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempotence]> {
@@ -1712,6 +1760,8 @@ def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempo
 
       Mathematical definition: bitwise_or(x, y) = x | y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
@@ -1746,7 +1796,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
       Mathematical definition: bitwise_xor(x, y) = x ^ y
     }];
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence]> {
@@ -1781,6 +1831,8 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
 
       Mathematical definition: minimum(x, y) = min(x, y)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift"> {
@@ -1791,6 +1843,7 @@ def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift"> {
       second tensor.
     }];
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_RightShiftOp : TTIR_ElementwiseBinaryOp<"right_shift"> {
@@ -1811,6 +1864,7 @@ def TTIR_LogicalLeftShiftOp : TTIR_ElementwiseBinaryOp<"logical_left_shift"> {
       second tensor.
     }];
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
@@ -1844,6 +1898,8 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
 
       Mathematical definition: subtract(x, y) = x - y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
@@ -1878,6 +1934,8 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
 
       Mathematical definition: remainder(x, y) = x % y (where % is the remainder operator)
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO We need to add a broadcastable trait to this op.
@@ -1917,6 +1975,8 @@ def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
 
       Mathematical definition: pow(x, y) = x^y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
@@ -1938,6 +1998,8 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
       ```
       Mathematical definition: atan2(x, y) = arctan(y / x)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
@@ -1970,6 +2032,8 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR
 
       Mathematical definition: add(x, y) = x + y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
@@ -2002,6 +2066,8 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
 
       Mathematical definition: multiply(x, y) = x * y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
@@ -2035,6 +2101,8 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
 
       Mathematical definition: div(x, y) = x / y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
@@ -2061,6 +2129,8 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
 
       Mathematical definition: maximum(x, y) = max(x, y)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_GeluBackwardOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
@@ -3008,6 +3078,7 @@ def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
@@ -4728,6 +4799,8 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
@@ -5945,22 +6018,28 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
-      A version of scaled dot product attention specifically for decode.
-        The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
+      Flash-Decode SDPA for single-query-token decode. Supports MQA and GQA.
 
-        Args:
-            query (AnyRankedTensor): The query tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
-            key (AnyRankedTensor): The key tensor [batch x num_kv_heads x seq_len x head_size].
-            value (AnyRankedTensor): The value tensor [batch x num_kv_heads x seq_len x head_size].
-            is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
-            attention_mask (AnyRankedTensor, optional): The attention mask [batch x 1 x num_heads x seq_len].
-            cur_pos_tensor (AnyRankedTensor): [batch] Tensor of integers of length batch.
-            attention_sink (AnyRankedTensor, optional): The attention sink [num_heads, 32] (must be a single tile wide).
-            output (AnyRankedTensor): The output DPS operand [1 x batch x num_heads x head_size].
-            scale (float, optional): Defaults to `None`.
+      Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sk` (kv seq len),
+      `D` (head size).
 
-        Returns:
-            AnyRankedTensor: The output tensor [1 x batch x num_heads x head_size].
+      Args:
+          query (AnyRankedTensor): `[1 x B x Hq x D]`. Dim 0 must be 1.
+          key (AnyRankedTensor): `[B x Hkv x Sk x D]`.
+          value (AnyRankedTensor): `[B x Hkv x Sk x D]`. Same type as `key`.
+          is_causal (bool, optional): Defaults to `true`. Mutually exclusive
+              with `attention_mask`.
+          attention_mask (AnyRankedTensor, optional): `[1|B x 1 x 1|Hq x Sk]`.
+              Dim 0 broadcasts batch, dim 2 broadcasts heads. Only valid when
+              `is_causal` is `false`.
+          cur_pos_tensor (AnyRankedTensor): 1D `[B]` integer tensor of decode
+              positions.
+          attention_sink (AnyRankedTensor, optional): `[Hq x 32]`, single tile
+              wide.
+          scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+
+      Returns:
+          AnyRankedTensor: `[1 x B x Hq x D]` (same type as `query`).
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -6035,21 +6114,35 @@ def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_mult
 def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention", [AttrSizedOperandSegments]> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
-    Scaled dot product attention.
-    The implementation is FlashAttention-2.
+    FlashAttention-2 SDPA. Supports MHA, MQA, and GQA.
+
+    Lowering to TTNN dispatches on `Sq`: `Sq > 1` lowers to
+    `ttnn.scaled_dot_product_attention` (prefill), while `Sq == 1` lowers to
+    `ttnn.scaled_dot_product_attention_decode` (decode, with the necessary Q
+    and mask permutations applied at the conversion boundary).
+
+    Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sq`/`Sk` (query/kv
+    seq len), `D` (head size).
 
     Args:
-        query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
-        key (AnyRankedTensor): The key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
-        value (AnyRankedTensor): The value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
-        attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
-        output (AnyRankedTensor): The output DPS operand [batch x num_heads x query_seq_len x head_size].
-        is_causal (bool): Whether The attention is causal. Defaults to `true`.
-        scale (float, optional): Defaults to `None`.
-        sliding_window_size (uint, optional): Defaults to `None`. Size of sliding window for attention. If provided && is_causal, only attends to the last `sliding_window_size` tokens. If provided && !is_causal, attends to a window of size `sliding_window_size` centered at the current position.
+        query (AnyRankedTensor): `[B x Hq x Sq x D]`.
+        key (AnyRankedTensor): `[B x Hkv x Sk x D]`.
+        value (AnyRankedTensor): `[B x Hkv x Sk x D]`. Same type as `key`.
+        attention_mask (AnyRankedTensor, optional): `[1|B x 1|Hq x Sq x Sk]`.
+            Dim 0 broadcasts batch, dim 1 broadcasts heads. Only valid when
+            `is_causal` is `false`. Defaults to `None`.
+        is_causal (bool): Defaults to `true`. Requires `Sq == Sk` and no
+            `attention_mask`.
+        scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+        sliding_window_size (uint, optional): If `is_causal`, attends to the
+            last N tokens; otherwise attends to a window of size N centered at
+            the current position. Defaults to `None`.
+        attention_sink (AnyRankedTensor, optional): `[1 x Hq x 1 x 1]`, one
+            value per query head broadcast across batch and tile dims.
+            Defaults to `None`.
 
     Returns:
-        AnyRankedTensor: The output tensor [batch x num_heads x seq_len x head_size].
+        AnyRankedTensor: `[B x Hq x Sq x D]` (same type as `query`).
   }];
 
   let arguments = (ins AnyRankedTensor:$query,

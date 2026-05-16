@@ -83,6 +83,13 @@ def _get_device_for_target(
             and _current_fabric_config == fabric_config
         ):
             return _current_device
+        elif (
+            _current_device_target in ["ttnn", "ttnn-mode"]
+            and target in ["ttnn", "ttnn-mode"]
+            and _current_device_mesh_shape == mesh_shape
+            and _current_fabric_config == fabric_config
+        ):
+            return _current_device
         elif _current_device_target == "emitpy":
             ttnn.close_mesh_device(_current_device)
         else:  # Cache miss, need to teardown
@@ -116,7 +123,7 @@ def _get_device_for_target(
 
         device_runtime_enum = None
 
-        if target in ["ttnn", "emitc"]:
+        if target in ["ttnn", "emitc", "ttnn-mode"]:
             device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTNN
         elif target == "ttmetal":
             device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
@@ -270,7 +277,7 @@ def device(request, pytestconfig):
         target = request.node.callspec.params.get("target", "ttnn")
 
         # Support for other backends coming soon.
-        if target not in ["ttnn", "ttmetal", "emitpy", "emitc"]:
+        if target not in ["ttnn", "ttmetal", "emitpy", "emitc", "ttnn-mode"]:
             return None
 
         mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
@@ -477,6 +484,8 @@ def get_board_id(system_desc) -> str:
     num_chips = len(system_desc["chip_desc_indices"])
 
     match arch, num_chips:
+        case "Quasar", 1:
+            return "qsremu"
         case "Blackhole", 1:
             return "p150"
         case "Blackhole", 2:

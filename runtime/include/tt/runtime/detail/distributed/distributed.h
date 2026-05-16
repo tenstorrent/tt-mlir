@@ -47,6 +47,11 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
+// RPC to workers: create a borrowed host tensor aliasing the tensor registered
+// as `ownedHostTensor`'s global id. Wire payload is ids only.
+::tt::runtime::Tensor
+createUnsafeBorrowedHostTensor(const ::tt::runtime::Tensor &ownedHostTensor);
+
 bool isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle);
 
 std::uint32_t getTensorVolume(const ::tt::runtime::Tensor &tensorHandle);

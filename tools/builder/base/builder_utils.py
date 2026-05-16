@@ -125,12 +125,36 @@ def process_multi_return_result(result):
 def create_custom_ttir_pipeline_fn(
     pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
 ) -> Callable:
-    def wrapper(module, device_register_options):
-        register_device = "ttcore-register-device"
-        if device_register_options:
-            register_device = f"{register_device}{{{device_register_options}}}"
+    def wrapper(module, options):
+        # Split options: ttcore-register-device only accepts device-related
+        # options (system-desc-path, mesh-shape, etc.). All other options
+        # belong to the pipeline itself.
+        device_option_prefixes = (
+            "system-desc-path=",
+            "mesh-shape=",
+            "mock-system-desc-arch=",
+            "mesh-topology=",
+        )
+        device_opts = []
+        pipeline_opts = []
+        if options:
+            for opt in options.split():
+                if opt.startswith(device_option_prefixes):
+                    device_opts.append(opt)
+                else:
+                    pipeline_opts.append(opt)
 
-        pipeline_str = f"builtin.module({','.join([register_device, pipeline])})"
+        register_device = "ttcore-register-device"
+        if device_opts:
+            register_device = f"{register_device}{{{' '.join(device_opts)}}}"
+
+        pipeline_with_opts = pipeline
+        if pipeline_opts:
+            pipeline_with_opts = f"{pipeline}{{{' '.join(pipeline_opts)}}}"
+
+        pipeline_str = (
+            f"builtin.module({','.join([register_device, pipeline_with_opts])})"
+        )
         with module.context:
             pm = PassManager.parse(pipeline_str)
             pm.enable_verifier(verify)
@@ -187,7 +211,6 @@ def get_metal_tensor_layout(
     logical_shape: Shape,
     tiled=False,
     element_dtype: torch.dtype = torch.float32,
-    oobVal=ttcore.OOBVal.Undef,
     memorySpace=ttcore.MemorySpace.DeviceL1,
     grid: Optional[Tuple[int, int]] = None,
     index_map: Optional[AffineMap] = None,
@@ -210,8 +233,6 @@ def get_metal_tensor_layout(
         Logical shape of the tensor
     tiled : bool
         Whether to use tiled layout (32x32 tiles)
-    oobVal : ttcore.OOBVal
-        Out-of-bounds value handling
     memorySpace : ttcore.MemorySpace
         Memory space (L1, DRAM, etc.)
     grid : Optional[Tuple[int, int]]
@@ -251,7 +272,6 @@ def get_metal_tensor_layout(
         layout = ttcore.ir.MetalLayoutAttr.get(
             ctx,
             logical_shape,
-            oobVal,
             memorySpace,
             memory_layout,
             collapse_intervals,
@@ -259,7 +279,7 @@ def get_metal_tensor_layout(
         )
     else:
         layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, logical_shape, oobVal, memorySpace, memory_layout
+            ctx, logical_shape, memorySpace, memory_layout
         )
 
     shard_shape = []

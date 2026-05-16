@@ -5,7 +5,7 @@
 // regions without yield terminators. In this form, users manage all data
 // movement manually and provide custom terminators in each region.
 
-#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #remap = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 

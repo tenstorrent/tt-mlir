@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2026wr Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -25,31 +25,108 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    moduleOp->walk(
-        [&](d2m::GenericOp genericOp) { hoistCBAllocs(rewriter, genericOp); });
+    WalkResult result = moduleOp->walk([&](d2m::GenericOp genericOp) {
+      if (failed(hoistCBAllocs(rewriter, genericOp))) {
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    if (result.wasInterrupted()) {
+      signalPassFailure();
+    }
   }
 
 private:
-  void hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
+  memref::AllocOp attachCBLayoutAttribute(IRRewriter &rewriter,
+                                          memref::AllocOp allocOp,
+                                          int32_t numBuffers) {
+    auto buffer = allocOp->getResult(0);
+    auto bufferType = mlir::cast<MemRefType>(buffer.getType());
+    auto shardShape = bufferType.getShape();
+    Type elementType = bufferType.getElementType();
+    auto cbLayout = ttcore::CBLayoutAttr::get(
+        bufferType.getContext(), shardShape,
+        ttcore::getElementSizeBytes(elementType), numBuffers);
+
+    auto newMemRefType = MemRefType::get(shardShape, elementType, cbLayout,
+                                         bufferType.getMemorySpace());
+    auto oldAttrs = llvm::to_vector(allocOp->getAttrs());
+    rewriter.setInsertionPoint(allocOp);
+    auto newAllocOp =
+        rewriter.replaceOpWithNewOp<memref::AllocOp>(allocOp, newMemRefType);
+    // transfer all attributes from the old alloc to the new alloc
+    for (auto attr : oldAttrs) {
+      newAllocOp->setAttr(attr.getName(), attr.getValue());
+    }
+
+    for (auto *user : newAllocOp->getResult(0).getUsers()) {
+      auto destinationStyleOp =
+          mlir::dyn_cast<DestinationStyleOpInterface>(user);
+      if (destinationStyleOp && user->getNumResults() > 0) {
+        for (auto &operand : destinationStyleOp->getOpOperands()) {
+          if (destinationStyleOp.isDpsInit(&operand) &&
+              operand.get() == newAllocOp->getResult(0)) {
+            // update op result that matches dps init
+            OpResult tiedResult = destinationStyleOp.getTiedOpResult(&operand);
+            tiedResult.setType(newMemRefType);
+          }
+        }
+      }
+    }
+
+    return newAllocOp;
+  }
+
+  LogicalResult hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
     // Collect allocs to hoist AND their operand indices BEFORE modifying the
     // IR.  Erasing allocs shifts positional lookups.
-    SmallVector<std::pair<memref::AllocOp, int64_t>> allocsToHoist;
+    SmallVector<memref::AllocOp> allocsToHoist;
+
     for (Region &region : genericOp->getRegions()) {
-      region.walk([&](memref::AllocOp allocOp) {
-        auto memrefType = allocOp.getType();
-        if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
-            allocOp->getAttrOfType<IntegerAttr>("address")) {
-          int64_t idx = findRegularOperandIndex(genericOp, allocOp);
-          allocsToHoist.push_back({allocOp, idx});
+      WalkResult walkResult = region.walk([&](memref::AllocOp allocOp) {
+        if (allocOp->getAttr("d2m.scratch_buffer")) {
+          if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
+            allocOp.emitError("scratch buffer must have address attribute");
+            return WalkResult::interrupt();
+          }
+          auto newAllocOp = attachCBLayoutAttribute(rewriter, allocOp, 1);
+          allocsToHoist.push_back(newAllocOp);
+        } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
+          if (allocOp->getAttr("d2m.compute_intermediate")) {
+            // Skip hoisting, these are fake buffers added by fusion that are
+            // guaranteed to not be used
+            if (allocOp->getAttrOfType<IntegerAttr>("address")) {
+              allocOp.emitError("compute intermediate buffer must not have "
+                                "address attribute");
+              return WalkResult::interrupt();
+            }
+          } else {
+            if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
+              allocOp.emitError(
+                  "synchronized buffer must have address attribute");
+              return WalkResult::interrupt();
+            }
+            auto newAllocOp = attachCBLayoutAttribute(
+                rewriter, allocOp,
+                allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
+                    .getInt());
+            allocsToHoist.push_back(newAllocOp);
+          }
+        } else {
+          allocOp.emitError("unexpected alloc op: expected d2m.scratch_buffer "
+                            "or d2m.synchronized_buffer attribute");
+          return WalkResult::interrupt();
         }
+        return WalkResult::advance();
       });
+
+      if (walkResult.wasInterrupted()) {
+        return failure();
+      }
     }
 
-    if (allocsToHoist.empty()) {
-      return;
-    }
-
-    for (auto [allocOp, operandIdx] : allocsToHoist) {
+    for (auto allocOp : allocsToHoist) {
       auto allocType = allocOp.getType();
 
       // Move the CB alloc outside the generic as an additionalArg.
@@ -58,23 +135,9 @@ private:
       rewriter.setInsertionPoint(genericOp);
       auto externalAlloc =
           rewriter.create<memref::AllocOp>(genericOp.getLoc(), allocType);
-
-      // Transfer address and alignment.
-      if (auto addressAttr = allocOp->getAttrOfType<IntegerAttr>("address")) {
-        externalAlloc->setAttr("address", addressAttr);
-      }
-      if (auto alignAttr = allocOp.getAlignmentAttr()) {
-        externalAlloc.setAlignmentAttr(alignAttr);
-      }
-
-      // Tag which regular operand this CB backs so D2MGenericRewriter
-      // can override the CB at the correct port.
-      if (operandIdx >= 0) {
-        externalAlloc->setAttr("d2m.cb_for_operand",
-                               rewriter.getI64IntegerAttr(operandIdx));
-        // Copy VGM attrs from the operand's defining alloc so the
-        // serializer can compute physical grid shapes.
-        copyVGMFromOperand(genericOp, operandIdx, externalAlloc);
+      // transfer all attributes from the old alloc to the new alloc
+      for (auto attr : allocOp->getAttrs()) {
+        externalAlloc->setAttr(attr.getName(), attr.getValue());
       }
 
       // Add the external alloc as an additionalArg to the generic op.
@@ -93,59 +156,19 @@ private:
                                            externalAlloc.getResult());
       }
     }
-  }
 
-  /// Find the regular operand index for a CB alloc by tracing through
-  /// its remote_load/remote_store memref operand back to the generic's
-  /// operands.
-  /// In the case that a remote load and store both use the same AllocOp,
-  /// consider the allocation as corresponding to the _input_ operand.
-  static int64_t findRegularOperandIndex(d2m::GenericOp genericOp,
-                                         memref::AllocOp allocOp) {
-    for (Operation *user : allocOp.getResult().getUsers()) {
-      if (auto remoteLoad = mlir::dyn_cast<d2m::RemoteLoadOp>(user)) {
-        Value memref = remoteLoad.getMemref();
-        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
-          if (genericOp->getOperand(i) == memref) {
-            // Eagerly return input operand associated with remote load, even if
-            // remote_store may also use the same alloc.
-            return static_cast<int64_t>(i);
-          }
-        }
-      }
-      if (auto remoteStore = mlir::dyn_cast<d2m::RemoteStoreOp>(user)) {
-        Value memref = remoteStore.getMemref();
-        for (unsigned i = 0; i < genericOp->getNumOperands(); ++i) {
-          if (genericOp->getOperand(i) == memref) {
-            return static_cast<int64_t>(i);
-          }
-        }
-      }
-    }
-    return -1;
-  }
+    // Hoist aliased CBs.
+    genericOp->walk([&](d2m::OperandAliasOp operandAliasOp) {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPoint(genericOp);
+      auto externalAlias = rewriter.create<d2m::OperandAliasOp>(
+          genericOp.getLoc(), operandAliasOp.getType(),
+          operandAliasOp.getMemref());
+      genericOp.getAdditionalArgsMutable().append(externalAlias.getResult());
+      rewriter.replaceOp(operandAliasOp, externalAlias.getResult());
+    });
 
-  /// Copy VGM attrs from the operand's defining alloc onto |externalAlloc|.
-  static void copyVGMFromOperand(d2m::GenericOp genericOp, int64_t operandIdx,
-                                 memref::AllocOp externalAlloc) {
-    Value externalOperand = genericOp.getInputsAndOutputs()[operandIdx];
-    auto copyAttrs = [&](Operation *src) {
-      if (auto vgm = src->getAttrOfType<AffineMapAttr>(
-              d2m::utils::kVirtualGridInverseMappingAttr)) {
-        externalAlloc->setAttr(d2m::utils::kVirtualGridInverseMappingAttr, vgm);
-      }
-      if (auto fwd = src->getAttrOfType<AffineMapAttr>(
-              d2m::utils::kVirtualGridForwardMappingAttr)) {
-        externalAlloc->setAttr(d2m::utils::kVirtualGridForwardMappingAttr, fwd);
-      }
-    };
-    if (auto viewOp = externalOperand.getDefiningOp<d2m::ViewLayoutOp>()) {
-      if (auto alloc = viewOp.getInput().getDefiningOp<memref::AllocOp>()) {
-        copyAttrs(alloc);
-      }
-    } else if (auto alloc = externalOperand.getDefiningOp<memref::AllocOp>()) {
-      copyAttrs(alloc);
-    }
+    return success();
   }
 };
 
