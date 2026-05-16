@@ -417,6 +417,15 @@ void createTTIRToTTNNCommonPipeline(
     // ops after they have been decomposed.
     if (options.enableTrace) {
       devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
+      // After trace hoisting, private @trace_*_main / @run_and_capture_*_main /
+      // @execute_*_main wrappers exist with their own signatures derived from
+      // @main's. Any block args that were unified by
+      // ttir-consolidate-static-cache-updates (and whose downstream uses
+      // collapsed away via CSE) are now dead inside the private trace funcs.
+      // RemoveDeadValues drops them from the private signatures and rewrites
+      // the call sites in @main accordingly. The public @main itself is left
+      // intact, so the runtime ABI is preserved.
+      devicePm.addPass(mlir::createRemoveDeadValuesPass());
     }
 
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
