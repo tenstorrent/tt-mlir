@@ -4013,9 +4013,9 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
                        std::to_string(blockSize));
   }
 
-  if (numInputHeads % numCacheHeads != 0) {
-    return emitOpError("Input must have a number of heads that is a multiple "
-                       "of the number of heads in the cache.");
+  if (numInputHeads != numCacheHeads) {
+    return emitOpError(
+        "Input must have the same number of heads as the cache.");
   }
 
   if (inputShape[3] != headDim) {

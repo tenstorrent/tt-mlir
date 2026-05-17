@@ -5605,7 +5605,7 @@ TEST_F(OpModelTest, PagedUpdateCacheOpWithoutPageTable) {
 TEST_F(OpModelTest, PagedFillCacheOp) {
   // Test basic PagedUpdateCacheOp with DRAM cache, input, update_index, and
   // page_table tensors
-  const llvm::SmallVector<int64_t> cacheShape = {128, 4, 32, 256};
+  const llvm::SmallVector<int64_t> cacheShape = {128, 12, 32, 256};
   const llvm::SmallVector<int64_t> inputShape = {1, 12, 65, 256};
   const llvm::SmallVector<int64_t> batchOffsetShape = {1};
   const llvm::SmallVector<int64_t> pageTableShape = {8, 16};
