@@ -32,6 +32,9 @@ using GlobalSemaphoreMapIterator = typename GlobalSemaphoreMap::iterator;
 class TTNNTensorWrapper;
 using OnDestroyTensorCallback = std::function<void(TTNNTensorWrapper *)>;
 
+using TTNNTensorWrapperPtr = std::shared_ptr<TTNNTensorWrapper>;
+using TTNNTensor = std::variant<TTNNTensorWrapperPtr, std::uint32_t>;
+
 // Wrapper for ttnn::Tensor that contains
 // additional metadata specific to our ttnn runtime
 class TTNNTensorWrapper {
@@ -187,14 +190,16 @@ public:
     return programOutputIds;
   }
 
+  std::uint32_t getScalarKernelArgAndValidate(
+      const ::tt::target::ttnn::TensorRef *tensorRef) const;
+
 private:
+  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
+  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;
   TensorMap intermedTensors;
   TensorPtrMap liveTensors;
-
-  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
-  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
 };
 
 class ProgramGlobalSemaphorePool {

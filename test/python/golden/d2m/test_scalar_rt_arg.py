@@ -86,3 +86,16 @@ def test_scalar_kernel_arg(target: str, request, device):
     scalar = tt_runtime.runtime.create_scalar_tensor(42)
     outputs = tt_runtime.runtime.submit(device, fbb, 0, [scalar])
     tt_runtime.runtime.wait(outputs)
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_ttnn_create_scalar_tensor(target: str, device):
+    """
+    Smoke-test TTNN runtime dispatch for createScalarTensor.
+
+    The KernelArgScalar TTNN path is reached through hand-written ttnn.generic
+    flatbuffers; this narrower smoke test verifies that the Python API now
+    dispatches to the TTNN runtime and creates scalar-backed Tensor handles.
+    """
+    scalar = tt_runtime.runtime.create_scalar_tensor(42)
+    assert scalar is not None

@@ -195,6 +195,18 @@ createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
               .address();
       break;
     }
+    case ::tt::target::ttnn::KernelArgType::KernelArgScalar: {
+      uint32_t operandIndex =
+          kernelArg->arg_as_KernelArgScalar()->operand_index();
+      LOG_ASSERT(operandIndex < argRefs.size(),
+                 "KernelArgScalar operand_index out of bounds: ", operandIndex,
+                 " >= ", argRefs.size());
+      const auto *tensorRef =
+          reinterpret_cast<const ::tt::target::ttnn::TensorRef *>(
+              argRefs[operandIndex]);
+      coreArgs[i] = tensorPool.getScalarKernelArgAndValidate(tensorRef);
+      break;
+    }
     default: {
       LOG_FATAL("Unknown kernel arg type");
     }

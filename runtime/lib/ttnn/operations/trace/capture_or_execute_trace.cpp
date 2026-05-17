@@ -88,9 +88,17 @@ static void runTraceProgramAndCaptureTrace(
   std::vector<::tt::runtime::Tensor> inputSlots;
   for (size_t i = 0; i < op->inputs()->size(); i++) {
     ::tt::runtime::Tensor &inputSlot = outputTensors[currOutputIndex++];
+    ::tt::runtime::ttnn::TTNNTensor &inputVariant =
+        inputSlot.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+    auto *inputWrapperPtr =
+        std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&inputVariant);
+    if (!inputWrapperPtr) {
+      LOG_FATAL("Unsupported variant type: capture_or_execute_trace input "
+                "slot received a scalar runtime tensor; scalar tensors are "
+                "only valid for the KernelArgScalar kernel-arg path");
+    }
     ::tt::runtime::ttnn::TTNNTensorWrapper &inputSlotWrapper =
-        inputSlot.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
-            DeviceRuntime::TTNN);
+        **inputWrapperPtr;
 
     // input slots need to be retained
     inputSlotWrapper.setRetain(true);
@@ -101,9 +109,17 @@ static void runTraceProgramAndCaptureTrace(
   std::vector<::tt::runtime::Tensor> outputSlots;
   for (size_t i = 0; i < op->outputs()->size(); i++) {
     ::tt::runtime::Tensor &outputSlot = outputTensors[currOutputIndex++];
+    ::tt::runtime::ttnn::TTNNTensor &outputVariant =
+        outputSlot.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+    auto *outputWrapperPtr =
+        std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&outputVariant);
+    if (!outputWrapperPtr) {
+      LOG_FATAL("Unsupported variant type: capture_or_execute_trace output "
+                "slot received a scalar runtime tensor; scalar tensors are "
+                "only valid for the KernelArgScalar kernel-arg path");
+    }
     ::tt::runtime::ttnn::TTNNTensorWrapper &outputSlotWrapper =
-        outputSlot.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
-            DeviceRuntime::TTNN);
+        **outputWrapperPtr;
 
     // output slots need to be retained
     outputSlotWrapper.setRetain(true);
@@ -141,9 +157,19 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
     const ::tt::runtime::ttnn::TTNNTensorWrapper &inputTensorWrapper =
         context.getTensorPool().getTTNNTensorWrapperAndValidate(input);
 
-    ::tt::runtime::ttnn::TTNNTensorWrapper &inputSlotWrapper =
-        traceData.inputTensors[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
+    ::tt::runtime::ttnn::TTNNTensor &replayInputVariant =
+        traceData.inputTensors[i].as<::tt::runtime::ttnn::TTNNTensor>(
             DeviceRuntime::TTNN);
+    auto *replayInputWrapperPtr =
+        std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(
+            &replayInputVariant);
+    if (!replayInputWrapperPtr) {
+      LOG_FATAL("Unsupported variant type: capture_or_execute_trace replay "
+                "input received a scalar runtime tensor; scalar tensors are "
+                "only valid for the KernelArgScalar kernel-arg path");
+    }
+    ::tt::runtime::ttnn::TTNNTensorWrapper &inputSlotWrapper =
+        **replayInputWrapperPtr;
 
     // Constants/parameters and KV cache tensors live on device and persist
     // across trace executions, so their versions are expected to match.

@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include <atomic>
+#include <variant>
 
 namespace tt::runtime::ttnn {
 
@@ -118,6 +119,21 @@ ProgramTensorPool::getRuntimeTensor(std::uint32_t globalId) {
       static_cast<const ProgramTensorPool &>(*this).getRuntimeTensor(globalId));
 }
 
+std::uint32_t ProgramTensorPool::getScalarKernelArgAndValidate(
+    const ::tt::target::ttnn::TensorRef *tensorRef) const {
+  LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
+  const ::tt::runtime::Tensor &runtimeTensor =
+      getRuntimeTensor(tensorRef->global_id());
+  const ::tt::runtime::ttnn::TTNNTensor &variant =
+      runtimeTensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+  const std::uint32_t *packed = std::get_if<std::uint32_t>(&variant);
+  LOG_ASSERT(packed != nullptr,
+             "KernelArgScalar expects a scalar runtime tensor for global id ",
+             tensorRef->global_id(),
+             "; use tt::runtime::createScalarTensor() to produce one");
+  return *packed;
+}
+
 const ::tt::runtime::Tensor &ProgramTensorPool::getRuntimeTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef) const {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
@@ -142,8 +158,16 @@ ProgramTensorPool::getTTNNTensorWrapperAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef) const {
   const ::tt::runtime::Tensor &runtimeTensor =
       getRuntimeTensorAndValidate(tensorRef);
-  return runtimeTensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(
-      DeviceRuntime::TTNN);
+  const ::tt::runtime::ttnn::TTNNTensor &variant =
+      runtimeTensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+  const auto *wrapperPtr =
+      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
+  if (!wrapperPtr) {
+    LOG_FATAL("Unsupported variant type: getTTNNTensorWrapperAndValidate "
+              "called on a scalar runtime tensor; scalar tensors are only "
+              "valid for the KernelArgScalar kernel-arg path");
+  }
+  return **wrapperPtr;
 }
 
 ::tt::runtime::ttnn::TTNNTensorWrapper &

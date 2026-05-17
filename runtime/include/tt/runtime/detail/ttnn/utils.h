@@ -138,6 +138,9 @@ createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice);
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor);
 
+::tt::runtime::ttnn::TTNNTensorWrapper &
+getTTNNTensorWrapperFromRuntimeTensor(::tt::runtime::Tensor tensor);
+
 ::tt::runtime::TensorRef
 createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef);
 

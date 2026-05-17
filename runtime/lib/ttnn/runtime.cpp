@@ -31,9 +31,11 @@
 
 #include "tracy/Tracy.hpp"
 
+#include <cstring>
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <variant>
 #include <vector>
 
 namespace tt::runtime::ttnn {
@@ -322,6 +324,32 @@ Tensor createMultiDeviceBorrowedHostTensor(
   return utils::createRuntimeTensorFromTTNN(tensor);
 }
 
+template <typename T>
+static ::tt::runtime::Tensor createScalarTensorImpl(T scalar) {
+  static_assert(sizeof(T) <= sizeof(std::uint32_t));
+  std::uint32_t scalarPacked = 0;
+  std::memcpy(&scalarPacked, &scalar, sizeof(T));
+  std::shared_ptr<::tt::runtime::ttnn::TTNNTensor> handle =
+      std::make_shared<::tt::runtime::ttnn::TTNNTensor>(scalarPacked);
+  return ::tt::runtime::Tensor(std::static_pointer_cast<void>(handle),
+                               /*data=*/nullptr, DeviceRuntime::TTNN);
+}
+
+::tt::runtime::Tensor createScalarTensor(::tt::runtime::Scalar scalar) {
+  return std::visit(
+      ::tt::runtime::utils::overloaded{
+          [&](const uint32_t &s) { return createScalarTensorImpl(s); },
+          [&](const int32_t &s) { return createScalarTensorImpl(s); },
+          [&](const uint16_t &s) { return createScalarTensorImpl(s); },
+          [&](const int16_t &s) { return createScalarTensorImpl(s); },
+          [&](const uint8_t &s) { return createScalarTensorImpl(s); },
+          [&](const int8_t &s) { return createScalarTensorImpl(s); },
+          [&](const bool &s) { return createScalarTensorImpl(s); },
+          [&](const float &s) { return createScalarTensorImpl(s); },
+      },
+      scalar);
+}
+
 bool isTensorAllocated(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       utils::getTTNNTensorFromRuntimeTensor(tensor);
@@ -463,15 +491,27 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
 }
 
 bool getTensorRetain(::tt::runtime::Tensor tensor) {
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-  return tensorWrapper.shouldRetain();
+  const ::tt::runtime::ttnn::TTNNTensor &variant =
+      tensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+  const auto *wrapperPtr =
+      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
+  if (!wrapperPtr) {
+    LOG_FATAL("Unsupported variant type: getTensorRetain called on a scalar "
+              "runtime tensor; scalar tensors do not carry a retain flag");
+  }
+  return (*wrapperPtr)->shouldRetain();
 }
 
 void setTensorRetain(::tt::runtime::Tensor tensor, bool retain) {
-  ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-  return tensorWrapper.setRetain(retain);
+  ::tt::runtime::ttnn::TTNNTensor &variant =
+      tensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+  auto *wrapperPtr =
+      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
+  if (!wrapperPtr) {
+    LOG_FATAL("Unsupported variant type: setTensorRetain called on a scalar "
+              "runtime tensor; scalar tensors do not carry a retain flag");
+  }
+  (*wrapperPtr)->setRetain(retain);
 }
 
 tt::target::Arch getArch() {
@@ -719,8 +759,15 @@ void wait(::tt::runtime::Tensor tensor, std::optional<uint8_t> cqId) {
   LOG_ASSERT(tensor.matchesRuntime(DeviceRuntime::TTNN),
              "Expected ttnn tensor");
 
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  const ::tt::runtime::ttnn::TTNNTensor &variant =
+      tensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+  const auto *wrapperPtr =
+      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
+  if (!wrapperPtr) {
+    LOG_FATAL("Unsupported variant type: wait called on a scalar runtime "
+              "tensor; scalar tensors do not carry a mesh event");
+  }
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper = **wrapperPtr;
   const std::optional<::ttnn::MeshEvent> &meshEvent =
       tensorWrapper.getMeshEvent();
 
@@ -754,8 +801,15 @@ uint32_t getNumShards(::tt::runtime::Tensor tensor) {
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize, bool blocking) {
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  const ::tt::runtime::ttnn::TTNNTensor &variant =
+      tensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+  const auto *wrapperPtr =
+      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
+  if (!wrapperPtr) {
+    LOG_FATAL("Unsupported variant type: toHost called on a scalar runtime "
+              "tensor; scalar tensors do not carry a ttnn tensor");
+  }
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper = **wrapperPtr;
 
   ::tt::runtime::Tensor multiDeviceHostTensor =
       ::tt::runtime::ttnn::toHostSingleTensor(tensorWrapper, untilize,
@@ -779,8 +833,15 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 
 std::vector<::tt::runtime::Tensor>
 getDeviceTensors(::tt::runtime::Tensor tensor) {
-  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  const ::tt::runtime::ttnn::TTNNTensor &variant =
+      tensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+  const auto *wrapperPtr =
+      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
+  if (!wrapperPtr) {
+    LOG_FATAL("Unsupported variant type: getDeviceTensors called on a scalar "
+              "runtime tensor; scalar tensors do not carry a ttnn tensor");
+  }
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper = **wrapperPtr;
 
   std::vector<::ttnn::Tensor> ttnnTensors =
       ::ttnn::distributed::get_device_tensors(tensorWrapper.getTensor());
@@ -808,8 +869,15 @@ getDeviceTensors(::tt::runtime::Tensor tensor) {
   OptionalMeshDeviceRef meshDevice =
       std::ref(device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN));
 
-  ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
-      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+  ::tt::runtime::ttnn::TTNNTensor &variant =
+      tensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
+  auto *wrapperPtr =
+      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
+  if (!wrapperPtr) {
+    LOG_FATAL("Unsupported variant type: toLayout called on a scalar runtime "
+              "tensor; scalar tensors do not carry a ttnn tensor");
+  }
+  ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper = **wrapperPtr;
 
   const ::ttnn::Tensor &ttnnTensor = tensorWrapper.getTensor();
   bool shouldRetain = retain.value_or(tensorWrapper.shouldRetain());
