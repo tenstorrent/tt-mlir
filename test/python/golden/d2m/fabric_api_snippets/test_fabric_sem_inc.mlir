@@ -38,7 +38,7 @@ module attributes {} {
 
     // Get noc address
     %global_semaphore = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.l1_addr
-    %global_semaphore_ptr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%global_semaphore) : (!ttkernel.l1_addr) -> !ttkernel.l1_addr_ptr
+    %global_semaphore_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%global_semaphore) : (!ttkernel.l1_addr) -> !ttkernel.l1_addr_ptr
     %global_semaphore_noc_addr = ttkernel.get_noc_addr(%translated_x, %translated_y, %global_semaphore) : (index, index, !ttkernel.l1_addr) -> !ttkernel.noc_addr
     %incr = arith.constant 1 : index
 
