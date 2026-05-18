@@ -15,10 +15,10 @@
 
 module {
     func.func @test(%arg0: tensor<32x32xf32, #ttnn_layout>, %arg1: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-        %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
-        %2 = "ttnn.to_memory_config"(%arg1) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
-        // CHECK: %[[memConfig1:.*]] = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
-        // CHECK: %[[memConfig2:.*]] = "ttnn.to_memory_config"(%arg1) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+        %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+        %2 = "ttnn.to_memory_config"(%arg1) : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+        // CHECK: %[[memConfig1:.*]] = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+        // CHECK: %[[memConfig2:.*]] = "ttnn.to_memory_config"(%arg1) : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[TTNNResult:.*]] = d2m.empty() : tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[cast1:.*]] = ttir.ttnn_metal_layout_cast %[[memConfig1]] : tensor<32x32xf32, #ttnn_layout1> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
         // CHECK: %[[view1:.*]] = d2m.view_layout %[[cast1]]{{.*}}remapping = #map{{.*}} : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
@@ -32,8 +32,8 @@ module {
         // CHECK-DAG: d2m.tile_add
         %3 = "ttnn.add"(%1, %2) {ttnn.hoist_generic_via_d2m, dtype = #ttcore.supportedDataTypes<f32>} : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[cast4:.*]] = ttir.ttnn_metal_layout_cast %[[MetalResult]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<32x32xf32, #ttnn_layout1>
-        // CHECK: %[[memConfig3:.*]] = "ttnn.to_memory_config"(%[[cast4]]) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout>
-        %4 = "ttnn.to_memory_config"(%3) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout>
+        // CHECK: %[[memConfig3:.*]] = "ttnn.to_memory_config"(%[[cast4]]) : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout>
+        %4 = "ttnn.to_memory_config"(%3) : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout>
         // CHECK: return %[[memConfig3]] : tensor<32x32xf32, #ttnn_layout>
         return %4 : tensor<32x32xf32, #ttnn_layout>
     }

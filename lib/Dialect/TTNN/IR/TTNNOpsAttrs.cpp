@@ -455,13 +455,24 @@ MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr) {
   BufferTypeAttr bufferTypeAttr =
       mlir::cast<BufferTypeAttr>(layoutAttr.getMemref().getMemorySpace());
   TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
+  // A layout with `ignorePhysicalLayout` set models a sharded layout with
+  // an unspecified shard shape; leave shardSpec unset so consumers get a
+  // partial MemoryConfig and the backend can pick the physical layout.
   std::optional<ShardSpecAttr> shardSpec = std::nullopt;
   if (tensorMemoryLayout &&
-      isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
+      isShardedMemoryLayout(tensorMemoryLayout.getValue()) &&
+      !layoutAttr.getIgnorePhysicalLayout()) {
     shardSpec = ShardSpecAttr::get(layoutAttr.getContext(), layoutAttr);
   }
   return MemoryConfigAttr::get(layoutAttr.getContext(), tensorMemoryLayout,
                                bufferTypeAttr, shardSpec);
+}
+
+MemoryConfigAttr MemoryConfigAttr::get(TTNNNDLayoutAttr layoutAttr) {
+  return MemoryConfigAttr::get(
+      layoutAttr.getContext(), layoutAttr.getMemLayout(),
+      mlir::cast<BufferTypeAttr>(layoutAttr.getMemref().getMemorySpace()),
+      /*shardSpec=*/std::nullopt, utils::createNDShardSpecIfNeeded(layoutAttr));
 }
 
 MemoryConfigAttr MemoryConfigAttr::get(

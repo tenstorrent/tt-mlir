@@ -950,7 +950,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -984,7 +984,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -3058,7 +3058,8 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
   DeclareOpInterfaceMethods<BufferizableOpInterface,
     ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
     "getAliasingValues", "getBufferType"]>,
-  D2M_SkipOpEltwiseFusionTrait]> {
+  D2M_SkipOpEltwiseFusionTrait,
+  D2M_SynchronizableOpInterface]> {
   let summary = "Generate arange values in a block/memref";
   let description = [{
       The `arange_block` operation fills a block/memref with arange values:
@@ -3106,6 +3107,8 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let extraClassDeclaration = [{
     MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    bool isProducer(mlir::OpOperand &operand) { return &operand == &getOutputMutable(); }
+    bool isConsumer(mlir::OpOperand &operand) { return &operand == &getIndexTileTensorMutable(); }
   }];
 
   let hasVerifier = 1;

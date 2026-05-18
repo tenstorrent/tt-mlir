@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops %s | FileCheck %s
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops "--d2m-allocate=test-assume-l1-capacity=8388608 test-buffer-size-policy=max" %s | FileCheck %s --check-prefix=CHECK-ALLOC
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops "--d2m-allocate=test-assume-l1-capacity=8388608" %s | FileCheck %s --check-prefix=CHECK-FUSED-AUTO
+// RUN: ttmlir-opt --ttcore-register-device --d2m-mark-synchronized-buffers --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-mark-synchronized-buffers --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops "--d2m-allocate=test-assume-l1-capacity=8388608 test-buffer-size-policy=max" %s | FileCheck %s --check-prefix=CHECK-ALLOC
+// RUN: ttmlir-opt --ttcore-register-device --d2m-mark-synchronized-buffers --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops "--d2m-allocate=test-assume-l1-capacity=8388608" %s | FileCheck %s --check-prefix=CHECK-FUSED-AUTO
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -19,19 +19,19 @@
 
 // CHECK-LABEL: func.func @blocking_map_transfers_to_alloc
 // CHECK: d2m.generic
-// CHECK: memref.alloc() {alignment = 64 : i64, d2m.blocking_map = #map} : memref<4x4x!ttcore.tile<32x32, f32>>
+// CHECK: memref.alloc() {alignment = 64 : i64, d2m.blocking_map = #map, d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<4x4x!ttcore.tile<32x32, f32>>
 // CHECK-ALLOC-LABEL: func.func @blocking_map_transfers_to_alloc
 // CHECK-ALLOC: d2m.generic
-// CHECK-ALLOC: memref.alloc() {alignment = 64 : i64, d2m.blocking_map = #map} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-func.func @blocking_map_transfers_to_alloc(%arg0: !memref_tiled, %arg1: !memref_tiled) {
+// CHECK-ALLOC: memref.alloc() {alignment = {{.*}}, d2m.blocking_map = #map, d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+func.func @blocking_map_transfers_to_alloc(%arg0: !memref_tiled, %arg1: !memref_tiled, %arg2: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-    indexing_maps = [#map, #map, #map],
+    indexing_maps = [#map, #map, #map, #map],
     iterator_types = [#parallel, #parallel],
     threads = [#d2m.thread<unified>]
   }
-  ins(%arg0, %arg1 : !memref_tiled, !memref_tiled)
+  ins(%arg0, %arg1, %arg2 : !memref_tiled, !memref_tiled, !memref_tiled)
   outs(%out : !memref_tiled) {
   ^unified0:
     %block0 = d2m.block_index(0) : index
@@ -40,6 +40,8 @@ func.func @blocking_map_transfers_to_alloc(%arg0: !memref_tiled, %arg1: !memref_
     d2m.remote_load %e0 %arg0[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
     %e1 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
     d2m.remote_load %e1 %arg1[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
+    %e2 = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
+    d2m.remote_load %e2 %arg2[%block0, %block1] : memref<4x4x!tile_f32>, !memref_tiled
     %intermediate = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
     linalg.generic {
       indexing_maps = [#map, #map, #map],
@@ -57,7 +59,7 @@ func.func @blocking_map_transfers_to_alloc(%arg0: !memref_tiled, %arg1: !memref_
       indexing_maps = [#map, #map, #map],
       iterator_types = ["parallel", "parallel"]
     }
-    ins(%intermediate, %e0 : memref<4x4x!tile_f32>, memref<4x4x!tile_f32>)
+    ins(%intermediate, %e2 : memref<4x4x!tile_f32>, memref<4x4x!tile_f32>)
     outs(%e3 : memref<4x4x!tile_f32>)
     attrs = {d2m.blocking_map = #map} {
     ^bb0(%in0: !tile_f32, %in1: !tile_f32, %unused: !tile_f32):
@@ -74,18 +76,18 @@ func.func @blocking_map_transfers_to_alloc(%arg0: !memref_tiled, %arg1: !memref_
 // CHECK-FUSED-AUTO: d2m.view_layout %{{.*}} -> memref<8x2x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
 // CHECK-FUSED-AUTO: d2m.generic {block_factors = [8, 2], grid = #ttcore.grid<1x1>
 // CHECK-FUSED-AUTO: affine.for
-// CHECK-FUSED-AUTO: memref.alloc() {alignment = 64 : i64, d2m.blocking_map = #{{.*}}} : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
+// CHECK-FUSED-AUTO: memref.alloc() {alignment = {{.*}}, d2m.blocking_map = #{{.*}}, d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
 // CHECK-FUSED-AUTO: linalg.generic
 // %a/%b (the L1 views returned by the remote_load) are unused in this example in favor of %e0/%e1 (scratch allocs) for testing purposes.
-func.func @blocking_map_reblocks_fused_generic(%arg0: !memref_tiled_l1_8, %arg1: !memref_tiled_l1_8) {
+func.func @blocking_map_reblocks_fused_generic(%arg0: !memref_tiled_l1_8, %arg1: !memref_tiled_l1_8, %arg2: !memref_tiled_l1_8) {
   %out = memref.alloc() : !memref_tiled_dram_8
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-    indexing_maps = [#map, #map, #map],
+    indexing_maps = [#map, #map, #map, #map],
     iterator_types = [#parallel, #parallel],
     threads = [#d2m.thread<unified>]
   }
-  ins(%arg0, %arg1 : !memref_tiled_l1_8, !memref_tiled_l1_8)
+  ins(%arg0, %arg1, %arg2 : !memref_tiled_l1_8, !memref_tiled_l1_8, !memref_tiled_l1_8)
   outs(%out : !memref_tiled_dram_8) {
   ^unified0:
     %block0 = d2m.block_index(0) : index
@@ -94,6 +96,8 @@ func.func @blocking_map_reblocks_fused_generic(%arg0: !memref_tiled_l1_8, %arg1:
     d2m.remote_load %e0 %arg0[%block0, %block1] : memref<8x8x!tile_f32>, !memref_tiled_l1_8
     %e1 = memref.alloc() {alignment = 64 : i64} : memref<8x8x!tile_f32>
     d2m.remote_load %e1 %arg1[%block0, %block1] : memref<8x8x!tile_f32>, !memref_tiled_l1_8
+    %e2 = memref.alloc() {alignment = 64 : i64} : memref<8x8x!tile_f32>
+    d2m.remote_load %e2 %arg2[%block0, %block1] : memref<8x8x!tile_f32>, !memref_tiled_l1_8
     %intermediate = memref.alloc() {alignment = 64 : i64} : memref<8x8x!tile_f32>
     linalg.generic {
       indexing_maps = [#map, #map, #map],
@@ -106,12 +110,12 @@ func.func @blocking_map_reblocks_fused_generic(%arg0: !memref_tiled_l1_8, %arg1:
       %s = "d2m.tile_add"(%in0, %in1) : (!tile_f32, !tile_f32) -> !tile_f32
       linalg.yield %s : !tile_f32
     }
-    %e3 = memref.alloc() {alignment = 64 : i64} : memref<8x8x!tile_f32>
+    %e3 = memref.alloc() {alignment = 64 : i64, d2m.synchronized_buffer = 2 : i32} : memref<8x8x!tile_f32>
     linalg.generic {
       indexing_maps = [#map, #map, #map],
       iterator_types = ["parallel", "parallel"]
     }
-    ins(%intermediate, %e0 : memref<8x8x!tile_f32>, memref<8x8x!tile_f32>)
+    ins(%intermediate, %e2 : memref<8x8x!tile_f32>, memref<8x8x!tile_f32>)
     outs(%e3 : memref<8x8x!tile_f32>)
     attrs = {d2m.blocking_map = #map} {
     ^bb0(%in0: !tile_f32, %in1: !tile_f32, %unused: !tile_f32):

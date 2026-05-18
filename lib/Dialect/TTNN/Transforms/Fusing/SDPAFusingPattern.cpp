@@ -61,8 +61,7 @@ static Value squeezeToOriginalRank(Value v, RankedTensorType originalType,
   SmallVector<int32_t> shapeAttr(originalType.getShape().begin(),
                                  originalType.getShape().end());
   return rewriter
-      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr),
-                         /*memory_config=*/MemoryConfigAttr())
+      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr))
       .getResult();
 }
 
@@ -447,8 +446,7 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
       c.mask =
           rewriter
               .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, c.mask,
-                                 rewriter.getI32ArrayAttr(shapeAttr),
-                                 /*memory_config=*/MemoryConfigAttr())
+                                 rewriter.getI32ArrayAttr(shapeAttr))
               .getResult();
     }
   }
@@ -514,8 +512,7 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
     SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
     return rewriter
         .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, v,
-                           rewriter.getI32ArrayAttr(shapeAttr),
-                           /*memory_config=*/MemoryConfigAttr())
+                           rewriter.getI32ArrayAttr(shapeAttr))
         .getResult();
   };
 
@@ -722,7 +719,6 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
             /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
             /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
-            /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
 
     if (!validationResult.isSuccess()) {
@@ -737,7 +733,6 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.key, c.value,
         /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
-        /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
 
     Value finalResult = ttir_to_ttnn::utils::generatePermute(
@@ -754,8 +749,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
         {c.query.getType()}, c.query, c.key, c.value, c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
-        /*memory_config=*/MemoryConfigAttr());
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
 
     if (!validationResult.isSuccess()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
@@ -768,8 +762,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
         c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
-        /*memory_config=*/MemoryConfigAttr());
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
 
     Value finalResult =
         squeezeToOriginalRank(sdpaOp.getResult(), originalOutputType, rewriter,

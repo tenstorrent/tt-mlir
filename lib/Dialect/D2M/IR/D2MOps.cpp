@@ -3184,50 +3184,6 @@ Value d2m::GenericOp::findAssocOperand(mlir::tensor::EmptyOp emptyOp) {
       .operand;
 }
 
-Value d2m::GenericOp::findAssocCBByOperandIndex(Operation *op,
-                                                unsigned operandIndex) {
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (!generic) {
-    return Value();
-  }
-
-  // Find the generic op's thread region that contains this operation
-  Region *genericRegion = nullptr;
-  if (generic.getNumRegions() == 1) {
-    genericRegion = &generic.getRegion(0);
-  } else {
-    genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
-  }
-
-  if (!genericRegion || genericRegion->empty()) {
-    return Value();
-  }
-
-  return getOperandAlloc(*genericRegion, operandIndex);
-}
-
-Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (!generic) {
-    return Value();
-  }
-
-  // Find which operand index this corresponds to.
-  unsigned operandIndex = UINT_MAX;
-  for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
-    if (generic->getOperand(i) == operand) {
-      operandIndex = i;
-      break;
-    }
-  }
-
-  if (operandIndex == UINT_MAX) {
-    return Value();
-  }
-
-  return findAssocCBByOperandIndex(op, operandIndex);
-}
-
 Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
   if (region.empty()) {
     return Value();

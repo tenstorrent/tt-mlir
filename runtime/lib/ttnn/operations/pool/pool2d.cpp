@@ -10,11 +10,11 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/operations/pool_generated.h"
+#include "ttnn/operations/data_movement/reshape_view/reshape.hpp"
 #include "ttnn/types.hpp"
 #include <optional>
 #include <ttnn/operations/functions.hpp>
 #include <ttnn/operations/pool/generic/generic_pools.hpp>
-#include <ttnn/operations/pool/global_avg_pool/global_avg_pool.hpp>
 
 namespace tt::runtime::ttnn::operations::pool {
 
@@ -218,14 +218,37 @@ void run(const ::tt::target::ttnn::GlobalAvgPool2dOp *op,
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  std::optional<::ttnn::DataType> dtype = std::nullopt;
+  ::ttnn::DataType dtype = input.dtype();
   if (op->dtype()) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*op->dtype());
   }
 
-  // Call ttnn::global_avg_pool2d with input, memory_config, and output_dtype
-  ::ttnn::Tensor out =
-      ::ttnn::global_avg_pool2d(input, outputMemoryConfig, dtype);
+  auto inputShape = input.logical_shape();
+  LOG_ASSERT(inputShape.rank() == 4,
+             "GlobalAvgPool2d expects a rank 4 input tensor");
+  uint32_t batchSize = inputShape[0];
+  uint32_t inputHeight = inputShape[1];
+  uint32_t inputWidth = inputShape[2];
+  uint32_t inputChannels = inputShape[3];
+
+  ::ttnn::Layout outputLayout =
+      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
+
+  ::ttnn::Tensor out = ::ttnn::avg_pool2d(
+      input, batchSize, inputHeight, inputWidth, inputChannels,
+      /*kernel_size=*/{inputHeight, inputWidth},
+      /*stride=*/{1, 1}, /*padding=*/std::array<uint32_t, 2>{0, 0},
+      /*ceil_mode=*/false, /*count_include_pad=*/true,
+      /*divisor_override=*/std::nullopt, outputMemoryConfig,
+      /*dram_slice_config=*/std::nullopt,
+      /*applied_shard_scheme=*/std::nullopt,
+      /*compute_kernel_config=*/std::nullopt,
+      /*deallocate_input=*/false,
+      /*reallocate_halo_output=*/true, dtype, outputLayout,
+      /*config_tensor_in_dram=*/false);
+
+  out = ::ttnn::reshape(out, ::ttnn::Shape({batchSize, 1, 1, inputChannels}),
+                        outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

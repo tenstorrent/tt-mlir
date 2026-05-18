@@ -21,9 +21,9 @@ func.func @scratch_overflow() {
   ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
-    %alloc_cb0 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb1 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %scratch = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb0 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb1 = memref.alloc() {d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %scratch = memref.alloc() { d2m.scratch_buffer } : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     d2m.scratch_init %scratch : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
     %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>

@@ -196,8 +196,7 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
         rewriter
             .create<ttnn::ConcatOp>(
                 ttmlir::utils::appendLocationSuffix(loc, "_chunk_concat"),
-                chunkOutputType, chunkInputs, static_cast<int32_t>(concatDim),
-                srcOp.getMemoryConfig().value_or(ttnn::MemoryConfigAttr()))
+                chunkOutputType, chunkInputs, static_cast<int32_t>(concatDim))
             .getResult();
 
     chunkResults.push_back(chunkConcat);
@@ -217,8 +216,7 @@ ConcatOpRewritePattern::matchAndRewrite(ttnn::ConcatOp srcOp,
       rewriter
           .create<ttnn::ConcatOp>(
               ttmlir::utils::appendLocationSuffix(loc, "_final_concat"),
-              outputType, chunkResults, static_cast<int32_t>(splitDim),
-              srcOp.getMemoryConfig().value_or(ttnn::MemoryConfigAttr()))
+              outputType, chunkResults, static_cast<int32_t>(splitDim))
           .getResult();
 
   rewriter.replaceOp(srcOp, finalConcat);

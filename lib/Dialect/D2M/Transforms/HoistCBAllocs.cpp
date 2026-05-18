@@ -25,23 +25,105 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    moduleOp->walk(
-        [&](d2m::GenericOp genericOp) { hoistCBAllocs(rewriter, genericOp); });
+    WalkResult result = moduleOp->walk([&](d2m::GenericOp genericOp) {
+      if (failed(hoistCBAllocs(rewriter, genericOp))) {
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    if (result.wasInterrupted()) {
+      signalPassFailure();
+    }
   }
 
 private:
-  void hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
+  memref::AllocOp attachCBLayoutAttribute(IRRewriter &rewriter,
+                                          memref::AllocOp allocOp,
+                                          int32_t numBuffers) {
+    auto buffer = allocOp->getResult(0);
+    auto bufferType = mlir::cast<MemRefType>(buffer.getType());
+    auto shardShape = bufferType.getShape();
+    Type elementType = bufferType.getElementType();
+    auto cbLayout = ttcore::CBLayoutAttr::get(
+        bufferType.getContext(), shardShape,
+        ttcore::getElementSizeBytes(elementType), numBuffers);
+
+    auto newMemRefType = MemRefType::get(shardShape, elementType, cbLayout,
+                                         bufferType.getMemorySpace());
+    auto oldAttrs = llvm::to_vector(allocOp->getAttrs());
+    rewriter.setInsertionPoint(allocOp);
+    auto newAllocOp =
+        rewriter.replaceOpWithNewOp<memref::AllocOp>(allocOp, newMemRefType);
+    // transfer all attributes from the old alloc to the new alloc
+    for (auto attr : oldAttrs) {
+      newAllocOp->setAttr(attr.getName(), attr.getValue());
+    }
+
+    for (auto *user : newAllocOp->getResult(0).getUsers()) {
+      auto destinationStyleOp =
+          mlir::dyn_cast<DestinationStyleOpInterface>(user);
+      if (destinationStyleOp && user->getNumResults() > 0) {
+        for (auto &operand : destinationStyleOp->getOpOperands()) {
+          if (destinationStyleOp.isDpsInit(&operand) &&
+              operand.get() == newAllocOp->getResult(0)) {
+            // update op result that matches dps init
+            OpResult tiedResult = destinationStyleOp.getTiedOpResult(&operand);
+            tiedResult.setType(newMemRefType);
+          }
+        }
+      }
+    }
+
+    return newAllocOp;
+  }
+
+  LogicalResult hoistCBAllocs(IRRewriter &rewriter, d2m::GenericOp genericOp) {
     // Collect allocs to hoist AND their operand indices BEFORE modifying the
     // IR.  Erasing allocs shifts positional lookups.
     SmallVector<memref::AllocOp> allocsToHoist;
+
     for (Region &region : genericOp->getRegions()) {
-      region.walk([&](memref::AllocOp allocOp) {
-        auto memrefType = allocOp.getType();
-        if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
-            allocOp->getAttrOfType<IntegerAttr>("address")) {
-          allocsToHoist.push_back(allocOp);
+      WalkResult walkResult = region.walk([&](memref::AllocOp allocOp) {
+        if (allocOp->getAttr("d2m.scratch_buffer")) {
+          if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
+            allocOp.emitError("scratch buffer must have address attribute");
+            return WalkResult::interrupt();
+          }
+          auto newAllocOp = attachCBLayoutAttribute(rewriter, allocOp, 1);
+          allocsToHoist.push_back(newAllocOp);
+        } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
+          if (allocOp->getAttr("d2m.compute_intermediate")) {
+            // Skip hoisting, these are fake buffers added by fusion that are
+            // guaranteed to not be used
+            if (allocOp->getAttrOfType<IntegerAttr>("address")) {
+              allocOp.emitError("compute intermediate buffer must not have "
+                                "address attribute");
+              return WalkResult::interrupt();
+            }
+          } else {
+            if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
+              allocOp.emitError(
+                  "synchronized buffer must have address attribute");
+              return WalkResult::interrupt();
+            }
+            auto newAllocOp = attachCBLayoutAttribute(
+                rewriter, allocOp,
+                allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
+                    .getInt());
+            allocsToHoist.push_back(newAllocOp);
+          }
+        } else {
+          allocOp.emitError("unexpected alloc op: expected d2m.scratch_buffer "
+                            "or d2m.synchronized_buffer attribute");
+          return WalkResult::interrupt();
         }
+        return WalkResult::advance();
       });
+
+      if (walkResult.wasInterrupted()) {
+        return failure();
+      }
     }
 
     for (auto allocOp : allocsToHoist) {
@@ -53,16 +135,9 @@ private:
       rewriter.setInsertionPoint(genericOp);
       auto externalAlloc =
           rewriter.create<memref::AllocOp>(genericOp.getLoc(), allocType);
-
-      // Transfer address and alignment.
-      if (auto addressAttr = allocOp->getAttrOfType<IntegerAttr>("address")) {
-        externalAlloc->setAttr("address", addressAttr);
-      }
-      if (auto alignAttr = allocOp.getAlignmentAttr()) {
-        externalAlloc.setAlignmentAttr(alignAttr);
-      }
-      if (auto scratchBufferAttr = allocOp->getAttr("d2m.scratch_buffer")) {
-        externalAlloc->setAttr("d2m.scratch_buffer", scratchBufferAttr);
+      // transfer all attributes from the old alloc to the new alloc
+      for (auto attr : allocOp->getAttrs()) {
+        externalAlloc->setAttr(attr.getName(), attr.getValue());
       }
 
       // Add the external alloc as an additionalArg to the generic op.
@@ -83,18 +158,17 @@ private:
     }
 
     // Hoist aliased CBs.
-    genericOp->walk([&](memref::AllocOp allocOp) {
-      if (auto aliasForOperandAttr =
-              allocOp->getAttrOfType<IntegerAttr>("d2m.alias_for_operand")) {
-        rewriter.setInsertionPoint(genericOp);
-        auto aliasedOperand =
-            genericOp.getOperand(aliasForOperandAttr.getInt());
-        auto externalAlias = rewriter.create<d2m::OperandAliasOp>(
-            genericOp.getLoc(), allocOp.getType(), aliasedOperand);
-        genericOp.getAdditionalArgsMutable().append(externalAlias.getResult());
-        rewriter.replaceOp(allocOp, externalAlias.getResult());
-      }
+    genericOp->walk([&](d2m::OperandAliasOp operandAliasOp) {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPoint(genericOp);
+      auto externalAlias = rewriter.create<d2m::OperandAliasOp>(
+          genericOp.getLoc(), operandAliasOp.getType(),
+          operandAliasOp.getMemref());
+      genericOp.getAdditionalArgsMutable().append(externalAlias.getResult());
+      rewriter.replaceOp(operandAliasOp, externalAlias.getResult());
     });
+
+    return success();
   }
 };
 

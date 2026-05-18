@@ -27,11 +27,10 @@ module attributes {} {
         // CHECK-NEXT: %[[TYPECAST_U32:.*]] = "ttnn.typecast"(%[[TO_LAYOUT]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
         // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST_U32]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK-NEXT: %[[TYPECAST_U16:.*]] = "ttnn.typecast"(%[[TO_MEM_CONFIG]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u16>
         // CHECK-NEXT: return %[[TYPECAST_U16]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u16>, layout = #ttnn.layout<tile>}> : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
         return %0 : tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
     }
 }
