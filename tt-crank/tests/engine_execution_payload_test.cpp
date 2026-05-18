@@ -4,6 +4,7 @@
 // physical device.
 
 #include "engine/compile.hpp"
+#include "engine/device.hpp"
 #include "engine/execution_payload.hpp"
 
 #include <gtest/gtest.h>
@@ -37,7 +38,7 @@ bool device_available() {
 
 std::shared_ptr<tt::kurbla::CompiledProgram> compile_for_current_device() {
     tt::kurbla::CompileOptions opts;
-    opts.system_desc = tt::runtime::getCurrentSystemDesc();
+    opts.system_desc = tt::kurbla::runtime_system_desc();
     return std::make_shared<tt::kurbla::CompiledProgram>(
         tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts));
 }

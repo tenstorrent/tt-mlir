@@ -50,8 +50,20 @@ jobs:
           source venv/activate
           ./scripts/build debug
 
-      - name: Test (sim)
+      - name: Install torch backend
+        shell: bash
+        run: |
+          source venv/activate
+          ./scripts/install-py
+
+      - name: Unit Test (sim)
         shell: bash
         run: |
           source venv/activate
           ./scripts/test sim
+
+      - name: Pytest Test (sim)
+        shell: bash
+        run: |
+          source venv/activate
+          pytest tests/python --sim

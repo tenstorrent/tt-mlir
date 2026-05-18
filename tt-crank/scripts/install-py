@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Editable-install wrapper for the Python extension. Two things the wrapper
+# does that a bare `uv pip install -e .` can't:
+#
+#   1. Bootstraps `build/` via `./scripts/build` (default preset) if it's
+#      missing. Whatever's already at `build/` — symlink or real dir — is
+#      reused as-is.
+#   2. Resolves `build` to its real path and passes it to scikit-build-core
+#      via SKBUILD_BUILD_DIR. With it, cmake's CMAKE_BINARY_DIR matches what
+#      a `cmake --preset <name>` invocation produces — so
+#      compile_commands.json, ExternalProject stamps, INSTALL_RPATH, and
+#      ccache cache keys stay consistent across both build entry points.
+#
+# Usage:
+#   ./scripts/install-py
+
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+if [[ ! -e build ]]; then
+    echo "==> 'build' not found; running ./scripts/build to configure default preset"
+    ./scripts/build
+fi
+
+if ! command -v uv > /dev/null; then
+    echo "error: 'uv' not found on PATH." >&2
+    echo "Install it (https://docs.astral.sh/uv/), or use pip directly:" >&2
+    echo "  SKBUILD_BUILD_DIR=\"\$(realpath build)\" pip install --no-build-isolation -e ." >&2
+    exit 1
+fi
+
+SKBUILD_BUILD_DIR="$(realpath build)"
+export SKBUILD_BUILD_DIR
+
+echo "==> installing tt_kurbla editable (cmake build dir: $SKBUILD_BUILD_DIR)"
+exec uv pip install -e .

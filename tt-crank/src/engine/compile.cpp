@@ -1,6 +1,8 @@
 #include "engine/compile.hpp"
 
+#include <cstdlib>
 #include <memory>
+#include <thread>
 #include <utility>
 
 #include <llvm/Support/raw_ostream.h>
@@ -22,6 +24,20 @@ namespace tt::kurbla {
 
 namespace {
 
+// Cheap insurance against concurrent MLIRContext use. The context (and the
+// pass-pipeline registry it relies on) is not thread-safe — see compile.hpp's
+// note. Until a real mutex is added around compile, the first caller's thread
+// becomes the only allowed thread; any other thread entering compile throws
+// loudly rather than silently corrupting MLIR's interning tables. Remove this
+// the moment compile is properly serialized.
+void assert_single_threaded_mlir_access() {
+    static const std::thread::id allowed_thread = std::this_thread::get_id();
+    if (std::this_thread::get_id() != allowed_thread) {
+        throw CompileError("tt-kurbla compile: MLIRContext accessed from a different thread than the first caller. "
+                           "The context is not yet thread-safe; serialize calls or add a mutex around compile.");
+    }
+}
+
 // Process-wide MLIR state. Constructed once on first compile() call.
 // registerAllPasses() writes into LLVM's global registry, so we keep this
 // in one place to avoid duplicate registrations.
@@ -39,6 +55,7 @@ struct EngineState {
 };
 
 EngineState &engine_state() {
+    assert_single_threaded_mlir_access();
     static EngineState state;
     return state;
 }
@@ -64,20 +81,25 @@ std::string make_error_message(std::string_view fallback, const std::string &cap
 // Assumes the caller has already installed a ScopedDiagnosticHandler that
 // writes captured diagnostics into `diag_buffer`. The module is mutated in
 // place; on success it contains TTNN ops.
-CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module, const CompileOptions &options,
+CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileOptions &options,
                                           const std::string &diag_buffer) {
+    // Catches the ModuleOp-overload path of compile_ttir_to_ttnn_flatbuffer:
+    // engine_state() isn't called there (the module brings its own context),
+    // so the thread check would otherwise be skipped on that path.
+    assert_single_threaded_mlir_access();
+
     // Pre-attach lets TTCoreRegisterDevicePass take the mockArch branch and
     // keep our attr; the path overload would overwrite it.
     if (options.system_desc.has_value()) {
-        auto diag_fn = [&]() -> mlir::InFlightDiagnostic { return module->emitOpError(); };
-        auto attr_or = mlir::tt::ttcore::SystemDescAttr::getFromBuffer(module.getContext(),
+        auto diag_fn = [&]() -> mlir::InFlightDiagnostic { return module_op->emitOpError(); };
+        auto attr_or = mlir::tt::ttcore::SystemDescAttr::getFromBuffer(module_op.getContext(),
                                                                        options.system_desc->handle.get(), diag_fn);
         if (mlir::failed(attr_or)) {
             throw PipelineError(make_error_message("failed to attach in-memory system desc", diag_buffer));
         }
         // FailureOr hides has_value()/operator bool, so clang-tidy can't see the gate above.
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-        module->setAttr(mlir::tt::ttcore::SystemDescAttr::name, attr_or.value());
+        module_op->setAttr(mlir::tt::ttcore::SystemDescAttr::name, attr_or.value());
     }
 
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
@@ -85,14 +107,22 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module, const CompileOp
     pm_opts.systemDescPath = options.system_desc.has_value() ? std::string{} : options.system_desc_path;
     pm_opts.mockSystemDescArch = to_ttcore_arch(options.mock_arch);
 
-    mlir::PassManager pm(module.getContext(), mlir::ModuleOp::getOperationName());
+    mlir::PassManager pm(module_op.getContext(), mlir::ModuleOp::getOperationName());
     mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline(pm, pm_opts);
 
-    if (mlir::failed(pm.run(module))) {
+    if (mlir::failed(pm.run(module_op))) {
         throw PipelineError(make_error_message("ttir-to-ttnn pipeline failed", diag_buffer));
     }
 
-    std::shared_ptr<void> fb = mlir::tt::ttnn::ttnnToFlatbuffer(module);
+    // Opt-in dump of the post-pipeline TTNN IR — useful when debugging op
+    // lowerings from the torch frontend without rebuilding with verbose passes.
+    if (std::getenv("TT_KURBLA_PRINT_TTNN_IR") != nullptr) {
+        llvm::errs() << "[tt_kurbla] ===== TTNN module =====\n";
+        module_op.print(llvm::errs());
+        llvm::errs() << "\n[tt_kurbla] ========================\n";
+    }
+
+    std::shared_ptr<void> fb = mlir::tt::ttnn::ttnnToFlatbuffer(module_op);
     if (!fb) {
         throw PipelineError(make_error_message("ttnnToFlatbuffer returned null", diag_buffer));
     }
@@ -106,8 +136,8 @@ mlir::MLIRContext &mlir_context() {
     return engine_state().context;
 }
 
-CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module, const CompileOptions &options) {
-    mlir::MLIRContext *ctx = module.getContext();
+CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const CompileOptions &options) {
+    mlir::MLIRContext *ctx = module_op.getContext();
 
     std::string diag_buffer;
     llvm::raw_string_ostream diag_stream(diag_buffer);
@@ -117,7 +147,7 @@ CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module, const Com
         return mlir::success();
     });
 
-    return run_ttir_to_ttnn_and_emit(module, options, diag_buffer);
+    return run_ttir_to_ttnn_and_emit(module_op, options, diag_buffer);
 }
 
 CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options) {
@@ -131,12 +161,12 @@ CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const Com
         return mlir::success();
     });
 
-    mlir::OwningOpRef<mlir::ModuleOp> module = mlir::parseSourceString<mlir::ModuleOp>(ttir, &ctx);
-    if (!module) {
+    mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(ttir, &ctx);
+    if (!module_op) {
         throw ParseError(make_error_message("failed to parse TTIR module", diag_buffer));
     }
 
-    return run_ttir_to_ttnn_and_emit(module.get(), options, diag_buffer);
+    return run_ttir_to_ttnn_and_emit(module_op.get(), options, diag_buffer);
 }
 
 } // namespace tt::kurbla

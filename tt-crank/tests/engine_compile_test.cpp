@@ -59,13 +59,13 @@ TEST(EngineCompileTest, ReusesEngineAcrossCalls) {
 TEST(EngineCompileTest, CompilesPreBuiltModule) {
     mlir::MLIRContext &ctx = tt::kurbla::mlir_context();
 
-    mlir::OwningOpRef<mlir::ModuleOp> module = mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
-    ASSERT_TRUE(module);
+    mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(k_trivial_add_ttir, &ctx);
+    ASSERT_TRUE(module_op);
 
     tt::kurbla::CompileOptions opts;
     opts.mock_arch = tt::kurbla::CompileOptions::MockArch::WormholeB0;
 
-    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module.get(), opts);
+    tt::kurbla::CompiledProgram program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), opts);
 
     EXPECT_GE(program.num_programs(), 1U);
 }
