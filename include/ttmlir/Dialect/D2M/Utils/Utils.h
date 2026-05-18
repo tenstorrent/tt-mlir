@@ -9,6 +9,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 
+#include <utility>
 #include <variant>
 
 namespace mlir::tt::ttcore {
@@ -103,6 +104,12 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val);
 // associated with a value, if any.  Traces the same def-use chain as
 // getVirtualGridInverseMapping but returns the forward map attribute.
 std::optional<AffineMap> getVirtualGridForwardMapping(Value val);
+
+// Derive GridAttr-compatible virtual grid maps for `gridShape` from the full
+// tensor/memref virtual grid mapping carried by `val`. Returns std::nullopt
+// when the stored mapping belongs to a different-rank view of the value.
+std::optional<std::pair<AffineMap, AffineMap>>
+getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape);
 
 // Returns the effective affine map for a memref-typed value by resolving
 // ViewLayoutAttr remappings (via applyViews) and falling back to the layout's

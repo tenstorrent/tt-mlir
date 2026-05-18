@@ -4,12 +4,17 @@
 
 import pytest
 import torch
-from typing import Optional
+from typing import List, Optional
 
 from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from d2m.test_matmul import create_matmul_constrained_inputs
+from d2m.test_reductions import (
+    _reduction_atol,
+    create_reductions_constrained_inputs,
+)
 from test_utils import shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -102,13 +107,14 @@ def get_clamp_bounds(dtype: torch.dtype):
     return (0, 3) if dtype == torch.int32 else (-0.5, 0.8)
 
 
-def compile_dram_test(module, request, device, target: str):
+def compile_dram_test(module, request, device, target: str, **compile_kwargs):
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=list(DRAM_PIPELINE_OPTIONS),
+        **compile_kwargs,
     )
 
 
@@ -272,3 +278,97 @@ def test_dram_ternary_clamp_scalar(
             )
 
     compile_dram_test(module, request, device, target)
+
+
+DRAM_MATMUL_CASES = [
+    pytest.param(
+        (32, 128),
+        (128, 64),
+        torch.float32,
+        id="f32-32x128x64",
+    ),
+    pytest.param(
+        (128, 320),
+        (320, 768),
+        torch.bfloat16,
+        id="bf16-128x320x768",
+    ),
+    pytest.param(
+        (2, 64, 160),
+        (2, 160, 96),
+        torch.float32,
+        id="f32-batch2-64x160x96",
+    ),
+]
+
+DRAM_REDUCTION_CASES = [
+    pytest.param(
+        (1, 128, 320),
+        "sum",
+        [2],
+        False,
+        torch.float32,
+        id="f32-sum-1x128x320-dim2",
+    ),
+    pytest.param(
+        (2, 128, 160),
+        "mean",
+        [2],
+        True,
+        torch.float32,
+        id="f32-mean-2x128x160-dim2-keep",
+    ),
+    pytest.param(
+        (4, 64, 128),
+        "sum",
+        [1],
+        True,
+        torch.bfloat16,
+        id="bf16-sum-4x64x128-dim1-keep",
+    ),
+]
+
+
+@pytest.mark.parametrize("lhs_shape,rhs_shape,dtype", DRAM_MATMUL_CASES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_matmul(
+    lhs_shape: Shape,
+    rhs_shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    compile_dram_test(
+        create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype),
+        request,
+        device,
+        target,
+        pcc=0.99,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,reduce_type,dim_arg,keep_dim,dtype", DRAM_REDUCTION_CASES
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_reduction(
+    shape: Shape,
+    reduce_type: str,
+    dim_arg: List[int],
+    keep_dim: bool,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    compile_dram_test(
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim, dtype
+        ),
+        request,
+        device,
+        target,
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
+        pcc=0.99,
+    )
