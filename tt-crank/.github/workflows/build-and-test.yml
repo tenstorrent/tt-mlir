@@ -1,0 +1,53 @@
+name: build-and-test
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-image:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.tag.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - id: tag
+        run: |
+          TAG=$(cd third_party/tt-mlir && bash .github/get-docker-tag.sh)
+          echo "image=ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-24-04:$TAG" >> $GITHUB_OUTPUT
+
+  build-and-test:
+    needs: resolve-image
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.resolve-image.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch submodule tags
+        run: git -C third_party/tt-mlir fetch --unshallow --tags
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: build-${{ runner.os }}
+
+      - name: Build (debug)
+        shell: bash
+        run: |
+          source venv/activate
+          ./scripts/build debug
+
+      - name: Test (sim)
+        shell: bash
+        run: |
+          source venv/activate
+          ./scripts/test sim

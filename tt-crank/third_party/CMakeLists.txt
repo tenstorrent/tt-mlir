@@ -93,6 +93,7 @@ ExternalProject_Add(tt-mlir-ep
     LOG_CONFIGURE ON
     LOG_BUILD ON
     LOG_INSTALL ON
+    LOG_OUTPUT_ON_FAILURE ON
 )
 
 # tt-mlir's installed headers transitively include `<mlir-c/...>` headers, which
