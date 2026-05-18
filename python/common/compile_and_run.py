@@ -14,7 +14,6 @@ raising RuntimeError that can be handled with a try-except block in caller.
 import os
 
 from ttmlir.ir import Module
-from ttrt.common.util import Binary
 
 from .compile_and_run_internal import *
 
@@ -97,7 +96,7 @@ def ttir_to_ttmetal(
 
 def ttnn_to_flatbuffer(
     module: Module, output_file_name: str = "ttnn_fb.ttnn"
-) -> Binary:
+) -> str:
     """
     Converts TTNN module to flatbuffer in a safe way and saves to file.
 
@@ -107,7 +106,7 @@ def ttnn_to_flatbuffer(
 
     Returns
     -------
-    Flatbuffer `Binary` instance for convenience.
+    Path to the generated flatbuffer file.
 
     Raises
     ------
@@ -121,7 +120,7 @@ def ttnn_to_flatbuffer(
 
 def ttmetal_to_flatbuffer(
     module: Module, output_file_name: str = "ttmetal_fb.ttm"
-) -> Binary:
+) -> str:
     """
     Converts ttmetal module to flatbuffer in a safe way and saves to file.
 
@@ -131,7 +130,7 @@ def ttmetal_to_flatbuffer(
 
     Returns
     -------
-    Flatbuffer `Binary` instance for convenience.
+    Path to the generated flatbuffer file.
 
     Raises
     ------
@@ -143,20 +142,20 @@ def ttmetal_to_flatbuffer(
     )
 
 
-def run_flatbuffer(flatbuffer: Binary) -> int:
+def run_flatbuffer(flatbuffer_path: str) -> int:
     """
-    Runs `flatbuffer` on device in a safe way.
+    Runs flatbuffer at `flatbuffer_path` on device in a safe way.
 
-    This is a segfault resistant function. It runs the pybound translation pass in a
-    separate process, thus protecting the caller of this function from any unpredictable
-    (those that cannot be caught with a try-except) errors.
+    This is a segfault resistant function. It runs the device execution in a
+    separate subprocess, thus protecting the caller of this function from any
+    unpredictable (those that cannot be caught with a try-except) errors.
 
     Returns
     -------
-    Return code of `ttrt run flatbuffer.file_path` process.
+    Return code of the device run subprocess (0 on success).
 
     Raises
     ------
     RuntimeError if any errors happen.
     """
-    return run_flatbuffer_execution_process(flatbuffer.file_path)
+    return run_flatbuffer_execution_process(flatbuffer_path)
