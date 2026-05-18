@@ -323,6 +323,23 @@ public:
     return it->second;
   }
 
+  // Returns a cached precomputed grid tensor for `opKey`, creating it on first
+  // use.  Lookups forward to the root context so the grid computed during
+  // warmup (where from_device is allowed) is reused during trace capture
+  // (where from_device is forbidden by TTNN trace).
+  ::ttnn::Tensor getOrCreateImplicitPrecomputedGrid(
+      uintptr_t opKey,
+      const std::function<::ttnn::Tensor()> &factory) {
+    if (parentContext) {
+      return parentContext->getOrCreateImplicitPrecomputedGrid(opKey, factory);
+    }
+    auto it = implicitOpPrecomputedGrids.find(opKey);
+    if (it == implicitOpPrecomputedGrids.end()) {
+      it = implicitOpPrecomputedGrids.emplace(opKey, factory()).first;
+    }
+    return it->second;
+  }
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -337,6 +354,10 @@ private:
 
   // Op-implicit GlobalSemaphores keyed by flatbuffer op pointer; root only.
   std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
+
+  // Op-implicit precomputed grid tensors keyed by flatbuffer op pointer; root
+  // only.  Computed during warmup and reused during trace capture.
+  std::unordered_map<uintptr_t, ::ttnn::Tensor> implicitOpPrecomputedGrids;
 
   common::DylibManager dylibManager;
 

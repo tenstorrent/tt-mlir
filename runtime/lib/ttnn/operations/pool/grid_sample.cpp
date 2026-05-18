@@ -59,35 +59,51 @@ void run(const ::tt::target::ttnn::GridSampleOp *op, ProgramContext &context) {
         static_cast<uint32_t>(inputShape[2]),
         static_cast<uint32_t>(inputShape[3])};
 
-    // Grid is on device. Move to host for coordinate precomputation.
-    ::ttnn::Tensor hostGrid = ::ttnn::from_device(grid);
-
-    // The layout optimizer at opt_level_1+ may override the ROW_MAJOR workaround
-    // and leave the grid in TILE layout on device. prepare_grid_sample_grid
-    // requires ROW_MAJOR, so enforce it on the host tensor.
-    if (hostGrid.layout() != ::ttnn::Layout::ROW_MAJOR) {
-      hostGrid = ::ttnn::to_layout(hostGrid, ::ttnn::Layout::ROW_MAJOR);
-    }
-
-    // prepare_grid_sample_grid requires float32 host input.
-    // The grid should already be float32 from the updated workaround, but
-    // typecast as a safety net in case it arrives as BF16.
-    ::ttnn::Tensor hostGridF32 =
-        (hostGrid.dtype() == ::ttnn::DataType::FLOAT32)
-            ? hostGrid
-            : ::ttnn::typecast(hostGrid, ::ttnn::DataType::FLOAT32);
-
-    // Precompute pixel coordinates and interpolation weights.
-    // Returns (N, H_out, W_out, 6) for bilinear or (N, H_out, W_out, 2) for nearest.
-    ::ttnn::Tensor precomputedGrid =
-        ::ttnn::prepare_grid_sample_grid(hostGridF32, inputShapeNHWC, mode,
-                                         paddingMode, alignCorners,
-                                         ::ttnn::DataType::BFLOAT16);
-
-    // Move precomputed grid to device.
     ::ttnn::MeshDevice &device = context.getMeshDevice();
+
+    // Use the flatbuffer op pointer as the stable cache key.  Unlike
+    // grid.buffer()->address(), which changes when the grid is an intermediate
+    // tensor re-allocated on each run, the op pointer is a fixed pointer into
+    // the static flatbuffer binary and uniquely identifies this GridSampleOp
+    // instance across the warmup and trace-capture calls.
+    uintptr_t gridCacheKey = reinterpret_cast<uintptr_t>(op);
+
+    // getOrCreateImplicitPrecomputedGrid: the factory runs only on first call
+    // (warmup, where from_device is allowed).  The result is cached in the
+    // root ProgramContext and reused during trace capture (where from_device
+    // is forbidden).  parentContext forwarding in FuncCallOp ensures warmup
+    // and trace-capture share the same root context entry.
     ::ttnn::Tensor precomputedGridDevice =
-        ::ttnn::to_device(precomputedGrid, &device, dramInterleaved);
+        context.getOrCreateImplicitPrecomputedGrid(
+            gridCacheKey, [&]() -> ::ttnn::Tensor {
+              // Grid is on device. Move to host for coordinate precomputation.
+              ::ttnn::Tensor hostGrid = ::ttnn::from_device(grid);
+
+              // The layout optimizer at opt_level_1+ may override the ROW_MAJOR
+              // workaround and leave the grid in TILE layout on device.
+              // prepare_grid_sample_grid requires ROW_MAJOR; enforce on host.
+              if (hostGrid.layout() != ::ttnn::Layout::ROW_MAJOR) {
+                hostGrid =
+                    ::ttnn::to_layout(hostGrid, ::ttnn::Layout::ROW_MAJOR);
+              }
+
+              // prepare_grid_sample_grid requires float32 host input.
+              // Typecast as a safety net in case it arrives as BF16.
+              ::ttnn::Tensor hostGridF32 =
+                  (hostGrid.dtype() == ::ttnn::DataType::FLOAT32)
+                      ? hostGrid
+                      : ::ttnn::typecast(hostGrid, ::ttnn::DataType::FLOAT32);
+
+              // Precompute pixel coordinates and interpolation weights.
+              // Returns (N, H_out, W_out, 6) for bilinear or
+              // (N, H_out, W_out, 2) for nearest.
+              ::ttnn::Tensor precomputedGrid = ::ttnn::prepare_grid_sample_grid(
+                  hostGridF32, inputShapeNHWC, mode, paddingMode, alignCorners,
+                  ::ttnn::DataType::BFLOAT16);
+
+              // Move precomputed grid to device and return for caching.
+              return ::ttnn::to_device(precomputedGrid, &device, dramInterleaved);
+            });
 
     ::ttnn::Tensor output =
         ::ttnn::grid_sample(input, precomputedGridDevice, mode, paddingMode,
