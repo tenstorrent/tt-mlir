@@ -1490,7 +1490,7 @@ def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
 
 
 // ANCHOR: adding_an_op_matmul_ttnn
-def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
+def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
@@ -1502,7 +1502,8 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
                             TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
                          ]>>:$matmul_program_config,
                          OptionalAttr<StrAttr>:$activation,
-                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1513,7 +1514,8 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
                      "StringAttr":$activation),
       [{
         build($_builder, $_state, result, a, b, transpose_a, transpose_b,
-              matmul_program_config, activation, /*compute_config=*/nullptr);
+              matmul_program_config, activation, /*compute_config=*/nullptr,
+              /*dtype=*/nullptr);
       }]>
     ];
 

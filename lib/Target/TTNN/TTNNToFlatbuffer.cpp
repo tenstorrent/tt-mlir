@@ -552,10 +552,13 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
   return ::tt::target::ttnn::CreateMatmulOp(
       *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB(),
       matmulProgramConfigType, matmulProgramConfigDesc, activation,
-      computeConfig.value_or(0));
+      computeConfig.value_or(0), dtype);
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
