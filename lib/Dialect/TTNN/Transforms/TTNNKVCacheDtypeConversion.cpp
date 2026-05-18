@@ -29,6 +29,39 @@ public:
   using impl::TTNNKVCacheDtypeConversionBase<
       TTNNKVCacheDtypeConversionPass>::TTNNKVCacheDtypeConversionBase;
 
+  // Ops that are safe to propagate dtype through on the kv_cache → cache_op
+  // path. Extend this list when new transparent ops appear on that path.
+  static bool isAllowedOnCachePath(Operation *op) {
+    return mlir::isa<MeshShardOp>(op);
+  }
+
+  // Returns true if the chain from `value` back to a block argument consists
+  // only of isAllowedOnCachePath ops. Does not modify any types.
+  static bool canPropagateDtype(Value value) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
+    if (!tensorType) {
+      return false;
+    }
+
+    if (mlir::isa<BlockArgument>(value)) {
+      return true;
+    }
+
+    Operation *defOp = value.getDefiningOp();
+    if (!isAllowedOnCachePath(defOp)) {
+      return false;
+    }
+
+    mlir::Type elemType = tensorType.getElementType();
+    for (Value operand : defOp->getOperands()) {
+      auto opType = mlir::dyn_cast<RankedTensorType>(operand.getType());
+      if (opType && opType.getElementType() == elemType) {
+        return canPropagateDtype(operand);
+      }
+    }
+    return true;
+  }
+
   static ttcore::LocalShapeAttr
   convertLocalShapeAttr(MLIRContext *ctx, ttcore::LocalShapeAttr attr,
                         ttcore::DataType targetDtype) {
@@ -40,12 +73,10 @@ public:
     return ttcore::LocalShapeAttr::get(ctx, newLocalShapeType);
   }
 
-  static void changeCacheArgTypes(func::FuncOp funcOp,
-                                  ttcore::DataType targetDtype) {
-    if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
-      return;
-    }
-
+  // Updates all kv_cache block arg types and the function signature to
+  // targetDtype. Only call this after all cache op paths have been validated.
+  static void convertCacheArgTypes(func::FuncOp funcOp,
+                                   ttcore::DataType targetDtype) {
     auto *ctx = funcOp.getContext();
     auto funcType = funcOp.getFunctionType();
     llvm::SmallVector<Type> newArgTypes(funcType.getInputs());
@@ -105,8 +136,9 @@ public:
         mlir::FunctionType::get(ctx, newArgTypes, newResultTypes));
   }
 
-  // Walk backward from `value`, updating the element dtype of every value
-  // along the cache path until reaching the target dtype or a block argument.
+  // Walk backward from `value` through the chain, updating each value's element
+  // dtype. Only call this after canPropagateDtype confirms the chain is fully
+  // traversable.
   static void propagateDtypeTowardRoot(Value value,
                                        ttcore::DataType targetDtype) {
     auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
@@ -123,13 +155,6 @@ public:
     value.setType(newType);
 
     if (mlir::isa<BlockArgument>(value)) {
-      return;
-    }
-
-    // Only propagate through mesh_shard since it is the only dtype-transparent 
-    // op expected between a kv_cache block argument and a write op in TP 
-    // models.
-    if (!mlir::isa<MeshShardOp>(value.getDefiningOp())) {
       return;
     }
 
@@ -175,23 +200,51 @@ public:
 
     ttcore::DataType dtype = bfpDtypeToDataType(targetDtype);
 
-    // Change kv_cache argument types to the target dtype and update the
-    // function signature. Insert typecast operations on the input operands of
-    // all cache ops so written data matches the new cache dtype.
-    // PagedUpdateCacheOp is excluded: tt-metal enforces FLOAT32/BFLOAT16 for
-    // that op and handles any dtype mismatch internally.
     mlir::OpBuilder builder(&getContext());
     getOperation().walk([&](func::FuncOp funcOp) {
-      changeCacheArgTypes(funcOp, dtype);
-
       if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
         return;
       }
+
+      // Check that every cache op's path back to a block arg consists only of
+      // arg consists only of isAllowedOnCachePath ops. If any path contains
+      // an unsupported op, skip the entire function to avoid partial
+      // conversion.
+      bool canConvert = true;
+      funcOp.walk([&](Operation *op) {
+        llvm::TypeSwitch<Operation *>(op)
+            .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp,
+                  PagedUpdateCacheOp>([&](auto cacheOp) {
+              if (!canPropagateDtype(cacheOp.getCache())) {
+                canConvert = false;
+              }
+            });
+      });
+
+      if (!canConvert) {
+        return;
+      }
+
+      // Update all kv_cache block arg types, the function
+      // signature, and propagate the new dtype through the chain.
+      convertCacheArgTypes(funcOp, dtype);
+      funcOp.walk([&](Operation *op) {
+        llvm::TypeSwitch<Operation *>(op)
+            .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp,
+                  PagedUpdateCacheOp>([&](auto cacheOp) {
+              propagateDtypeTowardRoot(cacheOp.getCache(), dtype);
+            });
+      });
+
+      // Insert typecasts on the input (fill value) of each cache op
+      // so the written data matches the new cache dtype.
+      // PagedUpdateCacheOp is excluded since tt-metal enforces
+      // FLOAT32/BFLOAT16 for input dtype and handles dtype mismatch
+      // internally.
       funcOp.walk([&](Operation *op) {
         llvm::TypeSwitch<Operation *>(op)
             .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp>(
                 [&](auto cacheOp) {
-                  propagateDtypeTowardRoot(cacheOp.getCache(), dtype);
                   insertTypecastIfNeeded(builder, cacheOp, dtype);
                 });
       });
