@@ -8,6 +8,7 @@ build
 # Python venv (dev tooling — pre-commit, etc.)
 /venv/*
 !/venv/activate
+__pycache__/
 
 # Compile commands (when symlinked or copied into source tree)
 /compile_commands.json

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.2"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "tt-kurbla"
+version = "0.1.0"
+description = "Compiler & runtime frontend for Tenstorrent hardware"
+requires-python = ">=3.10"
+dependencies = ["torch==2.10.0"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.24"
+cmake.build-type = ""
+wheel.packages = ["python/tt_kurbla"]
+editable.mode = "redirect"
+editable.rebuild = true
+
+[tool.scikit-build.cmake.define]
+TT_KURBLA_BUILD_PYTHON_EXT = "ON"
+
+# Skip uv's default PEP 517 build isolation for this package. We need
+# `import torch` at configure time (to discover libtorch's cmake prefix), and
+# torch is too heavy to download into a sandboxed build env. The caller's venv
+# has torch as a runtime dep; reusing it for the build is the natural fit.
+[tool.uv]
+no-build-isolation-package = ["tt-kurbla"]

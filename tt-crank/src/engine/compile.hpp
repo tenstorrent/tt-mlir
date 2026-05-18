@@ -72,7 +72,7 @@ TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view t
 // than serializing it to text first (e.g. a PyTorch FX → TTIR lowering).
 //
 // Same threading caveat as the string overload: serialize calls.
-TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module,
+TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op,
                                                               const CompileOptions &options = {});
 
 // Exception types are class-annotated so their typeinfo is exported with

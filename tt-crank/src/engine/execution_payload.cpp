@@ -7,34 +7,11 @@
 
 #include <tt/runtime/runtime.h>
 
+#include "engine/device.hpp"
+
 namespace tt::kurbla {
 
 namespace {
-
-// Process-wide mesh device, lazily opened.
-struct DeviceState {
-    tt::runtime::Device device;
-
-    DeviceState() : device(tt::runtime::openMeshDevice(tt::runtime::MeshDeviceOptions{})) {}
-    ~DeviceState() {
-        try {
-            tt::runtime::closeMeshDevice(device);
-        } catch (...) { // NOLINT(bugprone-empty-catch)
-            // Best-effort cleanup at process shutdown — never let an exception
-            // out of a destructor; static storage tear-down order can race with
-            // tt-mlir runtime globals.
-        }
-    }
-    DeviceState(const DeviceState &) = delete;
-    DeviceState &operator=(const DeviceState &) = delete;
-    DeviceState(DeviceState &&) = delete;
-    DeviceState &operator=(DeviceState &&) = delete;
-};
-
-tt::runtime::Device &runtime_device() {
-    static DeviceState state;
-    return state.device;
-}
 
 std::string format_shape(const std::vector<std::uint32_t> &shape) {
     std::ostringstream oss;
