@@ -8,6 +8,7 @@ add_subdirectory(utils)
 add_subdirectory(debug)
 add_subdirectory(types)
 add_subdirectory(operations)
+add_subdirectory(x280_driver)
 
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNN INTERFACE)
@@ -27,6 +28,6 @@ target_include_directories(TTRuntimeTTNN PUBLIC
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTypes TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
+target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTypes TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils TTRuntimeX280Driver)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
 add_dependencies(TTRuntimeTTNN RUNTIME_FBS_GENERATION)

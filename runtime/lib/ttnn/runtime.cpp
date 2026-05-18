@@ -4,6 +4,7 @@
 
 #include "Constants.h"
 
+#include "driver.h"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
@@ -28,6 +29,7 @@
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
+#include "umd/device/tt_device/tt_device.hpp"
 
 #include "tracy/Tracy.hpp"
 
@@ -2063,6 +2065,18 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
       ::tt::runtime::MemoryLogLevel::Program,
       "Device memory state before submit");
 #endif
+
+  const auto *fbb = utils::getBinary(executableHandle);
+  const auto *dylibs = fbb->programs()->Get(programIndex)->dylibs();
+  if (dylibs && dylibs->size() > 0) {
+    const auto *raw = dylibs->Get(0)->raw_file();
+    std::vector<uint8_t> firmware(raw->data(), raw->data() + raw->size());
+    ::ttnn::MeshDevice &meshDevice =
+        deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+    int deviceId = meshDevice.get_device_ids().at(0);
+    auto dev = ::tt::umd::TTDevice::create(deviceId);
+    poc::BootL2cpu0(dev.get(), firmware);
+  }
 
   std::unique_ptr<ProgramExecutor> executor = std::make_unique<ProgramExecutor>(
       deviceHandle, executableHandle, programIndex, inputs);

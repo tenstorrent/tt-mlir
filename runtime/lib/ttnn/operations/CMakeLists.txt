@@ -134,7 +134,7 @@ target_include_directories(TTRuntimeTTNNOps PUBLIC
 )
 
 target_include_directories(TTRuntimeTTNNOps SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNDebug TTRuntimeTTNNTypes TTRuntimeTTNNUtils TRACY_LIBRARY)
+target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNDebug TTRuntimeTTNNTypes TTRuntimeTTNNUtils TTRuntimeX280Driver TRACY_LIBRARY)
 target_link_libraries(TTRuntimeTTNNOps PUBLIC coverage_config Python::Python)
 
 
