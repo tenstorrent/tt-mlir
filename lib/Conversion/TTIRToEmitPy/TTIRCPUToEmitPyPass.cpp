@@ -115,9 +115,17 @@ static SmallVector<int32_t, 4> getI32Quad(Attribute attr) {
   return {val, val, val, val};
 }
 
+static std::string formatAPFloat(llvm::APFloat value) {
+  // Default precision (0) prints enough decimal digits that parsing the
+  // string back yields the exact same float bits.
+  llvm::SmallString<32> buf;
+  value.toString(buf);
+  return std::string(buf);
+}
+
 static std::string formatScalarAttr(Attribute attr) {
   if (auto fAttr = dyn_cast<FloatAttr>(attr)) {
-    return std::to_string(fAttr.getValueAsDouble());
+    return formatAPFloat(fAttr.getValue());
   }
   return std::to_string(cast<IntegerAttr>(attr).getInt());
 }
@@ -570,7 +578,7 @@ public:
     EmitPyCallBuilder b(op, getTypeConverter(), getCallee(op));
     b.addOperand(adaptor.getInput());
     b.addLiteral(formatI32List(adaptor.getPadding()));
-    b.addLiteral(std::to_string(adaptor.getValue().convertToFloat()));
+    b.addLiteral(formatAPFloat(adaptor.getValue()));
     b.replaceOp(rewriter);
     return success();
   }
@@ -716,8 +724,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     EmitPyCallBuilder b(op, getTypeConverter(), getCallee(op));
     b.addOperand(adaptor.getInput());
-    b.addKwarg("negative_slope",
-               std::to_string(adaptor.getParameter().convertToFloat()));
+    b.addKwarg("negative_slope", formatAPFloat(adaptor.getParameter()));
     b.replaceOp(rewriter);
     return success();
   }
@@ -893,8 +900,7 @@ public:
     } else {
       b.addKwarg("bias", "None");
     }
-    b.addKwarg("epsilon",
-               std::to_string(adaptor.getEpsilon().convertToFloat()));
+    b.addKwarg("epsilon", formatAPFloat(adaptor.getEpsilon()));
     b.replaceOp(rewriter);
     return success();
   }
