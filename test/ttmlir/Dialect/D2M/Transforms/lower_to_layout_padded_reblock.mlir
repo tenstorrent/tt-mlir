@@ -17,5 +17,5 @@ module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x1>]>} {
 // CHECK-SAME: memref<12x1x2x1x1x1x!ttcore.tile<32x32, si32>
 // CHECK-SAME: -> memref<1x1x1x12x1x2x!ttcore.tile<32x32, si32>
 // CHECK: d2m.view_layout
-// CHECK-SAME: -> memref<1x1x1x1x1x2x3x2x1x2x!ttcore.tile<32x32, si32>
+// CHECK-SAME: -> memref<2x3x2x1x2x1x1x1x1x1x!ttcore.tile<32x32, si32>
 // CHECK: d2m.to_host

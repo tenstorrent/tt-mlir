@@ -18,8 +18,8 @@ namespace mlir::tt::d2m {
 /// Complete grid decision for one tensor value.
 ///
 /// selectedGrid is the tensor grid stored in the layout. physicalGrid is the
-/// 2D worker-grid extent used to place a virtual grid. layoutGrid is the grid
-/// used when computing grid-aware dim alignments for this selected grid.
+/// 2D worker-grid extent used to place the selected grid. layoutGrid is the
+/// grid used when computing grid-aware dim alignments for this selected grid.
 struct GridDecision {
   llvm::SmallVector<int64_t> selectedGrid;
   llvm::SmallVector<int64_t> targetGrid;

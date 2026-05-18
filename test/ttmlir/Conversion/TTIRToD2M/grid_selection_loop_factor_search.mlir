@@ -20,22 +20,20 @@ module {
   func.func @reduction_loop_grid_placeable(
       %arg0: tensor<3x8x64x128xbf16>) -> tensor<3x1x64x128xbf16> {
     // CHECK-NOT: grid = #ttcore.grid<3x8x2x4
-    // CHECK: d2m.generic {{.*}}grid = #ttcore.grid<1x1x2x4
+    // CHECK: d2m.generic {{.*}}grid = #ttcore.grid<3x1x2x4
     // CHECK-SAME: iterator_types = [#parallel, #reduction, #parallel, #parallel]
     %0 = "ttir.mean"(%arg0) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<3x8x64x128xbf16>) -> tensor<3x1x64x128xbf16>
     return %0 : tensor<3x1x64x128xbf16>
   }
 
-  // Candidate grids must be materializable through the physical layout grid
-  // selected for their producers. The 16x3 loop grid is placeable on an 8x8
-  // target by volume, but its producer materializes to 18x3 tiles through the
-  // chosen layout grid, so normalization must reject it and settle on 8x3.
+  // Candidate grids must be materializable through the finalized physical
+  // layout grid selected for their producers. This case now keeps the full
+  // legal 16x3 virtual grid without padding the producer to an incompatible
+  // physical shape.
   // CHECK-LABEL: func.func @implicit_bcast_inner_2d_grid_materialization
-  // CHECK-NOT: grid = #ttcore.grid<16x3
-  // CHECK: d2m.empty() : tensor<8x3x2x1x!ttcore.tile<32x32, f32>
+  // CHECK: d2m.empty() {{.*}} : tensor<16x3x1x1x!ttcore.tile<32x32, f32>
   // CHECK: d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<8x3>
-  // CHECK-NOT: grid = #ttcore.grid<16x3
+  // CHECK-SAME: grid = #ttcore.grid<16x3
   func.func @implicit_bcast_inner_2d_grid_materialization(
       %arg0: tensor<416x96xf32>,
       %arg1: tensor<416x1xf32>,

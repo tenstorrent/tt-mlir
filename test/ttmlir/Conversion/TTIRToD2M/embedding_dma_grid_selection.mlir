@@ -6,7 +6,7 @@ module {
   // CHECK-LABEL: func.func @embedding_dma_loop_grid_reblockable
   // CHECK: d2m.generic
   // CHECK-SAME: block_factors = [1, 1]
-  // CHECK-SAME: grid = #ttcore.grid<1x1
+  // CHECK-SAME: grid = #ttcore.grid<2x1
   // CHECK-SAME: threads = [#d2m.thread<datamovement>]
   // CHECK: d2m.embedding
   func.func @embedding_dma_loop_grid_reblockable(

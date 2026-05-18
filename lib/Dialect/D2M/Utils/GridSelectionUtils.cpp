@@ -23,7 +23,7 @@ GridDecision makeGridDecision(ArrayRef<int64_t> selectedGrid,
   if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(selectedGrid,
                                                       targetGrid)) {
     decision.physicalGrid = llvm::SmallVector<int64_t>(selectedGrid);
-    decision.layoutGrid = llvm::SmallVector<int64_t>(targetGrid);
+    decision.layoutGrid = decision.physicalGrid;
     return decision;
   }
 

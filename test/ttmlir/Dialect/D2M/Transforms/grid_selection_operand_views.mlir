@@ -37,11 +37,11 @@ module attributes {ttcore.device = #any_device} {
 }
 
 // CHECK-LABEL: func.func @test_operand_view_insert
-// CHECK: %[[IN0:.*]] = d2m.to_layout
+// CHECK: %[[IN0:.*]] = d2m.to_layout {{.*}} : tensor<32x256xf32> into tensor<1x8x32x32xf32
 // CHECK: %[[IN0_VIEW:.*]] = d2m.view_layout %[[IN0]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
-// CHECK: %[[IN1:.*]] = d2m.to_layout
-// CHECK: %[[IN1_VIEW:.*]] = d2m.view_layout %[[IN1]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
-// CHECK: %[[OUT:.*]] = d2m.empty() : tensor<1x1x32x256xf32
-// CHECK: %[[GEN:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>
-// CHECK: ins(%[[IN0_VIEW]], %[[IN1_VIEW]] : tensor<1x1x32x256xf32, {{.*}}>, tensor<1x1x32x256xf32, {{.*}}>)
-// CHECK: outs(%[[OUT]] : tensor<1x1x32x256xf32, {{.*}}>)
+// CHECK: %[[IN1:.*]] = d2m.to_layout {{.*}} : tensor<32x256xf32> into tensor<1x1x32x256xf32
+// CHECK: %[[OUT:.*]] = d2m.empty(){{.*}} : tensor<1x8x32x32xf32
+// CHECK: %[[IN0_REBLOCK:.*]] = d2m.view_layout %[[IN0_VIEW]] {{.*}} : tensor<1x1x32x256xf32, {{.*}}> -> tensor<1x8x32x32xf32, {{.*}}>
+// CHECK: %[[GEN:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x8
+// CHECK: ins(%[[IN0_REBLOCK]], %[[IN1]] : tensor<1x8x32x32xf32, {{.*}}>, tensor<1x1x32x256xf32, {{.*}}>)
+// CHECK: outs(%[[OUT]] : tensor<1x8x32x32xf32, {{.*}}>)

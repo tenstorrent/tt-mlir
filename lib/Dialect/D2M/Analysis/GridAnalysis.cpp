@@ -19,6 +19,7 @@
 
 #include <functional>
 #include <limits>
+#include <optional>
 
 namespace mlir::tt::d2m {
 
@@ -39,25 +40,6 @@ static ToLayoutOp getSourceToLayoutThroughViews(Value operand) {
     return {};
   }
   return operand.getDefiningOp<d2m::ToLayoutOp>();
-}
-
-static llvm::SmallVector<int64_t>
-computeTrailingDimLayoutGrid(ArrayRef<int64_t> selectedGrid,
-                             ArrayRef<int64_t> targetGrid) {
-  llvm::SmallVector<int64_t> layoutGrid(targetGrid.size(), 1);
-  unsigned dimOffset =
-      selectedGrid.size() > targetGrid.size()
-          ? static_cast<unsigned>(selectedGrid.size() - targetGrid.size())
-          : 0;
-  for (auto [targetIdx, targetDim] : llvm::enumerate(targetGrid)) {
-    unsigned selectedIdx = dimOffset + targetIdx;
-    if (selectedIdx >= selectedGrid.size()) {
-      continue;
-    }
-    int64_t selectedDim = selectedGrid[selectedIdx];
-    layoutGrid[targetIdx] = selectedDim > targetDim ? targetDim : selectedDim;
-  }
-  return layoutGrid;
 }
 
 // Find the largest value <= maxFactor that divides all the given physical
@@ -101,53 +83,30 @@ static bool isEmbeddingGeneric(GenericOp genericOp) {
       .wasInterrupted();
 }
 
-static bool isTrailingDimOnly1DVirtualGrid(ArrayRef<int64_t> grid,
-                                           ArrayRef<int64_t> targetGrid) {
-  unsigned nonUnitDims = 0;
+static bool isBatchPlusTrailingDim1DVirtualGrid(ArrayRef<int64_t> grid,
+                                                ArrayRef<int64_t> targetGrid) {
   unsigned trailingDimOffset =
       grid.size() > targetGrid.size()
           ? static_cast<unsigned>(grid.size() - targetGrid.size())
           : 0;
+  unsigned nonUnitMatrixDims = 0;
   for (auto [dimIdx, dim] : llvm::enumerate(grid)) {
-    if (dim <= 1) {
+    if (dim <= 1 || dimIdx < trailingDimOffset) {
       continue;
     }
-    if (dimIdx < trailingDimOffset) {
-      return false;
-    }
-    ++nonUnitDims;
+    ++nonUnitMatrixDims;
   }
-  return nonUnitDims <= 1;
-}
-
-static bool isBatchDimOnlyVirtualGrid(ArrayRef<int64_t> grid,
-                                      ArrayRef<int64_t> targetGrid) {
-  if (grid.size() <= targetGrid.size()) {
-    return false;
-  }
-
-  unsigned trailingDimOffset =
-      static_cast<unsigned>(grid.size() - targetGrid.size());
-  for (auto [dimIdx, dim] : llvm::enumerate(grid)) {
-    if (dim <= 1) {
-      continue;
-    }
-    if (dimIdx >= trailingDimOffset) {
-      return false;
-    }
-  }
-  return true;
+  return nonUnitMatrixDims <= 1;
 }
 
 // Matmul kernels require a physical (non-virtual) grid or a 1D virtual grid
 // along the logical height/width dimensions. Higher-rank matmuls may also
-// shard only batch dimensions virtually since each batch tile accumulates
+// shard batch dimensions virtually since each batch tile accumulates
 // independently.
 static bool isGridSupportedByMatmulKernel(ArrayRef<int64_t> grid,
                                           ArrayRef<int64_t> targetGrid) {
   return !ttmlir::d2m::utils::grids::requiresVirtualGrid(grid, targetGrid) ||
-         isTrailingDimOnly1DVirtualGrid(grid, targetGrid) ||
-         isBatchDimOnlyVirtualGrid(grid, targetGrid);
+         isBatchPlusTrailingDim1DVirtualGrid(grid, targetGrid);
 }
 
 static bool hasLegalPhysicalPlacement(ArrayRef<int64_t> grid,
@@ -176,27 +135,15 @@ static bool canReblockCurrentTypeToGrid(Value operand, ArrayRef<int64_t> grid) {
   return true;
 }
 
-static bool canMaterializeOperandGrid(Value operand, ArrayRef<int64_t> grid,
-                                      ArrayRef<int64_t> targetGrid,
-                                      bool ttnnMode) {
-  if (!hasLegalPhysicalPlacement(grid, targetGrid)) {
-    return false;
+static GridDecision
+makeGridDecisionForSelectedGrid(ArrayRef<int64_t> selectedGrid,
+                                ArrayRef<int64_t> targetGrid,
+                                bool useTargetGridForLayout = false) {
+  GridDecision decision = utils::makeGridDecision(selectedGrid, targetGrid);
+  if (useTargetGridForLayout) {
+    decision.layoutGrid = llvm::SmallVector<int64_t>(targetGrid);
   }
-
-  GridDecision decision = utils::makeGridDecision(grid, targetGrid);
-  llvm::SmallVector<int64_t> materializedPhysicalShape =
-      utils::computePhysicalShape(operand, decision.layoutGrid, ttnnMode);
-  if (materializedPhysicalShape.size() != grid.size()) {
-    return false;
-  }
-
-  for (auto [physicalDim, gridDim] :
-       llvm::zip_equal(materializedPhysicalShape, grid)) {
-    if (physicalDim % gridDim != 0) {
-      return false;
-    }
-  }
-  return true;
+  return decision;
 }
 
 static llvm::SmallVector<int64_t>
@@ -286,31 +233,148 @@ static bool canGridSelectionRewriteOperand(Value operand) {
          operand.getDefiningOp<d2m::EmptyOp>();
 }
 
-static mlir::RankedTensorType
-computePlannedOperandType(Value operand, const GridDecision &decision,
-                          bool ttnnMode) {
-  auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
-  if (!canGridSelectionRewriteOperand(operand)) {
-    return operandType;
-  }
-  return utils::tensorWithOptimalGrid(operandType, decision.layoutGrid,
-                                      ttnnMode, decision.selectedGrid);
+static bool viewOperandHasRewritableToLayoutSource(Value operand) {
+  auto toLayoutOp = getSourceToLayoutThroughViews(operand);
+  return toLayoutOp &&
+         !toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
 }
 
-static bool shouldChooseMinimalMemoryGrid(GenericOp genericOp) {
-  // d2m.spatial regions are explicit physical placement scopes. Do not shrink
-  // their region-local grid just because a DMA-only body would fit on fewer
-  // cores.
-  if (mlir::isa<d2m::SpatialOp>(genericOp->getParentOp())) {
-    return false;
+static bool genericHasFixedNonReinterpretViewOperand(GenericOp genericOp) {
+  return llvm::any_of(genericOp.getInputsAndOutputs(), [](Value operand) {
+    auto view = operand.getDefiningOp<d2m::ViewLayoutOp>();
+    if (!view || view.getReinterpretLayout() ||
+        GridAnalysis::isTTNNOperand(operand)) {
+      return false;
+    }
+    return !viewOperandHasRewritableToLayoutSource(operand);
+  });
+}
+
+static llvm::SmallVector<int64_t>
+computeMaterializedPhysicalShape(Value operand, const GridDecision &decision,
+                                 bool ttnnMode) {
+  auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  if (!canGridSelectionRewriteOperand(operand)) {
+    return computeTypePhysicalShape(operandType);
   }
 
-  for (Value input : genericOp.getInputs()) {
-    if (input.getDefiningOp<d2m::CompositeViewOp>()) {
+  auto oldLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(operandType.getEncoding());
+  llvm::SmallVector<int64_t> tileShape;
+  if (auto tileType =
+          mlir::dyn_cast<ttcore::TileType>(operandType.getElementType())) {
+    tileShape = llvm::to_vector(tileType.getShape());
+  } else {
+    tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
+  }
+
+  ttcore::MetalLayoutAttr newLayout =
+      utils::layoutWithOptimalGrid(oldLayout, decision.layoutGrid, ttnnMode);
+  return newLayout.getPhysicalShape(llvm::ArrayRef(tileShape));
+}
+
+static bool gridDividesPhysicalShape(ArrayRef<int64_t> physicalShape,
+                                     ArrayRef<int64_t> grid) {
+  if (physicalShape.size() != grid.size()) {
+    return false;
+  }
+  for (auto [physicalDim, gridDim] : llvm::zip_equal(physicalShape, grid)) {
+    if (gridDim == 0 || physicalDim % gridDim != 0) {
       return false;
     }
   }
-  return genericOp.isDMAOnlyForm();
+  return true;
+}
+
+static bool
+isBetterLayoutGridCandidate(ArrayRef<int64_t> candidatePhysicalShape,
+                            ArrayRef<int64_t> candidateLayoutGrid,
+                            const GridDecisionAndShape &best) {
+  uint64_t candidatePhysicalVolume = static_cast<uint64_t>(
+      ttmlir::utils::volume<int64_t>(candidatePhysicalShape));
+  uint64_t bestPhysicalVolume =
+      static_cast<uint64_t>(ttmlir::utils::volume<int64_t>(best.physicalShape));
+  if (candidatePhysicalVolume != bestPhysicalVolume) {
+    return candidatePhysicalVolume < bestPhysicalVolume;
+  }
+
+  uint64_t candidateLayoutVolume = static_cast<uint64_t>(
+      ttmlir::utils::volume<int64_t>(candidateLayoutGrid));
+  uint64_t bestLayoutVolume = static_cast<uint64_t>(
+      ttmlir::utils::volume<int64_t>(best.decision.layoutGrid));
+  if (candidateLayoutVolume != bestLayoutVolume) {
+    return candidateLayoutVolume < bestLayoutVolume;
+  }
+
+  for (auto [candidateDim, bestDim] :
+       llvm::zip_equal(candidateLayoutGrid, best.decision.layoutGrid)) {
+    if (candidateDim != bestDim) {
+      return candidateDim < bestDim;
+    }
+  }
+  return false;
+}
+
+static std::optional<GridDecisionAndShape>
+computeDecisionAndShapeForSelectedGrid(mlir::Value operand,
+                                       ArrayRef<int64_t> selectedGrid,
+                                       ArrayRef<int64_t> targetGrid,
+                                       bool ttnnMode,
+                                       bool useTargetGridForLayout = false) {
+  if (!hasLegalPhysicalPlacement(selectedGrid, targetGrid)) {
+    return std::nullopt;
+  }
+
+  GridDecision baseDecision = makeGridDecisionForSelectedGrid(
+      selectedGrid, targetGrid, useTargetGridForLayout);
+
+  auto buildCandidate =
+      [&](GridDecision decision) -> std::optional<GridDecisionAndShape> {
+    llvm::SmallVector<int64_t> physicalShape =
+        computeMaterializedPhysicalShape(operand, decision, ttnnMode);
+    if (!gridDividesPhysicalShape(physicalShape, selectedGrid)) {
+      return std::nullopt;
+    }
+
+    GridDecisionAndShape candidate;
+    candidate.decision = std::move(decision);
+    candidate.physicalShape = std::move(physicalShape);
+    return candidate;
+  };
+
+  if (useTargetGridForLayout || !baseDecision.isVirtual() || ttnnMode ||
+      targetGrid.size() != 2) {
+    return buildCandidate(std::move(baseDecision));
+  }
+
+  std::optional<GridDecisionAndShape> best = buildCandidate(baseDecision);
+  for (int64_t rowFactor = 1; rowFactor <= targetGrid[0]; ++rowFactor) {
+    for (int64_t colFactor = 1; colFactor <= targetGrid[1]; ++colFactor) {
+      GridDecision candidateDecision = baseDecision;
+      candidateDecision.layoutGrid = {rowFactor, colFactor};
+      std::optional<GridDecisionAndShape> candidate =
+          buildCandidate(std::move(candidateDecision));
+      if (!candidate) {
+        continue;
+      }
+      if (!best ||
+          isBetterLayoutGridCandidate(candidate->physicalShape,
+                                      candidate->decision.layoutGrid, *best)) {
+        best = std::move(candidate);
+      }
+    }
+  }
+
+  return best;
+}
+
+static bool canMaterializeOperandGrid(Value operand, ArrayRef<int64_t> grid,
+                                      ArrayRef<int64_t> targetGrid,
+                                      bool ttnnMode,
+                                      bool useTargetGridForLayout = false) {
+  return computeDecisionAndShapeForSelectedGrid(
+             operand, grid, targetGrid, ttnnMode, useTargetGridForLayout)
+      .has_value();
 }
 
 static uint64_t estimateOperandShardBytes(Type elementType,
@@ -362,87 +426,262 @@ estimateGenericL1Bytes(GenericOp genericOp,
   return totalBytes;
 }
 
-static bool isBetterMemoryCandidate(uint64_t candidateEstimatedBytes,
-                                    uint64_t candidateOutputGridVolume,
-                                    bool candidateFitsL1,
-                                    uint64_t bestEstimatedBytes,
-                                    uint64_t bestOutputGridVolume,
-                                    bool bestFitsL1) {
-  if (candidateFitsL1 != bestFitsL1) {
-    return candidateFitsL1;
+static uint64_t
+computeLoopGridVolume(GenericOp genericOp,
+                      ArrayRef<llvm::SmallVector<int64_t>> operandGrids) {
+  auto indexingMaps = genericOp.getIndexingMapsValue();
+  unsigned numLoopDims = indexingMaps.front().getNumDims();
+  llvm::SmallVector<int64_t> loopGrid(numLoopDims, 1);
+
+  for (auto [operandIndex, indexingMap] : llvm::enumerate(indexingMaps)) {
+    for (auto [operandDimIdx, expr] :
+         llvm::enumerate(indexingMap.getResults())) {
+      auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+      if (!dimExpr) {
+        continue;
+      }
+      loopGrid[dimExpr.getPosition()] =
+          std::max(loopGrid[dimExpr.getPosition()],
+                   operandGrids[operandIndex][operandDimIdx]);
+    }
   }
-  if (candidateFitsL1) {
-    return candidateOutputGridVolume < bestOutputGridVolume ||
-           (candidateOutputGridVolume == bestOutputGridVolume &&
-            candidateEstimatedBytes < bestEstimatedBytes);
+
+  return static_cast<uint64_t>(ttmlir::utils::volume<int64_t>(loopGrid));
+}
+
+struct GenericGridPlan {
+  llvm::SmallVector<GridDecisionAndShape, 4> operandPlans;
+  llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids;
+  llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
+  uint64_t loopGridVolume = 1;
+  uint64_t outputGridVolume = 1;
+  uint64_t estimatedBytes = std::numeric_limits<uint64_t>::max();
+  bool fitsL1 = false;
+};
+
+static bool computePlanStats(GenericOp genericOp, GenericGridPlan &plan,
+                             uint64_t usableL1Bytes) {
+  if (plan.normalizedOperandGrids.empty() || plan.physicalShapes.empty()) {
+    return false;
   }
-  return candidateEstimatedBytes < bestEstimatedBytes;
+
+  const unsigned outputOperandIndex = genericOp.getInputs().size();
+  if (outputOperandIndex >= plan.normalizedOperandGrids.size()) {
+    return false;
+  }
+
+  plan.loopGridVolume =
+      computeLoopGridVolume(genericOp, plan.normalizedOperandGrids);
+  plan.outputGridVolume = static_cast<uint64_t>(ttmlir::utils::volume<int64_t>(
+      plan.normalizedOperandGrids[outputOperandIndex]));
+  plan.estimatedBytes = estimateGenericL1Bytes(
+      genericOp, plan.normalizedOperandGrids, plan.physicalShapes);
+  plan.fitsL1 = usableL1Bytes == 0 || plan.estimatedBytes <= usableL1Bytes;
+  return true;
 }
 
-static GridDecisionAndShape
-computeCurrentBlockShardedDecision(mlir::Value operand,
-                                   ArrayRef<int64_t> targetGrid) {
-  GridDecisionAndShape result;
-  result.physicalShape = computeCurrentPhysicalShape(operand);
-  auto selectedGrid =
-      utils::computeOptimalBlockShardedGrid(result.physicalShape, targetGrid);
-  result.decision = utils::makeGridDecision(selectedGrid, targetGrid);
-  result.decision.layoutGrid =
-      computeTrailingDimLayoutGrid(selectedGrid, targetGrid);
-  return result;
+static std::optional<GenericGridPlan> computeGenericGridPlanFromCurrentTypes(
+    GenericOp genericOp,
+    ArrayRef<llvm::SmallVector<int64_t>> perOperandTargetGrids,
+    ArrayRef<int64_t> targetGrid, bool ttnnMode, bool allowVirtualGrid,
+    bool useTargetGridForLayout, bool requireCurrentTypeReblockable,
+    uint64_t usableL1Bytes) {
+  llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
+  llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
+  physicalShapes.reserve(genericOp.getInputsAndOutputs().size());
+  optimalOperandGrids.reserve(genericOp.getInputsAndOutputs().size());
+
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp.getInputsAndOutputs())) {
+    llvm::SmallVector<int64_t> physicalShape = utils::computePhysicalShape(
+        operand, perOperandTargetGrids[operandIndex], ttnnMode);
+    llvm::SmallVector<int64_t> selectedGrid = computeSelectedGrid(
+        operand, physicalShape, perOperandTargetGrids[operandIndex],
+        allowVirtualGrid);
+    if (!gridDividesPhysicalShape(physicalShape, selectedGrid)) {
+      return std::nullopt;
+    }
+    physicalShapes.push_back(std::move(physicalShape));
+    optimalOperandGrids.push_back(std::move(selectedGrid));
+  }
+
+  llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids =
+      GridAnalysis::normalizeOperandGridsForGeneric(
+          genericOp, optimalOperandGrids, physicalShapes, perOperandTargetGrids,
+          targetGrid, ttnnMode, useTargetGridForLayout,
+          requireCurrentTypeReblockable, usableL1Bytes);
+  if (normalizedOperandGrids.empty()) {
+    return std::nullopt;
+  }
+
+  GenericGridPlan plan;
+  plan.normalizedOperandGrids = std::move(normalizedOperandGrids);
+  plan.operandPlans.reserve(plan.normalizedOperandGrids.size());
+  plan.physicalShapes.reserve(plan.normalizedOperandGrids.size());
+
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp.getInputsAndOutputs())) {
+    std::optional<GridDecisionAndShape> operandPlan =
+        computeDecisionAndShapeForSelectedGrid(
+            operand, plan.normalizedOperandGrids[operandIndex],
+            perOperandTargetGrids[operandIndex], ttnnMode,
+            useTargetGridForLayout);
+    if (!operandPlan) {
+      return std::nullopt;
+    }
+    plan.physicalShapes.push_back(operandPlan->physicalShape);
+    plan.operandPlans.push_back(std::move(*operandPlan));
+  }
+
+  if (!computePlanStats(genericOp, plan, usableL1Bytes)) {
+    return std::nullopt;
+  }
+  return plan;
 }
 
-static GridDecisionAndShape
-computeMatmulGridDecision(mlir::Value operand, ArrayRef<int64_t> targetGrid,
-                          bool ttnnMode) {
-  GridDecisionAndShape result;
-  result.physicalShape =
-      utils::computePhysicalShape(operand, targetGrid, ttnnMode);
-  result.decision = utils::makeGridDecision(
-      computeSelectedGrid(operand, result.physicalShape, targetGrid,
-                          /*allowVirtualGrid=*/false),
-      targetGrid);
+static llvm::SmallVector<llvm::SmallVector<int64_t>>
+normalizeMatmulOperandGridsLikeMain(
+    GenericOp genericOp,
+    ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
+    ArrayRef<llvm::SmallVector<int64_t>> physicalShapes) {
+  llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
+      optimalOperandGrids.begin(), optimalOperandGrids.end());
 
-  // Preserve main's matmul padding contract: selectedGrid controls execution
-  // parallelism, while the full target grid controls dim
-  // alignments/materialized physical shapes. Otherwise GQA matmuls can rebuild
-  // with mismatched local M extents between LHS and output.
-  result.decision.layoutGrid = llvm::SmallVector<int64_t>(targetGrid);
-  return result;
-}
+  llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
+      dimToInputOperandDims;
+  auto indexingMaps = genericOp.getIndexingMapsValue();
+  for (uint64_t operandIndex = 0; operandIndex < genericOp.getInputs().size();
+       ++operandIndex) {
+    auto results = indexingMaps[operandIndex].getResults();
+    for (auto [operandDimIdx, expr] : llvm::enumerate(results)) {
+      auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+      if (!dimExpr) {
+        continue;
+      }
+      dimToInputOperandDims[dimExpr.getPosition()].push_back(
+          {operandIndex, static_cast<uint64_t>(operandDimIdx)});
+    }
+  }
 
-static GridDecisionAndShape
-computeGridDecision(mlir::Value operand, ArrayRef<int64_t> initialLayoutGrid,
-                    ArrayRef<int64_t> targetGrid, bool ttnnMode,
-                    bool allowVirtualGrid) {
-  constexpr unsigned kMaxGridDecisionIterations = 8;
-
-  llvm::SmallVector<int64_t> layoutGrid(initialLayoutGrid);
-  for (unsigned iteration = 0; iteration < kMaxGridDecisionIterations;
-       ++iteration) {
-    GridDecisionAndShape result;
-    result.physicalShape =
-        utils::computePhysicalShape(operand, layoutGrid, ttnnMode);
-    result.decision = utils::makeGridDecision(
-        computeSelectedGrid(operand, result.physicalShape, targetGrid,
-                            allowVirtualGrid),
-        targetGrid);
-    if (!allowVirtualGrid) {
-      result.decision.layoutGrid = computeTrailingDimLayoutGrid(
-          result.decision.selectedGrid, targetGrid);
+  for (auto &entry : dimToInputOperandDims) {
+    auto &operandDims = entry.second;
+    if (operandDims.size() < 2) {
+      continue;
     }
 
-    if (result.decision.layoutGrid == layoutGrid) {
-      return result;
+    int64_t maxFactor = 0;
+    llvm::SmallVector<int64_t> physicalDimsForLoop;
+    for (auto [operandIndex, operandDimIdx] : operandDims) {
+      maxFactor = std::max(maxFactor,
+                           normalizedOperandGrids[operandIndex][operandDimIdx]);
+      physicalDimsForLoop.push_back(
+          physicalShapes[operandIndex][operandDimIdx]);
     }
 
-    layoutGrid = result.decision.layoutGrid;
+    int64_t commonFactor =
+        findLargestCommonFactor(maxFactor, physicalDimsForLoop);
+    for (auto [operandIndex, operandDimIdx] : operandDims) {
+      normalizedOperandGrids[operandIndex][operandDimIdx] = commonFactor;
+    }
   }
 
-  // Grid-aware padding can change factor availability, so a virtual decision
-  // may theoretically oscillate. Prefer a physical block-sharded grid over
-  // emitting an inconsistent virtual layout.
-  return computeCurrentBlockShardedDecision(operand, targetGrid);
+  unsigned outputOperandIndex = genericOp.getOutputs().getBeginOperandIndex();
+  auto outputIndexingMap = indexingMaps[outputOperandIndex];
+  auto outputShape = optimalOperandGrids[outputOperandIndex];
+  std::optional<llvm::SmallVector<int64_t>> outputConstraints =
+      d2m::utils::computeDimConstraints(
+          llvm::ArrayRef<AffineMap>(outputIndexingMap),
+          llvm::ArrayRef<llvm::SmallVector<int64_t>>(outputShape));
+
+  if (!outputConstraints) {
+    return normalizedOperandGrids;
+  }
+
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp.getInputsAndOutputsMutable())) {
+    if (genericOp.isDpsInit(&operand)) {
+      continue;
+    }
+
+    auto results = indexingMaps[operandIndex].getResults();
+    TT_assertv(results.size() == normalizedOperandGrids[operandIndex].size(),
+               "indexing map results size does not match normalized operand "
+               "grids size");
+
+    for (auto [resultIdx, expr] : llvm::enumerate(results)) {
+      auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+      if (!dimExpr) {
+        continue;
+      }
+      int64_t constraint = (*outputConstraints)[dimExpr.getPosition()];
+      if (constraint == 0) {
+        continue;
+      }
+      int64_t physicalDim = physicalShapes[operandIndex][resultIdx];
+      normalizedOperandGrids[operandIndex][resultIdx] =
+          physicalDim % constraint == 0
+              ? constraint
+              : findLargestCommonFactor(constraint, {physicalDim, constraint});
+    }
+  }
+
+  return normalizedOperandGrids;
+}
+
+static std::optional<GenericGridPlan> computeMatmulGridPlan(
+    GenericOp genericOp,
+    ArrayRef<llvm::SmallVector<int64_t>> perOperandTargetGrids, bool ttnnMode,
+    uint64_t usableL1Bytes) {
+  GenericGridPlan plan;
+  llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
+  optimalOperandGrids.reserve(genericOp.getInputsAndOutputs().size());
+  plan.physicalShapes.reserve(genericOp.getInputsAndOutputs().size());
+  plan.operandPlans.reserve(genericOp.getInputsAndOutputs().size());
+
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp.getInputsAndOutputs())) {
+    ArrayRef<int64_t> targetGrid = perOperandTargetGrids[operandIndex];
+    auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+    llvm::SmallVector<int64_t> physicalShape =
+        utils::computePhysicalShape(operand, targetGrid, ttnnMode);
+    llvm::SmallVector<int64_t> selectedGrid =
+        utils::computeOptimalGrid(operandType, physicalShape, targetGrid);
+    std::optional<GridDecisionAndShape> operandPlan =
+        computeDecisionAndShapeForSelectedGrid(operand, selectedGrid,
+                                               targetGrid, ttnnMode,
+                                               /*useTargetGridForLayout=*/true);
+    if (!operandPlan) {
+      return std::nullopt;
+    }
+
+    plan.physicalShapes.push_back(operandPlan->physicalShape);
+    plan.operandPlans.push_back(std::move(*operandPlan));
+    optimalOperandGrids.push_back(std::move(selectedGrid));
+  }
+
+  // Preserve main's matmul contract: normalization may introduce execution
+  // block factors (especially along K), but producer materialization remains
+  // anchored to the per-operand selected grids computed above.
+  plan.normalizedOperandGrids = normalizeMatmulOperandGridsLikeMain(
+      genericOp, optimalOperandGrids, plan.physicalShapes);
+
+  if (!computePlanStats(genericOp, plan, usableL1Bytes)) {
+    return std::nullopt;
+  }
+  return plan;
+}
+
+static std::optional<GenericGridPlan> computeGenericGridPlan(
+    GenericOp genericOp,
+    ArrayRef<llvm::SmallVector<int64_t>> perOperandTargetGrids,
+    ArrayRef<int64_t> targetGrid, bool ttnnMode, bool allowVirtualGrid,
+    uint64_t usableL1Bytes) {
+  bool useTargetGridForLayout = !allowVirtualGrid;
+  bool requireCurrentTypeReblockable =
+      genericHasFixedNonReinterpretViewOperand(genericOp);
+  return computeGenericGridPlanFromCurrentTypes(
+      genericOp, perOperandTargetGrids, targetGrid, ttnnMode, allowVirtualGrid,
+      useTargetGridForLayout, requireCurrentTypeReblockable, usableL1Bytes);
 }
 
 llvm::SmallVector<llvm::SmallVector<int64_t>>
@@ -450,7 +689,8 @@ GridAnalysis::normalizeOperandGridsForGeneric(
     GenericOp genericOp,
     ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
     ArrayRef<llvm::SmallVector<int64_t>> physicalShapes,
-    ArrayRef<int64_t> targetGrid, bool ttnnMode,
+    ArrayRef<llvm::SmallVector<int64_t>> perOperandTargetGrids,
+    ArrayRef<int64_t> targetGrid, bool ttnnMode, bool useTargetGridForLayout,
     bool requireCurrentTypeReblockable, uint64_t usableL1Bytes) {
   if (optimalOperandGrids.empty()) {
     return {};
@@ -459,6 +699,7 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   TT_assert(optimalOperandGrids.size() ==
             genericOp.getInputsAndOutputs().size());
   TT_assert(physicalShapes.size() == optimalOperandGrids.size());
+  TT_assert(perOperandTargetGrids.size() == optimalOperandGrids.size());
 
   llvm::SmallVector<Value> operands(genericOp.getInputsAndOutputs().begin(),
                                     genericOp.getInputsAndOutputs().end());
@@ -543,8 +784,39 @@ GridAnalysis::normalizeOperandGridsForGeneric(
     return projectedOperandGrids;
   };
 
+  auto localLoopShapesAreConsistent =
+      [&](ArrayRef<llvm::SmallVector<int64_t>> operandGrids) {
+        if (!genericOp.hasComputeOpsInRegion() || hasIndexedRowAccess) {
+          return true;
+        }
+        for (unsigned loopDim = 0; loopDim < numLoopDims; ++loopDim) {
+          std::optional<int64_t> expectedLocalDim;
+          for (auto [operandIndex, operandDimIdx] :
+               loopDimOperandDims[loopDim]) {
+            int64_t gridDim = operandGrids[operandIndex][operandDimIdx];
+            if (gridDim == 0 ||
+                physicalShapes[operandIndex][operandDimIdx] % gridDim != 0) {
+              return false;
+            }
+            int64_t localDim =
+                physicalShapes[operandIndex][operandDimIdx] / gridDim;
+            if (!expectedLocalDim) {
+              expectedLocalDim = localDim;
+              continue;
+            }
+            if (*expectedLocalDim != localDim) {
+              return false;
+            }
+          }
+        }
+        return true;
+      };
+
   auto allOperandGridsAreLegal =
       [&](ArrayRef<llvm::SmallVector<int64_t>> operandGrids) {
+        if (!localLoopShapesAreConsistent(operandGrids)) {
+          return false;
+        }
         return llvm::all_of(llvm::enumerate(operandGrids), [&](auto indexed) {
           auto [operandIndex, operandGrid] = indexed;
           if (requireCurrentTypeReblockable &&
@@ -563,21 +835,39 @@ GridAnalysis::normalizeOperandGridsForGeneric(
             }
           }
           if (!canMaterializeOperandGrid(operands[operandIndex], operandGrid,
-                                         targetGrid, ttnnMode)) {
+                                         perOperandTargetGrids[operandIndex],
+                                         ttnnMode, useTargetGridForLayout)) {
             return false;
           }
           return !requireMatmulCompatibleGrid ||
-                 isGridSupportedByMatmulKernel(operandGrid, targetGrid);
+                 isGridSupportedByMatmulKernel(
+                     operandGrid, perOperandTargetGrids[operandIndex]);
         });
       };
 
   llvm::SmallVector<int64_t> bestLoopGrid(numLoopDims, 1);
-  uint64_t bestLoopGridVolume = 1;
-  uint64_t bestOutputGridVolume = 1;
+  uint64_t bestLoopGridVolume = 0;
+  uint64_t bestOutputGridVolume = 0;
   uint64_t bestEstimatedBytes = std::numeric_limits<uint64_t>::max();
   bool bestFitsL1 = false;
-  bool minimizeMemoryGrid = shouldChooseMinimalMemoryGrid(genericOp);
+  bool foundLegalGrid = false;
   const unsigned outputOperandIndex = genericOp.getInputs().size();
+  auto isBetterGridCandidate =
+      [](uint64_t candidateEstimatedBytes, uint64_t candidateOutputGridVolume,
+         uint64_t candidateLoopGridVolume, bool candidateFitsL1,
+         uint64_t bestEstimatedBytes, uint64_t bestOutputGridVolume,
+         uint64_t bestLoopGridVolume, bool bestFitsL1) {
+        if (candidateFitsL1 != bestFitsL1) {
+          return candidateFitsL1;
+        }
+        if (candidateOutputGridVolume != bestOutputGridVolume) {
+          return candidateOutputGridVolume > bestOutputGridVolume;
+        }
+        if (candidateLoopGridVolume != bestLoopGridVolume) {
+          return candidateLoopGridVolume > bestLoopGridVolume;
+        }
+        return candidateEstimatedBytes < bestEstimatedBytes;
+      };
   llvm::SmallVector<int64_t> candidateLoopGrid(numLoopDims, 1);
   llvm::SmallVector<llvm::SmallVector<int64_t>> loopFactorChoices;
   loopFactorChoices.reserve(numLoopDims);
@@ -597,32 +887,26 @@ GridAnalysis::normalizeOperandGridsForGeneric(
             return;
           }
 
-          if (minimizeMemoryGrid) {
-            uint64_t candidateEstimatedBytes = estimateGenericL1Bytes(
-                genericOp, candidateOperandGrids, physicalShapes);
-            bool candidateFitsL1 =
-                usableL1Bytes == 0 || candidateEstimatedBytes <= usableL1Bytes;
-            uint64_t candidateOutputGridVolume =
-                static_cast<uint64_t>(ttmlir::utils::volume<int64_t>(
-                    candidateOperandGrids[outputOperandIndex]));
+          uint64_t candidateEstimatedBytes = estimateGenericL1Bytes(
+              genericOp, candidateOperandGrids, physicalShapes);
+          bool candidateFitsL1 =
+              usableL1Bytes == 0 || candidateEstimatedBytes <= usableL1Bytes;
+          uint64_t candidateOutputGridVolume =
+              static_cast<uint64_t>(ttmlir::utils::volume<int64_t>(
+                  candidateOperandGrids[outputOperandIndex]));
 
-            if (isBetterMemoryCandidate(candidateEstimatedBytes,
-                                        candidateOutputGridVolume,
-                                        candidateFitsL1, bestEstimatedBytes,
-                                        bestOutputGridVolume, bestFitsL1)) {
-              bestLoopGrid = candidateLoopGrid;
-              bestLoopGridVolume = volumeSoFar;
-              bestOutputGridVolume = candidateOutputGridVolume;
-              bestEstimatedBytes = candidateEstimatedBytes;
-              bestFitsL1 = candidateFitsL1;
-            }
-            return;
-          }
-
-          if (volumeSoFar > bestLoopGridVolume) {
+          if (!foundLegalGrid ||
+              isBetterGridCandidate(
+                  candidateEstimatedBytes, candidateOutputGridVolume,
+                  volumeSoFar, candidateFitsL1, bestEstimatedBytes,
+                  bestOutputGridVolume, bestLoopGridVolume, bestFitsL1)) {
             bestLoopGrid = candidateLoopGrid;
             bestLoopGridVolume = volumeSoFar;
+            bestOutputGridVolume = candidateOutputGridVolume;
+            bestEstimatedBytes = candidateEstimatedBytes;
+            bestFitsL1 = candidateFitsL1;
           }
+          foundLegalGrid = true;
           return;
         }
 
@@ -635,6 +919,10 @@ GridAnalysis::normalizeOperandGridsForGeneric(
         candidateLoopGrid[loopDim] = 1;
       };
   searchLoopGrids(/*loopDim=*/0, /*volumeSoFar=*/1);
+
+  if (!foundLegalGrid) {
+    return {};
+  }
 
   auto normalizedOperandGrids = projectLoopGridToOperands(bestLoopGrid);
   if (hasIndexedRowAccess && outputOperandIndex < operands.size() &&
@@ -650,6 +938,8 @@ GridAnalysis::normalizeOperandGridsForGeneric(
         ttmlir::utils::volume<int64_t>(bestEmbeddingGrids[outputOperandIndex]));
     bool bestEmbeddingFitsL1 =
         usableL1Bytes == 0 || bestEmbeddingEstimatedBytes <= usableL1Bytes;
+    uint64_t bestEmbeddingLoopGridVolume =
+        computeLoopGridVolume(genericOp, bestEmbeddingGrids);
 
     int64_t maxRowFactor = findLargestCommonFactor(
         targetGrid[0],
@@ -674,13 +964,17 @@ GridAnalysis::normalizeOperandGridsForGeneric(
               candidateOperandGrids[outputOperandIndex]));
       bool candidateFitsL1 =
           usableL1Bytes == 0 || candidateEstimatedBytes <= usableL1Bytes;
-      if (isBetterMemoryCandidate(
+      uint64_t candidateLoopGridVolume =
+          computeLoopGridVolume(genericOp, candidateOperandGrids);
+      if (isBetterGridCandidate(
               candidateEstimatedBytes, candidateOutputGridVolume,
-              candidateFitsL1, bestEmbeddingEstimatedBytes,
-              bestEmbeddingOutputGridVolume, bestEmbeddingFitsL1)) {
+              candidateLoopGridVolume, candidateFitsL1,
+              bestEmbeddingEstimatedBytes, bestEmbeddingOutputGridVolume,
+              bestEmbeddingLoopGridVolume, bestEmbeddingFitsL1)) {
         bestEmbeddingGrids = candidateOperandGrids;
         bestEmbeddingEstimatedBytes = candidateEstimatedBytes;
         bestEmbeddingOutputGridVolume = candidateOutputGridVolume;
+        bestEmbeddingLoopGridVolume = candidateLoopGridVolume;
         bestEmbeddingFitsL1 = candidateFitsL1;
       }
     }
@@ -773,40 +1067,33 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     perOperandTargetGrids.push_back(opTarget);
   }
 
-  llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
-  llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
-  bool allowVirtualGrid = !isMatmulGeneric(genericOp);
-
-  for (auto [operandIndex, operand] :
-       llvm::enumerate(genericOp.getInputsAndOutputs())) {
+  bool isMatmul = isMatmulGeneric(genericOp);
+  bool allowVirtualGrid = !isMatmul;
+  for (Value operand : genericOp.getInputsAndOutputs()) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto operandLayout =
         mlir::dyn_cast<ttcore::MetalLayoutAttr>(operandType.getEncoding());
     TT_assertv(operandLayout,
                "GridSelection expects GenericOp inputs/outputs to have "
                "MetalLayoutAttr");
-
-    ArrayRef<int64_t> targetGrid = perOperandTargetGrids[operandIndex];
-    GridDecisionAndShape decisionAndShape =
-        allowVirtualGrid
-            ? computeGridDecision(operand, targetGrid, targetGrid, ttnnMode,
-                                  allowVirtualGrid)
-            : computeMatmulGridDecision(operand, targetGrid, ttnnMode);
-    optimalOperandGrids.push_back(decisionAndShape.decision.selectedGrid);
-    physicalShapes.push_back(computeTypePhysicalShape(computePlannedOperandType(
-        operand, decisionAndShape.decision, ttnnMode)));
-
-    OperandGridInfo info;
-    info.operand = operand;
-    // Will be updated after normalization for view operands.
-    info.grid = std::move(decisionAndShape.decision);
-
-    result.operandInfos.push_back(std::move(info));
   }
 
-  result.normalizedOperandGrids = normalizeOperandGridsForGeneric(
-      genericOp, optimalOperandGrids, physicalShapes, targetGridShape, ttnnMode,
-      /*requireCurrentTypeReblockable=*/false, usableL1Bytes);
+  std::optional<GenericGridPlan> plan =
+      isMatmul ? computeMatmulGridPlan(genericOp, perOperandTargetGrids,
+                                       ttnnMode, usableL1Bytes)
+               : computeGenericGridPlan(genericOp, perOperandTargetGrids,
+                                        targetGridShape, ttnnMode,
+                                        allowVirtualGrid, usableL1Bytes);
+  TT_assertv(plan, "GridSelection failed to produce a legal grid plan");
+
+  result.normalizedOperandGrids = plan->normalizedOperandGrids;
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp.getInputsAndOutputs())) {
+    OperandGridInfo info;
+    info.operand = operand;
+    info.grid = plan->operandPlans[operandIndex].decision;
+    result.operandInfos.push_back(std::move(info));
+  }
 
   // Producer rewrites keep their own materialization decisions except when the
   // producer is part of the consuming GenericOp's view semantics. Composite
@@ -820,58 +1107,88 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
     bool isCompositeView =
         info.operand.getDefiningOp<d2m::CompositeViewOp>() != nullptr;
-    bool isToLayout = info.operand.getDefiningOp<d2m::ToLayoutOp>() != nullptr;
     bool isOutputOperand = idx >= genericOp.getInputs().size();
-    GridDecision normalizedGrid = utils::makeGridDecision(
-        result.normalizedOperandGrids[idx], perOperandTargetGrids[idx]);
-    if (!allowVirtualGrid) {
-      // Match main's matmul behavior: normalization adjusts execution grids,
-      // not the full target-grid dim alignments used to materialize operands.
-      normalizedGrid.layoutGrid =
-          llvm::SmallVector<int64_t>(perOperandTargetGrids[idx]);
-    }
-    if (isToLayout && !isOutputOperand && !allowVirtualGrid) {
-      if (ttmlir::utils::volume<int64_t>(normalizedGrid.selectedGrid) >
-              ttmlir::utils::volume<int64_t>(info.grid.selectedGrid) &&
-          canMaterializeOperandGrid(info.operand, normalizedGrid.selectedGrid,
-                                    normalizedGrid.targetGrid, ttnnMode)) {
-        info.grid = normalizedGrid;
+
+    if (isMatmul) {
+      if (view && !view.getReinterpretLayout()) {
+        info.grid = plan->operandPlans[idx].decision;
       }
       continue;
     }
+
     if (!isOutputOperand && !isCompositeView &&
         (!view || view.getReinterpretLayout())) {
       continue;
     }
-    info.grid = normalizedGrid;
+    info.grid = plan->operandPlans[idx].decision;
   }
 
-  // If an operand is a view chain over a ToLayoutOp, compute the producer's
-  // grid from the final operand grid. This keeps producer-side materialization
-  // aligned with the consumer plan, including loop-space normalization.
-  for (OperandGridInfo &info : result.operandInfos) {
-    if (auto toLayoutOp = getSourceToLayoutThroughViews(info.operand)) {
-      if (toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+  if (isMatmul) {
+    for (OperandGridInfo &info : result.operandInfos) {
+      auto viewLayout = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
+      if (!viewLayout) {
         continue;
       }
-      GridDecision sourceGrid =
-          computeGridDecision(toLayoutOp.getResult(0), info.grid.targetGrid,
-                              info.grid.targetGrid, ttnnMode,
-                              /*allowVirtualGrid=*/true)
-              .decision;
-      if (allowVirtualGrid &&
-          ttmlir::utils::volume<int64_t>(sourceGrid.selectedGrid) >
-              ttmlir::utils::volume<int64_t>(info.grid.selectedGrid)) {
-        info.viewSourceGrid = sourceGrid;
+      auto toLayoutOp = viewLayout.getInput().getDefiningOp<d2m::ToLayoutOp>();
+      if (!toLayoutOp ||
+          toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
         continue;
       }
-      if (canMaterializeOperandGrid(toLayoutOp.getResult(0),
-                                    info.grid.selectedGrid,
-                                    info.grid.targetGrid, ttnnMode)) {
-        info.viewSourceGrid = info.grid;
-        continue;
+      auto inputType =
+          mlir::cast<mlir::RankedTensorType>(viewLayout.getInput().getType());
+      llvm::SmallVector<int64_t> inputPhysicalShape =
+          utils::computePhysicalShape(viewLayout.getInput(),
+                                      info.grid.targetGrid, ttnnMode);
+      llvm::SmallVector<int64_t> inputOptimalGrid = utils::computeOptimalGrid(
+          inputType, inputPhysicalShape, info.grid.targetGrid);
+      std::optional<GridDecisionAndShape> sourcePlan =
+          computeDecisionAndShapeForSelectedGrid(
+              viewLayout.getInput(), inputOptimalGrid, info.grid.targetGrid,
+              ttnnMode, /*useTargetGridForLayout=*/true);
+      if (sourcePlan) {
+        info.viewSourceGrid = sourcePlan->decision;
       }
-      info.viewSourceGrid = sourceGrid;
+    }
+  } else {
+    // If an operand is a view chain over a ToLayoutOp, compute the producer's
+    // grid from the final operand grid. This keeps producer-side
+    // materialization aligned with the consumer plan, including loop-space
+    // normalization.
+    for (OperandGridInfo &info : result.operandInfos) {
+      if (auto toLayoutOp = getSourceToLayoutThroughViews(info.operand)) {
+        if (toLayoutOp.getInput()
+                .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+          continue;
+        }
+        auto inputType = mlir::cast<mlir::RankedTensorType>(
+            toLayoutOp.getResult(0).getType());
+        llvm::SmallVector<int64_t> inputPhysicalShape =
+            utils::computePhysicalShape(toLayoutOp.getResult(0),
+                                        info.grid.targetGrid, ttnnMode);
+        llvm::SmallVector<int64_t> inputOptimalGrid = utils::computeOptimalGrid(
+            inputType, inputPhysicalShape, info.grid.targetGrid);
+        std::optional<GridDecisionAndShape> sourcePlan =
+            computeDecisionAndShapeForSelectedGrid(
+                toLayoutOp.getResult(0), inputOptimalGrid, info.grid.targetGrid,
+                ttnnMode,
+                /*useTargetGridForLayout=*/false);
+        if (sourcePlan && allowVirtualGrid &&
+            ttmlir::utils::volume<int64_t>(sourcePlan->decision.selectedGrid) >
+                ttmlir::utils::volume<int64_t>(info.grid.selectedGrid)) {
+          info.viewSourceGrid = sourcePlan->decision;
+          continue;
+        }
+        if (canMaterializeOperandGrid(
+                toLayoutOp.getResult(0), info.grid.selectedGrid,
+                info.grid.targetGrid, ttnnMode,
+                /*useTargetGridForLayout=*/!allowVirtualGrid)) {
+          info.viewSourceGrid = info.grid;
+          continue;
+        }
+        if (sourcePlan) {
+          info.viewSourceGrid = sourcePlan->decision;
+        }
+      }
     }
   }
 

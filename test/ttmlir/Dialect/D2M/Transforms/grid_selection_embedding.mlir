@@ -57,7 +57,7 @@ module {
 
   func.func @embedding_large_table(%indices: tensor<1x128xi32>, %weight: tensor<40960x128xf32>) -> tensor<1x128x128xf32> {
     // AFTER-LABEL: func.func @embedding_large_table
-    // AFTER: d2m.empty() : tensor<8x4x5120x32xf32
+    // AFTER: d2m.empty() : tensor<4x4x10240x32xf32
     // AFTER: d2m.empty() : tensor<4x4x32x32xf32
     // AFTER: %[[GENERIC:.*]] = d2m.generic
     // AFTER-SAME: grid = #ttcore.grid<4x4>

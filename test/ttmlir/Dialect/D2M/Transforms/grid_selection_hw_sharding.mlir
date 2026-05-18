@@ -32,8 +32,8 @@ module attributes {ttcore.device = #any_device_2} {
 
 module attributes {ttcore.device = #any_device_3} {
   func.func @test_width_sharded_sub64(%arg0: tensor<32x1280xf32>) -> tensor<32x1280xf32> {
-    // Physical shape in tiles: 1x40. Block sharding gives 1x8 = 8 cores.
-    // Virtual grid should select 1x40, packed into 5x8 physical grid.
+    // Final physical placement keeps the natural 1x40 tile shape and maps it
+    // onto a 5x8 physical placement.
     // CHECK-LABEL: func.func @test_width_sharded_sub64
     // CHECK: d2m.empty() {{.*}} : tensor<1x40x1x1x!ttcore.tile<32x32, f32>
     // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<1x40,
@@ -48,8 +48,8 @@ module attributes {ttcore.device = #any_device_3} {
 
 module attributes {ttcore.device = #any_device_2} {
   func.func @test_height_sharded_sub64(%arg0: tensor<1536x32xf32>) -> tensor<1536x32xf32> {
-    // Physical shape in tiles: 48x1. Block sharding gives 8x1 = 8 cores.
-    // Virtual grid should select 48x1, packed into 6x8 physical grid.
+    // Final physical placement keeps the natural 48x1 tile shape and maps it
+    // onto a 6x8 physical placement.
     // CHECK-LABEL: func.func @test_height_sharded_sub64
     // CHECK: d2m.empty() {{.*}} : tensor<48x1x1x1x!ttcore.tile<32x32, f32>
     // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<48x1,

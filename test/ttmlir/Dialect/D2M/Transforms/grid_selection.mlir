@@ -31,9 +31,10 @@ module {
     // CHECK-BEFORE-LABEL: func.func @test_update_empty
     // CHECK-BEFORE: d2m.empty() : tensor<1x1x8x8x!ttcore.tile<32x32, f32>
     // CHECK-AFTER-LABEL: func.func @test_update_empty
-    // Output-only DMA generics stay on the minimal 1x1 grid to avoid
-    // unnecessary persistent L1 allocation.
-    // CHECK-AFTER: d2m.empty() : tensor<1x1x8x8x!ttcore.tile<32x32, f32>
+    // Output-only DMA generics use the same fit-first, max-parallel grid
+    // selection as other generics.
+    // CHECK-AFTER: d2m.empty() : tensor<8x8x1x1x!ttcore.tile<32x32, f32>
+    // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>
     %0 = d2m.empty() : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout>
 
     %1 = d2m.generic {
@@ -66,8 +67,8 @@ module {
  module {
    func.func @test_update_empty_drops_stale_vgm() -> (tensor<256x256xf32>) {
      // CHECK-AFTER-LABEL: func.func @test_update_empty_drops_stale_vgm
-     // CHECK-AFTER: d2m.empty() : tensor<1x1x8x8x!ttcore.tile<32x32, f32>
-     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<1x1>
+     // CHECK-AFTER: d2m.empty() : tensor<8x8x1x1x!ttcore.tile<32x32, f32>
+     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>
      %0 = d2m.empty() {virtualGridForwardMapping = #stale_forward, virtualGridInverseMapping = #stale_inverse} : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout_stale_vgm>
 
      %1 = d2m.generic {
@@ -100,10 +101,9 @@ module {
    func.func @test_unaligned_tm(%arg0: tensor<33x2x8xf32>) -> tensor<2x264xf32> {
      // CHECK-AFTER-LABEL: func.func @test_unaligned_tm
      // Verify that after grid selection, the view output and generic use
-     // aligned shapes (no 288) with matching grids.
-     // CHECK-AFTER-NOT: 288
-     // CHECK-AFTER: d2m.view_layout{{.*}} -> tensor<1x1x32x512xf32
-     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<1x1>
+     // aligned shapes with matching grids.
+     // CHECK-AFTER: d2m.view_layout{{.*}} -> tensor<1x16x32x32xf32
+     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<1x16,
      %device_storage = d2m.empty() : tensor<1x1x1x33x32x32xf32, #layout_tm_device_input>
      %device_input = d2m.to_layout %arg0, %device_storage : tensor<33x2x8xf32> into tensor<1x1x1x33x32x32xf32, #layout_tm_device_input> -> tensor<1x1x1x33x32x32xf32, #layout_tm_device_input>
      %view = d2m.view_layout %device_input remapping = affine_map<(d0, d1, d2, d3) -> (0, d0, d1, d3 floordiv 8, d2, d3 mod 8)> : tensor<1x1x1x33x32x32xf32, #layout_tm_device_input> -> tensor<1x1x32x288xf32, #layout_tm_stream_map>
@@ -124,7 +124,7 @@ module {
      // CHECK-AFTER-LABEL: func.func @test_simplified_reblock_map
      // CHECK-AFTER: d2m.to_layout{{.*}} into tensor<2x2x32x32xbf16
      // CHECK-AFTER: d2m.view_layout{{.*}} -> tensor<1x1x64x64xbf16
-     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<1x1>
+     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<2x2>
      %device_storage = d2m.empty() : tensor<1x1x64x64xbf16, #layout_in>
      %device_input = d2m.to_layout %arg0, %device_storage : tensor<64x64xbf16> into tensor<1x1x64x64xbf16, #layout_in> -> tensor<1x1x64x64xbf16, #layout_in>
      %stream = d2m.view_layout %device_input remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2 + 10, d3 + 20)> : tensor<1x1x64x64xbf16, #layout_in> -> tensor<1x1x64x64xbf16, #layout_op>
