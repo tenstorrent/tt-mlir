@@ -4,12 +4,12 @@
 """
 Golden execution for a single TTNN op via CHISEL_GOLDEN_MAPPINGS.
 
-Golden interface: fn(op, inputs: Dict[str, GoldenMapTensor]) -> GoldenMapTensor | tuple.
-The executor normalizes the result to a tuple with one entry per SSA result
+Golden interface: fn(op, inputs: Dict[RoleName, GoldenMapTensor]) -> GoldenMapTensor | tuple.
+The executor normalizes the result to a list with one entry per SSA result
 followed by one entry per provided in-place operand.
 """
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Dict, List
 
 from ttmlir.ir import OpOperandList, Operation, Value
 
@@ -17,6 +17,8 @@ from golden import get_chisel_golden_function, GoldenMapTensor
 
 from .exceptions import GoldenNotImplementedError
 from .ops import (
+    RoleName,
+    SSAName,
     get_flat_inplace_vals,
     get_op_outputs,
     is_tensor_value,
@@ -26,8 +28,8 @@ logger = logging.getLogger("chisel")
 
 
 def build_role_keyed_inputs(
-    op: Operation, ssa_inputs: Dict[str, GoldenMapTensor], asm_state
-) -> Dict[str, object]:
+    op: Operation, ssa_inputs: Dict[SSAName, GoldenMapTensor], asm_state
+) -> Dict[RoleName, object]:
     """Re-key `ssa_inputs` by operand role name (per OpView's OPERAND_NAMES).
 
     Per role: `Value` -> tensor, `OpOperandList` -> list (Variadic), None ->
@@ -44,7 +46,7 @@ def build_role_keyed_inputs(
             return None
         return ssa_inputs[val.get_name(asm_state)]
 
-    role_inputs: Dict[str, object] = {}
+    role_inputs: Dict[RoleName, object] = {}
     for name in operand_names:
         accessor = getattr(op, name, None)
         if accessor is None:
@@ -63,12 +65,12 @@ def build_role_keyed_inputs(
 
 def execute_golden(
     op: Operation,
-    golden_inputs: Dict[str, object],
-) -> Optional[Tuple[GoldenMapTensor, ...]]:
-    """Run the registered golden for `op` and return its outputs as a tuple.
+    golden_inputs: Dict[RoleName, object],
+) -> List[GoldenMapTensor]:
+    """Run the registered golden for `op` and return its outputs as a list.
 
-    Returns None if the golden returns an unsupported type. Raises
-    GoldenNotImplementedError if no golden is registered for `op`.
+    Raises GoldenNotImplementedError if no golden is registered for `op`, or
+    TypeError if the golden returns an unsupported result type.
     """
     golden_fn = get_chisel_golden_function(type(op))
     if golden_fn is None:
@@ -77,18 +79,16 @@ def execute_golden(
     result = golden_fn(op, golden_inputs)
 
     if isinstance(result, GoldenMapTensor):
-        tensors: Tuple[GoldenMapTensor, ...] = (result,)
+        tensors: List[GoldenMapTensor] = [result]
     elif isinstance(result, (list, tuple)) and all(
         isinstance(t, GoldenMapTensor) for t in result
     ):
-        tensors = tuple(result)
+        tensors = list(result)
     else:
-        msg = (
+        raise TypeError(
             f"Golden for {type(op).__name__} returned unsupported type "
             f"{type(result).__name__}"
         )
-        logger.error(f"{op.name}: golden error ({msg})")
-        return None
 
     ssa_count = len(get_op_outputs(op))
     inplace_vals = get_flat_inplace_vals(op)
