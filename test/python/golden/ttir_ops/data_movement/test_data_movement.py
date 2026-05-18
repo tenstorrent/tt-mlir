@@ -581,7 +581,9 @@ def test_cpu_hoistable_transpose_op(
     ],
     ids=["i32-f32", "f32-i32", "bf16-f32", "f32-bf16"],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "ttmetal"]
+)
 def test_typecast(
     shape: Shape,
     from_type: torch.dtype,

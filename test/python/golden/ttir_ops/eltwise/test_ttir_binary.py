@@ -173,8 +173,8 @@ binary_ops = [
     div,
     gelu_backward,
     gelu_backward_tanh,
-    maximum | SkipIf("sim"),
-    minimum | SkipIf("sim"),
+    maximum,
+    minimum,
     multiply,
     pow,
     remainder,
@@ -188,12 +188,28 @@ binary_ops = [
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.int64
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32", "i64"],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "ttmetal"]
+)
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -270,13 +286,29 @@ def create_logical_op_goldens(
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
-        torch.bool | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.int64
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.bool,
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "ttmetal"]
+)
 @pytest.mark.parametrize("test_fn", logical_ops)
 def test_logical_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -509,7 +541,9 @@ binary_comparison_ops = [
     ],
     ids=["f32", "bf16", "i32", "i64", "i1", "u8"],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "ttmetal"]
+)
 @pytest.mark.parametrize("test_fn", binary_comparison_ops)
 def test_comparison_ops(
     test_fn: Callable,

@@ -148,6 +148,7 @@ jobs:
           export TT_METAL_INSPECTOR="0"
           export TT_METAL_INSPECTOR_RPC="0"
           export TT_METAL_DISABLE_SFPLOADMACRO="1"
+          pip install pytest-xdist
           mkdir -p test_reports
 
           pytest -ssv \
@@ -161,8 +162,11 @@ jobs:
             test/python/golden/d2m/test_tilize.py \
             test/python/golden/d2m/test_tms.py \
             test/python/golden/d2m/test_eltwise_fusion.py \
+            test/python/golden/ttir_ops/data_movement/test_data_movement.py \
+            test/python/golden/ttir_ops/eltwise/test_ttir_binary.py \
             --sys-desc "$SYSTEM_DESC_PATH" \
-            --junit-xml "test_reports/ttsim_all_${{ matrix.arch }}.xml"
+            --junit-xml "test_reports/ttsim_all_${{ matrix.arch }}.xml" \
+            -n 4
 
       - name: Upload TTSim test report xml
         if: success() || failure()
