@@ -126,6 +126,13 @@ public:
       return;
     }
 
+    // Only propagate through mesh_shard since it is the only dtype-transparent 
+    // op expected between a kv_cache block argument and a write op in TP 
+    // models.
+    if (!mlir::isa<MeshShardOp>(value.getDefiningOp())) {
+      return;
+    }
+
     mlir::Type originalElemType = tensorType.getElementType();
     for (Value operand : value.getDefiningOp()->getOperands()) {
       auto operandType = mlir::dyn_cast<RankedTensorType>(operand.getType());
