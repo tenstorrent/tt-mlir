@@ -5296,24 +5296,6 @@ DropoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// MeshShardOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-MeshShardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                              const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
-
-llvm::Expected<size_t>
-MeshShardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                          const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
-
-//===----------------------------------------------------------------------===//
 // GenericOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
