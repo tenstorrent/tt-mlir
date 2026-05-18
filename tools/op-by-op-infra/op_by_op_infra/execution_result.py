@@ -9,8 +9,6 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from ttrt.common.util import Binary
-
 from .pydantic_models import OpTest, TensorDesc
 from .utils import ModuleWrapper
 
@@ -38,11 +36,11 @@ class ExecutionResult:
     execution_phase: ExecutionPhase
     # Last module generated during compilation.
     last_generated_module: ModuleWrapper
-    # Flatbuffer generated from TTNN module.
+    # Path to flatbuffer generated from TTNN module.
     # None if execution_phase < GENERATED_FLATBUFFER.
-    flatbuffer: Optional[Binary] = None
+    flatbuffer_path: Optional[str] = None
     # Flag indicating successful run on device.
-    # False if execution_phase < EXECUTED_FLATBUFFER or ttrt run returned code != 0.
+    # False if execution_phase < EXECUTED_FLATBUFFER or device run returned non-zero.
     device_run_passed: bool = False
     # Error message from the step that failed. None if all steps succeeded.
     error_message: Optional[str] = None
@@ -67,7 +65,7 @@ class ExecutionResult:
         """Returns True if flatbuffer was successfully produced from TTNN module."""
         return (
             self.execution_phase == ExecutionPhase.GENERATED_FLATBUFFER
-            and self.flatbuffer is not None
+            and self.flatbuffer_path is not None
         )
 
     @property
