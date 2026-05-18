@@ -663,7 +663,7 @@ def test_distributed_layer_norm(
 
 
 @pytest.mark.parametrize("num_groups", [8, 32])
-@pytest.mark.parametrize("shape", [(1, 8, 8, 480), (2, 32, 32, 320)])
+@pytest.mark.parametrize("shape", [(1, 8, 8, 480), (2, 32, 32, 320), (8, 32, 32, 128)])
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
 @pytest.mark.parametrize(
@@ -724,4 +724,7 @@ def test_group_norm(
         **get_request_kwargs(request),
         device=device,
         target=target,
+        pipeline_options=["enable-ttnn-decomposition-pass=false"]
+        if shape != (8, 32, 32, 128)
+        else None,
     )
