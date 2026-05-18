@@ -141,6 +141,29 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
   auto result =
       op_constraint_validation::validateOperation(op, inputLayouts, hint);
   if (result.isSuccess()) {
+    // Bisection: reject candidates whose backend-captured output layout is
+    // sharded for ops listed in TT_NO_SHARD_OPS. The captured layout (what
+    // ends up in the IR) is what we actually care about, not the hint.
+    if (shouldDisableShardedForOp(op)) {
+      TTNNLayoutAttr actualLayout = result.getFirstActualOutputLayout();
+      if (actualLayout) {
+        auto memLayout = actualLayout.getMemLayout();
+        if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+          TTMLIR_TRACE(
+              ttmlir::LogComponent::GreedyOptimizer,
+              "    REJECTED candidate for {0} (TT_NO_SHARD_OPS): "
+              "captured layout is sharded",
+              op->getName());
+          observer->onEvaluation(op, hint, hintIdx, inputLayouts,
+                                 /*valid=*/false,
+                                 /*candidate=*/nullptr,
+                                 /*failureReason=*/
+                                 "TT_NO_SHARD_OPS: rejected sharded output");
+          return std::nullopt;
+        }
+      }
+    }
+
     BeamCandidate candidate;
     candidate.configHint =
         OpConfig(result.getFirstActualOutputLayout(), hint.opSpecificAttrs);

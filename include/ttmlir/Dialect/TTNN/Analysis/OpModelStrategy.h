@@ -47,6 +47,11 @@ OutputHints getOutputHints(Operation *op,
 /// Returns false for ops that must always be DRAM (e.g., reshape, permute).
 bool shouldExploreReshards(Operation *op);
 
+/// Bisection helper: returns true if env var TT_NO_SHARD_OPS contains the
+/// op's name (comma-separated). Used by the optimizer to drop sharded output
+/// candidates for specific op types, forcing them to DRAM-interleaved.
+bool shouldDisableShardedForOp(Operation *op);
+
 //--- Scoring ---
 
 /// Score representing the quality of a layout candidate. Used for ranking.

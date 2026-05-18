@@ -33,6 +33,23 @@ static bool isL1Interleaved(const OpConfig &config) {
          memLayout.getValue() == TensorMemoryLayout::Interleaved;
 }
 
+static bool isSharded(const OpConfig &config) {
+  if (!config.outputLayout) {
+    return false;
+  }
+  auto memLayout = config.outputLayout.getMemLayout();
+  return memLayout && isShardedMemoryLayout(memLayout.getValue());
+}
+
+static bool hasMatmulProgramConfig(const OpConfig &config) {
+  if (const auto *attrs =
+          std::get_if<MatmulAttrs>(&config.opSpecificAttrs)) {
+    return attrs->matmulProgramConfig.has_value() &&
+           attrs->matmulProgramConfig.value();
+  }
+  return false;
+}
+
 OutputHints MatmulRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
   // Use partial configs: deduplicate by (bufferType, memLayout),
@@ -59,6 +76,24 @@ OutputHints MatmulRuleBook::getOutputHints(
   std::vector<OpConfig> filtered;
   for (const auto &cfg : partialConfigs) {
     if (isL1Interleaved(cfg)) {
+      continue;
+    }
+    // Skip sharded outputs when no MatmulProgramConfig is available.
+    //
+    // Without a program config, tt-metal's runtime auto-picker
+    // (create_simple_matmul_program_config) is non-idempotent: at compile
+    // time, validation invokes the autopicker which may emit a captured
+    // output spec on grid G1 (e.g. 5x6), which we adopt into the IR. At
+    // runtime, the matmul is re-invoked with that adopted G1 spec, the
+    // autopicker re-runs against G1 and can pick a different mcast path
+    // / per_core_M/N pair, producing a new grid G2 (e.g. 12x9 = 108 cores)
+    // and triggering bank_manager num_shards > num_compute_banks FATAL.
+    //
+    // generateMatmulProgramConfig() returns nullopt for batched matmuls
+    // (in1 batch > 1, see MatmulProgramConfig.cpp), so for those we never
+    // attach a program config — falling back to DRAM-interleaved output
+    // here avoids the autopicker fixed-point divergence entirely.
+    if (isSharded(cfg) && !hasMatmulProgramConfig(cfg)) {
       continue;
     }
     filtered.push_back(cfg);
