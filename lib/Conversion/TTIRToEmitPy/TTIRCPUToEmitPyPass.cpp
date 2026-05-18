@@ -755,8 +755,7 @@ public:
     if (denseAttr.isSplat()) {
       if (isa<FloatType>(elemType)) {
         b.addKwarg("fill_value",
-                   std::to_string(
-                       denseAttr.getSplatValue<APFloat>().convertToDouble()));
+                   formatAPFloat(denseAttr.getSplatValue<APFloat>()));
       } else {
         b.addKwarg(
             "fill_value",
@@ -772,7 +771,7 @@ public:
           if (!first) {
             os << ", ";
           }
-          os << v.convertToDouble();
+          os << formatAPFloat(v);
           first = false;
         }
       } else {
