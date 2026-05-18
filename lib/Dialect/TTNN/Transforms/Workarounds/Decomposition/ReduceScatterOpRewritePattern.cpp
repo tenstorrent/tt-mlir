@@ -51,8 +51,8 @@ TTNNReduceScatterWorkarounds::matchAndRewrite(ttnn::ReduceScatterOp op,
       ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedInputShape);
   auto reshapeInput = rewriter.create<ttnn::ReshapeOp>(
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape_to_4d"),
-      reshapeInputType, op.getInput(), rewriter.getI32ArrayAttr(paddedShapeI32),
-      ttnn::MemoryConfigAttr());
+      reshapeInputType, op.getInput(),
+      rewriter.getI32ArrayAttr(paddedShapeI32));
 
   // Create 4D output tensor type
   RankedTensorType paddedOutputType =
@@ -65,7 +65,7 @@ TTNNReduceScatterWorkarounds::matchAndRewrite(ttnn::ReduceScatterOp op,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reduce_scatter_4d"),
       paddedOutputType, reshapeInput.getResult(), op.getReduceType(),
       adjustedScatterDim, op.getClusterAxis(),
-      /*sub_device_id=*/nullptr, /*memory_config=*/nullptr,
+      /*sub_device_id=*/nullptr,
       /*num_links=*/nullptr, /*topology=*/nullptr,
       /*compute_config=*/op.getComputeConfigAttr());
 
@@ -73,7 +73,7 @@ TTNNReduceScatterWorkarounds::matchAndRewrite(ttnn::ReduceScatterOp op,
   SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
   rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
       op, outputType, reduceScatter4D.getResult(),
-      rewriter.getI32ArrayAttr(outputShapeI32), ttnn::MemoryConfigAttr());
+      rewriter.getI32ArrayAttr(outputShapeI32));
 
   return success();
 }

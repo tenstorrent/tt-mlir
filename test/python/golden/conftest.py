@@ -484,6 +484,8 @@ def get_board_id(system_desc) -> str:
     num_chips = len(system_desc["chip_desc_indices"])
 
     match arch, num_chips:
+        case "Quasar", 1:
+            return "qsremu"
         case "Blackhole", 1:
             return "p150"
         case "Blackhole", 2:

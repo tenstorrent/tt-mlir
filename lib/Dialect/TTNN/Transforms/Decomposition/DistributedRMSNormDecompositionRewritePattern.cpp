@@ -54,8 +54,7 @@ mlir::Value reshapeTo(PatternRewriter &rewriter, Location loc, mlir::Value v,
   SmallVector<int32_t> targetShapeI32(targetShape.begin(), targetShape.end());
   return rewriter
       .create<ttnn::ReshapeOp>(loc, targetType, v,
-                               rewriter.getI32ArrayAttr(targetShapeI32),
-                               ttnn::MemoryConfigAttr())
+                               rewriter.getI32ArrayAttr(targetShapeI32))
       .getResult();
 }
 
@@ -96,8 +95,8 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
     auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
         loc, canonicalResultType, reshapedInput, op.getWeight(),
         reshapedResidual, op.getStats(), op.getDevice(), op.getClusterAxis(),
-        op.getEpsilon(), op.getSubDeviceIdAttr(), op.getMemoryConfigAttr(),
-        op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
+        op.getEpsilon(), op.getSubDeviceIdAttr(), op.getNumLinksAttr(),
+        op.getTopologyAttr(), op.getComputeConfigAttr(),
         op.getProgramConfigAttr());
 
     mlir::Value reshapedResult =
@@ -172,7 +171,6 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       /*all_gather_dim=*/static_cast<int32_t>(rank - 1),
       /*cluster_axis=*/clusterAxis,
       /*sub_device_id=*/nullptr,
-      /*memory_config=*/nullptr,
       /*num_links=*/op.getNumLinksAttr(),
       /*topology=*/op.getTopologyAttr());
 

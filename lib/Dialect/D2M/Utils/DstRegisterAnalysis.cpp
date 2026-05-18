@@ -138,8 +138,8 @@ getLargestCommonNumOuterLoopIters(ArrayRef<int64_t> numDstFlipsPerOp) {
 
   // Pick the largest legal factor so the common outer loop iteration count is
   // maximized.
-  for (int64_t factor :
-       llvm::reverse(ttmlir::utils::getFactors(gcdNumDstFlips))) {
+  const auto factors = ttmlir::utils::getFactors(gcdNumDstFlips);
+  for (int64_t factor : llvm::reverse(factors)) {
     if (factor <= maxCandidate) {
       return factor;
     }
@@ -217,7 +217,8 @@ trySharedParallelChunking(d2m::GenericOp /*generic*/,
 
   // Try R values from largest valid factor down. R must be a proper factor
   // (< commonRowDim) and >= 2 so that per-iteration shards remain multi-tile.
-  for (int64_t R : llvm::reverse(ttmlir::utils::getFactors(commonRowDim))) {
+  const auto rowFactors = ttmlir::utils::getFactors(commonRowDim);
+  for (int64_t R : llvm::reverse(rowFactors)) {
     if (R >= commonRowDim || R < 2) {
       continue;
     }

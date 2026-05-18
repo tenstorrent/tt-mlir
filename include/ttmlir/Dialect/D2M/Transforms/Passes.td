@@ -581,16 +581,32 @@ def D2MGenericApplyInterchange : Pass<"d2m-generic-apply-interchange", "::mlir::
   ];
 }
 
-defvar D2MStreamingOptions = [
+defvar D2MNumStreamBuffersOption = [
   Option<"numStreamBuffers",
          "num-stream-buffers",
          "unsigned", /*default=*/"2",
-         "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
-  Option<"allowL1OutputSpilling",
-         "allow-l1-output-spilling",
-         "bool", /*default=*/"false",
-         "Make generic outputs eligible for spilling from L1 to DRAM.">,
+         "Number of backing buffers to allocate per stream storage (>=1). Default is 2.">,
 ];
+
+def D2MMarkSynchronizedBuffers : Pass<"d2m-mark-synchronized-buffers", "::mlir::ModuleOp"> {
+  let summary = "Mark in-generic allocs that require synchronization with d2m.synchronized_buffer attribute.";
+  let description = [{
+    This pass runs after bufferization and marks `memref.alloc` operations inside
+    `d2m.generic` ops that are used for synchronization (i.e., circular buffers)
+    with the `d2m.synchronized_buffer` attribute. The attribute value indicates
+    the number of stream buffers to allocate.
+
+    This information is used by the HoistCBAllocs pass to properly configure
+    the CBLayoutAttr for these buffers.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+
+  let options = D2MNumStreamBuffersOption;
+}
 
 def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
@@ -635,7 +651,11 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
     ```
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
-  let options = D2MStreamingOptions # [
+  let options = D2MNumStreamBuffersOption # [
+    Option<"allowL1OutputSpilling",
+          "allow-l1-output-spilling",
+          "bool", /*default=*/"false",
+          "Make generic outputs eligible for spilling from L1 to DRAM.">,
     Option<"streamInsertPolicy",
           "stream-insert-policy",
           "std::string", /*default=*/"\"infer\"",
@@ -835,12 +855,7 @@ def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
     "::mlir::arith::ArithDialect",
     "::mlir::scf::SCFDialect"
   ];
-  let options = [
-    Option<"numStreamBuffers",
-           "num-stream-buffers",
-           "unsigned", /*default=*/"2",
-           "Number of backing buffers to allocate for mask scratch CBs.">
-  ];
+  let options = D2MNumStreamBuffersOption;
 }
 
 def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {

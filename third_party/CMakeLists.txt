@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "d5a16537336229bee54fd4a6d8bd54c492abc7d1")
+set(TT_METAL_VERSION "58959914b35566efc8079a02add5428478adb30c")
 
 set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
     "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
@@ -70,15 +70,12 @@ set(TTMETAL_INCLUDE_DIRS
   ${TTMETAL_SOURCE_DIR}
   ${TTMETAL_SOURCE_DIR}/tt_metal
   ${TTMETAL_SOURCE_DIR}/tt_metal/api
-  ${TTMETAL_SOURCE_DIR}/tt_metal/include
   ${TTMETAL_SOURCE_DIR}/tt_metal/hostdevcommon/api
   ${TTMETAL_SOURCE_DIR}/tt_metal/third_party/umd
   ${TTMETAL_SOURCE_DIR}/tt_metal/third_party/umd/device/api
   ${TTMETAL_SOURCE_DIR}/tt_metal/hw/inc
-  ${TTMETAL_SOURCE_DIR}/tt_metal/third_party/taskflow
   ${TTMETAL_SOURCE_DIR}/tt_stl
   ${TTMETAL_SOURCE_DIR}/tt_stl/tt_stl
-  ${TTMETAL_SOURCE_DIR}/tt_eager
   ${TTMETAL_BUILD_SYMLINK}/include
   ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
   ${CPM_SOURCE_CACHE}/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
@@ -229,7 +226,7 @@ install(
 )
 
 # `tt_metal` directory is installed with two commands, since we need special handling of `third_party` directory.
-# We only need `tt_llk" and `umd` files from `third_party` directory.
+# We only need `umd` files from `third_party` directory.
 install(
   DIRECTORY
     ${TTMETAL_SOURCE_DIR}/tt_metal
@@ -247,9 +244,6 @@ install(
   COMPONENT SharedLib
   EXCLUDE_FROM_ALL
   FILES_MATCHING
-  REGEX "third_party/tt_llk/tt_llk_blackhole/"
-  REGEX "third_party/tt_llk/tt_llk_wormhole_b0/"
-  REGEX "third_party/tt_llk/common"
   REGEX "third_party/umd/"
 )
 

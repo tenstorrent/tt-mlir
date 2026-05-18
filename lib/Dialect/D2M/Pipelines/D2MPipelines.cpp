@@ -151,6 +151,11 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   { decomposeMaskingOptions.numStreamBuffers = options.numStreamBuffers; }
   pm.addPass(d2m::createD2MDecomposeMasking(decomposeMaskingOptions));
 
+  // Run right before allocate to mark synchronized buffers
+  d2m::D2MMarkSynchronizedBuffersOptions markSyncBuffersOptions;
+  { markSyncBuffersOptions.numStreamBuffers = options.numStreamBuffers; }
+  pm.addPass(d2m::createD2MMarkSynchronizedBuffers(markSyncBuffersOptions));
+
   d2m::D2MAllocateOptions allocateOptions;
   {
     allocateOptions.numStreamBuffers = options.numStreamBuffers;

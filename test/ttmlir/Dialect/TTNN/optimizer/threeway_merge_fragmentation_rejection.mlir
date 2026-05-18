@@ -68,6 +68,5 @@ module attributes {} {
 //
 // CHECK: ttnn.matmul
 // CHECK: ttnn.to_memory_config
-// CHECK-SAME: #ttnn.memory_config<#dram
 // CHECK: ttnn.matmul
 // CHECK: ttnn.multiply

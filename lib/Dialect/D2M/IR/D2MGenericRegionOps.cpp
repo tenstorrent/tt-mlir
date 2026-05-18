@@ -203,11 +203,10 @@ static constexpr int64_t kIndexedRowCopyScratchPageElements = 1024;
 static MemRefType createIndexedRowCopyScratchType(MLIRContext *ctx,
                                                   ArrayRef<int64_t> shape,
                                                   Type elementType) {
-  auto cbLayout =
-      mlir::tt::ttcore::CBLayoutAttr::get(shape, elementType, /*buffers=*/1);
   auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
       ctx, mlir::tt::ttcore::MemorySpace::DeviceL1);
-  return MemRefType::get(shape, elementType, cbLayout, l1MemorySpace);
+  return MemRefType::get(shape, elementType, MemRefLayoutAttrInterface{},
+                         l1MemorySpace);
 }
 
 static bool isSupportedIndexedRowCopyElementType(Type type) {
@@ -363,7 +362,9 @@ getBufferIfTensor(Value value, RewriterBase &rewriter,
 
 static Value createEmbeddingScratch(EmbeddingOp op, MemRefType scratchType,
                                     RewriterBase &rewriter) {
-  return rewriter.create<memref::AllocOp>(op.getLoc(), scratchType).getResult();
+  auto allocOp = rewriter.create<memref::AllocOp>(op.getLoc(), scratchType);
+  allocOp->setAttr("d2m.synchronized_buffer", rewriter.getI32IntegerAttr(1));
+  return allocOp.getResult();
 }
 
 mlir::LogicalResult
@@ -1795,11 +1796,8 @@ mlir::LogicalResult TileTilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), out.getType(), in,
-                                                    out);
-  // DPS-style op: replace uses of result with the output buffer, not the new
-  // op's result. This ensures downstream ops correctly use the original buffer
-  // allocation.
+  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), mlir::TypeRange{},
+                                                    in, out);
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();
@@ -1861,7 +1859,7 @@ mlir::LogicalResult TileTilizeBlockOp::verify() {
   }
 
   // Verify result type matches output type (DPS style)
-  if (getResult().getType() != getOutput().getType()) {
+  if (getResult() && getResult().getType() != getOutput().getType()) {
     return emitOpError("result type must match output parameter type");
   }
 
@@ -1904,11 +1902,8 @@ mlir::LogicalResult TileUntilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(getLoc(), out.getType(),
-                                                      in, out);
-  // DPS-style op: replace uses of result with the output buffer, not the new
-  // op's result. This ensures downstream ops correctly use the original buffer
-  // allocation.
+  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(
+      getLoc(), mlir::TypeRange{}, in, out);
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();
@@ -1959,7 +1954,7 @@ mlir::LogicalResult TileUntilizeBlockOp::verify() {
   }
 
   // Verify result type matches output type (DPS style)
-  if (getResult().getType() != getOutput().getType()) {
+  if (getResult() && getResult().getType() != getOutput().getType()) {
     return emitOpError("result type must match output parameter type");
   }
 

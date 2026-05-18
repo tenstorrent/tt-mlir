@@ -264,11 +264,8 @@ private:
                                                  layoutAttr.getDataType());
       auto tensorLayoutAttr =
           LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
-      auto memoryConfigAttr = MemoryConfigAttr::get(layoutAttr);
-
       auto emptyOp = rewriter.create<EmptyOp>(
-          loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr,
-          memoryConfigAttr);
+          loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr);
       outputBuffers.push_back(emptyOp.getResult());
       lastEmptyOp = emptyOp.getOperation();
     }

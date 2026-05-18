@@ -214,7 +214,9 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
                        clEnumValN(ttcore::Arch::Blackhole, "blackhole",
-                                  "Use mock blackhole system desc.")),
+                                  "Use mock blackhole system desc."),
+                       clEnumValN(ttcore::Arch::Quasar, "quasar",
+                                  "Use mock quasar system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   // Option to override maximum number of sharded layouts to be generated

@@ -63,8 +63,7 @@ ScaledDotProductAttentionDecodeAttentionSinkRewritePattern::matchAndRewrite(
           .create<ReshapeOp>(
               loc, reshapedType, sink,
               rewriter.getI32ArrayAttr(
-                  {static_cast<int32_t>(numHeads), static_cast<int32_t>(1)}),
-              /*memory_config=*/MemoryConfigAttr())
+                  {static_cast<int32_t>(numHeads), static_cast<int32_t>(1)}))
           .getResult();
 
   // Pad last dim from 1 to TILE_WIDTH: [num_heads, 1] -> [num_heads, 32].
@@ -77,15 +76,14 @@ ScaledDotProductAttentionDecodeAttentionSinkRewritePattern::matchAndRewrite(
           .create<PadOp>(loc, paddedType, reshapedSink,
                          rewriter.getDenseI32ArrayAttr(padding),
                          rewriter.getF32FloatAttr(0.0f),
-                         /*use_multicore=*/rewriter.getBoolAttr(true),
-                         /*memory_config=*/nullptr)
+                         /*use_multicore=*/rewriter.getBoolAttr(true))
           .getResult();
 
   rewriter.replaceOpWithNewOp<ScaledDotProductAttentionDecodeOp>(
       srcOp, srcOp.getResult().getType(), srcOp.getQuery(), srcOp.getKey(),
       srcOp.getValue(), srcOp.getIsCausal(), srcOp.getAttentionMask(),
       srcOp.getCurPosTensor(), paddedSink, srcOp.getScaleAttr(),
-      srcOp.getMemoryConfigAttr(), srcOp.getProgramConfigAttr());
+      srcOp.getProgramConfigAttr());
 
   return success();
 }

@@ -99,7 +99,7 @@ module {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // Move single tile from DRAM to L1
-    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
+    %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
 
     // Allocate single tile in L1 for result
     %2 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #l1_memory_config, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
@@ -107,7 +107,7 @@ module {
     "ttnn.generic"(%1, %2) <{program = #program, operandSegmentSizes = array<i32: 2, 0>}> : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> ()
 
     // Move single tile from L1 to DRAM
-    %3 = "ttnn.to_memory_config"(%2) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
+    %3 = "ttnn.to_memory_config"(%2) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 
     return %3 : tensor<32x32xf32, #dram_layout>
   }
@@ -118,7 +118,7 @@ module {
     %zero = "emitc.constant"() <{value = 0 : i32}> : () -> i32
     %2 = emitc.call_opaque "get_common_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
     %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
     %4 = emitc.literal "my_x[noc_index]" : !emitc.size_t
     %5 = emitc.literal "my_y[noc_index]" : !emitc.size_t
 
@@ -136,9 +136,9 @@ module {
     %1 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
 
     %2 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %2 : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %2 : !emitc.opaque<"::tt::CB">
     %3 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-    emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %3 : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %3 : !emitc.opaque<"::tt::CB">
 
     // Move single tile from CB to register
     emitc.verbatim "cb_ctarg_1.reserve_back({});" args %0 : i32
@@ -169,7 +169,7 @@ module {
     %zero = "emitc.constant"() <{value = 0 : i32}> : () -> i32
     %2 = emitc.call_opaque "get_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
     %3 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-    emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
+    emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %3 : !emitc.opaque<"::tt::CB">
     %4 = emitc.literal "my_x[noc_index]" : !emitc.size_t
     %5 = emitc.literal "my_y[noc_index]" : !emitc.size_t
 

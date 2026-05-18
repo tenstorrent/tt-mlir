@@ -13,7 +13,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
@@ -219,48 +218,21 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       dtypeOp.setDtypeAttr(updatedDataTypeAttr);
     }
 
-    TTNNMemoryConfigOpInterface memoryConfigOp =
-        mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op.getOperation());
-    if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
-         outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
-        memoryConfigOp) {
-
-      MemoryConfigAttr currentMemoryConfig =
-          memoryConfigOp.getMemoryConfigAttr();
-
-      MemoryConfigAttr updatedMemoryConfig =
-          MemoryConfigAttr::Builder(currentMemoryConfig)
-              .setBufferType(
-                  outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-              .setTensorMemoryLayout(
-                  outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
-
-      // Update the changed memory config attribute.
-      memoryConfigOp.setMemoryConfigAttr(updatedMemoryConfig);
-
-      TTNNDeviceOperandInterface deviceOperandOp =
-          mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());
-
-      // If the target value for buffer type is SystemMemory, we need to remove
-      // the device operand from the operation.
-      if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
-          outputWorkaroundResults.tensorBufferTypeResult.targetValue ==
-              BufferType::SystemMemory &&
-          deviceOperandOp) {
-        // Remove the device operand from the operation.
+    // The buffer type / memory layout changes are already encoded in the
+    // result tensor's TTNNLayoutAttr (set above).
+    TTNNDeviceOperandInterface deviceOperandOp =
+        mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());
+    if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
+        deviceOperandOp) {
+      BufferType targetBufferType =
+          outputWorkaroundResults.tensorBufferTypeResult.targetValue;
+      if (targetBufferType == BufferType::SystemMemory) {
+        // Moving to host: drop the device operand.
         deviceOperandOp.setDevice(nullptr);
-      }
-
-      // If the target value for buffer type is not SystemMemory and the
-      // operation has a required device operand, we need to set the device
-      // operand to a default device if it is not already set.
-      if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
-          outputWorkaroundResults.tensorBufferTypeResult.targetValue !=
-              BufferType::SystemMemory &&
-          deviceOperandOp && !deviceOperandOp.getDevice()) {
-        // Set the device operand to a default device.
-        Value device = utils::getOrInsertDevice(rewriter, op);
-        deviceOperandOp.setDevice(device);
+      } else if (!deviceOperandOp.getDevice()) {
+        // Moving to a device buffer type and no device operand is set yet:
+        // attach a default one.
+        deviceOperandOp.setDevice(utils::getOrInsertDevice(rewriter, op));
       }
     }
   });
@@ -449,8 +421,7 @@ public:
       reduceScatterInput = rewriter.create<ttnn::PadOp>(
           ttmlir::utils::appendLocationSuffix(loc, "_pad_for_reduce_scatter"),
           paddedType, op.getInput(), padding, /*pad_value=*/mlir::APFloat(0.0f),
-          /*use_multicore=*/false,
-          /*memory_config=*/nullptr);
+          /*use_multicore=*/false);
       reduceScatterInputType = paddedType;
     }
 
@@ -472,8 +443,7 @@ public:
         rewriter.create<ttnn::ReduceScatterOp>(
             ttmlir::utils::appendLocationSuffix(loc, "_reduce_scatter"),
             reduceScatterOutputType, reduceScatterInput, op.getReduceType(),
-            selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr,
-            nullptr);
+            selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr);
 
     // all_gather restores the reduce_scatter input shape.
     auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
@@ -481,8 +451,8 @@ public:
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
         allGatherOutputType, reduceScatterOp.getResult(), selectedDim,
-        clusterAxis, nullptr /*sub_device_id*/, nullptr /*memory_config*/,
-        nullptr /*num_links*/, nullptr /*topology*/);
+        clusterAxis, nullptr /*sub_device_id*/, nullptr /*num_links*/,
+        nullptr /*topology*/);
 
     // If padding was added, crop back to the original shape.
     if (reduceScatterInputType.getShape() != inputType.getShape()) {
@@ -525,8 +495,7 @@ private:
 
     ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedInputType,
-        op.getInput(), reshapedInputShapeAttr,
-        /* memory_config */ nullptr);
+        op.getInput(), reshapedInputShapeAttr);
 
     // Create a new all gather op.
     expandedInputShape[0] = meshShape[clusterAxis];
@@ -536,8 +505,7 @@ private:
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
         allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
-        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
-        nullptr /*num_links*/, nullptr /*topology*/);
+        nullptr /*sub_device_id*/, nullptr /*num_links*/, nullptr /*topology*/);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
@@ -630,8 +598,7 @@ public:
     // %raw = ttnn.gather(input, %safe_u32, dim)
     auto rawGather = rewriter.create<ttnn::GatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_safe_gather"), outputType,
-        op.getInput(), safeIdxU32.getResult(), op.getDimAttr(),
-        op.getMemoryConfigAttr());
+        op.getInput(), safeIdxU32.getResult(), op.getDimAttr());
 
     //   - float => NaN
     //   - int   => int32_min (for unsigned this makes a large positive number,
@@ -687,7 +654,6 @@ public:
           workarounds::decomposition::
               Conv2dEnableKernelStrideFoldingRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::PadHighDimRewritePattern,
-          workarounds::decomposition::ConcatenateHeadsOpRewritePattern,
           workarounds::decomposition::NLPConcatHeadsDecodeInputRewritePattern,
           workarounds::decomposition::
               SplitQueryKeyValueAndSplitHeadsOpRewritePattern,

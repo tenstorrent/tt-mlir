@@ -288,6 +288,7 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
     class Builder;
     static MemoryConfigAttr get(::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec);
     static MemoryConfigAttr get(ttnn::TTNNLayoutAttr layout);
+    static MemoryConfigAttr get(ttnn::TTNNNDLayoutAttr layout);
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
   }];
 
