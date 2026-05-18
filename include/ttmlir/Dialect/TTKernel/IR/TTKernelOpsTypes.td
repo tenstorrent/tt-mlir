@@ -88,11 +88,11 @@ def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
       static ::llvm::LogicalResult verify(
           ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
           unsigned elementWidth) {
-        if (elementWidth == 16 || elementWidth == 32) {
+        if (elementWidth == 8 || elementWidth == 16 || elementWidth == 32) {
           return ::mlir::success();
         }
         emitError() << "unsupported l1_addr_ptr element width " << elementWidth
-                    << "; expected 16 or 32";
+                    << "; expected 8, 16, or 32";
         return ::mlir::failure();
       }
     }];

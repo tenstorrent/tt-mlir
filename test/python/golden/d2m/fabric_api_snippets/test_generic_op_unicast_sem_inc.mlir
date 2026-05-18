@@ -89,7 +89,7 @@ module attributes {} {
     // Get noc address
     %global_semaphore_arg_idx = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
     %global_semaphore = emitc.call_opaque "get_common_arg_val"(%global_semaphore_arg_idx) {template_args = [#emitc.opaque<"uint32_t">]} : (!emitc.size_t) -> i32
-    %global_semaphore_ptr = emitc.call_opaque "reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%global_semaphore) : (i32) -> !emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>
+    %global_semaphore_ptr = emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint32_t*>"(%global_semaphore) : (i32) -> !emitc.ptr<!emitc.opaque<"tt_l1_ptr uint32_t">>
     %global_semaphore_noc_addr = emitc.call_opaque "get_noc_addr"(%translated_x, %translated_y, %global_semaphore) : (!emitc.size_t, !emitc.size_t, i32) -> i64
     %incr = "emitc.constant"() <{value = 1 : i32}> : () -> i32
 
@@ -104,7 +104,7 @@ module attributes {} {
 
     %is_dst_device = emitc.cmp eq, %my_device_id, %dst_dev_id : (i16, i16) -> i1
     emitc.if %is_dst_device {
-      emitc.call_opaque "experimental::semaphore_wait"(%global_semaphore_ptr, %incr) : (!emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>, i32) -> ()
+      emitc.call_opaque "experimental::semaphore_wait"(%global_semaphore_ptr, %incr) : (!emitc.ptr<!emitc.opaque<"tt_l1_ptr uint32_t">>, i32) -> ()
     }
     emitc.call_opaque "experimental::close_fabric_connections"(%fabric_connection_manager) : (!emitc.opaque<"experimental::FabricConnectionManager">) -> ()
     return

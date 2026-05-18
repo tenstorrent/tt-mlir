@@ -213,10 +213,12 @@ static std::string ensureCBDeclaration(Value cb, Operation *useOp,
 
 static StringRef getL1PtrOpaqueTypeName(unsigned elementWidth) {
   switch (elementWidth) {
+  case 8:
+    return "tt_l1_ptr uint8_t";
   case 16:
-    return "volatile tt_l1_ptr uint16_t";
+    return "tt_l1_ptr uint16_t";
   case 32:
-    return "volatile tt_l1_ptr uint32_t";
+    return "tt_l1_ptr uint32_t";
   default:
     llvm_unreachable("unsupported L1AddrPtr element width");
   }
