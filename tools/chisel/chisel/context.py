@@ -163,6 +163,8 @@ class ChiselContext:
         return program
 
     def end_callback(self) -> None:
+        self._current_callback_binary = None
+
         program = self._current_callback_program
         if program is None:
             raise UnexpectedStateError("end_callback")
@@ -170,7 +172,6 @@ class ChiselContext:
         program._rt_binary = None
         program._rt_program_context = None
         program._rt_op_context = None
-        self._current_callback_binary = None
         self._current_callback_program = None
 
     def configure(
