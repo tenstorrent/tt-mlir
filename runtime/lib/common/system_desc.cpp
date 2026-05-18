@@ -161,7 +161,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         device->allocator()->get_base_allocator_addr(HalMemType::L1);
     size_t dramUnreservedBase =
         device->allocator()->get_base_allocator_addr(HalMemType::DRAM);
-    // Construct chip descriptor
+    // Use compute_with_storage_grid_size() which returns the actual available
+    // compute grid (post-harvesting, post-dispatch-core reservation).
     ::tt::target::Dim2d deviceGrid =
         toFlatbuffer(device->compute_with_storage_grid_size());
 
