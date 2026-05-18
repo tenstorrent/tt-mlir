@@ -4842,10 +4842,11 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   flatbuffers::Offset<::tt::target::DebugInfo> debugInfo =
       debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
 
-  // Handle dylib creation and packaging, if needed.
+  // Handle dylib / firmware creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
   // vector here in case in the future we support more complex arrangements.
   std::vector<::flatbuffers::Offset<::tt::target::DynamicLib>> dylibs;
+  std::vector<uint8_t> cpuFirmware;
   if (auto cpuModule =
           mlir::tt::utils::findOpAtTopLevel<ttcore::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
@@ -4853,21 +4854,25 @@ std::shared_ptr<void> ttnnToFlatbuffer(
         cpuModule.getBodyRegion().front().front());
     llvm::SmallVector<char, 2048> binaryBuffer;
     llvm::raw_svector_ostream stream(binaryBuffer);
-    bool isDynamicLib = (cpuModule.getRole() == ttcore::CPURole::Host);
-    llvm::LogicalResult result = llvm::failure();
-    if (isDynamicLib) {
-      result = mlir::tt::llvm_to_cpu::translateLLVMToLib(cpuNestedModule,
-                                                         stream, true);
+    if (cpuModule.getRole() == ttcore::CPURole::Host) {
+      auto result = mlir::tt::llvm_to_cpu::translateLLVMToLib(cpuNestedModule,
+                                                              stream, true);
+      if (llvm::succeeded(result)) {
+        auto rawFileVector = fbb.CreateVector(
+            reinterpret_cast<const uint8_t *>(binaryBuffer.data()),
+            binaryBuffer.size());
+        dylibs.emplace_back(
+            ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
+      }
     } else {
-      result = mlir::tt::llvm_to_cpu::translateLLVMToFirmware(cpuNestedModule,
-                                                              stream);
-    }
-    if (llvm::succeeded(result)) {
-      auto rawFileVector = fbb.CreateVector(
-          reinterpret_cast<const uint8_t *>(binaryBuffer.data()),
-          binaryBuffer.size());
-      dylibs.emplace_back(
-          ::tt::target::CreateDynamicLib(fbb, 0, rawFileVector));
+      auto result = mlir::tt::llvm_to_cpu::translateLLVMToFirmware(
+          cpuNestedModule, stream);
+      if (llvm::succeeded(result)) {
+        cpuFirmware.assign(
+            reinterpret_cast<const uint8_t *>(binaryBuffer.data()),
+            reinterpret_cast<const uint8_t *>(binaryBuffer.data()) +
+                binaryBuffer.size());
+      }
     }
   }
 
@@ -4919,7 +4924,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo, func.isPrivate(), &meshShape));
+        &dylibs, debugInfo, func.isPrivate(), &meshShape,
+        cpuFirmware.empty() ? nullptr : &cpuFirmware));
   }
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(

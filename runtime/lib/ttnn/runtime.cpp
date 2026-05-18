@@ -2067,10 +2067,10 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
 #endif
 
   const auto *fbb = utils::getBinary(executableHandle);
-  const auto *dylibs = fbb->programs()->Get(programIndex)->dylibs();
-  if (dylibs && dylibs->size() > 0) {
-    const auto *raw = dylibs->Get(0)->raw_file();
-    std::vector<uint8_t> firmware(raw->data(), raw->data() + raw->size());
+  const auto *cpuFirmware = fbb->programs()->Get(programIndex)->cpu_firmware();
+  if (cpuFirmware && cpuFirmware->size() > 0) {
+    std::vector<uint8_t> firmware(cpuFirmware->data(),
+                                  cpuFirmware->data() + cpuFirmware->size());
     ::ttnn::MeshDevice &meshDevice =
         deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
     int deviceId = meshDevice.get_device_ids().at(0);
