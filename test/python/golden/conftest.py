@@ -485,7 +485,7 @@ def get_board_id(system_desc) -> str:
 
     match arch, num_chips:
         case "Quasar", 1:
-            return "qsremu"
+            return "qsrsim"
         case "Blackhole", 1:
             return "p150"
         case "Blackhole", 2:
