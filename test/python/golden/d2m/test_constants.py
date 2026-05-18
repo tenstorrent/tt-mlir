@@ -28,7 +28,14 @@ _CONSTANT_ONES_ZEROS_SHAPES = [(128, 128), (128,), (1, 128, 128)]
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32"],
 )
@@ -70,7 +77,14 @@ def test_constant(
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32"],
 )
@@ -106,7 +120,14 @@ def test_ones(
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32"],
 )
