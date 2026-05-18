@@ -104,7 +104,10 @@ def _build_inputs(fbb, program_index, device, tt_runtime):
 
 def _run_flatbuffer(flatbuffer_path):
     """Run flatbuffer on device. Returns (return_code, error_message)."""
-    from ttrt.runtime import _ttmlir_runtime as tt_runtime
+    try:
+        import _ttmlir_runtime as tt_runtime
+    except ImportError:
+        from ttrt.runtime import _ttmlir_runtime as tt_runtime
 
     fbb = tt_runtime.binary.load_binary_from_path(flatbuffer_path)
     tt_runtime.runtime.set_compatible_device_runtime(fbb)

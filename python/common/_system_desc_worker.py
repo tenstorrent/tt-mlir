@@ -20,7 +20,10 @@ def main():
 
     output_path = sys.argv[1]
 
-    from ttrt.runtime import _ttmlir_runtime as tt_runtime
+    try:
+        import _ttmlir_runtime as tt_runtime
+    except ImportError:
+        from ttrt.runtime import _ttmlir_runtime as tt_runtime
 
     system_desc = tt_runtime.runtime.get_current_system_desc()
     system_desc.store(output_path)
