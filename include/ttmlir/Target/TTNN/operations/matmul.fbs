@@ -70,6 +70,7 @@ table MatmulOp {
   matmul_program_config: tt.target.ttnn.MatmulProgramConfig;
   activation: string;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  dtype: tt.target.DataType = null;
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 

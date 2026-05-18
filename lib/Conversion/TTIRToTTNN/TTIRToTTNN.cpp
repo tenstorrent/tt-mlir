@@ -1638,10 +1638,27 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto convertedResultType =
+        this->getTypeConverter()->convertType(op.getType());
+
+    // Extract the output dtype from the result tensor's layout encoding so
+    // that the TTNN matmul op carries an explicit `dtype` attribute matching
+    // the result tensor type. Mirrors the conv2d conversion pattern.
+    ttcore::DataTypeAttr outputDtypeAttr;
+    if (auto rankedType =
+            mlir::dyn_cast<RankedTensorType>(convertedResultType)) {
+      if (auto layoutAttr = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
+              rankedType.getEncoding())) {
+        outputDtypeAttr =
+            rewriter.getAttr<ttcore::DataTypeAttr>(layoutAttr.getDataType());
+      }
+    }
+
     auto newOp = rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
-        /*matmul_program_config=*/nullptr, /*activation=*/nullptr);
+        op, convertedResultType, adaptor.getA(), adaptor.getB(),
+        adaptor.getTransposeA(), adaptor.getTransposeB(),
+        /*matmul_program_config=*/nullptr, /*activation=*/nullptr,
+        /*compute_config=*/nullptr, /*dtype=*/outputDtypeAttr);
     if (auto attr = op->getAttr("ttcore.weight_dtype")) {
       newOp->setAttr("ttcore.weight_dtype", attr);
     }
