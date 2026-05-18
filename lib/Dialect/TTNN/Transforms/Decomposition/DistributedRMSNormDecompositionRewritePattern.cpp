@@ -118,8 +118,8 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
           loc, resultType, op.getInput(), reshapedWeight, op.getResidual(),
           op.getStats(), op.getSemaphore(), op.getDevice(), op.getClusterAxis(),
-          op.getEpsilon(), op.getSubDeviceIdAttr(), op.getMemoryConfigAttr(),
-          op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
+          op.getEpsilon(), op.getSubDeviceIdAttr(), op.getNumLinksAttr(),
+          op.getTopologyAttr(), op.getComputeConfigAttr(),
           op.getProgramConfigAttr());
       rewriter.replaceOp(op, newOp.getResult());
       return success();
@@ -151,8 +151,8 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
         loc, canonicalResultType, reshapedInput, reshapedWeight,
         reshapedResidual, op.getStats(), op.getSemaphore(), op.getDevice(),
         op.getClusterAxis(), op.getEpsilon(), op.getSubDeviceIdAttr(),
-        op.getNumLinksAttr(), op.getTopologyAttr(),
-        op.getComputeConfigAttr(), op.getProgramConfigAttr());
+        op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
+        op.getProgramConfigAttr());
 
     mlir::Value reshapedResult =
         ttir_to_ttnn::utils::generateReshape(

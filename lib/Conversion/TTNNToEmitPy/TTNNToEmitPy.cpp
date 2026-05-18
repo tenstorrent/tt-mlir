@@ -3859,19 +3859,16 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
         emitter(srcOp, adaptor, rewriter);
 
-    auto opaqueType =
-        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor");
-
-    auto globalSemaphoreOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(), opaqueType, "utils.create_global_semaphore",
-        llvm::SmallVector<mlir::Value>{adaptor.getInput()});
+    if (!srcOp.getSemaphore()) {
+      return rewriter.notifyMatchFailure(srcOp, "missing semaphore operand");
+    }
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(srcOp.getClusterAxis()),
         emitter.emit(srcOp.getDevice()),
-        emitter.emit(globalSemaphoreOp.getResult(0), "", 2),
+        emitter.emit(srcOp.getSemaphore()),
         emitter.emit(srcOp.getStats(), "stats"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),

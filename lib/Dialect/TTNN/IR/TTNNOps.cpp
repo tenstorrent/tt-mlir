@@ -3151,26 +3151,27 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
   ttcore::DataType statsDataType =
       fp32DestAccEn ? ttcore::DataType::Float32 : ttcore::DataType::BFloat16;
 
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(*this);
-
   // One tile (32x32) per device, width-sharded on core (0,0) in L1. The fused
-  // kernel writes partial RMS statistics here and exchanges them across
-  // devices via the all-gather.
+  // kernel hard-requires core (0,0), so spell the placement out explicitly
+  // rather than relying on canonical placement.
+  MLIRContext *ctx = rewriter.getContext();
   SmallVector<int64_t> statsShape = {1, 1, 32, 32};
   SmallVector<int64_t> statsGridShape = {1, 1};
+  CoreRangeSetAttr statsCoreRangeSet = CoreRangeSetAttr::get(
+      ctx, CoreRangeAttr::get(ctx, CoreCoordAttr::get(ctx, 0, 0),
+                              CoreCoordAttr::get(ctx, 0, 0)));
   TTNNLayoutAttr statsLayout =
-      TTNNLayoutAttr::Builder(rewriter.getContext(), statsShape,
+      TTNNLayoutAttr::Builder(ctx, statsShape,
                               ttcore::TileType::get(statsElementType))
           .setBufferType(BufferType::L1)
           .setMemoryLayout(TensorMemoryLayout::WidthSharded)
           .setGridShape(statsGridShape)
-          .buildWithCanonicalCorePlacement(deviceAttr);
+          .setCoreRangeSet(statsCoreRangeSet)
+          .build();
 
-  auto statsShapeAttr = ShapeAttr::get(rewriter.getContext(), statsShape);
-  auto statsDtypeAttr =
-      ttcore::DataTypeAttr::get(rewriter.getContext(), statsDataType);
-  auto statsLayoutAttr = LayoutAttr::get(rewriter.getContext(), Layout::Tile);
-  auto statsMemConfig = MemoryConfigAttr::get(statsLayout);
+  auto statsShapeAttr = ShapeAttr::get(ctx, statsShape);
+  auto statsDtypeAttr = ttcore::DataTypeAttr::get(ctx, statsDataType);
+  auto statsLayoutAttr = LayoutAttr::get(ctx, Layout::Tile);
 
   RankedTensorType statsResultType =
       RankedTensorType::get(statsShape, statsElementType, statsLayout);
@@ -3186,7 +3187,7 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
     rewriter.setInsertionPointAfter(device);
     statsEmptyOp = rewriter.create<ttnn::EmptyOp>(
         getLoc(), statsResultType, device, statsShapeAttr, statsDtypeAttr,
-        statsLayoutAttr, statsMemConfig);
+        statsLayoutAttr);
   }
 
   rewriter.modifyOpInPlace(

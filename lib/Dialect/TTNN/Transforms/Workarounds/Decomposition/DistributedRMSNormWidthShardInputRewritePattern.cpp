@@ -193,6 +193,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // shard cores. The semaphore-allocation pass independently derives the
   // semaphore core range from the same shard spec at a later pipeline
   // stage (post-optimizer); see DistributedRMSNormOp::allocateSemaphores.
+  auto inputMemoryConfig = ttnn::MemoryConfigAttr::get(desiredInputLayout);
   std::optional<ttnn::ShardSpecAttr> inputShardSpec =
       inputMemoryConfig.getShardSpec();
   assert(inputShardSpec.has_value() &&
@@ -222,8 +223,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(), weight,
       residual, /*stats=*/nullptr, /*semaphore=*/nullptr, op.getDevice(),
       static_cast<uint32_t>(op.getClusterAxis()), op.getEpsilon(),
-      op.getSubDeviceIdAttr(), op.getNumLinksAttr(),
-      op.getTopologyAttr(), computeConfigAttr, programConfigAttr);
+      op.getSubDeviceIdAttr(), op.getNumLinksAttr(), op.getTopologyAttr(),
+      computeConfigAttr, programConfigAttr);
 
   // If the original output had a different layout (e.g. interleaved DRAM),
   // insert a to_memory_config to convert back.
