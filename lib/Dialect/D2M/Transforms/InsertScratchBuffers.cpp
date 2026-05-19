@@ -119,7 +119,8 @@ computeScratchNumTiles(GenericOp genericOp, ttcore::TileType tileType,
   if (analysisNumTiles == 0) {
     return fallbackNumTiles;
   }
-  return std::min(analysisNumTiles, fallbackNumTiles);
+  //return std::min(analysisNumTiles, fallbackNumTiles);
+  return fallbackNumTiles;
 }
 
 // Transfer d2m.blocking_map attributes from inner linalg ops (set during
