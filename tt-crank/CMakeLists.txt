@@ -31,7 +31,7 @@ option(TT_KURBLA_BUILD_PYTHON_EXT
 include(cmake/MlirEnv.cmake)
 
 include(cmake/Cache.cmake)
-include(cmake/CompilerWarnings.cmake)
+include(cmake/CompilerOptions.cmake)
 include(cmake/Sanitizers.cmake)
 include(cmake/StaticAnalyzers.cmake)
 

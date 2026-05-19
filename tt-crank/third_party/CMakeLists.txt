@@ -1,3 +1,16 @@
+include(${CMAKE_SOURCE_DIR}/cmake/SystemIncludes.cmake)
+
+include(FetchContent)
+FetchContent_Declare(
+    tt-logger
+    GIT_REPOSITORY https://github.com/tenstorrent/tt-logger.git
+    GIT_TAG        v1.1.9
+)
+set(SPDLOG_BUILD_PIC ON CACHE INTERNAL "")
+FetchContent_MakeAvailable(tt-logger)
+
+mark_as_system_includes(tt-logger spdlog_header_only fmt-header-only)
+
 # Build tt-mlir as a separate, isolated CMake invocation (ExternalProject_Add)
 # rather than add_subdirectory'ing it. Two reasons:
 #   - tt-mlir's CMakeLists.txt forces CMAKE_C/CXX_COMPILER=clang and requires
@@ -120,7 +133,4 @@ set_target_properties(tt_mlir::runtime PROPERTIES
 )
 
 # Treat tt-mlir + MLIR headers as SYSTEM so our warnings/clang-tidy don't fire on them.
-foreach(_tgt tt_mlir::compiler tt_mlir::runtime)
-    set_property(TARGET ${_tgt} APPEND PROPERTY
-        INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_TTMLIR_INCLUDE_DIRS}")
-endforeach()
+mark_as_system_includes(tt_mlir::compiler tt_mlir::runtime)
