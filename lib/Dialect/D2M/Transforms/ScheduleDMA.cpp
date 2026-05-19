@@ -43,7 +43,7 @@ struct DMASchedulingPolicy {
   unsigned numNocs;
 
   bool materializeProcessorIndex() const {
-    return numDatamovementProcessors > 2;
+    return numNocs == 1 && numDatamovementProcessors > 2;
   }
 };
 
@@ -86,9 +86,8 @@ static void assignHardwareThreads(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
     const DMASchedulingPolicy &policy) {
-  bool materializeProcessorIndex = policy.materializeProcessorIndex();
-
   if (policy.numNocs == 1) {
+    bool materializeProcessorIndex = policy.materializeProcessorIndex();
     for (auto [index, assignment] : llvm::enumerate(assignments)) {
       assignment.nocIndex = 0;
       assignment.processorIndex =
@@ -97,21 +96,8 @@ static void assignHardwareThreads(
     return;
   }
 
-  // 2-NoC scheduling with > 2 DM processors (e.g. Quasar): each DM thread
-  // owns a distinct processor index; NoC index distributes proc%2 so the
-  // two NoCs are evenly populated. The NocScore mcast/unicast heuristic
-  // below assumes exactly two DM threads (one per NoC) and does not
-  // generalise to N threads, so we use the simpler round-robin here.
-  if (materializeProcessorIndex) {
-    for (auto [index, assignment] : llvm::enumerate(assignments)) {
-      assignment.processorIndex = static_cast<int32_t>(index);
-      assignment.nocIndex = static_cast<int32_t>(index % 2);
-    }
-    return;
-  }
-
   TT_assertv(assignments.size() <= 2u,
-             "2-NoC NocScore path only supports up to 2 DM threads");
+             "2-NoC scheduling only supports up to 2 DM threads");
   if (assignments.size() == 1) {
     assignments[0].nocIndex = 0;
     return;
@@ -421,6 +407,13 @@ public:
     if (policy.numDatamovementProcessors == 0) {
       moduleOp.emitError(
           "d2m-schedule-dma requires at least one datamovement processor");
+      signalPassFailure();
+      return;
+    }
+
+    if (policy.numNocs == 2 && policy.numDatamovementProcessors > 2) {
+      moduleOp.emitError("d2m-schedule-dma only supports two NoCs with at "
+                         "most two datamovement processors");
       signalPassFailure();
       return;
     }

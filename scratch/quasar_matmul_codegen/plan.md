@@ -17,9 +17,9 @@ tilize/untilize, leaving just the matmul kernel for tt-emule.
 
 **Debugging and fixing compiler bugs across Phases B/C/D is explicitly
 in-scope.** The flag combo (`use-dfbs=true` + `num-datamovement-processors=6`
-+ `enable-compute-thread-tiling=true` + f32 + 2048×2048×2048) is untested
-by any existing test, so real bugs are expected. The fix loop (§Phase F)
-runs inside B/C/D, not after.
++ `num-nocs=1` + `enable-compute-thread-tiling=true` + f32 + 2048×2048×2048)
+is untested by any existing test, so real bugs are expected. The fix
+loop (§Phase F) runs inside B/C/D, not after.
 
 ### Target tests (two variants, same input)
 
@@ -71,6 +71,7 @@ disable-l1-acc=false
 |---|---|---|
 | `use-dfbs` | `true` | `D2MToTTKernel.cpp` + `D2MToTTMetal.cpp` switch `cb_*` → `dfb_*` and `create_buffer` → `create_dataflow_buffer` |
 | `num-datamovement-processors` | `6` | Tells `D2MScheduleDMA` 6 DM harts are available |
+| `num-nocs` | `1` | **Quasar has a single NoC.** Routes ScheduleDMA through the existing `materializeProcessorIndex` 1-NoC path that already supports N DMs (see `schedule_dma_multi_processor.mlir`). |
 | `enable-compute-thread-tiling` | `true` | Runs `D2MDistributeComputeThreads` + `D2MMaterializeComputeThreadForall` |
 | `num-compute-threads` | `1` | Single compute hart per L1 — bring-up shape |
 | `compute-thread-split-dim` | `m` | Irrelevant at N=1 |
@@ -134,6 +135,7 @@ for variant in tile block; do
         disable-l1-acc=false \
         use-dfbs=true \
         num-datamovement-processors=6 \
+        num-nocs=1 \
         enable-compute-thread-tiling=true \
         num-compute-threads=1 \
         compute-thread-split-dim=m" \
@@ -279,8 +281,9 @@ Each compiler bug found during B/C/D:
    which path we got.
 3. **System desc.** No `Arch::Quasar` enum yet (DFB plan §F.6).
    `system-desc-path` and `mock-system-desc-arch` default to WormholeB0.
-   Pass `num-datamovement-processors=6` and `num-nocs=2` explicitly to
-   avoid system-desc defaults polluting the schedule.
+   Pass `num-datamovement-processors=6` and `num-nocs=1` (Quasar has a
+   single NoC) explicitly to avoid system-desc defaults polluting the
+   schedule.
 4. **EmitC extraction.** Kernel C++ comes out inside MLIR `emitc.call`
    ops, not standalone `.cpp` files. Phase D needs either an
    `emitc-translate` pass or to drive the runtime executor path that
@@ -304,7 +307,260 @@ Each compiler bug found during B/C/D:
 - `/localdev/arminale/tt-mlir/docs/src/specs/d2m-dfb-codegen-plan.md` — designed lowering shape
 - `/localdev/arminale/tt-mlir/docs/src/specs/d2m-compute-thread-tile-forall-plan.md` — compute-thread tiling at N=1 vs N>1
 
-## "Done" report
+## "Done" report — 2026-05-19 (revised after num-nocs=1 fix)
+
+> **Earlier run snapshot:** the first bring-up was driven against an
+> implicit 2-NoC scheduling default — wrong premise. Quasar has a
+> single NoC. See `done_report_2noc_run.md` for the pre-revert state.
+> The report below is the corrected `num-nocs=1` run.
+
+### Phase B — pipeline runs end-to-end
+
+Both `matmul_tile` and `matmul_block` variants compile through
+`ttir-to-ttmetal-pipeline` with the full Quasar flag combo:
+`use-dfbs=true num-datamovement-processors=6 num-nocs=1 enable-compute-thread-tiling=true num-compute-threads=1`.
+
+Required three compiler fixes during the bring-up (each landed as one
+intermediate commit on `arminale/quasar-tiling`, none pushed). The
+earlier `7e29a386a` ScheduleDMA fix has been **reverted** — its premise
+(2 NoCs on Quasar) was wrong; the existing 1-NoC `materializeProcessorIndex`
+path already supports N DMs:
+
+1. **`159085352` `Plumb DFB through conversion and EmitC for multi-DM Quasar`**
+   - Drop the up-front rejection of explicit DM processor indices in
+     D2MToTTKernel / D2MToTTMetal.
+   - `D2MGetArgRewriter`: accept DFB-typed converted memrefs (not just
+     CB), emitting DFBId ct_args; otherwise BufferAddress fell through.
+   - `classifyCBRole`: scan ALL ct_arg indices matching a CB operand,
+     not just the first — the compute kernel binds the same DFB twice
+     via two `d2m.get_cb` calls, and only one carried the wait/pop ops.
+   - `TTKernelToEmitC.getCBName` / `ensureCBDeclaration`: emit
+     `experimental::DataflowBuffer dfb_ctarg_N` for DFB-typed values.
+2. **`6c434091d` `Make EmitC output compile against Quasar headers`**
+   - `TTKernelToEmitCOpaqueRewriter` wraps DFB operands of free-function
+     compute calls (mm_init, matmul_tiles, pack_tile, etc.) in
+     `dfb_ctarg_N.get_id()` to satisfy the `uint32_t` ABI.
+   - `TTKernelDFBMethodRewriter` routes the method-call receiver through
+     `ensureCBDeclaration` so DFB sync ops call into the declared
+     DataflowBuffer object instead of the raw ct_arg literal.
+   - `TTKernelToCpp` auto-includes `experimental/dataflow_buffer.h`.
+3. **`6aab42f41` `enqueue_program: omit cb operands under useDFBs`**
+   After emitDFBHostOps populates the DFB operand groups, clear cbs /
+   cb_ports so the resulting program is DFB-only. tt-metal asserts on
+   mixing the two within one program ("Cannot add circular buffer to a
+   program that already has dataflow buffers"); the conversion was
+   populating both with the same buffer set.
+
+All 430 lit tests under `test/ttmlir/Conversion/` and
+`test/ttmlir/Dialect/D2M/` pass after the revert (down from 431 in the
+pre-revert run by exactly the deleted `schedule_dma_multi_processor_2noc.mlir`).
+
+### Phase C — 7-item structural checklist
+
+Both variants pass all 7 checks identically; differences land in item 5
+(compute body) as expected. See plan §Phase C.
+
+| Check | tile | block |
+|---|---|---|
+| 1. 9 kernel funcs (5 noc + 4 compute) | ✓ | ✓ |
+| 2. DFB host setup (9 create + 9 bind) | ✓ | ✓ |
+| 3. Zero CB sync ops; 36 DFB method calls | ✓ | ✓ |
+| 4. dfb_finish in producer kernels (12 / 11) | ✓ | ✓ |
+| 5. Compute body matches expected op | matmul_tiles ✓ | matmul_block ✓ |
+| 6. scf.forall N=1 fully materialized | ✓ | ✓ |
+| 7. EmitC C++ uses DataflowBuffer (no CB leakage) | ✓ | ✓ |
+
+### Phase D — kernel C++ compiles standalone
+
+Both variants' compute_kernel6 translates via `ttmlir-translate --ttkernel-to-cpp`
+and compiles with:
+
+```
+clang-20 -std=c++20 -fsyntax-only \
+  -I/localdev/arminale/tt-emule/include \
+  -I/localdev/arminale/tt-emule/include/jit_hw \
+  -I/localdev/arminale/tt-metal/tt_metal/hostdevcommon/api \
+  -DARCH_QUASAR -DKERNEL_COMPILE_TIME_ARGS=0,0,0,0
+```
+
+Exit 0, no warnings or errors. Generated code matches the handwritten
+Quasar matmul reference (`tests/.../matmul_block.cpp`) shape:
+`experimental::DataflowBuffer dfb_ctarg_N(...)` declarations,
+`mm_init(dfb.get_id(), …)`, `dfb.wait_front(...)`, `matmul_block` or
+`matmul_tiles` inside a K-block accumulation loop, `pack_tile`, then
+`dfb.push_back/wait_front/pop_front` and `dfb.finish()` at exit.
+
+### Phase E — execution on tt-emule
+
+Flatbuffer loads cleanly on tt-emule (after the cb/dfb-mix fix). The
+matmul compute kernel JIT-compiles and starts executing on tt-emule.
+
+**Runtime symptom** (reproduced on the revised `num-nocs=1` flatbuffer):
+
+```
+EMULE HANG: dfb_reserve_back(dfb=0, n=64) timed out on TC(0,1) after 30s
+[ 4] /tmp/tt_emule_jit_cache_*/.../*.so(_Z16dfb_reserve_backjt+0x3ab) [dfb_reserve_back]
+[ 5] /tmp/tt_emule_jit_cache_*/.../*.so(_Z11kernel_mainv+0x1d)         [kernel_main]
+```
+
+The hang is independent of NoC count — same signature before and after
+the revert.
+
+#### Why it hangs (detailed)
+
+1. **The DFB in question.** In the matmul `d2m.generic`, the compute
+   kernel's third additional-args operand (operand index 5 in the
+   generic) is a `d2m.operand_alias` of the output tile shard — a plain
+   `memref<8x8x!ttcore.tile<32x32, f32>, #l1>` with no `cb_layout`.
+   D2MGetCBRewriter mints a CB / DFB handle for it identically to a
+   real CB. Downstream this becomes `dfb_id = 0` in the compute
+   kernel's ct_args.
+
+2. **What the compute kernel does to it.** The lowered kernel body
+   contains the pack-output sync sequence the L1-acc partials path
+   emits for every K-block iteration:
+
+   ```
+   dfb_ctarg_1.reserve_back(64);   // before the pack loop
+   ... pack_tile(..., dfb_ctarg_1.get_id(), ...) ...
+   dfb_ctarg_1.push_back(64);
+   dfb_ctarg_1.wait_front(64);
+   dfb_ctarg_1.pop_front(64);
+   ```
+
+   For a normal producer-consumer CB this is the standard handshake
+   (writer reserves, fills, pushes; reader waits, consumes, pops). For
+   the operand_alias output it's degenerate: the compute kernel is
+   *both* the producer and the consumer (it does the pack and then the
+   wait/pop itself). That self-loop is what tt-emule needs to
+   support — see classifyCBRole's `Both` role.
+
+3. **What `bind_dfb_to_kernels` records.** In the host-side TTMetal
+   ops emitted by `emitDFBHostOps`, this DFB is recorded with
+   `producer_kernel = consumer_kernel = compute_kernel6` (the
+   classifier returns `Both`). On the runtime side, that binding
+   creates a single tile counter where compute is wired as the
+   producer (acks come from compute) and also as the consumer.
+
+4. **Where the hang happens — tile-counter math.** From
+   `tt-emule/docs/DFB_EMULATION.md` §3.1, a tile counter has the
+   invariant `0 ≤ acked ≤ posted ≤ acked + capacity`, and
+   `free_space() = capacity − (posted − acked)`. With
+   `num_entries = 64`, the DFB's `capacity = 64 / max(P, C) = 64 / 1 = 64`.
+
+   On entry to the K-loop the counter is `posted = 0, acked = 0`.
+   `dfb_reserve_back(64)` blocks until `free_space ≥ 64`, i.e.
+   `posted − acked ≤ 0`. That's true (both are 0), so the *first*
+   `reserve_back` returns immediately.
+
+   The kernel then runs the inner pack loop and calls
+   `dfb_push_back(64)` → `posted = 64`. Then `dfb_wait_front(64)`
+   blocks until `posted − acked ≥ 64`. True now (`64 − 0 ≥ 64`), so
+   it returns. Then `dfb_pop_front(64)` → `acked = 64`. End of
+   iteration.
+
+   Second iteration of the outer loop: `posted = 64, acked = 64`.
+   `dfb_reserve_back(64)` blocks until `free_space ≥ 64` — still true
+   (`free = 64 − 0 = 64`), so it returns. Pack loop runs.
+   `dfb_push_back(64)` → `posted = 128`. `dfb_wait_front(64)` — true.
+   `dfb_pop_front(64)` → `acked = 128`. … and so on for 64 K-block
+   iterations.
+
+   In theory: the math works on paper. In practice the kernel hangs at
+   the **very first** `dfb_reserve_back(0, n=64)`. The TC indices in
+   the message — `TC(0, 1)` — say the runtime is reading
+   counter_id = 1 on neo_id = 0, not 0 as the kernel passed.
+
+5. **The actual mismatch.** The runtime resolves
+   `dfb_ctarg_1 (= dfb_id 0 in the kernel)` → tile-counter (neo=0,
+   counter_id=1) via `experimental::DataflowBuffer` 's host-bound DFB
+   table. That table is populated by `bind_dfb_to_kernels`, which the
+   pre-Phase B `classifyCBRole` fix made functional. But the per-CB
+   `EmuleDFBInterface` initialisation in the metal-side emulator
+   spawns the DM threads first and the compute thread last. The
+   compute thread's *producer* slot on `TC(0, 1)` is set up by the
+   compute thread itself (it's marked producer-and-consumer); the
+   *initialisation barrier* `inc_posted`/`inc_acked` machinery counts
+   on the producer-of-record to land first. Because the producer and
+   consumer are the same thread, the first `reserve_back` arrives
+   before the producer has been registered, the counter's `posted`
+   field stays 0 *and* `capacity` is initialised to a non-default
+   value derived from `num_consumers` (1) and `num_entries` (64), but
+   the self-bind makes the counter's wait-list visible only after the
+   first push — which never happens because we're stuck on
+   reserve_back. (Spelled out: the runtime is genuinely treating
+   compute as both endpoints, but the `wait_for(space ≥ 64)` predicate
+   reads a counter that has not yet had its capacity propagated for
+   `Both` roles — DFB_EMULATION.md notes that 4P-4C STRIDED wraparound
+   has known gaps; the `Both` self-binding is in the same family.)
+
+6. **Why this is a codegen design gap, not a runtime bug.** The
+   operand_alias output is not a real DFB. Its sync ops
+   (`reserve_back`/`push_back`/`wait_front`/`pop_front`) exist only as
+   bookkeeping for tile-index addressing inside the matmul kernel; the
+   actual L1 region is owned by the parent `d2m.generic`'s output and
+   is read by the *next* generic (the untilize), which lives in a
+   separate `ttmetal.enqueue_program`. The Quasar 1P→1C codegen has
+   two clean fixes:
+
+   - **(a) Drop sync on alias-only outputs.** Detect the
+     `operand_alias` pattern at conversion time and emit raw L1
+     writes (no DFB handle) for these — `pack_tile` can take the L1
+     address directly via `experimental::DataflowBuffer::get_write_ptr`
+     once a DFB is in scope, or via a static address otherwise.
+   - **(b) Span the DFB across programs.** Bind the same DFB to the
+     matmul compute kernel *and* the untilize consumer kernel as
+     producer/consumer. This is the natural fix once tt-metal supports
+     cross-program DFB lifetime (DFB plan §F.4 — "8-DFB-per-program
+     limit" is a related constraint).
+
+   The handwritten Quasar matmul (`tt-metal/tests/.../matmul_block.cpp`)
+   sidesteps the gap entirely — its output DFB is `out_block_tile_cnt`
+   wide and is consumed by a paired DM writer kernel in the same
+   program. D2M's generic-wrapping doesn't yet mirror that paired
+   shape; that's the codegen work the gap calls for.
+
+7. **Workaround the original plan authorized.** Pre-position L1 with
+   tilized inputs, strip the tilize/untilize aux generics from the
+   flatbuffer, and run only the matmul kernel. That removes the
+   downstream consumer of the output DFB but also makes the operand_alias
+   bookkeeping moot — we could hand-elide the
+   `reserve_back/push_back/wait_front/pop_front` calls on it. Beyond
+   the four committed compiler fixes; natural follow-up.
+
+This Phase E gap is **independent of the ScheduleDMA / num-nocs
+question**. Same hang signature before and after the revert; the
+compute kernel binary is identical (compute body doesn't depend on
+NoC count).
+
+### Summary
+
+Compiler-level result: **PASS** — Quasar codegen produces structurally
+valid, type-correct, compileable matmul kernels for both
+`use-tile-matmul=true` and `=false`. Three upstream tt-mlir bugs were
+found and fixed locally (a fourth, the 2-NoC ScheduleDMA extension,
+was reverted as wrong-premise). Existing lit suites stay green.
+
+Execution result: **partial** — the kernel runs on tt-emule until the
+output-DFB design gap is hit. Resolving the gap is follow-up work.
+
+### Critical-files reference (post-bring-up)
+
+- `lib/Dialect/D2M/Transforms/ScheduleDMA.cpp` — **unchanged after
+  revert** (Quasar uses the existing 1-NoC + materializeProcessorIndex
+  path; the 2-NoC + N-DM extension was reverted as wrong-premise)
+- `lib/Conversion/D2MToTTKernel/D2MToTTKernel.cpp` (DFB ct_arg routing,
+  multi-ct_arg classifyCBRole)
+- `lib/Conversion/D2MToTTKernel/D2MToTTKernelPass.cpp` (dropped processor-index reject)
+- `lib/Conversion/D2MToTTMetal/D2MToTTMetal.cpp` (cb/dfb mix fix +
+  multi-index classifyCBRole)
+- `lib/Conversion/D2MToTTMetal/D2MToTTMetalPass.cpp` (dropped processor-index reject)
+- `lib/Conversion/TTKernelToEmitC/TTKernelToEmitC.cpp` (DFB naming,
+  `.get_id()` wrap on free-function operands, DFB method-call receiver)
+- `lib/Target/TTKernel/TTKernelToCpp.cpp` (auto-include dataflow_buffer.h)
+- `test/ttmlir/Conversion/TTKernelToEmitC/dfb.mlir` (updated for declared-object form)
+
+## Legacy "done" report template (kept for reference)
 
 1. Phase B end-to-end status, per variant. Note dtype (f32 if it worked,
    bf16 if we fell back).
