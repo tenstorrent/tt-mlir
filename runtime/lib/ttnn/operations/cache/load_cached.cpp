@@ -75,16 +75,8 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   // Const-eval outputs need to be retained
   for (::tt::runtime::Tensor &output : outputs) {
-    ::tt::runtime::ttnn::TTNNTensor &variant =
-        output.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
-    auto *wrapperPtr =
-        std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
-    if (!wrapperPtr) {
-      LOG_FATAL("Unsupported variant type: load_cached output wrapper "
-                "received a scalar runtime tensor; scalar tensors are only "
-                "valid for the KernelArgScalar kernel-arg path");
-    }
-    ::tt::runtime::ttnn::TTNNTensorWrapper &outputWrapper = **wrapperPtr;
+    ::tt::runtime::ttnn::TTNNTensorWrapper &outputWrapper =
+        output.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
     outputWrapper.setRetain(true);
   }
 

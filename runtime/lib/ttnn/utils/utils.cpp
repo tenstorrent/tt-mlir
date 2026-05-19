@@ -567,11 +567,10 @@ fromTTNNMemoryConfig(::flatbuffers::FlatBufferBuilder &fbb,
 createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
                             const std::optional<::ttnn::MeshEvent> &meshEvent,
                             bool retain) {
-  auto wrapperPtr = std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(
+  auto tensorPtr = std::make_shared<::tt::runtime::ttnn::TTNNTensorWrapper>(
       tensor, meshEvent, retain);
-  auto variantPtr =
-      std::make_shared<::tt::runtime::ttnn::TTNNTensor>(std::move(wrapperPtr));
-  return ::tt::runtime::Tensor(std::static_pointer_cast<void>(variantPtr),
+
+  return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
                                /*data=*/nullptr, DeviceRuntime::TTNN);
 }
 
@@ -591,30 +590,8 @@ createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
 }
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {
-  ::tt::runtime::ttnn::TTNNTensor &variant =
-      tensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
-  auto *wrapperPtr =
-      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
-  if (!wrapperPtr) {
-    LOG_FATAL("Unsupported variant type: getTTNNTensorFromRuntimeTensor called "
-              "on a scalar runtime tensor (produced via createScalarTensor); "
-              "scalar tensors are only valid for the KernelArgScalar path");
-  }
-  return (*wrapperPtr)->getTensor();
-}
-
-::tt::runtime::ttnn::TTNNTensorWrapper &
-getTTNNTensorWrapperFromRuntimeTensor(::tt::runtime::Tensor tensor) {
-  ::tt::runtime::ttnn::TTNNTensor &variant =
-      tensor.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
-  auto *wrapperPtr =
-      std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
-  if (!wrapperPtr) {
-    LOG_FATAL("Unsupported variant type: getTTNNTensorWrapperFromRuntimeTensor "
-              "called on a scalar runtime tensor (produced via "
-              "createScalarTensor); scalar tensors do not carry a wrapper");
-  }
-  return **wrapperPtr;
+  return tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN)
+      .getTensor();
 }
 
 ::tt::runtime::TensorRef

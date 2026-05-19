@@ -54,16 +54,8 @@ void GlobalTensorCache::store(
   // the input tensors are destroyed. No weak_ptr needed since the global cache
   // always exists.
   for (::tt::runtime::Tensor &input : inputTensors) {
-    ::tt::runtime::ttnn::TTNNTensor &variant =
-        input.as<::tt::runtime::ttnn::TTNNTensor>(DeviceRuntime::TTNN);
-    auto *wrapperPtr =
-        std::get_if<::tt::runtime::ttnn::TTNNTensorWrapperPtr>(&variant);
-    if (!wrapperPtr) {
-      LOG_FATAL("Unsupported variant type: global_tensor_cache input wrapper "
-                "received a scalar runtime tensor; scalar tensors are only "
-                "valid for the KernelArgScalar kernel-arg path");
-    }
-    ::tt::runtime::ttnn::TTNNTensorWrapper &inputWrapper = **wrapperPtr;
+    ::tt::runtime::ttnn::TTNNTensorWrapper &inputWrapper =
+        input.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
     auto onDestroyCallback =
         [key](::tt::runtime::ttnn::TTNNTensorWrapper *tensor) {
           GlobalTensorCache::getInstance().removeIfExists(key);

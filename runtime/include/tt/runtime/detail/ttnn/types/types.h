@@ -17,7 +17,6 @@
 #include <optional>
 #include <shared_mutex>
 #include <unordered_map>
-#include <variant>
 #include <vector>
 
 namespace tt::runtime::ttnn {
@@ -31,9 +30,6 @@ using TensorPtrMapIterator = typename TensorPtrMap::iterator;
 using GlobalSemaphoreMapIterator = typename GlobalSemaphoreMap::iterator;
 class TTNNTensorWrapper;
 using OnDestroyTensorCallback = std::function<void(TTNNTensorWrapper *)>;
-
-using TTNNTensorWrapperPtr = std::shared_ptr<TTNNTensorWrapper>;
-using TTNNTensor = std::variant<TTNNTensorWrapperPtr, std::uint32_t>;
 
 // Wrapper for ttnn::Tensor that contains
 // additional metadata specific to our ttnn runtime

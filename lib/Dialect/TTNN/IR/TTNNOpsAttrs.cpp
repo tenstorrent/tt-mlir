@@ -975,6 +975,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::ArrayRef<mlir::Attribute> args) {
   for (auto arg : args) {
     if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
+                   mlir::tt::ttnn::KernelArgScalarAttr,
                    mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
       return emitError() << "Unexpected compile time argument";
     }
