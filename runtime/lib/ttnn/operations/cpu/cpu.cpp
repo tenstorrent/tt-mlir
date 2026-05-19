@@ -96,24 +96,18 @@ std::vector<::ttnn::Tensor> executeCPUHoistedFunction(
   // already booted during submit() (see runtime.cpp); we just build a
   // Step5Task with bank tables for the input/output tensors and kick.
   LOG_ASSERT(context != nullptr);
-  LOG_ASSERT(fbInputs->size() == 1 && fbOutputs->size() == 1,
-             "X280 path currently supports exactly 1 input and 1 output");
+  // Destination-passing style: fbInputs has the real input at [0] and the
+  // pre-allocated output destination at [1]; fbOutputs has 1 entry that
+  // references the same output tensor.
+  LOG_ASSERT(fbInputs->size() == 2 && fbOutputs->size() == 1,
+             "X280 DPS path expects 2 inputs (src + dst) and 1 output");
 
   ::ttnn::MeshDevice &meshDevice = context->getMeshDevice();
 
   const auto &inputTensor =
       context->getTensorPool().getTTNNTensorAndValidate(fbInputs->Get(0));
-
-  const auto *outRef = fbOutputs->Get(0);
-  ::ttnn::Shape outShape = utils::toTTNNShape(*outRef->desc()->shape());
-  ::ttnn::DataType outDtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
-      outRef->desc()->layout()->memory_desc()->data_type());
-  ::ttnn::Layout outLayout =
-      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(outRef);
-  ::ttnn::MemoryConfig memCfg{::ttnn::TensorMemoryLayout::INTERLEAVED,
-                              ::ttnn::BufferType::DRAM};
-  auto outputTensor =
-      ::ttnn::empty(outShape, outDtype, outLayout, &meshDevice, memCfg);
+  const auto &outputTensor =
+      context->getTensorPool().getTTNNTensorAndValidate(fbInputs->Get(1));
 
   const auto &inMeshBuf = inputTensor.mesh_buffer();
   const auto &outMeshBuf = outputTensor.mesh_buffer();
@@ -151,8 +145,11 @@ std::vector<::ttnn::Tensor> executeCPUHoistedFunction(
   int deviceId = meshDevice.get_device_ids().at(0);
   auto dev = ::tt::umd::TTDevice::create(deviceId);
 
+  // Write only up to the `done` field — the host must never touch `done`
+  // because of a silicon quirk where host-written DRAM words shadow X280
+  // writes on subsequent host reads (see driver.h).
   poc::NocWrite(dev.get(), poc::kL2cpu0NocX, poc::kL2cpu0NocY, poc::kTaskAddr,
-                &task, sizeof(task));
+                &task, offsetof(poc::Step5Task, done));
   poc::NocWrite32(dev.get(), poc::kL2cpu0NocX, poc::kL2cpu0NocY, poc::kTaskAddr,
                   poc::kKick);
 
@@ -183,18 +180,9 @@ void runSingleChip(
         *fbOutputs,
     ProgramContext &context) {
 
-  std::vector<void *> inputDataPtrs;
-  inputDataPtrs.reserve(fbInputs->size());
-
-  for (size_t i = 0; i < fbInputs->size(); ++i) {
-    const auto &tensor =
-        context.getTensorPool().getTTNNTensorAndValidate(fbInputs->Get(i));
-    inputDataPtrs.push_back(
-        ::tt::runtime::ttnn::utils::getRawHostDataPtr(tensor));
-  }
-
-  std::vector<::ttnn::Tensor> outputs = executeCPUHoistedFunction(
-      fn, fbInputs, fbOutputs, inputDataPtrs, false, &context);
+  std::vector<::ttnn::Tensor> outputs =
+      executeCPUHoistedFunction(fn, fbInputs, fbOutputs, {},
+                                /*onHost=*/false, &context);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     context.getTensorPool().insertTTNNTensorAndValidate(fbOutputs->Get(i),

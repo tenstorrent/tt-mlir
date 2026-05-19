@@ -313,19 +313,21 @@ public:
         SymbolTable::lookupNearestSymbolFrom(callOp, callOp.getCalleeAttr()));
 
     SmallVector<Value, 4> operands;
-    if (ttmlir::utils::isForwardX280CPUDeclarationFunc(funcOp)) {
-      operands.assign(callOp.getOperands().begin(), callOp.getOperands().end());
-    } else {
-      // Create a FromDevice operation for each operand.
-      size_t locIdx = 0;
-      for (auto operand : callOp.getOperands()) {
-        Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
-        std::optional<Value> optionalLayoutOp =
+    // Create a FromDevice operation for each operand.
+    size_t locIdx = 0;
+    for (auto operand : callOp.getOperands()) {
+      Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
+      std::optional<Value> optionalLayoutOp;
+      if (ttmlir::utils::isForwardX280CPUDeclarationFunc(funcOp)) {
+        optionalLayoutOp = createToLayoutOp(
+            rewriter, newLoc, operand, BufferType::DRAM, false /* tiled */);
+      } else {
+        optionalLayoutOp =
             createToLayoutOp(rewriter, newLoc, operand,
                              BufferType::SystemMemory, false /* tiled */);
-        operands.push_back(
-            optionalLayoutOp.has_value() ? optionalLayoutOp.value() : operand);
       }
+      operands.push_back(optionalLayoutOp.has_value() ? optionalLayoutOp.value()
+                                                      : operand);
     }
 
     // Original CallOp defaults to device tensor return type now, we need to
@@ -503,13 +505,17 @@ private:
   // types.
   bool rewriteFuncDecl(mlir::func::FuncOp funcOp,
                        PatternRewriter &rewriter) const {
-    if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
+    if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp) &&
+        !ttmlir::utils::isForwardX280CPUDeclarationFunc(funcOp)) {
       return false;
     }
 
     MLIRContext *context = funcOp.getContext();
 
     auto convertType = [&](Type type) -> Type {
+      if (ttmlir::utils::isForwardX280CPUDeclarationFunc(funcOp)) {
+        return toRowMajorType(context, mlir::cast<RankedTensorType>(type));
+      }
       return toSystemMemoryType(context, mlir::cast<RankedTensorType>(type));
     };
 
