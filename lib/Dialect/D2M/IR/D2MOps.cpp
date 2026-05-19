@@ -765,9 +765,24 @@ MaskOp::bufferize(mlir::RewriterBase &rewriter,
     return maybeOutput;
   }
 
-  rewriter.create<MaskOp>(getLoc(), maybeOutput->getType(), *maybeInput,
-                          *maybeOutput, getLogicalShapeAttr(),
-                          getFillValueAttr());
+  Value input = *maybeInput;
+  if (input.getType() != maybeOutput->getType()) {
+    auto inputType = mlir::cast<MemRefType>(input.getType());
+    auto outputType = mlir::cast<MemRefType>(maybeOutput->getType());
+    assert(inputType.hasStaticShape() && outputType.hasStaticShape());
+    assert(inputType.getRank() % 2 == 0 && outputType.getRank() % 2 == 0);
+    if (inputType.getElementType() != outputType.getElementType() ||
+        inputType.getMemorySpace() != outputType.getMemorySpace() ||
+        ttmlir::utils::volume<int64_t>(inputType.getShape()) !=
+            ttmlir::utils::volume<int64_t>(outputType.getShape())) {
+      return emitOpError("bufferized input and output types are incompatible");
+    }
+    input =
+        rewriter.create<ViewLayoutOp>(getLoc(), maybeOutput->getType(), input);
+  }
+
+  rewriter.create<MaskOp>(getLoc(), maybeOutput->getType(), input, *maybeOutput,
+                          getLogicalShapeAttr(), getFillValueAttr());
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
   return success();
