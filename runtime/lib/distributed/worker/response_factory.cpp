@@ -140,6 +140,13 @@ void ResponseFactory::buildCreateHostTensorResponse(
   BUILD_RESPONSE(CreateHostTensor, fbb, commandId);
 }
 
+void ResponseFactory::buildCreateHostTensorWithDiskCacheResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(CreateHostTensorWithDiskCache, fbb, commandId);
+}
+
 void ResponseFactory::buildCreateMultiDeviceHostTensorFromShardsResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");

@@ -342,8 +342,8 @@ Tensor createOwnedHostTensorWithDiskCache(
                                     DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("createOwnedHostTensorWithDiskCache",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::createOwnedHostTensorWithDiskCache(
+            data, shape, stride, itemsize, dataType, cacheKey);
       });
 }
 

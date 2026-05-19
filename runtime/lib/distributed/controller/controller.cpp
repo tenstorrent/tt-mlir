@@ -411,6 +411,27 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   return outputTensorHandle;
 }
 
+::tt::runtime::Tensor Controller::createOwnedHostTensorWithDiskCache(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType, const std::string &cacheKey) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  ::tt::runtime::Tensor outputTensorHandle;
+
+  uint64_t commandId =
+      CommandFactory::buildCreateHostTensorWithDiskCacheCommand(
+          *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
+          dataType, cacheKey);
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::CreateHostTensorWithDiskCacheCommand,
+      std::move(commandBuilder));
+
+  return outputTensorHandle;
+}
+
 ::tt::runtime::Tensor Controller::createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
     const std::unordered_map<std::string, std::string> &strategy,
@@ -1185,6 +1206,19 @@ void Controller::handleCreateHostTensorResponse(
   debug::assertNoAwaitingState(*awaitingResponse, "CreateHostTensor");
 }
 
+void Controller::handleCreateHostTensorWithDiskCacheResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(
+      responseBuffers, fb::ResponseType::CreateHostTensorWithDiskCacheResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse,
+                               "CreateHostTensorWithDiskCache");
+}
+
 void Controller::handleCreateMultiDeviceHostTensorFromShardsResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1563,6 +1597,10 @@ void Controller::handleResponse(
   case fb::CommandType::CreateHostTensorCommand: {
     return handleCreateHostTensorResponse(responseBuffers,
                                           std::move(awaitingResponse));
+  }
+  case fb::CommandType::CreateHostTensorWithDiskCacheCommand: {
+    return handleCreateHostTensorWithDiskCacheResponse(
+        responseBuffers, std::move(awaitingResponse));
   }
   case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
     return handleCreateMultiDeviceHostTensorFromShardsResponse(

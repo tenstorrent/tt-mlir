@@ -70,6 +70,9 @@ public:
   buildCreateHostTensorResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                 uint64_t commandId);
 
+  static void buildCreateHostTensorWithDiskCacheResponse(
+      ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId);
+
   static void
   buildIsTensorAllocatedResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                  uint64_t commandId, bool allocated);

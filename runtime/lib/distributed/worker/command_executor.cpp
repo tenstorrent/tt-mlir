@@ -356,6 +356,34 @@ void CommandExecutor::execute(uint64_t commandId,
 
 void CommandExecutor::execute(
     uint64_t commandId,
+    const fb::CreateHostTensorWithDiskCacheCommand *command) {
+  uint64_t tensorGlobalId = command->output_global_id();
+  const uint8_t *tensorData = command->data()->data();
+  std::vector<uint32_t> shape(command->shape()->begin(),
+                              command->shape()->end());
+  std::vector<uint32_t> stride(command->stride()->begin(),
+                               command->stride()->end());
+  uint32_t itemSize = command->item_size();
+  ::tt::target::DataType dataType = command->data_type();
+  std::string cacheKey = command->cache_key()->str();
+
+  ::tt::runtime::Tensor tensor =
+      ::tt::runtime::createOwnedHostTensorWithDiskCache(
+          tensorData, shape, stride, itemSize, dataType, cacheKey);
+
+  tensor.setGlobalId(tensorGlobalId);
+
+  tensorPool_.insert_or_assign(tensorGlobalId, tensor);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildCreateHostTensorWithDiskCacheResponse,
+                    commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(
+    uint64_t commandId,
     const fb::CreateMultiDeviceHostTensorFromShardsCommand *command) {
   std::vector<::tt::runtime::Tensor> tensorShards;
   for (const auto &inputGlobalId : *command->input_global_ids()) {
@@ -772,6 +800,10 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::CreateHostTensorCommand: {
     return execute(command->command_id(),
                    command->type_as_CreateHostTensorCommand());
+  }
+  case fb::CommandType::CreateHostTensorWithDiskCacheCommand: {
+    return execute(command->command_id(),
+                   command->type_as_CreateHostTensorWithDiskCacheCommand());
   }
   case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
     return execute(
