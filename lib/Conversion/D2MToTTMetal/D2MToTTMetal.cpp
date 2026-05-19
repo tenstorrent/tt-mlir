@@ -267,6 +267,14 @@ public:
                                 cbOperandIndices, rewriter, dfbs, dfbIds))) {
         return failure();
       }
+      // ttmetal MVP: a single program uses CBs OR DFBs, never both. Each CB
+      // additional arg has been promoted to a DFB above; drop them from
+      // the CB operand groups so the resulting enqueue_program is DFB-only.
+      // tt-metal asserts on mixing the two via
+      //   "Cannot add circular buffer to a program that already has dataflow
+      //    buffers".
+      cbs.clear();
+      cbPorts.clear();
     }
 
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
