@@ -42,7 +42,6 @@ from .errors import D2mJitError
 from .tensor_layout import Layout
 from .utils import _cleanup_source_code
 
-
 # Reverse of ttcore.DataType for picking output torch dtypes.
 _TTCORE_TO_TORCH = None  # lazy-init since torch may be missing
 
@@ -132,6 +131,9 @@ _PIPELINE = ",".join(
         "d2m-to-ttmetal-pipeline",
     ]
 )
+
+_REDUCE_SCALER_ARG = "__d2m_reduce_scaler"
+_FLOAT_REDUCTION_NAMES = {"reduce_sum", "reduce_max"}
 
 
 class _Builder:
@@ -709,6 +711,24 @@ def _affine_map_from_lambda(fn):
     return AffineMap.get(len(dims), 0, exprs), spec
 
 
+def _kernel_uses_float_reductions(kernel_ast):
+    class _ReductionUseVisitor(_ast.NodeVisitor):
+        def __init__(self):
+            self.found = False
+
+        def visit_Call(self, node):
+            if isinstance(node.func, _ast.Name):
+                self.found = node.func.id in _FLOAT_REDUCTION_NAMES
+            elif isinstance(node.func, _ast.Attribute):
+                self.found = node.func.attr in _FLOAT_REDUCTION_NAMES
+            if not self.found:
+                self.generic_visit(node)
+
+    visitor = _ReductionUseVisitor()
+    visitor.visit(kernel_ast)
+    return visitor.found
+
+
 def _emit_kernel_generic(
     kernel: "CompiledKernel",
     args,
@@ -779,6 +799,27 @@ def _emit_kernel_generic(
     input_lts = lazy_args[: len(lazy_args) - num_outs]
     output_lts = lazy_args[len(lazy_args) - num_outs :]
 
+    synthetic_lts = []
+    synthetic_args = []
+    if _kernel_uses_float_reductions(kernel._ast):
+        if not input_lts:
+            raise _call_error(
+                "float reductions require at least one input tensor argument",
+                cause=ValueError(),
+            )
+        first_input_layout = input_lts[0].layout
+        scaler_layout = Layout(
+            shape=(32, 32),
+            dtype=first_input_layout.dtype,
+            block_shape=[1, 1],
+            grid_shape=[1, 1],
+            tiled=True,
+            collapse=first_input_layout.collapse,
+            mem_space=first_input_layout.mem_space,
+        )
+        synthetic_lts.append(full(scaler_layout, 1.0)._resolve())
+        synthetic_args.append((_REDUCE_SCALER_ARG, scaler_layout))
+
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
@@ -791,6 +832,8 @@ def _emit_kernel_generic(
             source_file=kernel._source_file,
             source_firstlineno=kernel._source_firstlineno,
             source_lines=kernel._source_lines,
+            synthetic_args=synthetic_args,
+            synthetic_arg_insert_index=len(input_lts),
         )
         compiler.visit(kernel._ast)
         compiler.module.operation.verify()
@@ -800,7 +843,7 @@ def _emit_kernel_generic(
         # Scalars are sourced from func args (not host-scope constants) so the
         # GenericOp's region stays isolated-from-above.
         additional = [b.add_scalar_input(s) for s in scalar_args]
-        inputs = [lt.value for lt in input_lts]
+        inputs = [lt.value for lt in input_lts] + [lt.value for lt in synthetic_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]
 
