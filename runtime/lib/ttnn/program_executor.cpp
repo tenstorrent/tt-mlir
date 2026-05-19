@@ -4,9 +4,9 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 #include <cstdlib>
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 #include <tt-metalium/distributed.hpp>
 #endif
 
@@ -736,11 +736,17 @@ void ProgramExecutor::readProfilerDataIfNeeded(bool force) {
   }
 
   // We cannot run `ReadMeshDeviceProfilerResults` if there is an active trace
-  // capture - detect this case and skip reading the profiler data.
+  // capture - detect this case and skip reading the profiler data. Slow
+  // dispatch does not support trace, and calling `trace_id()` on its command
+  // queue throws, so skip the check entirely in that mode.
+  static const bool isSlowDispatchEnabled =
+      std::getenv("TT_METAL_SLOW_DISPATCH_MODE") != nullptr;
   auto &meshDevice = context->getMeshDevice();
-  for (uint8_t cqId = 0; cqId < meshDevice.num_hw_cqs(); ++cqId) {
-    if (meshDevice.mesh_command_queue(cqId).trace_id().has_value()) {
-      return;
+  if (!isSlowDispatchEnabled) {
+    for (uint8_t cqId = 0; cqId < meshDevice.num_hw_cqs(); ++cqId) {
+      if (meshDevice.mesh_command_queue(cqId).trace_id().has_value()) {
+        return;
+      }
     }
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
