@@ -177,7 +177,11 @@ def _compile(root_func: Callable, builder: Builder):
 
     if isinstance(builder, StableHLOBuilder):
         new_module.body.append(builder._get_mesh())
-    elif isinstance(builder, TTIRBuilder) or isinstance(builder, TTNNBuilder):
+    elif (
+        isinstance(builder, TTIRBuilder)
+        or isinstance(builder, TTNNBuilder)
+        or isinstance(builder, D2MBuilder)
+    ):
         mesh = ttcore.ir.MeshAttr.get(
             builder._ctx, builder._mesh_name, builder._mesh_shape
         )
