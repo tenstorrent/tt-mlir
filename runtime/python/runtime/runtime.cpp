@@ -382,6 +382,16 @@ void registerRuntimeBindings(nb::module_ &m) {
       },
       "Create a tensor with owned memory");
   m.def(
+      "create_owned_host_tensor_with_disk_cache",
+      [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         ::tt::target::DataType dataType, const std::string &cacheKey) {
+        return tt::runtime::createOwnedHostTensorWithDiskCache(
+            reinterpret_cast<const void *>(ptr), shape, stride, itemsize,
+            dataType, cacheKey);
+      },
+      "Create a tensor with owned memory backed by a persistent disk cache");
+  m.def(
       "create_unsafe_borrowed_host_tensor",
       &::tt::runtime::createUnsafeBorrowedHostTensor,
       nb::arg("owned_host_tensor"),

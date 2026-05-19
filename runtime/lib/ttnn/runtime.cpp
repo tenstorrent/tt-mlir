@@ -31,6 +31,8 @@
 
 #include "tracy/Tracy.hpp"
 
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -238,6 +240,34 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
   ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
       createOwnedTTNNTensor(data, shape, stride, itemsize, dataType));
+  return tensor;
+}
+
+::tt::runtime::Tensor createOwnedHostTensorWithDiskCache(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType, const std::string &cacheKey) {
+
+  const char *cacheDir = std::getenv("TT_DISTRIBUTED_TENSOR_CACHE_DIR");
+  LOG_FATAL(cacheDir,
+            "TT_DISTRIBUTED_TENSOR_CACHE_DIR environment variable is not set");
+
+  std::filesystem::path cachePath =
+      std::filesystem::path(cacheDir) / (cacheKey + ".tensorbin");
+  std::string cachePathStr = cachePath.string();
+
+  if (std::filesystem::exists(cachePath)) {
+    LOG_DEBUG("Disk cache hit for key: ", cacheKey, " at ", cachePathStr);
+    return loadTensor(cachePathStr);
+  }
+
+  LOG_DEBUG("Disk cache miss for key: ", cacheKey, " at ", cachePathStr);
+  ::tt::runtime::Tensor tensor =
+      createOwnedHostTensor(data, shape, stride, itemsize, dataType);
+
+  std::filesystem::create_directories(cachePath.parent_path());
+  dumpTensor(tensor, cachePathStr);
+
   return tensor;
 }
 

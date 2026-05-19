@@ -97,6 +97,15 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
+// Creates host tensor with owned storage backed by a persistent disk cache.
+// On cache hit, loads the tensor from disk instead of creating from data.
+// On cache miss, creates the tensor and dumps it to disk for future reuse.
+// Requires the TT_DISTRIBUTED_TENSOR_CACHE_DIR environment variable to be set.
+::tt::runtime::Tensor createOwnedHostTensorWithDiskCache(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType, const std::string &cacheKey);
+
 // Creates a borrowed host tensor that aliases the buffer of `ownedHostTensor`.
 // `ownedHostTensor` must remain valid for the lifetime of uses of the result.
 ::tt::runtime::Tensor

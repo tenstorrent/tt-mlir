@@ -325,6 +325,28 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
+Tensor createOwnedHostTensorWithDiskCache(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType, const std::string &cacheKey) {
+  using RetType = Tensor;
+  LOG_ASSERT(itemsize > 0);
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createOwnedHostTensorWithDiskCache(
+            data, shape, stride, itemsize, dataType, cacheKey);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createOwnedHostTensorWithDiskCache",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createOwnedHostTensorWithDiskCache",
+                                    HostRuntime::Distributed);
+      });
+}
+
 Tensor createUnsafeBorrowedHostTensor(Tensor ownedHostTensor) {
   using RetType = Tensor;
   return DISPATCH_TO_CURRENT_RUNTIME(

@@ -67,6 +67,15 @@ Tensor createOwnedHostTensor(const void *data,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
 
+// Creates host tensor with owned storage backed by a persistent disk cache.
+// On cache hit, loads the tensor from disk instead of creating from data.
+// On cache miss, creates the tensor and dumps it to disk for future reuse.
+// Requires the TT_DISTRIBUTED_TENSOR_CACHE_DIR environment variable to be set.
+Tensor createOwnedHostTensorWithDiskCache(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType, const std::string &cacheKey);
+
 // Creates a host tensor with borrowed storage that aliases the same allocation
 // as `ownedHostTensor` (no copy). The returned tensor must not outlive
 // `ownedHostTensor`, and the caller must keep `ownedHostTensor` valid for the
@@ -118,6 +127,14 @@ inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
 inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
   return ::tt::runtime::createOwnedHostTensor(
       data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
+}
+
+inline Tensor createOwnedHostTensorWithDiskCache(const void *data,
+                                                 const TensorDesc &desc,
+                                                 const std::string &cacheKey) {
+  return ::tt::runtime::createOwnedHostTensorWithDiskCache(
+      data, desc.shape, desc.stride, desc.elementSize(), desc.dataType,
+      cacheKey);
 }
 
 inline Tensor createMultiDeviceHostTensor(
