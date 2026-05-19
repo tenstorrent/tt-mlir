@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ttmlir-golden"
+version = "0.1.0"
+description = "Golden reference implementations for TT-MLIR ops"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Tenstorrent", email = "info@tenstorrent.com" },
+]
+keywords = ["tt-mlir", "tenstorrent", "golden", "reference"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "torch",
+  "numpy",
+  "einops",
+]
+
+[project.urls]
+Homepage = "https://docs.tenstorrent.com/tt-mlir/"
+Repository = "https://github.com/tenstorrent/tt-mlir"
+Issues = "https://github.com/tenstorrent/tt-mlir/issues"
+
+[tool.setuptools]
+packages = ["golden"]
+package-dir = { "golden" = "." }
