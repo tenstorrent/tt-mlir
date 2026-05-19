@@ -179,6 +179,9 @@ public:
       if (value.starts_with("experimental::CircularBuffer")) {
         headers.insert("experimental/circular_buffer.h");
       }
+      if (value.starts_with("experimental::DataflowBuffer")) {
+        headers.insert("experimental/dataflow_buffer.h");
+      }
 
       // Some callees are embedded in VerbatimOps.
       for (const auto &[callee, reqs] : headerMap) {

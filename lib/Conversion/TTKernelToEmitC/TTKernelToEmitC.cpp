@@ -614,9 +614,28 @@ public:
       resultTypes.push_back(ct);
     }
 
+    // Compute kernel free-function calls (mm_init, matmul_tiles, pack_tile,
+    // etc.) take CB IDs as uint32_t. Under useDFBs the corresponding kernel
+    // operand is an `experimental::DataflowBuffer` object — without an
+    // implicit conversion to uint16_t. Wrap each DFB operand in `.get_id()`
+    // (a uint16_t literal) to match the C++ free-function ABI; the matching
+    // handwritten Quasar kernels do the same.
+    SmallVector<Value, 4> operands(adaptor.getOperands().begin(),
+                                   adaptor.getOperands().end());
+    for (Value &operand : operands) {
+      if (isDFBValue(operand)) {
+        std::string cbName =
+            ensureCBDeclaration(operand, op.getOperation(), rewriter);
+        operand = rewriter.create<emitc::LiteralOp>(
+            op.getLoc(),
+            IntegerType::get(op.getContext(), 16, IntegerType::Unsigned),
+            cbName + ".get_id()");
+      }
+    }
+
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, getOpName(op), nullptr, getTemplateArgs(rewriter, op),
-        adaptor.getOperands());
+        operands);
 
     return success();
   }
@@ -1548,21 +1567,29 @@ public:
   LogicalResult
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    SmallVector<Value> operands;
-    operands.push_back(adaptor.getDfb());
-    std::string code;
+    // The DFB SSA value is the bare `get_compile_time_arg_val(N)` literal
+    // after type conversion. Method calls (`reserve_back`, `wait_front`, …)
+    // must go through the declared `experimental::DataflowBuffer dfb_ctarg_N`
+    // object instead, otherwise the C++ would call uint16_t.method() on a
+    // non-class type.
+    std::string dfbName =
+        ensureCBDeclaration(adaptor.getDfb(), op.getOperation(), rewriter);
+
     if constexpr (!std::is_same_v<SourceOp, ttkernel::DFBFinishOp>) {
       if (hasNumEntries_) {
-        operands.push_back(adaptor.getNumEntries());
-        code = "{}." + methodName_ + "({});";
-      } else {
-        code = "{}." + methodName_ + "();";
+        std::string code = dfbName + "." + methodName_ + "({});";
+        rewriter.create<emitc::VerbatimOp>(
+            op.getLoc(), rewriter.getStringAttr(code),
+            ValueRange{adaptor.getNumEntries()});
+        rewriter.eraseOp(op);
+        return success();
       }
-    } else {
-      code = "{}." + methodName_ + "();";
     }
-    rewriter.create<emitc::VerbatimOp>(
-        op.getLoc(), rewriter.getStringAttr(code), operands);
+
+    std::string code = dfbName + "." + methodName_ + "();";
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(),
+                                       rewriter.getStringAttr(code),
+                                       ValueRange{});
     rewriter.eraseOp(op);
     return success();
   }
