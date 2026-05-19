@@ -712,15 +712,21 @@ public:
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
 
-      // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
-      // At level >= 2 the greedy sharding optimizer (PagedUpdateCacheRuleBook
-      // constraint sink) drives the upstream producer to L1 height-sharded
-      // and inserts a proper ToMemoryConfigOp via beam search.
-      if (optimizationLevel < 2) {
-        patterns
-            .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
-                &getContext());
-      }
+      // PagedUpdateCacheOpRewritePattern runs as a backstop at every
+      // optimization level. PagedUpdateCacheRuleBook only constrains the
+      // operand-1 layout to "L1 HeightSharded"; it does NOT pin the
+      // {numUsers, 1} virtual -> physical grid translation that the runtime
+      // PagedUpdateCache kernel requires. When the beam search picks a
+      // HeightSharded layout with a different physical grid (e.g. on Wormhole
+      // 8x8 with batch_size=32 users), the per-user fill values land on the
+      // wrong cores and decode PCC silently collapses for a strided subset
+      // of users (see Llama 3.2 1B Instruct b=32 users 16/20/24/28; tt-xla
+      // nightly regression 2026-05-07, introduced by #8098).
+      // The rewrite is a no-op when the optimizer already picked the correct
+      // layout, so it has zero cost in the happy path.
+      patterns
+          .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
+              &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
