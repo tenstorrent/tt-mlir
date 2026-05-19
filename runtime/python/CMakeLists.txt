@@ -38,6 +38,7 @@ endif()
 
 nanobind_add_module(
   _ttmlir_runtime
+  ${TTMLIR_RUNTIME_PYTHON_SRCS}
 )
 
 if (TTMLIR_ENABLE_TTNN_JIT)
