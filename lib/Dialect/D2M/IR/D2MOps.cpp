@@ -1468,18 +1468,10 @@ void d2m::GenericOp::build(
       // 1. Check for an explicit virtualGridInverseMapping (inverse map) on the
       //    output's EmptyOp.  Use the stored map directly — it encodes the
       //    correct physical grid from the TTNN layout.
-      if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
-        // Get virtual to physical map from output as well.
-        auto fwdMap = *utils::getVirtualGridForwardMapping(output);
-        size_t rank = gridShape.size();
-        fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
-        for (int i = rank - 1; i >= 0; i--) {
-          fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
-        }
-        fwdMap = fwdMap.insertResult(
-            getAffineConstantExpr(0, builder.getContext()), 0);
-
-        grid = builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
+      if (auto maps =
+              utils::getGridMapsFromVirtualGridMapping(output, gridShape)) {
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape, maps->first,
+                                                 maps->second);
       }
 
       // 2. Check for a 2D→2D permutation reblocking on a ViewLayoutOp.
@@ -1873,42 +1865,42 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       }
       return false;
     };
-    // Verify per-output VGM consistency:
-    // 1. For non-DRAM outputs, the output's inverse VGM must match the
-    // GridAttr's inverse map.
-    // 2. The inverse map applied to the physical grid shape must produce
-    //    a virtual grid shape matching the output's grid shape.
+    // For non-DRAM outputs, verify that:
+    // 1. The output operand's inverse VGM matches the GenericOp GridAttr's
+    //    inverse map.
+    // 2. The inverse map applied to the physical grid shape produces a virtual
+    //    grid shape matching the output's grid shape.
+    // DRAM outputs may carry VGM attrs used for address calculation, but they
+    // are not constrained by the GenericOp's L1 execution grid.
     AffineMap gridInvMap = getGrid().getPhysicalToVirtMap();
     for (Value output : getOutputs()) {
       if (!isDRAM(output)) {
         auto outputInvMap = utils::getVirtualGridInverseMapping(output);
         if (outputInvMap && *outputInvMap != gridInvMap) {
-          return emitOpError("grid inverse map does not match output operand's "
-                             "inverse VGM");
+          return emitOpError(
+              "grid inverse map does not match output operand's inverse VGM");
         }
         if (!outputInvMap && !gridInvMap.isEmpty()) {
           return emitOpError("grid has an inverse map but output operand "
                              "does not have a VGM");
         }
-      }
 
-      SmallVector<int64_t> physicalGridShape =
-          d2m::utils::getPhysicalGridShape(output);
-      // Drop the deviceID result (first result) from the inverse map.
-      AffineMap invMapNoDevice = gridInvMap.dropResult(0);
+        SmallVector<int64_t> physicalGridShape =
+            d2m::utils::getPhysicalGridShape(output);
+        // Drop the deviceID result (first result) from the inverse map.
+        AffineMap invMapNoDevice = gridInvMap.dropResult(0);
 
-      SmallVector<int64_t> impliedVirtShape =
-          ttmlir::utils::evalShape(invMapNoDevice, physicalGridShape);
+        SmallVector<int64_t> impliedVirtShape =
+            ttmlir::utils::evalShape(invMapNoDevice, physicalGridShape);
 
-      SmallVector<int64_t> outputGridShape =
-          llvm::to_vector(ttcore::getGridShape(output));
+        SmallVector<int64_t> outputGridShape =
+            llvm::to_vector(ttcore::getGridShape(output));
 
-      if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
-        if (auto viewOp = output.getDefiningOp<d2m::ViewOpInterface>()) {
-          if (!viewOp.isComposite()) {
-            auto [baseMemrefType, viewMap] = applyViews(viewOp.getOperation());
-            if (ttcore::isL1MemorySpace(
-                    ttcore::getMemorySpace(baseMemrefType))) {
+        if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
+          if (auto viewOp = output.getDefiningOp<d2m::ViewOpInterface>()) {
+            if (!viewOp.isComposite()) {
+              auto [baseMemrefType, viewMap] =
+                  applyViews(viewOp.getOperation());
               SmallVector<int64_t> baseGridShape =
                   getGridAndShardFromShapedType(baseMemrefType).first;
               AffineMap gridViewMap = ttmlir::utils::affineMapTakeFrontResults(
@@ -1918,11 +1910,12 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
             }
           }
         }
-      }
 
-      if (outputGridShape != impliedVirtShape) {
-        return emitOpError("output grid shape does not match implied virtual "
-                           "grid shape from physical grid and inverse mapping");
+        if (outputGridShape != impliedVirtShape) {
+          return emitOpError(
+              "output grid shape does not match implied virtual "
+              "grid shape from physical grid and inverse mapping");
+        }
       }
     }
   }

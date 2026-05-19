@@ -83,25 +83,11 @@ static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
 
 static ttcore::GridAttr getMaskGridAttr(OpBuilder &builder, Value output,
                                         ArrayRef<int64_t> gridShape) {
-  auto invMap = utils::getVirtualGridInverseMapping(output);
-  auto fwdMap = utils::getVirtualGridForwardMapping(output);
-  if (!invMap || !fwdMap) {
-    return ttcore::GridAttr::get(builder.getContext(), gridShape);
+  if (auto maps = utils::getGridMapsFromVirtualGridMapping(output, gridShape)) {
+    return ttcore::GridAttr::get(builder.getContext(), gridShape, maps->first,
+                                 maps->second);
   }
-
-  AffineMap gridFwdMap = *fwdMap;
-  size_t rank = gridShape.size();
-  gridFwdMap = ttmlir::utils::affineMapDropBackResults(gridFwdMap, rank);
-  for (int64_t i = static_cast<int64_t>(rank) - 1; i >= 0; --i) {
-    unsigned dimToDrop = static_cast<unsigned>(rank + static_cast<size_t>(i));
-    gridFwdMap = ttmlir::utils::dropDim(gridFwdMap, dimToDrop);
-  }
-  gridFwdMap =
-      gridFwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()),
-                              /*resultPos=*/0);
-
-  return ttcore::GridAttr::get(builder.getContext(), gridShape, gridFwdMap,
-                               *invMap);
+  return ttcore::GridAttr::get(builder.getContext(), gridShape);
 }
 
 /// Decompose MaskOp with multi-core support.

@@ -315,6 +315,8 @@ func.func @tilize_ignores_rank_incompatible_input_vgm() -> tensor<8x4x16x1x!ttco
   // CHECK-LABEL: @tilize_ignores_rank_incompatible_input_vgm
   // CHECK: d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x1x1x128x4096xf32, #layout{{[0-9]+}}>
   // CHECK: d2m.empty() : tensor<8x4x512x32xf32, #layout{{[0-9]+}}>
+  // CHECK: d2m.generic
+  // CHECK-SAME: grid = #ttcore.grid<8x4>
   // CHECK: d2m.tile_tilize_block
   %0 = d2m.empty() {virtualGridForwardMapping = #rank6_vgm_forward, virtualGridInverseMapping = #rank6_vgm_inverse} : tensor<1x1x1x1x128x4096xf32, #rank_incompatible_vgm_src>
   %view = d2m.view_layout %0 remapping = #rank8_view : tensor<1x1x1x1x128x4096xf32, #rank_incompatible_vgm_src> -> tensor<1x1x1x1x1x128x32x128xf32, #rank_incompatible_vgm_view>
@@ -377,4 +379,56 @@ func.func @untilize_input_only_vgm_fallback() -> tensor<32x32xbf16> {
   %1 = d2m.empty() : tensor<32x32xbf16>
   %2 = d2m.to_layout %0, %1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> into tensor<32x32xbf16> -> tensor<32x32xbf16>
   return %2 : tensor<32x32xbf16>
+}
+
+#host_to_dram_with_vgm_dst = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, dram, sharded>
+
+func.func @host_to_dram_with_vgm(%arg0: tensor<64x64xbf16>) -> tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst> {
+  // CHECK-LABEL: @host_to_dram_with_vgm
+  // CHECK: %[[DRAM:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<64x64xbf16> into tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[COPY:.*]] = d2m.generic
+  // CHECK-SAME: grid = #ttcore.grid<2x2, virt_to_physical_map = {{.*}}, physical_to_virt_map = {{.*}}>
+  // CHECK-NEXT: ins(%[[TODEV]] : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>)
+  // CHECK-NEXT: outs(%[[DRAM]] : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>)
+  // CHECK-NOT: d2m.generic
+  // CHECK: return %[[COPY]]
+  %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>
+  %1 = d2m.to_layout %arg0, %0 : tensor<64x64xbf16> into tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst> -> tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>
+  return %1 : tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>
+}
+
+func.func @dram_to_dram_vgm_change(%arg0: tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>) -> tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst> {
+  // CHECK-LABEL: @dram_to_dram_vgm_change
+  // CHECK: %[[DRAM:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[L1:.*]] = d2m.empty() : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[TO_L1:.*]] = d2m.generic
+  // CHECK-NEXT: ins(%arg0 : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>)
+  // CHECK-NEXT: outs(%[[L1]] : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>)
+  // CHECK: %[[TO_DRAM:.*]] = d2m.generic
+  // CHECK-SAME: grid = #ttcore.grid<2x2, virt_to_physical_map = {{.*}}, physical_to_virt_map = {{.*}}>
+  // CHECK-NEXT: ins(%[[TO_L1]] : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>)
+  // CHECK-NEXT: outs(%[[DRAM]] : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>)
+  // CHECK: return %[[TO_DRAM]]
+  %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1 + 3, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 2, d1 - 3)>} : tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>
+  %1 = d2m.to_layout %arg0, %0 : tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst> into tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst> -> tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>
+  return %1 : tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>
+}
+
+#l1_rank8_vgm_src = #ttcore.metal_layout<logical_shape = 1x8x512x128, dim_alignments = 1x1x256x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#dram_rank4_collapsed_dst = #ttcore.metal_layout<logical_shape = 1x8x512x128, dim_alignments = 256x1x32x32, collapsed_intervals = dense<[[0, 3], [3, 4]]> : tensor<2x2xi64>, dram, sharded>
+
+func.func @l1_vgm_to_collapsed_dram_uses_grid_rank(%arg0: tensor<1x1x16x4x1x8x1x1x!ttcore.tile<32x32, bf16>, #l1_rank8_vgm_src>) -> tensor<8x4x16x1x!ttcore.tile<32x32, bf16>, #dram_rank4_collapsed_dst> {
+  // CHECK-LABEL: @l1_vgm_to_collapsed_dram_uses_grid_rank
+  // CHECK: d2m.generic
+  // CHECK-SAME: grid = #ttcore.grid<1x1x16x4, virt_to_physical_map = {{.*}}, physical_to_virt_map = {{.*}}>
+  // CHECK: d2m.block_index(3)
+  // CHECK: d2m.remote_load {{.*}}[%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}]
+  // CHECK: d2m.remote_store {{.*}}[%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}]
+  %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (((d3 + d2 * 4) floordiv 8) mod 8, (d3 + d2 * 4) mod 8, d4, d5, d6, d7)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, 0, 0, (d1 floordiv 4 + d0 * 2) mod 16, d1 mod 4)>} : tensor<1x1x16x4x1x8x1x1x!ttcore.tile<32x32, bf16>, #l1_rank8_vgm_src>
+  %1 = d2m.to_layout %arg0, %0 : tensor<1x1x16x4x1x8x1x1x!ttcore.tile<32x32, bf16>, #l1_rank8_vgm_src> into tensor<1x1x16x4x1x8x1x1x!ttcore.tile<32x32, bf16>, #l1_rank8_vgm_src> -> tensor<1x1x16x4x1x8x1x1x!ttcore.tile<32x32, bf16>, #l1_rank8_vgm_src>
+  %2 = d2m.empty() : tensor<8x4x16x1x!ttcore.tile<32x32, bf16>, #dram_rank4_collapsed_dst>
+  %3 = d2m.to_layout %1, %2 : tensor<1x1x16x4x1x8x1x1x!ttcore.tile<32x32, bf16>, #l1_rank8_vgm_src> into tensor<8x4x16x1x!ttcore.tile<32x32, bf16>, #dram_rank4_collapsed_dst> -> tensor<8x4x16x1x!ttcore.tile<32x32, bf16>, #dram_rank4_collapsed_dst>
+  return %3 : tensor<8x4x16x1x!ttcore.tile<32x32, bf16>, #dram_rank4_collapsed_dst>
 }
