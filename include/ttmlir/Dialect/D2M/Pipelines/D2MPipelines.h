@@ -29,19 +29,6 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       *this, "override-device-shape",
       llvm::cl::desc("Set the device worker grid shape.")};
 
-  Option<unsigned> numDatamovementProcessors{
-      *this, "num-datamovement-processors",
-      llvm::cl::desc(
-          "Override the datamovement processor count for D2M scheduling. "
-          "0 means use the system descriptor."),
-      llvm::cl::init(0)};
-
-  Option<unsigned> numNocs{
-      *this, "num-nocs",
-      llvm::cl::desc("Override the NoC count for D2M scheduling. 0 means use "
-                     "the legacy default."),
-      llvm::cl::init(0)};
-
   // Option to provide a system descriptor flatbuffer file to compile
   // against.
   //

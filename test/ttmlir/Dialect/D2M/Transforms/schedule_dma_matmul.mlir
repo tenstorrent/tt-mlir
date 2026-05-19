@@ -23,7 +23,7 @@ module {
     %sem3 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
 
     // CHECK: d2m.generic
-    // CHECK-SAME: threads = [#d2m.thread<datamovement, noc = 0>, #d2m.thread<datamovement, noc = 1>, #d2m.thread<compute>]
+    // CHECK-SAME: threads = [#d2m.thread<datamovement, processor = 1>, #d2m.thread<datamovement, processor = 0>, #d2m.thread<compute>]
     // CHECK: {
     // CHECK: %[[LHS_CB:.*]] = d2m.get_cb(0)
     // CHECK-NOT: d2m.get_cb(1)

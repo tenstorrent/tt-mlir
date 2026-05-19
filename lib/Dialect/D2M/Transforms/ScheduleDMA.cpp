@@ -29,22 +29,9 @@ struct DMAThreadAssignment {
   // Estimated workload for this thread (number of DMA ops).
   size_t workload = 0;
 
-  // Assigned NoC index for this thread. -1 leaves legacy/backend implicit
-  // selection in place.
-  int32_t nocIndex = -1;
-
-  // Assigned hardware datamovement processor. -1 leaves legacy/backend
-  // implicit selection in place.
+  // Assigned hardware datamovement processor.
+  // For WH/BH: 1 = DRAM reader, 0 = DRAM writer.
   int32_t processorIndex = -1;
-};
-
-struct DMASchedulingPolicy {
-  unsigned numDatamovementProcessors;
-  unsigned numNocs;
-
-  bool materializeProcessorIndex() const {
-    return numNocs == 1 && numDatamovementProcessors > 2;
-  }
 };
 
 // Collect all DMA ops from a block, recursively walking into nested scf.for
@@ -79,29 +66,14 @@ struct NocScore {
   }
 };
 
-// Assign hardware placement for the selected datamovement regions. Legacy
-// 2-NoC scheduling keeps processor identity implicit and preserves the existing
-// NocScore-based NoC assignment.
-static void assignHardwareThreads(
+// Wormhole/Blackhole have 2 datamovement processors and 2 NoCs. After CBs have
+// already been load-balanced across two threads, choose which thread should use
+// NoC0 versus NoC1. The backend maps NoC0 to processor 1 and NoC1 to processor
+// 0, so this helper stores the equivalent processor index on each assignment.
+static void assignProcessorIndicesForTwoNocs(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
-    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
-    const DMASchedulingPolicy &policy) {
-  if (policy.numNocs == 1) {
-    bool materializeProcessorIndex = policy.materializeProcessorIndex();
-    for (auto [index, assignment] : llvm::enumerate(assignments)) {
-      assignment.nocIndex = 0;
-      assignment.processorIndex =
-          materializeProcessorIndex ? static_cast<int32_t>(index) : -1;
-    }
-    return;
-  }
-
-  TT_assertv(assignments.size() <= 2u,
-             "2-NoC scheduling only supports up to 2 DM threads");
-  if (assignments.size() == 1) {
-    assignments[0].nocIndex = 0;
-    return;
-  }
+    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
+  TT_assertv(assignments.size() == 2u, "Expect exactly 2 DM threads");
 
   auto deviceAttr = ttcore::lookupDevice(dmaOps.front().first);
 
@@ -138,9 +110,38 @@ static void assignHardwareThreads(
       }
     }
   }
-  bool swap = scores[1] > scores[0];
-  assignments[0].nocIndex = swap ? 1 : 0;
-  assignments[1].nocIndex = swap ? 0 : 1;
+  bool swapNocs = scores[1] > scores[0];
+  ttcore::NocIndex thread0Noc =
+      swapNocs ? ttcore::NocIndex::Noc1 : ttcore::NocIndex::Noc0;
+  ttcore::NocIndex thread1Noc =
+      swapNocs ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
+  assignments[0].processorIndex =
+      utils::getDatamovementProcessorForNoc(thread0Noc);
+  assignments[1].processorIndex =
+      utils::getDatamovementProcessorForNoc(thread1Noc);
+}
+
+// Quasar has 6 datamovement processors sharing 1 NoC. There is no NoC choice
+// to make after CB load balancing, so the balanced thread index is the hardware
+// processor index.
+static void assignProcessorIndicesForSingleNoc(
+    SmallVectorImpl<DMAThreadAssignment> &assignments) {
+  for (auto [index, assignment] : llvm::enumerate(assignments)) {
+    assignment.processorIndex = static_cast<int32_t>(index);
+  }
+}
+
+static void assignProcessorIndices(
+    SmallVectorImpl<DMAThreadAssignment> &assignments,
+    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
+    unsigned numDatamovementThreads) {
+  if (numDatamovementThreads == 2) {
+    assignProcessorIndicesForTwoNocs(assignments, dmaOps);
+    return;
+  }
+
+  TT_assertv(numDatamovementThreads == 6u, "Expect 2 or 6 DM processors");
+  assignProcessorIndicesForSingleNoc(assignments);
 }
 
 // Assign CBs to threads to balance workload.
@@ -228,8 +229,9 @@ class D2MScheduleDMARewriter : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
 
-  D2MScheduleDMARewriter(MLIRContext *context, DMASchedulingPolicy policy)
-      : OpRewritePattern<GenericOp>(context), policy(policy) {}
+  D2MScheduleDMARewriter(MLIRContext *context, unsigned numDatamovementThreads)
+      : OpRewritePattern<GenericOp>(context),
+        numDatamovementThreads(numDatamovementThreads) {}
 
   LogicalResult matchAndRewrite(GenericOp generic,
                                 PatternRewriter &rewriter) const final {
@@ -274,23 +276,24 @@ public:
 
     // Determine number of threads to use.
     unsigned numThreadsToUse = std::min(
-        static_cast<unsigned>(cbWorkloads.size()),
-        policy.numDatamovementProcessors);
+        static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
 
-    // Not enough CBs to warrant splitting but still need to assign nocIndex on
-    // the existing single DM thread before returning failure.
-    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
+    // Not enough CBs to warrant splitting but still need to assign a processor
+    // on the existing single DM thread before returning failure.
+    if (numThreadsToUse <= 1) {
       bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
         auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
         return store && ttcore::getMemorySpace(store.getMemref()) ==
                             ttcore::MemorySpace::DeviceDRAM;
       });
-      bool materializeProcessorIndex = policy.materializeProcessorIndex();
-      int32_t nocIndex = policy.numNocs == 1 ? 0 : (writesDRAM ? 1 : 0);
-      int32_t processorIndex = materializeProcessorIndex ? 0 : -1;
+      int32_t processorIndex = numDatamovementThreads == 2
+                                   ? utils::getDatamovementProcessorForNoc(
+                                         writesDRAM ? ttcore::NocIndex::Noc1
+                                                    : ttcore::NocIndex::Noc0)
+                                   : 0;
       generic.setThreadsAttr(rewriter.getArrayAttr({
           rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
-                                       nocIndex, processorIndex),
+                                       processorIndex),
           generic.getThreadsAttr().getValue()[1],
       }));
       return failure();
@@ -300,16 +303,14 @@ public:
     SmallVector<DMAThreadAssignment> assignments =
         assignCBsToThreads(cbWorkloads, numThreadsToUse);
 
-    assignHardwareThreads(assignments, dmaOps, policy);
+    assignProcessorIndices(assignments, dmaOps, numDatamovementThreads);
 
     // Create new thread attributes: N datamovement threads + 1 compute thread.
     SmallVector<Attribute> threads;
     for (unsigned i = 0; i < numThreadsToUse; ++i) {
-      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement,
-                                                     /*kernelSymbol=*/nullptr,
-                                                     assignments[i].nocIndex,
-                                                     assignments[i]
-                                                         .processorIndex));
+      threads.push_back(rewriter.getAttr<ThreadAttr>(
+          ThreadType::Datamovement,
+          /*kernelSymbol=*/nullptr, assignments[i].processorIndex));
     }
     threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
 
@@ -377,7 +378,7 @@ public:
   }
 
 private:
-  DMASchedulingPolicy policy;
+  unsigned numDatamovementThreads;
 };
 
 class D2MScheduleDMA : public impl::D2MScheduleDMABase<D2MScheduleDMA> {
@@ -391,40 +392,19 @@ public:
     TT_assert(systemDesc);
 
     auto chipDesc = systemDesc.getChipDescs().front();
-    DMASchedulingPolicy policy = {
-        numDatamovementProcessors != 0
-            ? numDatamovementProcessors
-            : chipDesc.getNumDatamovementThreads(),
-        static_cast<unsigned>(numNocs != 0 ? numNocs : 2),
-    };
+    unsigned numDatamovementThreads =
+        numDatamovementProcessors != 0 ? numDatamovementProcessors
+                                       : chipDesc.getNumDatamovementThreads();
 
-    if (policy.numNocs != 1 && policy.numNocs != 2) {
-      moduleOp.emitError("d2m-schedule-dma only supports one or two NoCs");
-      signalPassFailure();
-      return;
-    }
-
-    if (policy.numDatamovementProcessors == 0) {
+    if (numDatamovementThreads != 2 && numDatamovementThreads != 6) {
       moduleOp.emitError(
-          "d2m-schedule-dma requires at least one datamovement processor");
+          "d2m-schedule-dma only supports 2 or 6 datamovement processors");
       signalPassFailure();
-      return;
-    }
-
-    if (policy.numNocs == 2 && policy.numDatamovementProcessors > 2) {
-      moduleOp.emitError("d2m-schedule-dma only supports two NoCs with at "
-                         "most two datamovement processors");
-      signalPassFailure();
-      return;
-    }
-
-    // If only 1 DMA thread available, nothing to schedule.
-    if (policy.numDatamovementProcessors <= 1) {
       return;
     }
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<D2MScheduleDMARewriter>(&getContext(), policy);
+    patterns.add<D2MScheduleDMARewriter>(&getContext(), numDatamovementThreads);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

@@ -1114,8 +1114,6 @@ def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
     Option<"numDatamovementProcessors", "num-datamovement-processors",
            "unsigned", "0",
            "Override the available datamovement processor count. 0 means use the system descriptor.">,
-    Option<"numNocs", "num-nocs", "unsigned", "0",
-           "Override the available NoC count. 0 means use the legacy default.">,
   ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }

@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_DMAUTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_DMAUTILS_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
 #include "mlir/IR/Block.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -16,6 +18,11 @@ namespace mlir::tt::d2m::utils {
 // as all threads would execute the operation, creating a race condition on the
 // shared semaphore.
 LogicalResult checkForIllegalSemaphoreOps(Block *block);
+
+bool isSupportedDatamovementProcessor(int32_t processorIndex);
+ttcore::NocIndex
+getNocForSupportedDatamovementProcessor(int32_t processorIndex);
+int32_t getDatamovementProcessorForNoc(ttcore::NocIndex nocIndex);
 
 } // namespace mlir::tt::d2m::utils
 

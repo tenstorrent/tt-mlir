@@ -106,19 +106,12 @@ struct ConvertD2MToTTKernel
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
 
-    WalkResult unsupportedProcessor = moduleOp->walk([&](func::FuncOp func) {
-      auto threadAttr =
-          func->getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
-      if (!threadAttr ||
-          threadAttr.getThreadType() != d2m::ThreadType::Datamovement ||
-          threadAttr.getProcessorIndex() < 0) {
-        return WalkResult::advance();
-      }
-      func.emitError("explicit datamovement processor selection is not "
-                     "supported by D2MToTTKernel lowering yet");
-      return WalkResult::interrupt();
-    });
-    if (unsupportedProcessor.wasInterrupted()) {
+    auto systemDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+        ttcore::SystemDescAttr::name);
+    if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==
+                          ttcore::Arch::Quasar) {
+      moduleOp.emitError("D2MToTTKernel lowering does not support Quasar "
+                         "datamovement processors");
       signalPassFailure();
       return;
     }

@@ -32,14 +32,13 @@ using namespace mlir::tt::d2m;
 // Custom assembly format for D2M_ThreadAttr.
 //
 // Format:  `<` threadType (`,` kernelSymbol)?
-//               (`,` `noc` `=` nocIndex)?
 //               (`,` `processor` `=` processorIndex)? `>`
 //
-// The optional groups all start with `,`, so the declarative tablegen format
-// cannot disambiguate them when the kernel symbol is absent: it always tries to
-// parse the kernel symbol after the first comma and fails on
-// `#d2m.thread<datamovement, noc = 0>`. We peek for keywords to pick the right
-// branch.
+// The two optional groups both start with `,`, so the declarative tablegen
+// format cannot disambiguate them: it always tries to parse the kernel symbol
+// after the first comma and fails on
+// `#d2m.thread<datamovement, processor = 0>`. We peek for the `processor`
+// keyword to pick the correct branch.
 mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   if (parser.parseLess()) {
     return {};
@@ -52,48 +51,26 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   }
 
   SymbolRefAttr kernelSymbol;
-  int32_t nocIndex = -1;
   int32_t processorIndex = -1;
-  bool parsedKernelSymbol = false;
-  bool parsedNocIndex = false;
-  bool parsedProcessorIndex = false;
 
-  while (parser.parseOptionalComma().succeeded()) {
-    if (parser.parseOptionalKeyword("noc").succeeded()) {
-      if (parsedNocIndex) {
-        parser.emitError(parser.getCurrentLocation(),
-                         "duplicate noc in D2M_ThreadAttr");
-        return {};
-      }
-      if (parser.parseEqual() || parser.parseInteger(nocIndex)) {
-        return {};
-      }
-      parsedNocIndex = true;
-      continue;
-    }
-
+  // First optional: either `, @kernel` or `, processor = N`.
+  if (parser.parseOptionalComma().succeeded()) {
     if (parser.parseOptionalKeyword("processor").succeeded()) {
-      if (parsedProcessorIndex) {
-        parser.emitError(parser.getCurrentLocation(),
-                         "duplicate processor in D2M_ThreadAttr");
-        return {};
-      }
       if (parser.parseEqual() || parser.parseInteger(processorIndex)) {
         return {};
       }
-      parsedProcessorIndex = true;
-      continue;
+    } else {
+      if (parser.parseAttribute(kernelSymbol)) {
+        return {};
+      }
+      // Second optional: only valid if a kernel symbol was given above.
+      if (parser.parseOptionalComma().succeeded()) {
+        if (parser.parseKeyword("processor") || parser.parseEqual() ||
+            parser.parseInteger(processorIndex)) {
+          return {};
+        }
+      }
     }
-
-    if (parsedKernelSymbol) {
-      parser.emitError(parser.getCurrentLocation(),
-                       "duplicate kernel symbol in D2M_ThreadAttr");
-      return {};
-    }
-    if (parser.parseAttribute(kernelSymbol)) {
-      return {};
-    }
-    parsedKernelSymbol = true;
   }
 
   if (parser.parseGreater()) {
@@ -101,7 +78,7 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   }
 
   return ThreadAttr::get(parser.getContext(), *threadType, kernelSymbol,
-                         nocIndex, processorIndex);
+                         processorIndex);
 }
 
 void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
@@ -110,9 +87,6 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
   if (getKernelSymbol()) {
     printer << ", ";
     printer.printAttribute(getKernelSymbol());
-  }
-  if (getNocIndex() != -1) {
-    printer << ", noc = " << getNocIndex();
   }
   if (getProcessorIndex() != -1) {
     printer << ", processor = " << getProcessorIndex();

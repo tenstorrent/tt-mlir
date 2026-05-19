@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -340,17 +341,19 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       break;
     }
     case d2m::ThreadType::Datamovement: {
-      // Explicit processorIndex >= 0 is rejected up front by the pass; legacy
-      // IR reaches here with processorIndex == -1.
-      int32_t nocIdx = threadAttr.getNocIndex();
-      // For unassigned NOCs, alternate between NOC0 and NOC1.
-      if (nocIdx < 0) {
-        nocIdx = unassignedNocCounter++ % 2;
+      int32_t processorIdx = threadAttr.getProcessorIndex();
+      ttcore::NocIndex nocIndex;
+      if (processorIdx < 0) {
+        int32_t index = unassignedNocCounter++ % 2;
+        nocIndex = index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
+        processorIdx = d2m::utils::getDatamovementProcessorForNoc(nocIndex);
+      } else {
+        nocIndex =
+            d2m::utils::getNocForSupportedDatamovementProcessor(processorIdx);
       }
-      auto nocIndex =
-          nocIdx == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-      auto processor = nocIdx == 0 ? ttnn::DataMovementProcessor::RiscV1
-                                   : ttnn::DataMovementProcessor::RiscV0;
+      auto processor = processorIdx == 1 ? ttnn::DataMovementProcessor::RiscV1
+                                         : ttnn::DataMovementProcessor::RiscV0;
+
       kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
           kernelSymbol, coreRangeSet, processor, nocIndex,
           ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);

@@ -43,18 +43,23 @@ struct ConvertD2MToTTNNPass final
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    // Reject explicit datamovement processor selection up front. The TTNN
-    // backend only models the legacy two-NoC RiscV0/RiscV1 mapping today;
-    // option-driven new-chip scheduling (processorIndex >= 0) is intentionally
-    // unsupported until lower-level processor APIs are integrated.
+    auto systemDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+        ttcore::SystemDescAttr::name);
+    if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==
+                          ttcore::Arch::Quasar) {
+      moduleOp.emitError("D2MToTTNN lowering does not support Quasar");
+      signalPassFailure();
+      return;
+    }
+
     WalkResult unsupportedProcessor =
         moduleOp->walk([&](d2m::GenericOp generic) {
           for (Attribute threadAttr : generic.getThreads()) {
             auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
             if (thread.getThreadType() == d2m::ThreadType::Datamovement &&
-                thread.getProcessorIndex() >= 0) {
+                thread.getProcessorIndex() >= 2) {
               generic.emitError(
-                  "explicit datamovement processor selection is not "
+                  "datamovement processor indices greater than 1 are not "
                   "supported by D2MToTTNN lowering yet");
               return WalkResult::interrupt();
             }

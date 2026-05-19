@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -130,15 +131,18 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        // Explicit processorIndex >= 0 is rejected up front by the pass; legacy
-        // IR reaches here with processorIndex == -1.
-        int32_t nocIdx = thread.getNocIndex();
-        if (nocIdx < 0) {
-          nocIdx = unassignedNocCounter++ % 2;
+        int32_t processorIdx = thread.getProcessorIndex();
+        ttcore::NocIndex nocIndex;
+        if (processorIdx < 0) {
+          int32_t index = unassignedNocCounter++ % 2;
+          nocIndex =
+              index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
+        } else {
+          nocIndex =
+              d2m::utils::getNocForSupportedDatamovementProcessor(processorIdx);
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs,
-            *ttcore::symbolizeNocIndex(nocIdx));
+            thread.getKernelSymbol(), coreRange, kernelArgs, nocIndex);
         break;
       }
       case d2m::ThreadType::Unified: {
