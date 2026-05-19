@@ -35,31 +35,41 @@ public:
     return mlir::isa<MeshShardOp>(op);
   }
 
-  // Returns true if the chain from `value` back to a block argument consists
-  // only of isAllowedOnCachePath ops. Does not modify any types.
-  static bool canPropagateDtype(Value value) {
-    auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
-    if (!tensorType) {
-      return false;
-    }
-
-    if (mlir::isa<BlockArgument>(value)) {
-      return true;
-    }
-
-    Operation *defOp = value.getDefiningOp();
-    if (!isAllowedOnCachePath(defOp)) {
-      return false;
-    }
-
-    mlir::Type elemType = tensorType.getElementType();
-    for (Value operand : defOp->getOperands()) {
-      auto opType = mlir::dyn_cast<RankedTensorType>(operand.getType());
-      if (opType && opType.getElementType() == elemType) {
-        return canPropagateDtype(operand);
+  // Walks the linear tensor chain from `value` back through allowed ops,
+  // collecting intermediate tensor values into `chain`. Returns the
+  // terminating block argument, or nullptr if the chain is invalid
+  static BlockArgument collectChainToRoot(Value value,
+                                          llvm::SmallVectorImpl<Value> &chain) {
+    while (!mlir::isa<BlockArgument>(value)) {
+      chain.push_back(value);
+      Operation *defOp = value.getDefiningOp();
+      if (!isAllowedOnCachePath(defOp)) {
+        return nullptr;
       }
+      Value next;
+      for (Value operand : defOp->getOperands()) {
+        if (mlir::isa<RankedTensorType>(operand.getType())) {
+          if (next) {
+            return nullptr;
+          }
+          next = operand;
+        }
+      }
+      if (!next) {
+        return nullptr;
+      }
+      value = next;
     }
-    return true;
+    return mlir::cast<BlockArgument>(value);
+  }
+
+  // Returns true if the chain from `value` back through allowed ops terminates
+  // at a kv_cache-labeled block argument. Does not modify any types.
+  static bool canPropagateDtype(func::FuncOp funcOp, Value value) {
+    llvm::SmallVector<Value> chain;
+    BlockArgument blockArg = collectChainToRoot(value, chain);
+    return blockArg && funcOp.getArgAttr(blockArg.getArgNumber(),
+                                         ttcore::g_kvCacheAttrName);
   }
 
   static ttcore::LocalShapeAttr
@@ -136,34 +146,16 @@ public:
         mlir::FunctionType::get(ctx, newArgTypes, newResultTypes));
   }
 
-  // Walk backward from `value` through the chain, updating each value's element
-  // dtype. Only call this after canPropagateDtype confirms the chain is fully
-  // traversable.
+  // Updates the element dtype of each value on the chain from `value` back to
+  // its kv_cache block argument. Only call this if the chain is valid
   static void propagateDtypeTowardRoot(Value value,
                                        ttcore::DataType targetDtype) {
-    auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
-    if (!tensorType) {
-      return;
-    }
-
-    auto newType =
-        ttnn::utils::RankedTensorTypeFactory::create(tensorType, targetDtype);
-    if (value.getType() == newType) {
-      return;
-    }
-
-    value.setType(newType);
-
-    if (mlir::isa<BlockArgument>(value)) {
-      return;
-    }
-
-    mlir::Type originalElemType = tensorType.getElementType();
-    for (Value operand : value.getDefiningOp()->getOperands()) {
-      auto operandType = mlir::dyn_cast<RankedTensorType>(operand.getType());
-      if (operandType && operandType.getElementType() == originalElemType) {
-        propagateDtypeTowardRoot(operand, targetDtype);
-      }
+    llvm::SmallVector<Value> chain;
+    collectChainToRoot(value, chain);
+    for (Value v : chain) {
+      auto tensorType = mlir::cast<RankedTensorType>(v.getType());
+      v.setType(ttnn::utils::RankedTensorTypeFactory::create(tensorType,
+                                                             targetDtype));
     }
   }
 
@@ -215,7 +207,7 @@ public:
         llvm::TypeSwitch<Operation *>(op)
             .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp,
                   PagedUpdateCacheOp>([&](auto cacheOp) {
-              if (!canPropagateDtype(cacheOp.getCache())) {
+              if (!canPropagateDtype(funcOp, cacheOp.getCache())) {
                 canConvert = false;
               }
             });
