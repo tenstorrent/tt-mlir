@@ -724,7 +724,14 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
       // the corresponding uncompressed element type, i.e. bfp_bf8 -> bf16
       Type getElementType() const;
       const ::llvm::fltSemantics &getFloatSemantics() {
-        llvm_unreachable("TTCore_Tile::getFloatSemantics unimplemented #5124");
+        // TileType wraps a scalar element type; for compressed tiles
+        // (bfp_bf8, bfp_bf4) getElementType() returns the corresponding
+        // uncompressed scalar (bf16). Delegate to that scalar's float
+        // semantics. See issue #5124.
+        auto floatTy = mlir::dyn_cast<mlir::FloatType>(getElementType());
+        assert(floatTy && "TTCore_Tile::getFloatSemantics: tile element type "
+                          "is not a FloatType");
+        return floatTy.getFloatSemantics();
       }
 
       // ShapedTypeInterface methods
