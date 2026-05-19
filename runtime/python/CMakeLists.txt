@@ -38,7 +38,6 @@ endif()
 
 nanobind_add_module(
   _ttmlir_runtime
-  ${TTMLIR_RUNTIME_PYTHON_SRCS}
 )
 
 if (TTMLIR_ENABLE_TTNN_JIT)
@@ -96,6 +95,12 @@ if (TTMLIR_ENABLE_RUNTIME)
   )
   target_sources(_ttmlir_runtime PRIVATE $<TARGET_OBJECTS:_mlir_runtime_utils>)
   set_property(TARGET _mlir_runtime_utils PROPERTY CXX_STANDARD 20)
+
+  install(TARGETS _ttmlir_runtime
+    LIBRARY DESTINATION ${TTMLIR_PYTHON_PACKAGES_DIR}
+    RUNTIME DESTINATION ${TTMLIR_PYTHON_PACKAGES_DIR}
+    ${TTMLIR_RUNTIME_PYTHON_SRCS}
+  )
 endif()
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")

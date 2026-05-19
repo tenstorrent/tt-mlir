@@ -131,6 +131,15 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
+    - name: Check Python Packages
+      shell: bash
+      run: |
+        echo "Check ttmlir_runtime is in python_packages directory:"
+        find ${{ steps.strings.outputs.build-output-dir }}/python_packages -type f -name "*ttmlir_runtime*" 2>/dev/null || echo "No _ttmlir_runtime files found"
+        echo "FOUND"
+        echo "Full python_packages contents:"
+        ls -la ${{ steps.strings.outputs.build-output-dir }}/python_packages/ 2>/dev/null || echo "python_packages directory not found"
+
     - name: Build tests
       shell: bash
       run: |
