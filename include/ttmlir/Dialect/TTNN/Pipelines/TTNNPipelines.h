@@ -587,7 +587,7 @@ struct TTNNCommonToEmitCPipelineOptions
       *this, "tuplify-input-if-empty",
       llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
                      "function. This should only be used if the `target-dylib` "
-                     "option is set to `true`"),
+                     "or the `target-module` option is set to `true`"),
       llvm::cl::init(false)};
 
   Option<bool> loadInputTensorsFromDisk{

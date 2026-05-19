@@ -1214,10 +1214,13 @@ public:
       // Check that input is not empty and that all args are of type
       // RankedTensorType.
       //
-      // If `tuplifyInputIfEmpty` option is set, tuplify the input even if the
+      // If `tuplifyInputIfEmpty` option is set and the function is a forward
+      // device function, tuplify the input even if the
       // function has no inputs.
       //
-      if ((tuplifyInputIfEmpty || !functionType.getInputs().empty()) &&
+      if (((tuplifyInputIfEmpty &&
+            ttmlir::utils::isForwardDeviceFunc(funcOp)) ||
+           !functionType.getInputs().empty()) &&
           llvm::all_of(functionType.getInputs(),
                        [](Type t) { return mlir::isa<RankedTensorType>(t); })) {
         targetFuncOpsInput.push_back(funcOp);
@@ -1372,46 +1375,198 @@ public:
     rewriter.modifyOpInPlace(targetFuncOp,
                              [&]() { targetFuncOp.setSymName("forward"); });
 
-    // Add device argument to the function signature.
+    // The pipeline runs TTNNTuplifyTensors with `tuplifyInputIfEmpty=true`
+    // before this pass, so the forward function is guaranteed to have at
+    // least one argument (the input tuple) at this point.
     //
-    DeviceType deviceType = DeviceType::get(&getContext());
-    Block &entryBlock = targetFuncOp.getBlocks().front();
-    BlockArgument deviceArg =
-        entryBlock.addArgument(deviceType, targetFuncOp.getLoc());
-
-    // Update function type to include device argument.
-    //
-    mlir::FunctionType originalFuncType = targetFuncOp.getFunctionType();
-    SmallVector<Type> newInputTypes(originalFuncType.getInputs().begin(),
-                                    originalFuncType.getInputs().end());
-    newInputTypes.push_back(deviceType);
-    FunctionType newFuncType = FunctionType::get(&getContext(), newInputTypes,
-                                                 originalFuncType.getResults());
-
-    rewriter.modifyOpInPlace(targetFuncOp,
-                             [&]() { targetFuncOp.setType(newFuncType); });
-
-    // Set the emitpy.name attribute for the input tuple and device arguments.
-    // The input tuple should be named "input" and the device should be named
-    // "device".
-    //
-    if (!newInputTypes.empty()) {
-      targetFuncOp.setArgAttr(0, "emitpy.name",
-                              rewriter.getStringAttr("input"));
+    if (targetFuncOp.getNumArguments() == 0) {
+      targetFuncOp.emitOpError(
+          "expected forward function to have at least one (tuple) input; run "
+          "`-ttnn-tuplify-tensors=tuplify-input-if-empty=true` before this "
+          "pass");
+      signalPassFailure();
+      return;
     }
-    targetFuncOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
-                            rewriter.getStringAttr("device"));
 
-    // Find all GetDeviceOp operations and replace their uses with the device
-    // argument.
+    // Add a device argument to the function and replace all GetDeviceOp uses
+    // with it.
     //
-    SmallVector<ttnn::GetDeviceOp> getDeviceOps;
-    targetFuncOp.walk(
-        [&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+    if (failed(injectDeviceArg(rewriter, targetFuncOp))) {
+      signalPassFailure();
+      return;
+    }
 
-    for (ttnn::GetDeviceOp getDeviceOp : getDeviceOps) {
+    // The forward function must have exactly two
+    // arguments: the input tuple from tuplification and the device argument
+    // just injected.
+    //
+    if (targetFuncOp.getNumArguments() != 2) {
+      targetFuncOp.emitOpError(
+          "expected forward function to have exactly (tuple, device) "
+          "arguments after device injection; got ")
+          << targetFuncOp.getNumArguments() << " arguments";
+      signalPassFailure();
+      return;
+    }
+
+    // Set `emitpy.name` attributes for the forward function's arguments.
+    //
+    targetFuncOp.setArgAttr(0, "emitpy.name", rewriter.getStringAttr("input"));
+    targetFuncOp.setArgAttr(1, "emitpy.name", rewriter.getStringAttr("device"));
+
+    // Prepare the forward function input tensors to be in the right form
+    // (host/device, layout, dtype).
+    //
+    prepareForwardFuncInputTensors(rewriter, targetFuncOp);
+  }
+
+private:
+  // Adds a trailing device argument to the function's signature and
+  // rewrites every GetDeviceOp inside the function to use it. Fails if
+  // the argument could not be inserted.
+  //
+  LogicalResult injectDeviceArg(IRRewriter &rewriter, func::FuncOp funcOp) {
+    DeviceType deviceType = DeviceType::get(rewriter.getContext());
+    unsigned deviceArgIndex = funcOp.getNumArguments();
+    if (failed(funcOp.insertArgument(deviceArgIndex, deviceType,
+                                     /*argAttrs=*/DictionaryAttr{},
+                                     funcOp.getLoc()))) {
+      return funcOp.emitOpError(
+          "failed to inject device argument into the function's signature!");
+    }
+
+    // Replace all GetDeviceOp operations with the new device argument.
+    //
+    BlockArgument deviceArg = funcOp.getArgument(deviceArgIndex);
+    SmallVector<ttnn::GetDeviceOp> getDeviceOps;
+    funcOp.walk([&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+    for (auto getDeviceOp : getDeviceOps) {
       rewriter.replaceOp(getDeviceOp, deviceArg);
     }
+    return success();
+  }
+
+  // Re-type every forward function input tensor to the appropriate form
+  // (host/device, layout, dtype).
+  //
+  void prepareForwardFuncInputTensors(IRRewriter &rewriter,
+                                      func::FuncOp forwardFuncOp) {
+    MLIRContext *ctx = rewriter.getContext();
+    Value inputTuple = forwardFuncOp.getArgument(0);
+    Value deviceArg = forwardFuncOp.getArgument(1);
+    auto inputTupleType = mlir::cast<mlir::TupleType>(inputTuple.getType());
+
+    // The tt-xla/codegen entry-point contract is that the forward function
+    // always receives each tensor on host in row-major form. However,
+    // TTNNLayout pass rewrites the FuncOp inputs to device layout (with some
+    // minor exceptions, e.g. Conv2d weights), and relies on the function caller
+    // to prepare input tensors in the right form. For that reason, this pass
+    // uses the proper host counterparts of the device-bound input tensors and
+    // applies ToLayoutOp and ToDeviceOp to them.
+    llvm::DenseMap<int64_t, RankedTensorType> hostTypesByIndex;
+    for (size_t idx = 0; idx < inputTupleType.size(); ++idx) {
+      auto tensorType =
+          mlir::cast<RankedTensorType>(inputTupleType.getType(idx));
+      auto targetLayout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+      // System-memory inputs are already declared as host row-major.
+      //
+      if (!targetLayout.isDeviceBufferType()) {
+        continue;
+      }
+
+      // For each device-bound tensor type, create the host row-major tensor
+      // type that preserves the target shape and element type.
+      //
+      auto hostLayoutAttr = TTNNLayoutAttr::Builder(tensorType)
+                                .setBufferType(BufferType::SystemMemory)
+                                .setLayout(Layout::RowMajor)
+                                .build();
+      hostTypesByIndex[idx] = RankedTensorType::get(
+          tensorType.getShape(), tensorType.getElementType(), hostLayoutAttr);
+    }
+
+    if (hostTypesByIndex.empty()) {
+      return;
+    }
+
+    // Patch GetTupleElementOp results to a proper type.
+    //
+    SmallVector<ttcore::GetTupleElementOp> getElemOps;
+    forwardFuncOp.walk([&](ttcore::GetTupleElementOp getElemOp) {
+      if (getElemOp.getOperand() == inputTuple) {
+        getElemOps.push_back(getElemOp);
+      }
+    });
+
+    for (auto getElemOp : getElemOps) {
+      int64_t idx = getElemOp.getIndex();
+      auto it = hostTypesByIndex.find(idx);
+      if (it == hostTypesByIndex.end()) {
+        continue;
+      }
+
+      RankedTensorType hostTensorType = it->second;
+      auto deviceTensorType =
+          mlir::cast<RankedTensorType>(inputTupleType.getType(idx));
+      auto targetLayout =
+          mlir::cast<TTNNLayoutAttr>(deviceTensorType.getEncoding());
+
+      auto oldTupleElemResult = getElemOp.getResult();
+      oldTupleElemResult.setType(hostTensorType);
+
+      rewriter.setInsertionPointAfter(getElemOp);
+      // Build the intermediate host-staged type that
+      // carries the target layout and element type.
+      //
+      auto hostStagedLayoutAttr = TTNNLayoutAttr::Builder(deviceTensorType)
+                                      .setBufferType(BufferType::SystemMemory)
+                                      .setLayout(targetLayout.getLayout())
+                                      .build();
+      auto hostStagedTensorType = RankedTensorType::get(
+          deviceTensorType.getShape(), deviceTensorType.getElementType(),
+          hostStagedLayoutAttr);
+
+      // On-host layout/dtype conversion. If this is an
+      // identity conversion the folder collapses the op to its input.
+      //
+      auto toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+          getElemOp.getLoc(), hostStagedTensorType, oldTupleElemResult,
+          LayoutAttr::get(ctx, targetLayout.getLayout()),
+          ttcore::DataTypeAttr::get(ctx, targetLayout.getDataType()));
+
+      // Host-to-device transfer. The target memory config is conveyed via the
+      // result tensor type's `TTNNLayoutAttr` encoding.
+      //
+      auto toDeviceOp = rewriter.create<ttnn::ToDeviceOp>(
+          getElemOp.getLoc(), deviceTensorType, toLayoutOp.getResult(),
+          deviceArg);
+
+      // Replace the original tuple element with the device tensor produced by
+      // ToDeviceOp. The only use of the original tuple element preserved is
+      // the one inside the ToLayoutOp itself.
+      //
+      rewriter.replaceAllUsesExcept(oldTupleElemResult, toDeviceOp.getResult(),
+                                    toLayoutOp);
+    }
+
+    // Patch the tuple type and the forward function's input type so the IR
+    // is internally consistent with the retyped tuple element results.
+    //
+    SmallVector<Type> newTupleElementTypes(inputTupleType.getTypes().begin(),
+                                           inputTupleType.getTypes().end());
+    for (auto &[idx, hostType] : hostTypesByIndex) {
+      newTupleElementTypes[idx] = hostType;
+    }
+    auto newTupleType = mlir::TupleType::get(ctx, newTupleElementTypes);
+    inputTuple.setType(newTupleType);
+
+    FunctionType forwardFuncType = forwardFuncOp.getFunctionType();
+    SmallVector<Type> newInputTypes(forwardFuncType.getInputs().begin(),
+                                    forwardFuncType.getInputs().end());
+    newInputTypes[0] = newTupleType;
+    forwardFuncOp.setType(
+        FunctionType::get(ctx, newInputTypes, forwardFuncType.getResults()));
   }
 };
 
