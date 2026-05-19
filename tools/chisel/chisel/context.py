@@ -116,6 +116,14 @@ class ChiselContext:
         return value
 
     @property
+    def golden_tensor_pool(self) -> Dict[SSAName, GoldenMapTensor]:
+        """Program-scoped SSA -> golden tensor map; persists across ops."""
+        program = self._current_callback_program
+        if program is None:
+            raise UnexpectedStateError("golden_tensor_pool")
+        return program._golden_tensor_pool
+
+    @property
     def rt_program_context(self) -> Optional[CallbackContext]:
         program = self._current_callback_program
         return program._rt_program_context if program is not None else None
@@ -270,6 +278,8 @@ class ProgramState:
         self._current_output_refs: Optional[List[TensorRef]] = None
         self._stashed_inputs: Optional[Dict[SSAName, GoldenMapTensor]] = None
         self._pre_failed: bool = False
+        # Persists across ops within a program; not reset per op.
+        self._golden_tensor_pool: Dict[SSAName, GoldenMapTensor] = {}
 
     def begin_op(self) -> None:
         self._current_op = next(self._op_iter).opview

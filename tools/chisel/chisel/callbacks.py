@@ -22,10 +22,20 @@ from golden import GoldenMapTensor
 
 from .context import ChiselContext, get_instance
 from .exceptions import IrRuntimeMismatch
-from .executor import build_role_keyed_inputs, execute_golden
+from .executor import (
+    build_role_keyed_inputs,
+    execute_golden,
+    execute_golden_from_pool,
+)
 from .op_configs import ChiselOpConfig
 from .ops import SSAName, get_op_inputs, get_op_outputs
-from .report import ChiselRecord, NoGoldenPayload, SkippedNumericsPayload
+from .report import (
+    ChiselRecord,
+    GoldenPromotedPayload,
+    NoGoldenPayload,
+    NumericsMode,
+    SkippedNumericsPayload,
+)
 from .safety import chisel_safe
 from .utils import get_op_asm, retrieve_tensor
 from .validators import check_numerics, check_shape_dtype
@@ -80,20 +90,16 @@ def _validate_and_retrieve_tensor(
 
 def _run_isolation_golden(
     op: OpView,
-    mlir_outputs: List[Value],
     asm_state,
     ssa_inputs: Dict[SSAName, GoldenMapTensor],
 ) -> List[GoldenMapTensor]:
     role_inputs = build_role_keyed_inputs(op, ssa_inputs, asm_state)
-    iso_outs = execute_golden(op, role_inputs)
-    for mlir_output, iso_out in zip(mlir_outputs, iso_outs, strict=True):
-        check_shape_dtype(op, "mlir_vs_golden", mlir_output, iso_out)
-    return iso_outs
+    return execute_golden(op, role_inputs)
 
 
 @chisel_safe
 def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
-    """Stash a host copy of every device input so POST can drive the golden."""
+    """Stash host copies of device inputs and seed function args into the pool."""
     op = ctx.op
     if config.no_golden:
         ctx.write_record(
@@ -107,21 +113,61 @@ def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
 
     _assert_op_matches_runtime(ctx)
     asm_state = ctx.asm_state
+    pool = ctx.golden_tensor_pool
 
     mlir_op_inputs = get_op_inputs(op)
     for mlir_input, rt_tensor_ref in zip(mlir_op_inputs, ctx.input_refs, strict=True):
         # TODO(ndrakulic): Right now we are pulling input device tensors to host potentially multiple times
         tensor = _validate_and_retrieve_tensor(ctx, mlir_input, rt_tensor_ref)
-        ctx.stashed_inputs[mlir_input.get_name(asm_state)] = tensor
+        ssa = mlir_input.get_name(asm_state)
+        ctx.stashed_inputs[ssa] = tensor
+        # Seed only SSAs not yet produced by a prior op's golden (i.e. function args).
+        if ssa in pool:
+            continue
+
+        pool[ssa] = tensor
+        ctx.write_record(
+            ChiselRecord(
+                op=op.name,
+                check="golden_promoted",
+                ssa=ssa,
+                payload=GoldenPromotedPayload(),
+            )
+        )
+
+
+def _emit_pcc(
+    ctx: ChiselContext,
+    op,
+    ssa: SSAName,
+    mlir_output: Value,
+    golden_out: GoldenMapTensor,
+    device_tensor: GoldenMapTensor,
+    *,
+    mode: NumericsMode,
+    skip_pcc: bool,
+) -> None:
+    """Shape/dtype + PCC for one (golden, device) pair under `mode`."""
+    check_shape_dtype(op, "mlir_vs_golden", mlir_output, golden_out)
+    if skip_pcc:
+        ctx.write_record(
+            ChiselRecord(
+                op=op.name,
+                check="numerics",
+                ssa=ssa,
+                payload=SkippedNumericsPayload(mode=mode),
+            )
+        )
+        return
+    check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode)
 
 
 @chisel_safe
 def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
-    """Run the golden, validate shapes/dtypes, and PCC-check each output."""
+    """Run isolation + accumulation goldens; shape/dtype + PCC each output."""
     if config.no_golden:
         return
 
-    skip_isolated_pcc = config.skip_isolated_pcc
     op = ctx.op
     asm_state = ctx.asm_state
 
@@ -129,25 +175,45 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     if not mlir_op_outputs:
         return
 
-    iso_outs = _run_isolation_golden(op, mlir_op_outputs, asm_state, ctx.stashed_inputs)
+    if ctx.checks_config.isolation:
+        iso_outs = _run_isolation_golden(op, asm_state, ctx.stashed_inputs)
+    else:
+        iso_outs = [None] * len(mlir_op_outputs)
 
-    for mlir_output, output_ref, iso_out in zip(
-        mlir_op_outputs, ctx.output_refs, iso_outs, strict=True
+    if ctx.checks_config.accumulation:
+        accum_outs = execute_golden_from_pool(op, ctx.golden_tensor_pool, asm_state)
+    else:
+        accum_outs = [None] * len(mlir_op_outputs)
+
+    for mlir_output, output_ref, iso_out, accum_out in zip(
+        mlir_op_outputs, ctx.output_refs, iso_outs, accum_outs, strict=True
     ):
         device_tensor = _validate_and_retrieve_tensor(ctx, mlir_output, output_ref)
         ssa = mlir_output.get_name(asm_state)
-        if skip_isolated_pcc:
-            ctx.write_record(
-                ChiselRecord(
-                    op=op.name,
-                    check="numerics",
-                    ssa=ssa,
-                    payload=SkippedNumericsPayload(),
-                )
-            )
-            continue
 
-        check_numerics(ctx, op, ssa, iso_out, device_tensor)
+        if iso_out is not None:
+            _emit_pcc(
+                ctx,
+                op,
+                ssa,
+                mlir_output,
+                iso_out,
+                device_tensor,
+                mode=NumericsMode.ISOLATED,
+                skip_pcc=config.skip_pcc,
+            )
+
+        if accum_out is not None:
+            _emit_pcc(
+                ctx,
+                op,
+                ssa,
+                mlir_output,
+                accum_out,
+                device_tensor,
+                mode=NumericsMode.ACCUMULATED,
+                skip_pcc=config.skip_pcc,
+            )
 
 
 def run_op_callback(
@@ -157,16 +223,18 @@ def run_op_callback(
     *,
     phase: CallbackPhase,
 ) -> None:
-    """Dispatch the PRE or POST handler for the current op."""
+    """Dispatch the per-op pre/post handler (config override falls back to default)."""
     ctx = get_instance()
     with _op_callback(ctx, rt_binary, rt_program_context, rt_op_context, phase=phase):
         config = ctx.get_op_config(ctx.op)
         if phase is CallbackPhase.PRE:
-            pre_succeeded = _default_pre_op(ctx, config)
+            pre_fn = config.pre_op or _default_pre_op
+            pre_succeeded = pre_fn(ctx, config)
             ctx.pre_failed = not pre_succeeded
         else:
             # PRE recorded a failure - skip POST to avoid cascading into a
             # chisel_bug from incomplete state.
             if ctx.pre_failed:
                 return
-            _default_post_op(ctx, config)
+            post_fn = config.post_op or _default_post_op
+            post_fn(ctx, config)
