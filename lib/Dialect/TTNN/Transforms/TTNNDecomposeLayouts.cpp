@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "llvm/Support/MathExtras.h"
@@ -145,6 +146,16 @@ private:
       return callOp->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
     }
     return false;
+  }
+
+  // Returns true if `op` sits inside a function that participates in trace
+  // capture (TraceMain / TraceRunAndCapture / TraceExecute).  Trace verifier
+  // (`CaptureOrExecuteTraceOp::verify`) rejects any host materialization inside
+  // these functions, so decomposition paths that would force a host round-trip
+  // must pick an on-device alternative when possible.
+  bool isInsideTraceFunction(ttnn::ToLayoutOp op) const {
+    auto funcOp = op->getParentOfType<func::FuncOp>();
+    return funcOp && ttmlir::utils::isTraceFunc(funcOp);
   }
 
   bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
@@ -1129,6 +1140,23 @@ private:
 
     // Device to device untilized typecast, need to move to host first
     if (!output.isTilized() && !opsToCreate.createFromDeviceOp) {
+      // Inside a trace function we cannot materialize to host (the trace
+      // verifier rejects any system_memory tensor in the trace body). If the
+      // input and output dtypes are both representable in TILE on device,
+      // perform the typecast entirely on device: tilize → typecast → untilize.
+      // This requires tilize-on-device support for the input dtype and
+      // untilize-on-device support for the output dtype.
+      if (isInsideTraceFunction(op) &&
+          canTilizeDataTypeOnDevice(input.dataType) &&
+          canUntilizeOnDevice(input, output)) {
+        currentInput =
+            createOnDeviceTilizedTypecast(op, rewriter, currentInput, info);
+        // Final memory config (if anything to do beyond layout/dtype).
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+        op.getResult().replaceAllUsesWith(currentInput);
+        return;
+      }
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
           op, rewriter, currentInput, info, /*forceCreate=*/true);
@@ -1145,6 +1173,45 @@ private:
     }
 
     llvm_unreachable("Unreachable code path");
+  }
+
+  // tilize → typecast → untilize, all on device. Used when a row_major ↔
+  // row_major dtype change cannot be performed via the usual host round-trip
+  // (e.g. inside a trace function).
+  mlir::Value createOnDeviceTilizedTypecast(ttnn::ToLayoutOp op,
+                                            IRRewriter &rewriter,
+                                            mlir::Value currentInput,
+                                            const OpCreationInfo &info) const {
+    rewriter.setInsertionPoint(op);
+    auto currentType = mlir::cast<RankedTensorType>(currentInput.getType());
+
+    // Step 1: tilize input on device (same dtype, just layout change).
+    RankedTensorType tiledInputType =
+        utils::RankedTensorTypeFactory::create(currentType, ttnn::Layout::Tile);
+    ttnn::LayoutAttr tileLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnn::Layout::Tile);
+    currentInput = rewriter.create<ttnn::ToLayoutOp>(
+        op.getLoc(), tiledInputType, currentInput, tileLayoutAttr,
+        /*dtype=*/nullptr, /*memory_config=*/nullptr);
+
+    // Step 2: typecast on device (typecast requires tile layout).
+    RankedTensorType tiledOutputType = utils::RankedTensorTypeFactory::create(
+        tiledInputType, info.output.dataType);
+    ttcore::DataTypeAttr dtypeAttr =
+        ttcore::DataTypeAttr::get(op.getContext(), info.output.dataType);
+    currentInput = rewriter.create<ttnn::TypecastOp>(
+        op.getLoc(), tiledOutputType, currentInput, dtypeAttr);
+
+    // Step 3: untilize on device back to row_major.
+    RankedTensorType rmOutputType = utils::RankedTensorTypeFactory::create(
+        tiledOutputType, info.output.layoutEnum);
+    ttnn::LayoutAttr rmLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
+    currentInput = rewriter.create<ttnn::ToLayoutOp>(
+        op.getLoc(), rmOutputType, currentInput, rmLayoutAttr,
+        /*dtype=*/nullptr, /*memory_config=*/nullptr);
+
+    return currentInput;
   }
 
   void handleDeviceInputLayoutTypecast(ttnn::ToLayoutOp op,
