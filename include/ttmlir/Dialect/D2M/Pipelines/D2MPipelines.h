@@ -139,6 +139,13 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
 
+  // Force all non-bound allocator variables to spill into DRAM.
+  Option<bool> forceSpillToDramIfLegal{
+      *this, "force-spill-to-dram-if-legal",
+      llvm::cl::desc(
+          "Force all non-bound allocator variables to spill into DRAM."),
+      llvm::cl::init(false)};
+
   // The allocator will not consider generic outputs eligible for spilling
   // unless this option is turned on.
   Option<bool> allowL1OutputSpilling{

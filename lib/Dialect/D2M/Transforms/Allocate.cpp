@@ -5,7 +5,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
-#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
@@ -21,7 +20,6 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/OpDefinition.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -1542,22 +1540,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                                     ttcore::DeviceAttr device) {
     // A tighter size calculation is possible for memrefs that don't map to
     // CBs which we don't attempt here except to ignore `buffers` multiplier.
-    int64_t shardSizeBytes = device.getMemrefSizeBytes(bufferType, 0, false);
-
-    if (ttcore::getMemorySpace(bufferType) == MemorySpace::DeviceDRAM) {
-      if (auto shardLayout =
-              mlir::dyn_cast<ttcore::ShardLayoutAttr>(bufferType.getLayout())) {
-        int64_t gridVolume =
-            ttmlir::utils::volume(shardLayout.getGridShape(bufferType));
-        int64_t numDramBanks = ttmlir::utils::volume(
-            llvm::to_vector(device.getDramGrid().getShape()));
-        int64_t shardsPerBank =
-            ttmlir::utils::alignUp(gridVolume, numDramBanks) / numDramBanks;
-        return shardSizeBytes * shardsPerBank;
-      }
-    }
-
-    return shardSizeBytes;
+    return device.getMemrefSizeBytes(bufferType, 0, false);
   }
 
   /// @return aligned allocation sizes for a `type` buffer for different
@@ -1570,10 +1553,29 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (PlannerSpace placement = PlannerSpace::begin;
          placement < PlannerSpace::end; ++placement) {
       const MemorySpace memspace = asMemorySpace(placement);
+      MemRefType remapped = remap(rewriter, type, memspace);
+      int64_t sizeBytes = getMemrefSizeBytes(remapped, device);
+
+      // This function returns the aligned allocation size on each core.
+      // - For block-sharded L1 tensors it's the size of a single shard.
+      // - For DRAM tensors that live on the 1D DRAM core grid we should return
+      //   the per-bank memory footprint. Since shards are distributed to the
+      //   DRAM banks in the round-robin pattern, we align up the number of
+      //   shards to the number of DRAM banks (bank-aligned padding).
+      if (memspace == MemorySpace::DeviceDRAM) {
+        if (auto layout =
+                mlir::dyn_cast<ttcore::ShardLayoutAttr>(remapped.getLayout())) {
+          const int64_t nShards =
+              ttmlir::utils::volume(layout.getGridShape(remapped));
+          const int64_t nDramBanks = device.getDramGrid().getGridVolume();
+          const int64_t shardsPerBank =
+              ttmlir::utils::alignUp(nShards, nDramBanks) / nDramBanks;
+          sizeBytes *= shardsPerBank;
+        }
+      }
 
       sizes[ordinal(placement)] = ttmlir::utils::alignUp(
-          getMemrefSizeBytes(remap(rewriter, type, memspace), device),
-          memSpaces[ordinal(memspace)].alignment);
+          sizeBytes, memSpaces[ordinal(memspace)].alignment);
     }
 
     return sizes;

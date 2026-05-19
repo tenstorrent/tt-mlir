@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
-#include "ttmlir/AffineMapUtils.h"
+
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
@@ -39,7 +38,6 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
@@ -199,45 +197,129 @@ static AffineMap extendMappingForHigherDimGrid(AffineMap originalMapping,
                         ctx);
 }
 
+// Convert logical shard dimensions to TT-Metal's page-domain distribution
+// shape.
+static std::vector<uint32_t>
+computeShardPageShapeForDistributionSpec(ArrayRef<int64_t> memrefShardShape,
+                                         target::Dim2d elementShape,
+                                         target::Dim2d pageShape) {
+  TT_assertv(memrefShardShape.size() >= 2u,
+             "Expected shard shape to have at least two dimensions");
+
+  std::vector<uint32_t> shardShapeInPages(memrefShardShape.size());
+
+  for (size_t i = 0; i < memrefShardShape.size(); i++) {
+    int64_t dim = memrefShardShape[i];
+    int64_t pageDim = 1;
+    // Only the innermost 2D plane is divided by the concrete page shape.
+    if (i == memrefShardShape.size() - 2) {
+      dim *= elementShape.y();
+      pageDim = pageShape.y();
+    } else if (i == memrefShardShape.size() - 1) {
+      dim *= elementShape.x();
+      pageDim = pageShape.x();
+    }
+
+    TT_assertv(pageDim > 0, "Expected positive page dimension");
+    shardShapeInPages[i] = static_cast<uint32_t>((dim + pageDim - 1) / pageDim);
+  }
+
+  return shardShapeInPages;
+}
+
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
                                        MemRefType memref,
                                        ttcore::DeviceAttr device,
                                        ttcore::SystemDescAttr systemDesc) {
-
-  // D2M DRAM shard-to-bank placement is cyclic, while ShardedBufferConfig can
-  // only model a contiguous sharded buffer. Emit placeholder sharding metadata
-  // with the correct byte footprint; it is exact only for the single-shard,
-  // single-bank case.
+  // D2M DRAM shard-to-bank placement is cyclic. Use the same page granularity
+  // as L1 (one element-row per page) so that the host-side read reassembles
+  // data in the row-major order.
+  target::Dim2d elementShape(1, 1);
+  if (auto tileType =
+          mlir::dyn_cast<ttcore::TileType>(memref.getElementType())) {
+    elementShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
+  }
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(memref.getLayout());
+  ArrayRef<int64_t> stride = shardLayout.getStride();
+  const int64_t elementSize = stride[stride.size() - 1];
   auto memrefGridShape = shardLayout.getGridShape(memref);
-  uint64_t actualShardSize = device.getShardSizeInBytes(memref, 1, true);
-  uint64_t gridVolume = ttmlir::utils::volume(memrefGridShape);
+  auto memrefShardShape = shardLayout.getShardShape(memref);
+  const uint64_t gridVolume = ttmlir::utils::volume(memrefGridShape);
+
+  // Compute the outer-collapsed 2D shard shape (same as for L1 memref).
+  int32_t shardXElements = stride[stride.size() - 2] / elementSize;
+  int32_t collapsedShardYElements =
+      (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
+  TT_assert(collapsedShardYElements * shardXElements ==
+            ttmlir::utils::volume(memrefShardShape));
+  target::Dim2d shardShape(collapsedShardYElements * elementShape.y() *
+                               shardLayout.getBuffers(),
+                           shardXElements * elementShape.x());
+
+  // The page's width is the same as the memref's element's row width.
+  target::Dim2d pageShape(elementShape.y(), shardShape.x());
 
   // Determine how many DRAM banks are actually used by D2M.
   uint64_t numDramBanks =
       systemDesc.getChipDescs().front().getNumDramChannels();
   uint64_t numDRAMBanksUsed = std::min(numDramBanks, gridVolume);
+  // Important: the DRAM cores are distributed along the X dim on WH & BH.
   std::vector<target::Dim2dRange> coreRangeSet = {target::Dim2dRange(
-      target::Dim2d(0, 0), target::Dim2d(numDRAMBanksUsed, 1))};
-
-  uint64_t actualShardsPerBank =
-      ttmlir::utils::alignUp(gridVolume, numDramBanks) / numDramBanks;
-
-  // Compute placeholder shapes that occupy the actual D2M memref footprint.
-  target::Dim2d dummyShardShape(actualShardsPerBank, actualShardSize);
-  target::Dim2d dummyPageShape(actualShardsPerBank, actualShardSize);
-  uint64_t dummyShardSize = dummyShardShape.x() * dummyShardShape.y();
-  target::Dim2d dummyTensorShapeInPages(numDRAMBanksUsed, 1);
-  uint64_t dummyTensorSize = numDRAMBanksUsed * dummyShardSize;
+      target::Dim2d(0, 0), target::Dim2d(1, numDRAMBanksUsed))};
 
   auto shardSpec = target::metal::CreateShardSpecDirect(
-      *cache.fbb, &coreRangeSet, &dummyShardShape);
+      *cache.fbb, &coreRangeSet, &shardShape);
+
+  // Outer-collapsed tensor shape from the logical grid (not the DRAM grid).
+  int32_t gridY = 1;
+  for (size_t i = 0; i < memrefGridShape.size() - 1; i++) {
+    gridY *= memrefGridShape[i];
+  }
+  int32_t gridX = memrefGridShape.back();
+  int32_t tensorShape[2] = {gridY * shardShape.y(), gridX * shardShape.x()};
+  TT_assert(tensorShape[0] % pageShape.y() == 0);
+  TT_assert(tensorShape[1] % pageShape.x() == 0);
+  target::Dim2d tensorShapeInPages(tensorShape[0] / pageShape.y(),
+                                   tensorShape[1] / pageShape.x());
+
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
-      *cache.fbb, shardSpec, &dummyPageShape, &dummyTensorShapeInPages);
+      *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
+
+  // Create BufferDistributionSpec on uncollapsed shapes and the default 1D
+  // round-robin DRAM bank assignment.
+  std::vector<uint32_t> shardShapeInPages =
+      computeShardPageShapeForDistributionSpec(memrefShardShape, elementShape,
+                                               pageShape);
+
+  std::vector<uint32_t> distTensorShape(shardShapeInPages.size());
+  for (size_t i = 0; i < shardShapeInPages.size(); i++) {
+    distTensorShape[i] = memrefGridShape[i] * shardShapeInPages[i];
+  }
+
+  std::vector<target::Dim2d> cores(numDRAMBanksUsed);
+  for (uint64_t i = 0; i < numDRAMBanksUsed; i++) {
+    cores[i] = target::Dim2d(0, i);
+  }
+
+  auto bufferDistributionSpec =
+      target::metal::CreateBufferDistributionSpecDirect(
+          *cache.fbb, &distTensorShape, &shardShapeInPages, &cores);
+
+  // Page size in bytes and total buffer size (including bank-aligned padding).
+  TT_assert(pageShape.y() % elementShape.y() == 0);
+  TT_assert(pageShape.x() % elementShape.x() == 0);
+  int32_t pageShapeInElements[2] = {pageShape.y() / elementShape.y(),
+                                    pageShape.x() / elementShape.x()};
+  const uint64_t pageSize =
+      pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
+  const uint64_t shardSize =
+      device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
+  const uint64_t totalSize = gridVolume * shardSize;
+
   return target::metal::CreateShardedBufferConfig(
-      *cache.fbb, dummyTensorSize, dummyShardSize, shardSpecBuffer);
+      *cache.fbb, totalSize, pageSize, shardSpecBuffer, bufferDistributionSpec);
 }
 
 // Virtual-grid serialization requires both inverse and forward maps.
@@ -280,38 +362,6 @@ getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
   auto workerGridShape = device.getWorkerGrid().getShape();
   return ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape,
                                                           workerGridShape);
-}
-
-// Convert logical shard dimensions to TT-Metal's page-domain distribution
-// shape.
-static std::vector<uint32_t>
-computeShardPageShapeForDistributionSpec(ArrayRef<int64_t> memrefShardShape,
-                                         target::Dim2d elementShape,
-                                         target::Dim2d pageShape) {
-  TT_assertv(memrefShardShape.size() >= 2u,
-             "Expected shard shape to have at least two dimensions");
-
-  std::vector<uint32_t> shardShapeInPages;
-  shardShapeInPages.reserve(memrefShardShape.size());
-
-  for (size_t i = 0; i < memrefShardShape.size(); ++i) {
-    int64_t dim = memrefShardShape[i];
-    int64_t pageDim = 1;
-    // Only the innermost 2D plane is divided by the concrete page shape.
-    if (i == memrefShardShape.size() - 2) {
-      dim *= elementShape.y();
-      pageDim = pageShape.y();
-    } else if (i == memrefShardShape.size() - 1) {
-      dim *= elementShape.x();
-      pageDim = pageShape.x();
-    }
-
-    TT_assertv(pageDim > 0, "Expected positive page dimension");
-    shardShapeInPages.push_back(
-        static_cast<uint32_t>((dim + pageDim - 1) / pageDim));
-  }
-
-  return shardShapeInPages;
 }
 
 static flatbuffers::Offset<target::metal::BufferDistributionSpec>
@@ -534,19 +584,32 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, workerGridShape, extendedMapping);
 
   uint64_t pageSize = 0;
+  uint64_t tilePageSize = device.getMemrefCBPageSizeBytes(memref);
   bool useScalarCBLayoutSizing =
       !mlir::isa<ttcore::TileType>(memref.getElementType()) &&
       shardLayout.getBuffers() > 1;
   if (!useScalarCBLayoutSizing) {
-    pageSize = device.getMemrefCBPageSizeBytes(memref);
+    pageSize = tilePageSize;
   } else {
     ArrayRef<int64_t> stride = shardLayout.getStride();
-    int64_t elementSize = stride.back();
-    pageSize = stride.size() < 2 ? elementSize : stride[stride.size() - 2];
+    const uint64_t elementSize = static_cast<uint64_t>(stride.back());
+    uint64_t scalarPageSize =
+        stride.size() < 2 ? elementSize : stride[stride.size() - 2];
     // Scalar CBs may be used as packet scratch buffers.  Keep the CB page at
     // least one NOC-aligned transfer so reserve/push/pop advance correctly.
-    pageSize =
-        std::max<uint64_t>(pageSize, systemDesc.getNocL1AddressAlignBytes());
+    scalarPageSize = std::max<uint64_t>(scalarPageSize,
+                                        systemDesc.getNocL1AddressAlignBytes());
+
+    // Both llk_pack_untilize and our experimental::pack_untilize_block use
+    // fifo_page_size to compute inter-tile-row strides to get the starting
+    // offset of the next row of tiles. So we make sure CB page size equals to
+    // the tile size whenever possible, to avoid inconsistencies with
+    // getMemrefCBNumPages (that counts tiles) and avoid wrong offset
+    // calculations.
+    const uint64_t rawShardBytes =
+        elementSize * ttmlir::utils::volume(memref.getShape());
+    const bool tileAligned = rawShardBytes % tilePageSize == 0;
+    pageSize = tileAligned ? tilePageSize : scalarPageSize;
   }
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);

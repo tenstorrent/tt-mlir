@@ -4,12 +4,8 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/LowerToLayout/Plan.h"
 
-#include "ttmlir/AffineMapUtils.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-
-#include "llvm/ADT/STLExtras.h"
 
 #include <numeric>
 #include <optional>
@@ -333,35 +329,20 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     updateStateFromOutput(current, output, current.remapping);
   }
 
-  // DRAM → L1: DMA the tensor into an L1 buffer. For device-to-device layout
-  // changes, use the target layout. For device-to-host, mirror the
-  // host-to-device path by staging the current device layout through L1 before
-  // ToHostOp.
-  if (current.hasLayout() && current.isDRAM() &&
-      ((tgt.hasLayout() && !tgt.isDRAM()) || tgt.isSystem())) {
-    const bool hasTargetDeviceLayout = tgt.hasLayout();
-    ttcore::MetalLayoutAttr bounceLayout =
-        hasTargetDeviceLayout ? *tgt.getLayout() : *current.getLayout();
-    RankedTensorType bounceBaseType =
-        hasTargetDeviceLayout ? tgt.type : current.type;
-    AffineMap bounceRemapping =
-        hasTargetDeviceLayout ? AffineMap() : current.remapping;
+  // DRAM → L1: DMA the tensor into an L1 buffer with the target's layout.
+  if (current.hasLayout() && current.isDRAM() && tgt.hasLayout() &&
+      !tgt.isDRAM()) {
     const bool isDRAMInterleaved = current.getLayout()->getMemoryLayout() ==
                                    ttcore::TensorMemoryLayout::Interleaved;
-    auto bounceGrid = hasTargetDeviceLayout && isDRAMInterleaved
-                          ? llvm::to_vector(tgt.getGridShape())
-                          : llvm::to_vector(current.getGridShape());
+    auto bounceGrid = llvm::to_vector(
+        isDRAMInterleaved ? tgt.getGridShape() : current.getGridShape());
     auto l1Type =
-        modifyDeviceType(ctx, bounceBaseType, bounceLayout, targetGridShape,
-                         bounceRemapping, ttcore::MemorySpace::DeviceL1,
-                         bounceGrid, current.type.getElementType());
-    AffineMap outputVgmForward =
-        hasTargetDeviceLayout ? tgt.vgmForward : current.vgmForward;
-    AffineMap outputVgmInverse =
-        hasTargetDeviceLayout ? tgt.vgmInverse : current.vgmInverse;
-    auto output = makeOutputSpec(l1Type, outputVgmForward, outputVgmInverse);
+        modifyDeviceType(ctx, tgt.type, *tgt.getLayout(), targetGridShape,
+                         AffineMap(), ttcore::MemorySpace::DeviceL1, bounceGrid,
+                         current.type.getElementType());
+    auto output = makeOutputSpec(l1Type, tgt.vgmForward, tgt.vgmInverse);
     plan.push_back(DRAMToL1Step{output, AffineMap()});
-    updateStateFromOutput(current, output, bounceRemapping);
+    updateStateFromOutput(current, output);
   }
 
   // TILIZE with the current layout so subsequent mapping changes operate on
