@@ -150,6 +150,37 @@ module attributes {} {
     return
   }
 
+  // Test: Cross-core local-L1 shard-level read collapses to a single fully-indexed read.
+  // Both src and dst are local memrefs (no device layout); the only "remote"
+  // component is the explicit srcCore, which must be preserved verbatim on
+  // the rewritten op. numElems becomes the full shard volume (2*4 = 8 tiles).
+  // CHECK-LABEL: func.func @test_shard_level_read_cross_core
+  // CHECK-NOT: d2m.dma_read {{.*}}, <0>
+  func.func @test_shard_level_read_cross_core(
+      %arg0: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
+      %arg1: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>,
+                 indexing_maps = [#map, #map],
+                 iterator_types = [#parallel, #parallel],
+                 threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%arg0 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%arg1 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
+    ^datamovement0:
+      %src = memref.alloc() {alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      %dst = memref.alloc() {alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      // CHECK: d2m.dma_read %{{.*}}[%{{.*}}] core[%{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <8>
+      %tx = d2m.dma_read %src[] core[%c1, %c2], %dst, <0>
+            : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
+               memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+      d2m.dma_wait %tx : !d2m.mem_tx<read>
+    }, {
+    ^compute0:
+    }
+    return
+  }
+
   // Test: Transposed src map breaks contiguity -> per-element DMA with coalescing=1.
   // CHECK-LABEL: func.func @test_local_copy_transposed_src
   func.func @test_local_copy_transposed_src() {
