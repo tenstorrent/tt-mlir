@@ -89,6 +89,12 @@ if (TTMLIR_ENABLE_RUNTIME)
       ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
       ${PROJECT_SOURCE_DIR}/runtime/python/include
   )
+  # OBJECT libraries don't pick up PUBLIC includes from PRIVATE-linked deps;
+  # add tt-metal headers explicitly so `hostdevcommon/common_values.hpp` etc.
+  # resolve when compiling utils.cpp.
+  target_include_directories(_mlir_runtime_utils SYSTEM PRIVATE
+    ${TTMETAL_INCLUDE_DIRS}
+  )
   target_link_libraries(_mlir_runtime_utils
     PRIVATE
     TTRuntimeTTNNUtils
