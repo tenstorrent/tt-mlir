@@ -4,7 +4,11 @@
 
 add_library(tt_kurbla_warnings INTERFACE)
 
-option(TT_KURBLA_WARNINGS_AS_ERRORS "Treat warnings as errors for tt-kurbla code" ON)
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_definitions(-DDEBUG)
+endif()
+
+option(TT_KURBLA_WARNINGS_AS_ERRORS "Treat warnings as errors for tt-kurbla code" OFF)
 
 set(_TT_KURBLA_WARNINGS_GCC_CLANG
     -Wall
@@ -22,6 +26,7 @@ set(_TT_KURBLA_WARNINGS_GCC_CLANG
     -Wdouble-promotion
     -Wformat=2
     -Wimplicit-fallthrough
+    -Werror=return-type
 )
 
 set(_TT_KURBLA_WARNINGS_GCC_ONLY

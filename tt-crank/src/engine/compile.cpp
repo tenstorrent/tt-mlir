@@ -5,6 +5,7 @@
 #include <thread>
 #include <utility>
 
+#include "assert.hpp"
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Diagnostics.h>
@@ -15,6 +16,7 @@
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Support/LogicalResult.h>
 
+#include <tt-logger/tt-logger.hpp>
 #include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 #include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
 #include <ttmlir/RegisterAll.h>
