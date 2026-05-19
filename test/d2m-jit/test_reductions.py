@@ -1,0 +1,534 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""Float tile reductions exposed through the d2m-jit block DSL.
+
+Coverage mirrors `test_matmul.py` but is broader because reductions are
+expected to produce defined values without an explicit accumulator pre-fill:
+
+1. `test_reduce_sum_compiles_and_runs` -- baseline shape/dtype smoke test.
+2. Parameterized correctness over several layout shapes, block shapes, and
+   execution grids for row and column reduction directions.
+3. Mixed-input dtype coverage for the synthetic reduction scaler selection.
+4. Invalid dim rejection for the Python DSL surface.
+"""
+
+import pytest
+import torch
+import d2m_jit as d2m
+
+
+@d2m.kernel
+def k_reduce_sum_cols(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(in_t, [m_off + m, n_off + n])
+            # Keep the reduction in a temporary so call-site reduction
+            # detection cannot rely on it being nested under remote_store.
+            reduced = reduce_sum(x, 1)
+            remote_store(out_t, [m_off + m, n_off + n], reduced)
+
+
+@d2m.kernel
+def k_reduce_max_rows(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(in_t, [m_off + m, n_off + n])
+            remote_store(out_t, [m_off + m, n_off + n], x.reduce_max(0))
+
+
+@d2m.kernel
+def k_reduce_mean_cols_negative_dim(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(in_t, [m_off + m, n_off + n])
+            remote_store(out_t, [m_off + m, n_off + n], reduce_mean(x, -1))
+
+
+@d2m.kernel
+def k_reduce_sum_rows_negative_dim(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(in_t, [m_off + m, n_off + n])
+            remote_store(out_t, [m_off + m, n_off + n], x.reduce_sum(-2))
+
+
+@d2m.kernel
+def k_reduce_sum_second_input(first_in_t, reduced_in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(reduced_in_t, [m_off + m, n_off + n])
+            remote_store(out_t, [m_off + m, n_off + n], reduce_sum(x, 1))
+
+
+@d2m.kernel
+def k_reduce_sum_cols_collapsed(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(in_t, [m_off + m, n_off + n])
+            remote_store(out_t, [m_off + m, 0], reduce_sum_collapse(x, 1))
+
+
+@d2m.kernel
+def k_reduce_max_rows_collapsed(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(in_t, [m_off + m, n_off + n])
+            remote_store(out_t, [0, n_off + n], x.reduce_max_collapse(0))
+
+
+@d2m.kernel
+def k_reduce_mean_cols_collapsed(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(in_t, [m_off + m, n_off + n])
+            remote_store(out_t, [m_off + m, 0], x.reduce_mean_collapse(1))
+
+
+@d2m.kernel
+def k_reduce_sum_cols_tile(in_t, out_t, m_blocks, n_tile):
+    m_off = core_index(0) * m_blocks
+    for m in range(m_blocks):
+        x = remote_load(in_t, [m_off + m, n_tile])
+        remote_store(out_t, [m_off + m, 0], reduce_sum_collapse(x, 1))
+
+
+@d2m.kernel
+def k_reduce_sum_cols_accumulate_tile(in_t, acc_t, out_t, m_blocks, n_tile):
+    m_off = core_index(0) * m_blocks
+    for m in range(m_blocks):
+        x = remote_load(in_t, [m_off + m, n_tile])
+        acc = remote_load(acc_t, [m_off + m, 0])
+        remote_store(out_t, [m_off + m, 0], acc + reduce_sum_collapse(x, 1))
+
+
+@d2m.kernel
+def k_reduce_max_rows_tile(in_t, out_t, m_tile, n_blocks):
+    n_off = core_index(1) * n_blocks
+    for n in range(n_blocks):
+        x = remote_load(in_t, [m_tile, n_off + n])
+        remote_store(out_t, [0, n_off + n], x.reduce_max_collapse(0))
+
+
+@d2m.kernel
+def k_reduce_max_rows_accumulate_tile(in_t, acc_t, out_t, m_tile, n_blocks):
+    n_off = core_index(1) * n_blocks
+    for n in range(n_blocks):
+        x = remote_load(in_t, [m_tile, n_off + n])
+        acc = remote_load(acc_t, [0, n_off + n])
+        remote_store(out_t, [0, n_off + n], acc.maximum(x.reduce_max_collapse(0)))
+
+
+@d2m.kernel
+def k_reduce_sum_cols_cross_tile(in_t, out_t, m_blocks, n_tiles):
+    m_off = core_index(0) * m_blocks
+    for m in range(m_blocks):
+        first = remote_load(in_t, [m_off + m, 0])
+        acc = reduce_sum_collapse(first, 1)
+        for n in range(1, n_tiles):
+            x = remote_load(in_t, [m_off + m, n])
+            acc = acc + reduce_sum_collapse(x, 1)
+        remote_store(out_t, [m_off + m, 0], acc)
+
+
+@d2m.kernel
+def k_reduce_max_rows_cross_tile(in_t, out_t, m_tiles, n_blocks):
+    n_off = core_index(1) * n_blocks
+    for n in range(n_blocks):
+        first = remote_load(in_t, [0, n_off + n])
+        acc = first.reduce_max_collapse(0)
+        for m in range(1, m_tiles):
+            x = remote_load(in_t, [m, n_off + n])
+            acc = acc.maximum(x.reduce_max_collapse(0))
+        remote_store(out_t, [0, n_off + n], acc)
+
+
+_LAYOUT_CASES = [
+    pytest.param((32, 32), (1, 1), (1, 1), id="single-tile-grid-1x1"),
+    pytest.param((64, 64), (1, 1), (2, 2), id="one-tile-per-core-grid-2x2"),
+    pytest.param((64, 64), (2, 1), (1, 1), id="two-row-tiles-per-block"),
+    pytest.param((64, 64), (1, 2), (1, 1), id="two-col-tiles-per-block"),
+    pytest.param((96, 64), (1, 1), (3, 2), id="rectangular-grid-3x2"),
+]
+
+
+def _make_layout(
+    shape=(32, 32),
+    dtype=d2m.float32,
+    block_shape=(1, 1),
+    grid_shape=(1, 1),
+):
+    return d2m.Layout(
+        shape=shape,
+        dtype=dtype,
+        block_shape=list(block_shape),
+        grid_shape=list(grid_shape),
+    )
+
+
+def _blocks_per_core(layout, grid):
+    m_tiles = layout.logical_shape[0] // 32
+    n_tiles = layout.logical_shape[1] // 32
+    assert m_tiles % (layout.block_shape[0] * grid[0]) == 0
+    assert n_tiles % (layout.block_shape[1] * grid[1]) == 0
+    return (
+        m_tiles // layout.block_shape[0] // grid[0],
+        n_tiles // layout.block_shape[1] // grid[1],
+    )
+
+
+def _run(kernel, tensor, layout=None, grid=(1, 1)):
+    layout = layout or _make_layout()
+    out = d2m.empty(layout)
+    m_blocks, n_blocks = _blocks_per_core(layout, grid)
+    kernel(d2m.to_layout(tensor, layout), out, m_blocks, n_blocks, grid=grid)
+    return out.to_host()
+
+
+def _run_collapsed(kernel, tensor, input_layout, output_layout, grid):
+    out = d2m.empty(output_layout)
+    m_blocks, n_blocks = _blocks_per_core(input_layout, grid)
+    kernel(d2m.to_layout(tensor, input_layout), out, m_blocks, n_blocks, grid=grid)
+    return out.to_host()
+
+
+def _run_cross_tile(kernel, tensor, input_layout, output_layout, grid, *scalars):
+    out = d2m.empty(output_layout)
+    kernel(d2m.to_layout(tensor, input_layout), out, *scalars, grid=grid)
+    return out.to_host()
+
+
+def _tile_sum_input(shape, dtype=torch.float32):
+    row_values = torch.arange(shape[0], dtype=torch.float32).reshape(shape[0], 1)
+    tensor = row_values.repeat(1, shape[1]) / 100.0
+    return tensor.to(dtype)
+
+
+def _tile_max_input(shape, dtype=torch.float32):
+    row_bias = torch.linspace(-0.5, 0.5, shape[0], dtype=torch.float32).reshape(
+        shape[0], 1
+    )
+    col_values = torch.linspace(-1.0, 1.0, shape[1], dtype=torch.float32).reshape(
+        1, shape[1]
+    )
+    return (row_bias + col_values).to(dtype)
+
+
+def _assert_reduce_sum_cols(result, tensor, atol=0.05):
+    for col_start in range(0, tensor.shape[1], 32):
+        expected = tensor[:, col_start : col_start + 32].sum(dim=1)
+        actual = result[:, col_start]
+        diff = (
+            (expected.to(torch.float32) - actual.to(torch.float32)).abs().max().item()
+        )
+        assert diff < atol, f"reduce_sum cols at col {col_start}: max diff {diff}"
+
+
+def _assert_reduce_mean_cols(result, tensor, atol=0.05):
+    for col_start in range(0, tensor.shape[1], 32):
+        expected = tensor[:, col_start : col_start + 32].mean(dim=1)
+        actual = result[:, col_start]
+        diff = (
+            (expected.to(torch.float32) - actual.to(torch.float32)).abs().max().item()
+        )
+        assert diff < atol, f"reduce_mean cols at col {col_start}: max diff {diff}"
+
+
+def _assert_reduce_max_rows(result, tensor, atol=0.05):
+    for row_start in range(0, tensor.shape[0], 32):
+        expected = tensor[row_start : row_start + 32, :].max(dim=0).values
+        actual = result[row_start, :]
+        diff = (
+            (expected.to(torch.float32) - actual.to(torch.float32)).abs().max().item()
+        )
+        assert diff < atol, f"reduce_max rows at row {row_start}: max diff {diff}"
+
+
+def test_reduce_sum_compiles_and_runs():
+    tensor = _tile_sum_input((32, 32))
+    layout = _make_layout()
+    result = _run(k_reduce_sum_cols, tensor, layout=layout)
+
+    assert tuple(result.shape) == (32, 32)
+    assert result.dtype == torch.float32
+
+
+@pytest.mark.parametrize("shape,block_shape,grid", _LAYOUT_CASES)
+def test_reduce_sum_cols_correctness(shape, block_shape, grid):
+    """Free-function form: `reduce_sum(x, 1)` reduces each tile's columns."""
+    layout = _make_layout(shape=shape, block_shape=block_shape, grid_shape=grid)
+    tensor = _tile_sum_input(shape)
+    result = _run(k_reduce_sum_cols, tensor, layout=layout, grid=grid)
+
+    _assert_reduce_sum_cols(result, tensor)
+
+
+@pytest.mark.parametrize("shape,block_shape,grid", _LAYOUT_CASES)
+def test_reduce_max_rows_method_form_correctness(shape, block_shape, grid):
+    """Method form: `x.reduce_max(0)` reduces each tile's rows."""
+    layout = _make_layout(shape=shape, block_shape=block_shape, grid_shape=grid)
+    tensor = _tile_max_input(shape)
+    result = _run(k_reduce_max_rows, tensor, layout=layout, grid=grid)
+
+    _assert_reduce_max_rows(result, tensor)
+
+
+@pytest.mark.parametrize("shape,block_shape,grid", _LAYOUT_CASES)
+def test_reduce_mean_cols_negative_dim_correctness(shape, block_shape, grid):
+    """Negative dim form: `reduce_mean(x, -1)` aliases column reduction."""
+    layout = _make_layout(shape=shape, block_shape=block_shape, grid_shape=grid)
+    tensor = _tile_sum_input(shape)
+    result = _run(k_reduce_mean_cols_negative_dim, tensor, layout=layout, grid=grid)
+
+    _assert_reduce_mean_cols(result, tensor)
+
+
+@pytest.mark.parametrize("shape,block_shape,grid", _LAYOUT_CASES)
+def test_reduce_sum_rows_negative_dim_correctness(shape, block_shape, grid):
+    """Method + negative dim form: `x.reduce_sum(-2)` aliases row reduction."""
+    layout = _make_layout(shape=shape, block_shape=block_shape, grid_shape=grid)
+    tensor = _tile_max_input(shape)
+    result = _run(k_reduce_sum_rows_negative_dim, tensor, layout=layout, grid=grid)
+
+    for row_start in range(0, tensor.shape[0], 32):
+        expected = tensor[row_start : row_start + 32, :].sum(dim=0)
+        actual = result[row_start, :]
+        diff = (expected - actual).abs().max().item()
+        assert diff < 0.1, f"reduce_sum rows at row {row_start}: max diff {diff}"
+
+
+def test_reduce_sum_second_input_mixed_dtype():
+    f32_layout = _make_layout(shape=(32, 32), dtype=d2m.float32)
+    bf16_layout = _make_layout(shape=(32, 32), dtype=d2m.bfloat16)
+    first = torch.zeros(32, 32, dtype=torch.float32)
+    reduced = torch.arange(32, dtype=torch.bfloat16).reshape(32, 1).repeat(1, 32)
+    reduced = reduced / 100.0
+
+    out = d2m.empty(bf16_layout)
+    k_reduce_sum_second_input(
+        d2m.to_layout(first, f32_layout),
+        d2m.to_layout(reduced, bf16_layout),
+        out,
+        1,
+        1,
+        grid=(1, 1),
+    )
+    result = out.to_host()
+
+    _assert_reduce_sum_cols(result, reduced, atol=0.15)
+
+
+def test_reduce_sum_cols_collapsed_output_layout():
+    input_layout = _make_layout(shape=(64, 32), grid_shape=(2, 1))
+    output_layout = d2m.reduction_layout(input_layout, 1)
+    tensor = _tile_sum_input((64, 32))
+    result = _run_collapsed(
+        k_reduce_sum_cols_collapsed,
+        tensor,
+        input_layout,
+        output_layout,
+        grid=(2, 1),
+    )
+
+    assert tuple(result.shape) == (64, 1)
+    expected = tensor.sum(dim=1, keepdim=True)
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.05, f"collapsed reduce_sum(dim=1): max diff {diff}"
+
+
+def test_reduce_max_rows_collapsed_output_layout():
+    input_layout = _make_layout(shape=(32, 64), grid_shape=(1, 2))
+    output_layout = d2m.reduction_layout(input_layout, 0)
+    tensor = _tile_max_input((32, 64))
+    result = _run_collapsed(
+        k_reduce_max_rows_collapsed,
+        tensor,
+        input_layout,
+        output_layout,
+        grid=(1, 2),
+    )
+
+    assert tuple(result.shape) == (1, 64)
+    expected = tensor.max(dim=0, keepdim=True).values
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.05, f"collapsed reduce_max(dim=0): max diff {diff}"
+
+
+def test_reduce_sum_cols_collapsed_multi_tile_single_core():
+    input_layout = _make_layout(shape=(32, 64), block_shape=(1, 2), grid_shape=(1, 1))
+    output_layout = d2m.reduction_layout(input_layout, 1)
+    tensor = _tile_sum_input((32, 64))
+    result = _run_collapsed(
+        k_reduce_sum_cols_collapsed,
+        tensor,
+        input_layout,
+        output_layout,
+        grid=(1, 1),
+    )
+
+    assert tuple(result.shape) == (32, 1)
+    expected = tensor.sum(dim=1, keepdim=True)
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.1, f"single-core multi-tile reduce_sum(dim=1): max diff {diff}"
+
+
+def test_reduce_max_rows_collapsed_multi_tile_single_core():
+    input_layout = _make_layout(shape=(64, 32), block_shape=(2, 1), grid_shape=(1, 1))
+    output_layout = d2m.reduction_layout(input_layout, 0)
+    tensor = _tile_max_input((64, 32))
+    result = _run_collapsed(
+        k_reduce_max_rows_collapsed,
+        tensor,
+        input_layout,
+        output_layout,
+        grid=(1, 1),
+    )
+
+    assert tuple(result.shape) == (1, 32)
+    expected = tensor.max(dim=0, keepdim=True).values
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.05, f"single-core multi-tile reduce_max(dim=0): max diff {diff}"
+
+
+def test_reduce_mean_cols_collapsed_multi_tile_single_core():
+    input_layout = _make_layout(shape=(32, 64), block_shape=(1, 2), grid_shape=(1, 1))
+    output_layout = d2m.reduction_layout(input_layout, 1)
+    tensor = _tile_sum_input((32, 64))
+    result = _run_collapsed(
+        k_reduce_mean_cols_collapsed,
+        tensor,
+        input_layout,
+        output_layout,
+        grid=(1, 1),
+    )
+
+    assert tuple(result.shape) == (32, 1)
+    expected = tensor.mean(dim=1, keepdim=True)
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.1, f"single-core multi-tile reduce_mean(dim=1): max diff {diff}"
+
+
+def test_reduction_layout_rejects_cross_tile_collapse():
+    layout = _make_layout(shape=(64, 64), grid_shape=(2, 2))
+    with pytest.raises(ValueError, match="fits in one per-core block"):
+        d2m.reduction_layout(layout, 1)
+
+
+def test_reduce_sum_cols_cross_tile_output_layout():
+    input_layout = _make_layout(shape=(64, 64), grid_shape=(2, 2))
+    output_layout = d2m.reduction_layout(input_layout, 1, allow_cross_tile=True)
+    tensor = _tile_sum_input((64, 64))
+    m_blocks = input_layout.logical_shape[0] // 32 // 2
+    n_tiles = input_layout.logical_shape[1] // 32
+
+    out = d2m.empty(output_layout)
+    k_reduce_sum_cols_tile(
+        d2m.to_layout(tensor, input_layout), out, m_blocks, 0, grid=(2, 1)
+    )
+    result = out.to_host()
+    for n_tile in range(1, n_tiles):
+        out = d2m.empty(output_layout)
+        k_reduce_sum_cols_accumulate_tile(
+            d2m.to_layout(tensor, input_layout),
+            d2m.to_layout(result, output_layout),
+            out,
+            m_blocks,
+            n_tile,
+            grid=(2, 1),
+        )
+        result = out.to_host()
+
+    assert tuple(result.shape) == (64, 1)
+    expected = tensor.sum(dim=1, keepdim=True)
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.1, f"cross-tile reduce_sum(dim=1): max diff {diff}"
+
+
+@pytest.mark.skip(
+    reason=(
+        "A single unified kernel with multiple synchronizable remote_loads in "
+        "different loop scopes trips SplitUnifiedThread's synchronized-scope "
+        "assertion; the multi-pass variant above is the supported path for now."
+    )
+)
+def test_reduce_sum_cols_cross_tile_single_kernel_blocked():
+    input_layout = _make_layout(shape=(64, 64), grid_shape=(2, 2))
+    output_layout = d2m.reduction_layout(input_layout, 1, allow_cross_tile=True)
+    tensor = _tile_sum_input((64, 64))
+    result = _run_cross_tile(
+        k_reduce_sum_cols_cross_tile,
+        tensor,
+        input_layout,
+        output_layout,
+        (2, 1),
+        input_layout.logical_shape[0] // 32 // 2,
+        input_layout.logical_shape[1] // 32,
+    )
+
+    assert tuple(result.shape) == (64, 1)
+    expected = tensor.sum(dim=1, keepdim=True)
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.1, f"cross-tile reduce_sum(dim=1): max diff {diff}"
+
+
+def test_reduce_max_rows_cross_tile_output_layout():
+    input_layout = _make_layout(shape=(64, 64), grid_shape=(2, 2))
+    output_layout = d2m.reduction_layout(input_layout, 0, allow_cross_tile=True)
+    tensor = _tile_max_input((64, 64))
+    m_tiles = input_layout.logical_shape[0] // 32
+    n_blocks = input_layout.logical_shape[1] // 32 // 2
+
+    out = d2m.empty(output_layout)
+    k_reduce_max_rows_tile(
+        d2m.to_layout(tensor, input_layout), out, 0, n_blocks, grid=(1, 2)
+    )
+    result = out.to_host()
+    for m_tile in range(1, m_tiles):
+        out = d2m.empty(output_layout)
+        k_reduce_max_rows_accumulate_tile(
+            d2m.to_layout(tensor, input_layout),
+            d2m.to_layout(result, output_layout),
+            out,
+            m_tile,
+            n_blocks,
+            grid=(1, 2),
+        )
+        result = out.to_host()
+
+    assert tuple(result.shape) == (1, 64)
+    expected = tensor.max(dim=0, keepdim=True).values
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.05, f"cross-tile reduce_max(dim=0): max diff {diff}"
+
+
+@pytest.mark.parametrize("bad_dim", [2, -3])
+def test_reduce_invalid_dim_rejected(bad_dim):
+    @d2m.kernel
+    def k_bad_dim(in_t, out_t):
+        x = remote_load(in_t, [0, 0])
+        remote_store(out_t, [0, 0], reduce_sum(x, bad_dim))
+
+    layout = _make_layout()
+    tensor = torch.zeros(32, 32, dtype=torch.float32)
+    with pytest.raises(d2m.D2mJitError) as exc_info:
+        k_bad_dim(d2m.to_layout(tensor, layout), d2m.empty(layout), grid=(1, 1))
+
+    msg = str(exc_info.value)
+    assert "reduce dim must be 0/1 or -2/-1" in msg
