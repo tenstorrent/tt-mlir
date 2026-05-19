@@ -36,4 +36,5 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         LINK_LIBS PUBLIC
         MLIRTTIREraseInverseOps
         MLIRTTIRHoistCPUOps
+        TTMLIRTTNNUtils
         )
