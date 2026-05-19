@@ -8,6 +8,7 @@ if (TTMLIR_ENABLE_OPMODEL)
   add_runtime_gtest(test_graph_tracker_race)
   target_compile_options(test_graph_tracker_race PRIVATE -fno-rtti)
   target_include_directories(test_graph_tracker_race PRIVATE
+    ${PROJECT_SOURCE_DIR}/test/unittests
     ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN
     ${PROJECT_SOURCE_DIR}/lib/OpModel/TTNN
   )
