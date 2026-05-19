@@ -76,8 +76,8 @@ getReductionDims(ArrayRef<ttcore::IteratorType> iteratorTypes) {
 }
 
 static SmallVector<std::size_t>
-getAllParallelCandidateDims(GenericOp genericOp,
-                            ArrayRef<int64_t> shardFactors) {
+getParticipatingDimsWithShardFactors(GenericOp genericOp,
+                                     ArrayRef<int64_t> shardFactors) {
   SmallVector<std::size_t> candidateDims;
   const llvm::BitVector participationMask = getParticipatingDimMask(genericOp);
   for (std::size_t dim = 0; dim < shardFactors.size(); ++dim) {
@@ -88,21 +88,6 @@ getAllParallelCandidateDims(GenericOp genericOp,
   return candidateDims;
 }
 
-static bool isSingleReductionPanelDim(GenericOp genericOp, std::size_t dim) {
-  unsigned numOperandsUsingDim = 0;
-  AffineExpr dimExpr =
-      getAffineDimExpr(static_cast<unsigned>(dim), genericOp.getContext());
-  for (AffineMap indexingMap : genericOp.getIndexingMapsValue()) {
-    if (llvm::is_contained(indexingMap.getResults(), dimExpr)) {
-      ++numOperandsUsingDim;
-    }
-  }
-
-  // Do not reblock the batch dimension.
-  return numOperandsUsingDim > 0 &&
-         numOperandsUsingDim < genericOp.getInputsAndOutputs().size();
-}
-
 static SmallVector<std::size_t> getSingleReductionCandidateDims(
     GenericOp genericOp, ArrayRef<std::size_t> reductionDims,
     ArrayRef<int64_t> shardFactors, bool allowMNReblocking) {
@@ -110,13 +95,7 @@ static SmallVector<std::size_t> getSingleReductionCandidateDims(
     return llvm::to_vector(reductionDims);
   }
 
-  SmallVector<std::size_t> candidateDims;
-  for (std::size_t dim = 0; dim < shardFactors.size(); ++dim) {
-    if (shardFactors[dim] > 1 && isSingleReductionPanelDim(genericOp, dim)) {
-      candidateDims.push_back(dim);
-    }
-  }
-  return candidateDims;
+  return getParticipatingDimsWithShardFactors(genericOp, shardFactors);
 }
 
 static bool hasTileElementType(Value operand) {
@@ -210,7 +189,7 @@ classifyAutoSearch(GenericOp genericOp,
     }
 
     SmallVector<std::size_t> candidateDims =
-        getAllParallelCandidateDims(genericOp, shardFactors);
+        getParticipatingDimsWithShardFactors(genericOp, shardFactors);
     if (candidateDims.empty()) {
       return std::nullopt;
     }
