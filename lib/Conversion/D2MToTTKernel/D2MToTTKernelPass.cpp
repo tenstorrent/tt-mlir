@@ -107,22 +107,12 @@ struct ConvertD2MToTTKernel
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
 
-    WalkResult unsupportedProcessor = moduleOp->walk([&](func::FuncOp func) {
-      auto threadAttr =
-          func->getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
-      if (!threadAttr ||
-          threadAttr.getThreadType() != d2m::ThreadType::Datamovement ||
-          threadAttr.getProcessorIndex() < 0) {
-        return WalkResult::advance();
-      }
-      func.emitError("explicit datamovement processor selection is not "
-                     "supported by D2MToTTKernel lowering yet");
-      return WalkResult::interrupt();
-    });
-    if (unsupportedProcessor.wasInterrupted()) {
-      signalPassFailure();
-      return;
-    }
+    // Explicit processor index on datamovement threads is accepted: the
+    // index is propagated through to the TTMetal layer (see
+    // D2MToTTMetalPass) and surfaces in the kernel descriptor. The
+    // TTKernel lowering itself does not depend on the index — kernel
+    // body emission is identical across DM processors — so no special
+    // handling is needed here.
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });

@@ -429,18 +429,21 @@ public:
     if (!argSpec) {
       return CBRole::Neither;
     }
-    // Find the ct-arg index whose ArgAttr targets cbOperandIdx.
-    std::optional<size_t> matchingCtIdx;
+    // Collect every ct-arg index whose ArgAttr targets cbOperandIdx. A single
+    // CB operand can be referenced multiple times — D2MGetCBRewriter appends
+    // a new ct_arg for each d2m.get_cb in the kernel body — and the
+    // producer/consumer sync ops can attach to any of them, so we must
+    // recognise all matching ct-arg indices, not just the first.
+    llvm::SmallSetVector<int64_t, 4> matchingCtIndices;
     for (auto [ctIdx, argAttr] :
          llvm::enumerate(argSpec.getCtArgs())) {
       if ((argAttr.getArgType() == ttkernel::ArgType::CBPort ||
            argAttr.getArgType() == ttkernel::ArgType::DFBId) &&
           argAttr.getOperandIndex() == cbOperandIdx) {
-        matchingCtIdx = ctIdx;
-        break;
+        matchingCtIndices.insert(static_cast<int64_t>(ctIdx));
       }
     }
-    if (!matchingCtIdx) {
+    if (matchingCtIndices.empty()) {
       return CBRole::Neither;
     }
     bool isProducer = false;
@@ -448,8 +451,8 @@ public:
     kernelFunc.walk([&](Operation *op) {
       auto matchesCtArg = [&](Value v) {
         if (auto getOp = v.getDefiningOp<ttkernel::GetCompileArgValOp>()) {
-          return static_cast<int64_t>(getOp.getArgIndex()) ==
-                 static_cast<int64_t>(*matchingCtIdx);
+          return matchingCtIndices.contains(
+              static_cast<int64_t>(getOp.getArgIndex()));
         }
         return false;
       };

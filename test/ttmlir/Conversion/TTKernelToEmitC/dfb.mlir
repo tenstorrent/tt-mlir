@@ -9,7 +9,7 @@
 module {
   // CHECK-LABEL: func.func @dfb_reserve_back
   func.func @dfb_reserve_back() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = dfb_id, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-    // CHECK: %[[DFB:.*]] = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"experimental::DataflowBuffer">
+    // CHECK: %[[DFB:.*]] = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"experimental::DataflowBuffer">
     %dfb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !dfb_tiles
     %n = arith.constant 1 : i32
     // CHECK: emitc.verbatim "{}.reserve_back({});" args %[[DFB]],

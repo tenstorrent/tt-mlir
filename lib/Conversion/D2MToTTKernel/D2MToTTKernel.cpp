@@ -2665,10 +2665,13 @@ public:
     if (auto memrefType =
             mlir::dyn_cast<MemRefType>(op.getResult().getType())) {
       Type convertedType = getTypeConverter()->convertType(memrefType);
-      if (mlir::isa<ttkernel::CBType>(convertedType)) {
-        // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
-        // Handle identically to D2MGetCBRewriter: CBPort compile-time arg.
-        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
+      if (mlir::isa<ttkernel::CBType, ttkernel::DFBType>(convertedType)) {
+        // CB-backed memref (e.g. scratch buffer with CBLayoutAttr). Under
+        // useDFBs the type converter yields !ttkernel.dfb; handle identically
+        // to D2MGetCBRewriter, emitting a CBPort or DFBId ct_arg accordingly.
+        bool isDFB = mlir::isa<ttkernel::DFBType>(convertedType);
+        arg = rewriter.getAttr<ArgAttr>(
+            isDFB ? ArgType::DFBId : ArgType::CBPort, op.getOperandIndex());
         argResultType = convertedType;
 
         rewriter.modifyOpInPlace(entry, [&]() {

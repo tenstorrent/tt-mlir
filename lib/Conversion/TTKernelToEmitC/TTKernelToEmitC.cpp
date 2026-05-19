@@ -106,18 +106,31 @@ datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
 
+// True iff the value's type is `experimental::DataflowBuffer` (post-conversion)
+// or `!ttkernel.dfb` (pre-conversion).
+static bool isDFBValue(Value v) {
+  if (mlir::isa<ttkernel::DFBType>(v.getType())) {
+    return true;
+  }
+  if (auto opaque = mlir::dyn_cast<emitc::OpaqueType>(v.getType())) {
+    return opaque.getValue() == "experimental::DataflowBuffer";
+  }
+  return false;
+}
+
 static std::string getCBName(Value cb) {
   std::string prefix = "";
   IntegerAttr cbIdxAttr = nullptr;
+  bool isDFB = isDFBValue(cb);
 
   if (auto *defOp = cb.getDefiningOp()) {
     if (auto attr =
             defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_ctarg_idx")) {
-      prefix = "cb_ctarg_";
+      prefix = isDFB ? "dfb_ctarg_" : "cb_ctarg_";
       cbIdxAttr = attr;
     } else if (auto attr =
                    defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx")) {
-      prefix = "cb_arg_";
+      prefix = isDFB ? "dfb_arg_" : "cb_arg_";
       cbIdxAttr = attr;
     }
   }
@@ -149,8 +162,12 @@ static void assignRuntimeCBArgIndices(func::FuncOp funcOp) {
 
 static bool isCBDeclaration(emitc::VerbatimOp verbatim,
                             llvm::StringRef cbName) {
-  std::string prefix = "experimental::CircularBuffer " + cbName.str() + "(";
-  return verbatim.getValue().starts_with(prefix);
+  std::string cbPrefix =
+      "experimental::CircularBuffer " + cbName.str() + "(";
+  std::string dfbPrefix =
+      "experimental::DataflowBuffer " + cbName.str() + "(";
+  return verbatim.getValue().starts_with(cbPrefix) ||
+         verbatim.getValue().starts_with(dfbPrefix);
 }
 
 // Check whether a CB declaration for `cbName` exists & dominates `useOp`, to
@@ -187,8 +204,9 @@ static bool hasDominatingCBDeclaration(Operation *useOp,
   return false;
 }
 
-// Lazily emit a CB declaration only when a CB method is actually invoked
-// (compute API only uses CB IDs).
+// Lazily emit a CB / DFB declaration only when a method is actually invoked
+// (compute API only uses CB/DFB IDs). For DFB-typed receivers the C++ class
+// is `experimental::DataflowBuffer` instead of `experimental::CircularBuffer`.
 static std::string ensureCBDeclaration(Value cb, Operation *useOp,
                                        ConversionPatternRewriter &rewriter) {
   std::string cbName = getCBName(cb);
@@ -206,7 +224,10 @@ static std::string ensureCBDeclaration(Value cb, Operation *useOp,
     rewriter.setInsertionPointToStart(cb.getParentBlock());
   }
 
-  std::string cbDecl = "experimental::CircularBuffer " + cbName + "({});";
+  std::string className = isDFBValue(cb)
+                              ? "experimental::DataflowBuffer"
+                              : "experimental::CircularBuffer";
+  std::string cbDecl = className + " " + cbName + "({});";
   rewriter.create<emitc::VerbatimOp>(useOp->getLoc(), cbDecl, ValueRange{cb});
   return cbName;
 }
@@ -721,7 +742,8 @@ public:
           op.getLoc(), resultType,
           (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
               .str());
-      if (mlir::isa<ttkernel::CBType>(op.getResult().getType())) {
+      if (mlir::isa<ttkernel::CBType, ttkernel::DFBType>(
+              op.getResult().getType())) {
         literal->setAttr("ttkernel.cb_ctarg_idx",
                          rewriter.getI32IntegerAttr(op.getArgIndex()));
       }
