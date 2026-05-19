@@ -3298,7 +3298,8 @@ public:
         adaptor.getPageTable(), adaptor.getIsCausal(),
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr());
+        adaptor.getSlidingWindowSizeAttr(),
+        /*program_config=*/nullptr);
     return success();
   }
 };

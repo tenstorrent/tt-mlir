@@ -6535,6 +6535,7 @@ protected:
     std::optional<llvm::APFloat> scale = scaleAPFloat;
 
     std::optional<uint32_t> slidingWindowSize = std::nullopt;
+    std::optional<SDPAProgramConfigAttr> programConfig = std::nullopt;
 
     auto constraintsExp =
         OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
@@ -6542,7 +6543,7 @@ protected:
             valueShape, valueLayout, pageTableShape, pageTableLayout, isCausal,
             attentionMaskShape, attentionMaskLayout, curPosTensorShape,
             curPosTensorLayout, attentionSinkShape, attentionSinkLayout, scale,
-            slidingWindowSize, outputLayout);
+            slidingWindowSize, programConfig, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
