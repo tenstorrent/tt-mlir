@@ -12,7 +12,9 @@ module {
   func.func @test_tile_matmul(%lhs: !lhs, %rhs: !rhs) -> (!matmul_result) {
     // CHECK-NOT: ttir.matmul
     // CHECK-NOT: matmul_block
-    // CHECK: noc_async_write_multicast
+    // CHECK: emitc.verbatim "Noc noc(0);"
+    // CHECK: noc.async_write_multicast
+    // CHECK: emitc.verbatim "Noc noc(1);"
     // CHECK-NOT: noc_async_write_barrier
     // CHECK: mm_init
     // CHECK: mm_init_short
