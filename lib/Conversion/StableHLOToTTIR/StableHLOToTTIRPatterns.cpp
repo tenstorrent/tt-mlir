@@ -5630,13 +5630,18 @@ public:
 
     SmallVector<Value> slicesToConcat;
 
-    slicesToConcat = createSlices(starts, indexedDim, sliceSize, inputShape,
-                                  inputType, rewriter, srcOp, input);
+    // Front pad: replicate the first slice along indexedDim.
+    slicesToConcat = createSlices(starts, indexedDim, sliceSize,
+                                  /*sliceStart=*/0, inputShape, inputType,
+                                  rewriter, srcOp, input);
 
     slicesToConcat.push_back(input);
 
-    slicesToConcat.append(createSlices(ends, indexedDim, sliceSize, inputShape,
-                                       inputType, rewriter, srcOp, input));
+    // Back pad: replicate the *last* slice along indexedDim.
+    slicesToConcat.append(
+        createSlices(ends, indexedDim, sliceSize,
+                     /*sliceStart=*/inputShape[indexedDim] - sliceSize,
+                     inputShape, inputType, rewriter, srcOp, input));
 
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -5671,15 +5676,16 @@ private:
 
   SmallVector<Value>
   createSlices(int32_t numberOfRepeats, int32_t indexedDim, int32_t sliceSize,
-               ArrayRef<int64_t> inputShape, RankedTensorType inputType,
-               ConversionPatternRewriter &rewriter,
+               int32_t sliceStart, ArrayRef<int64_t> inputShape,
+               RankedTensorType inputType, ConversionPatternRewriter &rewriter,
                mlir::stablehlo::GatherOp srcOp, Value input) const {
     SmallVector<Value> slices;
     if (numberOfRepeats > 0) {
+      int32_t sliceEnd = sliceStart + sliceSize;
       auto [begins, endsArr, step] =
-          buildSliceArrays(0, sliceSize, indexedDim, inputShape);
+          buildSliceArrays(sliceStart, sliceEnd, indexedDim, inputShape);
       auto sliceShape =
-          computeSliceResultShape(0, sliceSize, indexedDim, inputShape);
+          computeSliceResultShape(sliceStart, sliceEnd, indexedDim, inputShape);
       auto sliceType = RankedTensorType::get(
           sliceShape, inputType.getElementType(), inputType.getEncoding());
 
