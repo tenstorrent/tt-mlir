@@ -6337,8 +6337,17 @@ public:
                                                     scatterIndices, newShape);
     }
 
-    rewriter.replaceOpWithNewOp<ttir::EmbeddingBackwardOp>(
-        srcOp, outputType, scatterIndices, operand, update);
+    // Create embedding_backward op into a temporary value.
+    auto embeddingBackwardOp = rewriter.create<ttir::EmbeddingBackwardOp>(
+        srcOp.getLoc(), outputType, scatterIndices, operand, update);
+
+    // Add the original operand to the embedding_backward result.
+    auto addResultType = outputType;
+    auto addOp = rewriter.create<ttir::AddOp>(
+        srcOp.getLoc(), addResultType,
+        ValueRange{embeddingBackwardOp.getResult(), operand});
+
+    rewriter.replaceOp(srcOp, addOp.getResult());
 
     return success();
   }
