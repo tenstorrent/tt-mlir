@@ -82,7 +82,7 @@ struct GridAnalysis {
       ArrayRef<llvm::SmallVector<int64_t>> perOperandTargetGrids,
       ArrayRef<int64_t> targetGrid, bool ttnnMode = false,
       bool useTargetGridForLayout = false,
-      bool requireCurrentTypeReblockable = false, uint64_t usableL1Bytes = 0);
+      bool requireCurrentTypeReblockable = false);
 
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.
@@ -97,7 +97,6 @@ private:
   llvm::DenseMap<Operation *, std::unique_ptr<GenericGridAnalysisResult>>
       results;
   llvm::SmallVector<int64_t> deviceGridShape;
-  uint64_t usableL1Bytes;
   bool ttnnMode;
 };
 

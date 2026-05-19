@@ -404,8 +404,8 @@ inline SmallVector<int64_t> getShardBlockFactors(d2m::GenericOp genericOp) {
   return r;
 }
 
-/// Walk a value's defining chain and detect whether it includes a non-identity
-/// view remapping.
+/// Walk a value's defining chain and detect whether it includes a view that
+/// needs data movement to realize its layout.
 inline bool hasNonTrivialView(Value value) {
   Operation *definingOp = value.getDefiningOp();
   if (!definingOp) {
@@ -413,7 +413,10 @@ inline bool hasNonTrivialView(Value value) {
   }
 
   if (auto viewOp = mlir::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
-    return !viewOp.getRemapping().isIdentity() ||
+    if (viewOp.getReinterpretLayout()) {
+      return hasNonTrivialView(viewOp.getInput());
+    }
+    return !viewOp.isReblockOnly() || !viewOp.getRemapping().isIdentity() ||
            hasNonTrivialView(viewOp.getInput());
   }
   if (auto compositeViewOp = mlir::dyn_cast<d2m::CompositeViewOp>(definingOp)) {

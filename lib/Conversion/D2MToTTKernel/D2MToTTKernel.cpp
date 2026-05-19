@@ -1069,15 +1069,6 @@ public:
     Value outCB = getOutCB(rewriter, op);
     Value cIdx = adaptor.getC();
 
-    // cIdx is defined inside the scf loops, so re-materialize a constant
-    // copy for use at the hoisted init point.
-    std::optional<int64_t> cIdxVal = getConstantIntValue(cIdx);
-    if (!cIdxVal) {
-      return op->emitOpError(
-          "tile_sfpu_reduce_* expects C operand's DST index to be a "
-          "compile-time constant; got a non-constant value");
-    }
-
     int32_t identityInt = (reduceType == ttkernel::ReduceType::Max)
                               ? std::numeric_limits<int32_t>::min()
                               : 0;
@@ -1087,14 +1078,28 @@ public:
       setInsertionPointAfterOperands(rewriter, {cbA, outCB},
                                      /*allowHoisting*/ true);
       rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), cbA, outCB);
-      Value hoistedCIdx =
+    }
+
+    std::optional<int64_t> cIdxVal = getConstantIntValue(cIdx);
+    if (cIdxVal) {
+      OpBuilder::InsertionGuard guard(rewriter);
+      setInsertionPointAfterOperands(rewriter, {cbA, outCB},
+                                     /*allowHoisting*/ true);
+      Value fillCIdx =
           rewriter.create<arith::ConstantIndexOp>(op->getLoc(), *cIdxVal);
       Value identityVal = rewriter.create<arith::ConstantOp>(
           op->getLoc(), rewriter.getI32Type(),
           rewriter.getI32IntegerAttr(identityInt));
       rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
-      rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), hoistedCIdx,
+      rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), fillCIdx,
                                                identityVal);
+    } else {
+      ensureDominatesInsertionPoint(rewriter, cIdx);
+      Value identityVal = rewriter.create<arith::ConstantOp>(
+          op->getLoc(), rewriter.getI32Type(),
+          rewriter.getI32IntegerAttr(identityInt));
+      rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
+      rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), cIdx, identityVal);
     }
 
     int64_t scratchIdxVal = op.getDstScratchIndex();
