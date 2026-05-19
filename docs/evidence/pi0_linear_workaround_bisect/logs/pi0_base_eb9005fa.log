@@ -1,0 +1,294 @@
+2026-05-19 11:42:35.743 | WARNING  | torch_plugin_tt:__init__:40 - TT plugin is setting XLA_STABLEHLO_COMPILE to 1. This is required for TT PJRT plugin to work correctly.
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/bin/python
+cachedir: .pytest_cache
+metadata: {'Python': '3.12.3', 'Platform': 'Linux-5.4.0-212-generic-x86_64-with-glibc2.39', 'Packages': {'pytest': '9.0.3', 'pluggy': '1.6.0'}, 'Plugins': {'json-report': '1.5.0', 'metadata': '3.1.1', 'jaxtyping': '0.3.9', 'split': '0.11.0', 'forked': '1.6.0', 'anyio': '4.13.0'}}
+rootdir: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla
+configfile: pytest.ini
+plugins: json-report-1.5.0, metadata-3.1.1, jaxtyping-0.3.9, split-0.11.0, forked-1.6.0, anyio-4.13.0
+collecting ... 2026-05-19 11:42:43.231 | WARNING  | tests.runner.utils.dynamic_loader:discover_loader_paths:482 - Workaround to exclude model: suryaocr from discovery. Issue #1166
+Flax classes are deprecated and will be removed in Diffusers v1.0.0. We recommend migrating to PyTorch classes or pinning your version of Diffusers.
+Flax classes are deprecated and will be removed in Diffusers v1.0.0. We recommend migrating to PyTorch classes or pinning your version of Diffusers.
+2026-05-19 11:42:50.726 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/yolov12/pytorch/loader.py: cannot import name 'yolo_postprocess' from 'tt_forge_models.tools.utils' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/tools/utils.py)
+2026-05-19 11:42:50.909 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/yolov11/pytorch/loader.py: cannot import name 'yolo_postprocess' from 'tt_forge_models.tools.utils' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/tools/utils.py)
+2026-05-19 11:42:51.402 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/yolov5/pytorch/loader.py: No module named 'pkg_resources'
+2026-05-19 11:43:00.096 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/sentencizer/pytorch/loader.py: cannot import name 'is_remote_url' from 'transformers.utils' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/transformers/utils/__init__.py)
+2026-05-19 11:43:00.789 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/yolov10/pytorch/loader.py: cannot import name 'yolo_postprocess' from 'tt_forge_models.tools.utils' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/tools/utils.py)
+2026-05-19 11:43:01.465 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/yolov8/pytorch/loader.py: cannot import name 'yolo_postprocess' from 'tt_forge_models.tools.utils' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/tools/utils.py)
+2026-05-19 11:43:01.970 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/albert/masked_lm/jax/loader.py: cannot import name 'FlaxAlbertForMaskedLM' from 'transformers' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/transformers/__init__.py)
+2026-05-19 11:43:01.975 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/t5/summarization/jax/loader.py: No module named 'transformers.models.t5.modeling_flax_t5'
+2026-05-19 11:43:01.979 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/mt5/nlp_summarization/jax/loader.py: No module named 'transformers.models.mt5.modeling_flax_mt5'
+2026-05-19 11:43:02.012 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/beit/image_classification/jax/loader.py: cannot import name 'FlaxBeitForImageClassification' from 'transformers' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/transformers/__init__.py)
+2026-05-19 11:43:02.020 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/longt5/text_classification/jax/loader.py: No module named 'transformers.models.longt5.modeling_flax_longt5'
+2026-05-19 11:43:02.034 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/bert/masked_lm/jax/loader.py: cannot import name 'FlaxBertForMaskedLM' from 'transformers' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/transformers/__init__.py)
+2026-05-19 11:43:02.048 | WARNING  | tests.runner.utils.dynamic_loader:get_model_variants:290 - Cannot import path: /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/bart/causal_lm/jax/loader.py: cannot import name 'FlaxBartForCausalLM' from 'transformers' (/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/transformers/__init__.py)
+collected 1 item
+
+tests/runner/test_models.py::test_all_models_torch[pi_0/pytorch-pi0_base-single_device-inference] Running tests/runner/test_models.py::test_all_models_torch[pi_0/pytorch-pi0_base-single_device-inference] - pytorch_pi_0_pi0_base_mm_action_prediction_huggingface
+Looking in indexes: https://pypi.org/simple, https://download.pytorch.org/whl/cpu
+Collecting transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1))
+  Cloning https://github.com/huggingface/transformers.git (to revision fix/lerobot_openpi) to /tmp/pip-install-m7ocvk_g/transformers_7ef577b37f284b1c89a326aa0ea9d837
+  Running command git clone --filter=blob:none --quiet https://github.com/huggingface/transformers.git /tmp/pip-install-m7ocvk_g/transformers_7ef577b37f284b1c89a326aa0ea9d837
+  Running command git checkout -b fix/lerobot_openpi --track origin/fix/lerobot_openpi
+  Switched to a new branch 'fix/lerobot_openpi'
+  branch 'fix/lerobot_openpi' set up to track 'origin/fix/lerobot_openpi'.
+  Resolved https://github.com/huggingface/transformers.git to commit dcddb970176382c0fcf4521b0c0e6fc15894dfe0
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting tokenizers==0.21.1 (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 2))
+  Using cached tokenizers-0.21.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.8 kB)
+Collecting draccus==0.10.0 (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 3))
+  Using cached draccus-0.10.0-py3-none-any.whl.metadata (24 kB)
+Collecting gymnasium==1.2.3 (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 4))
+  Using cached gymnasium-1.2.3-py3-none-any.whl.metadata (10 kB)
+Collecting torchcodec==0.10.0 (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 5))
+  Using cached torchcodec-0.10.0-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting pyserial==3.5 (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 6))
+  Using cached pyserial-3.5-py2.py3-none-any.whl.metadata (1.6 kB)
+Collecting deepdiff==8.6.1 (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 7))
+  Using cached deepdiff-8.6.1-py3-none-any.whl.metadata (8.6 kB)
+Collecting av==15.0.0 (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 8))
+  Using cached av-15.0.0-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (4.6 kB)
+Requirement already satisfied: filelock in ./venv/lib/python3.12/site-packages (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (3.29.0)
+Collecting huggingface-hub<1.0,>=0.30.0 (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1))
+  Using cached huggingface_hub-0.36.2-py3-none-any.whl.metadata (15 kB)
+Requirement already satisfied: numpy>=1.17 in ./venv/lib/python3.12/site-packages (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (2.1.2)
+Requirement already satisfied: packaging>=20.0 in ./venv/lib/python3.12/site-packages (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (26.2)
+Requirement already satisfied: pyyaml>=5.1 in ./venv/lib/python3.12/site-packages (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (6.0.1)
+Requirement already satisfied: regex!=2019.12.17 in ./venv/lib/python3.12/site-packages (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (2026.5.9)
+Requirement already satisfied: requests in ./venv/lib/python3.12/site-packages (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (2.34.2)
+Requirement already satisfied: safetensors>=0.4.3 in ./venv/lib/python3.12/site-packages (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (0.8.0rc0)
+Requirement already satisfied: tqdm>=4.27 in ./venv/lib/python3.12/site-packages (from transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (4.67.3)
+Collecting mergedeep~=1.3 (from draccus==0.10.0->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 3))
+  Using cached mergedeep-1.3.4-py3-none-any.whl.metadata (4.3 kB)
+Collecting pyyaml-include~=1.4 (from draccus==0.10.0->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 3))
+  Using cached pyyaml_include-1.4.1-py3-none-any.whl.metadata (1.3 kB)
+Collecting toml~=0.10 (from draccus==0.10.0->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 3))
+  Using cached toml-0.10.2-py2.py3-none-any.whl.metadata (7.1 kB)
+Collecting typing-inspect~=0.9.0 (from draccus==0.10.0->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 3))
+  Using cached typing_inspect-0.9.0-py3-none-any.whl (8.8 kB)
+Collecting cloudpickle>=1.2.0 (from gymnasium==1.2.3->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 4))
+  Using cached cloudpickle-3.1.2-py3-none-any.whl.metadata (7.1 kB)
+Requirement already satisfied: typing-extensions>=4.3.0 in ./venv/lib/python3.12/site-packages (from gymnasium==1.2.3->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 4)) (4.15.0)
+Collecting farama-notifications>=0.0.1 (from gymnasium==1.2.3->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 4))
+  Using cached farama_notifications-0.0.6-py3-none-any.whl.metadata (729 bytes)
+Collecting orderly-set<6,>=5.4.1 (from deepdiff==8.6.1->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 7))
+  Using cached orderly_set-5.5.0-py3-none-any.whl.metadata (6.6 kB)
+Requirement already satisfied: fsspec>=2023.5.0 in ./venv/lib/python3.12/site-packages (from huggingface-hub<1.0,>=0.30.0->transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (2025.10.0)
+Requirement already satisfied: hf-xet<2.0.0,>=1.1.3 in ./venv/lib/python3.12/site-packages (from huggingface-hub<1.0,>=0.30.0->transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (1.5.0)
+Requirement already satisfied: mypy-extensions>=0.3.0 in ./venv/lib/python3.12/site-packages (from typing-inspect~=0.9.0->draccus==0.10.0->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 3)) (1.1.0)
+Requirement already satisfied: charset_normalizer<4,>=2 in ./venv/lib/python3.12/site-packages (from requests->transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (3.4.7)
+Requirement already satisfied: idna<4,>=2.5 in ./venv/lib/python3.12/site-packages (from requests->transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (3.15)
+Requirement already satisfied: urllib3<3,>=1.26 in ./venv/lib/python3.12/site-packages (from requests->transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (2.7.0)
+Requirement already satisfied: certifi>=2023.5.7 in ./venv/lib/python3.12/site-packages (from requests->transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi->-r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.txt (line 1)) (2026.4.22)
+Using cached tokenizers-0.21.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (3.0 MB)
+Using cached draccus-0.10.0-py3-none-any.whl (71 kB)
+Using cached gymnasium-1.2.3-py3-none-any.whl (952 kB)
+Using cached torchcodec-0.10.0-cp312-cp312-manylinux_2_28_x86_64.whl (2.1 MB)
+Using cached pyserial-3.5-py2.py3-none-any.whl (90 kB)
+Using cached deepdiff-8.6.1-py3-none-any.whl (91 kB)
+Using cached av-15.0.0-cp312-cp312-manylinux_2_28_x86_64.whl (40.0 MB)
+Using cached huggingface_hub-0.36.2-py3-none-any.whl (566 kB)
+Using cached mergedeep-1.3.4-py3-none-any.whl (6.4 kB)
+Using cached orderly_set-5.5.0-py3-none-any.whl (13 kB)
+Using cached pyyaml_include-1.4.1-py3-none-any.whl (19 kB)
+Using cached toml-0.10.2-py2.py3-none-any.whl (16 kB)
+Using cached cloudpickle-3.1.2-py3-none-any.whl (22 kB)
+Using cached farama_notifications-0.0.6-py3-none-any.whl (2.9 kB)
+Building wheels for collected packages: transformers
+  Building wheel for transformers (pyproject.toml): started
+  Building wheel for transformers (pyproject.toml): finished with status 'done'
+  Created wheel for transformers: filename=transformers-4.53.3-py3-none-any.whl size=10827916 sha256=6763f5b6a93485af10137d87057e4e005bca087708cbb3ee30125059b7796077
+  Stored in directory: /tmp/pip-ephem-wheel-cache-lirxh7vk/wheels/29/9c/af/9393d4342ca3b00939f0143419b1708e3d31ed8980de898431
+Successfully built transformers
+Installing collected packages: pyserial, farama-notifications, typing-inspect, torchcodec, toml, pyyaml-include, orderly-set, mergedeep, cloudpickle, av, huggingface-hub, gymnasium, draccus, deepdiff, tokenizers, transformers
+  Attempting uninstall: torchcodec
+    Found existing installation: torchcodec 0.12.0+cpu
+    Uninstalling torchcodec-0.12.0+cpu:
+      Successfully uninstalled torchcodec-0.12.0+cpu
+  Attempting uninstall: huggingface-hub
+    Found existing installation: huggingface_hub 1.15.0
+    Uninstalling huggingface_hub-1.15.0:
+      Successfully uninstalled huggingface_hub-1.15.0
+  Attempting uninstall: tokenizers
+    Found existing installation: tokenizers 0.22.2
+    Uninstalling tokenizers-0.22.2:
+      Successfully uninstalled tokenizers-0.22.2
+  WARNING: Failed to remove contents in a temporary directory '/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/~=kenizers'.
+  You can safely remove it manually.
+  Attempting uninstall: transformers
+    Found existing installation: transformers 5.2.0
+    Uninstalling transformers-5.2.0:
+      Successfully uninstalled transformers-5.2.0
+
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+surya-ocr 0.17.1 requires transformers>=4.56.1, but you have transformers 4.53.3 which is incompatible.
+Successfully installed av-15.0.0 cloudpickle-3.1.2 deepdiff-8.6.1 draccus-0.10.0 farama-notifications-0.0.6 gymnasium-1.2.3 huggingface-hub-0.36.2 mergedeep-1.3.4 orderly-set-5.5.0 pyserial-3.5 pyyaml-include-1.4.1 tokenizers-0.21.1 toml-0.10.2 torchcodec-0.10.0 transformers-4.53.3 typing-inspect-0.9.0
+Looking in indexes: https://pypi.org/simple, https://download.pytorch.org/whl/cpu
+Collecting lerobot==0.4.3 (from -r /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/third_party/tt_forge_models/pi_0/pytorch/requirements.nodeps.txt (line 1))
+  Using cached lerobot-0.4.3-py3-none-any.whl.metadata (17 kB)
+Using cached lerobot-0.4.3-py3-none-any.whl (993 kB)
+Installing collected packages: lerobot
+Successfully installed lerobot-0.4.3
+WARNING:root:No accelerated backend detected. Using default cpu, this will be slow.
+WARNING:lerobot.configs.policies:Device 'cuda' is not available. Switching to 'cpu'.
+WARNING:root:No accelerated backend detected. Using default cpu, this will be slow.
+WARNING:lerobot.configs.policies:Device 'cuda' is not available. Switching to 'cpu'.
+WARNING:root:Vision embedding key might need handling: paligemma_with_expert.paligemma.model.vision_tower.vision_model.embeddings.patch_embedding.bias
+WARNING:root:Vision embedding key might need handling: paligemma_with_expert.paligemma.model.vision_tower.vision_model.embeddings.patch_embedding.weight
+2026-05-19 11:47:36.561236: W torch_xla/csrc/runtime/profiler.cpp:88] Profiler API not found for PJRT plugin
+Found existing installation: av 15.0.0
+Uninstalling av-15.0.0:
+  Successfully uninstalled av-15.0.0
+WARNING: Failed to remove contents in a temporary directory '/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/~=.libs'.
+You can safely remove it manually.
+WARNING: Failed to remove contents in a temporary directory '/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/~.av'.
+You can safely remove it manually.
+Found existing installation: cloudpickle 3.1.2
+Uninstalling cloudpickle-3.1.2:
+  Successfully uninstalled cloudpickle-3.1.2
+Found existing installation: deepdiff 8.6.1
+Uninstalling deepdiff-8.6.1:
+  Successfully uninstalled deepdiff-8.6.1
+Found existing installation: draccus 0.10.0
+Uninstalling draccus-0.10.0:
+  Successfully uninstalled draccus-0.10.0
+Found existing installation: Farama-Notifications 0.0.6
+Uninstalling Farama-Notifications-0.0.6:
+  Successfully uninstalled Farama-Notifications-0.0.6
+Found existing installation: gymnasium 1.2.3
+Uninstalling gymnasium-1.2.3:
+  Successfully uninstalled gymnasium-1.2.3
+Found existing installation: lerobot 0.4.3
+Uninstalling lerobot-0.4.3:
+  Successfully uninstalled lerobot-0.4.3
+Found existing installation: mergedeep 1.3.4
+Uninstalling mergedeep-1.3.4:
+  Successfully uninstalled mergedeep-1.3.4
+Found existing installation: orderly-set 5.5.0
+Uninstalling orderly-set-5.5.0:
+  Successfully uninstalled orderly-set-5.5.0
+Found existing installation: pyserial 3.5
+Uninstalling pyserial-3.5:
+  Successfully uninstalled pyserial-3.5
+Found existing installation: pyyaml-include 1.4.1
+Uninstalling pyyaml-include-1.4.1:
+  Successfully uninstalled pyyaml-include-1.4.1
+Found existing installation: toml 0.10.2
+Uninstalling toml-0.10.2:
+  Successfully uninstalled toml-0.10.2
+Found existing installation: typing-inspect 0.9.0
+Uninstalling typing-inspect-0.9.0:
+  Successfully uninstalled typing-inspect-0.9.0
+Looking in indexes: https://pypi.org/simple, https://download.pytorch.org/whl/cpu
+Collecting huggingface_hub==1.15.0 (from -r /tmp/tt_xla_restore_j0wqara1.txt (line 1))
+  Using cached huggingface_hub-1.15.0-py3-none-any.whl.metadata (14 kB)
+Collecting tokenizers==0.22.2 (from -r /tmp/tt_xla_restore_j0wqara1.txt (line 2))
+  Using cached tokenizers-0.22.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (7.3 kB)
+Collecting torchcodec==0.12.0+cpu (from -r /tmp/tt_xla_restore_j0wqara1.txt (line 3))
+  Using cached torchcodec-0.12.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting transformers==5.2.0 (from -r /tmp/tt_xla_restore_j0wqara1.txt (line 4))
+  Using cached transformers-5.2.0-py3-none-any.whl.metadata (32 kB)
+Requirement already satisfied: filelock>=3.10.0 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (3.29.0)
+Requirement already satisfied: fsspec>=2023.5.0 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (2025.10.0)
+Requirement already satisfied: hf-xet<2.0.0,>=1.4.3 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (1.5.0)
+Requirement already satisfied: httpx<1,>=0.23.0 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (0.28.1)
+Requirement already satisfied: packaging>=20.9 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (26.2)
+Requirement already satisfied: pyyaml>=5.1 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (6.0.1)
+Requirement already satisfied: tqdm>=4.42.1 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (4.67.3)
+Requirement already satisfied: typer>=0.20.0 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (0.25.1)
+Requirement already satisfied: typing-extensions>=4.1.0 in ./venv/lib/python3.12/site-packages (from huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (4.15.0)
+Requirement already satisfied: numpy>=1.17 in ./venv/lib/python3.12/site-packages (from transformers==5.2.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 4)) (2.1.2)
+Requirement already satisfied: regex!=2019.12.17 in ./venv/lib/python3.12/site-packages (from transformers==5.2.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 4)) (2026.5.9)
+Requirement already satisfied: typer-slim in ./venv/lib/python3.12/site-packages (from transformers==5.2.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 4)) (0.24.0)
+Requirement already satisfied: safetensors>=0.4.3 in ./venv/lib/python3.12/site-packages (from transformers==5.2.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 4)) (0.8.0rc0)
+Requirement already satisfied: anyio in ./venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (4.13.0)
+Requirement already satisfied: certifi in ./venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (2026.4.22)
+Requirement already satisfied: httpcore==1.* in ./venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (1.0.9)
+Requirement already satisfied: idna in ./venv/lib/python3.12/site-packages (from httpx<1,>=0.23.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (3.15)
+Requirement already satisfied: h11>=0.16 in ./venv/lib/python3.12/site-packages (from httpcore==1.*->httpx<1,>=0.23.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (0.16.0)
+Requirement already satisfied: click>=8.2.1 in ./venv/lib/python3.12/site-packages (from typer>=0.20.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (8.3.1)
+Requirement already satisfied: shellingham>=1.3.0 in ./venv/lib/python3.12/site-packages (from typer>=0.20.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (1.5.4)
+Requirement already satisfied: rich>=13.8.0 in ./venv/lib/python3.12/site-packages (from typer>=0.20.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (15.0.0)
+Requirement already satisfied: annotated-doc>=0.0.2 in ./venv/lib/python3.12/site-packages (from typer>=0.20.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (0.0.4)
+Requirement already satisfied: markdown-it-py>=2.2.0 in ./venv/lib/python3.12/site-packages (from rich>=13.8.0->typer>=0.20.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (4.2.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in ./venv/lib/python3.12/site-packages (from rich>=13.8.0->typer>=0.20.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (2.20.0)
+Requirement already satisfied: mdurl~=0.1 in ./venv/lib/python3.12/site-packages (from markdown-it-py>=2.2.0->rich>=13.8.0->typer>=0.20.0->huggingface_hub==1.15.0->-r /tmp/tt_xla_restore_j0wqara1.txt (line 1)) (0.1.2)
+Using cached huggingface_hub-1.15.0-py3-none-any.whl (663 kB)
+Using cached tokenizers-0.22.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (3.3 MB)
+Using cached torchcodec-0.12.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl (2.4 MB)
+Using cached transformers-5.2.0-py3-none-any.whl (10.4 MB)
+Installing collected packages: torchcodec, huggingface_hub, tokenizers, transformers
+  Attempting uninstall: torchcodec
+    Found existing installation: torchcodec 0.10.0
+    Uninstalling torchcodec-0.10.0:
+      Successfully uninstalled torchcodec-0.10.0
+  WARNING: Failed to remove contents in a temporary directory '/proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/~=rchcodec'.
+  You can safely remove it manually.
+  Attempting uninstall: huggingface_hub
+    Found existing installation: huggingface_hub 0.36.2
+    Uninstalling huggingface_hub-0.36.2:
+      Successfully uninstalled huggingface_hub-0.36.2
+  Attempting uninstall: tokenizers
+    Found existing installation: tokenizers 0.21.1
+    Uninstalling tokenizers-0.21.1:
+      Successfully uninstalled tokenizers-0.21.1
+  Attempting uninstall: transformers
+    Found existing installation: transformers 4.53.3
+    Uninstalling transformers-4.53.3:
+      Successfully uninstalled transformers-4.53.3
+
+Successfully installed huggingface_hub-1.15.0 tokenizers-0.22.2 torchcodec-0.12.0+cpu transformers-5.2.0
+The PI0 model is a direct port of the OpenPI implementation. 
+This implementation follows the original OpenPI structure for compatibility. 
+Original implementation: https://github.com/Physical-Intelligence/openpi
+Loading model from: lerobot/pi0_base
+✓ Loaded state dict from model.safetensors
+Remapped 777 state dict keys
+Warning: Could not remap state dict keys: Error(s) in loading state_dict for PI0Policy:
+	Missing key(s) in state_dict: "model.paligemma_with_expert.paligemma.model.language_model.embed_tokens.weight". 
+====================================================================
+| pytorch_pi_0_pi0_base_mm_action_prediction_huggingface BENCHMARK:  
+--------------------------------------------------------------------
+| e2e_perf-total_samples: 2
+| e2e_perf-total_time: 0.03360164212062955
+| e2e_perf-avg_time: 0.016800821060314775
+| e2e_perf-perf_time_1: 0.01683826104272157
+| e2e_perf-perf_time_2: 0.01676338107790798
+====================================================================
+PASSED
+
+=============================== warnings summary ===============================
+venv/lib/python3.12/site-packages/torch/jit/_script.py:362: 14 warnings
+  /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+venv/lib/python3.12/site-packages/torch/jit/_script.py:1480
+  /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/venv/lib/python3.12/site-packages/torch/jit/_script.py:1480: DeprecationWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+tests/runner/test_models.py::test_all_models_torch[pi_0/pytorch-pi0_base-single_device-inference]
+  /home/ctr-akannan/.local/python/lib/python3.12/copyreg.py:99: FutureWarning: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+    return cls.__new__(cls, *args)
+
+tests/runner/test_models.py::test_all_models_torch[pi_0/pytorch-pi0_base-single_device-inference]
+  /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/tests/conftest.py:524: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` instead
+    if isinstance(obj, torch.fx.GraphModule):
+
+tests/runner/test_models.py::test_all_models_torch[pi_0/pytorch-pi0_base-single_device-inference]
+  /proj_sw/user_dev/ctr-akannan/18_new_may_gd/tt-xla/tests/conftest.py:528: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` instead
+    if isinstance(obj, GraphInputMatcher):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 1 passed, 20 warnings in 1101.39s (0:18:21) ==================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
