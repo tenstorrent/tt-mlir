@@ -696,8 +696,9 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
     physical grids or one-dimensional virtual grids along logical height/width dimensions,
     but not arbitrary ND virtual grids.
 
-    Note: This pass is not used in TTNN mode, where grids are already correctly set.
-    The pipeline conditionally adds this pass only for non-TTNN mode.
+    In TTNN mode, this pass does not introduce generic virtual grids: D2M
+    virtual-grid maps are not generally representable as legacy TTNN height/width
+    sharded memory configs.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
   let options = [

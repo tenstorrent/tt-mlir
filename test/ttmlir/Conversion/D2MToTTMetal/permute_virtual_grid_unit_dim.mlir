@@ -3,7 +3,7 @@
 
 module {
   // CHECK-LABEL: func.func @permute_0
-  // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<1x32x1x2x1x4x32x32xbf16
+  // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<1x64x1x1x1x2x32x64xbf16
   // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<1x1x4x2x1x1x32x32xbf16
   // CHECK: #ttmetal.core_range<0x0, 2x4>
   // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<1x1x4x2x1x1x32x32xbf16

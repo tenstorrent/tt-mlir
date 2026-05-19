@@ -4,7 +4,7 @@
 module {
   // CHECK-LABEL: func.func @slice_f32_cb_page_compatible
   // CHECK-NOT: memref<8x8x384x4xf32
-  // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<3x16x2x1x2x4x32x32xf32, #ttcore.shard<16384x4096x128x4, 1>, #l1>
+  // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<6x16x1x1x1x4x64x32xf32, #ttcore.shard<32768x8192x128x4, 1>, #l1>
   // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<3x32x1x1x1x1x32x32xf32, #ttcore.shard<4096x4096x128x4, 1>, #l1>
   func.func @slice_f32_cb_page_compatible(%arg0: tensor<6x64x64x4xf32>) -> tensor<3x32x32x2xf32> {
     %0 = "ttir.slice_static"(%arg0) <{

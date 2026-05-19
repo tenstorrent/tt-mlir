@@ -390,6 +390,103 @@ static uint64_t estimateOperandShardBytes(Type elementType,
   return elementCount * elementSizeBytes;
 }
 
+static bool isBetterSourceGridCandidate(uint64_t candidateShardBytes,
+                                        uint64_t candidateGridVolume,
+                                        uint64_t candidatePhysicalVolume,
+                                        uint64_t bestShardBytes,
+                                        uint64_t bestGridVolume,
+                                        uint64_t bestPhysicalVolume) {
+  if (candidateShardBytes != bestShardBytes) {
+    return candidateShardBytes < bestShardBytes;
+  }
+  if (candidateGridVolume != bestGridVolume) {
+    return candidateGridVolume > bestGridVolume;
+  }
+  return candidatePhysicalVolume < bestPhysicalVolume;
+}
+
+static std::optional<GridDecisionAndShape>
+computeBestSourceGridDecision(Value operand, ArrayRef<int64_t> targetGrid,
+                              bool ttnnMode, bool allowVirtualGrid,
+                              bool useTargetGridForLayout) {
+  llvm::SmallVector<int64_t> currentPhysicalShape =
+      computeCurrentPhysicalShape(operand);
+  llvm::SmallVector<int64_t> targetPhysicalShape =
+      utils::computePhysicalShape(operand, targetGrid, ttnnMode);
+  if (currentPhysicalShape.size() != targetPhysicalShape.size()) {
+    return std::nullopt;
+  }
+
+  int64_t targetGridVolume = ttmlir::utils::volume<int64_t>(targetGrid);
+  llvm::SmallVector<llvm::SmallVector<int64_t>> factorChoices;
+  factorChoices.reserve(currentPhysicalShape.size());
+  for (auto [currentDim, targetDim] :
+       llvm::zip_equal(currentPhysicalShape, targetPhysicalShape)) {
+    llvm::SmallVector<int64_t> factors{1};
+    for (int64_t factor : ttmlir::utils::getFactors(currentDim)) {
+      if (factor <= targetGridVolume) {
+        factors.push_back(factor);
+      }
+    }
+    for (int64_t factor : ttmlir::utils::getFactors(targetDim)) {
+      if (factor <= targetGridVolume) {
+        factors.push_back(factor);
+      }
+    }
+    llvm::sort(factors);
+    factors.erase(std::unique(factors.begin(), factors.end()), factors.end());
+    factorChoices.push_back(std::move(factors));
+  }
+
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  std::optional<GridDecisionAndShape> best;
+  uint64_t bestShardBytes = std::numeric_limits<uint64_t>::max();
+  uint64_t bestGridVolume = 0;
+  uint64_t bestPhysicalVolume = std::numeric_limits<uint64_t>::max();
+  llvm::SmallVector<int64_t> candidateGrid(currentPhysicalShape.size(), 1);
+
+  std::function<void(unsigned, uint64_t)> search = [&](unsigned dim,
+                                                       uint64_t volumeSoFar) {
+    if (dim == candidateGrid.size()) {
+      if (!allowVirtualGrid && ttmlir::d2m::utils::grids::requiresVirtualGrid(
+                                   candidateGrid, targetGrid)) {
+        return;
+      }
+      auto candidate = computeDecisionAndShapeForSelectedGrid(
+          operand, candidateGrid, targetGrid, ttnnMode, useTargetGridForLayout);
+      if (!candidate) {
+        return;
+      }
+      uint64_t candidateShardBytes = estimateOperandShardBytes(
+          tensorType.getElementType(), candidate->physicalShape, candidateGrid);
+      uint64_t candidatePhysicalVolume = static_cast<uint64_t>(
+          ttmlir::utils::volume<int64_t>(candidate->physicalShape));
+      if (!best ||
+          isBetterSourceGridCandidate(candidateShardBytes, volumeSoFar,
+                                      candidatePhysicalVolume, bestShardBytes,
+                                      bestGridVolume, bestPhysicalVolume)) {
+        best = std::move(candidate);
+        bestShardBytes = candidateShardBytes;
+        bestGridVolume = volumeSoFar;
+        bestPhysicalVolume = candidatePhysicalVolume;
+      }
+      return;
+    }
+
+    for (int64_t factor : llvm::reverse(factorChoices[dim])) {
+      uint64_t candidateVolume = volumeSoFar * static_cast<uint64_t>(factor);
+      if (candidateVolume > static_cast<uint64_t>(targetGridVolume)) {
+        continue;
+      }
+      candidateGrid[dim] = factor;
+      search(dim + 1, candidateVolume);
+    }
+    candidateGrid[dim] = 1;
+  };
+  search(/*dim=*/0, /*volumeSoFar=*/1);
+  return best;
+}
+
 static uint64_t estimateDmaOnlyScratchBytes(
     GenericOp genericOp, ArrayRef<llvm::SmallVector<int64_t>> operandGrids,
     ArrayRef<llvm::SmallVector<int64_t>> physicalShapes) {
@@ -1068,7 +1165,10 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   }
 
   bool isMatmul = isMatmulGeneric(genericOp);
-  bool allowVirtualGrid = !isMatmul;
+  // TTNN conversion can round-trip legacy height/width sharding, but not
+  // arbitrary D2M virtual grids. Keep new generic virtual grids on the TTMetal
+  // path until TTNN has a representation for them.
+  bool allowVirtualGrid = !isMatmul && !ttnnMode;
   for (Value operand : genericOp.getInputsAndOutputs()) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto operandLayout =
@@ -1160,18 +1260,10 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
                 .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
           continue;
         }
-        auto inputType = mlir::cast<mlir::RankedTensorType>(
-            toLayoutOp.getResult(0).getType());
-        llvm::SmallVector<int64_t> inputPhysicalShape =
-            utils::computePhysicalShape(toLayoutOp.getResult(0),
-                                        info.grid.targetGrid, ttnnMode);
-        llvm::SmallVector<int64_t> inputOptimalGrid = utils::computeOptimalGrid(
-            inputType, inputPhysicalShape, info.grid.targetGrid);
         std::optional<GridDecisionAndShape> sourcePlan =
-            computeDecisionAndShapeForSelectedGrid(
-                toLayoutOp.getResult(0), inputOptimalGrid, info.grid.targetGrid,
-                ttnnMode,
-                /*useTargetGridForLayout=*/false);
+            computeBestSourceGridDecision(
+                toLayoutOp.getResult(0), info.grid.targetGrid, ttnnMode,
+                allowVirtualGrid, /*useTargetGridForLayout=*/false);
         if (sourcePlan && allowVirtualGrid &&
             ttmlir::utils::volume<int64_t>(sourcePlan->decision.selectedGrid) >
                 ttmlir::utils::volume<int64_t>(info.grid.selectedGrid)) {
