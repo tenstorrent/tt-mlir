@@ -122,6 +122,7 @@ _PIPELINE = ",".join(
         "d2m-insert-scratch-buffers",
         "d2m-generic-apply-interchange",
         "d2m-generate-outer-loops",
+        "d2m-mark-synchronized-buffers",
         "d2m-allocate",
         "d2m-lower-multicast-loads",
         "d2m-generic-lower-to-explicit-form",
