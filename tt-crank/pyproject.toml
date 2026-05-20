@@ -9,11 +9,14 @@ description = "Compiler & runtime frontend for Tenstorrent hardware"
 requires-python = ">=3.10"
 dependencies = ["torch==2.10.0"]
 
+[project.scripts]
+tracy = "tracy.__main__:main"
+
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 cmake.version = ">=3.24"
 cmake.build-type = ""
-wheel.packages = ["python/tt_kurbla"]
+wheel.packages = ["python/tt_kurbla", "python/tracy", "python/ttnn"]
 editable.mode = "redirect"
 editable.rebuild = true
 

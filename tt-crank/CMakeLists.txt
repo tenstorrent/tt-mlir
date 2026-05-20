@@ -24,6 +24,13 @@ option(TT_KURBLA_BUILD_TESTS "Build tt-kurbla unit tests" ${PROJECT_IS_TOP_LEVEL
 option(TT_KURBLA_BUILD_PYTHON_EXT
     "Build Python extension modules (set ON by scikit-build-core; OFF for C++-only builds)"
     OFF)
+# Decoupled from CLI bundling: the Tracy CLI (`tracy`, capture-release,
+# csvexport-release) is always built and shipped with tt-kurbla. This flag
+# only controls whether libtt_kurbla itself is instrumented with ZoneScoped
+# macros.
+option(TT_KURBLA_TRACY_ZONES
+    "Compile Tracy zones into libtt_kurbla (TRACY_ENABLE + link libtracy)"
+    ON)
 
 # Auto-source third_party/tt-mlir/env/activate so callers don't have to.
 # No-op if already activated (e.g. by scripts/build). Must run before
@@ -41,6 +48,7 @@ add_subdirectory(src)
 # Must run after add_subdirectory(third_party) — the ttsim SoC-descriptor copy
 # is wired as a build-time dependency on the tt-mlir-ep target.
 include(cmake/TTsim.cmake)
+include(cmake/Tracy.cmake)
 
 if(TT_KURBLA_BUILD_TESTS AND PROJECT_IS_TOP_LEVEL)
     add_subdirectory(tests)
