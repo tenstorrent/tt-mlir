@@ -5673,10 +5673,11 @@ public:
 
     auto slicedIndices = indices.getValue();
     for (auto index : slicedIndices.getValues<llvm::APInt>()) {
+      // When maxIndex == 0, 0 and maxIndex collapse to the same value; count
+      // such indices only as starts to avoid double-counting them as ends.
       if (index == 0) {
         starts++;
-      }
-      if (index == maxIndex) {
+      } else if (index == maxIndex) {
         ends++;
       }
       if (!((index - lastIndex == 1) || (index == lastIndex && index == 0) ||
@@ -5693,13 +5694,17 @@ public:
 
     // Body [0, 1, ..., maxIndex] must be present, i.e. at least one 0 and one
     // maxIndex. Rejects constant-uniform indices like [1, 1, ..., 1].
-    if (starts == 0 || ends == 0) {
+    // When maxIndex == 0 the body is just [0]; only starts is meaningful, and
+    // all surplus indices become front padding.
+    if (starts == 0 || (maxIndex != 0 && ends == 0)) {
       return rewriter.notifyMatchFailure(
           srcOp, "Indices do not contain the body [0, 1, ..., maxIndex]");
     }
 
     starts--;
-    ends--;
+    if (maxIndex != 0) {
+      ends--;
+    }
 
     SmallVector<Value> slicesToConcat;
 
