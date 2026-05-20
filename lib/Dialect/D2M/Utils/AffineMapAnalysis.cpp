@@ -413,16 +413,20 @@ int64_t analyzeExprForDimStride(mlir::AffineExpr expr, unsigned dimPos) {
   }
 
   case mlir::AffineExprKind::Mul: {
+    auto lhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(lhs);
     auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
-    // To simplify analysis, assert that rhs is always a constant here.
-    TT_assertv(
-        rhsConst,
-        "analyzeExprForDimStride: analysis expects MulOp rhs to be a constant");
-    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
-    if (lhsStride < 0) {
+    if (!lhsConst && !rhsConst) {
       return -1;
     }
-    return lhsStride * rhsConst.getValue();
+
+    mlir::AffineExpr variableExpr = rhsConst ? lhs : rhs;
+    int64_t constValue = rhsConst ? rhsConst.getValue() : lhsConst.getValue();
+
+    int64_t variableStride = analyzeExprForDimStride(variableExpr, dimPos);
+    if (variableStride < 0) {
+      return -1;
+    }
+    return variableStride * constValue;
   }
 
   case mlir::AffineExprKind::Mod: {
@@ -529,14 +533,16 @@ ContiguityBound analyzeShardResultExprForContiguity(
       return UnanalyzableBound{}; // Error: negative constant.
     }
 
-    auto lhsBound = analyzeShardResultExprForContiguity(
-        lhs, dimBounds, dimPos, numGridDims, parentModulus);
+    mlir::AffineExpr variableExpr = rhsConstExpr ? lhs : rhs;
 
-    // If lhs is constrained, propagate the constraint up.
-    if (isConstrainedBound(lhsBound)) {
-      return lhsBound;
+    auto variableBound = analyzeShardResultExprForContiguity(
+        variableExpr, dimBounds, dimPos, numGridDims, parentModulus);
+
+    // If the non-constant side is constrained, propagate the constraint up.
+    if (isConstrainedBound(variableBound)) {
+      return variableBound;
     }
-    if (isUnanalyzableBound(lhsBound)) {
+    if (isUnanalyzableBound(variableBound)) {
       return UnanalyzableBound{};
     }
 
@@ -671,14 +677,23 @@ ContiguityBound analyzeShardResultExprForContiguity(
             continue;
           }
 
-          // Case 2: Mul expression (dim * const).
+          // Case 2: Mul expression (dim * const or const * dim).
           if (auto mulExpr = getIfBinaryMul(sumOperand)) {
             auto mulOp = mlir::dyn_cast<mlir::AffineBinaryOpExpr>(mulExpr);
             TT_assertv(mulOp,
                        "getIfBinaryMul should return AffineBinaryOpExpr");
-            auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(mulOp.getLHS());
-            auto constExpr =
+            auto lhsDimExpr =
+                llvm::dyn_cast<mlir::AffineDimExpr>(mulOp.getLHS());
+            auto rhsDimExpr =
+                llvm::dyn_cast<mlir::AffineDimExpr>(mulOp.getRHS());
+            auto lhsConstExpr =
+                llvm::dyn_cast<mlir::AffineConstantExpr>(mulOp.getLHS());
+            auto rhsConstExpr =
                 llvm::dyn_cast<mlir::AffineConstantExpr>(mulOp.getRHS());
+
+            mlir::AffineDimExpr dimExpr = lhsDimExpr ? lhsDimExpr : rhsDimExpr;
+            mlir::AffineConstantExpr constExpr =
+                rhsConstExpr ? rhsConstExpr : lhsConstExpr;
 
             if (!dimExpr || !constExpr) {
               // Complex Mul (e.g., (add) * const) - if it doesn't contain
@@ -686,8 +701,12 @@ ContiguityBound analyzeShardResultExprForContiguity(
               if (!exprContainsDim(sumOperand, dimPos)) {
                 continue;
               }
-              return UnanalyzableBound{}; // Contains target dim but cannot
-                                          // analyze, fallback.
+              ContiguityBound nestedBound = analyzeShardResultExprForContiguity(
+                  sumOperand, dimBounds, dimPos, numGridDims, modulus);
+              if (isUnconstrainedBound(nestedBound)) {
+                continue;
+              }
+              return nestedBound;
             }
 
             int64_t mulValue = constExpr.getValue();
@@ -727,6 +746,15 @@ ContiguityBound analyzeShardResultExprForContiguity(
                   }
                   // Target dim in floordiv - fall through to error.
                 }
+              }
+              if (exprContainsDim(sumOperand, dimPos)) {
+                ContiguityBound nestedBound =
+                    analyzeShardResultExprForContiguity(
+                        sumOperand, dimBounds, dimPos, numGridDims, modulus);
+                if (isUnconstrainedBound(nestedBound)) {
+                  continue;
+                }
+                return nestedBound;
               }
             }
           }

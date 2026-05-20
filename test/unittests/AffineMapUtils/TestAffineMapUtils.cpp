@@ -903,6 +903,56 @@ TEST(AffineMapUtilsTest, CanTestSingleCoalescingFactorMismatch) {
   EXPECT_EQ(coalescingFactorAnalytical, coalescingFactorSampling);
 }
 
+TEST(AffineMapUtilsTest, CanAnalyzeNestedDramCoalescingTerms) {
+  using namespace mlir;
+  MLIRContext context;
+
+  AffineExpr d0, d1, d2, d3;
+  bindDims(&context, d0, d1, d2, d3);
+
+  auto checkMap = [&](AffineMap memoryMap, llvm::ArrayRef<int64_t> shape,
+                      size_t elemSizeBytes, size_t expectedCoalescingFactor) {
+    constexpr unsigned numGridDims = 2;
+    std::optional<int64_t> innerShardBound =
+        computeCoalescingFactorForShardDim(memoryMap, shape, numGridDims,
+                                           /*shardDimIdx=*/1);
+    ASSERT_TRUE(innerShardBound.has_value());
+    EXPECT_EQ(static_cast<size_t>(*innerShardBound), expectedCoalescingFactor);
+
+    size_t analyticalFactor = computeCoalescingFactorAnalytically(
+        memoryMap, shape, numGridDims, elemSizeBytes);
+    EXPECT_EQ(analyticalFactor, expectedCoalescingFactor);
+  };
+
+  AffineExpr zero = getAffineConstantExpr(0, &context);
+
+  // Pattern from an untilized bf16 DRAM shard:
+  // the inner shard dim is contiguous even though it appears inside a nested
+  // bank/page term through `(d1 * 128 + d3) floordiv 2432`.
+  AffineExpr d1Times128PlusD3 = d1 * 128 + d3;
+  AffineExpr bankTerm128 = d0 * 8 + d1Times128PlusD3.floorDiv(2432);
+  AffineMap bf16Map = AffineMap::get(
+      /*dimCount=*/4, /*symbolCount=*/0,
+      {zero, zero, bankTerm128 % 12,
+       bankTerm128.floorDiv(12) * 155648 + d2 * 4864 +
+           (d1Times128PlusD3 % 2432) * 2},
+      &context);
+  checkMap(bf16Map, {4, 152, 32, 128}, /*elemSizeBytes=*/2,
+           /*expectedCoalescingFactor=*/128);
+
+  // Same DRAM banking pattern for a tiled shard. The previous analysis treated
+  // the nested floordiv term as unanalyzable and fell back to sampling.
+  AffineExpr d1Times4PlusD3 = d1 * 4 + d3;
+  AffineExpr bankTerm4 = d0 * 8 + d1Times4PlusD3.floorDiv(76);
+  AffineMap tileMap = AffineMap::get(
+      /*dimCount=*/4, /*symbolCount=*/0,
+      {zero, zero, bankTerm4 % 12,
+       bankTerm4.floorDiv(12) * 155648 + (d1Times4PlusD3 % 76) * 2048},
+      &context);
+  checkMap(tileMap, {4, 152, 1, 4}, /*elemSizeBytes=*/2048,
+           /*expectedCoalescingFactor=*/4);
+}
+
 TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
   using namespace mlir;
   MLIRContext context;
