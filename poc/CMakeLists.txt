@@ -69,7 +69,7 @@ foreach(step step1_boot step2_task)
 endforeach()
 
 if (POC_HAVE_TTNN)
-    foreach(step step3_ttnn_x280 step4_inplace step5_hoisted)
+    foreach(step step3_ttnn_x280 step4_inplace step5_hoisted step6_multi_kernel)
         add_executable(${step} host/${step}.cpp)
         target_link_libraries(${step} PRIVATE TTNN::TTNN TT::Metalium poc-common)
         # TT_METAL_HOME / TT_METAL_RUNTIME_ROOT must point at the tt-metal
@@ -96,6 +96,7 @@ file(MAKE_DIRECTORY "${FW_OUT_DIR}")
 add_custom_command(
     OUTPUT "${FW_OUT_DIR}/fw_step1.bin" "${FW_OUT_DIR}/fw_step2.bin"
            "${FW_OUT_DIR}/fw_step4.bin" "${FW_OUT_DIR}/fw_step5.bin"
+           "${FW_OUT_DIR}/fw_step6.bin" "${FW_OUT_DIR}/cpu2_blob.bin"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${FW_SRC_DIR}" "${FW_OUT_DIR}"
     COMMAND make -C "${FW_OUT_DIR}"
     DEPENDS
@@ -105,11 +106,16 @@ add_custom_command(
         "${FW_SRC_DIR}/fw_step2.c"
         "${FW_SRC_DIR}/fw_step4.c"
         "${FW_SRC_DIR}/fw_step5.c"
+        "${FW_SRC_DIR}/fw_step6.c"
         "${FW_SRC_DIR}/cpu.o"
+        "${FW_SRC_DIR}/cpu2.ll"
+        "${FW_SRC_DIR}/cpu2_dispatch.c"
+        "${FW_SRC_DIR}/cpu2_blob.ld"
         "${FW_SRC_DIR}/Makefile"
     COMMENT "Cross-compiling X280 firmware"
     VERBATIM)
 
 add_custom_target(firmware ALL
     DEPENDS "${FW_OUT_DIR}/fw_step1.bin" "${FW_OUT_DIR}/fw_step2.bin"
-            "${FW_OUT_DIR}/fw_step4.bin" "${FW_OUT_DIR}/fw_step5.bin")
+            "${FW_OUT_DIR}/fw_step4.bin" "${FW_OUT_DIR}/fw_step5.bin"
+            "${FW_OUT_DIR}/fw_step6.bin" "${FW_OUT_DIR}/cpu2_blob.bin")

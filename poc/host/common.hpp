@@ -100,7 +100,7 @@ struct Step4Task {
   uint64_t bank_base[kStep4MaxBanks]; // per-bank base addr of the buffer
   uint32_t bank_x[kStep4MaxBanks];    // NOC0 X of each bank's DRAM core
   uint32_t bank_y[kStep4MaxBanks];    // NOC0 Y of each bank's DRAM core
-  uint32_t done; // fw -> host (host MUST never write)
+  uint32_t done;                      // fw -> host (host MUST never write)
   uint32_t pad_done;
 };
 static_assert(sizeof(Step4Task) == 24 + 8 * 8 + 8 * 4 * 2 + 8,
@@ -129,6 +129,52 @@ struct Step5Task {
 };
 static_assert(sizeof(Step5Task) == 24 + 8 * 8 * 2 + 8 * 4 * 2 + 8,
               "Step5Task layout must match firmware");
+
+// Task descriptor for step6 (generic multi-kernel dispatch on the X280).
+// The firmware runs a persistent loop, accepting tasks one at a time via a
+// sequence-number handshake. Each task specifies a function to call (by ID
+// into a dispatch table in a separately-loaded code blob), along with
+// per-tensor DRAM bank metadata so the firmware can stage tensors between
+// bank-interleaved Tensix DRAM and contiguous local staging buffers.
+//
+// Layout must match fw_step6.c byte-for-byte.
+
+constexpr int kStep6MaxTensors = 8;
+constexpr int kStep6MaxRank = 4;
+
+// Where the dynamically-loaded kernel code blob lives in L2CPU0 DRAM.
+constexpr uint64_t kCodeLoadAddr = kL2cpu0DramBase + 0x00400000ULL; // +4 MiB
+
+// Staging area for tensor data (firmware bump-allocates from here).
+constexpr uint64_t kStagingBase = kL2cpu0DramBase + 0x00800000ULL; // +8 MiB
+
+struct Step6TensorMeta {
+  uint64_t bank_base[kStep4MaxBanks]; // per-bank base addr of this tensor
+  uint32_t aligned_page_size;
+  uint32_t page_size;
+  uint64_t num_pages;
+  uint64_t total_size_bytes; // contiguous staging buffer size
+  int64_t sizes_and_strides[kStep6MaxRank * 2]; // [s0, s1, ..., st0, st1, ...]
+  uint32_t rank;
+  uint8_t is_input;  // copy DRAM banks → local before call
+  uint8_t is_output; // copy local → DRAM banks after call
+  uint8_t pad[2];
+};
+static_assert(sizeof(Step6TensorMeta) ==
+                  8 * 8 + 4 + 4 + 8 + 8 + 8 * 8 + 4 + 1 + 1 + 2,
+              "Step6TensorMeta layout must match firmware");
+
+struct Step6Task {
+  volatile uint32_t kick; // host → fw: sequence number (0 = idle)
+  uint32_t num_tensors;
+  uint32_t num_banks;
+  uint32_t func_id; // index into the code blob's dispatch table
+  uint32_t bank_x[kStep4MaxBanks];
+  uint32_t bank_y[kStep4MaxBanks];
+  Step6TensorMeta tensors[kStep6MaxTensors];
+  uint32_t done; // fw → host: echoes kick seq (host MUST never write)
+  uint32_t pad_done;
+};
 
 // ---------------------------------------------------------------------------
 // Host helpers.

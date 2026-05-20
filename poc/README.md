@@ -17,6 +17,10 @@ poc/
     fw_step2.c              # Step 2 / 3: increment a host-supplied float buffer
     fw_step4.c              # Step 4: NOC-TLB program + in-place increment of an interleaved tensor
     fw_step5.c              # Step 5: copy in/out + call MLIR-lowered kernel from tmp/cpu.o
+    fw_step6.c              # Step 6: persistent task loop, dispatches arbitrary kernels from a code blob
+    cpu2.ll                 # LLVM IR for abs + matmul kernels with helpers (from CPU-hoisting pipeline)
+    cpu2_dispatch.c         # Dispatch entry point + memcpy for the code blob
+    cpu2_blob.ld            # Linker script for the code blob (linked at CODE_LOAD_ADDR)
     Makefile                # cross-build via clang-20 + ld.lld + llvm-objcopy
   host/
     common.hpp common.cpp   # shared boot helpers (PLL, reset, NOC, ARC APB)
@@ -25,6 +29,7 @@ poc/
     step3_ttnn_x280.cpp     # Step 3: TTNN -> host -> X280 -> host (host staging)
     step4_inplace.cpp       # Step 4: TTNN -> X280 reaches Tensix DRAM via NOC TLB -> TTNN (no host staging)
     step5_hoisted.cpp       # Step 5: TTNN -> X280 runs MLIR-lowered abs (linked from tmp/cpu.o) -> TTNN
+    step6_multi_kernel.cpp  # Step 6: dispatches abs + matmul through generic firmware loop
   CMakeLists.txt
 ```
 
@@ -37,10 +42,11 @@ poc/
 | `step3_ttnn_x280`  | TTNN computes 5.0, host stages to L2CPU0 DRAM, X280 increments to 6.0, host reads back |
 | `step4_inplace`    | TTNN computes 5.0; X280 reaches into the **interleaved Tensix DRAM** banks directly via its own NOC TLB and increments to 6.0 in place; TTNN reads back. No PCIe round-trip during the modify phase. |
 | `step5_hoisted`    | TTNN allocates `input(-5.0)` and `output(0.0)` tensors; X280 stages input into local DRAM, calls **MLIR-compiled `abs` kernel from `poc/fw/cpu.o`** linked into the firmware, writes results back to the output tensor. TTNN reads `5.0`. First step where the X280 executes compiler-generated code. |
+| `step6_multi_kernel` | Generic multi-kernel dispatch. Firmware runs a **persistent task loop** with sequence-number handshake. Kernel code (abs + matmul with helpers) is compiled into a **separate code blob** loaded at runtime, not linked into the firmware. Host dispatches two tasks sequentially: abs(-5.0)→5.0 then matmul(3.0×2.0×4000)→24000.0, exercising different argument counts and tensor shapes. |
 
 ## Prereqs
 
-- `clang-20` + `ld.lld` + `llvm-objcopy-20` on PATH for the firmware cross-build
+- `clang-20` + `ld.lld` + `llvm-objcopy-20` + `llc-20` on PATH for the firmware cross-build
   (any toolchain that supports `--target=riscv64-unknown-elf` works; see
   `fw/Makefile` for how to point it at a different toolchain).
 - tt-metal built at `<tt-mlir>/third_party/tt-metal/src/tt-metal/build`,
@@ -75,6 +81,7 @@ build/bin/step2_task       build/fw/fw_step2.bin
 build/bin/step3_ttnn_x280  build/fw/fw_step2.bin
 build/bin/step4_inplace    build/fw/fw_step4.bin
 build/bin/step5_hoisted    build/fw/fw_step5.bin
+build/bin/step6_multi_kernel build/fw/fw_step6.bin build/fw/cpu2_blob.bin
 ```
 
 Each binary issues a warm reset on entry and on exit, so consecutive runs

@@ -36,7 +36,11 @@ STEP5_CFLAGS := --target=riscv64-unknown-elf \
 # -filetype=obj cpu.ll -o cpu.o`) when the kernel changes.
 CPU_O ?= cpu.o
 
-BINS := fw_step1.bin fw_step2.bin fw_step4.bin fw_step5.bin
+# LLVM toolchain for compiling the kernel LLVM IR to a RISC-V object.
+LLC     := llc-20
+
+BINS := fw_step1.bin fw_step2.bin fw_step4.bin fw_step5.bin fw_step6.bin \
+        cpu2_blob.bin
 
 .PHONY: all clean
 all: $(BINS)
@@ -53,6 +57,23 @@ fw_step4.elf: fw_start.S fw_step4.c fw.ld
 fw_step5.elf: fw_start.S fw_step5.c $(CPU_O) fw.ld
 	$(CC) $(STEP5_CFLAGS) $(LDFLAGS) -o $@ fw_start.S fw_step5.c $(CPU_O)
 
+fw_step6.elf: fw_start.S fw_step6.c fw.ld
+	$(CC) $(STEP5_CFLAGS) $(LDFLAGS) -o $@ fw_start.S fw_step6.c
+
+# Kernel code blob: compiled from cpu2.ll (LLVM IR from the compiler's CPU
+# hoisting pipeline) + a dispatch entry point. Linked at CODE_LOAD_ADDR so
+# the firmware can call the entry point directly.
+cpu2.o: cpu2.ll
+	$(LLC) -mtriple=riscv64-unknown-elf -mcpu=sifive-x280 \
+	       -target-abi=lp64d -filetype=obj $< -o $@
+
+cpu2_dispatch.o: cpu2_dispatch.c
+	$(CC) $(STEP5_CFLAGS) -c -o $@ $<
+
+cpu2_blob.elf: cpu2_dispatch.o cpu2.o cpu2_blob.ld
+	$(CC) $(STEP5_CFLAGS) -fuse-ld=lld -T cpu2_blob.ld -Wl,--build-id=none \
+	      -o $@ cpu2_dispatch.o cpu2.o
+
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
 
@@ -60,4 +81,4 @@ fw_step5.elf: fw_start.S fw_step5.c $(CPU_O) fw.ld
 	$(OBJDUMP) -d $< > $@
 
 clean:
-	$(RM) *.elf *.bin *.lst
+	$(RM) *.elf *.bin *.lst cpu2.o cpu2_dispatch.o
