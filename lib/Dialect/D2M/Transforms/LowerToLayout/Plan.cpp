@@ -101,11 +101,11 @@ bool canUseReinterpretLayoutView(const PlanState &current,
              target.getLayout()->getMemoryLayout();
 }
 
-// Pure datamovement generics cannot copy/reblock DRAM directly to DRAM; they
-// must bounce through L1. Pure view-like DRAM changes are legal. Same-placement
-// format conversions are also legal because the generic does local work: it
-// loads one shard from DRAM, runs the tile conversion locally, then stores the
-// converted shard back to DRAM.
+// Metadata-only DRAM layout changes are legal in-place. DRAM copy/reblock
+// generics that only move data cannot read and write DRAM directly, so they
+// must bounce through L1. Same-placement format conversions are also legal
+// because the generic does local work: it loads one shard from DRAM, runs the
+// tile conversion locally, then stores the converted shard back to DRAM.
 bool needsDramBounce(const PlanState &current, const PlanState &target) {
   if (!current.hasLayout() || !target.hasLayout() || !current.isDRAM() ||
       !target.isDRAM()) {
@@ -187,7 +187,8 @@ computeGridAwareCollapsedIntervalsAndDimAlignments(
 
 // Construct the device tensor type for a tensor entering the device from
 // system memory. Host transfers should land in the target memory space
-// directly; later planning steps insert any required L1 bounce.
+// directly; the DRAM-to-DRAM materialization rule below inserts an L1 bounce
+// when a later DRAM copy/reblock requires it.
 RankedTensorType createDeviceType(MLIRContext *ctx, RankedTensorType systemType,
                                   ttcore::MetalLayoutAttr referenceLayout,
                                   RankedTensorType referenceType,
