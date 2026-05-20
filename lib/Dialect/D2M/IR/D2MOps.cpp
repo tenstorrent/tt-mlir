@@ -1453,6 +1453,90 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
     }
   }
 
+  // RM width-concat: each input becomes one NoC L1 DMA, so its byte size
+  // must satisfy NoC L1 alignment (>= 16 and a multiple of 16).
+  constexpr int64_t kNocL1AlignBytes = 16;
+  const bool isWidthConcat = (compositeDim == rank - 1);
+  if (isWidthConcat) {
+    Type elemType;
+    if (isTensorType) {
+      elemType = mlir::cast<RankedTensorType>(outType).getElementType();
+    } else {
+      elemType = mlir::cast<MemRefType>(outType).getElementType();
+    }
+    if (!mlir::isa<ttcore::TileType>(elemType) && elemType.isIntOrFloat()) {
+      const int64_t elemBytes = elemType.getIntOrFloatBitWidth() / 8;
+
+      SmallVector<int64_t> sizes;
+      if (isTensorType) {
+        for (auto input : this->getInputs()) {
+          auto inLayout = mlir::cast<ttcore::MetalLayoutAttr>(
+              mlir::cast<RankedTensorType>(input.getType()).getEncoding());
+          sizes.push_back(inLayout.getLogicalShape()[compositeDim]);
+        }
+      } else if (this->getLogicalSizes().has_value()) {
+        auto attr = this->getLogicalSizes().value();
+        sizes.assign(attr.begin(), attr.end());
+      }
+
+      for (int64_t n : sizes) {
+        const int64_t chunkBytes = n * elemBytes;
+        if (chunkBytes < kNocL1AlignBytes ||
+            chunkBytes % kNocL1AlignBytes != 0) {
+          return emitOpError()
+                 << "row-major width-concat requires each input's per-DMA "
+                    "byte count (logicalSizes[i] * sizeof(elem)) to be >= "
+                 << kNocL1AlignBytes
+                 << " and a multiple of it (NoC L1 alignment); got " << n
+                 << " elems * " << elemBytes << " bytes = " << chunkBytes
+                 << " bytes";
+        }
+      }
+    }
+  }
+
+  // VGM propagation (Utils.cpp) walks the first input's view chain, so
+  // mixing view and non-view inputs would yield inconsistent results.
+  bool firstIsView = false;
+  {
+    bool isFirst = true;
+    for (Value input : this->getInputs()) {
+      mlir::Operation *defOp = input.getDefiningOp();
+      const bool isView =
+          defOp != nullptr && mlir::isa<d2m::ViewOpInterface>(defOp);
+      if (isFirst) {
+        firstIsView = isView;
+        isFirst = false;
+        continue;
+      }
+      if (isView != firstIsView) {
+        return emitOpError(
+            "inputs must be uniformly views (ViewOpInterface) or uniformly "
+            "non-views; mixing is not supported");
+      }
+    }
+  }
+
+  // VGM propagation returns the first input's map; divergent maps across
+  // inputs would silently mis-address per-core data.
+  if (firstIsView) {
+    std::optional<mlir::AffineMap> sharedFwd;
+    bool isFirst = true;
+    for (Value input : this->getInputs()) {
+      auto fwd = mlir::tt::d2m::utils::getVirtualGridForwardMapping(input);
+      if (isFirst) {
+        sharedFwd = fwd;
+        isFirst = false;
+        continue;
+      }
+      if (fwd != sharedFwd) {
+        return emitOpError(
+            "all view inputs must share the same virtualGridForwardMapping "
+            "(divergent VGM maps across composite inputs not supported)");
+      }
+    }
+  }
+
   return mlir::success();
 }
 

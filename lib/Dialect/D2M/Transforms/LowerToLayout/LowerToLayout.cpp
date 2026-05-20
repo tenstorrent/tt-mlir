@@ -605,6 +605,18 @@ public:
     }
     PlanState src = extractPlanState(op.getInput());
     PlanState tgt = extractPlanState(op.getOutput());
+    // Derive VGM when target grid requires it but the user-authored empty did
+    // not carry one; downstream composite_view chains rely on VGM presence.
+    if (!tgt.vgmForward && tgt.hasLayout()) {
+      auto gridShape = llvm::to_vector(tgt.getGridShape());
+      if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                         targetGridShape)) {
+        auto [fwd, inv] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            rewriter.getContext(), gridShape, targetGridShape);
+        tgt.vgmForward = fwd;
+        tgt.vgmInverse = inv;
+      }
+    }
     Plan plan = minimize(
         canonicalize(src, tgt, targetGridShape, rewriter.getContext()));
     if (plan.empty()) {

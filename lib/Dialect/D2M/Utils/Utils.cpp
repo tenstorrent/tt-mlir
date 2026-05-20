@@ -440,7 +440,12 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
       if (viewOp.isComposite()) {
-        return std::nullopt;
+        // Composite inputs are required to share VGM (enforced by verifier).
+        auto inputs = viewOp.getCompositeInputs();
+        if (inputs.empty()) {
+          return std::nullopt;
+        }
+        return getVirtualGridInverseMapping(inputs.front());
       }
       return getVirtualGridInverseMapping(viewOp.getInput());
     }
@@ -504,7 +509,12 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
       if (viewOp.isComposite()) {
-        return std::nullopt;
+        // Composite inputs are required to share VGM (enforced by verifier).
+        auto inputs = viewOp.getCompositeInputs();
+        if (inputs.empty()) {
+          return std::nullopt;
+        }
+        return getVirtualGridForwardMapping(inputs.front());
       }
       return getVirtualGridForwardMapping(viewOp.getInput());
     }

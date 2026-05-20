@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -59,12 +60,52 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
       builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
       layout.getCollapsedIntervals(), layout.getMemorySpace(),
       layout.getMemoryLayout());
-  auto emptyOp = builder.create<d2m::EmptyOp>(
-      loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
+  // Derive VGM fresh from destination grid; upstream VGM rank may not match.
+  ttcore::GridAttr destGrid = getGridFromType(tensorType);
+  TT_assert(destGrid != nullptr);
+  AffineMapAttr fwdAttr;
+  AffineMapAttr invAttr;
+  if (auto deviceOp = ttcore::lookupDevice(builder.getInsertionBlock()
+                                               ->getParent()
+                                               ->getParentOfType<ModuleOp>())) {
+    auto targetGrid = llvm::to_vector(deviceOp.getWorkerGrid().getShape());
+    auto gridShape = llvm::to_vector(destGrid.getShape());
+    if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape, targetGrid)) {
+      auto [fwd, inv] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          builder.getContext(), gridShape, targetGrid);
+      fwdAttr = AffineMapAttr::get(fwd);
+      invAttr = AffineMapAttr::get(inv);
+    }
+  }
 
-  // Extract the grid from the tensor's layout to determine core distribution.
-  ttcore::GridAttr grid = getGridFromType(tensorType);
-  TT_assert(grid != nullptr);
+  auto emptyOp =
+      fwdAttr ? builder.create<d2m::EmptyOp>(loc, tensorType, invAttr, fwdAttr)
+              : builder.create<d2m::EmptyOp>(loc, tensorType.getShape(),
+                                             tensorType.getElementType(),
+                                             newLayout);
+
+  // GridAttr's forward map is grid-rank (not memref-rank), so build it
+  // directly rather than reusing the EmptyOp's memref-level VGM.
+  ttcore::GridAttr grid;
+  if (fwdAttr) {
+    auto targetGrid =
+        llvm::to_vector(ttcore::lookupDevice(builder.getInsertionBlock()
+                                                 ->getParent()
+                                                 ->getParentOfType<ModuleOp>())
+                            .getWorkerGrid()
+                            .getShape());
+    auto gridShape = llvm::to_vector(destGrid.getShape());
+    auto fwdGrid = ttmlir::d2m::utils::grids::create1DtoNDMap(
+                       builder.getContext(), targetGrid)
+                       .compose(ttmlir::d2m::utils::grids::createCollapseMap(
+                           builder.getContext(), gridShape));
+    fwdGrid =
+        fwdGrid.insertResult(getAffineConstantExpr(0, builder.getContext()), 0);
+    grid = ttcore::GridAttr::get(builder.getContext(), gridShape, fwdGrid,
+                                 invAttr.getValue());
+  } else {
+    grid = destGrid;
+  }
 
   // Build identity affine maps for parallel iteration over all grid dimensions.
   size_t rank = grid.getShape().size();
