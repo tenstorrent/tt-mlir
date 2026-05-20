@@ -6159,6 +6159,48 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let hasVerifier = 1;
 }
 
+def TTIR_FlashMlaPrefillOp : TTIR_NamedOp<"flash_mla_prefill", [AttrSizedOperandSegments]> {
+  let summary = "Flash Multi-head Latent Attention prefill operation.";
+  let description = [{
+    Multi-head Latent Attention (MLA) prefill, mirroring
+    `ttnn.transformer.flash_mla_prefill` semantics.
+
+    Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sq` (sequence length;
+    must equal `Sk` for prefill), `dh_qk` (Q/K head size), and `head_dim_v`
+    (V/output head size).
+
+    Args:
+        query (AnyRankedTensor): `[B x Hq x Sq x dh_qk]`.
+        key (AnyRankedTensor): `[B x Hkv x Sq x dh_qk]`.
+        value (AnyRankedTensor, optional): `[B x Hkv x Sq x head_dim_v]`. When
+            absent (MLA-from-latent), V is taken from the first `head_dim_v`
+            features of K (K and V share the compressed latent representation).
+        attention_mask (AnyRankedTensor, optional): `[1|B x 1 x Sq x Sq]`. Only
+            valid when `is_causal` is `false`. Defaults to `None`.
+        head_dim_v (uint): Head dimension of V/output. When `value` is provided
+            it must equal `value.shape[-1]`; when `value` is `None` it must be
+            `<= key.shape[-1]`.
+        is_causal (bool): Defaults to `true`. Cannot be `true` when
+            `attention_mask` is provided.
+        scale (float, optional): Softmax scale. Defaults to `1 / sqrt(dh_qk)`.
+
+    Returns:
+        AnyRankedTensor: `[B x Hq x Sq x head_dim_v]` (same dtype as `query`).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       Optional<AnyRankedTensor>:$value,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       UI32Attr:$head_dim_v,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";
   let description = [{

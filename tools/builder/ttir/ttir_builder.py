@@ -15452,6 +15452,237 @@ class TTIRBuilder(Builder):
 
         return sdpa_module, sdpa_builder
 
+    ############### ttir.FlashMlaPrefillOp ###############
+
+    @tag(ttir.FlashMlaPrefillOp)
+    def flash_mla_prefill(
+        self,
+        query: Operand,
+        key: Operand,
+        head_dim_v: int,
+        value: Optional[Operand] = None,
+        attention_mask: Optional[Operand] = None,
+        is_causal: bool = True,
+        scale: Optional[float] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.flash_mla_prefill)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(query)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        head_dim_v_attr = IntegerAttr.get(IntegerType.get_unsigned(32), head_dim_v)
+        is_causal_attr = BoolAttr.get(is_causal)
+        scale_attr = FloatAttr.get_f32(scale) if scale is not None else None
+
+        query_golden = self._get_golden_tensor(query)
+        key_golden = self._get_golden_tensor(key)
+        value_golden = self._get_golden_tensor(value) if value is not None else None
+        mask_golden = (
+            self._get_golden_tensor(attention_mask)
+            if attention_mask is not None
+            else None
+        )
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            query_golden,
+            key_golden,
+            value_golden,
+            mask_golden,
+            head_dim_v_attr,
+            is_causal_attr,
+            scale_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            query,
+            key,
+            value=value,
+            attention_mask=attention_mask,
+            head_dim_v=head_dim_v_attr,
+            is_causal=is_causal_attr,
+            scale=scale_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.FlashMlaPrefillOp)
+    def flash_mla_prefill_parser(
+        self,
+        old_op: ttir.FlashMlaPrefillOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.flash_mla_prefill_parser)
+
+        query = global_dict[old_op.query]
+        key = global_dict[old_op.key]
+        value = global_dict[old_op.value] if old_op.value is not None else None
+        attention_mask = (
+            global_dict[old_op.attention_mask]
+            if old_op.attention_mask is not None
+            else None
+        )
+        result = old_op.result.type
+        head_dim_v_attr = old_op.head_dim_v
+        is_causal_attr = old_op.is_causal
+        scale_attr = old_op.scale if "scale" in old_op.attributes else None
+
+        new_op = ttir_op(
+            result,
+            query,
+            key,
+            value=value,
+            attention_mask=attention_mask,
+            head_dim_v=head_dim_v_attr,
+            is_causal=is_causal_attr,
+            scale=scale_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        query_golden = self._get_golden_tensor(query)
+        key_golden = self._get_golden_tensor(key)
+        value_golden = self._get_golden_tensor(value) if value is not None else None
+        mask_golden = (
+            self._get_golden_tensor(attention_mask)
+            if attention_mask is not None
+            else None
+        )
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            query_golden,
+            key_golden,
+            value_golden,
+            mask_golden,
+            head_dim_v_attr,
+            is_causal_attr,
+            scale_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.FlashMlaPrefillOp)
+    def flash_mla_prefill_split(
+        self,
+        old_op: ttir.FlashMlaPrefillOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.flash_mla_prefill_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            mla_module = Module.create()
+            mla_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+
+            op_input_types = [old_op.query.type, old_op.key.type]
+            if old_op.value is not None:
+                op_input_types.append(old_op.value.type)
+            if old_op.attention_mask is not None:
+                op_input_types.append(old_op.attention_mask.type)
+
+            with InsertionPoint(mla_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(
+                    *op_input_types,
+                    name="flash_mla_prefill_module",
+                )
+                def decorated_func(*inputs):
+                    idx = 0
+                    query = inputs[idx]
+                    idx += 1
+                    key = inputs[idx]
+                    idx += 1
+                    if old_op.value is not None:
+                        value = inputs[idx]
+                        idx += 1
+                    else:
+                        value = None
+                    if old_op.attention_mask is not None:
+                        attention_mask = inputs[idx]
+                        idx += 1
+                    else:
+                        attention_mask = None
+
+                    result = old_op.result.type
+                    head_dim_v_attr = old_op.head_dim_v
+                    is_causal_attr = old_op.is_causal
+                    scale_attr = old_op.scale if "scale" in old_op.attributes else None
+
+                    new_op = ttir_op(
+                        result,
+                        query,
+                        key,
+                        value=value,
+                        attention_mask=attention_mask,
+                        head_dim_v=head_dim_v_attr,
+                        is_causal=is_causal_attr,
+                        scale=scale_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    mla_builder._set_golden_tensor(new_op_result, old_op_result)
+
+                    input_query = self._get_golden_tensor(old_op.query)
+                    mla_builder._set_golden_tensor(query, input_query)
+                    ordered_inputs.append(query)
+
+                    input_key = self._get_golden_tensor(old_op.key)
+                    mla_builder._set_golden_tensor(key, input_key)
+                    ordered_inputs.append(key)
+
+                    if old_op.value is not None:
+                        input_value = self._get_golden_tensor(old_op.value)
+                        mla_builder._set_golden_tensor(value, input_value)
+                        ordered_inputs.append(value)
+
+                    if old_op.attention_mask is not None:
+                        input_mask = self._get_golden_tensor(old_op.attention_mask)
+                        mla_builder._set_golden_tensor(attention_mask, input_mask)
+                        ordered_inputs.append(attention_mask)
+
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                mla_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return mla_module, mla_builder
+
     @tag(ttir.ScaledDotProductAttentionDecodeOp)
     def scaled_dot_product_attention_decode(
         self,
