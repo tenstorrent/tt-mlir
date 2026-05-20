@@ -38,6 +38,8 @@ constexpr uint64_t kMailboxAddr = kL2cpu0DramBase + 0x00100000ULL; // +1 MiB
 constexpr uint64_t kTaskAddr =
     kL2cpu0DramBase + 0x00100000ULL; // +1 MiB (alias of mailbox)
 constexpr uint64_t kDataAddr = kL2cpu0DramBase + 0x00200000ULL; // +2 MiB
+constexpr uint64_t kCodeLoadAddr =
+    kL2cpu0DramBase + 0x00400000ULL; // +4 MiB (code blob)
 
 // ---------------------------------------------------------------------------
 // NOC-addressable registers inside the L2CPU tile (from boot.py).
@@ -129,6 +131,40 @@ struct Step5Task {
 };
 static_assert(sizeof(Step5Task) == 24 + 8 * 8 * 2 + 8 * 4 * 2 + 8,
               "Step5Task layout must match firmware");
+
+// Step6 task descriptor for generic multi-kernel dispatch on the X280.
+// The firmware runs a persistent loop, accepting tasks one at a time via a
+// sequence-number handshake. Each task specifies a function to call (by ID
+// into a dispatch table in a separately-loaded code blob), along with
+// per-tensor DRAM bank metadata. Layout must match fw_step6.c byte-for-byte.
+
+constexpr int kStep6MaxTensors = 8;
+constexpr int kStep6MaxRank = 4;
+
+struct Step6TensorMeta {
+  uint64_t bank_base[kStep4MaxBanks];
+  uint32_t aligned_page_size;
+  uint32_t page_size;
+  uint64_t num_pages;
+  uint64_t total_size_bytes;
+  int64_t sizes_and_strides[kStep6MaxRank * 2];
+  uint32_t rank;
+  uint8_t is_input;
+  uint8_t is_output;
+  uint8_t pad[2];
+};
+
+struct Step6Task {
+  volatile uint32_t kick;
+  uint32_t num_tensors;
+  uint32_t num_banks;
+  uint32_t func_id;
+  uint32_t bank_x[kStep4MaxBanks];
+  uint32_t bank_y[kStep4MaxBanks];
+  Step6TensorMeta tensors[kStep6MaxTensors];
+  uint32_t done;
+  uint32_t pad_done;
+};
 
 // ---------------------------------------------------------------------------
 // Host helpers.

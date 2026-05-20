@@ -257,6 +257,14 @@ llvm::LogicalResult elfToFlatBinary(llvm::StringRef elfPath,
   return llvm::success();
 }
 
+// Compile the LLVM module (kernels + helpers + x280_cpu_dispatch) into a
+// standalone flat binary code blob for the X280. The blob is linked at
+// CODE_LOAD_ADDR with the dispatch entry point in .text.start at offset 0,
+// so the firmware can call it directly by address.
+//
+// Expects two files in TTMLIR_X280_FIRMWARE_DIR:
+//   x280_rt.o     — freestanding runtime support (provides memcpy)
+//   x280_blob.ld  — linker script placing the blob at CODE_LOAD_ADDR
 std::optional<llvm::SmallVector<char, 2048>>
 compileAndLinkToFirmware(llvm::Module &module, llvm::LLVMContext &context) {
   const char *fwDirEnv = std::getenv("TTMLIR_X280_FIRMWARE_DIR");
@@ -265,17 +273,19 @@ compileAndLinkToFirmware(llvm::Module &module, llvm::LLVMContext &context) {
     return std::nullopt;
   }
 
-  llvm::SmallString<128> firmwarePath(fwDirEnv);
-  llvm::sys::path::append(firmwarePath, "x280_firmware.o");
+  llvm::SmallString<128> rtObjPath(fwDirEnv);
+  llvm::sys::path::append(rtObjPath, "x280_rt.o");
   llvm::SmallString<128> ldScriptPath(fwDirEnv);
-  llvm::sys::path::append(ldScriptPath, "fw.ld");
+  llvm::sys::path::append(ldScriptPath, "x280_blob.ld");
 
-  if (!llvm::sys::fs::exists(firmwarePath)) {
-    llvm::errs() << "X280 firmware not found: " << firmwarePath << "\n";
+  if (!llvm::sys::fs::exists(rtObjPath)) {
+    llvm::errs() << "X280 runtime support object not found: " << rtObjPath
+                 << "\n";
     return std::nullopt;
   }
   if (!llvm::sys::fs::exists(ldScriptPath)) {
-    llvm::errs() << "X280 linker script not found: " << ldScriptPath << "\n";
+    llvm::errs() << "X280 blob linker script not found: " << ldScriptPath
+                 << "\n";
     return std::nullopt;
   }
 
@@ -283,25 +293,25 @@ compileAndLinkToFirmware(llvm::Module &module, llvm::LLVMContext &context) {
   const auto cpuObjFile = createTempFile(tmpDirName, "cpu", ".o");
 
   if (llvm::failed(compileToObject(module, context, cpuObjFile))) {
-    llvm::errs() << "Failed to compile LLVM IR to object for X280 firmware\n";
+    llvm::errs() << "Failed to compile LLVM IR to object for X280 code blob\n";
     return std::nullopt;
   }
 
-  auto elfFile = createTempFile(tmpDirName, "fw", ".elf");
+  auto elfFile = createTempFile(tmpDirName, "blob", ".elf");
   if (llvm::failed(linkFirmware(
           elfFile, ldScriptPath,
-          {llvm::StringRef(firmwarePath), llvm::StringRef(cpuObjFile)}))) {
+          {llvm::StringRef(cpuObjFile), llvm::StringRef(rtObjPath)}))) {
     return std::nullopt;
   }
 
-  auto binFile = createTempFile(tmpDirName, "fw", ".bin");
+  auto binFile = createTempFile(tmpDirName, "blob", ".bin");
   if (llvm::failed(elfToFlatBinary(elfFile, binFile))) {
     return std::nullopt;
   }
 
   std::ifstream file(binFile.c_str(), std::ios::binary | std::ios::ate);
   if (!file.is_open()) {
-    llvm::errs() << "Could not open firmware binary: " << binFile << "\n";
+    llvm::errs() << "Could not open code blob binary: " << binFile << "\n";
     return std::nullopt;
   }
 
@@ -309,14 +319,14 @@ compileAndLinkToFirmware(llvm::Module &module, llvm::LLVMContext &context) {
   file.seekg(0, std::ios::beg);
   llvm::SmallVector<char, 2048> buffer(size);
   if (!file.read(buffer.data(), size)) {
-    llvm::errs() << "Failed to read firmware binary: " << binFile << "\n";
+    llvm::errs() << "Failed to read code blob binary: " << binFile << "\n";
     return std::nullopt;
   }
 
   if (cleanupTempFiles) {
     llvm::sys::fs::remove_directories(tmpDirName);
   } else {
-    llvm::outs() << "wrote firmware temp files to: " << tmpDirName << "\n";
+    llvm::outs() << "wrote code blob temp files to: " << tmpDirName << "\n";
   }
 
   return buffer;

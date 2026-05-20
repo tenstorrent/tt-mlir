@@ -13,6 +13,8 @@
 #include "ttmlir/Support/IRHasher.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
+
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
@@ -111,6 +113,11 @@ getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
 static bool isCpuHoistedFuncCall(func::CallOp op) {
   return op->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
 }
+
+// Maps CPU-hoisted function callee names to their dispatch func_id.
+// Built in ttnnToFlatbuffer() from the CPU module's LLVM functions in the
+// same order as EmitWrapperFuncs generates the dispatch if-else chain.
+static llvm::StringMap<uint32_t> cpuFuncIdMap;
 
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
@@ -4628,11 +4635,17 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto callOp = dyn_cast<func::CallOp>(op);
       callOp && isCpuHoistedFuncCall(callOp)) {
-    // TODO (#2355): Here dylib_id is hardcoded to 0.  In the long run, we want
-    // to support multiple dylibs per flatbuffer, but the exact schema is not so
-    // clear.
-    return createOperation(cache, createCpuOp(cache, callOp, 0), debugString,
-                           locInfo);
+    // Use dylib_id to carry the func_id for the X280 dispatch table.
+    // The map is built in ttnnToFlatbuffer() from the CPU module's LLVM
+    // functions (same iteration order as EmitWrapperFuncs uses to generate
+    // the dispatch function's if-else chain).
+    uint32_t funcId = 0;
+    auto it = cpuFuncIdMap.find(callOp.getCallee());
+    if (it != cpuFuncIdMap.end()) {
+      funcId = it->second;
+    }
+    return createOperation(cache, createCpuOp(cache, callOp, funcId),
+                           debugString, locInfo);
   }
   if (auto loadCachedOp = dyn_cast<ttcore::LoadCachedOp>(op); loadCachedOp) {
     return createOperation(
@@ -4854,6 +4867,19 @@ std::shared_ptr<void> ttnnToFlatbuffer(
         cpuModule.getBodyRegion().front().front());
     llvm::SmallVector<char, 2048> binaryBuffer;
     llvm::raw_svector_ostream stream(binaryBuffer);
+    // Build the func_id map for device (X280) CPU modules. The dispatch
+    // function's if-else chain is generated in the order LLVM functions
+    // with arg_ranks appear in the module — we replicate that here.
+    if (cpuModule.getRole() == ttcore::CPURole::Device) {
+      cpuFuncIdMap.clear();
+      uint32_t nextFuncId = 0;
+      for (auto llvmFunc : cpuNestedModule.getOps<LLVM::LLVMFuncOp>()) {
+        if (llvmFunc->hasAttr("arg_ranks")) {
+          cpuFuncIdMap[llvmFunc.getName()] = nextFuncId++;
+        }
+      }
+    }
+
     if (cpuModule.getRole() == ttcore::CPURole::Host) {
       auto result = mlir::tt::llvm_to_cpu::translateLLVMToLib(cpuNestedModule,
                                                               stream, true);

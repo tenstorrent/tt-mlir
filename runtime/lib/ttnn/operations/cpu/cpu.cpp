@@ -20,6 +20,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstring>
 #include <thread>
 #include <vector>
 
@@ -67,7 +68,7 @@ std::vector<::ttnn::Tensor> executeCPUHoistedFunction(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbOutputs,
     const std::vector<void *> &inputDataPtrs, bool onHost = true,
-    ProgramContext *context = nullptr) {
+    ProgramContext *context = nullptr, uint32_t funcId = 0) {
 
   if (onHost) {
     std::vector<std::vector<int64_t>> allSizesAndStrides;
@@ -92,41 +93,32 @@ std::vector<::ttnn::Tensor> executeCPUHoistedFunction(
         outputArray, fbOutputs->size(), fbOutputs, createTensorFromWrapped);
   }
 
-  // X280 path: dispatch the task to the L2CPU0 X280 core. The firmware was
-  // already booted during submit() (see runtime.cpp); we just build a
-  // Step5Task with bank tables for the input/output tensors and kick.
+  // X280 path: dispatch the task to the L2CPU0 X280 core via a Step6Task.
+  // The firmware (persistent task loop) was booted during openMeshDevice();
+  // the code blob was loaded during submit(). We build a Step6Task with
+  // per-tensor DRAM bank metadata and use the sequence-number protocol.
   LOG_ASSERT(context != nullptr);
-  // Destination-passing style: fbInputs has the real input at [0] and the
-  // pre-allocated output destination at [1]; fbOutputs has 1 entry that
-  // references the same output tensor.
-  LOG_ASSERT(fbInputs->size() == 2 && fbOutputs->size() == 1,
-             "X280 DPS path expects 2 inputs (src + dst) and 1 output");
+
+  // Sequence counter for the kick/done handshake. The firmware echoes the
+  // kick value in done; incrementing ensures each task is distinguishable.
+  static uint32_t seqCounter = 0;
 
   ::ttnn::MeshDevice &meshDevice = context->getMeshDevice();
-
-  const auto &inputTensor =
-      context->getTensorPool().getTTNNTensorAndValidate(fbInputs->Get(0));
-  const auto &outputTensor =
-      context->getTensorPool().getTTNNTensorAndValidate(fbInputs->Get(1));
-
-  const auto &inMeshBuf = inputTensor.mesh_buffer();
-  const auto &outMeshBuf = outputTensor.mesh_buffer();
-  tt::tt_metal::Buffer *inBuf = inMeshBuf.get_reference_buffer();
-  tt::tt_metal::Buffer *outBuf = outMeshBuf.get_reference_buffer();
-  LOG_ASSERT(inBuf && inBuf->buffer_type() == tt::tt_metal::BufferType::DRAM,
-             "X280 path requires DRAM-resident input");
-  LOG_ASSERT(outBuf && outBuf->buffer_type() == tt::tt_metal::BufferType::DRAM);
-
   const auto &allocator = meshDevice.allocator();
   uint32_t numBanks = allocator->get_num_banks(tt::tt_metal::BufferType::DRAM);
   LOG_ASSERT(numBanks > 0 && numBanks <= poc::kStep4MaxBanks);
 
-  poc::Step5Task task{};
-  task.kick = 0;
+  // DPS convention: fbInputs contains all tensor arguments (real inputs
+  // followed by pre-allocated output destinations). fbOutputs references
+  // the output tensors (which are the last N entries of fbInputs).
+  uint32_t numInputs = fbInputs->size() - fbOutputs->size();
+  uint32_t numTensors = fbInputs->size();
+  LOG_ASSERT(numTensors <= poc::kStep6MaxTensors);
+
+  poc::Step6Task task{};
+  task.num_tensors = numTensors;
   task.num_banks = numBanks;
-  task.aligned_page_size = inBuf->aligned_page_size();
-  task.page_size = inBuf->page_size();
-  task.num_pages = inMeshBuf.num_pages();
+  task.func_id = funcId;
 
   for (uint32_t bankId = 0; bankId < numBanks; bankId++) {
     auto logical = meshDevice.logical_core_from_dram_channel(bankId);
@@ -134,41 +126,84 @@ std::vector<::ttnn::Tensor> executeCPUHoistedFunction(
         meshDevice.virtual_core_from_logical_core(logical, tt::CoreType::DRAM);
     task.bank_x[bankId] = static_cast<uint32_t>(noc.x);
     task.bank_y[bankId] = static_cast<uint32_t>(noc.y);
-    int32_t bankOffset =
-        allocator->get_bank_offset(tt::tt_metal::BufferType::DRAM, bankId);
-    task.input_bank_base[bankId] = static_cast<uint64_t>(
-        static_cast<int64_t>(inMeshBuf.address()) + bankOffset);
-    task.output_bank_base[bankId] = static_cast<uint64_t>(
-        static_cast<int64_t>(outMeshBuf.address()) + bankOffset);
+  }
+
+  // Fill per-tensor metadata.
+  std::vector<::ttnn::Tensor> outputTensors;
+  for (uint32_t t = 0; t < numTensors; t++) {
+    const auto *tensorRef = fbInputs->Get(t);
+    const auto &tensor =
+        context->getTensorPool().getTTNNTensorAndValidate(tensorRef);
+
+    const auto &meshBuf = tensor.mesh_buffer();
+    tt::tt_metal::Buffer *buf = meshBuf.get_reference_buffer();
+    LOG_ASSERT(buf && buf->buffer_type() == tt::tt_metal::BufferType::DRAM,
+               "X280 path requires DRAM-resident tensors");
+
+    auto &tm = task.tensors[t];
+    tm.aligned_page_size = buf->aligned_page_size();
+    tm.page_size = buf->page_size();
+    tm.num_pages = meshBuf.num_pages();
+    tm.total_size_bytes = meshBuf.num_pages() * buf->page_size();
+    tm.is_input = (t < numInputs) ? 1 : 0;
+    tm.is_output = (t >= numInputs) ? 1 : 0;
+    std::memset(tm.pad, 0, sizeof(tm.pad));
+
+    // Extract memref sizes and strides from the tensor shape.
+    std::vector<int64_t> sizes = common::extractSizes(tensorRef);
+    std::vector<std::vector<int64_t>> allSizesAndStrides;
+    common::prepareSizesAndStrides(sizes, allSizesAndStrides);
+    tm.rank = static_cast<uint32_t>(sizes.size());
+    LOG_ASSERT(tm.rank <= poc::kStep6MaxRank);
+    std::memset(tm.sizes_and_strides, 0, sizeof(tm.sizes_and_strides));
+    std::memcpy(tm.sizes_and_strides, allSizesAndStrides.back().data(),
+                tm.rank * 2 * sizeof(int64_t));
+
+    std::memset(tm.bank_base, 0, sizeof(tm.bank_base));
+    for (uint32_t bankId = 0; bankId < numBanks; bankId++) {
+      int32_t bankOffset =
+          allocator->get_bank_offset(tt::tt_metal::BufferType::DRAM, bankId);
+      tm.bank_base[bankId] = static_cast<uint64_t>(
+          static_cast<int64_t>(meshBuf.address()) + bankOffset);
+    }
+
+    if (t >= numInputs) {
+      outputTensors.push_back(tensor);
+    }
   }
 
   int deviceId = meshDevice.get_device_ids().at(0);
   auto dev = ::tt::umd::TTDevice::create(deviceId);
 
-  // Write only up to the `done` field — the host must never touch `done`
-  // because of a silicon quirk where host-written DRAM words shadow X280
-  // writes on subsequent host reads (see driver.h).
-  poc::NocWrite(dev.get(), poc::kL2cpu0NocX, poc::kL2cpu0NocY, poc::kTaskAddr,
-                &task, offsetof(poc::Step5Task, done));
+  // Write the task body (after kick, up to done) then kick with the
+  // sequence number. The host must never write to `done`.
+  uint32_t seq = ++seqCounter;
+  const size_t bodyOffset = sizeof(uint32_t); // skip kick
+  const size_t bodySize = offsetof(poc::Step6Task, done) - bodyOffset;
+  poc::NocWrite(dev.get(), poc::kL2cpu0NocX, poc::kL2cpu0NocY,
+                poc::kTaskAddr + bodyOffset,
+                reinterpret_cast<const uint8_t *>(&task) + bodyOffset,
+                bodySize);
   poc::NocWrite32(dev.get(), poc::kL2cpu0NocX, poc::kL2cpu0NocY, poc::kTaskAddr,
-                  poc::kKick);
+                  seq);
 
-  const uint64_t doneAddr = poc::kTaskAddr + offsetof(poc::Step5Task, done);
+  // Poll for done == seq.
+  const uint64_t doneAddr = poc::kTaskAddr + offsetof(poc::Step6Task, done);
   const auto deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(30);
   uint32_t doneVal = 0;
   while (std::chrono::steady_clock::now() < deadline) {
     doneVal =
         poc::NocRead32(dev.get(), poc::kL2cpu0NocX, poc::kL2cpu0NocY, doneAddr);
-    if (doneVal == poc::kDone) {
+    if (doneVal == seq) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
-  LOG_ASSERT(doneVal == poc::kDone, "X280 task timed out: done=0x", std::hex,
-             doneVal);
+  LOG_ASSERT(doneVal == seq, "X280 task timed out: done=", doneVal,
+             " expected=", seq);
 
-  return {outputTensor};
+  return outputTensors;
 }
 
 // Executes CPU-hoisted function for single-chip workloads.
@@ -178,11 +213,11 @@ void runSingleChip(
         *fbInputs,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbOutputs,
-    ProgramContext &context) {
+    ProgramContext &context, uint32_t funcId) {
 
   std::vector<::ttnn::Tensor> outputs =
       executeCPUHoistedFunction(fn, fbInputs, fbOutputs, {},
-                                /*onHost=*/false, &context);
+                                /*onHost=*/false, &context, funcId);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     context.getTensorPool().insertTTNNTensorAndValidate(fbOutputs->Get(i),
@@ -296,13 +331,14 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
 
   const auto *fbInputs = op->ins();
   const auto *fbOutputs = op->outs();
+  uint32_t funcId = op->dylib_id();
 
   bool isMultiChip = context.getMeshDevice().num_devices() > 1;
 
   if (isMultiChip) {
     runMultiChip(fn, fbInputs, fbOutputs, context);
   } else {
-    runSingleChip(fn, fbInputs, fbOutputs, context);
+    runSingleChip(fn, fbInputs, fbOutputs, context, funcId);
   }
 }
 

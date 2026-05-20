@@ -22,11 +22,77 @@ namespace mlir::tt::llvm_util {
 #define GEN_PASS_DEF_LLVMEMITCALLINGCONVENTIONWRAPPERFUNCS
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
 
+// Emit the dispatch entry point for the X280 code blob. The firmware calls
+// this function (at CODE_LOAD_ADDR) with (func_id, descriptor_array_ptr).
+// It routes to the appropriate helper via an if-else chain.
+// Placed in .text.start so the linker script puts it at the blob's base.
+static void emitDispatcher(ModuleOp moduleOp, OpBuilder &builder,
+                           ArrayRef<std::string> helperNames) {
+  auto *context = moduleOp.getContext();
+  auto loc = moduleOp.getLoc();
+  auto ptrTy = LLVM::LLVMPointerType::get(context);
+  auto i32Ty = builder.getI32Type();
+  auto voidTy = LLVM::LLVMVoidType::get(context);
+
+  auto funcType = LLVM::LLVMFunctionType::get(voidTy, {i32Ty, ptrTy}, false);
+  builder.setInsertionPointToEnd(moduleOp.getBody());
+  auto func =
+      builder.create<LLVM::LLVMFuncOp>(loc, "x280_cpu_dispatch", funcType);
+  func->setAttr("section", builder.getStringAttr(".text.start"));
+
+  size_t numHelpers = helperNames.size();
+
+  Block *entry = func.addEntryBlock(builder);
+
+  // Additional check blocks for cases 1..N-1 (case 0 uses entry).
+  SmallVector<Block *> checkBlocks;
+  checkBlocks.push_back(entry);
+  for (size_t i = 1; i < numHelpers; i++) {
+    checkBlocks.push_back(
+        builder.createBlock(&func.getBody(), func.getBody().end()));
+  }
+
+  SmallVector<Block *> callBlocks;
+  for (size_t i = 0; i < numHelpers; i++) {
+    callBlocks.push_back(
+        builder.createBlock(&func.getBody(), func.getBody().end()));
+  }
+
+  Block *retBlock = builder.createBlock(&func.getBody(), func.getBody().end());
+
+  Value funcId = entry->getArgument(0);
+  Value args = entry->getArgument(1);
+
+  for (size_t i = 0; i < numHelpers; i++) {
+    builder.setInsertionPointToStart(checkBlocks[i]);
+    Value caseVal = builder.create<LLVM::ConstantOp>(
+        loc, i32Ty, builder.getI32IntegerAttr(static_cast<int32_t>(i)));
+    Value cmp = builder.create<LLVM::ICmpOp>(loc, LLVM::ICmpPredicate::eq,
+                                             funcId, caseVal);
+    Block *falseBlock = (i + 1 < numHelpers) ? checkBlocks[i + 1] : retBlock;
+    builder.create<LLVM::CondBrOp>(loc, cmp, callBlocks[i], ValueRange{},
+                                   falseBlock, ValueRange{});
+  }
+
+  for (size_t i = 0; i < numHelpers; i++) {
+    builder.setInsertionPointToStart(callBlocks[i]);
+    builder.create<LLVM::CallOp>(loc, TypeRange(), helperNames[i],
+                                 ValueRange{args});
+    builder.create<LLVM::BrOp>(loc, ValueRange{}, retBlock);
+  }
+
+  builder.setInsertionPointToStart(retBlock);
+  builder.create<LLVM::ReturnOp>(loc, ValueRange{});
+}
+
 // Generates LLVM wrapper functions for CPU-hoisted functions that:
 // - unpack WrappedTensor arguments from an array of WrappedTensors and
 //   pass them as individual arguments to the original function
 // - pack returned memref descriptors into WrappedTensors and return them
 //   as an array of WrappedTensors
+// For device (X280) mode, also emits a memcpy implementation and a
+// dispatch entry point so the code blob is self-contained and callable
+// from the firmware at a known address.
 void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
   auto cpuModule = moduleOp->getParentOfType<ttcore::CPUModuleOp>();
   bool isDPS = cpuModule && cpuModule.getRole() == ttcore::CPURole::Device;
@@ -35,6 +101,8 @@ void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
   OpBuilder builder(context);
 
   auto ptrTy = LLVM::LLVMPointerType::get(context);
+
+  SmallVector<std::string> deviceHelperNames;
 
   for (auto func : moduleOp.getOps<LLVM::LLVMFuncOp>()) {
     if (!func->hasAttr("arg_ranks")) {
@@ -56,6 +124,10 @@ void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
 
     llvm::SmallString<32> helperName(func.getName());
     helperName.append("_helper");
+
+    if (isDPS) {
+      deviceHelperNames.push_back(std::string(helperName));
+    }
 
     // Get result ranks from attribute (set by HoistCPUOps).
     SmallVector<int64_t, 4> resultRanks;
@@ -264,6 +336,10 @@ void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
 
       builder.create<LLVM::ReturnOp>(loc, ValueRange{outputArrayPtr});
     }
+  }
+
+  if (isDPS && !deviceHelperNames.empty()) {
+    emitDispatcher(moduleOp, builder, deviceHelperNames);
   }
 
   builder.setInsertionPointToEnd(moduleOp.getBody());

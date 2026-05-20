@@ -33,6 +33,7 @@
 
 #include "tracy/Tracy.hpp"
 
+#include <fstream>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -501,6 +502,26 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
 
   auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
+
+  // Boot the X280 firmware (persistent task loop) if the firmware directory
+  // is configured. The firmware runs once and accepts tasks via the
+  // sequence-number handshake protocol; code blobs are loaded separately
+  // per-program in submit().
+  const char *fwDir = std::getenv("TTMLIR_X280_FIRMWARE_DIR");
+  if (fwDir) {
+    std::string fwBinPath = std::string(fwDir) + "/x280_firmware.bin";
+    std::ifstream fwFile(fwBinPath, std::ios::binary | std::ios::ate);
+    if (fwFile.is_open()) {
+      std::streamsize fwSize = fwFile.tellg();
+      fwFile.seekg(0, std::ios::beg);
+      std::vector<uint8_t> firmware(fwSize);
+      if (fwFile.read(reinterpret_cast<char *>(firmware.data()), fwSize)) {
+        int deviceId = meshDevice->get_device_ids().at(0);
+        auto dev = ::tt::umd::TTDevice::create(deviceId);
+        poc::BootL2cpu0(dev.get(), firmware);
+      }
+    }
+  }
 
   return Device(std::static_pointer_cast<void>(meshDevice), traceCache,
                 DeviceRuntime::TTNN);
@@ -2067,15 +2088,19 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
 #endif
 
   const auto *fbb = utils::getBinary(executableHandle);
-  const auto *cpuFirmware = fbb->programs()->Get(programIndex)->cpu_firmware();
-  if (cpuFirmware && cpuFirmware->size() > 0) {
-    std::vector<uint8_t> firmware(cpuFirmware->data(),
-                                  cpuFirmware->data() + cpuFirmware->size());
+
+  // Load the kernel code blob onto the X280 at CODE_LOAD_ADDR. The firmware
+  // (persistent task loop) was already booted during openMeshDevice(); here
+  // we just write the per-program code blob so the firmware can dispatch into
+  // it. The cpu_firmware flatbuffer field carries the code blob (flat binary).
+  const auto *cpuCodeBlob = fbb->programs()->Get(programIndex)->cpu_firmware();
+  if (cpuCodeBlob && cpuCodeBlob->size() > 0) {
     ::ttnn::MeshDevice &meshDevice =
         deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
     int deviceId = meshDevice.get_device_ids().at(0);
     auto dev = ::tt::umd::TTDevice::create(deviceId);
-    poc::BootL2cpu0(dev.get(), firmware);
+    poc::NocWrite(dev.get(), poc::kL2cpu0NocX, poc::kL2cpu0NocY,
+                  poc::kCodeLoadAddr, cpuCodeBlob->data(), cpuCodeBlob->size());
   }
 
   std::unique_ptr<ProgramExecutor> executor = std::make_unique<ProgramExecutor>(
