@@ -44,6 +44,11 @@ struct OpRuleBook {
     return nullptr;
   }
 
+  virtual LayoutFilterFn getInputLayoutFilter(Operation *op,
+                                              unsigned operandIdx) const {
+    return getInputLayoutFilter(operandIdx);
+  }
+
   /// Whether to generate reshard candidates for this op's inputs.
   /// This is a compile-time optimization: returning false skips
   /// O(K * reshardCandidates) backend validation calls. Use false when

@@ -79,9 +79,11 @@ struct SplitQKVRuleBook : OpRuleBook {
 };
 
 /// PagedUpdateCache constraint: the fill-value (operand 1) must be L1
-/// height-sharded.
+/// height-sharded on a {numUsers, 1} virtual grid, where numUsers is the
+/// batch size (input1.shape[1]).
 struct PagedUpdateCacheRuleBook : OpRuleBook {
-  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  LayoutFilterFn getInputLayoutFilter(Operation *op,
+                                      unsigned operandIdx) const override;
 };
 
 /// FillCache / PagedFillCache constraint: the cache buffer (operand 0) is
