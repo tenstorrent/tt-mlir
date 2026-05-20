@@ -71,9 +71,9 @@ def test_chisel_records_one_layer_nn(request, device, tmp_path):
                 assert (
                     r.status == chisel.RecordStatus.OK
                 ), f"{op}: {label} PCC status={r.status} payload={r.payload}"
-                assert r.payload.pcc >= PCC_THRESHOLD, (
-                    f"{op}: {label} PCC {r.payload.pcc} below threshold {PCC_THRESHOLD}"
-                )
+                assert (
+                    r.payload.pcc >= PCC_THRESHOLD
+                ), f"{op}: {label} PCC {r.payload.pcc} below threshold {PCC_THRESHOLD}"
 
     assert_pcc(chisel.NumericsMode.ISOLATED)
     assert_pcc(chisel.NumericsMode.ACCUMULATED)
