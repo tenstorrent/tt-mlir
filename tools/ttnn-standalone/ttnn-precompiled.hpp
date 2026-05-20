@@ -17,6 +17,7 @@
 #include "operations/creation/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"
 #include "operations/data_movement/gather/gather.hpp"
+#include "operations/data_movement/moe_expert_token_remap/moe_expert_token_remap.hpp"
 #include "operations/data_movement/pad/pad.hpp"
 #include "operations/data_movement/permute/permute.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
