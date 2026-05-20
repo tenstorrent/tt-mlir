@@ -225,6 +225,24 @@ static bool genericHasFixedNonReinterpretViewOperand(GenericOp genericOp) {
   });
 }
 
+static bool genericHasCompositeViewOperand(GenericOp genericOp) {
+  return llvm::any_of(genericOp.getInputsAndOutputs(), [](Value operand) {
+    return operand.getDefiningOp<d2m::CompositeViewOp>() != nullptr;
+  });
+}
+
+static bool genericHasReductionIterator(GenericOp genericOp) {
+  return llvm::any_of(genericOp.getIteratorTypesValue(), [](auto iteratorType) {
+    return iteratorType == ttcore::IteratorType::Reduction;
+  });
+}
+
+static bool genericHasTileTranspose(GenericOp genericOp) {
+  bool hasTileTranspose = false;
+  genericOp->walk([&](d2m::TileTransposeOp) { hasTileTranspose = true; });
+  return hasTileTranspose;
+}
+
 static llvm::SmallVector<int64_t>
 computeMaterializedPhysicalShape(Value operand, const GridDecision &decision,
                                  bool ttnnMode) {
@@ -1373,10 +1391,27 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   bool isMatmul = isMatmulGeneric(genericOp);
   bool inSpatialRegion =
       mlir::isa<d2m::SpatialOp>(genericOp->getParentRegion()->getParentOp());
+  bool hasFixedNonReinterpretView =
+      genericHasFixedNonReinterpretViewOperand(genericOp);
+  bool hasCompositeView = genericHasCompositeViewOperand(genericOp);
+  bool hasReductionIterator = genericHasReductionIterator(genericOp);
+  bool hasTileTranspose = genericHasTileTranspose(genericOp);
+  bool preserveCurrentGrid = inSpatialRegion || hasCompositeView ||
+                             hasReductionIterator || hasTileTranspose;
   // TTNN conversion can round-trip legacy height/width sharding, but not
   // arbitrary D2M virtual grids. Spatial regions also carry explicit physical
   // ranges, so keep their grids directly placeable in that range.
-  bool allowVirtualGrid = !isMatmul && !ttnnMode && !inSpatialRegion;
+  //
+  // Fixed view operands and composite views carry source placement semantics
+  // that are not rewritten as part of the consumer. Preserve composite
+  // consumers and keep fixed views on the main-style physical grid path until
+  // those producers are planned together with the consumer.
+  //
+  // Reductions and intra-tile transposes have kernel semantics beyond an
+  // index-preserving elementwise operation. Preserve their existing grid until
+  // virtual-grid support is modeled as part of their grid contract.
+  bool allowVirtualGrid = !isMatmul && !ttnnMode && !preserveCurrentGrid &&
+                          !hasFixedNonReinterpretView && !hasCompositeView;
   for (Value operand : genericOp.getInputsAndOutputs()) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto operandLayout =
@@ -1389,7 +1424,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   std::optional<GenericGridPlan> plan =
       isMatmul
           ? computeMatmulGridPlan(genericOp, perOperandTargetGrids, ttnnMode)
-          : (inSpatialRegion
+          : (preserveCurrentGrid
                  ? computePreserveCurrentGridPlan(
                        genericOp, perOperandTargetGrids, ttnnMode)
                  : computeGenericGridPlan(genericOp, perOperandTargetGrids,

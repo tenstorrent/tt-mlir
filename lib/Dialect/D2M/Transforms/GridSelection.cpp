@@ -394,7 +394,7 @@ static void applyCompositeViewUpdate(
     }
 
     RankedTensorType newInputType;
-    llvm::SmallVector<int64_t> inputOptimalGrid;
+    llvm::SmallVector<int64_t> inputOptimalGrid(info.grid.selectedGrid);
     if (isTiled) {
       SmallVector<int64_t> inputAlignments(outDimAlignments.begin(),
                                            outDimAlignments.end());
@@ -415,25 +415,18 @@ static void applyCompositeViewUpdate(
           inputLayout.getCollapsedIntervals(), inputLayout.getMemorySpace(),
           inputLayout.getMemoryLayout());
 
-      auto inputPhysShape = coordLayout.getPhysicalShape(tileShape);
-      inputOptimalGrid = utils::computeOptimalGrid(inputType, inputPhysShape,
-                                                   info.grid.targetGrid);
-
       auto deviceShape =
           coordLayout.getDeviceShape(inputOptimalGrid, tileShape);
       newInputType = RankedTensorType::get(
           deviceShape, inputType.getElementType(), coordLayout);
     } else {
-      // For row-major, compute alignments independently via
-      // tensorWithOptimalGrid. Since non-concat dims share the same logical
-      // size and target grid, they will have identical alignments & grid +
-      // shard shapes.
-      auto inputPhysShape =
-          utils::computePhysicalShape(input, info.grid.targetGrid, ttnnMode);
-      inputOptimalGrid = utils::computeOptimalGrid(inputType, inputPhysShape,
-                                                   info.grid.targetGrid);
       newInputType = utils::tensorWithOptimalGrid(
-          inputType, info.grid.targetGrid, ttnnMode, inputOptimalGrid);
+          inputType, info.grid.layoutGrid, ttnnMode, inputOptimalGrid);
+    }
+
+    if (newInputType == inputType) {
+      reblockedInputs.push_back(input);
+      continue;
     }
 
     // When the input comes directly from a to_layout op with a single use,
@@ -444,8 +437,7 @@ static void applyCompositeViewUpdate(
         toLayoutOp && input.hasOneUse()) {
       auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
       if (emptyOp) {
-        GridDecision inputDecision = utils::makeGridDecision(
-            inputOptimalGrid, effectiveTargetGridRange.shape);
+        GridDecision inputDecision = info.grid;
         mlir::AffineMapAttr virtualGridInverseMapping;
         mlir::AffineMapAttr virtualGridForwardMapping;
         populateGridRemapAttrs(inputDecision, effectiveTargetGridRange, builder,
