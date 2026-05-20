@@ -49,7 +49,9 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
                        clEnumValN(ttcore::Arch::Blackhole, "blackhole",
-                                  "Use mock blackhole system desc.")),
+                                  "Use mock blackhole system desc."),
+                       clEnumValN(ttcore::Arch::Quasar, "quasar",
+                                  "Use mock quasar system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   Option<unsigned> maxDstPhysicalSizeTiles{
@@ -136,6 +138,13 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::desc("Number of backing buffers to allocate per stream storage "
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
+
+  // Force all non-bound allocator variables to spill into DRAM.
+  Option<bool> forceSpillToDramIfLegal{
+      *this, "force-spill-to-dram-if-legal",
+      llvm::cl::desc(
+          "Force all non-bound allocator variables to spill into DRAM."),
+      llvm::cl::init(false)};
 
   // The allocator will not consider generic outputs eligible for spilling
   // unless this option is turned on.

@@ -81,35 +81,13 @@ static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
   llvm_unreachable("unsupported element type for OOB fill");
 }
 
-static Value createCoreIndex(OpBuilder &builder, Location loc, int64_t dim,
-                             AffineMap physicalToVirtMap) {
-  if (physicalToVirtMap.isEmpty()) {
-    return builder.create<CoreIndexOp>(loc, dim);
-  }
-  return builder.create<CoreIndexOp>(loc, dim, physicalToVirtMap);
-}
-
 static ttcore::GridAttr getMaskGridAttr(OpBuilder &builder, Value output,
                                         ArrayRef<int64_t> gridShape) {
-  auto invMap = utils::getVirtualGridInverseMapping(output);
-  auto fwdMap = utils::getVirtualGridForwardMapping(output);
-  if (!invMap || !fwdMap) {
-    return ttcore::GridAttr::get(builder.getContext(), gridShape);
+  if (auto maps = utils::getGridMapsFromVirtualGridMapping(output, gridShape)) {
+    return ttcore::GridAttr::get(builder.getContext(), gridShape, maps->first,
+                                 maps->second);
   }
-
-  AffineMap gridFwdMap = *fwdMap;
-  size_t rank = gridShape.size();
-  gridFwdMap = ttmlir::utils::affineMapDropBackResults(gridFwdMap, rank);
-  for (int64_t i = static_cast<int64_t>(rank) - 1; i >= 0; --i) {
-    unsigned dimToDrop = static_cast<unsigned>(rank + static_cast<size_t>(i));
-    gridFwdMap = ttmlir::utils::dropDim(gridFwdMap, dimToDrop);
-  }
-  gridFwdMap =
-      gridFwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()),
-                              /*resultPos=*/0);
-
-  return ttcore::GridAttr::get(builder.getContext(), gridShape, gridFwdMap,
-                               *invMap);
+  return ttcore::GridAttr::get(builder.getContext(), gridShape);
 }
 
 /// Decompose MaskOp with multi-core support.
@@ -208,7 +186,6 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
     auto gridAttr = getMaskGridAttr(rewriter, globalOutput, gridShape);
-    AffineMap physicalToVirtMap = gridAttr.getPhysicalToVirtMap();
     ArrayAttr emptyArray = rewriter.getArrayAttr({});
     ArrayAttr threads = rewriter.getArrayAttr(
         rewriter.getAttr<ThreadAttr>(ThreadType::Unified));
@@ -227,22 +204,24 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
                                      MemRefLayoutAttrInterface{}, memorySpace);
     auto outputType = MemRefType::get(shardShape, tileElementType,
                                       MemRefLayoutAttrInterface{}, memorySpace);
-    auto maskLayout = ttcore::CBLayoutAttr::get(
-        rewriter.getContext(), {1, 1},
-        ttcore::getElementSizeBytes(tileElementType), numStreamBuffers);
-    auto maskType =
-        MemRefType::get({1, 1}, tileElementType, maskLayout, memorySpace);
+    auto maskType = MemRefType::get({1, 1}, tileElementType,
+                                    MemRefLayoutAttrInterface{}, memorySpace);
 
-    Value input = rewriter.create<memref::AllocOp>(loc, inputType);
-    Value output = rewriter.create<memref::AllocOp>(loc, outputType);
-    Value rowMaskCB = rewriter.create<memref::AllocOp>(loc, maskType);
-    Value colMaskCB = rewriter.create<memref::AllocOp>(loc, maskType);
+    // The synchronized buffer attribute is set by MarkSynchronizedBuffers pass
+    auto inputOp = rewriter.create<memref::AllocOp>(loc, inputType);
+    Value input = inputOp.getResult();
+    auto outputOp = rewriter.create<memref::AllocOp>(loc, outputType);
+    Value output = outputOp.getResult();
+    auto rowMaskCBOp = rewriter.create<memref::AllocOp>(loc, maskType);
+    Value rowMaskCB = rowMaskCBOp.getResult();
+    auto colMaskCBOp = rewriter.create<memref::AllocOp>(loc, maskType);
+    Value colMaskCB = colMaskCBOp.getResult();
 
     SmallVector<Value> remoteIndices;
     remoteIndices.reserve(gridShape.size());
     for (size_t dim = 0; dim < gridShape.size(); ++dim) {
-      remoteIndices.push_back(createCoreIndex(
-          rewriter, loc, static_cast<int64_t>(dim), physicalToVirtMap));
+      remoteIndices.push_back(
+          rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(dim)));
     }
 
     rewriter.create<RemoteLoadOp>(loc, input, globalInput, remoteIndices);
@@ -289,8 +268,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
     // tiled row/col dimensions.
     int64_t rowGridDim = static_cast<int64_t>(gridShape.size()) - 2;
     int64_t colGridDim = static_cast<int64_t>(gridShape.size()) - 1;
-    Value coreY = createCoreIndex(rewriter, loc, rowGridDim, physicalToVirtMap);
-    Value coreX = createCoreIndex(rewriter, loc, colGridDim, physicalToVirtMap);
+    Value coreY = rewriter.create<CoreIndexOp>(loc, rowGridDim);
+    Value coreX = rewriter.create<CoreIndexOp>(loc, colGridDim);
 
     // Write the mask tiles.
     Value validRowsVal =

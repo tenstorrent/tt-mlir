@@ -178,16 +178,12 @@ static void addScratchToGeneric(GenericOp genericOp,
   // Build scratch shard shape: [1, numTiles].
   SmallVector<int64_t> scratchShardShape = {1, static_cast<int64_t>(numTiles)};
 
-  // Create CBLayoutAttr for the scratch buffer (single-buffered).
-  auto cbLayout =
-      ttcore::CBLayoutAttr::get(scratchShardShape, tileType, /*buffers=*/1);
-
   auto l1MemorySpace = ttcore::MemorySpaceAttr::get(
       genericOp.getContext(), ttcore::MemorySpace::DeviceL1);
 
   // Shard memref type for the scratch buffer inside the region.
-  MemRefType scratchShardMemRefType =
-      MemRefType::get(scratchShardShape, tileType, cbLayout, l1MemorySpace);
+  MemRefType scratchShardMemRefType = MemRefType::get(
+      scratchShardShape, tileType, MemRefLayoutAttrInterface{}, l1MemorySpace);
 
   // Insert memref.alloc + scratch_init at the start of the region body.
   Block &block = genericOp.getRegion(0).front();

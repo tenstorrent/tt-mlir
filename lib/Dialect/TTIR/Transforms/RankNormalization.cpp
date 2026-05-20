@@ -58,10 +58,9 @@ static bool needsRankExpansion(Type type) {
   return false;
 }
 
-/// Collects functions that participate in rank normalization:
-///   - external functions whose signature needs rank expansion;
-///   - all other non-external functions, except const_eval helpers (which are
-///     intentionally TTNN-only with rank<2 signatures).
+/// Collects functions that participate in rank normalization. A function
+/// participates if it is external and its signature needs rank expansion, or
+/// if its body contains at least one TTIR-dialect op.
 static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
   DenseSet<func::FuncOp> result;
   module.walk([&](func::FuncOp funcOp) {
@@ -73,10 +72,17 @@ static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
       return;
     }
 
-    if (ttmlir::utils::isConstEvalFunc(funcOp)) {
-      return;
+    bool hasTTIROp = false;
+    funcOp.walk([&](Operation *inner) {
+      if (isa<ttir::TTIRDialect>(inner->getDialect())) {
+        hasTTIROp = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    if (hasTTIROp) {
+      result.insert(funcOp);
     }
-    result.insert(funcOp);
   });
   return result;
 }

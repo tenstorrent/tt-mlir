@@ -2,8 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -12,6 +15,30 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
+
+// Replace the element type of `tensorType`. When the tensor carries a TTNN
+// layout encoding, the encoding's memref element type is updated in lock-step
+// (preserving tile wrapping) so downstream passes that read it from the
+// layout do not see stale types.
+mlir::RankedTensorType
+buildTensorWithElementType(mlir::RankedTensorType tensorType,
+                           mlir::Type newScalarElemType) {
+  auto encoding = tensorType.getEncoding();
+  auto ttnnLayout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(encoding);
+  if (!ttnnLayout) {
+    return mlir::RankedTensorType::get(tensorType.getShape(), newScalarElemType,
+                                       encoding);
+  }
+  mlir::Type newMemrefElemType = newScalarElemType;
+  if (auto tileType =
+          mlir::dyn_cast<ttcore::TileType>(ttnnLayout.getElementType())) {
+    newMemrefElemType =
+        ttcore::TileType::get(newScalarElemType, tileType.getShape());
+  }
+  return ttnn::utils::RankedTensorTypeFactory::create(tensorType,
+                                                      newMemrefElemType);
+}
+
 struct PropagateUnaryTensorManipulationResultElementTypePattern
     : public mlir::RewritePattern {
   explicit PropagateUnaryTensorManipulationResultElementTypePattern(
@@ -44,9 +71,8 @@ struct PropagateUnaryTensorManipulationResultElementTypePattern
       return rewriter.notifyMatchFailure(op, "already propagated");
     }
 
-    auto newResultType = mlir::RankedTensorType::get(resultType.getShape(),
-                                                     inputType.getElementType(),
-                                                     resultType.getEncoding());
+    auto newResultType =
+        buildTensorWithElementType(resultType, inputType.getElementType());
     rewriter.modifyOpInPlace(
         op, [&]() { op->getResult(0).setType(newResultType); });
     return mlir::success();
@@ -79,22 +105,38 @@ struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
     Type rhsElemType = rhsType.getElementType();
     Type resultElemType = resultType.getElementType();
 
-    Type targetElemType;
-    auto accumulateTarget = [&](Type candidate) {
-      if (candidate.isInteger(1)) {
-        return true;
-      }
-      if (!targetElemType) {
-        targetElemType = candidate;
-        return true;
-      }
-      return targetElemType == candidate;
+    // i1 operands/results are promoted up to whichever non-i1 type the other
+    // operands carry, so they don't count when checking for agreement.
+    auto agreesWith = [](Type t, Type target) {
+      return t.isInteger(1) || t == target;
     };
 
-    if (!accumulateTarget(lhsElemType) || !accumulateTarget(rhsElemType) ||
-        !accumulateTarget(resultElemType) || !targetElemType) {
+    Type firstNonI1;
+    for (Type t : {lhsElemType, rhsElemType, resultElemType}) {
+      if (!t.isInteger(1)) {
+        firstNonI1 = t;
+        break;
+      }
+    }
+    if (!firstNonI1) {
+      return rewriter.notifyMatchFailure(op, "no non-i1 target element type");
+    }
+
+    bool typesAgree = agreesWith(lhsElemType, firstNonI1) &&
+                      agreesWith(rhsElemType, firstNonI1) &&
+                      agreesWith(resultElemType, firstNonI1);
+
+    Type targetElemType;
+    if (typesAgree) {
+      targetElemType = firstNonI1;
+    } else if (!resultElemType.isInteger(1)) {
+      // Cross-type binary like ttnn.eq(si32, si32) -> bf16: TTNN does the
+      // typecast inside its kernel, but D2M needs a uniformly-typed compute
+      // region, so align operands to the result type.
+      targetElemType = resultElemType;
+    } else {
       return rewriter.notifyMatchFailure(
-          op, "cannot infer a single non-i1 target element type");
+          op, "cannot infer a single target element type");
     }
 
     if (lhsElemType == targetElemType && rhsElemType == targetElemType &&
@@ -107,16 +149,14 @@ struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
       if (operandType.getElementType() == targetElemType) {
         return v;
       }
-      auto castType = mlir::RankedTensorType::get(
-          operandType.getShape(), targetElemType, operandType.getEncoding());
+      auto castType = buildTensorWithElementType(operandType, targetElemType);
       return static_cast<mlir::Value>(
           rewriter.create<TypecastOp>(op->getLoc(), castType, v).getResult());
     };
 
     mlir::Value newLhs = castOperandIfNeeded(op->getOperand(0), lhsType);
     mlir::Value newRhs = castOperandIfNeeded(op->getOperand(1), rhsType);
-    auto newResultType = mlir::RankedTensorType::get(
-        resultType.getShape(), targetElemType, resultType.getEncoding());
+    auto newResultType = buildTensorWithElementType(resultType, targetElemType);
 
     mlir::OperationState state(op->getLoc(), op->getName().getStringRef());
     state.addOperands({newLhs, newRhs});
@@ -147,9 +187,8 @@ struct ComparisonResultTypePattern
       return rewriter.notifyMatchFailure(op, "result already matches lhs type");
     }
 
-    Type elemType = lhsType.getElementType();
-    auto newResultType = mlir::RankedTensorType::get(
-        resultType.getShape(), elemType, resultType.getEncoding());
+    auto newResultType =
+        buildTensorWithElementType(resultType, lhsType.getElementType());
 
     rewriter.replaceOpWithNewOp<ComparisonOp>(op, newResultType, op.getLhs(),
                                               op.getRhs());
@@ -177,9 +216,8 @@ struct LogicalNotResultTypePattern
                                          "result already matches input type");
     }
 
-    Type elemType = inputType.getElementType();
-    auto newResultType = mlir::RankedTensorType::get(
-        resultType.getShape(), elemType, resultType.getEncoding());
+    auto newResultType =
+        buildTensorWithElementType(resultType, inputType.getElementType());
 
     rewriter.replaceOpWithNewOp<LogicalNotOp>(op, newResultType, op.getInput());
     return mlir::success();
@@ -205,9 +243,8 @@ struct ReduceOrResultTypePattern : public mlir::OpRewritePattern<ReduceOrOp> {
                                          "result already matches input type");
     }
 
-    Type elemType = inputType.getElementType();
-    auto newResultType = mlir::RankedTensorType::get(
-        resultType.getShape(), elemType, resultType.getEncoding());
+    auto newResultType =
+        buildTensorWithElementType(resultType, inputType.getElementType());
 
     rewriter.replaceOpWithNewOp<ReduceOrOp>(op, newResultType, op.getInput(),
                                             op.getKeepDimAttr(),
@@ -238,8 +275,8 @@ struct WhereConditionTypePattern : public mlir::OpRewritePattern<WhereOp> {
           op, "condition already matches true/false element type");
     }
 
-    auto targetType = mlir::RankedTensorType::get(
-        condType.getShape(), trueType.getElementType(), condType.getEncoding());
+    auto targetType =
+        buildTensorWithElementType(condType, trueType.getElementType());
     auto condCast =
         rewriter.create<TypecastOp>(op.getLoc(), targetType, op.getFirst());
 

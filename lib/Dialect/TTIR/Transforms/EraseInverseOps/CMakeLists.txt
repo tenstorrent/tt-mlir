@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRTTIREraseInverseOps
         EraseInverseOps.cpp
+        ConstevalForwardAnalysis.cpp
         BroadcastCommutePatterns.cpp
         ElementwiseCommutePatterns.cpp
         ConcatCommutePatterns.cpp

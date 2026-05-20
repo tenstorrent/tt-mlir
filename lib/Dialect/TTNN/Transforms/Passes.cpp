@@ -620,8 +620,7 @@ private:
     // Create a new tensor of ones.
     //
     ttnn::OnesOp onesOp = rewriter.create<ttnn::OnesOp>(
-        loc, tensorType, device, shapeAttr, dTypeAttr, tensorLayoutAttr,
-        /*memory_config=*/nullptr);
+        loc, tensorType, device, shapeAttr, dTypeAttr, tensorLayoutAttr);
 
     return onesOp;
   }
@@ -842,7 +841,6 @@ private:
 
   void createMainForTestFunction(IRRewriter &rewriter, ModuleOp moduleOp,
                                  func::FuncOp forwardFuncOp) {
-    MLIRContext *ctx = rewriter.getContext();
     Location loc = forwardFuncOp.getLoc();
 
     // After injectDeviceArg, the forward function already has the device arg.
@@ -900,17 +898,10 @@ private:
           mlir::cast<TTNNLayoutAttr>(rankedTensorType.getEncoding());
 
       if (layoutAttr.isDeviceBufferType()) {
-        // Create MemoryConfigAttr from the layout's memory configuration.
-        //
-        MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-            ctx, layoutAttr.getMemLayout(),
-            BufferTypeAttr::get(ctx, layoutAttr.getBufferType()),
-            /*shardSpec=*/std::nullopt);
-
-        // Move tensor to device with the expected memory config.
-        //
+        // Move tensor to device. The expected memory config is already encoded
+        // in the result tensor type's TTNNLayoutAttr.
         Value deviceTensor = rewriter.create<ttnn::ToDeviceOp>(
-            loc, rankedTensorType, getElem, deviceArg, memConfigAttr);
+            loc, rankedTensorType, getElem, deviceArg);
         preparedTensors.push_back(deviceTensor);
       } else {
         preparedTensors.push_back(getElem);

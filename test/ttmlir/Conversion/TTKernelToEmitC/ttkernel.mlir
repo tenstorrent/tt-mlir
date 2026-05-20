@@ -22,7 +22,7 @@ module {
     %icb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
     // CHECK: %[[OCB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
     %ocb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb2_tiles
-    // CHECK-NOT: experimental::CircularBuffer
+    // CHECK-NOT: CircularBuffer
     // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[INCB]], %[[OCB]])
     "ttkernel.compute_kernel_hw_startup"(%icb, %ocb) : (!cb0_tiles, !cb2_tiles) -> ()
     return
@@ -36,7 +36,7 @@ module {
     %icb1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
     // CHECK: %[[OCB:.*]] = emitc.literal "get_compile_time_arg_val(2)"
     %ocb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
-    // CHECK-NOT: experimental::CircularBuffer
+    // CHECK-NOT: CircularBuffer
     // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[INCB0]], %[[INCB1]], %[[OCB]])
     "ttkernel.compute_kernel_hw_startup"(%icb0, %icb1, %ocb) : (!cb0_tiles, !cb1_tiles, !cb2_tiles) -> ()
     return
@@ -1519,7 +1519,7 @@ module {
     // CHECK-LABEL: func @cb_push_back
     func.func @cb_push_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      // CHECK: emitc.verbatim "experimental::CircularBuffer [[PUSH_CB:cb_ctarg_0]]({});"
+      // CHECK: emitc.verbatim "CircularBuffer [[PUSH_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
       %num_pages = arith.constant 1 : i32
@@ -1531,7 +1531,7 @@ module {
     // CHECK-LABEL: func @cb_pop_front
     func.func @cb_pop_front() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      // CHECK: emitc.verbatim "experimental::CircularBuffer [[POP_CB:cb_ctarg_0]]({});"
+      // CHECK: emitc.verbatim "CircularBuffer [[POP_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
       %num_pages = arith.constant 1 : i32
@@ -1543,7 +1543,7 @@ module {
     // CHECK-LABEL: func @cb_reserve_back
     func.func @cb_reserve_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      // CHECK: emitc.verbatim "experimental::CircularBuffer [[RESERVE_CB:cb_ctarg_0]]({});"
+      // CHECK: emitc.verbatim "CircularBuffer [[RESERVE_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
       %num_pages = arith.constant 1 : i32
@@ -1555,7 +1555,7 @@ module {
     // CHECK-LABEL: func @cb_wait_front
     func.func @cb_wait_front() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      // CHECK: emitc.verbatim "experimental::CircularBuffer [[WAIT_CB:cb_ctarg_0]]({});"
+      // CHECK: emitc.verbatim "CircularBuffer [[WAIT_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
       %num_pages = arith.constant 1 : i32
@@ -1567,7 +1567,7 @@ module {
     // CHECK-LABEL: func @get_write_ptr
     func.func @get_write_ptr() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      // CHECK: emitc.verbatim "experimental::CircularBuffer [[WRITE_CB:cb_ctarg_0]]({});"
+      // CHECK: emitc.verbatim "CircularBuffer [[WRITE_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[PTR:.*]] = emitc.literal "[[WRITE_CB]].get_write_ptr()"
       %ptr = "ttkernel.get_write_ptr"(%cb) : (!cb0_tiles) -> i32
@@ -1577,7 +1577,7 @@ module {
     // CHECK-LABEL: func @get_read_ptr
     func.func @get_read_ptr() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      // CHECK: emitc.verbatim "experimental::CircularBuffer [[READ_CB:cb_ctarg_0]]({});"
+      // CHECK: emitc.verbatim "CircularBuffer [[READ_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[PTR:.*]] = emitc.literal "[[READ_CB]].get_read_ptr()"
       %ptr = "ttkernel.get_read_ptr"(%cb) : (!cb0_tiles) -> i32
@@ -1589,13 +1589,13 @@ module {
       %idx = arith.constant 0 : index
       %num_pages = arith.constant 1 : i32
       // CHECK: %[[CTARG_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      // CHECK-NEXT: emitc.verbatim "experimental::CircularBuffer [[CB_CTARG0:cb_ctarg_0]]({});"
+      // CHECK-NEXT: emitc.verbatim "CircularBuffer [[CB_CTARG0:cb_ctarg_0]]({});"
       %cb_ctarg = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb2_tiles
       // CHECK: %[[ARG_CB0:.*]] = emitc.call_opaque "get_arg_val"
-      // CHECK-NEXT: emitc.verbatim "experimental::CircularBuffer [[CB_ARG0:cb_arg_0]]({});"
+      // CHECK-NEXT: emitc.verbatim "CircularBuffer [[CB_ARG0:cb_arg_0]]({});"
       %cb0 = "ttkernel.get_arg_val"(%idx) : (index) -> !cb0_tiles
       // CHECK: %[[ARG_CB1:.*]] = emitc.call_opaque "get_common_arg_val"
-      // CHECK-NEXT: emitc.verbatim "experimental::CircularBuffer [[CB_ARG1:cb_arg_1]]({});"
+      // CHECK-NEXT: emitc.verbatim "CircularBuffer [[CB_ARG1:cb_arg_1]]({});"
       %cb1 = "ttkernel.get_common_arg_val"(%idx) : (index) -> !cb1_tiles
       // CHECK: emitc.verbatim "[[CB_CTARG0]].wait_front({});"
       "ttkernel.cb_wait_front"(%cb_ctarg, %num_pages) : (!cb2_tiles, i32) -> ()
@@ -1608,12 +1608,12 @@ module {
 
     // CHECK-LABEL: func @cb_object_dedup
     func.func @cb_object_dedup() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.verbatim "experimental::CircularBuffer [[DEDUP_CB:cb_ctarg_0]]({});"
+      // CHECK: emitc.verbatim "CircularBuffer [[DEDUP_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %num_pages = arith.constant 1 : i32
       // CHECK: emitc.verbatim "[[DEDUP_CB]].reserve_back({});"
       "ttkernel.cb_reserve_back"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
-      // CHECK-NOT: emitc.verbatim "experimental::CircularBuffer
+      // CHECK-NOT: emitc.verbatim "CircularBuffer
       // CHECK: emitc.verbatim "[[DEDUP_CB]].push_back({});"
       "ttkernel.cb_push_back"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
       return
@@ -1621,13 +1621,13 @@ module {
 
     // CHECK-LABEL: func @cb_object_dedup_same_port
     func.func @cb_object_dedup_same_port() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.verbatim "experimental::CircularBuffer [[DEDUP_PORT_CB:cb_ctarg_0]]({});"
+      // CHECK: emitc.verbatim "CircularBuffer [[DEDUP_PORT_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %cb_again = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %num_pages = arith.constant 1 : i32
       // CHECK: emitc.verbatim "[[DEDUP_PORT_CB]].reserve_back({});"
       "ttkernel.cb_reserve_back"(%cb, %num_pages) : (!cb0_tiles, i32) -> ()
-      // CHECK-NOT: emitc.verbatim "experimental::CircularBuffer
+      // CHECK-NOT: emitc.verbatim "CircularBuffer
       // CHECK: emitc.verbatim "[[DEDUP_PORT_CB]].push_back({});"
       "ttkernel.cb_push_back"(%cb_again, %num_pages) : (!cb0_tiles, i32) -> ()
       return
@@ -1636,7 +1636,7 @@ module {
     // CHECK-LABEL: func @cb_object_cross_block
     func.func @cb_object_cross_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
-      // CHECK-NEXT: emitc.verbatim "experimental::CircularBuffer [[LOOP_CB:cb_ctarg_0]]({});"
+      // CHECK-NEXT: emitc.verbatim "CircularBuffer [[LOOP_CB:cb_ctarg_0]]({});"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %lb = arith.constant 0 : index
       %ub = arith.constant 2 : index
@@ -1998,7 +1998,7 @@ module {
     func.func @noc_semaphore_set() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      %addr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
       // CHECK: emitc.call_opaque "noc_semaphore_set"(%[[ADDR]], %[[VAL]])
@@ -2010,7 +2010,7 @@ module {
     func.func @semaphore_wait() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      %addr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
       // CHECK: emitc.call_opaque "experimental::semaphore_wait"(%[[ADDR]], %[[VAL]])
@@ -2022,7 +2022,7 @@ module {
     func.func @semaphore_wait_min() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
-      %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
+      %addr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
       // CHECK: emitc.call_opaque "experimental::semaphore_wait_min"(%[[ADDR]], %[[VAL]])
@@ -2367,6 +2367,98 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @cast_to_l1_ptr_8
+    func.func @cast_to_l1_ptr_8() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      // CHECK: emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint8_t*>"
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      return
+    }
+
+    // CHECK-LABEL: func @cast_to_l1_ptr_16
+    func.func @cast_to_l1_ptr_16() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      // CHECK: emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint16_t*>"
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
+      return
+    }
+
+    // CHECK-LABEL: func @cast_to_l1_ptr_32
+    func.func @cast_to_l1_ptr_32() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      // CHECK: emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint32_t*>"
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
+      return
+    }
+
+    // CHECK-LABEL: func @store_to_l1_i8
+    func.func @store_to_l1_i8() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %offset = arith.constant 0 : i32
+      %val = arith.constant 42 : i8
+      // CHECK: emitc.cast %{{.*}} : i8 to !emitc.opaque<"tt_l1_ptr uint8_t">
+      ttkernel.store_to_l1(%val, %ptr, %offset) : (i8, !ttkernel.l1_addr_ptr<8>, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @store_to_l1_i16
+    func.func @store_to_l1_i16() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
+      %offset = arith.constant 0 : i32
+      %val = arith.constant 42 : i16
+      // CHECK: emitc.cast %{{.*}} : i16 to !emitc.opaque<"tt_l1_ptr uint16_t">
+      ttkernel.store_to_l1(%val, %ptr, %offset) : (i16, !ttkernel.l1_addr_ptr<16>, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @store_to_l1_i32
+    func.func @store_to_l1_i32() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
+      %offset = arith.constant 0 : i32
+      %val = arith.constant 42 : i32
+      // CHECK: emitc.cast %{{.*}} : i32 to !emitc.opaque<"tt_l1_ptr uint32_t">
+      ttkernel.store_to_l1(%val, %ptr, %offset) : (i32, !ttkernel.l1_addr_ptr, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @load_from_l1_i8
+    func.func @load_from_l1_i8() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %offset = arith.constant 0 : i32
+      // CHECK: %[[SUBSCRIPT:.*]] = emitc.subscript %{{.*}}[%{{.*}}] : (!emitc.ptr<!emitc.opaque<"tt_l1_ptr uint8_t">>, i32) -> !emitc.lvalue<!emitc.opaque<"tt_l1_ptr uint8_t">>
+      // CHECK: %[[LOADED:.*]] = emitc.load %[[SUBSCRIPT]] : <{{.*}}>
+      // CHECK: emitc.cast %[[LOADED]] : !emitc.opaque<"tt_l1_ptr uint8_t"> to i8
+      %val = ttkernel.load_from_l1(%ptr, %offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+      return
+    }
+
+    // CHECK-LABEL: func @load_from_l1_i16
+    func.func @load_from_l1_i16() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr<16>)
+      %offset = arith.constant 0 : i32
+      // CHECK: %[[SUBSCRIPT:.*]] = emitc.subscript %{{.*}}[%{{.*}}] : (!emitc.ptr<!emitc.opaque<"tt_l1_ptr uint16_t">>, i32) -> !emitc.lvalue<!emitc.opaque<"tt_l1_ptr uint16_t">>
+      // CHECK: %[[LOADED:.*]] = emitc.load %[[SUBSCRIPT]] : <{{.*}}>
+      // CHECK: emitc.cast %[[LOADED]] : !emitc.opaque<"tt_l1_ptr uint16_t"> to i16
+      %val = ttkernel.load_from_l1(%ptr, %offset) : (!ttkernel.l1_addr_ptr<16>, i32) -> i16
+      return
+    }
+
+    // CHECK-LABEL: func @load_from_l1_i32
+    func.func @load_from_l1_i32() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %temp = arith.constant 262400 : i32
+      %ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr)
+      %offset = arith.constant 0 : i32
+      // CHECK: %[[SUBSCRIPT:.*]] = emitc.subscript %{{.*}}[%{{.*}}] : (!emitc.ptr<!emitc.opaque<"tt_l1_ptr uint32_t">>, i32) -> !emitc.lvalue<!emitc.opaque<"tt_l1_ptr uint32_t">>
+      // CHECK: %[[LOADED:.*]] = emitc.load %[[SUBSCRIPT]] : <{{.*}}>
+      // CHECK: emitc.cast %[[LOADED]] : !emitc.opaque<"tt_l1_ptr uint32_t"> to i32
+      %val = ttkernel.load_from_l1(%ptr, %offset) : (!ttkernel.l1_addr_ptr, i32) -> i32
+      return
+    }
 
   } // module
 

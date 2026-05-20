@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Transforms/InsertDstRegisterAccessShared.h"
+#include "ttmlir/Dialect/D2M/Transforms/InsertDstRegisterAccess/Shared.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -480,11 +480,8 @@ Value lookThroughSubView(Value memref) {
   if (auto *definingOp = memref.getDefiningOp()) {
     if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
       memref = definingOp->getOperand(0);
-    } else if (mlir::isa<memref::AllocOp>(definingOp)) {
-      // Post-SplitUnifiedThread refactor (#8135): scratch/aliased allocs are
-      // not reliably traceable to a CB via `findAssocOperand`, so treat any
-      // `memref.alloc` we walk down to as a logical CB (non-null result
-      // means "emit guards"). The previous CB lookup is no longer needed.
+    } else if (mlir::isa<memref::AllocOp>(definingOp) ||
+               mlir::isa<OperandAliasOp>(definingOp)) {
       return memref;
     }
   }

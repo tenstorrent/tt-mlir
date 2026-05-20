@@ -60,6 +60,21 @@ def TTNNDecomposition : Pass<"ttnn-decomposition", "::mlir::ModuleOp"> {
     these decompositions are permanent and functional - they apply when no
     suitable kernel exists for the given op configuration (e.g. shape).
   }];
+
+  let options = [
+    Option<"enableOpConstraints",
+            "enable-op-constraints",
+            "bool", /*default=*/"false",
+            "Enable op model constraint validation for decomposition patterns. "
+            "Requires TTMLIR_ENABLE_OPMODEL. When enabled, ops are validated "
+            "before deciding whether to decompose.">,
+    Option<"maxFallbackAttempts",
+            "max-fallback-attempts",
+            "uint32_t", /*default=*/"10000",
+            "Maximum number of fallback configurations to try before "
+            "giving up (0 = unlimited). Only used when "
+            "enable-op-constraints is true.">
+  ];
 }
 
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {

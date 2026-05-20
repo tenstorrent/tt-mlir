@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_D2M_TRANSFORMS_INSERTDSTREGISTERACCESSSHARED_H
-#define TTMLIR_DIALECT_D2M_TRANSFORMS_INSERTDSTREGISTERACCESSSHARED_H
+#ifndef TTMLIR_DIALECT_D2M_TRANSFORMS_INSERTDSTREGISTERACCESS_SHARED_H
+#define TTMLIR_DIALECT_D2M_TRANSFORMS_INSERTDSTREGISTERACCESS_SHARED_H
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
@@ -103,8 +103,8 @@ struct DstAccessCollection {
 };
 
 // DST slice allocator types live in their respective pass .cpp files
-// (`DstSliceAllocationState` in InsertDstRegisterAccessUnscheduled.cpp,
-// `DstStackAllocator` in InsertDstRegisterAccessScheduled.cpp), since each is
+// (`DstSliceAllocationState` in InsertDstRegisterAccess/Unscheduled.cpp,
+// `DstStackAllocator` in InsertDstRegisterAccess/Scheduled.cpp), since each is
 // only used by one pass.
 
 // ---------------------------------------------------------------------------
@@ -287,4 +287,4 @@ bool insertDstRegisterAccessFinalize(
 
 } // namespace mlir::tt::d2m
 
-#endif // TTMLIR_DIALECT_D2M_TRANSFORMS_INSERTDSTREGISTERACCESSSHARED_H
+#endif // TTMLIR_DIALECT_D2M_TRANSFORMS_INSERTDSTREGISTERACCESS_SHARED_H

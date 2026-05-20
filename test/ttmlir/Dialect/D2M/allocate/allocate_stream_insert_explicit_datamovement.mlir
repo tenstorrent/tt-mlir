@@ -10,9 +10,9 @@ module {
   // CHECK: %[[LHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #dram>
   // CHECK: %[[RHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
   // CHECK: d2m.generic
-  // CHECK: %[[CB_LHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<2x3x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<12288x4096, 2>, #l1>
+  // CHECK: %[[CB_LHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64{{.*}}} : memref<2x3x!ttcore.tile<32x32, f32>, {{.*}}#l1>
   // CHECK: d2m.remote_load %[[CB_LHS]] %[[LHS]]{{.*}}
-  // CHECK: %[[CB_RHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : memref<3x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+  // CHECK: %[[CB_RHS:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64{{.*}}} : memref<3x4x!ttcore.tile<32x32, f32>, {{.*}}#l1>
   // CHECK: d2m.remote_load %[[CB_RHS]] %[[RHS]]{{.*}}
   func.func @test_generic_insert_missing_streams() {
     %lhs = memref.alloc() : memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #dram>
@@ -26,15 +26,16 @@ module {
         outs(%out : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
     ^unified0:
       %c0 = arith.constant 0 : index
-      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x3x!ttcore.tile<32x32, f32>, #l1>>
-      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1>>
-      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      %buffer_lhs = memref.alloc() : memref<2x3x!ttcore.tile<32x32, f32>, #l1>
+      %buffer_lhs = memref.alloc() {d2m.synchronized_buffer = 2} : memref<2x3x!ttcore.tile<32x32, f32>, #l1>
       d2m.remote_load %buffer_lhs %lhs[%c0, %c0] : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<12288x4096, 1>, #dram>
-      %buffer_rhs = memref.alloc() : memref<3x4x!ttcore.tile<32x32, f32>, #l1>
+      %buffer_rhs = memref.alloc() {d2m.synchronized_buffer = 2} : memref<3x4x!ttcore.tile<32x32, f32>, #l1>
       d2m.remote_load %buffer_rhs %rhs[%c0, %c0] : memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
-      %buffer_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      "d2m.tile_matmul_block"(%buffer_lhs, %buffer_rhs, %buffer_out) : (memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> ()
+      %buffer_out = memref.alloc() {d2m.synchronized_buffer = 2} : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%buffer_lhs, %buffer_rhs : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<3x4x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_out : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
+      ^bb0(%lhs_elem: !ttcore.tile<32x32, f32>, %rhs_elem: !ttcore.tile<32x32, f32>, %out_elem: !ttcore.tile<32x32, f32>):
+        %result = "d2m.tile_matmul"(%lhs_elem, %rhs_elem, %out_elem) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %result : !ttcore.tile<32x32, f32>
+      }
       d2m.remote_store %out[%c0, %c0] %buffer_out : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>
     }
     return

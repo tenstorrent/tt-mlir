@@ -123,9 +123,8 @@ public:
           ttcore::DataTypeAttr::get(rewriter.getContext(), dtype));
 
       mlir::Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
-      auto toDevOp = rewriter.create<ToDeviceOp>(op.getLoc(), newWeightType,
-                                                 typecastOp.getResult(), device,
-                                                 /*memory_config=*/nullptr);
+      auto toDevOp = rewriter.create<ToDeviceOp>(
+          op.getLoc(), newWeightType, typecastOp.getResult(), device);
       newWeight = toDevOp.getResult();
     } else {
       // Single device typecast for non-blockfloat targets.

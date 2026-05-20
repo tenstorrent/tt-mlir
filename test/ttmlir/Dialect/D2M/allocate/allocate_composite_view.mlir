@@ -8,6 +8,7 @@ func.func @test_composite_view() -> memref<1x2x1x1x!ttcore.tile<32x32, f32>, #tt
   // CHECK: %[[ALLOC_RHS:.+]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #l1>
   %alloc_1 = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
 
+  // CHECK: %[[COMPOSITE_VIEW:.+]] = "d2m.composite_view"(%[[ALLOC_LHS]], %[[ALLOC_RHS]])
   %0 = "d2m.composite_view"(%alloc_0, %alloc_1) <{dim = 1 : si32}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>) -> memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
 
   // CHECK: %[[ALLOC_OUT:.+]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64}{{.+}} #l1>
@@ -21,6 +22,8 @@ func.func @test_composite_view() -> memref<1x2x1x1x!ttcore.tile<32x32, f32>, #tt
     %block_factor1 = d2m.get_block_factor(1) : index
     affine.for %arg2 = 0 to %block_factor0 {
       affine.for %arg3 = 0 to %block_factor1 {
+        // Check that the composite view load is not aliased
+        // CHECK-NOT: d2m.operand_alias %[[COMPOSITE_VIEW]]
         %alloc_3 = memref.alloc() {alignment = 64 : i64} : memref<1x1x!ttcore.tile<32x32, f32>>
         %block_offset0 = d2m.block_offset(0) : index
         %1 = affine.apply affine_map<(d0)[s0] -> (d0 + s0)>(%arg2)[%block_offset0]

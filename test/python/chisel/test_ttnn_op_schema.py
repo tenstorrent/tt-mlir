@@ -4,14 +4,14 @@
 """
 Cross-check the generated TTNN op schema (OPERAND_NAMES / ATTRIBUTE_NAMES /
 RESULT_NAMES, stamped onto each OpView by ttmlir.dialects.ttnn) against the
-real Python OpView surface — `dir(cls)` — exposed by mlir-tblgen.
+real Python OpView surface - `dir(cls)` - exposed by mlir-tblgen.
 
 For each TTNN op:
   * every OPERAND_NAMES / ATTRIBUTE_NAMES / RESULT_NAMES entry must be a
     member of the OpView class;
   * `dir(cls)` must contain no public names beyond the schema entries, the
     base `mlir.ir.OpView` surface, and the four schema-stamped sentinels
-    (OPERATION_NAME plus the three *_NAMES tuples) — any leftover is a name
+    (OPERATION_NAME plus the three *_NAMES tuples) - any leftover is a name
     the OpView exposes that the schema fails to classify.
 """
 import inspect

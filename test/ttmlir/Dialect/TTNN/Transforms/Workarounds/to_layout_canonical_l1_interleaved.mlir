@@ -34,17 +34,14 @@ module attributes {} {
 
   // input_tensor: 32 x 128 = 4096 -> memref<1x4096xbf16, l1>
   // CHECK: "ttnn.to_layout"
-  // CHECK-SAME: memory_config = #ttnn.memory_config<<l1>, <interleaved>>
   // CHECK-SAME: -> tensor<{{.*}}xbf16, #ttnn.ttnn_layout<{{.*}} memref<1x4096xbf16, #ttnn.buffer_type<l1>>, <interleaved>>>
 
   // expert_indices: 32 x 4 = 128 -> memref<1x128xui16, l1>
   // CHECK: "ttnn.to_layout"
-  // CHECK-SAME: memory_config = #ttnn.memory_config<<l1>, <interleaved>>
   // CHECK-SAME: -> tensor<{{.*}}xui16, #ttnn.ttnn_layout<{{.*}} memref<1x128xui16, #ttnn.buffer_type<l1>>, <interleaved>>>
 
   // expert_scores: 32 x 4 = 128 -> memref<1x128xbf16, l1>
   // CHECK: "ttnn.to_layout"
-  // CHECK-SAME: memory_config = #ttnn.memory_config<<l1>, <interleaved>>
   // CHECK-SAME: -> tensor<{{.*}}xbf16, #ttnn.ttnn_layout<{{.*}} memref<1x128xbf16, #ttnn.buffer_type<l1>>, <interleaved>>>
   func.func @dispatch_metadata_l1_canonical_form(
       %input:   tensor<1x1x32x128xbf16, #dram_input>,

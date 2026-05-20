@@ -307,6 +307,9 @@ func.func @softmax_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // LayerNorm
 // CHECK-LABEL: def cpu_hoisted_ttir_layer_{{.*}}
 // CHECK: ttir_cpu.layer_norm(
+// Regression for #8457: scalar FloatAttr must round-trip, not be
+// truncated by std::to_string to "epsilon=0.000010".
+// CHECK-SAME: epsilon=9.99999974E-6
 // CHECK-LABEL: def layer_norm_validation
 // CHECK: cpu_hoisted_ttir_layer_{{.*}}
 // CHECK: ttnn.layer_norm(

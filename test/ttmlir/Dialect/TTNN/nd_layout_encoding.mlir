@@ -19,7 +19,7 @@ module {
             yield %2 : i32
         }
         %1 = emitc.literal "get_compile_time_arg_val(0)" {ttkernel.cb_ctarg_idx = 0 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_0({});" args %1 : !emitc.opaque<"::tt::CB">
         emitc.verbatim "cb_ctarg_0.reserve_back({});" args %0 : i32
         emitc.verbatim "cb_ctarg_0.push_back({});" args %0 : i32
         return
@@ -30,7 +30,7 @@ module {
             yield %2 : i32
         }
         %1 = emitc.literal "get_compile_time_arg_val(1)" {ttkernel.cb_ctarg_idx = 1 : i32} : !emitc.opaque<"::tt::CB">
-        emitc.verbatim "experimental::CircularBuffer cb_ctarg_1({});" args %1 : !emitc.opaque<"::tt::CB">
+        emitc.verbatim "CircularBuffer cb_ctarg_1({});" args %1 : !emitc.opaque<"::tt::CB">
         emitc.verbatim "cb_ctarg_1.wait_front({});" args %0 : i32
         emitc.verbatim "cb_ctarg_1.pop_front({});" args %0 : i32
         return

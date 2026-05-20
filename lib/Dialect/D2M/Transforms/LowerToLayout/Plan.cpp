@@ -4,12 +4,8 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/LowerToLayout/Plan.h"
 
-#include "ttmlir/AffineMapUtils.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-
-#include "llvm/ADT/STLExtras.h"
 
 #include <numeric>
 #include <optional>
@@ -103,6 +99,32 @@ bool canUseReinterpretLayoutView(const PlanState &current,
              target.getLayout()->getMemorySpace() &&
          current.getLayout()->getMemoryLayout() ==
              target.getLayout()->getMemoryLayout();
+}
+
+// DRAM cannot be both the source and destination of a materializing generic.
+// Pure view-like DRAM changes are still legal, but anything requiring a copy or
+// format/grid mutation must bounce through L1 first.
+bool needsDramBounce(const PlanState &current, const PlanState &target) {
+  if (!current.hasLayout() || !target.hasLayout() || !current.isDRAM() ||
+      !target.isDRAM()) {
+    return false;
+  }
+
+  bool sameVgm = current.vgmForward == target.vgmForward &&
+                 current.vgmInverse == target.vgmInverse;
+  bool sameRemapping = current.remapping == target.remapping;
+  bool sameOrReinterpretableType = current.type == target.type ||
+                                   canUseReinterpretLayoutView(current, target);
+  if (sameVgm && sameRemapping && sameOrReinterpretableType) {
+    return false;
+  }
+
+  bool currentHasRemapping = current.remapping && !current.remapping.isEmpty();
+  bool targetHasRemapping = target.remapping && !target.remapping.isEmpty();
+  bool onlyApplyingTargetRemap = sameVgm && !currentHasRemapping &&
+                                 targetHasRemapping &&
+                                 sameOrReinterpretableType;
+  return !onlyApplyingTargetRemap;
 }
 
 // Collapse an ND virtual grid into a 2D bounce shape that fits within the
@@ -293,6 +315,20 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     updateStateFromOutput(current, output);
   }
 
+  // DRAM → DRAM materialization: stage through an equivalent L1 buffer before
+  // doing format/grid/VGM changes, then let the normal L1 → DRAM rule below
+  // write into the final target buffer.
+  if (needsDramBounce(current, tgt)) {
+    auto l1Type = modifyDeviceType(
+        ctx, current.type, *current.getLayout(), targetGridShape,
+        current.remapping, ttcore::MemorySpace::DeviceL1,
+        llvm::to_vector(current.getGridShape()), current.type.getElementType());
+    auto output =
+        makeOutputSpec(l1Type, current.vgmForward, current.vgmInverse);
+    plan.push_back(DRAMToL1Step{output, AffineMap()});
+    updateStateFromOutput(current, output, current.remapping);
+  }
+
   // DRAM → L1: DMA the tensor into an L1 buffer with the target's layout.
   if (current.hasLayout() && current.isDRAM() && tgt.hasLayout() &&
       !tgt.isDRAM()) {
@@ -339,10 +375,12 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     updateStateFromOutput(current, output, current.remapping);
   }
 
-  // L1 → DRAM: the DMA writes directly into the output DRAM buffer.
+  // L1 → DRAM: the DMA writes directly into the output DRAM buffer, including
+  // the target virtual-grid metadata. Otherwise a following VGM-only rebuffer
+  // would become an unsupported DRAM→DRAM copy.
   if (current.hasLayout() && !current.isDRAM() && tgt.hasLayout() &&
       tgt.isDRAM()) {
-    auto output = makeOutputSpec(tgt.type);
+    auto output = makeOutputSpec(tgt.type, tgt.vgmForward, tgt.vgmInverse);
     plan.push_back(L1ToDRAMStep{output, AffineMap()});
     updateStateFromOutput(current, output);
   }

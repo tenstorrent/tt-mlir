@@ -34,7 +34,6 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
       } else {
         emptyOp.setLayout(ttnn::Layout::RowMajor);
       }
-      emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(layoutAttr));
     } else {
       dispatchOp.emitOpError(
           "Expected EmptyOp for D2MSubgraphOp output buffer");
@@ -68,11 +67,9 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
               dispatchOp.getContext(), layoutAttr.getDataType());
           LayoutAttr newLayout =
               LayoutAttr::get(dispatchOp.getContext(), layoutAttr.getLayout());
-          MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(layoutAttr);
           Location loc = mainFunc.getLoc();
-          ToLayoutOp toLayoutOp =
-              builder.create<ToLayoutOp>(loc, newTensorType, currentResultValue,
-                                         newLayout, dataType, memConfigAttr);
+          ToLayoutOp toLayoutOp = builder.create<ToLayoutOp>(
+              loc, newTensorType, currentResultValue, newLayout, dataType);
           returnOp.setOperand(0, toLayoutOp.getResult());
         }
       }

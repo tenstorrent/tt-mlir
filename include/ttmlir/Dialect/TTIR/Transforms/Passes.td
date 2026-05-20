@@ -508,6 +508,37 @@ def TTIRFoldFullToScalar: Pass<"ttir-fold-full-to-scalar", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRConsolidateStaticCacheUpdates
+    : Pass<"ttir-consolidate-static-cache-updates", "::mlir::ModuleOp"> {
+  let summary = "Unify redundant per-layer block args for mark_static_address tensors.";
+  let description = [{
+    Detects per-layer patterns where N block arguments of the same type are
+    each incremented by the same constant delta and returned (e.g., one
+    cumulative_length per transformer layer from Transformers 5.5+
+    StaticCache). Replaces all uses of the N-1 eliminated block args with a
+    single canonical arg. The CSE pass that follows then deduplicates the
+    now-identical add, repeat, and delta ops, collapsing N per-layer scalar
+    ops down to 1.
+
+    Applies when:
+    - The blockArg provably feeds the `update_index` of some update-style
+      cache op (`ttir.update_cache`, `ttir.paged_update_cache`) in the same
+      function, traced through TM-like ops (mesh_shard, broadcast, repeat,
+      reshape, typecast) and add. This grounds the lockstep invariant in
+      actual cache usage and prevents misfiring on unrelated programs.
+    - Multiple return operands match [mesh_shard(] add(blockArg, const_delta) [)]
+    - The add result has exactly one use: the return operand.
+    - All matched adds share the same constant delta value and the same
+      blockArg type (grouped by these two keys).
+    - The blockArg type matches the add result type (no broadcasting).
+
+    Relies on the lockstep decode invariant: all per-layer cumulative_length
+    tensors hold equal values at function entry, so routing all uses to one
+    canonical arg is value-preserving.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::ModuleOp"> {
   let summary = "Narrow boolean-producing ops to i1 in the CPU module.";
   let description = [{

@@ -118,6 +118,7 @@ table PagedScaledDotProductAttentionDecodeOp {
   sliding_window_size: uint32 = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+  program_config: tt.target.ttnn.SDPAConfig;
 }
 
 table PagedFlashMultiLatentAttentionDecodeOp {

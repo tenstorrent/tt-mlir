@@ -80,13 +80,10 @@ struct Hooks {
   using ProgramCallbackFn = std::function<void(Binary, CallbackContext)>;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static const Hooks &
-  get(const std::optional<OperationCallbackFn> &preOperatorCallback =
-          std::nullopt,
-      const std::optional<OperationCallbackFn> &postOperatorCallback =
-          std::nullopt,
-      const std::optional<ProgramCallbackFn> &preProgramCallback = std::nullopt,
-      const std::optional<ProgramCallbackFn> &postProgramCallback =
-          std::nullopt);
+  get(std::optional<OperationCallbackFn> preOperatorCallback = std::nullopt,
+      std::optional<OperationCallbackFn> postOperatorCallback = std::nullopt,
+      std::optional<ProgramCallbackFn> preProgramCallback = std::nullopt,
+      std::optional<ProgramCallbackFn> postProgramCallback = std::nullopt);
 #else
   constexpr static Hooks get() { return Hooks(); }
 #endif

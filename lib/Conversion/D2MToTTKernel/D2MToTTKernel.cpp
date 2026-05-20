@@ -2136,8 +2136,10 @@ static Value loadI32FromL1PacketThroughScratch(OpBuilder &rewriter,
   rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
   rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
   Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
-  Value l1Ptr = rewriter.create<ttkernel::CastToL1PtrOp>(loc, readPtr);
-  Value value = rewriter.create<ttkernel::LoadFromL1Op>(loc, l1Ptr, laneI32);
+  Value l1Ptr = rewriter.create<ttkernel::CastToL1PtrOp>(
+      loc, ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32), readPtr);
+  Value value = rewriter.create<ttkernel::LoadFromL1Op>(
+      loc, rewriter.getI32Type(), l1Ptr, laneI32);
   rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
   return value;
 }
@@ -2933,8 +2935,9 @@ public:
              "d2m.semaphore_inc to local core is illegal.");
 
       // Local semaphore set
-      auto semaphorePtr =
-          rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+      auto semaphorePtr = rewriter.create<ttkernel::CastToL1PtrOp>(
+          op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
+          semaphoreAddr);
 
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetOp>(op, semaphorePtr,
                                                                value);
@@ -2973,8 +2976,9 @@ public:
               op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
               semaphoreAddr, nullptr);
 
-      auto semaphorePtr =
-          rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+      auto semaphorePtr = rewriter.create<ttkernel::CastToL1PtrOp>(
+          op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
+          semaphoreAddr);
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    value);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
@@ -2998,8 +3002,9 @@ public:
 
     Value semaphoreAddr = adaptor.getSemaphore();
 
-    auto semaphorePtr =
-        rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
+    auto semaphorePtr = rewriter.create<ttkernel::CastToL1PtrOp>(
+        op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
+        semaphoreAddr);
 
     rewriter.replaceOpWithNewOp<ttkernel::SemaphoreWaitOp>(op, semaphorePtr,
                                                            op.getValue());
@@ -3030,7 +3035,8 @@ public:
     auto globalSemAddr = rewriter.create<ttkernel::GetNocAddrOp>(
         op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore());
     auto globalSemPtr = rewriter.create<ttkernel::CastToL1PtrOp>(
-        op.getLoc(), adaptor.getSyncSemaphore());
+        op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
+        adaptor.getSyncSemaphore());
 
     assert(op.getSenderStartDevice().size() > 0 && "start device must be set");
     auto fcm = getFabricConnectionManager(op);

@@ -6,7 +6,7 @@ from __future__ import annotations
 import inspect
 import functools
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence, get_args
 import torch
 from enum import Enum, auto
 import re
@@ -17,6 +17,7 @@ from ttmlir.dialects import d2m, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
+from builder.base.builder_enums import MeshShardDirection, MeshShardType
 from builder.base.builder_utils import *
 
 from golden import *
@@ -167,6 +168,77 @@ class D2MBuilder(Builder):
             ).result
 
     # ----- D2M Layout Operations -----
+
+    def mesh_shard(
+        self,
+        input: Operand,
+        shard_type: MeshShardType,
+        shard_direction: MeshShardDirection,
+        shard_shape: List[int],
+        shard_dims: List[int],
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
+        input_type = self._get_type(input)
+        rank = len(input_type.shape)
+
+        output_shape = list(input_type.shape)
+        if shard_type == MeshShardType.Replicate:
+            if shard_dims != [-1]:
+                raise ValueError(f"replicate shard_dims must be [-1], got {shard_dims}")
+        else:
+            if len(shard_shape) != len(shard_dims):
+                raise ValueError(
+                    f"shard_shape/shard_dims length mismatch: "
+                    f"{len(shard_shape)} != {len(shard_dims)}"
+                )
+            for factor, dim in zip(shard_shape, shard_dims):
+                if factor <= 0:
+                    raise ValueError(f"invalid shard factor: {factor}")
+                if dim < 0:
+                    continue
+                if dim >= rank:
+                    raise ValueError(f"shard dim out of range: dim={dim}, rank={rank}")
+                if shard_direction == MeshShardDirection.FullToShard:
+                    if output_shape[dim] % factor != 0:
+                        raise ValueError(
+                            f"non-divisible shard: dim_size={output_shape[dim]}, "
+                            f"factor={factor}, dim={dim}"
+                        )
+                    output_shape[dim] //= factor
+                else:
+                    output_shape[dim] *= factor
+
+        output_encoding = None
+        if shard_direction == MeshShardDirection.FullToShard:
+            mesh_attr = Attribute.parse(
+                f'#ttcore.tensor_mesh<"{self._mesh_name}">', self._ctx
+            )
+            output_encoding = mesh_attr
+
+        output_type = RankedTensorType.get(
+            output_shape, input_type.element_type, output_encoding
+        )
+
+        shard_type_attr = ttcore.ir.MeshShardTypeAttr.get(self._ctx, shard_type.value)
+        shard_direction_attr = ttcore.ir.MeshShardDirectionAttr.get(
+            self._ctx, shard_direction.value
+        )
+        shard_shape_attr = DenseI64ArrayAttr.get(shard_shape)
+        shard_dims_attr = DenseI64ArrayAttr.get(shard_dims)
+
+        with self._ctx, self._loc:
+            if loc is not None:
+                loc = Location.name(loc, context=self._ctx)
+            op = d2m.MeshShardOp(
+                output_type,
+                input,
+                shard_type_attr,
+                shard_direction_attr,
+                shard_shape_attr,
+                shard_dims_attr,
+                loc=loc,
+            )
+            return op.result
 
     def to_layout(
         self,
@@ -367,10 +439,12 @@ class D2MBuilder(Builder):
     def _create_generic(
         self,
         operands,
+        additional_args,
         grid,
         block_factors,
         indexing_maps,
         iterator_types,
+        fabric_connection_config=None,
     ):
         if (
             isinstance(block_factors, list)
@@ -380,6 +454,18 @@ class D2MBuilder(Builder):
             assert isinstance(block_factors, list)
             assert isinstance(block_factors[0], tuple)
             block_factors = [b for bs in block_factors for b in bs]
+
+        assert not isinstance(
+            additional_args, (str, bytes)
+        ), "additional_args must be a sequence of MLIR values or None"
+        assert isinstance(
+            additional_args, Sequence
+        ), "additional_args must be a sequence of MLIR values or None"
+        additional_args = list(additional_args)
+        operand_types = get_args(Operand)
+        assert all(
+            isinstance(arg, operand_types) for arg in additional_args
+        ), "additional_args elements must be MLIR operands"
 
         inputs = operands[:-1]
         outputs = operands[-1:]
@@ -391,7 +477,7 @@ class D2MBuilder(Builder):
             [ret_type],
             inputs,
             outputs,
-            [],  # additional_args
+            additional_args,
             ttcore.ir.GridAttr.get(ctx, grid),
             block_factors,
             list(map(affine_map_from_lambda, indexing_maps)),
@@ -405,6 +491,7 @@ class D2MBuilder(Builder):
             ),
             threads,
             len(threads),
+            fabricConnectionConfig=fabric_connection_config,
         )
 
     def generic(
@@ -414,6 +501,7 @@ class D2MBuilder(Builder):
         indexing_maps=None,
         iterator_types=None,
         skip_grid_selection=False,
+        fabric_connection_config=None,
     ):
         assert (
             not skip_grid_selection or grid is not None
@@ -457,13 +545,19 @@ class D2MBuilder(Builder):
                 nonlocal indexing_maps
                 nonlocal iterator_types
                 nonlocal skip_grid_selection
+                nonlocal fabric_connection_config
 
+                additional_args = kwargs.pop("additional_args", [])
+                if additional_args is None:
+                    additional_args = []
                 generic = self._create_generic(
                     args,
+                    additional_args,
                     grid,
                     block_factors,
                     indexing_maps,
                     iterator_types,
+                    fabric_connection_config,
                 )
                 assert len(generic.regions[0].blocks) == 0
                 generic.regions[0].blocks.append()
@@ -493,4 +587,33 @@ class D2MBuilder(Builder):
             mcast_shape=mcast_shape,
             mcast_dims=mcast_dims,
             local_buffer=dst,
+        )
+
+    def create_global_semaphore(
+        self,
+        output: Optional[Operand] = None,
+        output_type: Optional[RankedTensorType] = None,
+        value: Optional[int] = None,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
+        """Create a D2M create_global_semaphore operation."""
+        resolved_output_type, output_create_fn = self._resolve_output_spec(
+            output=output, output_type=output_type
+        )
+        d2m_kwargs = {
+            "results": [d2m.ir.GlobalSemaphoreType.get(self._ctx)],
+        }
+        if value is not None:
+            d2m_kwargs["value"] = value
+        return self._op_proxy(
+            d2m.CreateGlobalSemaphoreOp,
+            [],
+            unit_attrs=unit_attrs,
+            organize_d2m_args=lambda _inputs, output, _output_shape: (output,),
+            output_type=resolved_output_type,
+            output_shape=resolved_output_type.shape,
+            output_create_fn=output_create_fn,
+            d2m_kwargs=d2m_kwargs,
+            loc=loc,
         )
