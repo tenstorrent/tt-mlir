@@ -8935,7 +8935,10 @@ public:
     BoolAttr isInputASparseAttr = rewriter.getBoolAttr(isInputASparse);
     BoolAttr isInputBSparseAttr = rewriter.getBoolAttr(isInputBSparse);
 
-    // Parse nnz attribute (optional)
+    // Parse nnz attribute (optional).
+    // In SHLO world, nnz=0 means "infer from sparsity tensor at runtime"
+    // In TTIR world (and TTNN), nnz=0 means "this matmul is dense"
+    // Proper way to convert SHLO to TTIR is to omit the nnz attribute entirely.
     auto nnzStringAttr = frontendAttributes.getAs<mlir::StringAttr>("nnz");
     IntegerAttr nnzAttr = nullptr;
     if (nnzStringAttr) {
@@ -8946,7 +8949,9 @@ public:
             "nnz attribute string must be convertible to integer. Received \"" +
                 nnzStringAttr.getValue() + "\".");
       }
-      nnzAttr = rewriter.getI64IntegerAttr(nnz);
+      if (nnz > 0) {
+        nnzAttr = rewriter.getI64IntegerAttr(nnz);
+      }
     }
 
     // Get operands
