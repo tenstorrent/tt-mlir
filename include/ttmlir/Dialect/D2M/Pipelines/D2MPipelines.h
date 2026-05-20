@@ -239,6 +239,17 @@ void createD2MBackendPipeline(OpPassManager &pm,
 void createD2MToTTKernelPipeline(OpPassManager &pm,
                                  const D2MPipelineOptions &options);
 
+// Split halves of the D2M -> TTKernel + EmitC pipeline. Exposed so callers
+// that need to interleave dispatch-level conversion passes (e.g.
+// ConvertD2MToTTMetalPass) between the TTKernel and EmitC stages can compose
+// them directly. Composing pre-EmitC + dispatch + hoist-inits + EmitC matches
+// the canonical ordering in createTTIRToTTMetalPipeline.
+void createD2MToTTKernelPreEmitCPipeline(OpPassManager &pm,
+                                         const D2MPipelineOptions &options);
+
+void createD2MEmitCPipeline(OpPassManager &pm,
+                            const D2MPipelineOptions &options);
+
 void createD2MToTTMetalPipeline(OpPassManager &pm,
                                 const D2MPipelineOptions &options);
 
