@@ -260,9 +260,14 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
   }
 
   ArrayRef<int64_t> tileShape;
-  if (mlir::isa<ttcore::TileType>(elementType)) {
-    tileShape =
-        newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+    if (newTileShape) {
+      tileShape = *newTileShape;
+    } else if (ttcore::isTiled(baseType)) {
+      tileShape = ttcore::getTensorTileShape(baseType);
+    } else {
+      tileShape = tileType.getShape();
+    }
   }
   return RankedTensorType::get(layout.getDeviceShape(tensorGrid, tileShape),
                                elementType, layout);

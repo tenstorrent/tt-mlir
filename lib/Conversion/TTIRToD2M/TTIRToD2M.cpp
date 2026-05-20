@@ -3236,12 +3236,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::EmbeddingOp op, ttir::EmbeddingOp::Adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (memorySpaces[0] != ttcore::MemorySpace::DeviceL1 ||
-        memorySpaces[1] != ttcore::MemorySpace::DeviceL1) {
-      return rewriter.notifyMatchFailure(
-          op, "D2M embedding currently supports L1 inputs and outputs only");
-    }
-
     auto indicesType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
     auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
@@ -3270,16 +3264,60 @@ public:
     }
 
     Location loc = op.getLoc();
-    SmallVector<Value> inputs{
+    auto createUntiledLayoutOp = [&](Value value, RankedTensorType logicalType,
+                                     ttcore::MemorySpace memSpace) -> Value {
+      ArrayRef<int64_t> logicalShape = logicalType.getShape();
+      ttcore::MetalLayoutAttr layout;
+      if (!collapseTensors) {
+        auto emptyIntervalType = RankedTensorType::get(
+            {0, 2}, IntegerType::get(rewriter.getContext(), 64));
+        DenseIntElementsAttr emptyCollapseIntervals =
+            DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+        layout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), logicalShape, memSpace,
+            ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
+      } else {
+        layout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), logicalShape, memSpace,
+            ttcore::TensorMemoryLayout::Sharded);
+      }
+
+      llvm::SmallVector<int64_t> tileShape;
+      llvm::SmallVector<int64_t> unshardedShape =
+          layout.getPhysicalShape(tileShape);
+      llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
+      llvm::SmallVector<int64_t> shardedShape =
+          layout.getDeviceShape(simpleGrid, tileShape);
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(
+          value.getLoc(), shardedShape, logicalType.getElementType(), layout);
+      if (logicalShape.size() > 2) {
+        auto [forwardMap, inverseMap] =
+            ttmlir::d2m::utils::grids::createCoreVirtMaps(rewriter.getContext(),
+                                                          simpleGrid, {1, 1});
+        emptyOp.setVirtualGridInverseMappingAttr(
+            AffineMapAttr::get(inverseMap));
+        emptyOp.setVirtualGridForwardMappingAttr(
+            AffineMapAttr::get(forwardMap));
+      }
+      return rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp)
+          .getResult(0);
+    };
+
+    SmallVector<Value> boundaryInputs{
         createOptimalLayoutOp(op.getInput(), memorySpaces[0],
                               /*tiled=*/false, /*noCollapse=*/false, rewriter),
         createOptimalLayoutOp(op.getWeight(), memorySpaces[0],
                               /*tiled=*/false, /*noCollapse=*/false, rewriter)};
-
+    Value indicesInput =
+        memorySpaces[0] == ttcore::MemorySpace::DeviceL1
+            ? boundaryInputs[0]
+            : createUntiledLayoutOp(boundaryInputs[0], indicesType,
+                                    ttcore::MemorySpace::DeviceL1);
+    SmallVector<Value> inputs{indicesInput, boundaryInputs[1]};
     SmallVector<Value> origOutputs =
         createDpsOutputs(loc, rewriter, {resultType});
     SmallVector<Value> outputs{
-        createOptimalLayoutOp(origOutputs[0], memorySpaces[1],
+        createOptimalLayoutOp(origOutputs[0], ttcore::MemorySpace::DeviceL1,
                               /*tiled=*/false, /*noCollapse=*/false, rewriter)};
 
     const std::size_t physicalRank =
@@ -3321,8 +3359,19 @@ public:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+    Value result = generic->getResult(0);
+    if (memorySpaces[1] != ttcore::MemorySpace::DeviceL1) {
+      Value boundaryOutput = createOptimalLayoutOp(
+          origOutputs[0], memorySpaces[1],
+          /*tiled=*/false, /*noCollapse=*/false, rewriter);
+      result = rewriter
+                   .create<d2m::ToLayoutOp>(loc, generic->getResult(0),
+                                            boundaryOutput)
+                   .getResult(0);
+    }
+
+    rewriter.replaceOp(
+        op, unLayoutResult(rewriter, result, op->getResult(0).getType()));
     return success();
   }
 };

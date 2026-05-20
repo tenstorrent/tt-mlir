@@ -556,6 +556,16 @@ getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape) {
   if (gridFwdMap.getNumDims() != rank || gridFwdMap.getNumResults() != 3) {
     return std::nullopt;
   }
+
+  SmallVector<int64_t> physicalGridShape =
+      ttmlir::utils::evalShape(gridFwdMap, gridShape);
+  ArrayRef<int64_t> physicalWorkerGridShape(physicalGridShape);
+  if (physicalGridShape.size() != 3 ||
+      ttmlir::utils::volume<int64_t>(physicalWorkerGridShape.drop_front()) !=
+          ttmlir::utils::volume<int64_t>(gridShape)) {
+    return std::nullopt;
+  }
+
   return std::make_pair(gridFwdMap, *invMap);
 }
 

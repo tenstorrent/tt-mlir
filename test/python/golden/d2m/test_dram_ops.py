@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import itertools
+import math
 import pytest
 import torch
 from typing import List, Optional
@@ -347,3 +348,68 @@ def test_dram_reduction(
         atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
         pcc=0.99,
     )
+
+
+DRAM_EMBEDDING_CASES = [
+    pytest.param(
+        (1, 32),
+        (1024, 32),
+        torch.uint32,
+        torch.bfloat16,
+        id="ui32_indices_bf16_table_1x32_1024x32",
+    ),
+    pytest.param(
+        (1, 32),
+        (1024, 32),
+        torch.uint32,
+        torch.int32,
+        marks=pytest.mark.skip_config(["sim"]),
+        id="ui32_indices_i32_table_1x32_1024x32",
+    ),
+    pytest.param(
+        (1, 32),
+        (8192, 64),
+        torch.uint32,
+        torch.float32,
+        id="ui32_indices_f32_table_1x32_8192x64",
+    ),
+    pytest.param(
+        (1, 128),
+        (40960, 128),
+        torch.uint32,
+        torch.bfloat16,
+        id="ui32_indices_bf16_table_1x128_40960x128",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "indices_shape,weight_shape,indices_dtype,weight_dtype", DRAM_EMBEDDING_CASES
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_embedding(
+    indices_shape: Shape,
+    weight_shape: Shape,
+    indices_dtype: torch.dtype,
+    weight_dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    num_indices = math.prod(indices_shape)
+
+    def module(builder: TTIRBuilder):
+        @builder.func([indices_shape, weight_shape], [indices_dtype, weight_dtype])
+        def embedding(
+            indices: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            valid_indices = (
+                torch.arange(num_indices, dtype=torch.int64).reshape(indices_shape) * 7
+            ) % weight_shape[0]
+            builder.set_goldens(inputs={indices: valid_indices.to(indices_dtype)})
+            return builder.embedding(indices, weight, unit_attrs=unit_attrs)
+
+    compile_and_execute_dram_test(module, request, device, target)

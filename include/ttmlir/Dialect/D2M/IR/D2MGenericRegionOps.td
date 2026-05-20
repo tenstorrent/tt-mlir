@@ -1586,7 +1586,7 @@ def D2M_IndexedRowCopyOp : D2M_GenericRegionDatamovementOp<"indexed_row_copy",
 
     let arguments = (ins
       DeviceL1MemRef:$indices,
-      DeviceL1MemRef:$src,
+      DeviceMemRef:$src,
       DeviceL1MemRef:$dst,
       DeviceL1MemRef:$indexScratch,
       DeviceL1MemRef:$rowScratch,
