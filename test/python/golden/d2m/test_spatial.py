@@ -401,20 +401,33 @@ def test_spatial_two_regions_two_matmuls(
 @pytest.mark.parametrize(
     "fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D_RING]
 )
+@pytest.mark.parametrize(
+    "ag_test_shape",
+    [
+        pytest.param((256, 256), id="256x256"),
+    ],
+)
+@pytest.mark.parametrize(
+    "mm_shapes",
+    [
+        pytest.param(([32, 32], [32, 32]), id="32x32_32x32"),
+        pytest.param(([256, 256], [256, 256]), id="256x256_256x256"),
+    ],
+)
 def test_spatial_two_regions_allgather_and_matmul(
     target: str,
     mesh_shape: Tuple[int, int],
     fabric_config: tt_runtime.runtime.FabricConfig,
+    ag_test_shape: Tuple[int, int],
+    mm_shapes: Tuple[List[int], List[int]],
     request,
     device,
     grid_ranges,
 ):
-    ag_test_shape = (256, 256)
+    mm_lhs_shape, mm_rhs_shape = mm_shapes
     ag_input_shape = [ag_test_shape[0], ag_test_shape[1] * mesh_shape[1]]
     ag_input_rank = len(ag_test_shape)
-    mm_lhs_shape = [32, 32]
-    mm_rhs_shape = [32, 32]
-    mm_out_shape = [32, 32]
+    mm_out_shape = [mm_lhs_shape[0], mm_rhs_shape[1]]
     pipeline_opts = [
         "use-tile-matmul=false",
     ]
