@@ -911,13 +911,14 @@ TEST(AffineMapUtilsTest, CanAnalyzeNestedDramCoalescingTerms) {
   bindDims(&context, d0, d1, d2, d3);
 
   auto checkMap = [&](AffineMap memoryMap, llvm::ArrayRef<int64_t> shape,
-                      size_t elemSizeBytes, size_t expectedCoalescingFactor) {
+                      size_t elemSizeBytes, size_t expectedCoalescingFactor,
+                      size_t expectedInnerShardBound) {
     constexpr unsigned numGridDims = 2;
     std::optional<int64_t> innerShardBound =
         computeCoalescingFactorForShardDim(memoryMap, shape, numGridDims,
                                            /*shardDimIdx=*/1);
     ASSERT_TRUE(innerShardBound.has_value());
-    EXPECT_EQ(static_cast<size_t>(*innerShardBound), expectedCoalescingFactor);
+    EXPECT_EQ(static_cast<size_t>(*innerShardBound), expectedInnerShardBound);
 
     size_t analyticalFactor = computeCoalescingFactorAnalytically(
         memoryMap, shape, numGridDims, elemSizeBytes);
@@ -938,7 +939,7 @@ TEST(AffineMapUtilsTest, CanAnalyzeNestedDramCoalescingTerms) {
            (d1Times128PlusD3 % 2432) * 2},
       &context);
   checkMap(bf16Map, {4, 152, 32, 128}, /*elemSizeBytes=*/2,
-           /*expectedCoalescingFactor=*/128);
+           /*expectedCoalescingFactor=*/128, /*expectedInnerShardBound=*/128);
 
   // Same DRAM banking pattern for a tiled shard. The previous analysis treated
   // the nested floordiv term as unanalyzable and fell back to sampling.
@@ -950,7 +951,36 @@ TEST(AffineMapUtilsTest, CanAnalyzeNestedDramCoalescingTerms) {
        bankTerm4.floorDiv(12) * 155648 + (d1Times4PlusD3 % 76) * 2048},
       &context);
   checkMap(tileMap, {4, 152, 1, 4}, /*elemSizeBytes=*/2048,
-           /*expectedCoalescingFactor=*/4);
+           /*expectedCoalescingFactor=*/4, /*expectedInnerShardBound=*/4);
+
+  // Pattern from the Qwen matmul weight tilize write. The bank/page term
+  // contains `((d0 * 80 + d1 * 10 + d3) floordiv 3040) * 8`; the floordiv is
+  // stable for the full d3 extent, so multiplying it by 8 under the outer
+  // modulo must not force a sampling fallback.
+  AffineExpr tileTilizeDramPage = (d0 * 80 + d1 * 10 + d3).floorDiv(3040);
+  AffineExpr tileTilizeBankTerm = tileTilizeDramPage * 8 + d1;
+  AffineMap tileTilizeMap = AffineMap::get(
+      /*dimCount=*/4, /*symbolCount=*/0,
+      {zero, zero, tileTilizeBankTerm % 12,
+       tileTilizeBankTerm.floorDiv(12) * 778240 + (d0 % 38) * 20480 +
+           d3 * 2048},
+      &context);
+  checkMap(tileTilizeMap, {304, 8, 1, 10}, /*elemSizeBytes=*/2048,
+           /*expectedCoalescingFactor=*/10, /*expectedInnerShardBound=*/10);
+
+  // Same multiplied stable-floordiv pattern for the untilized bf16 source read.
+  AffineExpr bf16TilizeDramPage =
+      (d0 * 81920 + d2 * 2560 + d1 * 320 + d3).floorDiv(3112960);
+  AffineExpr bf16TilizeBankTerm = bf16TilizeDramPage * 8 + d1;
+  AffineMap bf16TilizeMap = AffineMap::get(
+      /*dimCount=*/4, /*symbolCount=*/0,
+      {zero, zero, bf16TilizeBankTerm % 12,
+       bf16TilizeBankTerm.floorDiv(12) * 778240 +
+           ((d0 * 32 + d2) % 1216) * 640 + d3 * 2},
+      &context);
+  checkMap(bf16TilizeMap, {304, 8, 32, 320}, /*elemSizeBytes=*/2,
+           /*expectedCoalescingFactor=*/10240,
+           /*expectedInnerShardBound=*/320);
 }
 
 TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
@@ -1406,6 +1436,18 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
         analyzeShardResultExprForContiguity(expr, dimBounds, 0, 0, 16);
     EXPECT_EQ(contiguityBoundToInt64(result), 4)
         << "(d0 * 4) with parentModulus 16 should return 4";
+  }
+
+  // Test 14b: Mul with parentModulus propagation when the multiplier is not a
+  // divisor of the modulus. The period is modulus / gcd(modulus, multiplier).
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr expr = d0 * 8;
+    auto dimBounds = makeDimBounds({{0, 32}});
+    auto result =
+        analyzeShardResultExprForContiguity(expr, dimBounds, 0, 0, 12);
+    EXPECT_EQ(contiguityBoundToInt64(result), 3)
+        << "(d0 * 8) with parentModulus 12 should return 3";
   }
 
   // Test 15: Three dimensions - (d0 + 2*d1 + 3*d2) mod 12.

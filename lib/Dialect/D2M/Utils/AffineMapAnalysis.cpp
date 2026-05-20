@@ -532,6 +532,9 @@ ContiguityBound analyzeShardResultExprForContiguity(
     if (constVal < 0) {
       return UnanalyzableBound{}; // Error: negative constant.
     }
+    if (constVal == 0) {
+      return UnconstrainedBound{};
+    }
 
     mlir::AffineExpr variableExpr = rhsConstExpr ? lhs : rhs;
 
@@ -551,12 +554,31 @@ ContiguityBound analyzeShardResultExprForContiguity(
       return UnconstrainedBound{};
     }
 
-    // If rhsConst % constVal == 0, bound is rhsConst / constVal.
-    if (*parentModulus % constVal == 0) {
-      return ConstrainedBound{*parentModulus / constVal};
+    if (!exprContainsDim(variableExpr, dimPos)) {
+      return UnconstrainedBound{};
     }
-    // If rhsConst % constVal != 0, return unanalyzable.
-    return UnanalyzableBound{};
+
+    int64_t variableStride = analyzeExprForDimStride(variableExpr, dimPos);
+    if (variableStride == 0) {
+      return UnconstrainedBound{};
+    }
+    if (variableStride < 0) {
+      if (*parentModulus % constVal == 0) {
+        return ConstrainedBound{*parentModulus / constVal};
+      }
+      return UnanalyzableBound{};
+    }
+
+    int64_t scaledStride = variableStride * constVal;
+    if (scaledStride < 0) {
+      scaledStride = -scaledStride;
+    }
+    if (scaledStride == 0) {
+      return UnconstrainedBound{};
+    }
+
+    int64_t period = *parentModulus / std::gcd(*parentModulus, scaledStride);
+    return checkBoundsAndReturn(period);
   }
 
   case mlir::AffineExprKind::Mod:
