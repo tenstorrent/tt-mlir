@@ -3605,6 +3605,14 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
            << channelDim << ", num_groups=" << numGroups;
   }
 
+  // input_mask is sized against (C, num_groups), so the channel-padding
+  // workaround cannot fix a non-tile-aligned C when input_mask is present.
+  if (getInputMask() && channelDim % 32 != 0) {
+    return emitOpError("input_mask is not supported when channel dimension is "
+                       "not tile-aligned (multiple of 32); got C=")
+           << channelDim;
+  }
+
   if (getWeight()) {
     RankedTensorType weightType = getWeight().getType();
     if (weightType.getRank() == 1) {

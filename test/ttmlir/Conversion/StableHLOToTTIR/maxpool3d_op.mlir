@@ -39,15 +39,11 @@ func.func public @test_maxpool3d_ncdhw(%arg0: tensor<1x2x4x8x8xbf16>) -> tensor<
 
 // -----
 
-// 5D NDHWC max_pool3d: permute to NCDHW, then same decomposition, permute back.
+// 5D NDHWC max_pool3d: skip redundant input NDHWC->NCDHW->NDHWC permutes.
 // Input: [1, 4, 8, 8, 2] (NDHWC), kernel: [3, 3, 3], stride: [2, 2, 2], padding: [1, 1, 1]
 func.func public @test_maxpool3d_ndhwc(%arg0: tensor<1x4x8x8x2xbf16>) -> tensor<1x2x4x4x2xbf16> {
   %0 = stablehlo.constant dense<0xFF80> : tensor<bf16>
-  // CHECK: %{{[0-9]+}} = "ttir.permute"(%arg0)
-  // CHECK-SAME: (tensor<1x4x8x8x2xbf16>) -> tensor<1x2x4x8x8xbf16>
-  // CHECK: %{{[0-9]+}} = "ttir.permute"(%{{[0-9]+}})
-  // CHECK-SAME: (tensor<1x2x4x8x8xbf16>) -> tensor<1x4x8x8x2xbf16>
-  // CHECK: %{{[0-9]+}} = "ttir.reshape"(%{{[0-9]+}})
+  // CHECK: %{{[0-9]+}} = "ttir.reshape"(%arg0)
   // CHECK-SAME: (tensor<1x4x8x8x2xbf16>) -> tensor<4x8x8x2xbf16>
   // CHECK: %{{[0-9]+}} = "ttir.max_pool2d"(%{{[0-9]+}})
   // CHECK-SAME: ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 3, 3>, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>

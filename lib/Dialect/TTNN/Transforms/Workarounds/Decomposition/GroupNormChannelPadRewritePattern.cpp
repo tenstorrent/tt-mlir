@@ -40,8 +40,7 @@ static Value padAffine1D(Value affine, int64_t originalC, int64_t paddedC,
   return rewriter.create<ttnn::PadOp>(
       ttmlir::utils::appendLocationSuffix(loc, suffix), paddedType, affine,
       padding, /*pad_value=*/mlir::APFloat(0.0f),
-      /*use_multicore=*/false,
-      /*memory_config=*/nullptr);
+      /*use_multicore=*/false);
 }
 
 LogicalResult GroupNormChannelPadRewritePattern::matchAndRewrite(
@@ -62,11 +61,9 @@ LogicalResult GroupNormChannelPadRewritePattern::matchAndRewrite(
   }
 
   // input_mask is sized against the original (C, num_groups); we can't scale
-  // it to the new (paddedC, paddedNumGroups), so bail out if it's present.
-  if (srcOp.getInputMask()) {
-    return rewriter.notifyMatchFailure(
-        srcOp, "channel padding workaround does not support input_mask");
-  }
+  // it to the new (paddedC, paddedNumGroups)
+  assert(!srcOp.getInputMask() &&
+         "GroupNormOp verifier should have rejected input_mask + unaligned C");
 
   // Only 1D weight/bias are supported. As of right now the 4D [1,1,C/32,32]
   // form requires C to already be tile-aligned.
@@ -105,8 +102,7 @@ LogicalResult GroupNormChannelPadRewritePattern::matchAndRewrite(
   auto paddedInput = rewriter.create<ttnn::PadOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_pad_input"), paddedInputType,
       srcOp.getInput(), inputPadding, /*pad_value=*/mlir::APFloat(0.0f),
-      /*use_multicore=*/false,
-      /*memory_config=*/nullptr);
+      /*use_multicore=*/false);
 
   // Pad weight and bias from [originalC] to [paddedC].
   Value paddedWeight = padAffine1D(srcOp.getWeight(), originalC, paddedC,
@@ -125,8 +121,7 @@ LogicalResult GroupNormChannelPadRewritePattern::matchAndRewrite(
   auto paddedGroupNorm = rewriter.create<ttnn::GroupNormOp>(
       loc, paddedOutputType, paddedInput, srcOp.getInputMask(), paddedWeight,
       paddedBias, rewriter.getI64IntegerAttr(paddedNumGroups),
-      srcOp.getEpsilonAttr(), srcOp.getMemoryConfigAttr(),
-      srcOp.getCoreGridAttr());
+      srcOp.getEpsilonAttr());
 
   // Slice output back: [N, 1, H*W, paddedC] -> [N, 1, H*W, originalC].
   SmallVector<int32_t> begins(outputType.getRank(), 0);
