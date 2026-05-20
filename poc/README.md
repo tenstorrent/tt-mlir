@@ -18,8 +18,8 @@ poc/
     fw_step4.c              # Step 4: NOC-TLB program + in-place increment of an interleaved tensor
     fw_step5.c              # Step 5: copy in/out + call MLIR-lowered kernel from tmp/cpu.o
     fw_step6.c              # Step 6: persistent task loop, dispatches arbitrary kernels from a code blob
-    cpu2.ll                 # LLVM IR for abs + matmul kernels with helpers (from CPU-hoisting pipeline)
-    cpu2_dispatch.c         # Dispatch entry point + memcpy for the code blob
+    cpu2.ll                 # LLVM IR for abs + matmul kernels, helpers, and dispatch (from CPU-hoisting pipeline)
+    cpu2_rt.c               # Freestanding memcpy for the code blob (dispatch is compiler-generated)
     cpu2_blob.ld            # Linker script for the code blob (linked at CODE_LOAD_ADDR)
     Makefile                # cross-build via clang-20 + ld.lld + llvm-objcopy
   host/

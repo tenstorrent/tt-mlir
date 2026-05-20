@@ -230,6 +230,26 @@ define void @cpu_hoisted_ttir_matmul_37790696_helper(ptr %0) {
   ret void
 }
 
+define void @x280_cpu_dispatch(i32 %0, ptr %1) section ".text.start" {
+  %3 = icmp eq i32 %0, 0
+  br i1 %3, label %6, label %4
+
+4:                                                ; preds = %2
+  %5 = icmp eq i32 %0, 1
+  br i1 %5, label %7, label %8
+
+6:                                                ; preds = %2
+  call void @cpu_hoisted_ttir_abs_713b937c_helper(ptr %1)
+  br label %8
+
+7:                                                ; preds = %4
+  call void @cpu_hoisted_ttir_matmul_37790696_helper(ptr %1)
+  br label %8
+
+8:                                                ; preds = %6, %7, %4
+  ret void
+}
+
 ; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: readwrite)
 declare void @llvm.memcpy.p0.p0.i64(ptr noalias writeonly captures(none), ptr noalias readonly captures(none), i64, i1 immarg) #0
 

@@ -109,7 +109,7 @@ add_custom_command(
         "${FW_SRC_DIR}/fw_step6.c"
         "${FW_SRC_DIR}/cpu.o"
         "${FW_SRC_DIR}/cpu2.ll"
-        "${FW_SRC_DIR}/cpu2_dispatch.c"
+        "${FW_SRC_DIR}/cpu2_rt.c"
         "${FW_SRC_DIR}/cpu2_blob.ld"
         "${FW_SRC_DIR}/Makefile"
     COMMENT "Cross-compiling X280 firmware"
