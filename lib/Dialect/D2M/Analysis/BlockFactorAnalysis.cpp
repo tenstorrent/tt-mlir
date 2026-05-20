@@ -566,15 +566,18 @@ static SmallVector<int64_t> chooseReblockedFactors(
   case BlockFactorAnalysis::BufferSizePolicy::Auto:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, /*useBoundedEltwiseSearch=*/false, /*allowMNReblocking=*/false);
+                           numBuffers, /*useBoundedEltwiseSearch=*/false,
+                           /*allowMNReblocking=*/false);
   case BlockFactorAnalysis::BufferSizePolicy::Bounded:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, /*useBoundedEltwiseSearch=*/true, /*allowMNReblocking=*/false);
+                           numBuffers, /*useBoundedEltwiseSearch=*/true,
+                           /*allowMNReblocking=*/false);
   case BlockFactorAnalysis::BufferSizePolicy::AutoMN:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, /*useBoundedEltwiseSearch=*/false, /*allowMNReblocking=*/true);
+                           numBuffers, /*useBoundedEltwiseSearch=*/false,
+                           /*allowMNReblocking=*/true);
   }
 
   llvm_unreachable("unknown buffer size policy");
