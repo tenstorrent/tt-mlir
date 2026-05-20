@@ -2881,15 +2881,22 @@ private:
       RankedTensorType originalResultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
 
+      // NDHWC input is already in the layout used for pooling; canonicalizing
+      // to NCDHW and permuting back would be a no-op transpose pair.
+      SmallVector<int64_t> permNDHWCToNCDHW = {0, 4, 1, 2, 3};
+      bool inputIsNDHWC = needsPermute && permToCanonical == permNDHWCToNCDHW;
+
       // Permute to canonical NCDHW layout if needed.
       SmallVector<int64_t> canonShape;
       if (needsPermute) {
         canonShape = ttmlir::utils::applyPermutation(inputType.getShape(),
                                                      permToCanonical);
-        input = rewriter.create<ttir::PermuteOp>(
-            srcOp.getLoc(),
-            RankedTensorType::get(canonShape, elemType, encoding), input,
-            permToCanonical);
+        if (!inputIsNDHWC) {
+          input = rewriter.create<ttir::PermuteOp>(
+              srcOp.getLoc(),
+              RankedTensorType::get(canonShape, elemType, encoding), input,
+              permToCanonical);
+        }
       } else {
         canonShape = SmallVector<int64_t>(inputType.getShape());
       }
@@ -2917,10 +2924,14 @@ private:
       // [N, C, D, H, W] -> permute -> [N, D, H, W, C] -> reshape ->
       // [N*D, H, W, C].
       SmallVector<int64_t> permNCDHWToNDHWC = {0, 2, 3, 4, 1};
-      SmallVector<int64_t> shapeNDHWC = {N, D, H, W, C};
-      Value ndhwc = rewriter.create<ttir::PermuteOp>(
-          srcOp.getLoc(), RankedTensorType::get(shapeNDHWC, elemType, encoding),
-          input, permNCDHWToNDHWC);
+      Value ndhwc = input;
+      if (!inputIsNDHWC) {
+        SmallVector<int64_t> shapeNDHWC = {N, D, H, W, C};
+        ndhwc = rewriter.create<ttir::PermuteOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(shapeNDHWC, elemType, encoding), input,
+            permNCDHWToNDHWC);
+      }
 
       int64_t batchND = N * D;
       SmallVector<int64_t> shapeForHW = {batchND, H, W, C};
