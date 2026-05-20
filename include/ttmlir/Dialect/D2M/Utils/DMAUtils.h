@@ -8,7 +8,9 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/IR/Block.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace mlir::tt::d2m::utils {
 
@@ -19,10 +21,14 @@ namespace mlir::tt::d2m::utils {
 // shared semaphore.
 LogicalResult checkForIllegalSemaphoreOps(Block *block);
 
-bool isSupportedDatamovementProcessor(int32_t processorIndex);
-ttcore::NocIndex
-getNocForSupportedDatamovementProcessor(int32_t processorIndex);
-int32_t getDatamovementProcessorForNoc(ttcore::NocIndex nocIndex);
+// WH/BH NoC <-> processor index mapping.
+ttcore::NocIndex getNoCForProcessorIndex(int32_t processorIndex);
+int32_t getProcessorIndexForTwoNoCArch(ttcore::NocIndex nocIndex);
+
+// Backends currently support only the WH/BH 2-DM processor model. Reject
+// Quasar and any explicit processor index beyond RiscV0/RiscV1 up front.
+LogicalResult checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
+                                                       llvm::StringRef backend);
 
 } // namespace mlir::tt::d2m::utils
 

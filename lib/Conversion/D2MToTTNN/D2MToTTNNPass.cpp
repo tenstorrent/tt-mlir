@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -43,30 +44,8 @@ struct ConvertD2MToTTNNPass final
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    auto systemDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
-        ttcore::SystemDescAttr::name);
-    if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==
-                          ttcore::Arch::Quasar) {
-      moduleOp.emitError("D2MToTTNN lowering does not support Quasar");
-      signalPassFailure();
-      return;
-    }
-
-    WalkResult unsupportedProcessor =
-        moduleOp->walk([&](d2m::GenericOp generic) {
-          for (Attribute threadAttr : generic.getThreads()) {
-            auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
-            if (thread.getThreadType() == d2m::ThreadType::Datamovement &&
-                thread.getProcessorIndex() >= 2) {
-              generic.emitError(
-                  "datamovement processor indices greater than 1 are not "
-                  "supported by D2MToTTNN lowering yet");
-              return WalkResult::interrupt();
-            }
-          }
-          return WalkResult::advance();
-        });
-    if (unsupportedProcessor.wasInterrupted()) {
+    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
+            moduleOp, "D2MToTTNN"))) {
       signalPassFailure();
       return;
     }

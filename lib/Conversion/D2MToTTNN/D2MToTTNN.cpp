@@ -346,10 +346,10 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       if (processorIdx < 0) {
         int32_t index = unassignedNocCounter++ % 2;
         nocIndex = index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-        processorIdx = d2m::utils::getDatamovementProcessorForNoc(nocIndex);
+        processorIdx = d2m::utils::getProcessorIndexForTwoNoCArch(nocIndex);
       } else {
         nocIndex =
-            d2m::utils::getNocForSupportedDatamovementProcessor(processorIdx);
+            d2m::utils::getNoCForProcessorIndex(processorIdx);
       }
       auto processor = processorIdx == 1 ? ttnn::DataMovementProcessor::RiscV1
                                          : ttnn::DataMovementProcessor::RiscV0;

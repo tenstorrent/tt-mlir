@@ -6,7 +6,9 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::d2m::utils {
@@ -47,20 +49,16 @@ LogicalResult checkForIllegalSemaphoreOps(Block *block) {
   return success();
 }
 
-bool isSupportedDatamovementProcessor(int32_t processorIndex) {
-  return processorIndex == 0 || processorIndex == 1;
-}
-
 ttcore::NocIndex
-getNocForSupportedDatamovementProcessor(int32_t processorIndex) {
-  TT_assertv(isSupportedDatamovementProcessor(processorIndex),
+getNoCForProcessorIndex(int32_t processorIndex) {
+  TT_assertv((processorIndex == 0 || processorIndex == 1),
              "unsupported datamovement processor index");
   // Preserve the existing backend mapping: NoC0 uses RiscV1 and NoC1 uses
   // RiscV0.
   return processorIndex == 1 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
 }
 
-int32_t getDatamovementProcessorForNoc(ttcore::NocIndex nocIndex) {
+int32_t getProcessorIndexForTwoNoCArch(ttcore::NocIndex nocIndex) {
   switch (nocIndex) {
   case ttcore::NocIndex::Noc0:
     return 1;
@@ -68,6 +66,49 @@ int32_t getDatamovementProcessorForNoc(ttcore::NocIndex nocIndex) {
     return 0;
   }
   llvm_unreachable("unsupported NoC index");
+}
+
+LogicalResult checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
+                                                       llvm::StringRef backend) {
+  auto systemDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+      ttcore::SystemDescAttr::name);
+  if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==
+                        ttcore::Arch::Quasar) {
+    moduleOp.emitError() << backend << " lowering does not support Quasar";
+    return failure();
+  }
+
+  auto checkThread = [&](Operation *op, ThreadAttr thread) {
+    if (thread.getThreadType() == ThreadType::Datamovement &&
+        thread.getProcessorIndex() >= 2) {
+      op->emitError() << "datamovement processor indices greater than 1 are "
+                         "not supported by "
+                      << backend << " lowering yet";
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  };
+
+  WalkResult unsupportedProcessor = moduleOp->walk([&](Operation *op) {
+    if (auto generic = dyn_cast<GenericOp>(op)) {
+      for (Attribute threadAttr : generic.getThreads()) {
+        if (checkThread(op, cast<ThreadAttr>(threadAttr)).wasInterrupted()) {
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    }
+
+    if (auto func = dyn_cast<func::FuncOp>(op)) {
+      auto threadAttr = func->getAttrOfType<ThreadAttr>(ThreadAttr::name);
+      if (threadAttr) {
+        return checkThread(op, threadAttr);
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  return unsupportedProcessor.wasInterrupted() ? failure() : success();
 }
 
 } // namespace mlir::tt::d2m::utils

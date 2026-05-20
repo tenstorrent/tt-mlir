@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -82,30 +83,8 @@ struct ConvertD2MToTTMetal
     // enqueue_program per spatial region); SpatialOpRewriter in the second pass
     // merges those enqueue_program ops and then erases the spatial wrapper.
 
-    auto systemDesc = getOperation()->getAttrOfType<ttcore::SystemDescAttr>(
-        ttcore::SystemDescAttr::name);
-    if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==
-                          ttcore::Arch::Quasar) {
-      getOperation().emitError("D2MToTTMetal lowering does not support Quasar");
-      signalPassFailure();
-      return;
-    }
-
-    WalkResult unsupportedProcessor =
-        getOperation()->walk([&](d2m::GenericOp generic) {
-          for (Attribute threadAttr : generic.getThreads()) {
-            auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
-            if (thread.getThreadType() == d2m::ThreadType::Datamovement &&
-                thread.getProcessorIndex() >= 2) {
-              generic.emitError(
-                  "datamovement processor indices greater than 1 are not "
-                  "supported by D2MToTTMetal lowering yet");
-              return WalkResult::interrupt();
-            }
-          }
-          return WalkResult::advance();
-        });
-    if (unsupportedProcessor.wasInterrupted()) {
+    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
+            getOperation(), "D2MToTTMetal"))) {
       signalPassFailure();
       return;
     }

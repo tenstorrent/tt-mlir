@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -106,12 +107,8 @@ struct ConvertD2MToTTKernel
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
 
-    auto systemDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
-        ttcore::SystemDescAttr::name);
-    if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==
-                          ttcore::Arch::Quasar) {
-      moduleOp.emitError("D2MToTTKernel lowering does not support Quasar "
-                         "datamovement processors");
+    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
+            moduleOp, "D2MToTTKernel"))) {
       signalPassFailure();
       return;
     }
