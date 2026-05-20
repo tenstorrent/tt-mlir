@@ -3,38 +3,50 @@
 # SPDX-License-Identifier: Apache-2.0
 import logging
 from dataclasses import dataclass
-from typing import Dict, Type
+from typing import Callable, Dict, Optional, Type
 
 from ttmlir.dialects import func, ttcore, ttnn
 from ttmlir.ir import OpView
 
+from .op_handlers import _deallocate_pre_op, _noop_post_op
+
 logger = logging.getLogger("chisel")
+
+
+PreOrPostFn = Callable[["ChiselContext", "ChiselOpConfig"], bool]
 
 
 @dataclass
 class ChiselOpConfig:
-    # no_golden: do not run the isolation golden; emit a NoGoldenPayload
-    # record per op so the report shows the op was visited but skipped.
-    # skip_isolated_pcc: run the isolation golden (shape/dtype still checked)
-    # but skip the PCC comparison.
+    """Per-op chisel behavior overrides.
+
+    no_golden: skip golden calculation; emit a NoGoldenPayload.
+    skip_pcc: run golden, check shape/dtype, but skip PCC checks.
+    pre_op / post_op: overrides for default handlers; must be @chisel_safe.
+    """
+
     no_golden: bool = False
-    skip_isolated_pcc: bool = False
+    skip_pcc: bool = False
+    pre_op: Optional[PreOrPostFn] = None
+    post_op: Optional[PreOrPostFn] = None
 
 
 def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
-    # Returns a fresh dict each call so callers cannot mutate the defaults.
-    # In-place ops (UpdateCacheOp, FillCacheOp, etc.) are flagged no_golden
-    # because chisel does not yet validate in-place tensor mutations.
+    """Fresh dict of default per-op configs."""
     return {
         # ttnn.empty produces uninitialized memory - PCC comparison is meaningless.
-        ttnn.EmptyOp: ChiselOpConfig(skip_isolated_pcc=True),
+        ttnn.EmptyOp: ChiselOpConfig(skip_pcc=True),
         # ttnn.generic: IR output count = 0 but FB output count = 1.
         ttnn.GenericOp: ChiselOpConfig(no_golden=True),
         # Non-executable ops (device handles, I/O, control flow): no golden to run.
         func.CallOp: ChiselOpConfig(no_golden=True),
         ttnn.GetDeviceOp: ChiselOpConfig(no_golden=True),
         ttnn.LoadTensorOp: ChiselOpConfig(no_golden=True),
-        ttnn.DeallocateOp: ChiselOpConfig(no_golden=True),
+        # Custom pre_op evicts inputs from the golden pool
+        ttnn.DeallocateOp: ChiselOpConfig(
+            pre_op=_deallocate_pre_op,
+            post_op=_noop_post_op,
+        ),
         ttcore.LoadCachedOp: ChiselOpConfig(no_golden=True),
         # Trace / control-flow / I/O ops.
         ttnn.AllocOp: ChiselOpConfig(no_golden=True),

@@ -33,7 +33,10 @@ def test_chisel_records_one_layer_nn(request, device, tmp_path):
             y = builder.linear(x, w, bias=b, transpose_b=True)
             return builder.multiply(y, y)
 
-    with chisel.session(results_path=str(tmp_path / "chisel_result.jsonl")) as report:
+    with chisel.session(
+        results_path=str(tmp_path / "chisel_result.jsonl"),
+        checks_config=chisel.ChiselChecksConfig(isolation=True, accumulation=True),
+    ) as report:
         compile_and_execute_ttnn(
             module,
             test_base=request.node.name,
@@ -54,19 +57,35 @@ def test_chisel_records_one_layer_nn(request, device, tmp_path):
     )
 
     PCC_THRESHOLD = 0.99
-    pcc_records = [r for r in records if r.check == "numerics"]
-    assert pcc_records, "no numerics (PCC) records produced"
 
-    for op in expected:
-        op_pcc = [r for r in pcc_records if r.op == op]
-        assert op_pcc, f"no PCC record for {op}"
-        for r in op_pcc:
-            assert (
-                r.status == chisel.RecordStatus.OK
-            ), f"{op}: PCC check status={r.status} payload={r.payload}"
-            assert (
-                r.payload.pcc >= PCC_THRESHOLD
-            ), f"{op}: PCC {r.payload.pcc} below threshold {PCC_THRESHOLD}"
+    def assert_pcc(mode: chisel.NumericsMode) -> None:
+        label = str(mode)
+        pcc_records = [
+            r for r in records if r.check == "numerics" and r.payload.mode == mode
+        ]
+        assert pcc_records, f"no {label} (PCC) records produced"
+        for op in expected:
+            op_pcc = [r for r in pcc_records if r.op == op]
+            assert op_pcc, f"no {label} PCC record for {op}"
+            for r in op_pcc:
+                assert (
+                    r.status == chisel.RecordStatus.OK
+                ), f"{op}: {label} PCC status={r.status} payload={r.payload}"
+                assert (
+                    r.payload.pcc >= PCC_THRESHOLD
+                ), f"{op}: {label} PCC {r.payload.pcc} below threshold {PCC_THRESHOLD}"
+
+    assert_pcc(chisel.NumericsMode.ISOLATED)
+    assert_pcc(chisel.NumericsMode.ACCUMULATED)
+
+    # One promotion per function arg (x, w, b); extras mean a golden is missing.
+    EXPECTED_PROMOTIONS = 3
+    promotions = [r for r in records if r.check == "golden_promoted"]
+    assert len(promotions) == EXPECTED_PROMOTIONS, (
+        f"expected {EXPECTED_PROMOTIONS} golden_promoted records "
+        f"(one per function arg), got {len(promotions)}: "
+        f"{[(r.op, r.ssa) for r in promotions]}"
+    )
 
 
 def test_chisel_dumps_debug_artifacts_on_pcc_fail(request, device, tmp_path):

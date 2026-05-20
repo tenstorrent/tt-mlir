@@ -27,25 +27,48 @@ class RecordStatus(str, Enum):
     NO_GOLDEN = "no_golden"
     IR_RUNTIME_MISMATCH = "ir_runtime_mismatch"
     CHISEL_BUG = "chisel_bug"
+    GOLDEN_PROMOTED = "golden_promoted"
+    GOLDEN_EVICTED = "golden_evicted"
 
 
 PASS_STATUS = frozenset(
-    {RecordStatus.OK, RecordStatus.SKIPPED_NUMERICS, RecordStatus.NO_GOLDEN}
+    {
+        RecordStatus.OK,
+        RecordStatus.SKIPPED_NUMERICS,
+        RecordStatus.NO_GOLDEN,
+        RecordStatus.GOLDEN_PROMOTED,
+        RecordStatus.GOLDEN_EVICTED,
+    }
 )
 
 
+class NumericsMode(str, Enum):
+    """How a numerics record's golden was produced.
+
+    ISOLATED: per-op golden from device inputs.
+    ACCUMULATED: program-scoped chain from prior goldens' outputs.
+    """
+
+    ISOLATED = "isolated"
+    ACCUMULATED = "accumulated"
+
+
 class _Payload(BaseModel):
-    # Each payload declares only the fields valid for its RecordStatus; extra="forbid"
-    # so wrong-field-for-status mistakes raise at construction, not at the
-    # downstream consumer.
+    """Base for status-discriminated payloads.
+
+    Each payload declares only the fields valid for its RecordStatus;
+    extra="forbid" so wrong-field-for-status mistakes raise at construction,
+    not at the downstream consumer.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
 
 class NumericsPayload(_Payload):
-    # OK and NUMERICS_FAIL share the same schema - only the status
-    # discriminator differs, set by validators.check_numerics based on the
-    # configured pcc/atol/rtol gates.
+    """Shared by OK and NUMERICS_FAIL; status set by check_numerics."""
+
     status: Literal[RecordStatus.OK, RecordStatus.NUMERICS_FAIL]
+    mode: NumericsMode
     pcc: float
     atol: float
     rtol: float
@@ -70,10 +93,27 @@ class ErrorPayload(_Payload):
 
 class SkippedNumericsPayload(_Payload):
     status: Literal[RecordStatus.SKIPPED_NUMERICS] = RecordStatus.SKIPPED_NUMERICS
+    mode: NumericsMode
 
 
 class NoGoldenPayload(_Payload):
     status: Literal[RecordStatus.NO_GOLDEN] = RecordStatus.NO_GOLDEN
+
+
+class GoldenPromotedPayload(_Payload):
+    """Audit-only: emitted when a device tensor is seeded into the golden pool.
+
+    Ideally only function args are promoted; intermediate-SSA promotions
+    mean a producer op is missing a golden.
+    """
+
+    status: Literal[RecordStatus.GOLDEN_PROMOTED] = RecordStatus.GOLDEN_PROMOTED
+
+
+class GoldenEvictedPayload(_Payload):
+    """Audit-only: one record per SSA removed from the golden pool."""
+
+    status: Literal[RecordStatus.GOLDEN_EVICTED] = RecordStatus.GOLDEN_EVICTED
 
 
 class IrRuntimeMismatchPayload(_Payload):
@@ -96,6 +136,8 @@ Payload = Annotated[
         NoGoldenPayload,
         IrRuntimeMismatchPayload,
         ChiselBugPayload,
+        GoldenPromotedPayload,
+        GoldenEvictedPayload,
     ],
     Field(discriminator="status"),
 ]
