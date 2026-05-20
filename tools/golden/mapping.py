@@ -7977,6 +7977,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.SamplingOp: ttnn_sampling_golden,
     ttnn.AllReduceAsyncOp: ttnn_all_reduce_async_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
+    ttnn.MoeExpertTokenRemapOp: ttir_moe_expert_token_remap_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
