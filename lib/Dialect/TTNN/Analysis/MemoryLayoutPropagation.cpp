@@ -86,7 +86,7 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// Returns nullptr when no filtering is needed (all layouts accepted).
 /// Delegates to per-op rule files via OpRuleBook.
 static LayoutFilterFn getInputLayoutFilter(Operation *op, unsigned operandIdx) {
-  return getRuleBook(op).getInputLayoutFilter(operandIdx);
+  return getRuleBook(op).getInputLayoutFilter(op, operandIdx);
 }
 
 /// Returns true if the operand is already "constant" from the optimizer's

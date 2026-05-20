@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 
+#include "mlir/IR/BuiltinTypes.h"
+
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
@@ -99,15 +101,22 @@ OutputHints SplitQKVRuleBook::getOutputHints(
 //===----------------------------------------------------------------------===//
 
 LayoutFilterFn
-PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
-  // Operand 1 (fill value) must be L1 height-sharded.
-  // Reject interleaved and all other sharding types so the beam search
-  // is forced to explore HeightSharded reshard candidates.
+PagedUpdateCacheRuleBook::getInputLayoutFilter(Operation *op,
+                                               unsigned operandIdx) const {
+  // Operand 1 (fill value) must be L1 height-sharded on a {numUsers, 1}
+  // virtual grid.  Any other grid causes PCC degradation;
+  // TODO(): relax when tt-metal enforces this and raises an error for
+  // PCC-degrading layouts.
   if (operandIdx == 1) {
-    return [](TTNNLayoutAttr layout) -> bool {
+    int64_t numUsers =
+        mlir::cast<RankedTensorType>(op->getOperand(1).getType()).getShape()[1];
+    return [numUsers](TTNNLayoutAttr layout) -> bool {
       auto ml = layout.getMemLayout();
+      auto gridShape = layout.getGridShape();
       return layout.hasL1BufferType() && ml &&
-             ml.getValue() == TensorMemoryLayout::HeightSharded;
+             ml.getValue() == TensorMemoryLayout::HeightSharded &&
+             gridShape.size() == 2 && gridShape[0] == numUsers &&
+             gridShape[1] == 1;
     };
   }
   return nullptr;
