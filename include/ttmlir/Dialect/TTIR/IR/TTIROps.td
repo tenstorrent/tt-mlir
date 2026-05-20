@@ -6500,4 +6500,42 @@ def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
     let hasVerifier = 1;
 }
 
+//===----------------------------------------------------------------------===//
+// TTIR Composite op
+//===----------------------------------------------------------------------===//
+
+def TTIR_CompositeOp : TTIR_NamedOp<"composite", [TTCore_NonCacheableTrait]> {
+  let summary = "A named composite operation with an inlineable decomposition.";
+  let description = [{
+    StableHLO equivalent of composite op.
+
+    Example:
+    ```mlir
+    %indices, %weights = ttir.composite "topk_router_gpt"
+        (%input, %weight, %bias)
+        decomposition(@topk_router_gpt_decomp)
+        composite_attributes = {k = 4 : i32, num_experts = 128 : i32}
+        : (tensor<32x64xbf16>, tensor<64x128xbf16>, tensor<32x128xbf16>)
+          -> (tensor<32x8xui16>, tensor<32x8xbf16>)
+
+    func.func private @topk_router_gpt_decomp(
+        %arg0: tensor<32x64xbf16>,
+        %arg1: tensor<64x128xbf16>,
+        %arg2: tensor<32x128xbf16>)
+        -> (tensor<32x8xui16>, tensor<32x8xbf16>) {
+      // ... sequence of primitive ttir ops ...
+    }
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$composite_name,
+                       FlatSymbolRefAttr:$decomposition,
+                       OptionalAttr<DictionaryAttr>:$composite_attributes);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let hasVerifier = 1;
+}
+
 #endif

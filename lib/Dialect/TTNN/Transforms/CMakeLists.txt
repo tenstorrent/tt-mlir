@@ -17,6 +17,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
         TTNNCollaspeD2M.cpp
+        TTNNResolveComposites.cpp
         TTNNCollectPerfMetrics.cpp
         TTNNCreateD2MSubgraphs.cpp
         TTNNFileSplit.cpp

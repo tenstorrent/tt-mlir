@@ -186,6 +186,9 @@ void createTTNNPipelineLoweringPasses(OpPassManager &pm,
   pm.addPass(createTTNNLayout());
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
+  // Resolve composite ops into typed ops (with OpModel) or inline their
+  // decompositions.
+  pm.addPass(createTTNNResolveComposites());
   // Add pass to remove unused values.
   if (removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
