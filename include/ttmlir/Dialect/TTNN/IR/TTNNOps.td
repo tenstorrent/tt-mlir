@@ -3813,6 +3813,52 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let hasVerifier = 1;
 }
 
+def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegments]> {
+    let summary = "Flash Multi-head Latent Attention prefill operation.";
+    let description = [{
+      Multi-head Latent Attention (MLA) prefill. Mirrors
+      `ttnn::transformer::flash_mla_prefill`.
+
+      Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sq` (sequence
+      length; must equal `Sk` for prefill), `dh_qk` (Q/K head size), and
+      `head_dim_v` (V/output head size).
+
+      Args:
+          query (AnyRankedTensor): `[B x Hq x Sq x dh_qk]`.
+          key (AnyRankedTensor): `[B x Hkv x Sq x dh_qk]`.
+          value (AnyRankedTensor, optional): `[B x Hkv x Sq x head_dim_v]`.
+              When absent (MLA-from-latent), V is taken from the first
+              `head_dim_v` features of K.
+          attention_mask (AnyRankedTensor, optional): `[1|B x 1 x Sq x Sq]`.
+              Only valid when `is_causal` is `false`.
+          head_dim_v (uint): Head dimension of V/output.
+          is_causal (bool): Defaults to `true`. Cannot be `true` when
+              `attention_mask` is provided.
+          scale (float, optional): Softmax scale. Defaults to `1 / sqrt(dh_qk)`.
+
+      Returns:
+          AnyRankedTensor: `[B x Hq x Sq x head_dim_v]` (same dtype as `query`).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         Optional<AnyRankedTensor>:$value,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         UI32Attr:$head_dim_v,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         OptionalAttr<F32Attr>:$scale);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createFlashMlaPrefillOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 
 def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";

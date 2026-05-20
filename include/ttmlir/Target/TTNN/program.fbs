@@ -127,6 +127,7 @@ union OpType {
   SamplingOp,
   ScaledDotProductAttentionOp,
   ScaledDotProductAttentionDecodeOp,
+  FlashMlaPrefillOp,
   ScatterOp,
   SelectiveReduceCombineOp,
   SliceOp,

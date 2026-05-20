@@ -8792,6 +8792,131 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRFlashMlaPrefillOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.flash_mla_prefill") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "FlashMlaPrefill op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Required: head_dim_v (string -> uint32).
+    auto headDimVStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("head_dim_v");
+    if (!headDimVStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "FlashMlaPrefill op requires head_dim_v attribute.");
+    }
+    uint32_t headDimV;
+    if (!llvm::to_integer(headDimVStringAttr.getValue(), headDimV) ||
+        headDimV == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "head_dim_v attribute must be a positive integer. Received \"" +
+              headDimVStringAttr.getValue() + "\".");
+    }
+    IntegerAttr headDimVAttr = rewriter.getUI32IntegerAttr(headDimV);
+
+    // is_causal (defaults to true).
+    auto isCausalStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalStringAttr) {
+      if (failed(parseBoolFromStringAttr(isCausalStringAttr, isCausal))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Received \"" +
+                       isCausalStringAttr.getValue() + "\".");
+      }
+    }
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    // scale (optional float).
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (failed(parseFloatFromStringAttr(scaleStringAttr, _scale))) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Received \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    // has_value / has_attention_mask flags.
+    auto hasValueStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_value");
+    bool hasValue = false;
+    if (hasValueStringAttr) {
+      if (failed(parseBoolFromStringAttr(hasValueStringAttr, hasValue))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse has_value attribute.");
+      }
+    }
+
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (hasAttentionMaskStringAttr) {
+      if (failed(parseBoolFromStringAttr(hasAttentionMaskStringAttr,
+                                         hasAttentionMask))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse has_attention_mask attribute.");
+      }
+    }
+
+    auto operands = adaptor.getOperands();
+    unsigned expectedNumOperands =
+        2 + (hasValue ? 1 : 0) + (hasAttentionMask ? 1 : 0);
+    if (expectedNumOperands != operands.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Mismatch between operands and has_value/has_attention_mask "
+                 "attributes.");
+    }
+
+    Value query = operands[0];
+    Value key = operands[1];
+    Value value = nullptr;
+    Value attentionMask = nullptr;
+    size_t operandIndex = 2;
+    if (hasValue) {
+      value = operands[operandIndex++];
+    }
+    if (hasAttentionMask) {
+      attentionMask = operands[operandIndex++];
+    }
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    rewriter.replaceOpWithNewOp<ttir::FlashMlaPrefillOp>(
+        srcOp, outputType, query, key, value, attentionMask, headDimVAttr,
+        isCausalAttr, scaleAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Pattern to convert mhlo.topk to ttir.topk
 class StableHLOTopKOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
@@ -9252,8 +9377,8 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
   patterns.add<
       StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
       StableHLOToTTIRScaledDotProductAttentionOpConversionPattern,
-      StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern>(
-      typeConverter, ctx);
+      StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern,
+      StableHLOToTTIRFlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
 }
 
 namespace {

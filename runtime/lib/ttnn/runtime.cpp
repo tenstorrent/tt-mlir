@@ -1458,6 +1458,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_ScaledDotProductAttentionOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
+    tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
     tensorRefs = {opContext.type_as_NLPConcatHeadsDecodeOp()->out()};
     break;
@@ -2160,6 +2164,17 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     if (op->attention_sink()) {
       tensorRefs.push_back(op->attention_sink());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
+    auto *op = opContext.type_as_FlashMlaPrefillOp();
+    tensorRefs = {op->query(), op->key()};
+    if (op->value()) {
+      tensorRefs.push_back(op->value());
+    }
+    if (op->attention_mask()) {
+      tensorRefs.push_back(op->attention_mask());
     }
     break;
   }

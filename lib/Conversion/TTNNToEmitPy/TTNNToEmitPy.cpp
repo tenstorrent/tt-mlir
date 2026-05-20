@@ -4406,6 +4406,50 @@ public:
 };
 } // namespace
 
+// FlashMlaPrefillOp conversion pattern
+//
+namespace {
+class FlashMlaPrefillOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::FlashMlaPrefillOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.flash_mla_prefill";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.transformer.flash_mla_prefill";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::FlashMlaPrefillOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::FlashMlaPrefillOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FlashMlaPrefillOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getHeadDimV()),
+        emitter.emit(srcOp.getValue(), "input_tensor_v"),
+        emitter.emit(srcOp.getAttentionMask(), "attn_mask"),
+        emitter.emit(srcOp.getIsCausal(), "is_causal"),
+        emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ScaledDotProductAttentionDecodeOp conversion pattern
 //
 namespace {
@@ -5401,6 +5445,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
+  patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(

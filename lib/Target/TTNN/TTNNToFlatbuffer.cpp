@@ -3305,6 +3305,40 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
       slidingWindowSize, attentionSink, out, memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::FlashMlaPrefillOp>
+createOp(FlatbufferObjectCache &cache, FlashMlaPrefillOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> value = 0;
+  if (op.getValue()) {
+    value = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getValue()));
+  }
+
+  auto attentionMask = op.getAttentionMask()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionMask()))
+                           : 0;
+
+  auto headDimV = op.getHeadDimV();
+  auto isCausal = op.getIsCausal();
+  ::flatbuffers::Optional<float> scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateFlashMlaPrefillOp(
+      *cache.fbb, query, key, value, attentionMask, headDimV, isCausal, scale,
+      out, memoryConfig);
+}
+
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
 createKernelArgs(FlatbufferObjectCache &cache,
                  llvm::ArrayRef<mlir::Attribute> argsAttrs) {
@@ -4705,6 +4739,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
           dyn_cast<ScaledDotProductAttentionOp>(op);
       scaledDotProductAttentionOp) {
     return createOperation(cache, createOp(cache, scaledDotProductAttentionOp),
+                           debugString, locInfo);
+  }
+  if (auto flashMlaPrefillOp = dyn_cast<FlashMlaPrefillOp>(op);
+      flashMlaPrefillOp) {
+    return createOperation(cache, createOp(cache, flashMlaPrefillOp),
                            debugString, locInfo);
   }
   if (auto dtOp = dyn_cast<DistributeTensorOp>(op); dtOp) {
