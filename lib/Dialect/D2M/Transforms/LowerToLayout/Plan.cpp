@@ -101,9 +101,11 @@ bool canUseReinterpretLayoutView(const PlanState &current,
              target.getLayout()->getMemoryLayout();
 }
 
-// DRAM cannot be both the source and destination of a materializing generic.
-// Pure view-like DRAM changes are still legal, but anything requiring a copy or
-// format/grid mutation must bounce through L1 first.
+// Metadata-only DRAM layout changes are legal in-place. DRAM copy/reblock
+// generics that only move data cannot read and write DRAM directly, so they
+// must bounce through L1. Same-placement format conversions are also legal
+// because the generic does local work: it loads one shard from DRAM, runs the
+// tile conversion locally, then stores the converted shard back to DRAM.
 bool needsDramBounce(const PlanState &current, const PlanState &target) {
   if (!current.hasLayout() || !target.hasLayout() || !current.isDRAM() ||
       !target.isDRAM()) {
@@ -116,6 +118,22 @@ bool needsDramBounce(const PlanState &current, const PlanState &target) {
   bool sameOrReinterpretableType = current.type == target.type ||
                                    canUseReinterpretLayoutView(current, target);
   if (sameVgm && sameRemapping && sameOrReinterpretableType) {
+    return false;
+  }
+
+  bool samePlacement = current.getGridShape() == target.getGridShape() &&
+                       current.getLayout()->getLogicalShape() ==
+                           target.getLayout()->getLogicalShape() &&
+                       current.getLayout()->getCollapsedIntervals() ==
+                           target.getLayout()->getCollapsedIntervals() &&
+                       current.getLayout()->getDimAlignments() ==
+                           target.getLayout()->getDimAlignments() &&
+                       current.getLayout()->getMemoryLayout() ==
+                           target.getLayout()->getMemoryLayout();
+  bool onlyFormatConversion =
+      sameVgm && sameRemapping && samePlacement &&
+      ttcore::isTiled(current.type) != ttcore::isTiled(target.type);
+  if (onlyFormatConversion) {
     return false;
   }
 
@@ -168,8 +186,9 @@ computeGridAwareCollapsedIntervalsAndDimAlignments(
 }
 
 // Construct the device tensor type for a tensor entering the device from
-// system memory. Host transfers can target the native virtual L1 layout
-// directly.
+// system memory. Host transfers should land in the target memory space
+// directly; the DRAM-to-DRAM materialization rule below inserts an L1 bounce
+// when a later DRAM copy/reblock requires it.
 RankedTensorType createDeviceType(MLIRContext *ctx, RankedTensorType systemType,
                                   ttcore::MetalLayoutAttr referenceLayout,
                                   RankedTensorType referenceType,
@@ -179,7 +198,7 @@ RankedTensorType createDeviceType(MLIRContext *ctx, RankedTensorType systemType,
   ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
       ctx, referenceLayout.getLogicalShape(),
       referenceLayout.getDimAlignments(),
-      referenceLayout.getCollapsedIntervals(), ttcore::MemorySpace::DeviceL1,
+      referenceLayout.getCollapsedIntervals(), referenceLayout.getMemorySpace(),
       referenceLayout.getMemoryLayout());
 
   ArrayRef<int64_t> tileShape;
