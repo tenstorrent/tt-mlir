@@ -27,6 +27,7 @@ SECTIONS
     .rodata     : { *(.rodata*) }
     .data       : { *(.data*) }
     .bss        : { *(.bss*) *(COMMON) }
+    /DISCARD/   : { *(.eh_frame*) *(.comment) }
 }
 
 ASSERT(_stack_top < 0x400100000000,
