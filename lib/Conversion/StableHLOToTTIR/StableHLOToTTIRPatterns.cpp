@@ -6615,14 +6615,18 @@ public:
     // Create embedding_backward op into a temporary value.
     auto embeddingBackwardOp = rewriter.create<ttir::EmbeddingBackwardOp>(
         srcOp.getLoc(), outputType, scatterIndices, operand, update);
+    Value result = embeddingBackwardOp.getResult();
 
-    // Add the original operand to the embedding_backward result.
-    auto addResultType = outputType;
-    auto addOp = rewriter.create<ttir::AddOp>(
-        srcOp.getLoc(), addResultType,
-        ValueRange{embeddingBackwardOp.getResult(), operand});
+    // Add the original operand to the embedding_backward result only if operand
+    // is non-zero.
+    if (!matchPattern(operand, m_Zero()) &&
+        !matchPattern(operand, m_AnyZeroFloat())) {
+      auto addOp = rewriter.create<ttir::AddOp>(
+          srcOp.getLoc(), outputType, embeddingBackwardOp.getResult(), operand);
+      result = addOp.getResult();
+    }
 
-    rewriter.replaceOp(srcOp, addOp.getResult());
+    rewriter.replaceOp(srcOp, result);
 
     return success();
   }
