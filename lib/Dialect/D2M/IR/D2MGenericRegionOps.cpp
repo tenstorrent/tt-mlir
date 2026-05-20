@@ -1656,19 +1656,222 @@ bool RemoteStoreOp::hasTensorSemantics() {
 // GatherCoreOp Verifier
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult GatherCoreOp::verify() {
-  Type srcType = getSrc().getType();
-  Type dstType = getDst().getType();
-  bool srcIsTensor = mlir::isa<RankedTensorType>(srcType);
-  bool dstIsTensor = mlir::isa<RankedTensorType>(dstType);
+//===----------------------------------------------------------------------===//
+// GatherCoreOp Custom Parser / Printer
+//===----------------------------------------------------------------------===//
+//
+// Four surface forms (each side independent, mirroring LocalCopy's CB story
+// but allowing per-side asymmetry):
+//   Pure implicit (both memref/tensor):
+//     d2m.gather_core %src into %dst ... : T, T  (-> T)?
+//   src-CB only:
+//     d2m.gather_core from %srcCb into %dst ... : !d2m.cb<...>, T
+//   dst-CB only:
+//     d2m.gather_core %src into %dstCb ... : T, !d2m.cb<...>
+//   Both CB:
+//     d2m.gather_core from %srcCb into %dstCb ... : !d2m.cb<...>, !d2m.cb<...>
+//
+// The `from` keyword toggles src vs srcCb on the input side; the type of
+// the dst-side operand toggles dst vs dstCb. Tensor form is only valid in
+// the pure implicit shape (CBs and tensors don't mix; enforced by the
+// verifier).
 
-  // Both operands must be in the same type domain.
+ParseResult GatherCoreOp::parse(OpAsmParser &parser, OperationState &result) {
+  bool srcIsCb = succeeded(parser.parseOptionalKeyword("from"));
+
+  OpAsmParser::UnresolvedOperand firstOp, secondOp;
+  if (parser.parseOperand(firstOp) || parser.parseKeyword("into") ||
+      parser.parseOperand(secondOp)) {
+    return failure();
+  }
+
+  auto parseIndexList =
+      [&](StringRef keyword,
+          SmallVector<OpAsmParser::UnresolvedOperand> &indices) -> ParseResult {
+    if (parser.parseKeyword(keyword) || parser.parseLSquare() ||
+        parser.parseOperandList(indices) || parser.parseRSquare()) {
+      return failure();
+    }
+    return success();
+  };
+
+  SmallVector<OpAsmParser::UnresolvedOperand> groupStartIndex;
+  SmallVector<OpAsmParser::UnresolvedOperand> groupShape;
+  SmallVector<OpAsmParser::UnresolvedOperand> collectorIndex;
+  if (parseIndexList("group", groupStartIndex) ||
+      parseIndexList("shape", groupShape) ||
+      parseIndexList("collector", collectorIndex)) {
+    return failure();
+  }
+
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
+  }
+
+  Type firstType, secondType;
+  if (parser.parseColon() || parser.parseType(firstType) ||
+      parser.parseComma() || parser.parseType(secondType)) {
+    return failure();
+  }
+
+  Type resultType;
+  if (succeeded(parser.parseOptionalArrow())) {
+    if (parser.parseType(resultType)) {
+      return failure();
+    }
+    result.addTypes(resultType);
+  }
+
+  // The dst side's form is decided by the type: CBType -> dstCb, otherwise
+  // implicit (memref or tensor). The src side's form is decided by the
+  // `from` keyword presence (the type must then agree, and the verifier
+  // catches mismatches).
+  bool dstIsCb = mlir::isa<CBType>(secondType);
+
+  // Resolve operands into the canonical segment order:
+  //   [src, dst, srcCb, dstCb,
+  //    groupStartIndex, groupShape, collectorIndex]
+  int32_t srcSeg = 0, dstSeg = 0, srcCbSeg = 0, dstCbSeg = 0;
+  if (!srcIsCb) {
+    if (parser.resolveOperand(firstOp, firstType, result.operands)) {
+      return failure();
+    }
+    srcSeg = 1;
+  }
+  if (!dstIsCb) {
+    if (parser.resolveOperand(secondOp, secondType, result.operands)) {
+      return failure();
+    }
+    dstSeg = 1;
+  }
+  if (srcIsCb) {
+    if (parser.resolveOperand(firstOp, firstType, result.operands)) {
+      return failure();
+    }
+    srcCbSeg = 1;
+  }
+  if (dstIsCb) {
+    if (parser.resolveOperand(secondOp, secondType, result.operands)) {
+      return failure();
+    }
+    dstCbSeg = 1;
+  }
+
+  auto indexType = parser.getBuilder().getIndexType();
+  if (parser.resolveOperands(groupStartIndex, indexType, result.operands) ||
+      parser.resolveOperands(groupShape, indexType, result.operands) ||
+      parser.resolveOperands(collectorIndex, indexType, result.operands)) {
+    return failure();
+  }
+
+  SmallVector<int32_t> segmentSizes = {
+      srcSeg,
+      dstSeg,
+      srcCbSeg,
+      dstCbSeg,
+      static_cast<int32_t>(groupStartIndex.size()),
+      static_cast<int32_t>(groupShape.size()),
+      static_cast<int32_t>(collectorIndex.size()),
+  };
+  result.addAttribute("operandSegmentSizes",
+                      parser.getBuilder().getDenseI32ArrayAttr(segmentSizes));
+  return success();
+}
+
+void GatherCoreOp::print(OpAsmPrinter &p) {
+  // Src side: `from %srcCb` or just `%src`.
+  if (Value srcCb = getSrcCb()) {
+    p << " from ";
+    p.printOperand(srcCb);
+  } else {
+    p << " ";
+    p.printOperand(getSrc());
+  }
+  // Dst side: always preceded by `into`.
+  p << " into ";
+  if (Value dstCb = getDstCb()) {
+    p.printOperand(dstCb);
+  } else {
+    p.printOperand(getDst());
+  }
+
+  auto printIdxList = [&](StringRef keyword, OperandRange indices) {
+    p << " " << keyword << "[";
+    p.printOperands(indices);
+    p << "]";
+  };
+  printIdxList("group", getGroupStartIndex());
+  printIdxList("shape", getGroupShape());
+  printIdxList("collector", getCollectorIndex());
+
+  llvm::StringRef elidedAttrs[] = {"operandSegmentSizes"};
+  p.printOptionalAttrDict((*this)->getAttrs(), elidedAttrs);
+
+  // Types: one for src side, one for dst side.
+  p << " : ";
+  if (Value srcCb = getSrcCb()) {
+    p.printType(srcCb.getType());
+  } else {
+    p.printType(getSrc().getType());
+  }
+  p << ", ";
+  if (Value dstCb = getDstCb()) {
+    p.printType(dstCb.getType());
+  } else {
+    p.printType(getDst().getType());
+  }
+  if (Value result = getResult()) {
+    p << " -> ";
+    p.printType(result.getType());
+  }
+}
+
+::mlir::LogicalResult GatherCoreOp::verify() {
+  Value src = getSrc();
+  Value dst = getDst();
+  Value srcCb = getSrcCb();
+  Value dstCb = getDstCb();
+
+  // Form check: exactly one of (src, srcCb) must be present and exactly one
+  // of (dst, dstCb) must be present, but the two sides are *independent*.
+  // Allowed combos:
+  //   (src,  dst)    -- pure implicit memref/tensor form
+  //   (srcCb,dst)    -- src is CB-backed, dst is a plain memref
+  //   (src,  dstCb)  -- dst is CB-backed, src is a plain memref
+  //   (srcCb,dstCb)  -- both CB-backed (post-`SplitUnifiedThread`)
+  // The mixed forms model the realistic reduction-app shape where one
+  // buffer is a scratch alloc (uniform L1 address invariant) and the other
+  // crosses the DM-compute thread boundary as a generic-operand CB.
+  bool hasSrc = static_cast<bool>(src);
+  bool hasSrcCb = static_cast<bool>(srcCb);
+  bool hasDst = static_cast<bool>(dst);
+  bool hasDstCb = static_cast<bool>(dstCb);
+  if (hasSrc == hasSrcCb) {
+    return emitOpError(
+        "exactly one of src and srcCb must be present (implicit XOR "
+        "explicit-CB form)");
+  }
+  if (hasDst == hasDstCb) {
+    return emitOpError(
+        "exactly one of dst and dstCb must be present (implicit XOR "
+        "explicit-CB form)");
+  }
+
+  // Tensor form is only meaningful for the pure implicit form (both sides
+  // implicit and both tensors). CBs and tensors do not mix.
+  bool srcIsTensor = hasSrc && mlir::isa<RankedTensorType>(src.getType());
+  bool dstIsTensor = hasDst && mlir::isa<RankedTensorType>(dst.getType());
   if (srcIsTensor != dstIsTensor) {
     return emitOpError("src and dst must both be tensors or both be memrefs");
   }
+  if ((srcIsTensor || dstIsTensor) && (hasSrcCb || hasDstCb)) {
+    return emitOpError(
+        "tensor form is only valid with both sides in implicit form (CBs "
+        "and tensors do not mix)");
+  }
 
   // Result presence is tied to the type domain (DPS in tensor form, in-place
-  // in memref form).
+  // otherwise).
   bool hasResult = static_cast<bool>(getResult());
   if (srcIsTensor && !hasResult) {
     return emitOpError(
@@ -1677,25 +1880,27 @@ bool RemoteStoreOp::hasTensorSemantics() {
   }
   if (!srcIsTensor && hasResult) {
     return emitOpError(
-        "memref form must not have a result; the dst memref is the "
+        "non-tensor form must not have a result; the dst operand is the "
         "destination (DPS)");
   }
-  if (hasResult && getResult().getType() != dstType) {
+  if (hasResult && getResult().getType() != dst.getType()) {
     return emitOpError("result type must match dst type");
   }
 
-  // Neither operand has a device layout. Gather operates on per-core local
-  // L1 buffers; a device layout would imply a grid-indexed remote operand,
-  // which is the remote_load path, not this one.
-  if (ttcore::hasDeviceLayout(getSrc())) {
+  // No device layout on the implicit-side operands. CBs are inherently
+  // L1-local and don't carry device layouts, so they are exempt from this
+  // check.
+  if (hasSrc && ttcore::hasDeviceLayout(src)) {
     return emitOpError("src must not have a device layout");
   }
-  if (ttcore::hasDeviceLayout(getDst())) {
+  if (hasDst && ttcore::hasDeviceLayout(dst)) {
     return emitOpError("dst must not have a device layout");
   }
 
-  auto srcShaped = mlir::cast<ShapedType>(srcType);
-  auto dstShaped = mlir::cast<ShapedType>(dstType);
+  // Shape / element-type checks operate on the underlying shaped type
+  // regardless of form.
+  ShapedType srcShaped = getSrcShapedType();
+  ShapedType dstShaped = getDstShapedType();
   if (srcShaped.getElementType() != dstShaped.getElementType()) {
     return emitOpError("src and dst element types must match");
   }
@@ -1703,23 +1908,12 @@ bool RemoteStoreOp::hasTensorSemantics() {
     return emitOpError("src and dst shapes must match");
   }
 
-  // Memory-space check applies only to the memref form.
-  if (!srcIsTensor) {
-    auto checkL1 = [&](MemRefType memrefType, StringRef name) -> LogicalResult {
-      auto memSpace = mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-          memrefType.getMemorySpace());
-      if (!memSpace || memSpace.getValue() != ttcore::MemorySpace::DeviceL1) {
-        return emitOpError() << name << " must be in L1 memory space";
-      }
-      return success();
-    };
-    if (failed(checkL1(mlir::cast<MemRefType>(srcType), "src"))) {
-      return failure();
-    }
-    if (failed(checkL1(mlir::cast<MemRefType>(dstType), "dst"))) {
-      return failure();
-    }
-  }
+  // No memory-space check on the memref form: bufferization-produced memrefs
+  // start out with no memory space and pick one up later in the pipeline,
+  // and the L1 invariant for the lowering is enforced structurally by the
+  // allocator (uniform L1 placement for sharded L1 allocs / CB-backed
+  // buffers). This mirrors `remote_load`, which similarly does not gate on
+  // memory space.
 
   // V1 is single-device, 2D grid: group and collector are 2-vectors.
   if (getGroupStartIndex().size() != 2) {
@@ -1741,22 +1935,25 @@ bool RemoteStoreOp::hasTensorSemantics() {
 
 bool GatherCoreOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getSrc();
+  Value src = getSrc();
+  return src && operand.get() == src;
 }
 
 bool GatherCoreOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getDst();
+  Value dst = getDst();
+  return dst && operand.get() == dst;
 }
 
 mlir::bufferization::AliasingValueList
 GatherCoreOp::getAliasingValues(mlir::OpOperand &operand,
                                 const mlir::bufferization::AnalysisState &) {
   mlir::bufferization::AliasingValueList aliasList;
-  // In tensor form the result aliases dst (DPS). In memref form there is no
-  // result and nothing aliases.
+  // In tensor form the result aliases dst (DPS). In memref/CB form there is
+  // no result and nothing aliases.
   Value result = getResult();
-  if (result && operand.get() == getDst()) {
+  Value dst = getDst();
+  if (result && dst && operand.get() == dst) {
     aliasList.addAlias(
         {result, mlir::bufferization::BufferRelation::Equivalent});
   }
@@ -1768,7 +1965,9 @@ GatherCoreOp::getBufferType(mlir::Value value,
                             const mlir::bufferization::BufferizationOptions &,
                             const mlir::bufferization::BufferizationState &,
                             ::llvm::SmallVector<mlir::Value> &) {
-  if (value == getSrc() || value == getDst()) {
+  Value src = getSrc();
+  Value dst = getDst();
+  if ((src && value == src) || (dst && value == dst)) {
     return ttcore::getBufferType(value.getType(), /*isView=*/false);
   }
   return mlir::failure();
@@ -1780,23 +1979,26 @@ mlir::LogicalResult GatherCoreOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
   Value result = getResult();
-  if (!result) {
-    // Already in memref form (no result); nothing to bufferize.
+  Value src = getSrc();
+  Value dst = getDst();
+  if (!result || !src || !dst) {
+    // Already in memref or explicit-CB form (no result, or no implicit
+    // operands); nothing to bufferize.
     return mlir::failure();
   }
 
   mlir::FailureOr<Value> srcBuffer =
-      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+      mlir::bufferization::getBuffer(rewriter, src, options, state);
   if (failed(srcBuffer)) {
     return srcBuffer;
   }
   mlir::FailureOr<Value> dstBuffer =
-      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+      mlir::bufferization::getBuffer(rewriter, dst, options, state);
   if (failed(dstBuffer)) {
     return dstBuffer;
   }
 
-  // Use the explicit memref-form convenience builder.
+  // Use the explicit implicit-memref-form convenience builder.
   rewriter.create<GatherCoreOp>(getLoc(), *srcBuffer, *dstBuffer,
                                 getGroupStartIndex(), getGroupShape(),
                                 getCollectorIndex());
@@ -1812,8 +2014,10 @@ mlir::LogicalResult GatherCoreOp::bufferize(
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 bool GatherCoreOp::hasTensorSemantics() {
-  bool srcIsTensor = mlir::isa<RankedTensorType>(getSrc().getType());
-  bool dstIsTensor = mlir::isa<RankedTensorType>(getDst().getType());
+  Value src = getSrc();
+  Value dst = getDst();
+  bool srcIsTensor = src && mlir::isa<RankedTensorType>(src.getType());
+  bool dstIsTensor = dst && mlir::isa<RankedTensorType>(dst.getType());
   Value result = getResult();
   bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
   return srcIsTensor || dstIsTensor || resultIsTensor;

@@ -240,8 +240,14 @@ static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
-           "Expected exactly one producer and one consumer for CB");
+    // Stale entries can appear here: DM-thread synchronizable ops (e.g.
+    // gather_core) are cloned into the compute region by SplitUnifiedThread
+    // before the dead-op cleanup runs, so their operands surface in the
+    // compute-region cbUsageInfo without a matching compute-side pair.
+    // Skip such entries; the real DM-side handling happens elsewhere.
+    if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
+      continue;
+    }
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 
@@ -300,10 +306,14 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                   localBuffer);
 
           // get the associated producer for this operand
-          // Assumes only one producer for this local buffer
-          assert(cbUsageInfo[localBuffer].producers.size() == 1 &&
-                 cbUsageInfo[localBuffer].consumers.size() == 1 &&
-                 "Expected exactly one producer and one consumer for CB");
+          // Assumes only one producer for this local buffer. Skip if the
+          // cbUsageInfo entry isn't a clean producer-consumer pair (can
+          // happen when cloned DM-thread sync ops are still in the
+          // compute region during this analysis).
+          if (cbUsageInfo[localBuffer].producers.size() != 1 ||
+              cbUsageInfo[localBuffer].consumers.size() != 1) {
+            continue;
+          }
           auto *associatedProducer = cbUsageInfo[localBuffer].producers.front();
           rewriter.setInsertionPoint(synchronizedOp);
           auto cb = d2m::getOrCreateCB(
@@ -336,10 +346,12 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                   localBuffer);
 
           // Get the associated consumer for this operand.
-          // Assumes only one consumer for this local buffer
-          assert(cbUsageInfo[localBuffer].consumers.size() == 1 &&
-                 cbUsageInfo[localBuffer].producers.size() == 1 &&
-                 "Expected exactly one producer and one consumer for CB");
+          // Assumes only one consumer for this local buffer. Skip if the
+          // cbUsageInfo entry isn't a clean producer-consumer pair.
+          if (cbUsageInfo[localBuffer].producers.size() != 1 ||
+              cbUsageInfo[localBuffer].consumers.size() != 1) {
+            continue;
+          }
           auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
           rewriter.setInsertionPoint(synchronizedOp);
           auto cb = d2m::getOrCreateCB(
@@ -377,8 +389,11 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
-           "Expected exactly one producer and one consumer for CB");
+    // Skip entries that aren't clean producer-consumer pairs (defensive
+    // against stale entries from cross-region cloning).
+    if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
+      continue;
+    }
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 
@@ -393,6 +408,19 @@ static LogicalResult eraseAliasedLoadStoreOps(
   return success();
 }
 
+// Returns true if `value` is a regular operand of `generic`. Unlike
+// `GenericOp::getOperandIndex`, this does not assert when the value is
+// absent. Used to gate buffer-to-CB conversion: only generic operands
+// (which have associated CB ports) can be converted via `getOrCreateCB`.
+static bool isGenericOperand(GenericOp generic, Value value) {
+  for (unsigned i = 0, e = generic.getNumOperands(); i < e; ++i) {
+    if (generic.getOperand(i) == value) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Convert remote_load/store to explicit CB form in the DMA thread.
 // Aliased ops are collected for deferred erasure (no DMA needed). Shared
 // buffer pairs use the output operand's CB for both ops.
@@ -401,9 +429,11 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
   SmallVector<RemoteLoadOp> loads;
   SmallVector<RemoteStoreOp> stores;
   SmallVector<LocalCopyOp> localCopies;
+  SmallVector<GatherCoreOp> gathers;
   dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
   dmBlock->walk([&](LocalCopyOp op) { localCopies.push_back(op); });
+  dmBlock->walk([&](GatherCoreOp op) { gathers.push_back(op); });
 
   for (RemoteLoadOp loadOp : loads) {
     if (loadOp.isExplicitCBForm()) {
@@ -479,6 +509,55 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
     rewriter.eraseOp(copyOp);
   }
 
+  // Convert implicit-form gather_core ops to explicit CB form, per side.
+  // Each side is converted independently: if a side's implicit operand is
+  // a generic operand of the parent generic (and therefore has an
+  // associated CB port), it becomes a `!d2m.cb<memref<...>>`; otherwise it
+  // is left as-is (typically a scratch alloc inside the DM block, which
+  // does not have a CB association at this stage). All four resulting
+  // forms are accepted by the verifier and the downstream lowering.
+  for (GatherCoreOp gatherOp : gathers) {
+    GenericOp parentGeneric = gatherOp->getParentOfType<GenericOp>();
+    Value src = gatherOp.getSrc();
+    Value dst = gatherOp.getDst();
+
+    bool convertSrc =
+        src && !gatherOp.getSrcCb() && isGenericOperand(parentGeneric, src);
+    bool convertDst =
+        dst && !gatherOp.getDstCb() && isGenericOperand(parentGeneric, dst);
+    if (!convertSrc && !convertDst) {
+      continue;
+    }
+
+    rewriter.setInsertionPoint(gatherOp);
+    Value newSrc = src;
+    Value newSrcCb = gatherOp.getSrcCb();
+    if (convertSrc) {
+      newSrcCb = d2m::getOrCreateCB(rewriter, parentGeneric, dmBlock,
+                                    parentGeneric.getOperandIndex(src));
+      newSrc = Value{};
+    }
+    Value newDst = dst;
+    Value newDstCb = gatherOp.getDstCb();
+    if (convertDst) {
+      newDstCb = d2m::getOrCreateCB(rewriter, parentGeneric, dmBlock,
+                                    parentGeneric.getOperandIndex(dst));
+      newDst = Value{};
+    }
+
+    auto newGather = rewriter.create<GatherCoreOp>(
+        gatherOp.getLoc(), /*result=*/Type{}, newSrc, newDst, newSrcCb,
+        newDstCb, gatherOp.getGroupStartIndex(), gatherOp.getGroupShape(),
+        gatherOp.getCollectorIndex());
+    // Preserve preallocated semaphore indices set by
+    // D2MPreallocateMcastSemaphores (needed by LowerLoadStoreOpsToDMA).
+    if (auto semAttr = gatherOp->getAttr("preallocated_semaphores")) {
+      newGather->setAttr("preallocated_semaphores", semAttr);
+    }
+    gatherOp->dropAllUses();
+    rewriter.eraseOp(gatherOp);
+  }
+
   return success();
 }
 
@@ -498,7 +577,11 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
       continue;
     }
 
-    bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
+    // Datamovement-thread ops: shard-level DMA ops, the device-synchronize
+    // op, and gather_core (which is not a ShardDMAOpInterface op but lives
+    // exclusively in the DM thread).
+    bool isDMAOp =
+        isa<ShardDMAOpInterface, DeviceSynchronizeOp, GatherCoreOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
 
     if (isDatamovementThread && !isDMAOp && !isReplicated) {

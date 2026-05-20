@@ -270,17 +270,47 @@ public:
     Location loc = gather.getLoc();
 
     // Tensors should have been bufferized by the time this pass runs.
-    if (!mlir::isa<MemRefType>(gather.getSrc().getType()) ||
-        !mlir::isa<MemRefType>(gather.getDst().getType())) {
+    // Either implicit memref form (both $src and $dst are memrefs) or
+    // explicit CB form (both $srcCb and $dstCb are CBs) is acceptable.
+    auto isMemRefOrAbsent = [](Value v) {
+      return !v || mlir::isa<MemRefType>(v.getType());
+    };
+    if (!isMemRefOrAbsent(gather.getSrc()) ||
+        !isMemRefOrAbsent(gather.getDst())) {
       return rewriter.notifyMatchFailure(
-          gather, "src and dst must be memrefs at this stage in the pipeline");
+          gather,
+          "implicit-form src and dst must be memrefs at this stage in the "
+          "pipeline (tensors should have been bufferized)");
+    }
+    if (gather.getSrcCb() &&
+        !gather.getSrcCbType().getUnderlyingAs<MemRefType>()) {
+      return rewriter.notifyMatchFailure(
+          gather, "srcCb must have memref underlying type");
+    }
+    if (gather.getDstCb() &&
+        !gather.getDstCbType().getUnderlyingAs<MemRefType>()) {
+      return rewriter.notifyMatchFailure(
+          gather, "dstCb must have memref underlying type");
     }
 
     auto genericOp = gather->getParentOfType<GenericOp>();
     TT_assertv(genericOp, "GatherCoreOp must be inside a GenericOp");
 
+    // Unwrap src: in CB form, materialize the underlying memref via a
+    // WaitOp on every group core (consumer-side handshake with the
+    // upstream compute thread, which has produced via PushOp). The same
+    // local memref is then used by both the collector (for its local
+    // self-read) and by the cross-core DMA reads (the L1 address is the
+    // uniform invariant). PopOp is emitted after the whole scf.if; by
+    // then the collector has done all reads and the source cores have
+    // waited on collectorDone.
     Value src = gather.getSrc();
+    Value srcCb = gather.getSrcCb();
+    if (srcCb) {
+      src = rewriter.create<WaitOp>(loc, srcCb).getResult();
+    }
     Value dst = gather.getDst();
+    Value dstCb = gather.getDstCb();
     ValueRange groupStart = gather.getGroupStartIndex();
     ValueRange groupShape = gather.getGroupShape();
     ValueRange collectorIdx = gather.getCollectorIndex();
@@ -342,6 +372,15 @@ public:
         [&](OpBuilder &builder, Location loc) {
           // Collector branch: wait for sources, pull each source's payload,
           // signal the entire group.
+
+          // Unwrap dst CB inside the collector branch only (option (c)):
+          // the dst CB is allocated on every core but only the collector
+          // performs the reserve/push.
+          Value dstLocal = dst;
+          if (dstCb) {
+            dstLocal = builder.create<ReserveOp>(loc, dstCb).getResult();
+          }
+
           builder.create<SemaphoreWaitOp>(loc, sourceReady, numSources, zero);
 
           // Row-major iteration over the gather group. The collector's own
@@ -364,7 +403,7 @@ public:
                       // srcCore-aware NoC lowering) is handled by the
                       // downstream passes.
                       Value tx = xBuilder.create<DMAReadOp>(
-                          xLoc, src, /*srcIndices=*/ValueRange(), dst,
+                          xLoc, src, /*srcIndices=*/ValueRange(), dstLocal,
                           /*srcCore=*/ValueRange(physSrc));
                       xBuilder.create<DMAWaitOp>(xLoc, tx);
                       xBuilder.create<scf::YieldOp>(xLoc);
@@ -380,6 +419,14 @@ public:
                                          /*startDevice=*/ValueRange(),
                                          /*deviceMcastShape=*/ValueRange());
 
+          // After all reads are complete and the collector-done multicast
+          // has been issued, push the dst CB so the downstream compute
+          // thread on the collector can wait/pop it. Non-collector cores
+          // never reach this PushOp (option (c)).
+          if (dstCb) {
+            builder.create<PushOp>(loc, dstCb);
+          }
+
           builder.create<scf::YieldOp>(loc);
         },
         [&](OpBuilder &builder, Location loc) {
@@ -389,6 +436,14 @@ public:
           builder.create<SemaphoreWaitOp>(loc, collectorDone, one, zero);
           builder.create<scf::YieldOp>(loc);
         });
+
+    // Release the src CB on every group core (consumer-side pop). Safe
+    // after the if/else because the collector has finished all DMA reads
+    // by the end of its branch and source cores have waited on
+    // collectorDone before reaching this point.
+    if (srcCb) {
+      rewriter.create<PopOp>(loc, srcCb);
+    }
 
     rewriter.eraseOp(gather);
     return success();

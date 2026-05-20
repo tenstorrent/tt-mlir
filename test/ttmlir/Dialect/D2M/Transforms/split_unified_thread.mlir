@@ -589,6 +589,50 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
+  // Test 14a: gather_core in a unified thread.
+  // Verifies: gather_core is moved to the DM thread and rewritten in explicit
+  // CB form; the compute thread is empty (gather_core is a pure DM op even
+  // though it implements D2M_SynchronizableOpInterface).
+  // CHECK-LABEL: func.func @test_gather_core_unified
+  func.func @test_gather_core_unified(
+      %arg0: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
+      %arg1: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    %src_buf = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+    %dst_buf = memref.alloc() {address = 6144 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+    // DM thread: gather_core appears once, in explicit CB form, with both
+    // src and dst replaced by d2m.get_cb results. The pass emits the dst CB
+    // first (its operand index in the generic is higher), then the src CB.
+    // CHECK: %[[DST_CB:.*]] = d2m.get_cb(3)
+    // CHECK: %[[SRC_CB:.*]] = d2m.get_cb(2)
+    // CHECK: d2m.gather_core from %[[SRC_CB]] into %[[DST_CB]] group[%{{.*}}, %{{.*}}] shape[%{{.*}}, %{{.*}}] collector[%{{.*}}, %{{.*}}] : !d2m.cb<{{.*}}>, !d2m.cb<{{.*}}>
+    // Compute thread: empty (gather_core is DM-only).
+    // CHECK: }, {
+    // CHECK-NEXT: }
+    // CHECK-NOT: d2m.gather_core
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>,
+                 indexing_maps = [#map, #map],
+                 iterator_types = [#parallel, #parallel],
+                 threads = [#d2m.thread<unified>]}
+        ins(%arg0 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%arg1 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        additionalArgs(%src_buf, %dst_buf : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) {
+    ^unified0:
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c4 = arith.constant 4 : index
+      d2m.gather_core %src_buf into %dst_buf
+        group [%c0, %c0] shape [%c1, %c4] collector [%c0, %c0]
+        : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>,
+          memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+    }
+    memref.dealloc %src_buf : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+    memref.dealloc %dst_buf : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
+    return
+  }
+
   // Test 14b: Full streaming load + store without d2m.blocking_loop
   // Regression test: scope inference from remote op placement must produce the
   // same split as Test 3, which relied on d2m.blocking_loop for scope anchoring.

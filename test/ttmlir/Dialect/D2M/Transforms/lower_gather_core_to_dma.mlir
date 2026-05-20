@@ -75,4 +75,65 @@ module {
     }
     return
   }
+
+  // CB-form gather_core lowering: src is consumed via d2m.wait/d2m.pop on
+  // every core; the collector additionally d2m.reserves and d2m.pushes the
+  // dst CB (option (c): allocate the dst CB everywhere, only the collector
+  // executes its CB ops). The DMA reads and the semaphore handshake are the
+  // same as in the implicit-form lowering above.
+  //
+  // CHECK-LABEL: func.func @test_lower_gather_core_cb_form
+  // CHECK-NOT: d2m.gather_core
+  func.func @test_lower_gather_core_cb_form(
+      %arg0: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>,
+      %arg1: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+    %srcAlloc = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1_>
+    %dstAlloc = memref.alloc() {address = 6144 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1_>
+
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>,
+                 indexing_maps = [#map, #map],
+                 iterator_types = [#parallel, #parallel],
+                 threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%arg0 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+        outs(%arg1 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+        additionalArgs(%srcAlloc, %dstAlloc : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1_>) {
+    ^datamovement0:
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c4 = arith.constant 4 : index
+      // CHECK: %[[SRC_CB:.*]] = d2m.get_cb(2)
+      // CHECK: %[[DST_CB:.*]] = d2m.get_cb(3)
+      %srcCb = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1_>>
+      %dstCb = d2m.get_cb(3) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1_>>
+
+      // CB-form lowering shape:
+      // CHECK: %[[SRC_LOCAL:.*]] = d2m.wait %[[SRC_CB]]
+      // CHECK: scf.if %{{.*}} {
+      //   Collector branch: reserve dst CB, wait for sources, DMA-read, mcast set, push dst CB.
+      //   CHECK:   %[[DST_LOCAL:.*]] = d2m.reserve %[[DST_CB]]
+      //   CHECK:   d2m.semaphore_wait %{{.*}}, %{{.*}} reset %{{.*}}
+      //   CHECK:   scf.for
+      //   CHECK:     scf.for
+      //   CHECK:       %[[TX:.*]] = d2m.dma_read %[[SRC_LOCAL]][] core[%{{.*}}, %{{.*}}], %[[DST_LOCAL]], <0>
+      //   CHECK:       d2m.dma_wait %[[TX]]
+      //   CHECK:   d2m.semaphore_set %{{.*}}, %{{.*}}, core[%{{.*}}, %{{.*}}] mcast[%{{.*}}, %{{.*}}]
+      //   CHECK:   d2m.push %[[DST_CB]]
+      // CHECK: } else {
+      //   Source branch: notify collector, wait for mcast set. No dst CB ops here.
+      //   CHECK:   d2m.semaphore_inc %{{.*}}, %{{.*}}, core[%{{.*}}, %{{.*}}]
+      //   CHECK:   d2m.semaphore_wait %{{.*}}, %{{.*}} reset %{{.*}}
+      //   CHECK-NOT:   d2m.reserve
+      //   CHECK-NOT:   d2m.push
+      // CHECK: }
+      // After the branch, every core pops the src CB.
+      // CHECK: d2m.pop %[[SRC_CB]]
+      d2m.gather_core from %srcCb into %dstCb
+        group [%c0, %c0] shape [%c1, %c4] collector [%c0, %c0]
+        : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1_>>,
+          !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1_>>
+    }, {
+    ^compute0:
+    }
+    return
+  }
 }
