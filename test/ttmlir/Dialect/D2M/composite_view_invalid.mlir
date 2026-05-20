@@ -61,8 +61,8 @@ func.func @composite_view_noncomposite_dim_mismatch() -> memref<1x2x1x1x!ttcore.
 // -----
 
 // Rule 5 = composite dim sum across inputs != output (tensor-typed).
-#linput_cd = #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#lout_cd = #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#linput_cd = #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#lout_cd = #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
 func.func @composite_view_composite_dim_mismatch() -> tensor<1x1x32x32xf32, #lout_cd> {
   %0 = d2m.empty() : tensor<1x1x32x32xf32, #linput_cd>
   %1 = d2m.empty() : tensor<1x1x32x32xf32, #linput_cd>

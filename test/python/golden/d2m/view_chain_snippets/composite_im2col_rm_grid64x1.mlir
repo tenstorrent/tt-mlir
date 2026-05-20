@@ -7,10 +7,10 @@
 // 9 spatial-shift views (K*K=9) -> 9 flatten views (4D grid<64x1>) ->
 // composite stack on logical dim 1 (KKC) -> <4096, 288> where 288 = K*K*C.
 
-#l_in    = #ttcore.metal_layout<logical_shape = 1x66x66x32, dim_alignments = 1x64x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#l_view  = #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x64x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#l_flat  = #ttcore.metal_layout<logical_shape = 4096x32,    dim_alignments = 1x32,       collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#l_out   = #ttcore.metal_layout<logical_shape = 4096x288,   dim_alignments = 1x32,       collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#l_in    = #ttcore.metal_layout<logical_shape = 1x66x66x32, dim_alignments = 1x64x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#l_view  = #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x64x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#l_flat  = #ttcore.metal_layout<logical_shape = 4096x32,    dim_alignments = 1x32,       collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#l_out   = #ttcore.metal_layout<logical_shape = 4096x288,   dim_alignments = 1x32,       collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
 
 // Step 1: 8D -> 8D spatial-shift. Input shard_H = 2, shard_W = 96 (W not
 // sharded, W_g=1). H shift wraps across grid_h via floordiv 2 / mod 2.

@@ -184,8 +184,8 @@ func.func @view_before_device_to_device_unchanged(%arg0: tensor<1x1x8x24x!ttcore
   return %to_device : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
 }
 
-#linput_chain = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#lout_chain = #ttcore.metal_layout<logical_shape = 64x192, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#linput_chain = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#lout_chain = #ttcore.metal_layout<logical_shape = 64x192, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #map_chain = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // Chain of view_layouts feeding composite_view consumed by a generic: no

@@ -110,10 +110,10 @@ func.func @test_composite_view_logical_sizes() -> tensor<1x1x32x32xf32, #ttcore.
   return %5 : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
 }
 
-#linput_chain = #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#linput_chain2 = #ttcore.metal_layout<logical_shape = 32x8, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#linput_chain3 = #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#lout_chain = #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#linput_chain = #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#linput_chain2 = #ttcore.metal_layout<logical_shape = 32x8, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#linput_chain3 = #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#lout_chain = #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
 #map_chain_id = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CompositeViewOp::bufferize on chained view_layout inputs preserves the
