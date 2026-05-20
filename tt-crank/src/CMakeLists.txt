@@ -81,6 +81,17 @@ target_link_libraries(tt_kurbla
         tt_kurbla_sanitizers
 )
 
+# Tracy zone macros (`#include <tracy/Tracy.hpp>` + `ZoneScoped*`) are no-ops
+# when TRACY_ENABLE is undefined, so the headers come in unconditionally.
+# Linking libtracy.so and defining TRACY_ENABLE — the bits that actually emit
+# zone code — are the only things gated by the option. Bundling of the Tracy
+# CLI itself is independent of this option (see cmake/Tracy.cmake).
+target_link_libraries(tt_kurbla PUBLIC tt_kurbla::tracy_headers)
+if(TT_KURBLA_TRACY_ZONES)
+    target_compile_definitions(tt_kurbla PUBLIC TRACY_ENABLE)
+    target_link_libraries(tt_kurbla PUBLIC tt_kurbla::tracy)
+endif()
+
 if(TT_KURBLA_BUILD_PYTHON_EXT)
     add_subdirectory(torch)
 endif()

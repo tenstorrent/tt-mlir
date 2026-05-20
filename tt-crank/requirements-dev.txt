@@ -10,3 +10,19 @@ nanobind>=2.2
 uv
 
 pytest
+
+# Runtime dependencies of the re-exported tt-metal Python modules
+# (python/tracy/_original/* and python/ttnn/_original/*). Versions match
+# tt-metal's tt_metal/python_env/requirements-dev.txt to avoid resolver
+# pinning fights.
+loguru==0.6.0
+click==8.1.7
+pandas==2.3.3
+seaborn==0.13.2
+pyyaml>=5.4
+numpy>=1.24.4,<2
+# ttnn imports these at top level — ttnn.graph -> graphviz,
+# ttnn.database / decorators -> networkx, type validation -> pydantic.
+graphviz
+networkx==3.1
+pydantic==2.9.2

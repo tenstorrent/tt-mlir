@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include <tracy/Tracy.hpp>
 #include <tt/runtime/runtime.h>
 
 #include "engine/device.hpp"
@@ -100,6 +101,7 @@ void ExecutionPayload::bind_tensor(const tt::runtime::Tensor &tensor, std::uint3
 }
 
 std::vector<tt::runtime::Tensor> ExecutionPayload::run() {
+    ZoneScopedN("tt_kurbla::ExecutionPayload::run");
     std::vector<std::uint32_t> missing;
     for (std::uint32_t i = 0; i < impl_->input_slots.size(); ++i) {
         if (!impl_->input_slots[i].has_value()) {
@@ -128,9 +130,12 @@ std::vector<tt::runtime::Tensor> ExecutionPayload::run() {
     }
 
     try {
-        std::vector<tt::runtime::Tensor> outputs =
-            tt::runtime::submit(runtime_device(), impl_->program->binary, impl_->program_index, inputs);
-        tt::runtime::wait(outputs);
+        std::vector<tt::runtime::Tensor> outputs;
+        outputs = tt::runtime::submit(runtime_device(), impl_->program->binary, impl_->program_index, inputs);
+        {
+            ZoneScopedN("tt_kurbla::wait");
+            tt::runtime::wait(outputs);
+        }
         return outputs;
     } catch (const std::exception &e) {
         throw DeviceError(std::string("run: submit failed: ") + e.what());

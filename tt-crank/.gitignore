@@ -25,7 +25,13 @@ __pycache__/
 
 # Generated files
 generated/
+.tracy_artifacts/
 
 # scikit-build-core editable install bookkeeping — the .so lands next to the
 # Python source under editable.mode = "redirect".
 /python/tt_kurbla/**/_native*.so
+
+# Symlinks created by the bundle-tracy / bundle-ttnn CMake targets into the
+# tt-mlir install tree.
+/python/tracy/_original
+/python/ttnn/_original

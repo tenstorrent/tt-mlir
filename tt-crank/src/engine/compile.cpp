@@ -16,7 +16,9 @@
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Support/LogicalResult.h>
 
+#include <tracy/Tracy.hpp>
 #include <tt-logger/tt-logger.hpp>
+
 #include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 #include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
 #include <ttmlir/RegisterAll.h>
@@ -112,8 +114,11 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
     mlir::PassManager pm(module_op.getContext(), mlir::ModuleOp::getOperationName());
     mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline(pm, pm_opts);
 
-    if (mlir::failed(pm.run(module_op))) {
-        throw PipelineError(make_error_message("ttir-to-ttnn pipeline failed", diag_buffer));
+    {
+        ZoneScopedN("tt_kurbla::ttir_to_ttnn_pipeline");
+        if (mlir::failed(pm.run(module_op))) {
+            throw PipelineError(make_error_message("ttir-to-ttnn pipeline failed", diag_buffer));
+        }
     }
 
     // Opt-in dump of the post-pipeline TTNN IR — useful when debugging op
@@ -124,7 +129,11 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
         llvm::errs() << "\n[tt_kurbla] ========================\n";
     }
 
-    std::shared_ptr<void> fb = mlir::tt::ttnn::ttnnToFlatbuffer(module_op);
+    std::shared_ptr<void> fb;
+    {
+        ZoneScopedN("tt_kurbla::ttnn_to_flatbuffer");
+        fb = mlir::tt::ttnn::ttnnToFlatbuffer(module_op);
+    }
     if (!fb) {
         throw PipelineError(make_error_message("ttnnToFlatbuffer returned null", diag_buffer));
     }
