@@ -220,7 +220,7 @@ def run_op_callback(
         if phase is CallbackPhase.PRE:
             pre_fn = config.pre_op or _default_pre_op
             pre_succeeded = pre_fn(ctx, config)
-            ctx.pre_failed = not pre_succeeded
+            ctx.pre_failed = pre_succeeded is False
         else:
             # PRE recorded a failure - skip POST to avoid cascading into a
             # chisel_bug from incomplete state.

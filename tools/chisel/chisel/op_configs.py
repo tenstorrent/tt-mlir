@@ -13,7 +13,7 @@ from .op_handlers import _deallocate_pre_op, _noop_post_op
 logger = logging.getLogger("chisel")
 
 
-PreOrPostFn = Callable[["ChiselContext", "ChiselOpConfig"], None]
+PreOrPostFn = Callable[["ChiselContext", "ChiselOpConfig"], bool]
 
 
 @dataclass

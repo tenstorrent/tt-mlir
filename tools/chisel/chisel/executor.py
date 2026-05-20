@@ -120,6 +120,6 @@ def execute_golden_from_pool(
     names = (inp.get_name(asm_state) for inp in get_op_inputs(op))
     ssa_inputs: Dict[SSAName, GoldenMapTensor] = {name: pool[name] for name in names}
     result = execute_golden_with_ssa_inputs(op, ssa_inputs, asm_state)
-    for out_val, tensor in zip(get_op_outputs(op), result):
+    for out_val, tensor in zip(get_op_outputs(op), result, strict=True):
         pool[out_val.get_name(asm_state)] = tensor
     return result
