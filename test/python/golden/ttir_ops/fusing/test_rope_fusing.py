@@ -63,7 +63,7 @@ def build_ttir(
     # Slice second half of input
     begins = [0, 0, 0, half_dim]
     ends = input.type.shape[:3] + [last_dim]
-    slice1 = builder.slice(input, begins=begins, ends=ends, step=[1, 1, 1, 1])
+    slice1 = builder.slice_static(input, begins=begins, ends=ends, step=[1, 1, 1, 1])
 
     # Negate the second half
     neg_slice = builder.neg(slice1, unit_attrs=unit_attrs)
@@ -71,7 +71,7 @@ def build_ttir(
     # Slice first half of input
     begins = [0, 0, 0, 0]
     ends = input.type.shape[:3] + [half_dim]
-    slice2 = builder.slice(input, begins=begins, ends=ends, step=[1, 1, 1, 1])
+    slice2 = builder.slice_static(input, begins=begins, ends=ends, step=[1, 1, 1, 1])
 
     # Concat negated second half with first half
     input_rotated = builder.concat([neg_slice, slice2], dim=3)

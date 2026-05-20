@@ -444,7 +444,7 @@ def test_slice(
         def slice_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
+            return builder.slice_static(in0, begins, ends, step, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,

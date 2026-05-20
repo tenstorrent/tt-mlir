@@ -1349,9 +1349,49 @@ def test_hoisted_slice(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             # Now use the slice operation with the CPU hoisting attribute
-            return builder.slice(
+            return builder.slice_static(
                 in0, begins, ends, step, unit_attrs=["ttir.should_hoist"]
             )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,begins,ends,step,dtype",
+    [
+        ((64, 64), [0, 0], [32, 32], None, torch.float32),
+        ((128, 128), [10, 20], [50, 60], [1, 1], torch.int32),
+        ((32, 64, 64), [5, 10, 15], [25, 50, 55], [2, 2, 1], torch.int32),
+    ],
+    ids=["basic_slice_dynamic_f32", "explicit_step_f32", "3d_slice_dynamic_i32"],
+)
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim")],
+)
+def test_slice_dynamic(
+    shape: Shape,
+    dtype: torch.dtype,
+    begins: List[int],
+    ends: List[int],
+    step: List[int],
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def slice_dynamic_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            begins_t = builder.constant(torch.tensor(begins, dtype=torch.int32))
+            ends_t = builder.constant(torch.tensor(ends, dtype=torch.int32))
+            return builder.slice_dynamic(in0, begins_t, ends_t, step=step)
 
     compile_and_execute_ttir(
         module,
