@@ -3564,6 +3564,23 @@ def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
     }];
 }
 
+def TTKernel_RemoteSramWriteU32Op : TTKernel_Op<"remote_sram_write_u32"> {
+    let summary = "RemoteSramWriteU32";
+    let description = [{
+      Initiates a 4-byte remote SRAM write of the u32 value stored at a local
+      SRAM address on the Tensix core executing this function call. The source
+      SRAM word is usually used as a semaphore or mailbox value.
+    }];
+
+    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_sram_addr,
+                         TTKernel_NocAddr:$dst_remote_addr,
+                         Optional<I8>:$noc_id);
+
+    let assemblyFormat = [{
+      `(` $src_sram_addr `,` $dst_remote_addr (`,` $noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
     let summary = "SemaphoreWait";
     let description = [{

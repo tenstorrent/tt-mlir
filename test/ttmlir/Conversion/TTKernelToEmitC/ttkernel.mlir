@@ -2006,6 +2006,37 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @remote_sram_write_u32_sram_addr
+    func.func @remote_sram_write_u32_sram_addr() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = buffer_address, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %src_addr = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !ttkernel.l1_addr
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %noc_x = arith.constant 1 : index
+      %noc_y = arith.constant 1 : index
+      %temp = arith.constant 262400 : i32
+      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      // CHECK: emitc.call_opaque "noc_semaphore_set_remote"(%[[SRC_ADDR]], %[[DST_NOC_ADDR]])
+      "ttkernel.remote_sram_write_u32"(%src_addr, %dst_noc_addr) : (!ttkernel.l1_addr, !ttkernel.noc_addr) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @remote_sram_write_u32_local_semaphore_with_noc_id
+    func.func @remote_sram_write_u32_local_semaphore_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
+      %sem_idx = arith.constant 2 : i32
+      %src_addr = "ttkernel.get_semaphore"(%sem_idx) : (i32) -> (!ttkernel.local_semaphore)
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %noc_x = arith.constant 1 : index
+      %noc_y = arith.constant 1 : index
+      %temp = arith.constant 262400 : i32
+      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
+      %noc_id = arith.constant 1 : i8
+      // CHECK: emitc.call_opaque "noc_semaphore_set_remote"(%[[SRC_ADDR]], %[[DST_NOC_ADDR]], %[[NOC_ID]])
+      "ttkernel.remote_sram_write_u32"(%src_addr, %dst_noc_addr, %noc_id) : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i8) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @semaphore_wait
     func.func @semaphore_wait() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast

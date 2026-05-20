@@ -1879,6 +1879,9 @@ public:
     patterns.add<TTKernelToEmitCCBResultMethodRewriter<ttkernel::GetReadPtrOp>>(
         typeConverter, funcOp.getContext(), "get_read_ptr");
 
+    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteSramWriteU32Op>>(
+        typeConverter, funcOp.getContext(), "noc_semaphore_set_remote");
+
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
         typeConverter, funcOp.getContext(), "get_noc_addr");
     patterns
