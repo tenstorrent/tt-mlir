@@ -858,7 +858,7 @@ llvm::Expected<bool> Device::getDeviceConstraints(ttcore::GridAttr workerGrid) {
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
-static ::tt::target::ttnn::EltwiseUnaryOpT buildEltwiseUnaryOpTFromMLIR(
+::tt::target::ttnn::EltwiseUnaryOpT buildEltwiseUnaryOpTFromMLIR(
     TTNNLayoutAttr outputLayout,
     std::optional<llvm::APFloat> slope = std::nullopt) {
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
@@ -1034,7 +1034,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
-static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+::tt::target::ttnn::EltwiseUnaryCompositeOpT
 buildEltwiseUnaryCompositeOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
 
@@ -1209,6 +1209,15 @@ UnaryCompositeEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+#define INSTANTIATE_BUILD_ELTWISE_UNARY(OP)                                    \
+  template ::tt::target::ttnn::EltwiseUnaryOpT                                 \
+      buildEltwiseUnaryOpTFromMLIR<OP>(TTNNLayoutAttr,                         \
+                                       std::optional<llvm::APFloat>);
+
+#define INSTANTIATE_BUILD_ELTWISE_UNARY_COMPOSITE(OP)                          \
+  template ::tt::target::ttnn::EltwiseUnaryCompositeOpT                        \
+      buildEltwiseUnaryCompositeOpTFromMLIR<OP>(TTNNLayoutAttr);
+
 // Explicit template instantiation for UnaryEltwiseOpModel.
 template struct UnaryEltwiseOpModel<ReluOp>;
 template struct UnaryEltwiseOpModel<Relu6Op>;
@@ -1241,6 +1250,44 @@ template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
 template struct UnaryEltwiseOpModel<ErfcOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ExpOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+INSTANTIATE_BUILD_ELTWISE_UNARY(ReluOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(Relu6Op);
+INSTANTIATE_BUILD_ELTWISE_UNARY(HardsigmoidOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(SqrtOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(SinOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(AbsOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(CosOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(LogOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(CeilOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(SignOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(FloorOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(IsFiniteOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(LogicalNotOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(NegOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(TanOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(AtanOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(AsinOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(AsinhOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(AcosOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(ReciprocalOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY_COMPOSITE(CbrtOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(BitwiseNotOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(SiluOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(MishOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY_COMPOSITE(Log1pOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(Expm1Op);
+INSTANTIATE_BUILD_ELTWISE_UNARY(RsqrtOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(ErfOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(ErfcOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(ExpOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(GeluOp);
+
+INSTANTIATE_BUILD_ELTWISE_UNARY(TanhOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(SigmoidOp);
+INSTANTIATE_BUILD_ELTWISE_UNARY(LeakyReluOp);
+#endif // TTMLIR_ENABLE_OPMODEL
 
 //===----------------------------------------------------------------------===//
 // TanhOp
@@ -1476,7 +1523,7 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
-static ::tt::target::ttnn::EltwiseBinaryOpT
+::tt::target::ttnn::EltwiseBinaryOpT
 buildEltwiseBinaryOpTFromMLIR(TTNNLayoutAttr outputLayout,
                               ttcore::DataTypeAttr opDtypeAttr = nullptr) {
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT;
@@ -1582,7 +1629,7 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
-static ::tt::target::ttnn::EltwiseBinaryCompositeOpT
+::tt::target::ttnn::EltwiseBinaryCompositeOpT
 buildEltwiseBinaryCompositeOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT;
 
@@ -1677,6 +1724,14 @@ llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+#define INSTANTIATE_BUILD_ELTWISE_BINARY(OP)                                   \
+  template ::tt::target::ttnn::EltwiseBinaryOpT                                \
+      buildEltwiseBinaryOpTFromMLIR<OP>(TTNNLayoutAttr, ttcore::DataTypeAttr);
+
+#define INSTANTIATE_BUILD_ELTWISE_BINARY_COMPOSITE(OP)                         \
+  template ::tt::target::ttnn::EltwiseBinaryCompositeOpT                       \
+      buildEltwiseBinaryCompositeOpTFromMLIR<OP>(TTNNLayoutAttr);
+
 // Explicit template instantiation for BinaryEltwiseOpModel.
 template struct BinaryEltwiseOpModel<AddOp>;
 template struct BinaryEltwiseOpModel<MultiplyOp>;
@@ -1702,6 +1757,33 @@ template struct BinaryCompositeOpModel<BitwiseOrOp>;
 template struct BinaryCompositeOpModel<BitwiseXorOp>;
 template struct BinaryCompositeOpModel<LogicalLeftShiftOp>;
 template struct BinaryCompositeOpModel<Atan2Op>;
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+INSTANTIATE_BUILD_ELTWISE_BINARY(AddOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(MultiplyOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(LogicalRightShiftOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(SubtractOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(MaximumOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(MinimumOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(DivideOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(EqualOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(NotEqualOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(GreaterEqualOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(GreaterThanOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(LessEqualOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(LessThanOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(LogicalAndOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(LogicalOrOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(LogicalXorOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(PowTensorOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY(RemainderOp);
+
+INSTANTIATE_BUILD_ELTWISE_BINARY_COMPOSITE(BitwiseAndOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY_COMPOSITE(BitwiseOrOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY_COMPOSITE(BitwiseXorOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY_COMPOSITE(LogicalLeftShiftOp);
+INSTANTIATE_BUILD_ELTWISE_BINARY_COMPOSITE(Atan2Op);
+#endif // TTMLIR_ENABLE_OPMODEL
 
 //===----------------------------------------------------------------------===//
 // GeluBackwardOp
@@ -1777,7 +1859,7 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
 // PowScalar
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
-static ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
 buildEltwiseBinaryCompositeScalarOpTFromMLIR(mlir::Attribute exponent,
                                              TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
@@ -1885,7 +1967,7 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
-static ::tt::target::ttnn::EltwiseTernaryWhereOpT
+::tt::target::ttnn::EltwiseTernaryWhereOpT
 buildEltwiseTernaryOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT;
 
@@ -1986,8 +2068,16 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+#define INSTANTIATE_BUILD_ELTWISE_TERNARY(OP)                                  \
+  template ::tt::target::ttnn::EltwiseTernaryWhereOpT                          \
+      buildEltwiseTernaryOpTFromMLIR<OP>(TTNNLayoutAttr);
+
 // Explicit template instantiation for TernaryEltwiseOpModel.
 template struct TernaryEltwiseOpModel<WhereOp>;
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+INSTANTIATE_BUILD_ELTWISE_TERNARY(WhereOp);
+#endif // TTMLIR_ENABLE_OPMODEL
 
 //===----------------------------------------------------------------------===//
 // Reduction Ops
@@ -4304,7 +4394,7 @@ llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
-static ::tt::target::ttnn::EltwiseQuantizationOpT
+::tt::target::ttnn::EltwiseQuantizationOpT
 buildEltwiseQuantizationOpTFromMLIR(std::optional<int32_t> axis,
                                     std::optional<ttcore::DataType> outputDtype,
                                     TTNNLayoutAttr outputLayout) {
@@ -4446,9 +4536,21 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+#define INSTANTIATE_BUILD_ELTWISE_QUANTIZATION(OP)                             \
+  template ::tt::target::ttnn::EltwiseQuantizationOpT                          \
+      buildEltwiseQuantizationOpTFromMLIR<OP>(std::optional<int32_t>,          \
+                                              std::optional<ttcore::DataType>, \
+                                              TTNNLayoutAttr);
+
 // Explicit template instantiation for QuantizationOpModel.
 template struct QuantizationOpModel<QuantizeOp>;
 template struct QuantizationOpModel<DequantizeOp>;
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+INSTANTIATE_BUILD_ELTWISE_QUANTIZATION(QuantizeOp);
+INSTANTIATE_BUILD_ELTWISE_QUANTIZATION(DequantizeOp);
+INSTANTIATE_BUILD_ELTWISE_QUANTIZATION(RequantizeOp);
+#endif // TTMLIR_ENABLE_OPMODEL
 
 //===----------------------------------------------------------------------===//
 // RequantizeOp
@@ -4574,7 +4676,7 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
 // LinearOp
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
-static ::tt::target::ttnn::LinearOpT buildLinearOpTFromMLIR(
+::tt::target::ttnn::LinearOpT buildLinearOpTFromMLIR(
     bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
     std::optional<mlir::Attribute> programConfigAttr,
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
@@ -4721,7 +4823,7 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 // MatmulOp
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
-static ::tt::target::ttnn::MatmulOpT buildMatmulOpTFromMLIR(
+::tt::target::ttnn::MatmulOpT buildMatmulOpTFromMLIR(
     bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
     std::optional<mlir::Attribute> programConfigAttr,
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
@@ -5197,7 +5299,7 @@ llvm::Expected<size_t> OpModel<PagedFillCacheOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-static ::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
+::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
     uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
     uint32_t input_height, uint32_t input_width,
     llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
@@ -5224,10 +5326,6 @@ static ::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
   conv2dOpT.dilation = std::vector<int32_t>(dilation.begin(), dilation.end());
   conv2dOpT.groups = groups;
   conv2dOpT.out = detail::getOutputTensorRefT(outputLayout);
-  if (conv2dOpT.out) {
-    conv2dOpT.output_dtype =
-        conv2dOpT.out->desc->layout->memory_desc->data_type;
-  }
   conv2dOpT.conv2d_config =
       (conv2dConfig.has_value() && *conv2dConfig)
           ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
@@ -7212,7 +7310,7 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
 // ClampScalar
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
-static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+::tt::target::ttnn::EltwiseUnaryCompositeOpT
 buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(mlir::Attribute min,
                                                  mlir::Attribute max,
                                                  TTNNLayoutAttr outputLayout) {
@@ -7330,7 +7428,7 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
 // ClampTensor
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
-static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+::tt::target::ttnn::EltwiseUnaryCompositeOpT
 buildEltwiseUnaryCompositeClampTensorOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
   eltwiseUnaryCompositeOpT.type =
