@@ -587,7 +587,7 @@ struct TTNNCommonToEmitCPipelineOptions
       *this, "tuplify-input-if-empty",
       llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
                      "function. This should only be used if the `target-dylib` "
-                     "or the `target-module` option is set to `true`"),
+                     "option is set to `true`."),
       llvm::cl::init(false)};
 
   Option<bool> loadInputTensorsFromDisk{
@@ -615,6 +615,14 @@ struct TTNNCommonToEmitPyPipelineOptions
       llvm::cl::desc("Tailor passes for Python module target. When enabled, "
                      "the entry function is named 'forward' with tuple of "
                      "tensors and device as inputs."),
+      llvm::cl::init(false)};
+
+  Option<bool> tuplifyInputIfEmpty{
+      *this, "tuplify-input-if-empty",
+      llvm::cl::desc(
+          "Whether to create an empty tuple if no inputs to forward "
+          "function. This should only be used if the `target-module` "
+          "option is set to `true`."),
       llvm::cl::init(false)};
 
   Option<bool> loadInputTensorsFromDisk{

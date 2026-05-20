@@ -1211,18 +1211,18 @@ public:
 
       mlir::FunctionType functionType = funcOp.getFunctionType();
 
-      // Check that input is not empty and that all args are of type
-      // RankedTensorType.
+      // Tuplify when either the function has at least one input, or when
+      // `tuplifyInputIfEmpty` is set and the function is a forward device
+      // function (in which case an empty input tuple is forced). In both
+      // cases, all inputs must be `RankedTensorType`.
       //
-      // If `tuplifyInputIfEmpty` option is set and the function is a forward
-      // device function, tuplify the input even if the
-      // function has no inputs.
-      //
-      if (((tuplifyInputIfEmpty &&
-            ttmlir::utils::isForwardDeviceFunc(funcOp)) ||
-           !functionType.getInputs().empty()) &&
+      const bool forceTuplifyForward =
+          tuplifyInputIfEmpty && ttmlir::utils::isForwardDeviceFunc(funcOp);
+      const bool hasInputs = !functionType.getInputs().empty();
+      const bool allInputsAreTensors =
           llvm::all_of(functionType.getInputs(),
-                       [](Type t) { return mlir::isa<RankedTensorType>(t); })) {
+                       [](Type t) { return mlir::isa<RankedTensorType>(t); });
+      if ((forceTuplifyForward || hasInputs) && allInputsAreTensors) {
         targetFuncOpsInput.push_back(funcOp);
       }
 

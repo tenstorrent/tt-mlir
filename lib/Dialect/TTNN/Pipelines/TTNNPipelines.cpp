@@ -578,7 +578,9 @@ void createTTNNCommonToEmitPyPipeline(
     // weights first. Then tuplify everything else.
     //
     devicePm.addPass(createTTNNSplitForwardFuncArgsByType());
-    devicePm.addPass(createTTNNTuplifyTensors());
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
+    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;
