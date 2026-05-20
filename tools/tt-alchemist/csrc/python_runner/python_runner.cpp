@@ -8,6 +8,10 @@
 
 #include <Python.h>
 
+#include <filesystem>
+#include <system_error>
+#include <vector>
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-qual"
 #pragma clang diagnostic ignored "-Wglobal-constructors"
@@ -138,6 +142,45 @@ void PythonModelRunner::addToSysPath(const std::string &path) {
 void PythonModelRunner::loadModule(const std::string &moduleName,
                                    const std::string &functionName) {
   nb::gil_scoped_acquire acquire;
+
+  // sys.modules is process-wide. A previously-loaded module of the same name
+  // (e.g. "main" from another graph_N/ directory in this process, or one of
+  // its sibling helper modules such as "utils" / "ttir_cpu") would
+  // short-circuit the import below and the freshly-codegenned source would
+  // never execute, silently yielding wrong results. To prevent this, evict
+  // from sys.modules every entry whose name matches a .py file in the
+  // directory most recently prepended to sys.path (i.e. the current graph's
+  // directory), plus moduleName itself. This forces PyImport_ImportModule to
+  // walk sys.path[0] and load the fresh sources from disk. We rely on the
+  // codegen file layout (a flat directory of .py files per graph), so any
+  // future sibling helper added by codegen is handled automatically without
+  // hard-coding names here.
+  nb::object sys = nb::module_::import_("sys");
+  nb::object sysModules = sys.attr("modules");
+  nb::list sysPath = nb::cast<nb::list>(sys.attr("path"));
+
+  std::vector<std::string> namesToEvict = {moduleName};
+  if (sysPath.size() > 0) {
+    std::string searchDir = nb::cast<std::string>(sysPath[0]);
+    std::error_code ec;
+    std::filesystem::directory_iterator dirIt(searchDir, ec);
+    if (!ec) {
+      for (const auto &entry : dirIt) {
+        if (entry.is_regular_file(ec) && !ec &&
+            entry.path().extension() == ".py") {
+          namesToEvict.push_back(entry.path().stem().string());
+        }
+      }
+    }
+  }
+
+  for (const auto &name : namesToEvict) {
+    if (PyDict_DelItemString(sysModules.ptr(), name.c_str()) != 0) {
+      // Not in sys.modules — that's fine, just clear the KeyError.
+      PyErr_Clear();
+    }
+  }
+
   pImpl->moduleObject = nb::module_::import_(moduleName.c_str());
   pImpl->forwardFunc = pImpl->moduleObject.attr(functionName.c_str());
 }
