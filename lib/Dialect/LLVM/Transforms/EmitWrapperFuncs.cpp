@@ -29,9 +29,7 @@ namespace mlir::tt::llvm_util {
 //   as an array of WrappedTensors
 void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
   auto cpuModule = moduleOp->getParentOfType<ttcore::CPUModuleOp>();
-  if (cpuModule && cpuModule.getRole() == ttcore::CPURole::Device) {
-    return;
-  }
+  bool isDPS = cpuModule && cpuModule.getRole() == ttcore::CPURole::Device;
 
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
@@ -65,7 +63,7 @@ void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
       resultRanks.push_back(mlir::cast<IntegerAttr>(attr).getInt());
     }
 
-    bool hasOutputs = !resultRanks.empty();
+    bool hasOutputs = !resultRanks.empty() && !isDPS;
 
     // Helper returns ptr (to array of WrappedTensors) if there are outputs,
     // void otherwise.
@@ -93,9 +91,15 @@ void generateLLVMWrappersForArgRanks(ModuleOp moduleOp) {
                      LLVM::LLVMPointerType::get(context)  // sizes_and_strides
                  });
 
-    // Iterate over arg_ranks to unpack tensors.
+    llvm::SmallVector<mlir::Attribute> argRanks;
+    argRanks.append(argRanksAttr.begin(), argRanksAttr.end());
+    if (isDPS) {
+      argRanks.append(resultRanksAttr.begin(), resultRanksAttr.end());
+    }
+
+    // Iterate over argRanks to unpack tensors.
     int tensorIdx = 0;
-    for (auto rankAttr : argRanksAttr) {
+    for (auto rankAttr : argRanks) {
       // Compute the offset for the current tensor (as index * size of
       // wrapped_tensor).
       Value tensorIndex = builder.create<LLVM::ConstantOp>(
