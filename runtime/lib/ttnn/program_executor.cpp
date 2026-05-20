@@ -104,6 +104,7 @@
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
 #include "operations/transformer/concatenate_heads.h"
+#include "operations/transformer/flash_mla_prefill.h"
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
@@ -636,6 +637,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
+    return operations::transformer::run(op->type_as_FlashMlaPrefillOp(),
+                                        getContext());
   }
   case ::tt::target::ttnn::OpType::AggregateTensorOp: {
     return operations::ccl::run(op->type_as_AggregateTensorOp(), getContext());
