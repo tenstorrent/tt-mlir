@@ -411,7 +411,52 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   return outputTensorHandle;
 }
 
-::tt::runtime::Tensor Controller::createOwnedHostTensorWithDiskCache(
+bool Controller::checkDiskCache(const std::string &cacheKey,
+                                const std::vector<std::uint32_t> &shape,
+                                const std::vector<std::uint32_t> &stride,
+                                std::uint32_t itemsize,
+                                ::tt::target::DataType dataType) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildCheckDiskCacheCommand(
+      *commandBuilder, cacheKey, shape, stride, itemsize, dataType);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  auto cacheHitHandle = std::make_shared<bool>(false);
+  awaitingHandles->push_back(std::static_pointer_cast<void>(cacheHitHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::CheckDiskCacheCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *cacheHitHandle;
+}
+
+::tt::runtime::Tensor
+Controller::createTensorFromDiskCache(const std::string &cacheKey) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  ::tt::runtime::Tensor outputTensorHandle;
+
+  uint64_t commandId = CommandFactory::buildCreateTensorFromDiskCacheCommand(
+      *commandBuilder, outputTensorHandle, cacheKey);
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::CreateTensorFromDiskCacheCommand,
+      std::move(commandBuilder));
+
+  return outputTensorHandle;
+}
+
+::tt::runtime::Tensor Controller::createOwnedHostTensorAndSeedDiskCache(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType, const std::string &cacheKey) {
@@ -421,12 +466,12 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   ::tt::runtime::Tensor outputTensorHandle;
 
   uint64_t commandId =
-      CommandFactory::buildCreateHostTensorWithDiskCacheCommand(
+      CommandFactory::buildCreateOwnedHostTensorAndSeedDiskCacheCommand(
           *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
           dataType, cacheKey);
 
   pushToCommandAndResponseQueues(
-      commandId, fb::CommandType::CreateHostTensorWithDiskCacheCommand,
+      commandId, fb::CommandType::CreateOwnedHostTensorAndSeedDiskCacheCommand,
       std::move(commandBuilder));
 
   return outputTensorHandle;
@@ -1206,17 +1251,62 @@ void Controller::handleCreateHostTensorResponse(
   debug::assertNoAwaitingState(*awaitingResponse, "CreateHostTensor");
 }
 
-void Controller::handleCreateHostTensorWithDiskCacheResponse(
+void Controller::handleCheckDiskCacheResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::CheckDiskCacheResponse);
+
+  // AND across all workers: cache hit only if ALL workers have the entry.
+  bool allHit = true;
+  for (const SizedBuffer &responseBuffer : responseBuffers) {
+    const fb::CheckDiskCacheResponse *response =
+        getResponse(responseBuffer)->type_as_CheckDiskCacheResponse();
+    if (!response->cache_hit()) {
+      allHit = false;
+      break;
+    }
+  }
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+  DEBUG_ASSERT(awaitingHandles && awaitingHandles->size() == 1,
+               "CheckDiskCache: Awaiting handles must be populated and contain "
+               "exactly one handle");
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<bool> cacheHitHandle =
+      std::static_pointer_cast<bool>(awaitingHandles->at(0));
+  *cacheHitHandle = allHit;
+
+  awaitingPromise->set_value();
+}
+
+void Controller::handleCreateTensorFromDiskCacheResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
 
   debug::checkResponsesIdentical(responseBuffers);
 
   debug::checkResponseTypes(
-      responseBuffers, fb::ResponseType::CreateHostTensorWithDiskCacheResponse);
+      responseBuffers, fb::ResponseType::CreateTensorFromDiskCacheResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "CreateTensorFromDiskCache");
+}
+
+void Controller::handleCreateOwnedHostTensorAndSeedDiskCacheResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(
+      responseBuffers,
+      fb::ResponseType::CreateOwnedHostTensorAndSeedDiskCacheResponse);
 
   debug::assertNoAwaitingState(*awaitingResponse,
-                               "CreateHostTensorWithDiskCache");
+                               "CreateOwnedHostTensorAndSeedDiskCache");
 }
 
 void Controller::handleCreateMultiDeviceHostTensorFromShardsResponse(
@@ -1598,8 +1688,16 @@ void Controller::handleResponse(
     return handleCreateHostTensorResponse(responseBuffers,
                                           std::move(awaitingResponse));
   }
-  case fb::CommandType::CreateHostTensorWithDiskCacheCommand: {
-    return handleCreateHostTensorWithDiskCacheResponse(
+  case fb::CommandType::CheckDiskCacheCommand: {
+    return handleCheckDiskCacheResponse(responseBuffers,
+                                        std::move(awaitingResponse));
+  }
+  case fb::CommandType::CreateTensorFromDiskCacheCommand: {
+    return handleCreateTensorFromDiskCacheResponse(responseBuffers,
+                                                   std::move(awaitingResponse));
+  }
+  case fb::CommandType::CreateOwnedHostTensorAndSeedDiskCacheCommand: {
+    return handleCreateOwnedHostTensorAndSeedDiskCacheResponse(
         responseBuffers, std::move(awaitingResponse));
   }
   case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {

@@ -70,7 +70,14 @@ public:
   buildCreateHostTensorResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                 uint64_t commandId);
 
-  static void buildCreateHostTensorWithDiskCacheResponse(
+  static void buildCheckDiskCacheResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                          uint64_t commandId, bool cacheHit);
+
+  static void
+  buildCreateTensorFromDiskCacheResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                         uint64_t commandId);
+
+  static void buildCreateOwnedHostTensorAndSeedDiskCacheResponse(
       ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId);
 
   static void

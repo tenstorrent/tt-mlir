@@ -243,7 +243,44 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   return tensor;
 }
 
-::tt::runtime::Tensor createOwnedHostTensorWithDiskCache(
+bool checkDiskCache(const std::string &cacheKey,
+                    const std::vector<std::uint32_t> &shape,
+                    const std::vector<std::uint32_t> &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
+
+  const char *cacheDir = std::getenv("TT_DISTRIBUTED_TENSOR_CACHE_DIR");
+  LOG_FATAL(cacheDir,
+            "TT_DISTRIBUTED_TENSOR_CACHE_DIR environment variable is not set");
+
+  std::filesystem::path cachePath =
+      std::filesystem::path(cacheDir) / (cacheKey + ".tensorbin");
+
+  bool exists = std::filesystem::exists(cachePath);
+  LOG_DEBUG("Disk cache ", (exists ? "hit" : "miss"), " for key: ", cacheKey,
+            " at ", cachePath.string());
+  return exists;
+}
+
+::tt::runtime::Tensor createTensorFromDiskCache(const std::string &cacheKey) {
+
+  const char *cacheDir = std::getenv("TT_DISTRIBUTED_TENSOR_CACHE_DIR");
+  LOG_FATAL(cacheDir,
+            "TT_DISTRIBUTED_TENSOR_CACHE_DIR environment variable is not set");
+
+  std::filesystem::path cachePath =
+      std::filesystem::path(cacheDir) / (cacheKey + ".tensorbin");
+  std::string cachePathStr = cachePath.string();
+
+  LOG_FATAL(std::filesystem::exists(cachePath),
+            "Disk cache entry not found for key: ", cacheKey, " at ",
+            cachePathStr);
+
+  LOG_DEBUG("Loading tensor from disk cache for key: ", cacheKey, " at ",
+            cachePathStr);
+  return loadTensor(cachePathStr);
+}
+
+::tt::runtime::Tensor createOwnedHostTensorAndSeedDiskCache(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType, const std::string &cacheKey) {
@@ -254,19 +291,14 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
   std::filesystem::path cachePath =
       std::filesystem::path(cacheDir) / (cacheKey + ".tensorbin");
-  std::string cachePathStr = cachePath.string();
 
-  if (std::filesystem::exists(cachePath)) {
-    LOG_DEBUG("Disk cache hit for key: ", cacheKey, " at ", cachePathStr);
-    return loadTensor(cachePathStr);
-  }
-
-  LOG_DEBUG("Disk cache miss for key: ", cacheKey, " at ", cachePathStr);
+  LOG_DEBUG("Seeding disk cache for key: ", cacheKey, " at ",
+            cachePath.string());
   ::tt::runtime::Tensor tensor =
       createOwnedHostTensor(data, shape, stride, itemsize, dataType);
 
   std::filesystem::create_directories(cachePath.parent_path());
-  dumpTensor(tensor, cachePathStr);
+  dumpTensor(tensor, cachePath.string());
 
   return tensor;
 }

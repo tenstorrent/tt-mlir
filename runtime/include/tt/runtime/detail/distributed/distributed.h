@@ -42,7 +42,14 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
-::tt::runtime::Tensor createOwnedHostTensorWithDiskCache(
+bool checkDiskCache(const std::string &cacheKey,
+                    const std::vector<std::uint32_t> &shape,
+                    const std::vector<std::uint32_t> &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType);
+
+::tt::runtime::Tensor createTensorFromDiskCache(const std::string &cacheKey);
+
+::tt::runtime::Tensor createOwnedHostTensorAndSeedDiskCache(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType, const std::string &cacheKey);

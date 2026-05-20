@@ -65,7 +65,20 @@ table CreateHostTensorCommand {
   data_type: tt.target.DataType;
 }
 
-table CreateHostTensorWithDiskCacheCommand {
+table CheckDiskCacheCommand {
+  cache_key: string;
+  shape: [uint32];
+  stride: [uint32];
+  item_size: uint32;
+  data_type: tt.target.DataType;
+}
+
+table CreateTensorFromDiskCacheCommand {
+  output_global_id: uint64;
+  cache_key: string;
+}
+
+table CreateOwnedHostTensorAndSeedDiskCacheCommand {
   output_global_id: uint64;
   data: [ubyte];
   shape: [uint32];
@@ -209,7 +222,9 @@ union CommandType {
   IsProgramCacheEnabledCommand,
   ClearProgramCacheCommand,
   CreateUnsafeBorrowedHostTensorCommand,
-  CreateHostTensorWithDiskCacheCommand,
+  CheckDiskCacheCommand,
+  CreateTensorFromDiskCacheCommand,
+  CreateOwnedHostTensorAndSeedDiskCacheCommand,
 }
 
 table Command {

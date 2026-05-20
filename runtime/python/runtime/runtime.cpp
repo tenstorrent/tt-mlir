@@ -382,15 +382,30 @@ void registerRuntimeBindings(nb::module_ &m) {
       },
       "Create a tensor with owned memory");
   m.def(
-      "create_owned_host_tensor_with_disk_cache",
+      "check_disk_cache",
+      [](const std::string &cacheKey, const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         ::tt::target::DataType dataType) {
+        return tt::runtime::checkDiskCache(cacheKey, shape, stride, itemsize,
+                                           dataType);
+      },
+      "Check if a tensor with the given cache key exists in the disk cache");
+  m.def(
+      "create_tensor_from_disk_cache",
+      [](const std::string &cacheKey) {
+        return tt::runtime::createTensorFromDiskCache(cacheKey);
+      },
+      "Load a tensor from the disk cache by its cache key");
+  m.def(
+      "create_owned_host_tensor_and_seed_disk_cache",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType, const std::string &cacheKey) {
-        return tt::runtime::createOwnedHostTensorWithDiskCache(
+        return tt::runtime::createOwnedHostTensorAndSeedDiskCache(
             reinterpret_cast<const void *>(ptr), shape, stride, itemsize,
             dataType, cacheKey);
       },
-      "Create a tensor with owned memory backed by a persistent disk cache");
+      "Create a tensor with owned memory and seed the disk cache");
   m.def(
       "create_unsafe_borrowed_host_tensor",
       &::tt::runtime::createUnsafeBorrowedHostTensor,

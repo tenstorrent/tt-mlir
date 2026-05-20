@@ -235,7 +235,38 @@ uint64_t CommandFactory::buildCreateHostTensorCommand(
   return commandId;
 }
 
-uint64_t CommandFactory::buildCreateHostTensorWithDiskCacheCommand(
+uint64_t CommandFactory::buildCheckDiskCacheCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb, const std::string &cacheKey,
+    const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
+    uint32_t itemSize, ::tt::target::DataType dataType) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto cacheKeyStr = fbb.CreateString(cacheKey);
+  auto shapeVec = fbb.CreateVector<uint32_t>(shape.data(), shape.size());
+  auto strideVec = fbb.CreateVector<uint32_t>(stride.data(), stride.size());
+
+  uint64_t commandId = BUILD_COMMAND(CheckDiskCache, fbb, cacheKeyStr, shapeVec,
+                                     strideVec, itemSize, dataType);
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildCreateTensorFromDiskCacheCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Tensor &outputTensor, const std::string &cacheKey) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto cacheKeyStr = fbb.CreateString(cacheKey);
+
+  uint64_t commandId = BUILD_COMMAND(CreateTensorFromDiskCache, fbb,
+                                     outputTensor.getGlobalId(), cacheKeyStr);
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildCreateOwnedHostTensorAndSeedDiskCacheCommand(
     ::flatbuffers::FlatBufferBuilder &fbb,
     const ::tt::runtime::Tensor &outputTensor, const void *data,
     const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
@@ -255,8 +286,8 @@ uint64_t CommandFactory::buildCreateHostTensorWithDiskCacheCommand(
   auto cacheKeyStr = fbb.CreateString(cacheKey);
 
   uint64_t commandId = BUILD_COMMAND(
-      CreateHostTensorWithDiskCache, fbb, outputTensor.getGlobalId(), dataVec,
-      shapeVec, strideVec, itemSize, dataType, cacheKeyStr);
+      CreateOwnedHostTensorAndSeedDiskCache, fbb, outputTensor.getGlobalId(),
+      dataVec, shapeVec, strideVec, itemSize, dataType, cacheKeyStr);
 
   return commandId;
 }

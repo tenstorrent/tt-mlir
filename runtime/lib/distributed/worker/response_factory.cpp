@@ -140,11 +140,25 @@ void ResponseFactory::buildCreateHostTensorResponse(
   BUILD_RESPONSE(CreateHostTensor, fbb, commandId);
 }
 
-void ResponseFactory::buildCreateHostTensorWithDiskCacheResponse(
+void ResponseFactory::buildCheckDiskCacheResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId, bool cacheHit) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(CheckDiskCache, fbb, commandId, cacheHit);
+}
+
+void ResponseFactory::buildCreateTensorFromDiskCacheResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  BUILD_RESPONSE(CreateHostTensorWithDiskCache, fbb, commandId);
+  BUILD_RESPONSE(CreateTensorFromDiskCache, fbb, commandId);
+}
+
+void ResponseFactory::buildCreateOwnedHostTensorAndSeedDiskCacheResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(CreateOwnedHostTensorAndSeedDiskCache, fbb, commandId);
 }
 
 void ResponseFactory::buildCreateMultiDeviceHostTensorFromShardsResponse(

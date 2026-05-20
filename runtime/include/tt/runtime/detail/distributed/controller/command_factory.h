@@ -68,7 +68,16 @@ public:
       const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
       uint32_t itemSize, ::tt::target::DataType dataType);
 
-  static uint64_t buildCreateHostTensorWithDiskCacheCommand(
+  static uint64_t buildCheckDiskCacheCommand(
+      ::flatbuffers::FlatBufferBuilder &fbb, const std::string &cacheKey,
+      const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
+      uint32_t itemSize, ::tt::target::DataType dataType);
+
+  static uint64_t buildCreateTensorFromDiskCacheCommand(
+      ::flatbuffers::FlatBufferBuilder &fbb,
+      const ::tt::runtime::Tensor &outputTensor, const std::string &cacheKey);
+
+  static uint64_t buildCreateOwnedHostTensorAndSeedDiskCacheCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
       const ::tt::runtime::Tensor &outputTensor, const void *data,
       const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,

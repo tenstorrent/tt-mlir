@@ -67,11 +67,21 @@ Tensor createOwnedHostTensor(const void *data,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
 
-// Creates host tensor with owned storage backed by a persistent disk cache.
-// On cache hit, loads the tensor from disk instead of creating from data.
-// On cache miss, creates the tensor and dumps it to disk for future reuse.
+// Checks if a tensor with the given cache key exists in the disk cache.
 // Requires the TT_DISTRIBUTED_TENSOR_CACHE_DIR environment variable to be set.
-Tensor createOwnedHostTensorWithDiskCache(
+bool checkDiskCache(const std::string &cacheKey,
+                    const std::vector<std::uint32_t> &shape,
+                    const std::vector<std::uint32_t> &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType);
+
+// Loads a tensor from the disk cache by its cache key.
+// Requires the TT_DISTRIBUTED_TENSOR_CACHE_DIR environment variable to be set.
+Tensor createTensorFromDiskCache(const std::string &cacheKey);
+
+// Creates host tensor with owned storage and seeds the disk cache.
+// Always sends data and always writes to disk.
+// Requires the TT_DISTRIBUTED_TENSOR_CACHE_DIR environment variable to be set.
+Tensor createOwnedHostTensorAndSeedDiskCache(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType, const std::string &cacheKey);
@@ -129,10 +139,16 @@ inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
       data, desc.shape, desc.stride, desc.elementSize(), desc.dataType);
 }
 
-inline Tensor createOwnedHostTensorWithDiskCache(const void *data,
-                                                 const TensorDesc &desc,
-                                                 const std::string &cacheKey) {
-  return ::tt::runtime::createOwnedHostTensorWithDiskCache(
+inline bool checkDiskCache(const std::string &cacheKey,
+                           const TensorDesc &desc) {
+  return ::tt::runtime::checkDiskCache(cacheKey, desc.shape, desc.stride,
+                                       desc.elementSize(), desc.dataType);
+}
+
+inline Tensor
+createOwnedHostTensorAndSeedDiskCache(const void *data, const TensorDesc &desc,
+                                      const std::string &cacheKey) {
+  return ::tt::runtime::createOwnedHostTensorAndSeedDiskCache(
       data, desc.shape, desc.stride, desc.elementSize(), desc.dataType,
       cacheKey);
 }

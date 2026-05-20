@@ -48,7 +48,14 @@ table GetMeshShapeResponse {
 table CreateHostTensorResponse {
 }
 
-table CreateHostTensorWithDiskCacheResponse {
+table CheckDiskCacheResponse {
+  cache_hit: bool;
+}
+
+table CreateTensorFromDiskCacheResponse {
+}
+
+table CreateOwnedHostTensorAndSeedDiskCacheResponse {
 }
 
 table CreateMultiDeviceHostTensorFromShardsResponse {
@@ -152,7 +159,9 @@ union ResponseType {
   IsProgramCacheEnabledResponse,
   ClearProgramCacheResponse,
   CreateUnsafeBorrowedHostTensorResponse,
-  CreateHostTensorWithDiskCacheResponse
+  CheckDiskCacheResponse,
+  CreateTensorFromDiskCacheResponse,
+  CreateOwnedHostTensorAndSeedDiskCacheResponse
 }
 
 table Response {

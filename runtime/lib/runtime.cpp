@@ -325,7 +325,43 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
-Tensor createOwnedHostTensorWithDiskCache(
+bool checkDiskCache(const std::string &cacheKey,
+                    const std::vector<std::uint32_t> &shape,
+                    const std::vector<std::uint32_t> &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
+  using RetType = bool;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::checkDiskCache(cacheKey, shape, stride,
+                                                   itemsize, dataType);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("checkDiskCache", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::checkDiskCache(
+            cacheKey, shape, stride, itemsize, dataType);
+      });
+}
+
+Tensor createTensorFromDiskCache(const std::string &cacheKey) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createTensorFromDiskCache(cacheKey);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createTensorFromDiskCache",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::createTensorFromDiskCache(cacheKey);
+      });
+}
+
+Tensor createOwnedHostTensorAndSeedDiskCache(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType, const std::string &cacheKey) {
@@ -334,16 +370,17 @@ Tensor createOwnedHostTensorWithDiskCache(
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::createOwnedHostTensorWithDiskCache(
+        return ::tt::runtime::ttnn::createOwnedHostTensorAndSeedDiskCache(
             data, shape, stride, itemsize, dataType, cacheKey);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("createOwnedHostTensorWithDiskCache",
+        detail::fatalNotImplemented("createOwnedHostTensorAndSeedDiskCache",
                                     DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        return ::tt::runtime::distributed::createOwnedHostTensorWithDiskCache(
-            data, shape, stride, itemsize, dataType, cacheKey);
+        return ::tt::runtime::distributed::
+            createOwnedHostTensorAndSeedDiskCache(data, shape, stride, itemsize,
+                                                  dataType, cacheKey);
       });
 }
 

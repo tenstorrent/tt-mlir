@@ -354,9 +354,48 @@ void CommandExecutor::execute(uint64_t commandId,
   responseQueue_.push(std::move(responseBuilder));
 }
 
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::CheckDiskCacheCommand *command) {
+  std::string cacheKey = command->cache_key()->str();
+  std::vector<uint32_t> shape(command->shape()->begin(),
+                              command->shape()->end());
+  std::vector<uint32_t> stride(command->stride()->begin(),
+                               command->stride()->end());
+  uint32_t itemSize = command->item_size();
+  ::tt::target::DataType dataType = command->data_type();
+
+  bool cacheHit = ::tt::runtime::checkDiskCache(cacheKey, shape, stride,
+                                                itemSize, dataType);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildCheckDiskCacheResponse, commandId,
+                    cacheHit);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(
+    uint64_t commandId, const fb::CreateTensorFromDiskCacheCommand *command) {
+  uint64_t tensorGlobalId = command->output_global_id();
+  std::string cacheKey = command->cache_key()->str();
+
+  ::tt::runtime::Tensor tensor =
+      ::tt::runtime::createTensorFromDiskCache(cacheKey);
+
+  tensor.setGlobalId(tensorGlobalId);
+
+  tensorPool_.insert_or_assign(tensorGlobalId, tensor);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildCreateTensorFromDiskCacheResponse,
+                    commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
 void CommandExecutor::execute(
     uint64_t commandId,
-    const fb::CreateHostTensorWithDiskCacheCommand *command) {
+    const fb::CreateOwnedHostTensorAndSeedDiskCacheCommand *command) {
   uint64_t tensorGlobalId = command->output_global_id();
   const uint8_t *tensorData = command->data()->data();
   std::vector<uint32_t> shape(command->shape()->begin(),
@@ -368,7 +407,7 @@ void CommandExecutor::execute(
   std::string cacheKey = command->cache_key()->str();
 
   ::tt::runtime::Tensor tensor =
-      ::tt::runtime::createOwnedHostTensorWithDiskCache(
+      ::tt::runtime::createOwnedHostTensorAndSeedDiskCache(
           tensorData, shape, stride, itemSize, dataType, cacheKey);
 
   tensor.setGlobalId(tensorGlobalId);
@@ -376,8 +415,9 @@ void CommandExecutor::execute(
   tensorPool_.insert_or_assign(tensorGlobalId, tensor);
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
-      buildResponse(ResponseFactory::buildCreateHostTensorWithDiskCacheResponse,
-                    commandId);
+      buildResponse(
+          ResponseFactory::buildCreateOwnedHostTensorAndSeedDiskCacheResponse,
+          commandId);
 
   responseQueue_.push(std::move(responseBuilder));
 }
@@ -801,9 +841,18 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
     return execute(command->command_id(),
                    command->type_as_CreateHostTensorCommand());
   }
-  case fb::CommandType::CreateHostTensorWithDiskCacheCommand: {
+  case fb::CommandType::CheckDiskCacheCommand: {
     return execute(command->command_id(),
-                   command->type_as_CreateHostTensorWithDiskCacheCommand());
+                   command->type_as_CheckDiskCacheCommand());
+  }
+  case fb::CommandType::CreateTensorFromDiskCacheCommand: {
+    return execute(command->command_id(),
+                   command->type_as_CreateTensorFromDiskCacheCommand());
+  }
+  case fb::CommandType::CreateOwnedHostTensorAndSeedDiskCacheCommand: {
+    return execute(
+        command->command_id(),
+        command->type_as_CreateOwnedHostTensorAndSeedDiskCacheCommand());
   }
   case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
     return execute(

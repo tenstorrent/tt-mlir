@@ -107,9 +107,18 @@ private:
           const ::tt::runtime::distributed::flatbuffer::CreateHostTensorCommand
               *command);
 
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::CheckDiskCacheCommand
+              *command);
+
   void execute(uint64_t commandId,
                const ::tt::runtime::distributed::flatbuffer::
-                   CreateHostTensorWithDiskCacheCommand *command);
+                   CreateTensorFromDiskCacheCommand *command);
+
+  void execute(uint64_t commandId,
+               const ::tt::runtime::distributed::flatbuffer::
+                   CreateOwnedHostTensorAndSeedDiskCacheCommand *command);
 
   void execute(uint64_t commandId,
                const ::tt::runtime::distributed::flatbuffer::

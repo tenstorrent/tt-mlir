@@ -117,7 +117,14 @@ public:
       const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
       ::tt::target::DataType dataType);
 
-  ::tt::runtime::Tensor createOwnedHostTensorWithDiskCache(
+  bool checkDiskCache(const std::string &cacheKey,
+                      const std::vector<std::uint32_t> &shape,
+                      const std::vector<std::uint32_t> &stride,
+                      std::uint32_t itemsize, ::tt::target::DataType dataType);
+
+  ::tt::runtime::Tensor createTensorFromDiskCache(const std::string &cacheKey);
+
+  ::tt::runtime::Tensor createOwnedHostTensorAndSeedDiskCache(
       const void *data, const std::vector<std::uint32_t> &shape,
       const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
       ::tt::target::DataType dataType, const std::string &cacheKey);
@@ -259,7 +266,15 @@ private:
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
-  void handleCreateHostTensorWithDiskCacheResponse(
+  void handleCheckDiskCacheResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleCreateTensorFromDiskCacheResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleCreateOwnedHostTensorAndSeedDiskCacheResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
