@@ -66,11 +66,11 @@ struct NocScore {
   }
 };
 
-// Wormhole/Blackhole have 2 datamovement processors and 2 NoCs. After CBs have
-// already been load-balanced across two threads, choose which thread should use
-// NoC0 versus NoC1. The backend maps NoC0 to processor 1 and NoC1 to processor
-// 0, so this helper stores the equivalent processor index on each assignment.
-static void assignProcessorIndicesForTwoNocs(
+// Wormhole/Blackhole have 2 DMs and 2 NoCs. After CBs have already been
+// load-balanced across two threads, choose which thread should use NoC0 versus
+// NoC1. The backend maps NoC0 to processor 1 and NoC1 to processor 0, so this
+// helper stores the equivalent processor index on each assignment.
+static void assignNoCsToThreads(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
   TT_assertv(assignments.size() == 2u, "Expect exactly 2 DM threads");
@@ -121,10 +121,8 @@ static void assignProcessorIndicesForTwoNocs(
       utils::getDatamovementProcessorForNoc(thread1Noc);
 }
 
-// Quasar has 6 datamovement processors sharing 1 NoC. There is no NoC choice
-// to make after CB load balancing, so the balanced thread index is the hardware
-// processor index.
-static void assignProcessorIndicesForSingleNoc(
+// There is no NoC choice to make. Use the thread index as the processor index.
+static void assignProcessorIndicesForSingleNoC(
     SmallVectorImpl<DMAThreadAssignment> &assignments) {
   for (auto [index, assignment] : llvm::enumerate(assignments)) {
     assignment.processorIndex = static_cast<int32_t>(index);
@@ -136,12 +134,13 @@ static void assignProcessorIndices(
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
     unsigned numDatamovementThreads) {
   if (numDatamovementThreads == 2) {
-    assignProcessorIndicesForTwoNocs(assignments, dmaOps);
+    // WH/BH case. 2 DMs and 2 NoCs, so need to assign each NoC to a thread.
+    assignNoCsToThreads(assignments, dmaOps);
     return;
   }
 
-  TT_assertv(numDatamovementThreads == 6u, "Expect 2 or 6 DM processors");
-  assignProcessorIndicesForSingleNoc(assignments);
+  TT_assertv(numDatamovementThreads == 6u, "Expect 6 DM processors");
+  assignProcessorIndicesForSingleNoC(assignments);
 }
 
 // Assign CBs to threads to balance workload.
@@ -280,17 +279,19 @@ public:
 
     // Not enough CBs to warrant splitting but still need to assign a processor
     // on the existing single DM thread before returning failure.
-    if (numThreadsToUse <= 1) {
+    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
       bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
         auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
         return store && ttcore::getMemorySpace(store.getMemref()) ==
                             ttcore::MemorySpace::DeviceDRAM;
       });
-      int32_t processorIndex = numDatamovementThreads == 2
-                                   ? utils::getDatamovementProcessorForNoc(
-                                         writesDRAM ? ttcore::NocIndex::Noc1
-                                                    : ttcore::NocIndex::Noc0)
-                                   : 0;
+      int32_t processorIndex;
+      if (numDatamovementThreads == 2) {
+        processorIndex = utils::getDatamovementProcessorForNoc(
+            writesDRAM ? ttcore::NocIndex::Noc1 : ttcore::NocIndex::Noc0);
+      } else {
+        processorIndex = 0;
+      }
       generic.setThreadsAttr(rewriter.getArrayAttr({
           rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
                                        processorIndex),
@@ -396,6 +397,10 @@ public:
         numDatamovementProcessors != 0 ? numDatamovementProcessors
                                        : chipDesc.getNumDatamovementThreads();
 
+    // If only 1 DMA thread available, nothing to schedule.
+    if (numDatamovementThreads == 1) {
+      return;
+    }
     if (numDatamovementThreads != 2 && numDatamovementThreads != 6) {
       moduleOp.emitError(
           "d2m-schedule-dma only supports 2 or 6 datamovement processors");
