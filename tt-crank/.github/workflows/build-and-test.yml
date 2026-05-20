@@ -28,16 +28,18 @@ jobs:
 
   build-and-test:
     needs: resolve-image
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, compute]
     container:
       image: ${{ needs.resolve-image.outputs.image }}
+      volumes:
+        - /opt/cpm-cache:/cpm-cache
+      env:
+        CPM_SOURCE_CACHE: /cpm-cache
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Fetch submodule tags
-        run: git -C third_party/tt-mlir fetch --unshallow --tags
+          fetch-depth: 0
 
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
