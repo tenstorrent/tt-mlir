@@ -628,7 +628,13 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
       mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
   if (!llvm::equal(oldLayout.getDimAlignments(),
                    newLayout.getDimAlignments())) {
-    oldShape = llvm::to_vector(oldResultType.getShape());
+    llvm::SmallVector<int64_t> tileShape;
+    if (auto tileType =
+            mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
+      tileShape = llvm::to_vector(tileType.getShape());
+    }
+    oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
+                                        tileShape);
   }
 
   mlir::AffineMap newRemapping = viewOp.getRemapping();
