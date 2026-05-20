@@ -8,6 +8,7 @@ set(SOURCES
     TTNNOutputTensorInference.cpp
     Conversion.cpp
     SingletonDeviceContext.cpp
+    NativeFromMLIR.cpp
 )
 add_library(${LIB_NAME} STATIC ${SOURCES})
 
