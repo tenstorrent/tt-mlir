@@ -1,9 +1,9 @@
 # Build directories
-/build/
-/build-*/
+/build
 /build_*
-build
 /out/
+
+/.cpmcache/
 
 # Python venv (dev tooling — pre-commit, etc.)
 /venv/*
@@ -29,4 +29,3 @@ generated/
 # scikit-build-core editable install bookkeeping — the .so lands next to the
 # Python source under editable.mode = "redirect".
 /python/tt_kurbla/**/_native*.so
-/python/tt_kurbla/**/__pycache__/
