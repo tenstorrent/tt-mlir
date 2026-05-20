@@ -118,6 +118,21 @@ ProgramTensorPool::getRuntimeTensor(std::uint32_t globalId) {
       static_cast<const ProgramTensorPool &>(*this).getRuntimeTensor(globalId));
 }
 
+std::uint32_t ProgramTensorPool::getScalarKernelArgAndValidate(
+    const ::tt::target::ttnn::TensorRef *tensorRef) const {
+  LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
+  const ::tt::runtime::Tensor &runtimeTensor =
+      getRuntimeTensorAndValidate(tensorRef);
+  const ::ttnn::Tensor &ttnnTensor =
+      ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(runtimeTensor);
+  LOG_ASSERT(ttnnTensor.dtype() == ::ttnn::DataType::UINT32,
+             "KernelArgScalar expects a UInt32 scalar tensor for global id ",
+             tensorRef->global_id(),
+             "; use tt::runtime::createScalarTensor() to produce one");
+  return ::tt::runtime::ttnn::utils::getScalarFromTensor<std::uint32_t>(
+      ttnnTensor);
+}
+
 const ::tt::runtime::Tensor &ProgramTensorPool::getRuntimeTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef) const {
   LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
