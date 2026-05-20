@@ -7,7 +7,6 @@
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
-#include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
@@ -23,9 +22,7 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
-#include "ttmlir/Version.h"
 #include "ttnn/tensor/serialization.hpp"
-#include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
 
