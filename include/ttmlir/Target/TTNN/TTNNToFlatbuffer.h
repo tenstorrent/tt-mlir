@@ -7,6 +7,7 @@
 
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LogicalResult.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 
 namespace mlir::tt::ttnn {
@@ -42,6 +43,52 @@ LogicalResult translateTTNNToFlatbuffer(
         */
         &goldenMap = {},
     const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
+
+::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, MatmulOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, LinearOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, Conv2dOp op);
+
+::flatbuffers::Offset<::tt::target::DeviceRef>
+createDeviceRef(::mlir::tt::FlatbufferObjectCache &cache, ::mlir::Value device);
+
+template <typename EltwiseUnaryOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseUnaryOp>
+createEltwiseUnaryOp(::mlir::tt::FlatbufferObjectCache &cache,
+                     EltwiseUnaryOp op);
+
+template <typename EltwiseUnaryCompositeOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseUnaryCompositeOp>
+createEltwiseUnaryCompositeOp(::mlir::tt::FlatbufferObjectCache &cache,
+                              EltwiseUnaryCompositeOp op);
+
+template <typename EltwiseBinaryOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryOp>
+createEltwiseBinaryOp(::mlir::tt::FlatbufferObjectCache &cache,
+                      EltwiseBinaryOp op);
+
+template <typename EltwiseBinaryCompositeOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeOp>
+createEltwiseBinaryCompositeOp(::mlir::tt::FlatbufferObjectCache &cache,
+                               EltwiseBinaryCompositeOp op);
+
+template <typename EltwiseBinaryCompositeScalarOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeScalarOp>
+createEltwiseBinaryCompositeScalarOp(::mlir::tt::FlatbufferObjectCache &cache,
+                                     EltwiseBinaryCompositeScalarOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
+createEltwiseTernaryWhereOp(::mlir::tt::FlatbufferObjectCache &cache,
+                            WhereOp op);
+
+template <typename EltwiseQuantizationOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseQuantizationOp>
+createEltwiseQuantizationOp(::mlir::tt::FlatbufferObjectCache &cache,
+                            EltwiseQuantizationOp op);
 } // namespace mlir::tt::ttnn
 
-#endif
+#endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H
