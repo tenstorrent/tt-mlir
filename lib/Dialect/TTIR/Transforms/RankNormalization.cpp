@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -58,17 +59,15 @@ static bool needsRankExpansion(Type type) {
   return false;
 }
 
-/// Collects functions that participate in rank normalization. A function
-/// participates if it is external and its signature needs rank expansion, or
-/// if its body contains at least one TTIR-dialect op.
+/// Collects functions that participate in rank normalization. A non-external
+/// function participates if its body contains at least one TTIR-dialect op.
+/// An external declaration participates only if it is called from a
+/// participating func.
 static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
   DenseSet<func::FuncOp> result;
+
   module.walk([&](func::FuncOp funcOp) {
     if (funcOp.isExternal()) {
-      if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
-          llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
-        result.insert(funcOp);
-      }
       return;
     }
 
@@ -84,6 +83,23 @@ static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
       result.insert(funcOp);
     }
   });
+
+  //include external declarations that are called from
+  // participating functions (their signatures must be promoted to match).
+  SmallVector<func::FuncOp> externalCallees;
+  for (func::FuncOp participatingFunc : result) {
+    participatingFunc.walk([&](func::CallOp callOp) {
+      auto callee =
+          module.lookupSymbol<func::FuncOp>(callOp.getCallee());
+      if (callee && callee.isExternal() &&
+          (llvm::any_of(callee.getArgumentTypes(), needsRankExpansion) ||
+           llvm::any_of(callee.getResultTypes(), needsRankExpansion))) {
+        externalCallees.push_back(callee);
+      }
+    });
+  }
+  result.insert(externalCallees.begin(), externalCallees.end());
+
   return result;
 }
 
@@ -364,6 +380,7 @@ public:
     RankNormalizationTypeConverter typeConverter;
     ConversionTarget target(*ctx);
     target.addLegalDialect<ttnn::TTNNDialect>();
+    target.addLegalDialect<ttcore::TTCoreDialect>();
 
     auto participatingFuncs = collectParticipatingFuncs(module);
 
