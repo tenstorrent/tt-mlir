@@ -2369,6 +2369,78 @@ llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// FlashMlaPrefillOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+FlashMlaPrefillOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  assert(inputs.size() >= 2 && inputs.size() <= 4 &&
+         "ttnn::flash_mla_prefill can have 2 to 4 input tensors "
+         "(q, k, optional value, optional mask)");
+
+  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
+                   detail::getValidatedDeviceGrid(getOperation()));
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+
+  size_t idx = 2;
+  const std::optional<llvm::ArrayRef<int64_t>> valueShape =
+      getValue() ? std::make_optional(getValue().getType().getShape())
+                 : std::nullopt;
+  const std::optional<TTNNLayoutAttr> valueLayout =
+      getValue() ? std::make_optional(inputs[idx++]) : std::nullopt;
+  const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
+      getAttentionMask()
+          ? std::make_optional(getAttentionMask().getType().getShape())
+          : std::nullopt;
+  const std::optional<TTNNLayoutAttr> attentionMaskLayout =
+      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
+
+  uint32_t headDimV = getHeadDimV();
+  bool isCausal = getIsCausal();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<FlashMlaPrefillOp>::getOpConstraints, *this, deviceGrid,
+      queryShape, inputs[0], keyShape, inputs[1], valueShape, valueLayout,
+      attentionMaskShape, attentionMaskLayout, headDimV, isCausal, getScale(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+FlashMlaPrefillOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() >= 2 && inputs.size() <= 4 &&
+         "ttnn::flash_mla_prefill can have 2 to 4 input tensors");
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+
+  size_t idx = 2;
+  const std::optional<llvm::ArrayRef<int64_t>> valueShape =
+      getValue() ? std::make_optional(getValue().getType().getShape())
+                 : std::nullopt;
+  const std::optional<TTNNLayoutAttr> valueLayout =
+      getValue() ? std::make_optional(inputs[idx++]) : std::nullopt;
+  const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
+      getAttentionMask()
+          ? std::make_optional(getAttentionMask().getType().getShape())
+          : std::nullopt;
+  const std::optional<TTNNLayoutAttr> attentionMaskLayout =
+      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
+
+  uint32_t headDimV = getHeadDimV();
+  bool isCausal = getIsCausal();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<FlashMlaPrefillOp>::getOpRuntime, *this, queryShape,
+      inputs[0], keyShape, inputs[1], valueShape, valueLayout,
+      attentionMaskShape, attentionMaskLayout, headDimV, isCausal, getScale(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 

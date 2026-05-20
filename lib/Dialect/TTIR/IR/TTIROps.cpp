@@ -7577,6 +7577,122 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// FlashMlaPrefillOp
+//===----------------------------------------------------------------------===//
+
+// FlashMlaPrefillOp verification
+::mlir::LogicalResult mlir::tt::ttir::FlashMlaPrefillOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (queryType.getRank() != 4) {
+    return emitOpError("Query must be a 4D tensor");
+  }
+  if (keyType.getRank() != 4) {
+    return emitOpError("Key must be a 4D tensor");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("Output must be a 4D tensor");
+  }
+
+  int64_t batchSize = queryType.getShape()[0];
+  int64_t nQueryHeads = queryType.getShape()[1];
+  int64_t nKVHeads = keyType.getShape()[1];
+  int64_t seqLen = queryType.getShape()[2];
+  int64_t qkHeadSize = queryType.getShape()[3];
+  int64_t kSeqLen = keyType.getShape()[2];
+  int64_t headDimV = static_cast<int64_t>(getHeadDimV());
+
+  if (keyType.getShape()[0] != batchSize) {
+    return emitOpError("Key batch size must match query batch size");
+  }
+
+  if (keyType.getShape()[3] != qkHeadSize) {
+    return emitOpError("Key head size must match query head size");
+  }
+
+  if (seqLen != kSeqLen) {
+    return emitOpError("Query and key must have the same sequence length for "
+                       "flash MLA prefill");
+  }
+
+  if (nQueryHeads % nKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key num heads (GQA/MQA/MLA)");
+  }
+
+  if (getValue()) {
+    RankedTensorType valueType = getValue().getType();
+    if (valueType.getRank() != 4) {
+      return emitOpError("Value must be a 4D tensor");
+    }
+    if (valueType.getShape()[0] != batchSize) {
+      return emitOpError("Value batch size must match query batch size");
+    }
+    if (valueType.getShape()[1] != nKVHeads) {
+      return emitOpError("Value num heads must match key num heads");
+    }
+    if (valueType.getShape()[2] != seqLen) {
+      return emitOpError("Value sequence length must match query/key sequence "
+                         "length");
+    }
+    if (valueType.getShape()[3] != headDimV) {
+      return emitOpError("Value head size must equal head_dim_v");
+    }
+  } else {
+    if (headDimV > qkHeadSize) {
+      return emitOpError("head_dim_v cannot exceed key's head dim when value "
+                         "is not provided");
+    }
+  }
+
+  if (getAttentionMask()) {
+    if (getIsCausal()) {
+      return emitOpError(
+          "Attention mask is not allowed when is_causal is true");
+    }
+    RankedTensorType attentionMaskType = getAttentionMask().getType();
+    if (attentionMaskType.getRank() != 4) {
+      return emitOpError("Attention mask must be a 4D tensor");
+    }
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
+    }
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != nQueryHeads) {
+      return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
+                         "query num heads");
+    }
+    if (attentionMaskType.getShape()[2] != seqLen) {
+      return emitOpError(
+          "Attention mask at dim 2 must match query sequence length");
+    }
+    if (attentionMaskType.getShape()[3] != seqLen) {
+      return emitOpError(
+          "Attention mask at dim 3 must match key sequence length");
+    }
+  }
+
+  // Result shape must be [B, Hq, Sq, head_dim_v].
+  if (resultType.getShape()[0] != batchSize ||
+      resultType.getShape()[1] != nQueryHeads ||
+      resultType.getShape()[2] != seqLen ||
+      resultType.getShape()[3] != headDimV) {
+    return emitOpError(
+        "Result shape must be [batch, num_query_heads, seq_len, head_dim_v]");
+  }
+
+  if (resultType.getElementType() != queryType.getElementType()) {
+    return emitOpError("Result element type must match query element type");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GlobalAvgPool2dOp
 //===----------------------------------------------------------------------===//
 
