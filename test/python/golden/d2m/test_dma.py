@@ -232,7 +232,7 @@ def test_roundtrip_dma_rowmajor(
 
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("shape", [(256, 256)])
-@pytest.mark.parametrize("dram_grid", [(2, 2)])
+@pytest.mark.parametrize("dram_grid", [(1, 2), (2, 1), (2, 2), (4, 4)])
 def test_host_sharded_dram_roundtrip(
     shape: Shape,
     dram_grid: tuple[int, int],
@@ -256,6 +256,42 @@ def test_host_sharded_dram_roundtrip(
                     tiled=False,
                     memorySpace=ttcore.MemorySpace.DeviceDRAM,
                     grid=dram_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            return builder.to_layout(
+                to_dram,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_dma_test(module, request, device=device)
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("shape", [(2560, 256)])
+def test_host_dram_roundtrip_exceeds_l1(
+    shape: Shape,
+    target: str,
+    request,
+    device,
+):
+    """Tests host -> DRAM -> host for a tensor too large to stage in L1."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def dram_roundtrip(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            to_dram = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=False,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
                 ),
                 unit_attrs=unit_attrs,
             )
