@@ -3264,11 +3264,18 @@ llvm::Expected<OpConstraints> OpModel<FlashMlaPrefillOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
-      detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
-                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
 
   std::optional<::ttnn::TensorSpec> valueSpec =
       detail::convertToOptionalTensorSpec(device, valueShape, valueLayout);
@@ -3308,11 +3315,18 @@ llvm::Expected<size_t> OpModel<FlashMlaPrefillOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
-      detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
-                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
 
   std::optional<::ttnn::TensorSpec> valueSpec =
       detail::convertToOptionalTensorSpec(device, valueShape, valueLayout);

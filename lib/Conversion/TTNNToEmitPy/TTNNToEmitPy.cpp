@@ -4427,7 +4427,8 @@ public:
         emitter.emit(srcOp.getAttentionMask(), "attn_mask"),
         emitter.emit(srcOp.getIsCausal(), "is_causal"),
         emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
-        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);

@@ -3610,7 +3610,7 @@ public:
         emitter.emit(srcOp.getAttentionMask()),
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getScale()),
-        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);

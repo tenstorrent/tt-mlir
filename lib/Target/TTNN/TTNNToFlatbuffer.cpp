@@ -3375,10 +3375,11 @@ createOp(FlatbufferObjectCache &cache, FlashMlaPrefillOp op) {
       cache, op.getScale()
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
+  auto memoryConfig =
+      getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult());
 
   return ::tt::target::ttnn::CreateFlashMlaPrefillOp(
       *cache.fbb, query, key, value, attentionMask, headDimV, isCausal, scale,

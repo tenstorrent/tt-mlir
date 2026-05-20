@@ -2593,8 +2593,12 @@ FlashMlaPrefillOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
          "ttnn::flash_mla_prefill can have 2 to 4 input tensors "
          "(q, k, optional value, optional mask)");
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
   const auto queryShape = getQuery().getType().getShape();
   const auto keyShape = getKey().getType().getShape();
