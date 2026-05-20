@@ -49,8 +49,7 @@ LogicalResult checkForIllegalSemaphoreOps(Block *block) {
   return success();
 }
 
-ttcore::NocIndex
-getNoCForProcessorIndex(int32_t processorIndex) {
+ttcore::NocIndex getNoCForProcessorIndex(int32_t processorIndex) {
   TT_assertv((processorIndex == 0 || processorIndex == 1),
              "unsupported datamovement processor index");
   // Preserve the existing backend mapping: NoC0 uses RiscV1 and NoC1 uses
@@ -68,8 +67,9 @@ int32_t getProcessorIndexForTwoNoCArch(ttcore::NocIndex nocIndex) {
   llvm_unreachable("unsupported NoC index");
 }
 
-LogicalResult checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
-                                                       llvm::StringRef backend) {
+LogicalResult
+checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
+                                         llvm::StringRef backend) {
   auto systemDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
       ttcore::SystemDescAttr::name);
   if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==

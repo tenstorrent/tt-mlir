@@ -138,8 +138,7 @@ public:
           nocIndex =
               index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
         } else {
-          nocIndex =
-              d2m::utils::getNoCForProcessorIndex(processorIdx);
+          nocIndex = d2m::utils::getNoCForProcessorIndex(processorIdx);
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, nocIndex);
