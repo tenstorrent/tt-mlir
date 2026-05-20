@@ -124,8 +124,8 @@ static void assignNoCsToThreads(
 // There is no NoC choice to make. Use the thread index as the processor index.
 static void assignProcessorIndicesForSingleNoC(
     SmallVectorImpl<DMAThreadAssignment> &assignments) {
-  for (auto [index, assignment] : llvm::enumerate(assignments)) {
-    assignment.processorIndex = static_cast<int32_t>(index);
+  for (size_t index = 0; index < assignments.size(); ++index) {
+    assignments[index].processorIndex = static_cast<int32_t>(index);
   }
 }
 
