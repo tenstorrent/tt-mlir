@@ -4668,6 +4668,20 @@ class StableHLOGatherToEmbeddingPattern
     auto sliceSizes = srcOp.getSliceSizes();
     auto startIndexMap = dimensionNumbers.getStartIndexMap();
 
+    // ttir.embedding casts its weight to bf16, whose 8-bit mantissa
+    // exactly represents integers only in [-256, 256] (e.g. 1900 -> 1904).
+    // Wider integer / index operands silently round, so reject them here.
+    if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(
+            srcOp.getOperand().getType().getElementType())) {
+      if (intTy.getWidth() > 8) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "unsupported integer operand element type");
+      }
+    } else if (mlir::isa<mlir::IndexType>(
+                   srcOp.getOperand().getType().getElementType())) {
+      return rewriter.notifyMatchFailure(srcOp, "index-typed operand");
+    }
+
     // Check if start indices tensor isn't 1D when we are indexing multiple
     // dimensions because of matmul restrictions.
     if (startIndexMap.size() > 1 && startIndicesShape.size() == 1) {
@@ -5258,15 +5272,18 @@ public:
   }
 };
 
-// Converts batched StableHLO gather into ttir.gather when the gather is a
-// simple batched index-select along a single dimension.
-// This handles the common case where:
-// - operand_batching_dims and start_indices_batching_dims are present
-// - start_index_map has size 1 (indexing a single non-batch dimension)
-// - slice sizes are 1 for the indexed dimension and full for all other
-//   non-batch dimensions
+// Converts a StableHLO gather into ttir.gather for a simple index-select
+// along a single dimension. Accepts two forms:
+//   1. Batched form: operand/start_indices batching dims present.
+//   2. Non-batched form: only when the operand is integer/index typed.
+//      Float operands without batching dims continue to lower through
+//      StableHLOGatherToEmbeddingPattern; integer operands cannot use that
+//      path because the embedding kernel casts its weight to bf16 and
+//      silently rounds wide integers (see the guard at the top of
+//      StableHLOGatherToEmbeddingPattern). torch.repeat_interleave
+//      decomposes into exactly this form on integer data.
 //
-// Example:
+// Example (batched):
 //   operand: tensor<256x24x3xf32>, indices: tensor<256x1x1xi32>
 //   batching_dims = [0], start_index_map = [1], collapsed_slice_dims = [1]
 //   -> ttir.gather(%operand, %reshaped_indices) {dim = 1}
@@ -5301,9 +5318,14 @@ public:
     auto startIndicesShape = startIndicesType.getShape();
     auto sliceSizes = srcOp.getSliceSizes();
 
-    // Must have batching dims - otherwise other patterns handle it.
-    if (operandBatchingDims.empty() || startIndicesBatchingDims.empty()) {
-      return rewriter.notifyMatchFailure(srcOp, "No batching dims present");
+    // Non-batched form is gated to integer/index operands; float gathers
+    // without batching dims keep using the embedding path. See class
+    // comment.
+    bool hasBatchingDims =
+        !operandBatchingDims.empty() && !startIndicesBatchingDims.empty();
+    if (!hasBatchingDims && !operandType.getElementType().isIntOrIndex()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "non-batched gather requires integer/index operand");
     }
 
     // Must index exactly one dimension.
@@ -5419,7 +5441,87 @@ public:
       }
     }
 
-    // Step 3: Create gather_dim with the appropriate dimension.
+    // Workarounds for two tt-metal ttnn.gather bugs that fire when an
+    // input has logical shape ttnn::Shape{1}:
+    //   (a) pre_gather_transform_tensor early-exits and the device op
+    //       then indexes dim 3 of a still-rank-1 tensor (out-of-range).
+    //       Issue: https://github.com/tenstorrent/tt-metal/issues/45225
+    //   (b) post_gather_transform_tensor squeezes the rank-4 device
+    //       output back to the index rank and asserts when a non-1 dim
+    //       sits in a position that would be squeezed.
+    //       Issue: https://github.com/tenstorrent/tt-metal/issues/45233
+    //
+    // Operand singleton: gather of a 1-element operand is mathematically
+    // a broadcast (the only legal index is 0), so emit reshape+repeat and
+    // skip the device op entirely. Avoids (a) and (b).
+    // Indices singleton with non-singleton operand: wrap with a leading-1
+    // reshape so the indices' logical shape becomes {1,1}, sidestepping
+    // (a). (b) does not fire because the operand is non-singleton.
+    auto operandRttType = mlir::cast<RankedTensorType>(operand.getType());
+    auto indicesRttType = mlir::cast<RankedTensorType>(indices.getType());
+    bool operandIsSingleton =
+        operandRttType.getRank() == 1 && operandRttType.getDimSize(0) == 1;
+    bool indicesIsSingleton =
+        indicesRttType.getRank() == 1 && indicesRttType.getDimSize(0) == 1;
+    bool operandIsRank1 = operandRttType.getRank() == 1;
+
+    if (operandIsSingleton) {
+      SmallVector<int64_t> onesShape(outputShape.size(), 1);
+      SmallVector<int32_t> onesShapeI32(outputShape.size(), 1);
+      auto onesType = RankedTensorType::get(
+          onesShape, outputType.getElementType(), outputType.getEncoding());
+      Value reshapedOperand = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), onesType, operand,
+          rewriter.getI32ArrayAttr(onesShapeI32));
+
+      bool outputIsSingleton =
+          llvm::all_of(outputShape, [](int64_t d) { return d == 1; });
+      if (outputIsSingleton) {
+        rewriter.replaceOp(srcOp, reshapedOperand);
+        return success();
+      }
+
+      SmallVector<int64_t> repeatDims;
+      repeatDims.reserve(outputShape.size());
+      for (int64_t d : outputShape) {
+        repeatDims.push_back(d);
+      }
+      rewriter.replaceOpWithNewOp<ttir::RepeatOp>(
+          srcOp, outputType, reshapedOperand,
+          rewriter.getDenseI64ArrayAttr(repeatDims));
+      return success();
+    }
+
+    if (indicesIsSingleton || operandIsRank1) {
+      auto padLeading = [&](Value v) -> Value {
+        auto t = mlir::cast<RankedTensorType>(v.getType());
+        SmallVector<int64_t> paddedShape{1};
+        paddedShape.append(t.getShape().begin(), t.getShape().end());
+        auto paddedType = RankedTensorType::get(paddedShape, t.getElementType(),
+                                                t.getEncoding());
+        return rewriter.create<ttir::ReshapeOp>(
+            srcOp.getLoc(), paddedType, v,
+            rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
+      };
+      Value paddedOperand = padLeading(operand);
+      Value paddedIndices = padLeading(indices);
+
+      SmallVector<int64_t> paddedOutShape{1};
+      paddedOutShape.append(outputShape.begin(), outputShape.end());
+      auto paddedOutType =
+          RankedTensorType::get(paddedOutShape, outputType.getElementType(),
+                                outputType.getEncoding());
+
+      auto paddedGather = rewriter.create<ttir::GatherOp>(
+          srcOp.getLoc(), paddedOutType, paddedOperand, paddedIndices,
+          rewriter.getI32IntegerAttr(static_cast<int32_t>(indexedDim + 1)));
+
+      rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+          srcOp, outputType, paddedGather.getResult(),
+          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(outputShape)));
+      return success();
+    }
+
     rewriter.replaceOpWithNewOp<ttir::GatherOp>(
         srcOp, outputType, operand, indices,
         rewriter.getI32IntegerAttr(static_cast<int32_t>(indexedDim)));
