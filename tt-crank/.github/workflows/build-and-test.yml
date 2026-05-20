@@ -1,11 +1,10 @@
 name: build-and-test
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    # Nightly at 02:00 UTC to keep the main-scoped ccache warm for PRs.
-    - cron: '0 2 * * *'
   workflow_dispatch:
 
 concurrency:
