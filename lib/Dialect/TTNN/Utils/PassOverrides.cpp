@@ -239,6 +239,28 @@ bool Conv2dConfigOverrideParser::parse(
           return true;
         }
         params.enableWeightsDoubleBuffer = enableWeightsDoubleBuffer;
+      } else if (paramName == "enable_kernel_stride_folding") {
+        bool enableKernelStrideFolding;
+        if (parseBool(paramValue, enableKernelStrideFolding)) {
+          opt.error("Invalid enable_kernel_stride_folding: " + paramValue);
+          return true;
+        }
+        if (params.enableKernelStrideFolding.has_value()) {
+          opt.error("Duplicate enable_kernel_stride_folding: " + paramValue);
+          return true;
+        }
+        params.enableKernelStrideFolding = enableKernelStrideFolding;
+      } else if (paramName == "config_tensors_in_dram") {
+        bool configTensorsInDram;
+        if (parseBool(paramValue, configTensorsInDram)) {
+          opt.error("Invalid config_tensors_in_dram: " + paramValue);
+          return true;
+        }
+        if (params.configTensorsInDram.has_value()) {
+          opt.error("Duplicate config_tensors_in_dram: " + paramValue);
+          return true;
+        }
+        params.configTensorsInDram = configTensorsInDram;
       } else {
         opt.error("Invalid override parameter: " + paramName);
         return true;
@@ -307,6 +329,15 @@ std::string Conv2dConfigOverrideParser::toString(
       rso << "enable_weights_double_buffer#"
           << (params.enableWeightsDoubleBuffer.value() ? "true" : "false")
           << ":";
+    }
+    if (params.enableKernelStrideFolding.has_value()) {
+      rso << "enable_kernel_stride_folding#"
+          << (params.enableKernelStrideFolding.value() ? "true" : "false")
+          << ":";
+    }
+    if (params.configTensorsInDram.has_value()) {
+      rso << "config_tensors_in_dram#"
+          << (params.configTensorsInDram.value() ? "true" : "false") << ":";
     }
     rso.flush();
     // Remove the last ':' if there are parameters
