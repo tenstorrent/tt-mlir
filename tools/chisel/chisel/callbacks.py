@@ -16,16 +16,15 @@ from typing import Dict, Iterator, List
 from _ttmlir_runtime import runtime as tt_runtime
 from _ttmlir_runtime.binary import Binary
 from _ttmlir_runtime.runtime import CallbackContext, OpContext, TensorRef
-from ttmlir.ir import OpView, Value
+from ttmlir.ir import Value
 
 from golden import GoldenMapTensor
 
 from .context import ChiselContext, get_instance
 from .exceptions import IrRuntimeMismatch
 from .executor import (
-    build_role_keyed_inputs,
-    execute_golden,
     execute_golden_from_pool,
+    execute_golden_with_ssa_inputs,
 )
 from .op_configs import ChiselOpConfig
 from .ops import SSAName, get_op_inputs, get_op_outputs
@@ -86,15 +85,6 @@ def _validate_and_retrieve_tensor(
     tensor = retrieve_tensor(ctx.rt_program_context, rt_tensor_ref)
     check_shape_dtype(op, "mlir_vs_runtime_tensor", mlir_value, tensor)
     return tensor
-
-
-def _run_isolation_golden(
-    op: OpView,
-    asm_state,
-    ssa_inputs: Dict[SSAName, GoldenMapTensor],
-) -> List[GoldenMapTensor]:
-    role_inputs = build_role_keyed_inputs(op, ssa_inputs, asm_state)
-    return execute_golden(op, role_inputs)
 
 
 @chisel_safe
@@ -176,7 +166,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         return
 
     if ctx.checks_config.isolation:
-        iso_outs = _run_isolation_golden(op, asm_state, ctx.stashed_inputs)
+        iso_outs = execute_golden_with_ssa_inputs(op, ctx.stashed_inputs, asm_state)
     else:
         iso_outs = [None] * len(mlir_op_outputs)
 
