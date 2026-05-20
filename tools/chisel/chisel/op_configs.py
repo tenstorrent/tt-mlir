@@ -22,7 +22,7 @@ class ChiselOpConfig:
 
     no_golden: skip golden calculation; emit a NoGoldenPayload.
     skip_pcc: run golden, check shape/dtype, but skip PCC checks.
-    pre_op / post_op: override default handlers; must be @chisel_safe.
+    pre_op / post_op: overrides for default handlers; must be @chisel_safe.
     """
 
     no_golden: bool = False
