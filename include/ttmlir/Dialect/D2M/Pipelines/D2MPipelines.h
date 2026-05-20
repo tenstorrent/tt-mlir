@@ -176,7 +176,8 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
   Option<std::string> testBufferSizePolicy{
       *this, "test-buffer-size-policy",
       llvm::cl::desc(
-          "Set policy for sizing stream buffers ('auto', 'min', 'max')."),
+          "Set policy for sizing stream buffers ('auto', 'auto-mn', 'min', "
+          "'max')."),
       llvm::cl::init("auto")};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN

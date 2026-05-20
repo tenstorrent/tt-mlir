@@ -160,6 +160,14 @@ public:
     for (auto [i, loop] : llvm::enumerate(loops)) {
       loop->setAttr("d2m.blocking_loop",
                     rewriter.getI64IntegerAttr(static_cast<int64_t>(i)));
+      if (generic.getIteratorTypes().size() > i) {
+        auto iteratorType =
+            mlir::cast<ttcore::IteratorTypeAttr>(generic.getIteratorTypes()[i])
+                .getValue();
+        if (iteratorType == ttcore::IteratorType::Reduction) {
+          loop->setAttr("d2m.reduction_loop", rewriter.getUnitAttr());
+        }
+      }
     }
 
     // First rewrite block_index(dim) -> block_offset(dim) + iter_index(dim).

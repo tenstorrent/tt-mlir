@@ -59,12 +59,67 @@ static llvm::BitVector getDimMask(std::size_t rank,
   return mask;
 }
 
+static SmallVector<std::size_t>
+getReductionDims(ArrayRef<ttcore::IteratorType> iteratorTypes) {
+  SmallVector<std::size_t> reductionDims;
+  for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
+    if (iteratorType == ttcore::IteratorType::Reduction) {
+      reductionDims.push_back(dim);
+    }
+  }
+  return reductionDims;
+}
+
+static SmallVector<std::size_t>
+getAllParallelCandidateDims(GenericOp genericOp,
+                            ArrayRef<int64_t> shardFactors) {
+  SmallVector<std::size_t> candidateDims;
+  const llvm::BitVector participationMask = getParticipatingDimMask(genericOp);
+  for (std::size_t dim = 0; dim < shardFactors.size(); ++dim) {
+    if (participationMask[dim] && shardFactors[dim] > 1) {
+      candidateDims.push_back(dim);
+    }
+  }
+  return candidateDims;
+}
+
+static bool isSingleReductionPanelDim(GenericOp genericOp, std::size_t dim) {
+  unsigned numOperandsUsingDim = 0;
+  AffineExpr dimExpr =
+      getAffineDimExpr(static_cast<unsigned>(dim), genericOp.getContext());
+  for (AffineMap indexingMap : genericOp.getIndexingMapsValue()) {
+    if (llvm::is_contained(indexingMap.getResults(), dimExpr)) {
+      ++numOperandsUsingDim;
+    }
+  }
+
+  // Do not reblock the batch dimension.
+  return numOperandsUsingDim > 0 &&
+         numOperandsUsingDim < genericOp.getInputsAndOutputs().size();
+}
+
+static SmallVector<std::size_t> getSingleReductionCandidateDims(
+    GenericOp genericOp, ArrayRef<std::size_t> reductionDims,
+    ArrayRef<int64_t> shardFactors, bool allowMNReblocking) {
+  if (!allowMNReblocking) {
+    return llvm::to_vector(reductionDims);
+  }
+
+  SmallVector<std::size_t> candidateDims;
+  for (std::size_t dim = 0; dim < shardFactors.size(); ++dim) {
+    if (shardFactors[dim] > 1 && isSingleReductionPanelDim(genericOp, dim)) {
+      candidateDims.push_back(dim);
+    }
+  }
+  return candidateDims;
+}
+
 /// Classify a generic op's iteration shape for auto-policy search.
 /// @return the search config or nullopt if auto-blocking is not applicable.
 static std::optional<AutoSearchConfig>
 classifyAutoSearch(GenericOp genericOp,
                    ArrayRef<ttcore::IteratorType> iteratorTypes,
-                   ArrayRef<int64_t> shardFactors) {
+                   ArrayRef<int64_t> shardFactors, bool allowMNReblocking) {
   if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
       genericOp.getOutputs().size() != 1) {
     return std::nullopt;
@@ -88,35 +143,27 @@ classifyAutoSearch(GenericOp genericOp,
     }
   }
 
-  SmallVector<std::size_t> reductionDims;
-  for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
-    if (iteratorType == ttcore::IteratorType::Reduction) {
-      reductionDims.push_back(dim);
+  SmallVector<std::size_t> reductionDims = getReductionDims(iteratorTypes);
+  if (reductionDims.empty()) {
+    SmallVector<std::size_t> candidateDims =
+        getAllParallelCandidateDims(genericOp, shardFactors);
+    if (candidateDims.empty()) {
+      return std::nullopt;
     }
+    return AutoSearchConfig{AutoShapeClass::AllParallelEltwise,
+                            std::move(candidateDims)};
   }
 
-  if (reductionDims.size() == 1) {
-    return AutoSearchConfig{AutoShapeClass::SingleReduction,
-                            std::move(reductionDims)};
-  }
-  if (!reductionDims.empty()) {
+  if (reductionDims.size() != 1) {
     return std::nullopt;
   }
-  // At this point, the generic op is an all-parallel operation.
 
-  // Candidate dim filter: all participating dims with a shard factor > 1.
-  SmallVector<std::size_t> candidateDims;
-  const llvm::BitVector participationMask = getParticipatingDimMask(genericOp);
-  for (std::size_t dim = 0; dim < shardFactors.size(); ++dim) {
-    if (participationMask[dim] && shardFactors[dim] > 1) {
-      candidateDims.push_back(dim);
-    }
-  }
+  SmallVector<std::size_t> candidateDims = getSingleReductionCandidateDims(
+      genericOp, reductionDims, shardFactors, allowMNReblocking);
   if (candidateDims.empty()) {
     return std::nullopt;
   }
-
-  return AutoSearchConfig{AutoShapeClass::AllParallelEltwise,
+  return AutoSearchConfig{AutoShapeClass::SingleReduction,
                           std::move(candidateDims)};
 }
 
@@ -363,7 +410,9 @@ static SmallVector<int64_t> applyMinPolicy(GenericOp genericOp,
 
 // The auto policy currently has three cases:
 // 1. Single reduction: aggressively reduce the block factor of the reduction
-// dim.
+// dim.  M/N widening for matmul is available only through the non-default
+// auto-mn policy until issues #8346/#8369 model loop-carried output
+// accumulation explicitly.
 // 2. All parallel eltwise: aggressively reduce the block factor of all
 // participating dims.
 // 3. Unsupported: in all other cases, return the original block factors.
@@ -373,14 +422,15 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
                 ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-                bool useBoundedEltwiseSearch) {
+                bool useBoundedEltwiseSearch, bool allowMNReblocking) {
   const SmallVector<int64_t> originalBlockFactors =
       genericOp.getBlockFactorsValue();
 
   //===------------------------------------------------------------------===//
   // Classify the generic op's iteration shape.
   //===------------------------------------------------------------------===//
-  auto config = classifyAutoSearch(genericOp, iteratorTypes, shardFactors);
+  auto config = classifyAutoSearch(genericOp, iteratorTypes, shardFactors,
+                                   allowMNReblocking);
   if (!config) {
     return originalBlockFactors;
   }
@@ -516,11 +566,15 @@ static SmallVector<int64_t> chooseReblockedFactors(
   case BlockFactorAnalysis::BufferSizePolicy::Auto:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, /*useBoundedEltwiseSearch=*/false);
+                           numBuffers, /*useBoundedEltwiseSearch=*/false, /*allowMNReblocking=*/false);
   case BlockFactorAnalysis::BufferSizePolicy::Bounded:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
-                           numBuffers, /*useBoundedEltwiseSearch=*/true);
+                           numBuffers, /*useBoundedEltwiseSearch=*/true, /*allowMNReblocking=*/false);
+  case BlockFactorAnalysis::BufferSizePolicy::AutoMN:
+    return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
+                           shardExtents, shardFactors, device, l1Attr,
+                           numBuffers, /*useBoundedEltwiseSearch=*/false, /*allowMNReblocking=*/true);
   }
 
   llvm_unreachable("unknown buffer size policy");
