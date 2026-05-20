@@ -99,6 +99,12 @@ void createStableHLOPipeline(OpPassManager &pm,
   // reshard ops between the replicated constant and its sharded consumers.
   pm.addPass(createReplicateNonSplittableConstantsPass());
 
+  // Close propagation gaps left by Shardy's conservative mode: when an op
+  // has no propagated result sharding but its operands are sharded, insert
+  // sdy.reshard ops to fully replicate those operands so per-shard shapes
+  // match in UpdateGlobalToLocalShapes. See tt-xla#3643.
+  pm.addPass(createInsertReshardsForUnpropagatedOpsPass());
+
   // Insert explicit reshards conditionally.
   pm.addPass(createInsertExplicitReshardsPass());
 
