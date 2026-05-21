@@ -133,17 +133,17 @@ bool isPackerL1AccumulationSupportedDataType(ttcore::DataType dt);
 // gating on `hasTileMatmul`).
 bool allTileMatmulOutputsSupportPackerL1Acc(Operation *loopOp);
 
-// Find the outermost ancestor reduction loop IV of `acquireDst`, where
+// Find the closest ancestor reduction loop IV of `acquireDst`, where
 // "reduction" means: no output store recorded in `copyInfos` depends on the
-// loop's induction variable. This is the loop whose iterations accumulate
-// into the same output L1 slot, and is therefore the correct trigger for
-// switching the packer to L1-acc mode.
+// loop's induction variable. The closest such loop is the loop whose adjacent
+// iterations accumulate into the same output L1 slot, and is therefore the
+// correct trigger for switching the packer to L1-acc mode.
 //
-// Returns nullptr if there is no such reduction loop, or if the candidate
-// reduction loop has a constant trip count <= 1 (in which case L1-acc is
-// not needed and the trigger comparison would never fire correctly).
-Value findOutermostReductionLoopIVForL1Acc(Operation *acquireDstOp,
-                                           const CopyInfoMap &copyInfos);
+// Returns nullptr if there is no qualifying reduction loop with trip count > 1.
+// Reduction loops with constant trip count <= 1 are skipped because L1-acc is
+// not needed for them.
+Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
+                                         const CopyInfoMap &copyInfos);
 
 // Stamp a pass-allocated scratch slice onto the op's `dst_scratch_index`
 // attribute for the TTKernel lowering to consume.  Today only supports ops
