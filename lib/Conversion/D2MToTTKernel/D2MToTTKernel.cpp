@@ -28,6 +28,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <type_traits>
 #include <utility>
@@ -2067,6 +2068,12 @@ static int64_t getCollapsed2DPhysicalRows(MemRefType memrefType) {
   return shape[0] * shape[2];
 }
 
+static int64_t getCollapsed2DShardWidth(MemRefType memrefType) {
+  assert(hasCollapsed2DShard(memrefType) &&
+         "expected 2D sharded memref with explicit grid and shard dims");
+  return memrefType.getShape()[3];
+}
+
 static SmallVector<Value> getCollapsed2DElementIndices(OpBuilder &rewriter,
                                                        Location loc,
                                                        MemRefType memrefType,
@@ -2113,21 +2120,21 @@ static Value getCollapsedOutputRow(OpBuilder &rewriter, Location loc,
   return row;
 }
 
-static Value buildMappedL1NocAddr(OpBuilder &rewriter, Location loc, Value base,
-                                  AffineMap memoryMap,
-                                  ValueRange logicalIndices,
-                                  ttcore::ChipDescAttr chipDesc) {
+static Value buildMappedNocAddr(OpBuilder &rewriter, Location loc, Value base,
+                                AffineMap memoryMap, ValueRange logicalIndices,
+                                ttcore::ChipDescAttr chipDesc,
+                                ttcore::MemorySpace memorySpace) {
   SmallVector<Value> mappedIndices =
       d2m::utils::applyMap(rewriter, loc, memoryMap, logicalIndices, true);
   return buildNocAddress(rewriter, loc, base, mappedIndices, chipDesc,
-                         ttcore::MemorySpace::DeviceL1);
+                         memorySpace);
 }
 
-static Value loadI32FromL1PacketThroughScratch(OpBuilder &rewriter,
-                                               Location loc, Value scratchCb,
-                                               Value srcNocAddr, Value laneI32,
-                                               Value transferSizeBytes,
-                                               Value onePage) {
+static Value loadI32FromNocPacketThroughScratch(OpBuilder &rewriter,
+                                                Location loc, Value scratchCb,
+                                                Value srcNocAddr, Value laneI32,
+                                                Value transferSizeBytes,
+                                                Value onePage) {
   rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
   Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
   rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, writePtr,
@@ -2144,10 +2151,10 @@ static Value loadI32FromL1PacketThroughScratch(OpBuilder &rewriter,
   return value;
 }
 
-static void copyL1ToL1ThroughScratch(OpBuilder &rewriter, Location loc,
-                                     Value scratchCb, Value srcNocAddr,
-                                     Value dstNocAddr, Value transferSizeBytes,
-                                     Value onePage) {
+static void copyNocToNocThroughScratch(OpBuilder &rewriter, Location loc,
+                                       Value scratchCb, Value srcNocAddr,
+                                       Value dstNocAddr,
+                                       Value transferSizeBytes, Value onePage) {
   rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
   Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
   rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, writePtr,
@@ -2392,12 +2399,18 @@ public:
     auto srcType = mlir::cast<MemRefType>(op.getSrc().getType());
     auto dstType = mlir::cast<MemRefType>(op.getDst().getType());
 
-    if (ttcore::getMemorySpace(indicesType) != ttcore::MemorySpace::DeviceL1 ||
-        ttcore::getMemorySpace(srcType) != ttcore::MemorySpace::DeviceL1 ||
-        ttcore::getMemorySpace(dstType) != ttcore::MemorySpace::DeviceL1) {
+    ttcore::MemorySpace indicesMemorySpace =
+        ttcore::getMemorySpace(indicesType);
+    ttcore::MemorySpace srcMemorySpace = ttcore::getMemorySpace(srcType);
+    ttcore::MemorySpace dstMemorySpace = ttcore::getMemorySpace(dstType);
+    if (indicesMemorySpace != ttcore::MemorySpace::DeviceL1 ||
+        (srcMemorySpace != ttcore::MemorySpace::DeviceL1 &&
+         srcMemorySpace != ttcore::MemorySpace::DeviceDRAM) ||
+        (dstMemorySpace != ttcore::MemorySpace::DeviceL1 &&
+         dstMemorySpace != ttcore::MemorySpace::DeviceDRAM)) {
       return rewriter.notifyMatchFailure(
-          op, "indexed row copy currently supports L1 indices, source, and "
-              "destination");
+          op, "indexed row copy currently supports L1 indices, L1/DRAM "
+              "source, and L1/DRAM destination");
     }
     if (!hasCollapsed2DShard(indicesType) || !hasCollapsed2DShard(srcType) ||
         !hasCollapsed2DShard(dstType)) {
@@ -2427,20 +2440,46 @@ public:
     AffineMap dstMemoryMap =
         d2m::utils::getMemoryMap(device, op.getDst(), true);
 
-    constexpr int64_t kIndexTransferSizeBytes = 16;
-    constexpr int64_t kMaxRowTransferSizeBytes = 16;
+    int64_t indexElementSizeBytes =
+        ttcore::getElementSizeBytes(indicesType.getElementType());
+    int64_t indexTransferSizeBytes = d2m::utils::getNocAddressAlignmentBytes(
+        op, ttcore::MemorySpace::DeviceL1);
+    TT_assert(indexTransferSizeBytes > 0);
+    TT_assert(indexTransferSizeBytes % indexElementSizeBytes == 0);
+    int64_t indexElementsPerTransfer =
+        indexTransferSizeBytes / indexElementSizeBytes;
+
     int64_t rowElementSizeBytes =
         ttcore::getElementSizeBytes(srcType.getElementType());
-    int64_t rowElementsPerTransfer =
-        kMaxRowTransferSizeBytes / rowElementSizeBytes;
+    int64_t srcTransferAlignmentBytes =
+        d2m::utils::getNocAddressAlignmentBytes(op, srcMemorySpace);
+    int64_t dstTransferAlignmentBytes =
+        d2m::utils::getNocAddressAlignmentBytes(op, dstMemorySpace);
+    int64_t rowTransferSizeBytes =
+        std::max(srcTransferAlignmentBytes, dstTransferAlignmentBytes);
+    TT_assert(rowTransferSizeBytes > 0);
+    TT_assert(rowTransferSizeBytes % rowElementSizeBytes == 0);
+    int64_t rowElementsPerTransfer = rowTransferSizeBytes / rowElementSizeBytes;
+    if (getCollapsed2DShardWidth(indicesType) % indexElementsPerTransfer != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "indexed row copy requires index shard width to be NoC transfer "
+              "aligned");
+    }
+    if (getCollapsed2DShardWidth(srcType) % rowElementsPerTransfer != 0 ||
+        getCollapsed2DShardWidth(dstType) % rowElementsPerTransfer != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "indexed row copy requires source and destination shard widths "
+              "to be NoC transfer aligned");
+    }
 
     Value onePage = i32(rewriter, loc, 1);
-    Value indexTransferSizeBytes = i32(rewriter, loc, kIndexTransferSizeBytes);
-    Value rowElementSizeBytesValue = i32(rewriter, loc, rowElementSizeBytes);
-    Value maxRowElementsPerTransfer =
+    Value indexTransferSizeBytesValue =
+        i32(rewriter, loc, indexTransferSizeBytes);
+    Value rowTransferSizeBytesValue = i32(rewriter, loc, rowTransferSizeBytes);
+    Value rowElementsPerTransferValue =
         index(rewriter, loc, rowElementsPerTransfer);
-    Value fourIndex = index(rewriter, loc, 4);
-    Value rowStep = index(rewriter, loc, rowElementsPerTransfer);
+    Value indexElementsPerTransferValue =
+        index(rewriter, loc, indexElementsPerTransfer);
     Value oneIndex = index(rewriter, loc, 1);
     Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
     Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
@@ -2480,10 +2519,10 @@ public:
             rewriter.create<arith::MulIOp>(loc, indexRow, columnExtent);
         indexColumn = rewriter.create<arith::SubIOp>(loc, i, rowBase);
       }
-      Value indexColumnGroup =
-          rewriter.create<arith::DivSIOp>(loc, indexColumn, fourIndex);
-      Value indexGroupColumn =
-          rewriter.create<arith::MulIOp>(loc, indexColumnGroup, fourIndex);
+      Value indexColumnGroup = rewriter.create<arith::DivSIOp>(
+          loc, indexColumn, indexElementsPerTransferValue);
+      Value indexGroupColumn = rewriter.create<arith::MulIOp>(
+          loc, indexColumnGroup, indexElementsPerTransferValue);
       Value indexLane =
           rewriter.create<arith::SubIOp>(loc, indexColumn, indexGroupColumn);
       Value indexLaneI32 = rewriter.create<arith::IndexCastOp>(
@@ -2491,48 +2530,37 @@ public:
 
       SmallVector<Value> indexLogicalIndices = getCollapsed2DElementIndices(
           rewriter, loc, indicesType, indexRow, indexGroupColumn);
-      Value indexNocAddr =
-          buildMappedL1NocAddr(rewriter, loc, adaptor.getIndices(),
-                               indicesMemoryMap, indexLogicalIndices, chipDesc);
-      Value indexValue = loadI32FromL1PacketThroughScratch(
+      Value indexNocAddr = buildMappedNocAddr(
+          rewriter, loc, adaptor.getIndices(), indicesMemoryMap,
+          indexLogicalIndices, chipDesc, ttcore::MemorySpace::DeviceL1);
+      Value indexValue = loadI32FromNocPacketThroughScratch(
           rewriter, loc, adaptor.getIndexScratch(), indexNocAddr, indexLaneI32,
-          indexTransferSizeBytes, onePage);
+          indexTransferSizeBytesValue, onePage);
 
       Value srcRowIndex = rewriter.create<arith::IndexCastOp>(
           loc, rewriter.getIndexType(), indexValue);
       Value outputRow = getCollapsedOutputRow(
           rewriter, loc, indicesShape, i, getCollapsed2DPhysicalRows(dstType));
-      auto columnLoop =
-          rewriter.create<scf::ForOp>(loc, startColumn, endColumn, rowStep);
+      auto columnLoop = rewriter.create<scf::ForOp>(
+          loc, startColumn, endColumn, rowElementsPerTransferValue);
       {
         OpBuilder::InsertionGuard columnGuard(rewriter);
         rewriter.setInsertionPointToStart(columnLoop.getBody());
         Value j = columnLoop.getInductionVar();
-        Value remainingElements =
-            rewriter.create<arith::SubIOp>(loc, endColumn, j);
-        Value hasTailTransfer = rewriter.create<arith::CmpIOp>(
-            loc, arith::CmpIPredicate::slt, remainingElements,
-            maxRowElementsPerTransfer);
-        Value rowElementsThisTransfer = rewriter.create<arith::SelectOp>(
-            loc, hasTailTransfer, remainingElements, maxRowElementsPerTransfer);
-        Value rowElementsThisTransferI32 = rewriter.create<arith::IndexCastOp>(
-            loc, rewriter.getI32Type(), rowElementsThisTransfer);
-        Value rowTransferSizeBytes = rewriter.create<arith::MulIOp>(
-            loc, rowElementsThisTransferI32, rowElementSizeBytesValue);
 
         SmallVector<Value> srcLogicalIndices = getCollapsed2DElementIndices(
             rewriter, loc, srcType, srcRowIndex, j);
         Value srcNocAddr =
-            buildMappedL1NocAddr(rewriter, loc, adaptor.getSrc(), srcMemoryMap,
-                                 srcLogicalIndices, chipDesc);
+            buildMappedNocAddr(rewriter, loc, adaptor.getSrc(), srcMemoryMap,
+                               srcLogicalIndices, chipDesc, srcMemorySpace);
         SmallVector<Value> outputLogicalIndices =
             getCollapsed2DElementIndices(rewriter, loc, dstType, outputRow, j);
         Value outputNocAddr =
-            buildMappedL1NocAddr(rewriter, loc, adaptor.getDst(), dstMemoryMap,
-                                 outputLogicalIndices, chipDesc);
-        copyL1ToL1ThroughScratch(rewriter, loc, adaptor.getRowScratch(),
-                                 srcNocAddr, outputNocAddr,
-                                 rowTransferSizeBytes, onePage);
+            buildMappedNocAddr(rewriter, loc, adaptor.getDst(), dstMemoryMap,
+                               outputLogicalIndices, chipDesc, dstMemorySpace);
+        copyNocToNocThroughScratch(rewriter, loc, adaptor.getRowScratch(),
+                                   srcNocAddr, outputNocAddr,
+                                   rowTransferSizeBytesValue, onePage);
       }
     }
 
