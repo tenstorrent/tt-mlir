@@ -17,7 +17,7 @@
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_2D:.*]] = #ttcore.metal_layout<logical_shape = 100x100, dim_alignments = 32x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_H:.*]] = #ttcore.metal_layout<logical_shape = 5x37x11, dim_alignments = 256x32x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_W:.*]] = #ttcore.metal_layout<logical_shape = 3x61x419, dim_alignments = 1x32x256, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_NONALIGNED_4D:.*]] = #ttcore.metal_layout<logical_shape = 1x19x1x1, dim_alignments = 256x1x32x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_NONALIGNED_4D:.*]] = #ttcore.metal_layout<logical_shape = 1x19x1x1, dim_alignments = 192x1x32x32, {{.*}}>
 
 module {
   // CHECK-LABEL: func @test_alignment_rules
@@ -29,7 +29,7 @@ module {
     %large_w: tensor<128x512xf32>,
     %tensor_3d: tensor<2x128x96xf32>,
     %tensor_4d: tensor<2x2x64x64xf32>
-  ) -> tensor<64x64xf32> {
+  ) -> (tensor<64x64xf32>, tensor<128x96xf32>, tensor<512x512xf32>, tensor<512x128xf32>, tensor<128x512xf32>, tensor<2x128x96xf32>, tensor<2x2x64x64xf32>) {
     %0 = "ttir.add"(%small, %small) : (tensor<64x64xf32>, tensor<64x64xf32>) -> tensor<64x64xf32>
     %1 = "ttir.add"(%medium, %medium) : (tensor<128x96xf32>, tensor<128x96xf32>) -> tensor<128x96xf32>
     %2 = "ttir.add"(%large, %large) : (tensor<512x512xf32>, tensor<512x512xf32>) -> tensor<512x512xf32>
@@ -37,7 +37,7 @@ module {
     %4 = "ttir.add"(%large_w, %large_w) : (tensor<128x512xf32>, tensor<128x512xf32>) -> tensor<128x512xf32>
     %5 = "ttir.add"(%tensor_3d, %tensor_3d) : (tensor<2x128x96xf32>, tensor<2x128x96xf32>) -> tensor<2x128x96xf32>
     %6 = "ttir.add"(%tensor_4d, %tensor_4d) : (tensor<2x2x64x64xf32>, tensor<2x2x64x64xf32>) -> tensor<2x2x64x64xf32>
-    return %0 : tensor<64x64xf32>
+    return %0, %1, %2, %3, %4, %5, %6 : tensor<64x64xf32>, tensor<128x96xf32>, tensor<512x512xf32>, tensor<512x128xf32>, tensor<128x512xf32>, tensor<2x128x96xf32>, tensor<2x2x64x64xf32>
   }
 
   // CHECK-LABEL: func @test_edge_cases
@@ -49,7 +49,7 @@ module {
     %non_aligned_3d_large_h : tensor<5x37x11xf32>,
     %non_aligned_3d_large_w : tensor<3x61x419xf32>,
     %non_aligned_4d : tensor<1x19x1x1xf32>
-  ) -> tensor<256x32xf32> {
+  ) -> (tensor<256x32xf32>, tensor<255x32xf32>, tensor<257x32xf32>, tensor<100x100xf32>, tensor<5x37x11xf32>, tensor<3x61x419xf32>, tensor<1x19x1x1xf32>) {
     %0 = "ttir.exp"(%boundary) : (tensor<256x32xf32>) -> tensor<256x32xf32>
     %1 = "ttir.exp"(%under_boundary) : (tensor<255x32xf32>) -> tensor<255x32xf32>
     %2 = "ttir.exp"(%above_boundary) : (tensor<257x32xf32>) -> tensor<257x32xf32>
@@ -57,6 +57,6 @@ module {
     %4 = "ttir.exp"(%non_aligned_3d_large_h) : (tensor<5x37x11xf32>) -> tensor<5x37x11xf32>
     %5 = "ttir.exp"(%non_aligned_3d_large_w) : (tensor<3x61x419xf32>) -> tensor<3x61x419xf32>
     %6 = "ttir.exp"(%non_aligned_4d) : (tensor<1x19x1x1xf32>) -> tensor<1x19x1x1xf32>
-    return %0 : tensor<256x32xf32>
+    return %0, %1, %2, %3, %4, %5, %6 : tensor<256x32xf32>, tensor<255x32xf32>, tensor<257x32xf32>, tensor<100x100xf32>, tensor<5x37x11xf32>, tensor<3x61x419xf32>, tensor<1x19x1x1xf32>
   }
 }

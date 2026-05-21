@@ -2649,7 +2649,8 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
   // feeding it back would double-apply the block factors.
   const std::size_t numInputs = getInputs().size();
   const std::size_t numOutputs = getOutputs().size();
-  if (numOutputs > 0 && newGrid.has_value()) {
+  bool hasVirtualGrid = !normalizedGrid.getVirtToPhysicalMap().isEmpty();
+  if (numOutputs > 0 && newGrid.has_value() && !hasVirtualGrid) {
     auto [derivedGridShape, _] = getGridAndShardFromShapedType(
         mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
     if (derivedGridShape.size() == normalizedGrid.getShape().size() &&

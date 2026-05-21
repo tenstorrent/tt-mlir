@@ -15,7 +15,25 @@
 
 namespace mlir::tt::d2m {
 
+/// Complete grid decision for one tensor value.
+///
+/// selectedGrid is the tensor grid stored in the layout. physicalGrid is the
+/// 2D worker-grid extent used to place the selected grid. layoutGrid is the
+/// grid used when computing grid-aware dim alignments for this selected grid.
+struct GridDecision {
+  llvm::SmallVector<int64_t> selectedGrid;
+  llvm::SmallVector<int64_t> targetGrid;
+  llvm::SmallVector<int64_t> physicalGrid;
+  llvm::SmallVector<int64_t> layoutGrid;
+
+  bool empty() const { return selectedGrid.empty(); }
+  bool isVirtual() const { return selectedGrid != physicalGrid; }
+};
+
 namespace utils {
+
+GridDecision makeGridDecision(ArrayRef<int64_t> selectedGrid,
+                              ArrayRef<int64_t> targetGrid);
 
 // Compute optimal grid shape for a given physical shape and target grid by
 // finding the largest grid dimensions that evenly divide the physical shape.
@@ -26,16 +44,17 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetGrid);
 
 // Compute optimal virtual grid shape for a given physical shape and target
-// grid. For ND tensors, explores Cartesian product of dimension factors.
-// For 2D tensors, finds the largest factor of the sharded dimension. Returns
-// empty vector if utilization is too low (signals fallback to block sharding).
+// grid by exploring Cartesian products of dimension factors. Returns empty
+// vector if utilization is too low and block sharding would do better.
 llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetGrid);
 
 // Determine whether a tensor should use a virtual grid based on its physical
-// shape and the target grid. Returns true when block sharding yields low grid
-// utilization or when the tensor is ND.
+// shape and the target grid. Rank-2 tensors use virtual grids only when block
+// sharding underutilizes the target grid and one dominant tensor axis has
+// enough legal grid factors to materially improve over block sharding. ND
+// tensors use virtual grids when supported by their layout.
 bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
                                   ArrayRef<int64_t> physicalShape,
                                   ArrayRef<int64_t> targetGrid);

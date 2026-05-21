@@ -227,6 +227,11 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
   assert(baseLayout && "modifyDeviceType requires a layout");
   auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
   auto elementType = newElementType.value_or(baseType.getElementType());
+  ArrayRef<int64_t> tileShape;
+  if (mlir::isa<ttcore::TileType>(elementType)) {
+    tileShape =
+        newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
+  }
 
   bool hasVirtualGrid = existingRemapping && !existingRemapping.isEmpty() &&
                         !existingRemapping.isIdentity();
@@ -234,6 +239,12 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
   bool needsReblock = hasVirtualGrid;
   if (newTensorGrid.has_value()) {
     tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
+    needsReblock = needsReblock || reblockVirtualGridShapes;
+    if (reblockVirtualGridShapes &&
+        ttmlir::d2m::utils::grids::requiresVirtualGrid(tensorGrid,
+                                                       targetGridShape)) {
+      tensorGrid = computeVirtualGridBounceShape(tensorGrid, targetGridShape);
+    }
   } else {
     tensorGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
     needsReblock =
@@ -259,11 +270,6 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
         baseLayout.getMemoryLayout());
   }
 
-  ArrayRef<int64_t> tileShape;
-  if (mlir::isa<ttcore::TileType>(elementType)) {
-    tileShape =
-        newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
-  }
   return RankedTensorType::get(layout.getDeviceShape(tensorGrid, tileShape),
                                elementType, layout);
 }

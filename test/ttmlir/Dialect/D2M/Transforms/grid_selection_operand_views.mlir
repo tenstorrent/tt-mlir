@@ -37,14 +37,11 @@ module attributes {ttcore.device = #any_device} {
 }
 
 // CHECK-LABEL: func.func @test_operand_view_insert
-// CHECK: %[[IN0:.*]] = d2m.to_layout
-// for the first operand (1x1) inserted by updateToLayoutOps:
-// CHECK: %[[IN0_VIEW:.*]] = d2m.view_layout %[[IN0]]
-// for the second operand (1x1) inserted by updateToLayoutOps:
-// CHECK: %[[IN1:.*]] = d2m.to_layout
-// CHECK: %[[IN1_VIEW:.*]] = d2m.view_layout %[[IN1]]
-// CHECK: %[[OUT:.*]] = d2m.empty() : tensor<1x8x32x32xf32
-// for the first operand (back to 1x8) inserted by withParallelization:
-// CHECK: %[[REBLOCK:.*]] = d2m.view_layout %[[IN0_VIEW]] {{.*}} : tensor<1x1x32x256xf32, {{.*}}> -> tensor<1x8x32x32xf32, {{.*}}>
-// CHECK: %[[GEN:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x8>
-// CHECK: ins(%[[REBLOCK]], %[[IN1_VIEW]] : tensor<1x8x32x32xf32, {{.*}}>, tensor<1x1x32x256xf32, {{.*}}>)
+// CHECK: %[[IN0:.*]] = d2m.to_layout {{.*}} : tensor<32x256xf32> into tensor<1x8x32x32xf32
+// CHECK: %[[IN0_VIEW:.*]] = d2m.view_layout %[[IN0]] {{.*}} : tensor<1x8x32x32xf32, {{.*}}> -> tensor<1x1x32x256xf32, {{.*}}>
+// CHECK: %[[IN1:.*]] = d2m.to_layout {{.*}} : tensor<32x256xf32> into tensor<1x1x32x256xf32
+// CHECK: %[[OUT:.*]] = d2m.empty(){{.*}} : tensor<1x8x32x32xf32
+// CHECK: %[[IN0_REBLOCK:.*]] = d2m.view_layout %[[IN0_VIEW]] {{.*}} : tensor<1x1x32x256xf32, {{.*}}> -> tensor<1x8x32x32xf32, {{.*}}>
+// CHECK: %[[GEN:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x8
+// CHECK: ins(%[[IN0_REBLOCK]], %[[IN1]] : tensor<1x8x32x32xf32, {{.*}}>, tensor<1x1x32x256xf32, {{.*}}>)
+// CHECK: outs(%[[OUT]] : tensor<1x8x32x32xf32, {{.*}}>)

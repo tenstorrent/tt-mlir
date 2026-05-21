@@ -211,7 +211,8 @@ collectDstAccesses(GenericOp gOp, Region &region,
     // becomes the new `getCurrSliceIndex()`; safe today but a future
     // in-region fusion would trip it.
     for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
-      setDstScratchIndex(computeOp, dstSliceAllocationState.allocate());
+      setDstScratchIndex(computeOp, dstSliceAllocationState.allocate(),
+                         outermostInnerComputeLoop);
     }
   });
   return {copyInfos, dstIntermediates};

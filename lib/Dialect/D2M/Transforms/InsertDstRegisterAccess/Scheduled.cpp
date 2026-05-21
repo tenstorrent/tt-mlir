@@ -368,7 +368,8 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
         // fusion would trip `deallocateAllButFirstInput()`.
         for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n;
              ++i) {
-          setDstScratchIndex(computeOp, dstStackAllocator.allocate());
+          setDstScratchIndex(computeOp, dstStackAllocator.allocate(),
+                             outermostInnerComputeLoop);
         }
       });
 

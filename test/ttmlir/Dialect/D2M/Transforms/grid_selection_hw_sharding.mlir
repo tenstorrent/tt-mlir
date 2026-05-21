@@ -32,8 +32,8 @@ module attributes {ttcore.device = #any_device_2} {
 
 module attributes {ttcore.device = #any_device_3} {
   func.func @test_width_sharded_sub64(%arg0: tensor<32x1280xf32>) -> tensor<32x1280xf32> {
-    // Physical shape in tiles: 1x40. Block sharding gives 1x8 = 8 cores.
-    // Virtual grid should select 1x40, packed into 5x8 physical grid.
+    // Final physical placement keeps the natural 1x40 tile shape and maps it
+    // onto a 5x8 physical placement.
     // CHECK-LABEL: func.func @test_width_sharded_sub64
     // CHECK: d2m.empty() {{.*}} : tensor<1x40x1x1x!ttcore.tile<32x32, f32>
     // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<1x40,
@@ -48,12 +48,56 @@ module attributes {ttcore.device = #any_device_3} {
 
 module attributes {ttcore.device = #any_device_2} {
   func.func @test_height_sharded_sub64(%arg0: tensor<1536x32xf32>) -> tensor<1536x32xf32> {
-    // Physical shape in tiles: 48x1. Block sharding gives 8x1 = 8 cores.
-    // Virtual grid should select 48x1, packed into 6x8 physical grid.
+    // Final physical placement keeps the natural 48x1 tile shape and maps it
+    // onto a 6x8 physical placement.
     // CHECK-LABEL: func.func @test_height_sharded_sub64
     // CHECK: d2m.empty() {{.*}} : tensor<48x1x1x1x!ttcore.tile<32x32, f32>
     // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<48x1,
      %0 = "ttir.exp"(%arg0) : (tensor<1536x32xf32>) -> tensor<1536x32xf32>
     return %0 : tensor<1536x32xf32>
+  }
+}
+
+// -----
+
+#any_device_6 = #ttcore.device<workerGrid = #ttcore.grid<9x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+
+module attributes {ttcore.device = #any_device_6} {
+  func.func @test_height_sharded_9x8_tile_aligned_virtual_grid(%arg0: tensor<64000x32xf32>) -> tensor<64000x32xf32> {
+    // Grid search must use tile-aligned logical shape first. Padding to the
+    // full 9x8 worker grid would turn 2000 tiles into 2007 and hide the
+    // legal 40x1 virtual grid that maps onto a 5x8 physical placement.
+    // CHECK-LABEL: func.func @test_height_sharded_9x8_tile_aligned_virtual_grid
+    // CHECK: d2m.empty() {{.*}} : tensor<40x1x50x1x!ttcore.tile<32x32, f32>
+    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<40x1,
+    %0 = "ttir.exp"(%arg0) : (tensor<64000x32xf32>) -> tensor<64000x32xf32>
+    return %0 : tensor<64000x32xf32>
+  }
+}
+
+// -----
+
+#any_device_4 = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+
+module attributes {ttcore.device = #any_device_4} {
+  func.func @test_matmul_blocks_2d_virtual_grid(%lhs: tensor<320x320xf32>, %rhs: tensor<320x320xf32>) -> tensor<320x320xf32> {
+    // CHECK-LABEL: func.func @test_matmul_blocks_2d_virtual_grid
+    // CHECK-NOT: virt_to_physical_map
+    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>
+    %0 = "ttir.matmul"(%lhs, %rhs) <{transpose_a = false, transpose_b = false}> : (tensor<320x320xf32>, tensor<320x320xf32>) -> tensor<320x320xf32>
+    return %0 : tensor<320x320xf32>
+  }
+}
+
+// -----
+
+#any_device_5 = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
+
+module attributes {ttcore.device = #any_device_5} {
+  func.func @test_matmul_allows_1xn_virtual_grid(%lhs: tensor<32x32xf32>, %rhs: tensor<32x2048xf32>) -> tensor<32x2048xf32> {
+    // CHECK-LABEL: func.func @test_matmul_allows_1xn_virtual_grid
+    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<1x64,
+    %0 = "ttir.matmul"(%lhs, %rhs) <{transpose_a = false, transpose_b = false}> : (tensor<32x32xf32>, tensor<32x2048xf32>) -> tensor<32x2048xf32>
+    return %0 : tensor<32x2048xf32>
   }
 }

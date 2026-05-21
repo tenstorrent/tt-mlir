@@ -363,12 +363,6 @@ def test_reduce_outer_4d(
             "Outer dim 1 reduction incorrect for a=3, b=4: block factor "
             "analysis splits the reduction dim due to odd batch size, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
         )
-    # TODO(#8079): (a=3, b=8, reduce_dim=1) fails on p150 with L1 OOM on the
-    # non-square 10x13 grid. Re-enable once grid selection handles non-square
-    # grids without inflating per-core L1.
-    if reduce_dim == 1 and a == 3 and b == 8 and get_board_id(system_desc) == "p150":
-        pytest.skip("L1 OOM on non-square grid (see #8079)")
-
     tile_size = 32
     shape = (a, b, m * tile_size, n * tile_size)
 

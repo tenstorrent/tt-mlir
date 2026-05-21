@@ -146,10 +146,12 @@ Value findOutermostReductionLoopIVForL1Acc(Operation *acquireDstOp,
                                            const CopyInfoMap &copyInfos);
 
 // Stamp a pass-allocated scratch slice onto the op's `dst_scratch_index`
-// attribute for the TTKernel lowering to consume.  Today only supports ops
-// that need exactly one scratch slice.
+// attribute for the TTKernel lowering to consume. The stored value is the
+// linearized DST index, so it does not alias dynamic DST slots inside the
+// current linalg root. Today only supports ops that need exactly one scratch
+// slice.
 void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
-                        int scratchSlice);
+                        int scratchSlice, Operation *linalgRoot);
 
 bool hasAcquireDstOp(Region &region);
 

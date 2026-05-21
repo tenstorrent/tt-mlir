@@ -12,6 +12,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <cstdint>
 #include <memory>
 
 namespace mlir::tt::d2m {
@@ -21,13 +22,12 @@ namespace mlir::tt::d2m {
 /// operand's defining op.
 struct OperandGridInfo {
   Value operand;
-  llvm::SmallVector<int64_t> selectedGrid;
-  llvm::SmallVector<int64_t> targetGrid;
+  GridDecision grid;
 
   // Set only when the operand is a ViewLayoutOp whose input is a ToLayoutOp
   // that should have its grid optimized independently. Carries the optimal
   // grid for that upstream ToLayoutOp's own tensor shape. Empty otherwise.
-  llvm::SmallVector<int64_t> viewSourceGrid;
+  GridDecision viewSourceGrid;
 };
 
 /// Effective target grid range for a GenericOp.
@@ -69,6 +69,21 @@ struct GridAnalysis {
   /// ViewLayoutOp chains.
   static bool isTTNNOperand(Value operand);
 
+  /// Normalize operand grids within a generic to ensure consistency across
+  /// operands sharing loop dimensions. Physical shapes are required to ensure
+  /// promoted grid factors evenly divide all affected operands. When
+  /// requireCurrentTypeReblockable is set, the search also rejects grids that
+  /// cannot reblock the generic's current operand/result types.
+  static llvm::SmallVector<llvm::SmallVector<int64_t>>
+  normalizeOperandGridsForGeneric(
+      GenericOp genericOp,
+      ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
+      ArrayRef<llvm::SmallVector<int64_t>> physicalShapes,
+      ArrayRef<llvm::SmallVector<int64_t>> perOperandTargetGrids,
+      ArrayRef<int64_t> targetGrid, bool ttnnMode = false,
+      bool useTargetGridForLayout = false,
+      bool requireCurrentTypeReblockable = false);
+
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.
   GenericGridAnalysisResult
@@ -78,15 +93,6 @@ private:
   /// Compute the effective target grid range for a generic, accounting for
   /// spatial region grid ranges.
   EffectiveTargetGridRange getTargetGridRange(GenericOp genericOp) const;
-
-  /// Normalize operand grids within a generic to ensure consistency across
-  /// operands sharing loop dimensions. Physical shapes are required to ensure
-  /// promoted grid factors evenly divide all affected operands.
-  static llvm::SmallVector<llvm::SmallVector<int64_t>>
-  normalizeOperandGridsForGeneric(
-      GenericOp genericOp,
-      ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
-      ArrayRef<llvm::SmallVector<int64_t>> physicalShapes);
 
   llvm::DenseMap<Operation *, std::unique_ptr<GenericGridAnalysisResult>>
       results;
