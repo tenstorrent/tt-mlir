@@ -16,7 +16,7 @@
 // CHECK-LABEL: func.func @two_adds_gets_scratch
 // CHECK: d2m.generic
 // CHECK: ins(%{{.*}}, %{{.*}} :
-// CHECK: memref.alloc() {d2m.scratch_buffer} : memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<131072x4096, 1>, #l1>
+// CHECK: memref.alloc() {d2m.scratch_buffer} : memref<1x32x!ttcore.tile<32x32, f32>, #l1>
 // CHECK-NEXT: d2m.scratch_init
 func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
@@ -64,7 +64,7 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
 
 // CHECK-LABEL: func.func @add_and_mul_gets_scratch
 // CHECK: d2m.generic
-// CHECK: memref.alloc() {d2m.scratch_buffer} : memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<131072x4096, 1>, #l1>
+// CHECK: memref.alloc() {d2m.scratch_buffer} : memref<1x32x!ttcore.tile<32x32, f32>, #l1>
 // CHECK-NEXT: d2m.scratch_init
 func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
