@@ -4027,4 +4027,44 @@ def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExem
                          UI32Attr:$value);
 }
 
+//===----------------------------------------------------------------------===//
+// TTNN tt-lang kernel op
+//===----------------------------------------------------------------------===//
+
+def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
+    [TTNN_WorkaroundInterface, OpModelExempt]> {
+  let summary = "Opaque tt-lang custom kernel call.";
+  let description = [{
+    TTNN-level placeholder for a user-defined tt-lang kernel. Lowered from
+    `ttir.tt_lang_op` and carries the same `kernel_id` / `version_tag` /
+    `arg_roles` / `shard_spec` attributes verbatim. The kernel body is
+    deferred: the optional `kernel_artifact` attribute is empty post-conversion
+    and is populated by the tt-xla plugin (`ModuleBuilder::resolveTtLangKernels`)
+    after the TTIR -> TTNN pipeline finishes by calling the tt-lang Python
+    bridge with the now-final shard-local operand types. Subsequent
+    flatbuffer emission consumes `kernel_artifact` to embed the compiled
+    kernel into the executable.
+
+    This op is intentionally opaque to the TTNN optimizer: it carries no
+    workarounds and is exempt from the op-model cost interface via the
+    `OpModelExempt` trait (its kernel body is not authored in TTNN dialects,
+    so neither op constraints nor runtime can be queried from inside
+    tt-mlir).
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$kernel_id,
+                       StrAttr:$version_tag,
+                       StrAttr:$arg_roles,
+                       DefaultValuedStrAttr<StrAttr, "">:$shard_spec,
+                       OptionalAttr<DenseI8ArrayAttr>:$kernel_artifact);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let assemblyFormat = [{
+    `(` $inputs `)` attr-dict `:` `(` type($inputs) `)` `->` `(` type($results) `)`
+  }];
+
+  let hasVerifier = 1;
+}
+
 #endif

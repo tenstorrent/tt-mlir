@@ -6193,4 +6193,65 @@ void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// TtLangOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult TtLangOp::verify() {
+  if (getInputs().empty()) {
+    return emitOpError("tt-lang kernel must have at least one input operand.");
+  }
+
+  llvm::StringRef rolesStr = getArgRoles();
+  if (rolesStr.empty()) {
+    return emitOpError("`arg_roles` attribute must not be empty.");
+  }
+
+  llvm::SmallVector<llvm::StringRef> tokens;
+  rolesStr.split(tokens, ',');
+  if (tokens.size() != getInputs().size()) {
+    return emitOpError("`arg_roles` token count (")
+           << tokens.size() << ") must match number of inputs ("
+           << getInputs().size() << ").";
+  }
+
+  size_t outCount = 0;
+  for (llvm::StringRef token : tokens) {
+    llvm::StringRef trimmed = token.trim();
+    if (trimmed == "out") {
+      ++outCount;
+    } else if (trimmed != "in") {
+      return emitOpError("`arg_roles` token must be \"in\" or \"out\", got: \"")
+             << trimmed << "\".";
+    }
+  }
+
+  if (outCount != getResults().size()) {
+    return emitOpError("number of \"out\" roles (")
+           << outCount << ") must match number of results ("
+           << getResults().size() << ").";
+  }
+  // Every tt-lang kernel must declare at least one "out"-roled operand:
+  // the runtime aliases the kernel's SSA result(s) to that operand's
+  // `TensorRef` so `gatherOutputTensors()` can find the buffer the
+  // kernel wrote into at program end. An op with zero "out" operands
+  // would compile (verifier-OK) but fail later in the flatbuffer
+  // emitter; reject it here so the diagnostic points at the op.
+  if (outCount == 0) {
+    return emitOpError(
+        "tt-lang kernel must have at least one operand tagged \"out\" "
+        "(the destination buffer the runtime returns as the kernel's "
+        "output).");
+  }
+
+  if (getKernelId().empty()) {
+    return emitOpError("`kernel_id` attribute must not be empty.");
+  }
+  if (getVersionTag().empty()) {
+    return emitOpError("`version_tag` attribute must not be empty.");
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttnn
