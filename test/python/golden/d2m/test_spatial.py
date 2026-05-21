@@ -117,7 +117,6 @@ def _create_global_semaphore(
     sem_layout = ttcore.ir.MetalLayoutAttr.get(
         builder.context,
         sem_grid_shape,
-        ttcore.OOBVal.Undef,
         ttcore.MemorySpace.DeviceL1,
         ttcore.TensorMemoryLayout.Sharded,
         DenseElementsAttr.get(np.array([[0, 1], [1, 2]], dtype=np.int64)),
