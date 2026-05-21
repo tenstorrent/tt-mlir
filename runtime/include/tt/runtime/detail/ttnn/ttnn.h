@@ -278,9 +278,9 @@ void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
                  const OpWalkFn &cb);
 
 // Returns the host tensors corresponding to tensorRef. The returned vector
-// contains one entry per device shard: single entry for single-device 
-// tensors. 
-// Returns std::nullopt if the tensor is not present in the pool or if the 
+// contains one entry per device shard: single entry for single-device
+// tensors.
+// Returns std::nullopt if the tensor is not present in the pool or if the
 // host transfer produces no tensors.
 std::optional<std::vector<Tensor>>
 retrieveTensorFromPool(CallbackContext programContextHandle,

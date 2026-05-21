@@ -58,9 +58,7 @@ def update_multi_device_tensor(
         {},
         MESH_SHAPE,
     )
-    ttrt.runtime.update_tensor_in_pool(
-        program_context, tensor_ref, multi_device_tensor
-    )
+    ttrt.runtime.update_tensor_in_pool(program_context, tensor_ref, multi_device_tensor)
 
 
 def identity(binary, program_context, op_context):
@@ -95,8 +93,8 @@ def make_linear_postop(expected_per_shard, replacement_per_shard, alive_refs):
         if shards is None:
             return
 
-        assert (
-            len(shards) == len(expected_per_shard)
+        assert len(shards) == len(
+            expected_per_shard
         ), f"Expected {len(expected_per_shard)} shards, got {len(shards)}"
 
         per_shard_torch_shape = None
@@ -113,7 +111,9 @@ def make_linear_postop(expected_per_shard, replacement_per_shard, alive_refs):
 
         replacement_shards = [
             torch.full(
-                per_shard_torch_shape, replacement_per_shard[i], dtype=per_shard_torch_dtype
+                per_shard_torch_shape,
+                replacement_per_shard[i],
+                dtype=per_shard_torch_dtype,
             )
             for i in range(len(shards))
         ]

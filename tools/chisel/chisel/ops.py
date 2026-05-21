@@ -122,8 +122,7 @@ class IRModule:
         """Mesh shape from the module's `ttcore.meshes` attribute.
 
         Returns `(1, 1)` when the attribute is absent (single-chip programs).
-        When multiple meshes are declared, the first one is used - matches
-        builder's convention (see ttir_builder._maybe_promote_to_device_module).
+        When multiple meshes are declared, the first one is used.
         """
         for named_attr in self.module.operation.attributes:
             if named_attr.name != "ttcore.meshes":
