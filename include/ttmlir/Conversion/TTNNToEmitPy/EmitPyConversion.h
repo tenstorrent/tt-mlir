@@ -1717,6 +1717,10 @@ struct EmitPyTypeConverter<
         << EmitPyTypeConverter<uint64_t>::convert(attr.getOutSubblockH());
     rso << ", out_subblock_w="
         << EmitPyTypeConverter<uint64_t>::convert(attr.getOutSubblockW());
+    rso << ", out_block_h="
+        << EmitPyTypeConverter<uint64_t>::convert(attr.getOutBlockH());
+    rso << ", out_block_w="
+        << EmitPyTypeConverter<uint64_t>::convert(attr.getOutBlockW());
     rso << ", per_core_M="
         << EmitPyTypeConverter<uint64_t>::convert(attr.getPerCoreM());
     rso << ", per_core_N="
@@ -1770,6 +1774,10 @@ struct EmitPyTypeConverter<
         << EmitPyTypeConverter<uint64_t>::convert(attr.getOutSubblockH());
     rso << ", out_subblock_w="
         << EmitPyTypeConverter<uint64_t>::convert(attr.getOutSubblockW());
+    rso << ", out_block_h="
+        << EmitPyTypeConverter<uint64_t>::convert(attr.getOutBlockH());
+    rso << ", out_block_w="
+        << EmitPyTypeConverter<uint64_t>::convert(attr.getOutBlockW());
     rso << ", per_core_M="
         << EmitPyTypeConverter<uint64_t>::convert(attr.getPerCoreM());
     rso << ", per_core_N="
