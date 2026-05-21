@@ -3,21 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/Verifier.h"
+
+#include "ttmlir/Asserts.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace mlir::tt::ttnn {
@@ -26,14 +25,18 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
+using CompositeValidatorFn =
+    std::function<OpValidationResult(CompositeOp, OpBuilder &)>;
 using CompositeBuilderFn =
-    std::function<Operation *(CompositeOp compositeOp, OpBuilder &builder)>;
+    std::function<Operation *(CompositeOp, OpBuilder &)>;
 
-// Registry mapping composite names to functions that build the corresponding
-// typed op. Each builder creates the typed op using the composite's operands
-// and attributes, returning the new operation (or nullptr on failure).
-static llvm::StringMap<CompositeBuilderFn> &getCompositeRegistry() {
-  static llvm::StringMap<CompositeBuilderFn> registry;
+struct CompositeEntry {
+  CompositeValidatorFn validate;
+  CompositeBuilderFn build;
+};
+
+static llvm::StringMap<CompositeEntry> &getCompositeRegistry() {
+  static llvm::StringMap<CompositeEntry> registry;
   return registry;
 }
 
@@ -43,34 +46,46 @@ static void registerBuiltinComposites() {
     return;
   }
 
-  registry["topk_router_gpt"] = [](CompositeOp compositeOp,
-                                   OpBuilder &builder) -> Operation * {
-    if (compositeOp.getInputs().size() != 3) {
-      return nullptr;
-    }
+  registry["topk_router_gpt"] = CompositeEntry{
+      // Validate
+      [](CompositeOp compositeOp, OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
 
-    auto optAttrs = compositeOp.getCompositeAttributes();
-    if (!optAttrs) {
-      return nullptr;
-    }
-    DictionaryAttr attrs = *optAttrs;
+        auto optAttrs = compositeOp.getCompositeAttributes();
+        TT_assert(optAttrs);
+        DictionaryAttr attrs = *optAttrs;
 
-    auto kAttr = attrs.getAs<mlir::IntegerAttr>("k");
-    auto numExpertsAttr = attrs.getAs<mlir::IntegerAttr>("num_experts");
-    if (!kAttr || !numExpertsAttr) {
-      return nullptr;
-    }
+        auto kAttr = attrs.getAs<mlir::IntegerAttr>("k");
+        auto numExpertsAttr = attrs.getAs<mlir::IntegerAttr>("num_experts");
+        TT_assert(kAttr);
+        TT_assert(numExpertsAttr);
 
-    return builder.create<TopKRouterGptOp>(
-        compositeOp.getLoc(), compositeOp.getResultTypes(),
-        compositeOp.getInputs()[0], compositeOp.getInputs()[1],
-        compositeOp.getInputs()[2], builder.getI32IntegerAttr(kAttr.getInt()),
-        builder.getI32IntegerAttr(numExpertsAttr.getInt()));
-  };
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<TopKRouterGptOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2],
+            builder.getI32IntegerAttr(kAttr.getInt()),
+            builder.getI32IntegerAttr(numExpertsAttr.getInt()));
+      },
+      // Build
+      [](CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
+        auto kAttr = attrs.getAs<mlir::IntegerAttr>("k");
+        auto numExpertsAttr = attrs.getAs<mlir::IntegerAttr>("num_experts");
+
+        return builder.create<TopKRouterGptOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2],
+            builder.getI32IntegerAttr(kAttr.getInt()),
+            builder.getI32IntegerAttr(numExpertsAttr.getInt()));
+      }};
 }
 
-// Inline the decomposition function body at the composite op's location,
-// replacing the composite's results with the inlined operations' results.
+// Inline the decomposition function body at the composite ops location,
+// replacing the composites results with the inlined operations results.
 static LogicalResult inlineDecomposition(CompositeOp compositeOp,
                                          ModuleOp moduleOp) {
   auto decompName = compositeOp.getDecomposition();
@@ -109,70 +124,26 @@ static LogicalResult inlineDecomposition(CompositeOp compositeOp,
   return success();
 }
 
-// Try to create the typed op and validate it. Returns the created op on
-// success, or nullptr if verification/validation fails.
-// Requires OpModel — without it, always returns nullptr (forcing
-// decomposition).
+// Validate and create the typed op. Uses IsolatedIRValidationWrapper to
+// check if the typed op is valid (passes workarounds + OpModel constraints)
+// in an isolated module before creating it in the real IR.
+// Returns nullptr if the composite name is not in the registry or validation
+// fails — the caller should fall back to inlining the decomposition.
 static Operation *tryCreateTypedOp(CompositeOp compositeOp,
                                    OpBuilder &builder) {
-#ifndef TTMLIR_ENABLE_OPMODEL
-  (void)compositeOp;
-  (void)builder;
-  return nullptr;
-#else
   auto &registry = getCompositeRegistry();
   auto it = registry.find(compositeOp.getCompositeName());
   if (it == registry.end()) {
     return nullptr;
   }
 
-  // Suppress diagnostics since verify() failure is an expected path.
-  ScopedDiagnosticHandler diagHandler(compositeOp.getContext(),
-                                      [](Diagnostic &) { return success(); });
-
-  Operation *typedOp = it->second(compositeOp, builder);
-  if (!typedOp) {
-    return nullptr;
-  }
-
-  // Run static verification.
-  if (failed(mlir::verify(typedOp, /*verifyRecursively=*/false))) {
-    typedOp->erase();
-    return nullptr;
-  }
-
-  // Run OpModel constraint validation. If we cannot validate (missing layouts,
-  // non-tensor results), fall back to decomposition rather than emitting an
-  // unvalidated typed op.
-  std::vector<TTNNLayoutAttr> inputLayouts =
-      utils::extractInputLayouts(typedOp);
-  if (inputLayouts.empty()) {
-    typedOp->erase();
-    return nullptr;
-  }
-
-  auto resultType = dyn_cast<RankedTensorType>(typedOp->getResult(0).getType());
-  if (!resultType) {
-    typedOp->erase();
-    return nullptr;
-  }
-
-  auto layoutAttr = dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
-  if (!layoutAttr) {
-    typedOp->erase();
-    return nullptr;
-  }
-
-  OpConfig config(layoutAttr);
-  auto validationResult = op_constraint_validation::validateOperation(
-      typedOp, inputLayouts, config);
+  auto &entry = it->second;
+  auto validationResult = entry.validate(compositeOp, builder);
   if (!validationResult.isSuccess()) {
-    typedOp->erase();
     return nullptr;
   }
 
-  return typedOp;
-#endif
+  return entry.build(compositeOp, builder);
 }
 
 class TTNNResolveComposites
@@ -186,12 +157,13 @@ public:
 
     ModuleOp moduleOp = getOperation();
     llvm::DenseSet<func::FuncOp> decompositionFuncsToDelete;
-    SmallVector<CompositeOp> compositeOps;
+    bool passFailed = false;
 
-    moduleOp.walk([&](CompositeOp op) { compositeOps.push_back(op); });
+    moduleOp.walk([&](CompositeOp compositeOp) {
+      if (passFailed) {
+        return;
+      }
 
-    for (CompositeOp compositeOp : compositeOps) {
-      // Track the decomposition function for potential cleanup.
       auto decompName = compositeOp.getDecomposition();
       auto *symbolOp = SymbolTable::lookupSymbolIn(moduleOp, decompName);
       auto decompFunc = dyn_cast<func::FuncOp>(symbolOp);
@@ -200,16 +172,14 @@ public:
       Operation *typedOp = tryCreateTypedOp(compositeOp, builder);
 
       if (typedOp) {
-        // Typed op is valid — replace composite with it.
         for (auto [result, typedResult] :
              llvm::zip(compositeOp.getResults(), typedOp->getResults())) {
           result.replaceAllUsesWith(typedResult);
         }
         compositeOp.erase();
       } else {
-        // Fallback: inline decomposition body.
-        if (failed(inlineDecomposition(compositeOp, moduleOp))) {
-          signalPassFailure();
+        if (mlir::failed(inlineDecomposition(compositeOp, moduleOp))) {
+          passFailed = true;
           return;
         }
       }
@@ -217,6 +187,11 @@ public:
       if (decompFunc) {
         decompositionFuncsToDelete.insert(decompFunc);
       }
+    });
+
+    if (passFailed) {
+      signalPassFailure();
+      return;
     }
 
     // Clean up decomposition functions that are no longer referenced.
