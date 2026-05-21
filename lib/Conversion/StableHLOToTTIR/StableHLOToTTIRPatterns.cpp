@@ -49,6 +49,45 @@
 using namespace mlir;
 using namespace mlir::tt;
 
+void mlir::tt::retypeFuncArg(ConversionPatternRewriter &rewriter, Value value,
+                             Type newType) {
+  auto blockArg = mlir::dyn_cast<BlockArgument>(value);
+  if (!blockArg) {
+    return;
+  }
+  auto funcOp = dyn_cast<func::FuncOp>(blockArg.getOwner()->getParentOp());
+  if (!funcOp) {
+    return;
+  }
+  blockArg.setType(newType);
+  llvm::SmallVector<Type> argTypes(funcOp.getArgumentTypes());
+  argTypes[blockArg.getArgNumber()] = newType;
+  rewriter.modifyOpInPlace(funcOp, [&]() {
+    funcOp.setType(FunctionType::get(rewriter.getContext(), argTypes,
+                                     funcOp.getResultTypes()));
+  });
+}
+
+void mlir::tt::rewireFuncReturns(ConversionPatternRewriter &rewriter,
+                                 Value oldValue, Value newValue) {
+  for (mlir::OpOperand &use : llvm::make_early_inc_range(oldValue.getUses())) {
+    auto returnOp = mlir::dyn_cast<func::ReturnOp>(use.getOwner());
+    if (!returnOp) {
+      continue;
+    }
+    auto funcOp = returnOp->getParentOfType<func::FuncOp>();
+    unsigned resultIdx = use.getOperandNumber();
+    rewriter.modifyOpInPlace(
+        returnOp, [&]() { returnOp.setOperand(resultIdx, newValue); });
+    llvm::SmallVector<Type> resultTypes(funcOp.getResultTypes());
+    resultTypes[resultIdx] = newValue.getType();
+    rewriter.modifyOpInPlace(funcOp, [&]() {
+      funcOp.setType(FunctionType::get(rewriter.getContext(),
+                                       funcOp.getArgumentTypes(), resultTypes));
+    });
+  }
+}
+
 // Helper to extract values from optional StableHLO attributes with defaults.
 // StableHLO convolution attributes like window_strides, lhs_dilation, etc.
 // are optional and default to 1 (or 0 for padding) when not specified.
@@ -4466,6 +4505,21 @@ public:
     if (!shardStatusAttr) {
       shardStatusAttr = mlir::tt::ttcore::ShardStatusAttr::get(
           getContext(), mlir::tt::ttcore::ShardStatus::Unsharded);
+    }
+
+    // Presharded: no mesh_shard needed. Forward the original value and
+    // update the func signature so arg/result types use local shapes.
+    if (shardStatusAttr.getValue() ==
+        mlir::tt::ttcore::ShardStatus::Presharded) {
+      mlir::Value input = definingOp.getInputs().front();
+      if (shardDirection == mlir::tt::ttcore::MeshShardDirection::FullToShard) {
+        mlir::tt::retypeFuncArg(rewriter, input, srcOp->getResult(0).getType());
+      } else {
+        mlir::tt::rewireFuncReturns(rewriter, srcOp->getResult(0), input);
+      }
+      rewriter.replaceOp(srcOp, input);
+      rewriter.eraseOp(definingOp);
+      return success();
     }
 
     // Once extracted, we can generate the GSPMDMeshSharding object.
