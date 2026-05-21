@@ -122,7 +122,8 @@ class IRModule:
         """Mesh shape from the module's `ttcore.meshes` attribute.
 
         Returns `(1, 1)` when the attribute is absent (single-chip programs).
-        When multiple meshes are declared, the first one is used.
+        Raises if the module declares more than one mesh; chisel currently
+        assumes a single mesh per module.
         """
         for named_attr in self.module.operation.attributes:
             if named_attr.name != "ttcore.meshes":
@@ -130,6 +131,11 @@ class IRModule:
             meshes = ttcore.ir.MeshesAttr.maybe_downcast(named_attr.attr)
             if meshes is None or not meshes.meshes:
                 continue
+            if len(meshes.meshes) > 1:
+                raise ValueError(
+                    f"chisel does not support modules with more than one mesh; "
+                    f"got {len(meshes.meshes)} meshes in `ttcore.meshes`"
+                )
             return tuple(int(d) for d in meshes.meshes[0].shape)
         return (1, 1)
 
