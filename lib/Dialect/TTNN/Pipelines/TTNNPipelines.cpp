@@ -676,13 +676,7 @@ void createTTIRToTTNNRuntimePipeline(
 //
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
-  if (options.enableTrace) {
-    llvm::report_fatal_error(
-        "Trace currently not supported in createTTIRToEmitCPipeline");
-  }
-
   createTTIRToTTNNCommonPipeline(pm, options);
-
   createTTNNCommonToEmitCPipeline(pm, options);
 }
 
@@ -690,13 +684,7 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 //
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options) {
-  if (options.enableTrace) {
-    llvm::report_fatal_error(
-        "Trace currently not supported in createTTIRToEmitPyPipeline");
-  }
-
   createTTIRToTTNNCommonPipeline(pm, options);
-
   createTTNNCommonToEmitPyPipeline(pm, options);
 }
 
