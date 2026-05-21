@@ -105,8 +105,8 @@ PagedUpdateCacheRuleBook::getInputLayoutFilter(Operation *op,
                                                unsigned operandIdx) const {
   // Operand 1 (fill value) must be L1 height-sharded on a {numUsers, 1}
   // virtual grid.  Any other grid causes PCC degradation;
-  // TODO(): relax when tt-metal enforces this and raises an error for
-  // PCC-degrading layouts.
+  // https://github.com/tenstorrent/tt-metal/issues/44923 relax when tt-metal
+  // enforces this and raises an error for PCC-degrading layouts.
   if (operandIdx == 1) {
     int64_t numUsers =
         mlir::cast<RankedTensorType>(op->getOperand(1).getType()).getShape()[1];
