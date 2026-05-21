@@ -54,7 +54,7 @@ def retrieve_tensor(
             "retrieve_tensor_from_pool returned no shards for the requested tensor"
         )
 
-    # Making sure we fail if submash program appear.
+    # Making sure we fail if submesh program appear.
     expected_shards = math.prod(mesh_shape) if mesh_shape else -1
     if len(shards) != expected_shards:
         raise RuntimeError(
