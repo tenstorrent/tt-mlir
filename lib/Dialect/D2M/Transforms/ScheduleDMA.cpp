@@ -115,10 +115,8 @@ static void assignNoCsToThreads(
       swapNocs ? ttcore::NocIndex::Noc1 : ttcore::NocIndex::Noc0;
   ttcore::NocIndex thread1Noc =
       swapNocs ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-  assignments[0].processorIndex =
-      utils::getProcessorIndexForTwoNoCArch(thread0Noc);
-  assignments[1].processorIndex =
-      utils::getProcessorIndexForTwoNoCArch(thread1Noc);
+  assignments[0].processorIndex = thread0Noc == ttcore::NocIndex::Noc0 ? 1 : 0;
+  assignments[1].processorIndex = thread1Noc == ttcore::NocIndex::Noc0 ? 1 : 0;
 }
 
 // There is no NoC choice to make. Use the thread index as the processor index.
@@ -287,8 +285,7 @@ public:
       });
       int32_t processorIndex;
       if (numDatamovementThreads == 2) {
-        processorIndex = utils::getProcessorIndexForTwoNoCArch(
-            writesDRAM ? ttcore::NocIndex::Noc1 : ttcore::NocIndex::Noc0);
+        processorIndex = writesDRAM ? 0 : 1;
       } else {
         processorIndex = 0;
       }

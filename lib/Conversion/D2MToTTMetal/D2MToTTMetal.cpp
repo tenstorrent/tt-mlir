@@ -7,7 +7,6 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
-#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -138,7 +137,8 @@ public:
           nocIndex =
               index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
         } else {
-          nocIndex = d2m::utils::getNoCForProcessorIndex(processorIdx);
+          nocIndex = processorIdx == 1 ? ttcore::NocIndex::Noc0
+                                       : ttcore::NocIndex::Noc1;
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, nocIndex);

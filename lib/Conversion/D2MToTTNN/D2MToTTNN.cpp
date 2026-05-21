@@ -7,7 +7,6 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
-#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -346,9 +345,10 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       if (processorIdx < 0) {
         int32_t index = unassignedNocCounter++ % 2;
         nocIndex = index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-        processorIdx = d2m::utils::getProcessorIndexForTwoNoCArch(nocIndex);
+        processorIdx = index == 0 ? 1 : 0;
       } else {
-        nocIndex = d2m::utils::getNoCForProcessorIndex(processorIdx);
+        nocIndex =
+            processorIdx == 1 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
       }
       auto processor = processorIdx == 1 ? ttnn::DataMovementProcessor::RiscV1
                                          : ttnn::DataMovementProcessor::RiscV0;

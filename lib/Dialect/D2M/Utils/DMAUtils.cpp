@@ -4,12 +4,11 @@
 
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "llvm/Support/ErrorHandling.h"
 
 namespace mlir::tt::d2m::utils {
 
@@ -47,24 +46,6 @@ LogicalResult checkForIllegalSemaphoreOps(Block *block) {
     }
   }
   return success();
-}
-
-ttcore::NocIndex getNoCForProcessorIndex(int32_t processorIndex) {
-  TT_assertv((processorIndex == 0 || processorIndex == 1),
-             "unsupported datamovement processor index");
-  // Preserve the existing backend mapping: NoC0 uses RiscV1 and NoC1 uses
-  // RiscV0.
-  return processorIndex == 1 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-}
-
-int32_t getProcessorIndexForTwoNoCArch(ttcore::NocIndex nocIndex) {
-  switch (nocIndex) {
-  case ttcore::NocIndex::Noc0:
-    return 1;
-  case ttcore::NocIndex::Noc1:
-    return 0;
-  }
-  llvm_unreachable("unsupported NoC index");
 }
 
 LogicalResult

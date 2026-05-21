@@ -22,7 +22,9 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
   let description = [{
     Holds the thread information corresponding to a single generic op region.
     For datamovement threads, processorIndex indicates the assigned hardware
-    datamovement processor.
+    datamovement processor. ProcessorIndex 0 is a mapped to NoC1 and 
+    ProcessorIndex 1 is mapped to NoC0.
+
     A value of -1 means unassigned.
   }];
   let parameters = (ins

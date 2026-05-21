@@ -5,8 +5,6 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_DMAUTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_DMAUTILS_H
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
@@ -20,10 +18,6 @@ namespace mlir::tt::d2m::utils {
 // as all threads would execute the operation, creating a race condition on the
 // shared semaphore.
 LogicalResult checkForIllegalSemaphoreOps(Block *block);
-
-// WH/BH NoC <-> processor index mapping.
-ttcore::NocIndex getNoCForProcessorIndex(int32_t processorIndex);
-int32_t getProcessorIndexForTwoNoCArch(ttcore::NocIndex nocIndex);
 
 // Backends currently support only the WH/BH 2-DM processor model. Reject
 // Quasar and any explicit processor index beyond RiscV0/RiscV1 up front.
