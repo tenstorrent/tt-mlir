@@ -5,6 +5,13 @@
 
 set -e -o pipefail
 
+# Pick a binary directory that matches the runner. The chisel test suite has
+# both binary-driven tests (parametrized over .ttnn files) and builder-driven
+# integration tests; the latter use a `device` / `multichip_device` fixture
+# that opens the right mesh shape for the current board.
+RUNS_ON="${RUNS_ON:-n150}"
+BINARY_DIR="$BUILD_DIR/test/ttmlir/Silicon/TTNN/${RUNS_ON}"
+
 pytest test/python/chisel/ \
-    --binary "$BUILD_DIR/test/ttmlir/Silicon/TTNN/n150" \
+    --binary "$BINARY_DIR" \
     --junit-xml="$TEST_REPORT_PATH"
