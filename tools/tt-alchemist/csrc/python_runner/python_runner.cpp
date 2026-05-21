@@ -8,6 +8,9 @@
 
 #include <Python.h>
 
+#include <filesystem>
+#include <system_error>
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-qual"
 #pragma clang diagnostic ignored "-Wglobal-constructors"
@@ -135,9 +138,75 @@ void PythonModelRunner::addToSysPath(const std::string &path) {
   sysPathList.insert(0, nb::cast(path));
 }
 
+// Delete `key` from the Python `dict`. A missing entry is silently ignored
+// (KeyError is cleared). Any other Python error is propagated as a C++
+// exception via `nb::raise_python_error()`.
+static void tryDeleteDictKey(PyObject *dict, const char *key) {
+  if (PyDict_DelItemString(dict, key) == 0) {
+    return;
+  }
+  if (PyErr_ExceptionMatches(PyExc_KeyError)) {
+    PyErr_Clear();
+    return;
+  }
+  nb::raise_python_error();
+}
+
 void PythonModelRunner::loadModule(const std::string &moduleName,
                                    const std::string &functionName) {
   nb::gil_scoped_acquire acquire;
+
+  // sys.modules is process-wide. A previously-loaded module of the same name
+  // (e.g. "main" from another graph_N/ directory in this process, or one of
+  // its sibling helper modules such as "utils" / "ttir_cpu") would
+  // short-circuit the import below and the freshly generated source would
+  // never execute, silently yielding wrong results. To prevent this, locate
+  // the on-disk source for moduleName and evict from sys.modules both
+  // moduleName itself and every entry whose name matches a .py file in that
+  // directory. This forces the import machinery to walk sys.path and reload
+  // the fresh sources from disk. The eviction directory is discovered from
+  // the module's own spec rather than `sys.path[0]`, so callers that prepend
+  // additional unrelated directories (e.g. tt-metal / ttnn paths) after the
+  // model directory still get correct behavior. Helper modules are
+  // discovered from the filesystem, so any future sibling added by codegen
+  // is handled automatically without hard-coding names here.
+  nb::object sys = nb::module_::import_("sys");
+  nb::object sysModules = sys.attr("modules");
+  PyObject *sysModulesRaw = sysModules.ptr();
+
+  // Evict moduleName up-front so importlib.util.find_spec walks sys.path
+  // instead of returning a cached spec for a stale on-disk location.
+  tryDeleteDictKey(sysModulesRaw, moduleName.c_str());
+
+  std::filesystem::path searchDir;
+  nb::object importlibUtil = nb::module_::import_("importlib.util");
+  nb::object spec = importlibUtil.attr("find_spec")(moduleName);
+  if (!spec.is_none()) {
+    nb::object origin = spec.attr("origin");
+    if (!origin.is_none()) {
+      searchDir =
+          std::filesystem::path(nb::cast<std::string>(origin)).parent_path();
+    }
+  }
+
+  if (!searchDir.empty()) {
+    std::error_code ec;
+    std::filesystem::directory_iterator dirIt(searchDir, ec);
+    const std::filesystem::directory_iterator end;
+    while (!ec && dirIt != end) {
+      const auto &entry = *dirIt;
+      std::error_code statEc;
+      if (entry.is_regular_file(statEc) && !statEc &&
+          entry.path().extension() == ".py") {
+        std::string stem = entry.path().stem().string();
+        if (stem != moduleName) {
+          tryDeleteDictKey(sysModulesRaw, stem.c_str());
+        }
+      }
+      dirIt.increment(ec);
+    }
+  }
+
   pImpl->moduleObject = nb::module_::import_(moduleName.c_str());
   pImpl->forwardFunc = pImpl->moduleObject.attr(functionName.c_str());
 }
