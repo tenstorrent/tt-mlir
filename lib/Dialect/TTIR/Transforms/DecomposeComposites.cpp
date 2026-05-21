@@ -482,8 +482,12 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
   // Example: repeatCount = 7 (binary: 111)
   //   - Build chunks: 1x, 2x, 4x (doubling each time)
   //   - Bits 0, 1, 2 are set, so concatenate [1x, 2x, 4x]
+  //
+  // We iterate from LSB to MSB to maintain correct concatenation order.
   Value repeatAlongDim(Location loc, Value input, int64_t dim,
                        int64_t repeatCount, PatternRewriter &rewriter) const {
+    assert(repeatCount > 0 && "repeatCount must be positive");
+
     if (repeatCount == 1) {
       return input;
     }
@@ -494,10 +498,28 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
     // Find the highest set bit to know when to stop building chunks
     int64_t highestBit = 63 - __builtin_clzll(repeatCount);
 
+    // Optimization: if repeatCount is a power of 2, just do log2(N) doublings
+    if (__builtin_popcountll(repeatCount) == 1) {
+      Value result = input;
+      for (int64_t bit = 0; bit < highestBit; ++bit) {
+        SmallVector<Value> inputs = {result, result};
+        SmallVector<int64_t> doubleShape(inputType.getShape().begin(),
+                                         inputType.getShape().end());
+        doubleShape[dim] = originalDimSize * (1LL << (bit + 1));
+        auto doubleType = RankedTensorType::get(
+            doubleShape, inputType.getElementType(), inputType.getEncoding());
+        auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+        result = rewriter.create<ConcatOp>(loc, doubleType, inputs, dimAttr);
+      }
+      return result;
+    }
+
     // Build power-of-two chunks and collect those needed based on set bits
+    // Reserve capacity based on the number of set bits (popcount)
     SmallVector<Value> partsToConcat;
+    partsToConcat.reserve(__builtin_popcountll(repeatCount));
+
     Value currentChunk = input;
-    int64_t currentPower = 1;
 
     for (int64_t bit = 0; bit <= highestBit; ++bit) {
       // If this bit is set in repeatCount, we need this chunk
@@ -508,11 +530,10 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
       // Double the chunk for the next power of 2 (unless we're at the last bit)
       if (bit < highestBit) {
         SmallVector<Value> inputs = {currentChunk, currentChunk};
-        currentPower *= 2;
 
         SmallVector<int64_t> doubleShape(inputType.getShape().begin(),
                                          inputType.getShape().end());
-        doubleShape[dim] = originalDimSize * currentPower;
+        doubleShape[dim] = originalDimSize * (1LL << (bit + 1));
         auto doubleType = RankedTensorType::get(
             doubleShape, inputType.getElementType(), inputType.getEncoding());
 
