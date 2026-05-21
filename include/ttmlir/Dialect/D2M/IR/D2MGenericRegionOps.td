@@ -2912,11 +2912,10 @@ def D2M_MyThreadIdOp : D2M_GenericRegionOp<"my_thread_id",
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
   ]> {
-    let summary = "Compute thread id within an L1 region.";
+    let summary = "Placeholder op to get the index of the current Tensix thread in a Neo";
     let description = [{
-      Return the compute thread index for use inside a d2m.generic compute
-      region. D2MMaterializeComputeThreadForall creates this op when lowering
-      scf.forall with #d2m.compute_thread mapping to D2M SPMD IR.
+      The current Tensix thread index returned by this op is how work is divided between multiple Tensix threads in a Neo.
+      This placeholder op is only for compute and should not be used with for data movement.
     }];
 
     let results = (outs Index:$result);
