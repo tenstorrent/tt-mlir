@@ -7,6 +7,7 @@
 #include <torch/library.h>
 #include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
 
+#include "cast.hpp"
 #include "torch/backend.hpp"
 #include "torch/ttir_module_builder.hpp"
 
@@ -26,11 +27,11 @@ mlir::Value scale_tensor(ModuleBuilder &mb, mlir::Value tensor, const at::Scalar
     auto tensor_type = mlir::cast<mlir::RankedTensorType>(tensor.getType());
     mlir::Attribute fill_attr;
     if (mlir::isa<mlir::FloatType>(tensor_type.getElementType())) {
-        fill_attr = mb.attrs().getF32FloatAttr(static_cast<float>(value.toDouble()));
+        fill_attr = mb.attrs().getF32FloatAttr(as<float>(value.toDouble()));
     } else {
         TORCH_CHECK(value.isIntegral(/*includeBool=*/false), "tt-kurbla aten::add: non-integral alpha (",
                     value.toDouble(), ") on integer tensors would truncate");
-        fill_attr = mb.attrs().getI32IntegerAttr(static_cast<std::int32_t>(value.toLong()));
+        fill_attr = mb.attrs().getI32IntegerAttr(as<std::int32_t>(value.toLong()));
     }
     auto full = mb.create<mlir::tt::ttir::FullOp>(tensor_type, fill_attr);
     auto mul = mb.create<mlir::tt::ttir::MultiplyOp>(tensor_type, tensor, full.getResult());

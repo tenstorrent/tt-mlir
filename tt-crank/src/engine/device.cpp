@@ -2,9 +2,10 @@
 
 #include <cstdint>
 #include <exception>
-#include <iostream>
 #include <optional>
 #include <vector>
+
+#include <tt-logger/tt-logger.hpp>
 
 #include <tt/runtime/runtime.h>
 
@@ -28,9 +29,9 @@ struct DeviceState {
         try {
             ::tt::runtime::closeMeshDevice(device);
         } catch (const std::exception &e) {
-            std::cerr << "tt-kurbla: closeMeshDevice failed during shutdown: " << e.what() << "\n";
+            log_error(tt::LogAlways, "tt-kurbla: closeMeshDevice failed during shutdown: {}", e.what());
         } catch (...) {
-            std::cerr << "tt-kurbla: closeMeshDevice failed during shutdown: unknown exception\n";
+            log_error(tt::LogAlways, "tt-kurbla: closeMeshDevice failed during shutdown: unknown exception");
         }
     }
     DeviceState(const DeviceState &) = delete;

@@ -14,6 +14,7 @@ Checks: >
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -readability-function-cognitive-complexity,
   -modernize-use-auto,
+  -cppcoreguidelines-owning-memory,
 
 # Escalation is controlled by the CMake preset (TT_KURBLA_WARNINGS_AS_ERRORS); keep this empty.
 WarningsAsErrors: ''

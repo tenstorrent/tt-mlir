@@ -7,6 +7,7 @@
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/MLIRContext.h>
 
+#include "cast.hpp"
 #include "engine/compile.hpp"
 
 namespace tt::kurbla::torch_backend {
@@ -25,8 +26,7 @@ mlir::Type to_mlir_element_type(mlir::MLIRContext &ctx, ::tt::target::DataType d
         default:
             break;
     }
-    TORCH_CHECK(false,
-                "tt-kurbla ModuleBuilder: unsupported runtime dtype for MLIR element type: ", static_cast<int>(dtype));
+    TORCH_CHECK(false, "tt-kurbla ModuleBuilder: unsupported runtime dtype for MLIR element type: ", as<int>(dtype));
 }
 
 mlir::RankedTensorType to_tensor_type(mlir::MLIRContext &ctx, const TensorTypeSpec &spec) {

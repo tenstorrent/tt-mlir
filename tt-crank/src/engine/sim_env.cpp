@@ -12,8 +12,9 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <string>
+
+#include <tt-logger/tt-logger.hpp>
 
 #if !defined(TT_KURBLA_SIM_DIR) || !defined(TT_KURBLA_TT_METAL_HOME)
 #error "sim_env.cpp requires CMake to inject TT_KURBLA_SIM_DIR and TT_KURBLA_TT_METAL_HOME"
@@ -50,7 +51,7 @@ struct SimEnvSetter {
         ::setenv("TT_METAL_SLOW_DISPATCH_MODE", "1", 1);
         ::setenv("TT_METAL_DISABLE_SFPLOADMACRO", "1", 1);
 
-        std::cerr << "[tt_kurbla] routing runtime through ttsim: " << sim_lib << "\n";
+        log_info(tt::LogAlways, "[tt_kurbla] routing runtime through ttsim: {}", sim_lib);
     }
 };
 

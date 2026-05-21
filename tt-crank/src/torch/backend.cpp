@@ -16,6 +16,7 @@
 #include <tt/runtime/runtime.h>
 #include <tt/runtime/types.h>
 
+#include "cast.hpp"
 #include "engine/compile.hpp"
 #include "engine/device.hpp"
 #include "engine/execution_payload.hpp"
@@ -29,7 +30,7 @@ at::Tensor wrap_output(::tt::runtime::Tensor runtime_tensor, const ::tt::runtime
     std::vector<std::int64_t> sizes;
     sizes.reserve(desc.shape.size());
     for (auto s : desc.shape) {
-        sizes.push_back(static_cast<std::int64_t>(s));
+        sizes.push_back(as<std::int64_t>(s));
     }
     auto *storage = new TensorStorage(std::move(runtime_tensor));
     return make_tt_tensor(storage, sizes, to_torch_dtype(desc.dataType));
@@ -140,7 +141,7 @@ c10::ScalarType to_torch_dtype(::tt::target::DataType runtime_dtype) {
         default:
             break;
     }
-    TORCH_CHECK(false, "tt-kurbla: unsupported runtime dtype for torch backend: ", static_cast<int>(runtime_dtype));
+    TORCH_CHECK(false, "tt-kurbla: unsupported runtime dtype for torch backend: ", as<int>(runtime_dtype));
 }
 
 std::size_t element_size(::tt::target::DataType runtime_dtype) {
@@ -166,7 +167,7 @@ std::size_t element_size(::tt::target::DataType runtime_dtype) {
         default:
             break;
     }
-    TORCH_CHECK(false, "tt-kurbla: no known element size for runtime dtype: ", static_cast<int>(runtime_dtype));
+    TORCH_CHECK(false, "tt-kurbla: no known element size for runtime dtype: ", as<int>(runtime_dtype));
 }
 
 } // namespace tt::kurbla::torch_backend

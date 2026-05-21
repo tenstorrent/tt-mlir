@@ -1,27 +1,27 @@
 #include "engine/execution_payload.hpp"
 
+#include "assert.hpp"
+#include "cast.hpp"
+#include "engine/device.hpp"
+#include <exception>
 #include <optional>
 #include <sstream>
-#include <stdexcept>
-#include <utility>
-
 #include <tracy/Tracy.hpp>
 #include <tt/runtime/runtime.h>
-
-#include "engine/device.hpp"
+#include <utility>
 
 namespace tt::kurbla {
 
 namespace {
 
-std::string format_shape(const std::vector<std::uint32_t> &shape) {
+template <class T> std::string to_string(const std::vector<T> &vec) {
     std::ostringstream oss;
     oss << "[";
-    for (std::size_t i = 0; i < shape.size(); ++i) {
+    for (std::size_t i = 0; i < vec.size(); ++i) {
         if (i != 0) {
             oss << ", ";
         }
-        oss << shape[i];
+        oss << vec[i];
     }
     oss << "]";
     return oss.str();
@@ -39,15 +39,10 @@ struct ExecutionPayload::Impl {
 
 ExecutionPayload::ExecutionPayload(std::shared_ptr<CompiledProgram> program, std::uint32_t program_index)
     : impl_(std::make_unique<Impl>()) {
-    if (!program) {
-        throw ExecuteError("ExecutionPayload: program must not be null");
-    }
-    if (program_index >= program->num_programs()) {
-        std::ostringstream oss;
-        oss << "ExecutionPayload: program_index " << program_index << " out of range (binary has "
-            << program->num_programs() << " program(s))";
-        throw ExecuteError(oss.str());
-    }
+    TT_FATAL(program != nullptr, "ExecutionPayload: program must not be null");
+    TT_FATAL(program_index < program->num_programs(),
+             "ExecutionPayload: program_index {} out of range (binary has {} program(s))", program_index,
+             program->num_programs());
 
     impl_->program = std::move(program);
     impl_->program_index = program_index;
@@ -73,30 +68,24 @@ std::uint32_t ExecutionPayload::program_index() const {
 }
 
 void ExecutionPayload::bind_tensor(const tt::runtime::Tensor &tensor, std::uint32_t index) {
-    if (index >= impl_->input_slots.size()) {
-        std::ostringstream oss;
-        oss << "bind_tensor: index " << index << " out of range (program has " << impl_->input_slots.size()
-            << " input(s))";
-        throw InputBindingError(oss.str());
-    }
+    TT_FATAL(index < impl_->input_slots.size(), "bind_tensor: index {} out of range (program has {} input(s))", index,
+             impl_->input_slots.size());
 
     // Stride/physicalVolume legitimately differ between the user's host tensor
     // and the binary's padded device layout — that's what toLayout reconciles.
     const tt::runtime::TensorDesc actual = tt::runtime::getTensorDesc(tensor);
     const tt::runtime::TensorDesc &expected = impl_->input_descs[index];
-    if (actual.shape != expected.shape || actual.dataType != expected.dataType) {
-        std::ostringstream oss;
-        oss << "bind_tensor: tensor for input " << index << " does not match the program's expected desc. "
-            << "expected shape=" << format_shape(expected.shape) << " dtype=" << static_cast<int>(expected.dataType)
-            << "; got shape=" << format_shape(actual.shape) << " dtype=" << static_cast<int>(actual.dataType);
-        throw InputBindingError(oss.str());
-    }
+    TT_FATAL(actual.shape == expected.shape && actual.dataType == expected.dataType,
+             "bind_tensor: tensor for input {} does not match the program's expected desc. "
+             "expected shape={} dtype={}; got shape={} dtype={}",
+             index, to_string(expected.shape), as<int>(expected.dataType), to_string(actual.shape),
+             as<int>(actual.dataType));
 
     try {
         impl_->input_slots[index] =
             tt::runtime::toLayout(tensor, runtime_device(), impl_->input_layouts[index], /*retain=*/true);
     } catch (const std::exception &e) {
-        throw DeviceError(std::string("bind_tensor: toLayout failed: ") + e.what());
+        TT_THROW("bind_tensor: toLayout failed: {}", e.what());
     }
 }
 
@@ -108,18 +97,7 @@ std::vector<tt::runtime::Tensor> ExecutionPayload::run() {
             missing.push_back(i);
         }
     }
-    if (!missing.empty()) {
-        std::ostringstream oss;
-        oss << "run: missing input bindings at indices [";
-        for (std::size_t i = 0; i < missing.size(); ++i) {
-            if (i != 0) {
-                oss << ", ";
-            }
-            oss << missing[i];
-        }
-        oss << "]";
-        throw InputBindingError(oss.str());
-    }
+    TT_FATAL(missing.empty(), "run: missing input bindings at indices {}", to_string(missing));
 
     std::vector<tt::runtime::Tensor> inputs;
     inputs.reserve(impl_->input_slots.size());
@@ -138,7 +116,7 @@ std::vector<tt::runtime::Tensor> ExecutionPayload::run() {
         }
         return outputs;
     } catch (const std::exception &e) {
-        throw DeviceError(std::string("run: submit failed: ") + e.what());
+        TT_THROW("run: submit failed: {}", e.what());
     }
 }
 

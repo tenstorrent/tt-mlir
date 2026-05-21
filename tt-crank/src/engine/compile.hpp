@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -56,8 +55,7 @@ struct TT_KURBLA_API CompileOptions {
 TT_KURBLA_API mlir::MLIRContext &mlir_context();
 
 // Compile TTIR text through the ttir-to-ttnn runtime pipeline and emit a TTNN
-// flatbuffer. Throws CompileError (ParseError / PipelineError) on failure with
-// captured MLIR diagnostics in what().
+// flatbuffer.
 //
 // Not safe to call from multiple threads concurrently in v1 — the underlying
 // MLIRContext is a process-wide singleton without internal locking. Callers
@@ -74,23 +72,5 @@ TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view t
 // Same threading caveat as the string overload: serialize calls.
 TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op,
                                                               const CompileOptions &options = {});
-
-// Exception types are class-annotated so their typeinfo is exported with
-// default visibility. Without this, `catch (CompileError&)` in a consumer
-// can silently fail to match throws originating inside libtt_kurbla.so.
-class TT_KURBLA_API CompileError : public std::runtime_error {
-public:
-    using std::runtime_error::runtime_error;
-};
-
-class TT_KURBLA_API ParseError : public CompileError {
-public:
-    using CompileError::CompileError;
-};
-
-class TT_KURBLA_API PipelineError : public CompileError {
-public:
-    using CompileError::CompileError;
-};
 
 } // namespace tt::kurbla

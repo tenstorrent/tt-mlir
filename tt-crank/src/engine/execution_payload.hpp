@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <stdexcept>
 #include <vector>
 
 #include <tt/runtime/types.h>
@@ -32,35 +31,15 @@ public:
     std::uint32_t program_index() const;
 
     // Calls tt::runtime::toLayout immediately and stores the device tensor in
-    // slot `index`. Rebinding overwrites. Throws InputBindingError on
-    // out-of-range index or shape/dtype mismatch against
-    // `compiled_program()->input_descs(program_index())[index]`.
+    // slot `index`. Rebinding overwrites.
     void bind_tensor(const tt::runtime::Tensor &tensor, std::uint32_t index);
 
-    // Returns device-resident outputs; caller does toHost. Throws
-    // InputBindingError if any slot is unbound, DeviceError on submit failure.
+    // Returns device-resident outputs; caller does toHost.
     std::vector<tt::runtime::Tensor> run();
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-};
-
-// TT_KURBLA_API on the exception types so their typeinfo crosses the .so
-// boundary — see CompileError in compile.hpp for the same rationale.
-class TT_KURBLA_API ExecuteError : public std::runtime_error {
-public:
-    using std::runtime_error::runtime_error;
-};
-
-class TT_KURBLA_API InputBindingError : public ExecuteError {
-public:
-    using ExecuteError::ExecuteError;
-};
-
-class TT_KURBLA_API DeviceError : public ExecuteError {
-public:
-    using ExecuteError::ExecuteError;
 };
 
 } // namespace tt::kurbla
