@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -362,9 +363,9 @@ public:
     // Pre-compute physical coordinates we need across the branches:
     // - physGroupStart: start of the multicast region for collectorDone.
     // - physCollector: target of source-side semaphore_inc.
-    SmallVector<Value> physGroupStart = mapVirtualToPhysicalCoreIndex(
+    SmallVector<Value> physGroupStart = utils::mapVirtualToPhysicalCoreIndex(
         rewriter, loc, genericOp.getGrid(), groupStart);
-    SmallVector<Value> physCollector = mapVirtualToPhysicalCoreIndex(
+    SmallVector<Value> physCollector = utils::mapVirtualToPhysicalCoreIndex(
         rewriter, loc, genericOp.getGrid(), collectorIdx);
 
     rewriter.create<scf::IfOp>(
@@ -394,9 +395,9 @@ public:
                     [&](OpBuilder &xBuilder, Location xLoc, Value srcX,
                         ValueRange) {
                       SmallVector<Value> physSrc =
-                          mapVirtualToPhysicalCoreIndex(xBuilder, xLoc,
-                                                        genericOp.getGrid(),
-                                                        {srcY, srcX});
+                          utils::mapVirtualToPhysicalCoreIndex(
+                              xBuilder, xLoc, genericOp.getGrid(),
+                              {srcY, srcX});
                       // Shard-level dma_read: read the entire src shard
                       // from core[physSrc] into dst on the current core.
                       // The expansion to fully indexed form (and the

@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -19,36 +20,6 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-static SmallVector<Value>
-mapVirtualToPhysicalCoreIndex(OpBuilder &builder, Location loc,
-                              ttcore::GridAttr grid,
-                              ValueRange virtualCoreIndex) {
-  AffineMap map = grid.getVirtToPhysicalMap();
-  if (!map || map.isEmpty()) {
-    return SmallVector<Value>(virtualCoreIndex.begin(), virtualCoreIndex.end());
-  }
-
-  TT_assertv(map.getNumDims() == virtualCoreIndex.size(),
-             "Expected virtual-to-physical grid map input rank to match core "
-             "index rank.");
-  unsigned firstCoreResult =
-      map.getNumResults() == virtualCoreIndex.size() ? 0 : 1;
-  TT_assertv(map.getNumResults() >= firstCoreResult + virtualCoreIndex.size(),
-             "Expected virtual-to-physical grid map to have enough core "
-             "coordinate results.");
-
-  SmallVector<Value> physicalCoreIndex;
-  physicalCoreIndex.reserve(virtualCoreIndex.size());
-  for (unsigned i = 0; i < virtualCoreIndex.size(); ++i) {
-    AffineMap selectedMap = AffineMap::get(
-        map.getNumDims(), map.getNumSymbols(),
-        {map.getResult(firstCoreResult + i)}, builder.getContext());
-    physicalCoreIndex.push_back(builder.create<affine::AffineApplyOp>(
-        loc, selectedMap, virtualCoreIndex));
-  }
-  return physicalCoreIndex;
-}
-
 static void annotateCoreIndexOpsWithPhysicalToVirtualMaps(GenericOp generic) {
   AffineMap physicalToVirtualMap = generic.getGrid().getPhysicalToVirtMap();
   if (!physicalToVirtualMap || physicalToVirtualMap.isEmpty()) {
@@ -78,8 +49,9 @@ materializeCoreCoordinateOperandsInPhysicalSpace(GenericOp generic,
       return;
     }
     builder.setInsertionPoint(dmaWriteOp);
-    SmallVector<Value> physicalMcastStartIndex = mapVirtualToPhysicalCoreIndex(
-        builder, dmaWriteOp.getLoc(), grid, dmaWriteOp.getMcastStartIndex());
+    SmallVector<Value> physicalMcastStartIndex =
+        utils::mapVirtualToPhysicalCoreIndex(builder, dmaWriteOp.getLoc(), grid,
+                                             dmaWriteOp.getMcastStartIndex());
     dmaWriteOp.getMcastStartIndexMutable().assign(physicalMcastStartIndex);
   });
 
@@ -90,8 +62,9 @@ materializeCoreCoordinateOperandsInPhysicalSpace(GenericOp generic,
       return;
     }
     builder.setInsertionPoint(semaphoreOp);
-    SmallVector<Value> physicalDstCoreIndex = mapVirtualToPhysicalCoreIndex(
-        builder, semaphoreOp.getLoc(), grid, semaphoreOp.getDstCoreIndex());
+    SmallVector<Value> physicalDstCoreIndex =
+        utils::mapVirtualToPhysicalCoreIndex(
+            builder, semaphoreOp.getLoc(), grid, semaphoreOp.getDstCoreIndex());
     semaphoreOp.getDstCoreIndexMutable().assign(physicalDstCoreIndex);
   };
   generic.walk([&](SemaphoreSetOp semaphoreSetOp) {
