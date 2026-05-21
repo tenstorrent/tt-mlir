@@ -139,9 +139,9 @@ bool allTileMatmulOutputsSupportPackerL1Acc(Operation *loopOp);
 // iterations accumulate into the same output L1 slot, and is therefore the
 // correct trigger for switching the packer to L1-acc mode.
 //
-// Returns nullptr if there is no such reduction loop, or if the candidate
-// reduction loop has a constant trip count <= 1 (in which case L1-acc is
-// not needed and the trigger comparison would never fire correctly).
+// Returns nullptr if there is no qualifying reduction loop with trip count > 1.
+// Reduction loops with constant trip count <= 1 are skipped because L1-acc is
+// not needed for them.
 Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
                                          const CopyInfoMap &copyInfos);
 

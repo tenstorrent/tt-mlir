@@ -9,9 +9,9 @@
 // default disable-l1-acc=false, i.e. L1 accumulation enabled):
 //
 // 1. `matmul_l1_acc`: with a K-block reduction loop wrapping a
-//    tile_matmul root, expect a d2m.set_l1_accumulate guarded by an
-//    scf.if on the K-block IV (the closest ancestor whose IV the
-//    output store does NOT depend on).
+//    tile_matmul root, expect d2m.set_l1_accumulate to receive a flag
+//    derived from the K-block IV (the closest ancestor whose IV the output
+//    store does NOT depend on).
 //
 // 2. `matmul_l1_acc_nested_parallel_scratch`: when a scratch output store
 //    makes an outer parallel loop look reduction-like, still use the closest
