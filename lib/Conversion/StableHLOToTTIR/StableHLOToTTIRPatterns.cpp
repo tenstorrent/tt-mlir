@@ -7626,8 +7626,8 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::RandOp>(
         srcOp, outputType, rewriter.getI32ArrayAttr(size),
-        mlir::TypeAttr::get(outputType.getElementType()),
-        rewriter.getF32FloatAttr(*low), rewriter.getF32FloatAttr(*high));
+        rewriter.getF32FloatAttr(*low), rewriter.getF32FloatAttr(*high),
+        rewriter.getUI32IntegerAttr(0));
 
     return success();
   }
@@ -7710,7 +7710,7 @@ public:
 
     auto randOp = rewriter.create<mlir::tt::ttir::RandOp>(
         srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
-        mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
+        fromFloat, toFloat, seed);
 
     // TODO (pglusac): Change to bit cast once we support it or remove if
     // rand starts supporting uint32.

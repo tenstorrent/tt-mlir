@@ -545,7 +545,7 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_rand
     // CHECK-NOT: d2m.tile_typecast
-    %0 = "ttir.rand"() <{dtype = f32, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> !ttype
+    %0 = "ttir.rand"() <{high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> !ttype
     return %0 : !ttype
   }
 
@@ -556,7 +556,7 @@ module {
     // CHECK: d2m.tile_rand
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: d2m.tile_typecast
-    %0 = "ttir.rand"() <{dtype = bf16, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> tensor<128x96xbf16>
+    %0 = "ttir.rand"() <{high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> tensor<128x96xbf16>
     return %0 : tensor<128x96xbf16>
   }
 
@@ -567,7 +567,7 @@ module {
     // CHECK: d2m.tile_rand
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: d2m.tile_typecast
-    %0 = "ttir.rand"() <{dtype = i32, high = 1.280000e+02 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> tensor<128x96xi32>
+    %0 = "ttir.rand"() <{high = 1.280000e+02 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> tensor<128x96xi32>
     return %0 : tensor<128x96xi32>
   }
 

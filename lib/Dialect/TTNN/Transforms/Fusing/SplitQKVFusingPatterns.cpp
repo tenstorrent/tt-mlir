@@ -671,11 +671,8 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
     if (splitResult.getType() == finalType) {
       return splitResult;
     }
-    auto dtype = ttcore::DataTypeAttr::get(
-        rewriter.getContext(),
-        ttcore::elementTypeToDataType(finalType.getElementType()));
     return rewriter
-        .create<TypecastOp>(matmulOp.getLoc(), finalType, splitResult, dtype)
+        .create<TypecastOp>(matmulOp.getLoc(), finalType, splitResult)
         .getResult();
   };
 

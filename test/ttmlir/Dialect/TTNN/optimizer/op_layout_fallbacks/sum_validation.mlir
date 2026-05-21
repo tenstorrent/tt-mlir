@@ -16,8 +16,8 @@ module attributes {} {
     // CHECK: %[[SUM_RES:.*]] = "ttnn.sum"
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: (%[[SUM_RES]]
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
+    // CHECK-SAME: -> tensor<1x1x1x1xbf16,
 
     %1 = "ttnn.sum"(%arg0) <{
       dim_list = [2 : i32, 3 : i32],

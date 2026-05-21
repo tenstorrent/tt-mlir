@@ -16,7 +16,7 @@ module attributes {} {
     // Test case when const is created on host
     func.func @const_on_host() -> tensor<32x32xbf16, #ttnn_layout_host_rm_bf16> {
         // CHECK: ttnn.constant
-        %0 = "ttnn.constant"() <{value = dense_resource<dense_attr> : tensor<32x32xbf16>, dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : () -> tensor<32x32xbf16, #ttnn_layout_host_rm_bf16>
+        %0 = "ttnn.constant"() <{value = dense_resource<dense_attr> : tensor<32x32xbf16>, layout = #ttnn.layout<row_major>}> : () -> tensor<32x32xbf16, #ttnn_layout_host_rm_bf16>
         return %0 : tensor<32x32xbf16, #ttnn_layout_host_rm_bf16>
     }
 
@@ -24,7 +24,7 @@ module attributes {} {
     func.func @const_on_device_row_major() -> tensor<32x32xbf16, #ttnn_layout_device_rm_bf16> {
         %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         // CHECK: ttnn.constant
-        %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr> : tensor<32x32xbf16>, dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_rm_bf16>
+        %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr> : tensor<32x32xbf16>, layout = #ttnn.layout<row_major>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_rm_bf16>
         return %1 : tensor<32x32xbf16, #ttnn_layout_device_rm_bf16>
     }
 
@@ -32,7 +32,7 @@ module attributes {} {
     func.func @const_on_device_tile() -> tensor<32x32xbf16, #ttnn_layout_device_tile_bf16> {
         %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         // CHECK: ttnn.constant
-        %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr> : tensor<32x32xbf16>, dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_bf16>
+        %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr> : tensor<32x32xbf16>, layout = #ttnn.layout<tile>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_bf16>
         return %1 : tensor<32x32xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -40,7 +40,7 @@ module attributes {} {
     func.func @const_on_l1_tile() -> tensor<32x32xbf16, #ttnn_layout_l1_tile_bf16> {
         %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         // CHECK: ttnn.constant
-        %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr> : tensor<32x32xbf16>, dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#l1, <interleaved>>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_l1_tile_bf16>
+        %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr> : tensor<32x32xbf16>, layout = #ttnn.layout<tile>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_l1_tile_bf16>
         return %1 : tensor<32x32xbf16, #ttnn_layout_l1_tile_bf16>
     }
 }

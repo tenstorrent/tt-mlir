@@ -21,7 +21,7 @@ module attributes {} {
     // First matmul: per-op "bfp_bf4" annotation -> host-side chain to bfp4.
     // CHECK: %[[FROM_DEV1:.*]] = "ttnn.from_device"(%arg1)
     // CHECK: %[[TYPECAST1:.*]] = "ttnn.typecast"(%[[FROM_DEV1]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf4>
+    // CHECK-SAME: -> tensor<1x128x256x!ttcore.tile<32x32, bfp_bf4>
     // CHECK: %[[TO_DEV1:.*]] = "ttnn.to_device"(%[[TYPECAST1]], %[[DEV]])
 
     // CHECK: %[[MM1:.*]] = "ttnn.matmul"(%arg0, %[[TO_DEV1]])
@@ -30,7 +30,7 @@ module attributes {} {
     // Second matmul: no per-op annotation, falls back to global bfp8.
     // CHECK: %[[FROM_DEV2:.*]] = "ttnn.from_device"(%arg2)
     // CHECK: %[[TYPECAST2:.*]] = "ttnn.typecast"(%[[FROM_DEV2]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf8>
+    // CHECK-SAME: -> tensor<1x128x256x!ttcore.tile<32x32, bfp_bf8>
     // CHECK: %[[TO_DEV2:.*]] = "ttnn.to_device"(%[[TYPECAST2]], %[[DEV]])
 
     // CHECK: %[[MM2:.*]] = "ttnn.matmul"(%arg0, %[[TO_DEV2]])

@@ -7,35 +7,25 @@
 
 include "mlir/IR/OpBase.td"
 
-// This interface is used to specify TTNN ops that have defined DtypeAttr
+// This interface is used to specify TTNN ops whose output data type can be
+// queried. The dtype is derived from the first result's TTNNLayoutAttr encoding.
 def TTNN_DtypeOpInterface : OpInterface<"TTNNDtypeOpInterface"> {
   let cppNamespace = "::mlir::tt::ttnn";
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
+        Returns the output data type as a DataTypeAttr, derived from the
+        first result's TTNNLayoutAttr encoding.
         }],
       /*retTy=*/"mlir::tt::ttcore::DataTypeAttr",
       /*methodName=*/"getDtypeAttr",
       /*args=*/(ins),
-      /*methodBody=*/[{
-        return $_op.getDtypeAttr();
-      }]
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        }],
-      /*retTy=*/"void",
-      /*methodName=*/"setDtypeAttr",
-      /*args=*/(ins "mlir::tt::ttcore::DataTypeAttr": $dataTypeAttr),
-      /*methodBody=*/[{
-        $_op.setDtypeAttr(dataTypeAttr);
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return getDtypeFromResult($_op.getOperation());
       }]
     >,
   ];
-
-  let verify = [{
-    return verifyTTNNDtypeOpInterface<ConcreteOp>($_op);
-  }];
 }
 
 def TTNN_LayoutOpInterface : OpInterface<"TTNNLayoutOpInterface"> {

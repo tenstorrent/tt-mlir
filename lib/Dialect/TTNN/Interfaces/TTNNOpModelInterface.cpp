@@ -93,6 +93,33 @@ llvm::Expected<ttcore::GridAttr> getValidatedDeviceGrid(mlir::Operation *op) {
   return ttcore::lookupDevice(op).getWorkerGrid();
 }
 
+// Resolves the output dtype to pass to the op-model query.
+//
+// Preference order:
+//  1. The candidate output layout being probed by the optimizer
+//     (`candidateOutputLayout`). When supplied this is always non-null and
+//     is the right semantic answer because it represents the dtype the
+//     optimizer is actively legality-checking.
+//  2. The op's intrinsic dtype via the `TTNNDtypeOpInterface`, derived from
+//     the result tensor's `TTNNLayoutAttr` encoding (or element-type
+//     fallback). Used when the optimizer hasn't supplied a candidate layout
+//     yet (e.g. during certain `MemoryLayoutPropagation` probes).
+//
+// Returns null only when neither source is available, in which case the
+// caller cannot meaningfully build an op-model query and should surface
+// that as an "unsupported" result.
+inline ttcore::DataTypeAttr
+resolveOutputDtype(mlir::Operation *op, TTNNLayoutAttr candidateOutputLayout) {
+  if (candidateOutputLayout) {
+    return ttcore::DataTypeAttr::get(candidateOutputLayout.getContext(),
+                                     candidateOutputLayout.getDataType());
+  }
+  if (auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(op)) {
+    return dtypeOp.getDtypeAttr();
+  }
+  return nullptr;
+}
+
 llvm::SmallVector<int64_t>
 convertArrayAttrToSmallVec(mlir::ArrayAttr arrayAttr) {
   llvm::SmallVector<int64_t> result;
@@ -318,7 +345,8 @@ getNamedFullOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
                    detail::getValidatedDeviceGrid(op.getOperation()));
 
   const mlir::tt::ttnn::ShapeAttr shape = op.getShape();
-  const std::optional<mlir::tt::ttcore::DataType> dtype = op.getDtype();
+  const std::optional<mlir::tt::ttcore::DataType> dtype =
+      dataTypeAttrToOptional(op.getDtypeAttr());
   const std::optional<mlir::tt::ttnn::Layout> layout = op.getLayout();
 
   return opConstraintsCache().getOrCompute(
@@ -1674,9 +1702,16 @@ BitcastConvertOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
 
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  if (!dtype) {
+    return issueErrorForGetOpConstraints(
+        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  }
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<BitcastConvertOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDtypeAttr(), opConfig.outputLayout);
+      inputShape, inputs[0], dtype, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1686,9 +1721,16 @@ BitcastConvertOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  if (!dtype) {
+    return issueErrorForGetOpRuntime(
+        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  }
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<BitcastConvertOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getDtypeAttr(), opConfig.outputLayout);
+      inputs[0], dtype, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1710,9 +1752,16 @@ TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
 
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  if (!dtype) {
+    return issueErrorForGetOpConstraints(
+        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  }
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<TypecastOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDtypeAttr(), opConfig.outputLayout);
+      inputShape, inputs[0], dtype, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1727,9 +1776,16 @@ TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  if (!dtype) {
+    return issueErrorForGetOpRuntime(
+        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  }
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<TypecastOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDtypeAttr(), opConfig.outputLayout);
+      dtype, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1748,9 +1804,20 @@ ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
 
+  // Only signal a dtype conversion to the op model when this to_layout is
+  // genuinely changing dtype. Use the resolved (candidate or intrinsic)
+  // output dtype, and compare it against the input dtype.
+  std::optional<ttcore::DataType> outputDtype = std::nullopt;
+  if (ttcore::DataTypeAttr dtype =
+          detail::resolveOutputDtype(getOperation(), opConfig.outputLayout)) {
+    if (dtype.getValue() != inputs[0].getDataType()) {
+      outputDtype = dtype.getValue();
+    }
+  }
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ToLayoutOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDtype(), opConfig.outputLayout);
+      inputShape, inputs[0], outputDtype, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1762,9 +1829,17 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
+  std::optional<ttcore::DataType> outputDtype = std::nullopt;
+  if (ttcore::DataTypeAttr dtype =
+          detail::resolveOutputDtype(getOperation(), opConfig.outputLayout)) {
+    if (dtype.getValue() != inputs[0].getDataType()) {
+      outputDtype = dtype.getValue();
+    }
+  }
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ToLayoutOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDtype(), opConfig.outputLayout);
+      outputDtype, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1896,7 +1971,8 @@ CumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<CumSumOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDim(), getDtype(), opConfig.outputLayout);
+      inputShape, inputs[0], getDim(), dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1908,7 +1984,7 @@ CumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<CumSumOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDim(), getDtype(), opConfig.outputLayout);
+      getDim(), dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3931,8 +4007,8 @@ llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints, *this,
       deviceGrid, inputShape, inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, getDtype(), getUse_2dCoreGrid(),
-      opConfig.outputLayout);
+      optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      getUse_2dCoreGrid(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3946,8 +4022,8 @@ RMSNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpRuntime, *this, inputShape,
       inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, getDtype(), getUse_2dCoreGrid(),
-      opConfig.outputLayout);
+      optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      getUse_2dCoreGrid(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4062,7 +4138,8 @@ LayerNormPreAllGatherOp::getOpConstraints(
       op_model::OpModel<LayerNormPreAllGatherOp>::getOpConstraints, *this,
       deviceGrid, inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
-      optionalArgs.recipLayout, getDtype(), opConfig.outputLayout);
+      optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4077,7 +4154,8 @@ LayerNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<LayerNormPreAllGatherOp>::getOpRuntime, *this,
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
-      optionalArgs.recipLayout, getDtype(), opConfig.outputLayout);
+      optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4433,7 +4511,12 @@ EmptyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == 0);
 
   const llvm::ArrayRef<int64_t> shape = getShape().getShape();
-  const mlir::tt::ttcore::DataTypeAttr dtype = getDtypeAttr();
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  if (!dtype) {
+    return issueErrorForGetOpConstraints(
+        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  }
   const mlir::tt::ttnn::Layout layout = getLayoutAttr().getValue();
 
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
@@ -4463,7 +4546,8 @@ ArangeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ::mlir::IntegerAttr startAttr = getStartAttr();
   ::mlir::IntegerAttr endAttr = getEndAttr();
   ::mlir::IntegerAttr stepAttr = getStepAttr();
-  std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+  std::optional<mlir::tt::ttcore::DataType> dtype =
+      dataTypeAttrToOptional(getDtypeAttr());
 
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
@@ -4528,7 +4612,8 @@ FullOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const mlir::tt::ttnn::ShapeAttr shape = getShape();
   const mlir::Attribute fillValue = getFillValue();
-  const std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+  const std::optional<mlir::tt::ttcore::DataType> dtype =
+      dataTypeAttrToOptional(getDtypeAttr());
   const std::optional<mlir::tt::ttnn::Layout> layout = getLayout();
 
   return opConstraintsCache().getOrCompute(
@@ -4610,9 +4695,16 @@ RandOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
 
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  if (!dtype) {
+    return issueErrorForGetOpConstraints(
+        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  }
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints, *this,
-      deviceGrid, getSize(), getDtype(), getLayout(), getLow(), getHigh(),
+      deviceGrid, getSize(), dtype.getValue(), getLayout(), getLow(), getHigh(),
       getSeed(), opConfig.outputLayout);
 }
 
@@ -4672,7 +4764,8 @@ GlobalAvgPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<GlobalAvgPool2dOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDtype(), opConfig.outputLayout);
+      inputShape, inputs[0], dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4684,7 +4777,7 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<GlobalAvgPool2dOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getDtype(), opConfig.outputLayout);
+      inputs[0], dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4702,7 +4795,8 @@ AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], getDtype());
+      deviceGrid, inputShape, inputs[0],
+      dataTypeAttrToOptional(getDtypeAttr()));
 }
 
 llvm::Expected<size_t>
@@ -4713,7 +4807,7 @@ AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
-      inputShape, inputs[0], getDtype());
+      inputShape, inputs[0], dataTypeAttrToOptional(getDtypeAttr()));
 }
 
 //===----------------------------------------------------------------------===//

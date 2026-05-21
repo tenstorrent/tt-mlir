@@ -118,9 +118,8 @@ public:
 
       auto hostOutputType =
           ttnn::utils::RankedTensorTypeFactory::create(hostInputType, dtype);
-      auto typecastOp = rewriter.create<TypecastOp>(
-          op.getLoc(), hostOutputType, fromDevOp.getResult(),
-          ttcore::DataTypeAttr::get(rewriter.getContext(), dtype));
+      auto typecastOp = rewriter.create<TypecastOp>(op.getLoc(), hostOutputType,
+                                                    fromDevOp.getResult());
 
       mlir::Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
       auto toDevOp = rewriter.create<ToDeviceOp>(
@@ -128,9 +127,8 @@ public:
       newWeight = toDevOp.getResult();
     } else {
       // Single device typecast for non-blockfloat targets.
-      auto typecastOp = rewriter.create<TypecastOp>(
-          op.getLoc(), newWeightType, weight,
-          ttcore::DataTypeAttr::get(rewriter.getContext(), dtype));
+      auto typecastOp =
+          rewriter.create<TypecastOp>(op.getLoc(), newWeightType, weight);
       newWeight = typecastOp.getResult();
     }
 

@@ -326,7 +326,7 @@ def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir:
     // After:
     %0 = ttcore.get_tuple_element %arg0[0]
         : (tuple<tensor<32x32xbf16, #host>, ...>)   -> tensor<32x32xbf16, #host>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>, dtype = bf16}>
+    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>}>
         : (tensor<32x32xbf16, #host>) -> tensor<32x32xbf16, #host_staged>
     %2 = "ttnn.to_device"(%1, %arg1)
         : (tensor<32x32xbf16, #host_staged>, !ttnn.device)
@@ -405,7 +405,7 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
     ```mlir
     // Trace function. Contains the ops that were hoisted to trace.
     func.func @trace_0_single_add(%arg0: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> attributes {ttnn.trace} {
-      %0 = "ttnn.add"(%arg0, %arg1) <{output_dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
       return %0 : tensor<32x32xbf16, #ttnn_layout>
     }
 
@@ -417,7 +417,7 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
     // Returns the trace id, function outputs, and the trace input output tensors.
     func.func @run_and_capture_trace_0_single_add(%arg0: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> (tensor<ui32, #ttnn_layout1>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) attributes {ttnn.trace} {
       %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-      %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
+      %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
       %2 = "ttnn.from_device"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout2>
       "ttnn.write_tensor"(%2, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #ttnn_layout2>, tensor<32x32xbf16, #ttnn_layout>) -> ()
       "ttnn.deallocate"(%2) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout2>) -> ()

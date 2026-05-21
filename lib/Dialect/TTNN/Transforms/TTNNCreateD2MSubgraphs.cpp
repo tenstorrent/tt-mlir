@@ -257,12 +257,10 @@ private:
       auto layoutAttr = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
       auto shapeAttr =
           ShapeAttr::get(rewriter.getContext(), tensorType.getShape());
-      auto dtypeAttr = ttcore::DataTypeAttr::get(rewriter.getContext(),
-                                                 layoutAttr.getDataType());
       auto tensorLayoutAttr =
           LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
-      auto emptyOp = rewriter.create<EmptyOp>(
-          loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr);
+      auto emptyOp = rewriter.create<EmptyOp>(loc, tensorType, device,
+                                              shapeAttr, tensorLayoutAttr);
       outputBuffers.push_back(emptyOp.getResult());
       lastEmptyOp = emptyOp.getOperation();
     }

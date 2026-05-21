@@ -310,7 +310,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseBinaryOp.getLhs()),
         emitter.emit(eltwiseBinaryOp.getRhs()),
-        emitter.emit(eltwiseBinaryOp.getDtype(), "dtype"),
+        emitter.emit(eltwiseBinaryOp.getDtypeAttr(), "dtype"),
         emitter.emit(eltwiseBinaryOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -511,7 +511,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(constantOp.getValue()),
         emitter.emit(constantOp.getResult().getType().getShape()),
-        emitter.emit(constantOp.getDtype()),
+        emitter.emit(constantOp.getDtypeAttr()),
         emitter.emit(constantOp.getLayout()),
     };
 
@@ -591,7 +591,7 @@ public:
         emitter.emit(srcOp.getIsInputASparse(), "is_input_a_sparse"),
         emitter.emit(srcOp.getIsInputBSparse(), "is_input_b_sparse"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
     };
 
     emitter.replaceOp(*this, args);
@@ -895,7 +895,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -1187,7 +1187,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getDtypeAttr()),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -1215,10 +1215,13 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToLayoutOp> emitter(
         toLayoutOp, adaptor, rewriter);
 
+    mlir::Attribute dtypeArg = toLayoutOp.hasDtypeChange()
+                                   ? emitter.emit(toLayoutOp.getDtypeAttr())
+                                   : emitter.emit(std::nullopt);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(toLayoutOp.getInput()),
         emitter.emit(toLayoutOp.getLayout()),
-        emitter.emit(toLayoutOp.getDtype()),
+        dtypeArg,
         emitter.emit(toLayoutOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -1280,7 +1283,7 @@ public:
         emitter.emit(srcOp.getStart()),
         emitter.emit(srcOp.getEnd()),
         emitter.emit(srcOp.getStep()),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getDevice(), "device"),
         emitter.emit(srcOp.getLayout(), "layout"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
@@ -1312,7 +1315,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getShape()),
-        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getDtypeAttr()),
         emitter.emit(srcOp.getLayout()),
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
@@ -1364,7 +1367,7 @@ private:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(fullOp.getShape(), "shape"),
         emitter.emit(fillValue, "fill_value"),
-        emitter.emit(fullOp.getDtype(), "dtype"),
+        emitter.emit(fullOp.getDtypeAttr(), "dtype"),
         emitter.emit(fullOp.getLayout(), "layout"),
         emitter.emit(fullOp.getDevice(), "device"),
         emitter.emit(fullOp.getMemoryConfigAttr(), "memory_config"),
@@ -1398,7 +1401,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(namedFullOp.getShape(), "shape"),
-        emitter.emit(namedFullOp.getDtype(), "dtype"),
+        emitter.emit(namedFullOp.getDtypeAttr(), "dtype"),
         emitter.emit(namedFullOp.getLayout(), "layout"),
         emitter.emit(namedFullOp.getDevice(), "device"),
         emitter.emit(namedFullOp.getMemoryConfigAttr(), "memory_config"),
@@ -1430,7 +1433,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getSize()),
         emitter.emit(srcOp.getDevice()),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getLayout(), "layout"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getLow(), "low"),
@@ -1618,7 +1621,7 @@ public:
         emitter.template emit<std::vector<uint32_t>>(conv2dOp.getDilationAttr(),
                                                      "dilation"),
         emitter.emit(conv2dOp.getGroups(), "groups"),
-        emitter.emit(conv2dOp.getDtype(), "dtype"),
+        emitter.emit(conv2dOp.getDtypeAttr(), "dtype"),
         emitter.emit(conv2dOp.getBias(), "bias_tensor"),
         emitter.emit(conv2dOp.getConv2dConfig(), "conv_config"),
         emitter.emit(conv2dOp.getComputeConfig(), "compute_config"),
@@ -1713,7 +1716,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(globalAvgPool2dOp.getInput(), "input_tensor"),
         emitter.emit(globalAvgPool2dOp.getMemoryConfigAttr(), "memory_config"),
-        emitter.emit(globalAvgPool2dOp.getDtype(), "dtype"),
+        emitter.emit(globalAvgPool2dOp.getDtypeAttr(), "dtype"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1761,7 +1764,7 @@ public:
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr(),
                                               "dilation"),
         emitter.emit(srcOp.getGroups(), "groups"),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getBias(), "bias_tensor"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_config"),
@@ -2452,7 +2455,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
         emitter.emit(srcOp.getInGradient()),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -3900,7 +3903,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
@@ -4022,7 +4025,7 @@ public:
     // Args match tt-metal invoke parameter order with named kwargs.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getResidualInput(), "residual_input_tensor"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
@@ -4065,7 +4068,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
         emitter.emit(srcOp.getProgramConfig(), "program_config"),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
     };
 
     emitter.replaceOp(*this, args);
@@ -4563,7 +4566,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 

@@ -196,8 +196,7 @@ private:
     output.layoutEnum = outputLayoutAttr.getLayout();
 
     input.dataType = inputLayoutAttr.getDataType();
-    assert(op.getDtype().has_value());
-    output.dataType = op.getDtype().value();
+    output.dataType = outputLayoutAttr.getDataType();
 
     input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
     output.tensorMemoryLayout = outputLayoutAttr.getMemLayout();
@@ -371,20 +370,17 @@ private:
         info.output.layoutEnum);
 
     return this->createOp<ttnn::ToLayoutOp>(rewriter, op, newResultType,
-                                            currentInput, layoutAttr,
-                                            /*dtype*/ nullptr);
+                                            currentInput, layoutAttr);
   }
 
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                                       mlir::Value currentInput,
                                       const OpCreationInfo &info) const {
-    ttcore::DataTypeAttr dtypeAttr =
-        ttcore::DataTypeAttr::get(op.getContext(), info.output.dataType);
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.dataType);
     return this->createOp<ttnn::TypecastOp>(rewriter, op, newResultType,
-                                            currentInput, dtypeAttr);
+                                            currentInput);
   }
 
   mlir::Value
@@ -435,12 +431,10 @@ private:
     bool needsWorkaround = dataType == ttcore::DataType::UInt16;
     if (needsWorkaround) {
       ttcore::DataType workaroundDtype = ttcore::DataType::UInt32;
-      ttcore::DataTypeAttr workaroundDtypeAttr =
-          ttcore::DataTypeAttr::get(op.getContext(), workaroundDtype);
       RankedTensorType workaroundType = utils::RankedTensorTypeFactory::create(
           currentInputType, workaroundDtype);
       currentInput = this->createOp<ttnn::TypecastOp>(
-          rewriter, op, workaroundType, currentInput, workaroundDtypeAttr);
+          rewriter, op, workaroundType, currentInput);
       currentInputType = mlir::cast<RankedTensorType>(currentInput.getType());
     }
 
@@ -457,12 +451,9 @@ private:
         rewriter, op, newResultType, currentInput);
 
     if (needsWorkaround) {
-      ttcore::DataTypeAttr origDtypeAttr =
-          ttcore::DataTypeAttr::get(op.getContext(), dataType);
       RankedTensorType origType = utils::RankedTensorTypeFactory::create(
           mlir::cast<RankedTensorType>(result.getType()), dataType);
-      result = this->createOp<ttnn::TypecastOp>(rewriter, op, origType, result,
-                                                origDtypeAttr);
+      result = this->createOp<ttnn::TypecastOp>(rewriter, op, origType, result);
     }
 
     return result;
@@ -573,8 +564,7 @@ private:
     ttnn::LayoutAttr layoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
     currentInput = rewriter.create<ttnn::ToLayoutOp>(
-        op.getLoc(), paddedTiledType, currentInput, layoutAttr,
-        /*dtype=*/nullptr);
+        op.getLoc(), paddedTiledType, currentInput, layoutAttr);
 
     // Step 4: Slice back to original shape.
     SmallVector<int32_t> begins(rank, 0);

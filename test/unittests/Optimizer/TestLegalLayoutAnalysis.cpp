@@ -112,8 +112,6 @@ protected:
     auto empty = builder.create<mlir::tt::ttnn::EmptyOp>(
         builder.getUnknownLoc(), tensorType, device,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
-        mlir::tt::ttcore::DataTypeAttr::get(
-            &context, mlir::tt::ttcore::DataType::Float32),
         mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile));
 
     // Use that tensor in a ReluOp so we have a relevant op with a tensor result

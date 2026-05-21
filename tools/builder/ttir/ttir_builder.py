@@ -2374,7 +2374,6 @@ class TTIRBuilder(Builder):
         op = ttir_op(
             result,
             size_attr,
-            mlir_output_type,
             low=low_attr,
             high=high_attr,
             seed=seed_attr,
@@ -2411,7 +2410,6 @@ class TTIRBuilder(Builder):
 
         result = old_op.result.type
         size_attr = old_op.size
-        dtype_attr = old_op.dtype
         low_attr = old_op.low
         high_attr = old_op.high
         seed_attr = old_op.seed
@@ -2419,7 +2417,6 @@ class TTIRBuilder(Builder):
         new_op = ttir_op(
             result,
             size_attr,
-            dtype_attr,
             low=low_attr,
             high=high_attr,
             seed=seed_attr,
@@ -2435,7 +2432,7 @@ class TTIRBuilder(Builder):
             high_attr,
             seed_attr,
             mesh_shape_attr,
-            dtype_attr,
+            result.element_type,
         )
         self._set_golden_tensor(new_op_result, golden_output)
 
@@ -2468,7 +2465,6 @@ class TTIRBuilder(Builder):
                 def decorated_func():
                     result = old_op.result.type
                     size_attr = old_op.size
-                    dtype_attr = old_op.dtype
                     low_attr = old_op.low
                     high_attr = old_op.high
                     seed_attr = old_op.seed
@@ -2476,7 +2472,6 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(
                         result,
                         size_attr,
-                        dtype_attr,
                         low=low_attr,
                         high=high_attr,
                         seed=seed_attr,

@@ -229,8 +229,10 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (op.hasDtypeChange()) {
+    dtype = toFlatbuffer(cache, op.getDtypeAttr());
+  }
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   return ::tt::target::ttnn::CreateToLayoutOp(*cache.fbb, input, layout, dtype,
@@ -241,7 +243,7 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
 createOp(FlatbufferObjectCache &cache, BitcastConvertOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
+  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtypeAttr());
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
@@ -255,7 +257,7 @@ createOp(FlatbufferObjectCache &cache, BitcastConvertOp op) {
 createOp(FlatbufferObjectCache &cache, TypecastOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
+  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtypeAttr());
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
@@ -322,7 +324,7 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
 ::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
-  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
+  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtypeAttr());
   ::tt::target::TensorLayout layout = toFlatbuffer(cache, op.getLayout());
 
   auto output = getOperandThroughDPSOps(op.getResult());
@@ -376,7 +378,10 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   } else {
     llvm_unreachable("fill value must be float or integer");
   }
-  auto dtype = toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
   auto layout = toFlatbuffer(cache, op.getLayout());
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
   auto output =
@@ -391,8 +396,10 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::ArangeOp>
 createOp(FlatbufferObjectCache &cache, ArangeOp op) {
-  flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
   flatbuffers::Optional<::tt::target::TensorLayout> layout =
       toFlatbuffer(cache, op.getLayout());
   auto device =
@@ -428,8 +435,10 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
   ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape =
       cache.fbb->CreateVector<int64_t>(op.getShape().getShape());
 
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
 
   ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
       toFlatbuffer(cache, op.getLayout());
@@ -584,8 +593,10 @@ createOp(FlatbufferObjectCache &cache, SparseMatmulOp op) {
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
 
   std::optional<
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
@@ -646,8 +657,10 @@ createOp(FlatbufferObjectCache &cache, CumSumOp op) {
                                             /*local_shape*/ std::nullopt);
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
 
   return ::tt::target::ttnn::CreateCumSumOp(*cache.fbb, in, output, op.getDim(),
                                             dtype, memoryConfig);
@@ -903,8 +916,8 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       toFlatbuffer(cache, op.getDilation());
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
-  if (op.getDtype()) {
-    outputDtype = toFlatbuffer(cache, *op.getDtype());
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    outputDtype = toFlatbuffer(cache, dtypeAttr);
   }
 
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
@@ -955,8 +968,8 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       toFlatbuffer(cache, op.getDilation());
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
-  if (op.getDtype()) {
-    outputDtype = toFlatbuffer(cache, *op.getDtype());
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    outputDtype = toFlatbuffer(cache, dtypeAttr);
   }
 
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
@@ -1007,8 +1020,8 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
   auto paddingMode = cache.fbb->CreateString(op.getPaddingMode().str());
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
-  if (auto dtype = op.getDtype()) {
-    outputDtype = toFlatbuffer(cache, *dtype);
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    outputDtype = toFlatbuffer(cache, dtypeAttr);
   }
 
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv3dConfig>>
@@ -1519,8 +1532,10 @@ createOp(FlatbufferObjectCache &cache, RMSNormPreAllGatherOp op) {
         getOperandThroughDPSOps(op.getResidual()));
   }
 
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
 
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
@@ -1603,8 +1618,8 @@ createOp(FlatbufferObjectCache &cache, LayerNormPreAllGatherOp op) {
                                   /*local_shape*/ std::nullopt);
 
   ::tt::target::DataType dtype = ::tt::target::DataType::BFloat16;
-  if (op.getDtype()) {
-    dtype = toFlatbuffer(cache, op.getDtype().value());
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
   }
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
@@ -1662,8 +1677,10 @@ createOp(FlatbufferObjectCache &cache, LayerNormPostAllGatherOp op) {
     programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
   }
 
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
 
   return ::tt::target::ttnn::CreateLayerNormPostAllGatherOp(
       *cache.fbb, input, stats, weight, bias, op.getEpsilon().convertToFloat(),
@@ -1824,8 +1841,10 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
 
   ::tt::target::DataType inputDtype = toFlatbuffer(
       cache, ttcore::elementTypeToDataType(op.getValue().getElementType()));
-  flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
   flatbuffers::Optional<::tt::target::TensorLayout> layout =
       toFlatbuffer(cache, op.getLayout());
   auto device =
@@ -1916,8 +1935,8 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
       ::flatbuffers::nullopt;
-  if (op.getDtype()) {
-    outputDtype = toFlatbuffer(cache, *op.getDtype());
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    outputDtype = toFlatbuffer(cache, dtypeAttr);
   }
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
@@ -2026,8 +2045,10 @@ createExperimentalEltwiseBinaryBackwardOp(FlatbufferObjectCache &cache,
 
   auto approximate = toFlatbuffer(cache, op.getApproximate());
 
-  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    outputDtype = toFlatbuffer(cache, dtypeAttr);
+  }
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
@@ -2571,8 +2592,10 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
       getOperandThroughDPSOps(op.getWeight()));
   auto in2 = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInGradient()));
-  ::flatbuffers::Optional<::tt::target::DataType> dtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> dtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    dtype = toFlatbuffer(cache, dtypeAttr);
+  }
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   auto outputType = op.getResult();
@@ -2605,7 +2628,7 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
 createRandOp(FlatbufferObjectCache &cache, RandOp op) {
   auto size = cache.fbb->CreateVector<int64_t>(op.getSize().getShape());
   auto device = getOperandThroughDPSOps(op.getDevice());
-  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
+  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtypeAttr());
   ::tt::target::TensorLayout layout = toFlatbuffer(cache, op.getLayout());
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
@@ -2958,8 +2981,10 @@ createOp(FlatbufferObjectCache &cache, AssignOp op) {
       op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
   auto outputMemConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
-  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
-      toFlatbuffer(cache, op.getDtype());
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (auto dtypeAttr = op.getDtypeAttr()) {
+    outputDtype = toFlatbuffer(cache, dtypeAttr);
+  }
   return ::tt::target::ttnn::CreateAssignOp(*cache.fbb, input, output,
                                             outputMemConfig, outputDtype);
 }

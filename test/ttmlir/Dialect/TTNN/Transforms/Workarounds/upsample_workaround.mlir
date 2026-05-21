@@ -16,8 +16,8 @@ module attributes {} {
     "ttnn.deallocate"(%1) <{force = false}> : (tensor<4x32x64x3xf32, #ttnn_layout2>) -> ()
     // CHECK: "ttnn.to_layout"
     // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
+    // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK: "ttnn.upsample"
     %3 = "ttnn.upsample"(%2) <{mode = "nearest", scale_factor = 2 : si32}> : (tensor<4x32x64x3xf32, #ttnn_layout3>) -> tensor<4x64x128x3xf32, #ttnn_layout4>
     "ttnn.deallocate"(%2) <{force = false}> : (tensor<4x32x64x3xf32, #ttnn_layout3>) -> ()
