@@ -4265,4 +4265,91 @@ def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExem
                          UI32Attr:$value);
 }
 
+//===----------------------------------------------------------------------===//
+// TTNN tt-lang kernel op
+//===----------------------------------------------------------------------===//
+
+def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
+    [TTNN_WorkaroundInterface,
+     DestinationStyleOpInterface,
+     OpModelExempt]> {
+  let summary = "Opaque tt-lang custom kernel call.";
+  let description = [{
+    TTNN-level representation for a user-defined tt-lang kernel. Lowered from
+    `ttir.tt_lang_op` and carries the same `kernel_id` / `version_tag` /
+    `arg_roles` / `shard_spec` attributes verbatim. The kernel body is
+    deferred: the optional `kernel_artifact` attribute is empty post-conversion
+    and is populated by the `--ttnn-resolve-tt-lang-kernels` pass (driven from
+    the tt-xla plugin's `ModuleBuilder::resolveTtLangKernels`) after the
+    TTIR -> TTNN pipeline finishes by calling the tt-lang Python resolver with
+    the now-final shard-local operand types. The artifact is the resolver's
+    JSON payload stored as a `StringAttr`. Subsequent flatbuffer emission
+    consumes `kernel_artifact` to embed the compiled kernel into the
+    executable.
+
+    This op is intentionally opaque to the TTNN optimizer: it is exempt
+    from the op-model cost interface via the `OpModelExempt` trait (its
+    kernel body is not authored in TTNN dialects, so neither op constraints
+    nor runtime can be queried from inside tt-mlir). TT-Lang kernels expect
+    32x32 tile layout so there is a hard `Layout::Tile` requirement on
+    every input and result so the layout pipeline materialises tilized
+    buffers for the kernel's reader/writer threads.
+
+    The op is destination-passing style (`DestinationStyleOpInterface`):
+    the `"out"`-roled operands are the trailing DPS init operands and tie
+    positionally to the op's results (result `i` aliases the `i`-th `"out"`
+    operand's buffer). `arg_roles` is therefore constrained to the form
+    `in* out+` -- all `"in"` operands first, then all `"out"` operands --
+    which is enforced by the verifier and by the `@tt_torch.kernel`
+    decorator. Generic MLIR analyses (the TTNN deallocate pass, etc.)
+    follow the DPS operand->result tie directly, so the op needs no
+    name-keyed special-casing.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$kernel_id,
+                       StrAttr:$version_tag,
+                       StrAttr:$arg_roles,
+                       DefaultValuedStrAttr<StrAttr, "">:$shard_spec,
+                       OptionalAttr<StrAttr>:$kernel_artifact);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let extraClassDeclaration = [{
+    // DPS init operands are the trailing `"out"`-roled operands. The
+    // verifier enforces `arg_roles == in* out+` and `#out == #results`,
+    // so the inits are the last `getResults().size()` operands and tie
+    // positionally to the results.
+    ::mlir::MutableOperandRange getDpsInitsMutable() {
+      unsigned numOuts = getResults().size();
+      unsigned numIns = getInputs().size() - numOuts;
+      return ::mlir::MutableOperandRange(*this, numIns, numOuts);
+    }
+
+    // tt-lang kernels are emitted assuming TILE_LAYOUT for every operand:
+    // the JIT'd readers/writers use ``noc_async_read_tile`` /
+    // ``noc_async_write_tile`` with the synthesized
+    // ``aligned_page_size = tile_h * tile_w * elem_size_bytes`` per
+    // operand, and the compute thread interprets each page as a 32x32
+    // tile (4 16x16 faces).
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      wa::TTNNOperandWorkarounds tile;
+      tile.tensorLayoutWorkaround = Layout::Tile;
+      auto wa = wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+      for (size_t i = 0; i < this->getInputs().size(); ++i) {
+        wa.addInputOperandWorkaround(tile);
+      }
+      for (size_t i = 0; i < this->getResults().size(); ++i) {
+        wa.addOutputOperandWorkaround(tile);
+      }
+      return wa;
+    }
+  }];
+
+  let assemblyFormat = [{
+    `(` $inputs `)` attr-dict `:` `(` type($inputs) `)` `->` `(` type($results) `)`
+  }];
+
+  let hasVerifier = 1;
+}
+
 #endif
