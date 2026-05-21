@@ -23,6 +23,7 @@ nanobind_add_module(_tt_kurbla_torch_native NB_STATIC
     _native.cpp
     backend.cpp
     ops/elementwise.cpp
+    ops/fallback.cpp
     ops/tensor.cpp
     tensor.cpp
     ttir_module_builder.cpp

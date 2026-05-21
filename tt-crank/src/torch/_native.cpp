@@ -2,6 +2,7 @@
 #include <nanobind/nanobind.h>
 
 #include "torch/backend.hpp"
+#include "torch/ops/fallback.hpp"
 
 namespace nb = nanobind;
 
@@ -30,4 +31,10 @@ NB_MODULE(_native, m) {
 
     m.doc() = "tt-kurbla torch backend native module";
     m.def("loaded", []() { return true; });
+
+    // Strict-fallback toggle. Tests flip this on to assert that a code path
+    // never falls back to CPU; the catch-all fallback raises instead of
+    // running while strict mode is set.
+    m.def("set_fallback_strict", &tt::kurbla::torch_backend::set_fallback_strict);
+    m.def("fallback_strict", &tt::kurbla::torch_backend::fallback_strict);
 }
