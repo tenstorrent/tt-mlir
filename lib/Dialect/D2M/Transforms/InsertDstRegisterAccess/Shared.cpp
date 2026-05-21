@@ -51,12 +51,12 @@ LogicalResult verifyInsertDstRegisterAccessPreconditions(ModuleOp moduleOp) {
 namespace detail {
 
 // ---------------------------------------------------------------------------
-// DstStackAllocator
+// DstSliceAllocator
 // ---------------------------------------------------------------------------
 
 namespace {
 
-void debugDumpDstStackAllocator(StringRef header, ArrayRef<unsigned> sliceStack,
+void debugDumpDstSliceAllocator(StringRef header, ArrayRef<unsigned> sliceStack,
                                 ArrayRef<unsigned> inputStack,
                                 ArrayRef<unsigned> scratchSlots,
                                 std::optional<unsigned> action) {
@@ -76,22 +76,30 @@ void debugDumpDstStackAllocator(StringRef header, ArrayRef<unsigned> sliceStack,
 
 } // namespace
 
-unsigned DstStackAllocator::allocate(bool isStore) {
+unsigned DstSliceAllocator::allocateInput() {
+  TT_assertv(!sliceStack.empty(), "Out of dst slices");
+
+  unsigned id = sliceStack.pop_back_val();
+  currSliceIndex = id;
+  inputStack.push_back(id);
+
+  debugDumpDstSliceAllocator("== ALLOCATE INPUT ==", sliceStack, inputStack,
+                             scratchSlots, id);
+  return id;
+}
+
+unsigned DstSliceAllocator::allocateOutput() {
   TT_assertv(!sliceStack.empty(), "Out of dst slices");
 
   unsigned id = sliceStack.pop_back_val();
   currSliceIndex = id;
 
-  if (!isStore) {
-    inputStack.push_back(id);
-  }
-
-  debugDumpDstStackAllocator("== ALLOCATE ==", sliceStack, inputStack,
+  debugDumpDstSliceAllocator("== ALLOCATE OUTPUT ==", sliceStack, inputStack,
                              scratchSlots, id);
   return id;
 }
 
-unsigned DstStackAllocator::allocateScratch() {
+unsigned DstSliceAllocator::allocateScratch() {
   TT_assertv(!sliceStack.empty(), "Out of dst slices");
 
   unsigned id = sliceStack.pop_back_val();
@@ -99,19 +107,24 @@ unsigned DstStackAllocator::allocateScratch() {
 
   // Intentionally do NOT update `currSliceIndex` or `inputStack`.
   // Scratch is owned by the op for the lifetime of the region; it must
-  // not show up as a candidate for in-place reuse by later compute ops
-  // (the failure mode tracked in #8081).
-  debugDumpDstStackAllocator("== ALLOCATE SCRATCH ==", sliceStack, inputStack,
+  // not show up as a candidate for in-place reuse by later compute ops.
+  debugDumpDstSliceAllocator("== ALLOCATE SCRATCH ==", sliceStack, inputStack,
                              scratchSlots, id);
   return id;
 }
 
-unsigned DstStackAllocator::getFirstInputSliceIndex() const {
+unsigned DstSliceAllocator::getCurrSliceIndex() const {
+  TT_assertv(currSliceIndex.has_value(),
+             "No dst slice allocated yet (call allocate* first)");
+  return *currSliceIndex;
+}
+
+unsigned DstSliceAllocator::getFirstInputSliceIndex() const {
   TT_assertv(!inputStack.empty(), "No input slots allocated");
   return inputStack.front();
 }
 
-void DstStackAllocator::deallocateAllButFirstInput() {
+void DstSliceAllocator::deallocateAllButFirstInput() {
   TT_assertv(inputStack.size() >= 1u, "Need at least one input to keep");
 
   unsigned firstInput = inputStack.front();
@@ -120,14 +133,14 @@ void DstStackAllocator::deallocateAllButFirstInput() {
   while (!inputStack.empty()) {
     unsigned id = inputStack.pop_back_val();
     sliceStack.push_back(id);
-    debugDumpDstStackAllocator("== DEALLOCATE (keeping first) ==", sliceStack,
+    debugDumpDstSliceAllocator("== DEALLOCATE (keeping first) ==", sliceStack,
                                inputStack, scratchSlots, id);
   }
 
   currSliceIndex = firstInput;
 }
 
-void DstStackAllocator::initSliceStack() {
+void DstSliceAllocator::initSliceStack() {
   TT_assert((dstSliceCapacity > 0u && dstSliceCapacity <= 16u));
 
   for (int i = dstSliceCapacity - 1; i >= 0; --i) {

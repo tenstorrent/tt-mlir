@@ -113,7 +113,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
                             Operation *outermostInnerComputeLoop,
                             unsigned dstCapacity) {
   CopyInfoMap copyInfos;
-  DstStackAllocator dstStackAllocator(dstCapacity);
+  DstSliceAllocator dstAllocator(dstCapacity);
   DstIntermediatesMap dstIntermediates;
   region.walk<WalkOrder::PreOrder>(
       [&](OperandLoadStoreRegisterOpInterface computeOp) {
@@ -155,13 +155,13 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
               affineLoad && notDstMemspace(affineLoad)) {
             collectDstLoadWithAccumAnalysis(
                 affineLoad, operandIdx, carriedOutputRegions,
-                accumOperandIndices, copyInfos, dstStackAllocator.allocate(),
+                accumOperandIndices, copyInfos, dstAllocator.allocateInput(),
                 outermostInnerComputeLoop, noAccumGuardForLoads);
           } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
                      memrefLoad && notDstMemspace(memrefLoad)) {
             collectDstLoadWithAccumAnalysis(
                 memrefLoad, operandIdx, carriedOutputRegions,
-                accumOperandIndices, copyInfos, dstStackAllocator.allocate(),
+                accumOperandIndices, copyInfos, dstAllocator.allocateInput(),
                 outermostInnerComputeLoop, noAccumGuardForLoads);
           }
         }
@@ -173,7 +173,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           bool isMemrefStore = memrefStore && notDstMemspace(memrefStore);
 
           if (isAffineStore || isMemrefStore) {
-            TT_assertv(!dstStackAllocator.didStoreToDst(),
+            TT_assertv(!dstAllocator.didStoreToDst(),
                        "Multiple stores from last op to dst not supported");
 
             bool dstRegInPlace = computeOp.getDstRegInPlace();
@@ -181,14 +181,14 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
 
             int64_t dstSliceIndex = -1;
             if (dstRegInPlace || rhsIsScalar) {
-              dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
+              dstSliceIndex = dstAllocator.getCurrSliceIndex();
             } else if (numLoads >= 2) {
-              dstSliceIndex = dstStackAllocator.getFirstInputSliceIndex();
-              dstStackAllocator.deallocateAllButFirstInput();
-              dstStackAllocator.setStoreToDst();
+              dstSliceIndex = dstAllocator.getFirstInputSliceIndex();
+              dstAllocator.deallocateAllButFirstInput();
+              dstAllocator.setStoreToDst();
             } else {
-              dstSliceIndex = dstStackAllocator.allocate(true);
-              dstStackAllocator.setStoreToDst();
+              dstSliceIndex = dstAllocator.allocateOutput();
+              dstAllocator.setStoreToDst();
             }
 
             if (isAffineStore) {
@@ -212,12 +212,12 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
 
             int32_t allocatedIndex;
             if (overwriteInput) {
-              allocatedIndex = dstStackAllocator.getCurrSliceIndex();
+              allocatedIndex = dstAllocator.getCurrSliceIndex();
             } else if (numLoads >= 2) {
-              allocatedIndex = dstStackAllocator.getFirstInputSliceIndex();
-              dstStackAllocator.deallocateAllButFirstInput();
+              allocatedIndex = dstAllocator.getFirstInputSliceIndex();
+              dstAllocator.deallocateAllButFirstInput();
             } else {
-              allocatedIndex = dstStackAllocator.allocate(true);
+              allocatedIndex = dstAllocator.allocateOutput();
             }
 
             dstIntermediates[computeOp] = {allocatedIndex,
@@ -225,10 +225,10 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           }
         }
 
-        // Reserve any per-op DST scratch slices (#8081).
+        // Reserve any per-op DST scratch slices.
         for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n;
              ++i) {
-          setDstScratchIndex(computeOp, dstStackAllocator.allocateScratch());
+          setDstScratchIndex(computeOp, dstAllocator.allocateScratch());
         }
       });
 
@@ -249,7 +249,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
 
-    int dstSlice = dstStackAllocator.allocate();
+    int dstSlice = dstAllocator.allocateInput();
     iter->second.record(load, dstSlice, ArrayRef<Value>{});
     iter->second.record(store, dstSlice, ArrayRef<Value>{});
   });

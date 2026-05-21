@@ -30,15 +30,15 @@ using namespace detail;
 // ---------------------------------------------------------------------------
 // Unscheduled-only: DST access collection (matmul/reduction).
 // Tracks "first input of current op" with a local variable; otherwise
-// just bump-allocates from `DstStackAllocator` and reserves per-op
-// scratch via `allocateScratch()` (#8081).
+// just bump-allocates from `DstSliceAllocator` and reserves per-op
+// scratch via `allocateScratch()`.
 // ---------------------------------------------------------------------------
 
 static DstAccessCollection
 collectDstAccesses(GenericOp gOp, Region &region,
                    Operation *outermostInnerComputeLoop, unsigned dstCapacity) {
   CopyInfoMap copyInfos;
-  DstStackAllocator dstAllocator(dstCapacity);
+  DstSliceAllocator dstAllocator(dstCapacity);
   DstIntermediatesMap dstIntermediates;
 
   auto getInPlaceDstSlice = [&](OperandLoadStoreRegisterOpInterface op) -> int {
@@ -95,7 +95,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
       auto potentialLoad = computeOp->getOperand(operandIdx)
                                .getDefiningOp<affine::AffineLoadOp>();
       if (potentialLoad && notDstMemspace(potentialLoad)) {
-        int dstSlice = dstAllocator.allocate();
+        int dstSlice = dstAllocator.allocateInput();
         if (numLoads == 0) {
           firstInputDstSlice = dstSlice;
         }
@@ -130,7 +130,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
           dstSlice = firstInputDstSlice;
           dstAllocator.setStoreToDst();
         } else {
-          dstSlice = dstAllocator.allocate(/*isStore=*/true);
+          dstSlice = dstAllocator.allocateOutput();
           dstAllocator.setStoreToDst();
         }
         collectDstStoreAccess(potentialStore, copyInfos, dstSlice,
@@ -154,7 +154,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
           dstSlice = firstInputDstSlice;
           dstAllocator.setStoreToDst();
         } else {
-          dstSlice = dstAllocator.allocate(/*isStore=*/true);
+          dstSlice = dstAllocator.allocateOutput();
           dstAllocator.setStoreToDst();
         }
         collectDstStoreAccess(scratchStore, copyInfos, dstSlice,
@@ -173,7 +173,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
         } else if (numLoads >= 2) {
           dstSlice = firstInputDstSlice;
         } else {
-          dstSlice = dstAllocator.allocate(/*isStore=*/true);
+          dstSlice = dstAllocator.allocateOutput();
         }
 
         if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
@@ -189,7 +189,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
       }
     }
 
-    // Reserve any per-op DST scratch slices (#8081).
+    // Reserve any per-op DST scratch slices.
     for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
       setDstScratchIndex(computeOp, dstAllocator.allocateScratch());
     }

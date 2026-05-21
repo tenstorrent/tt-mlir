@@ -2,23 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Regression coverage for #8081 and the allocator redesign in #8347.
-//
 // Topology: an SFPU integer reduction (`d2m.tile_sfpu_reduce_sum`) whose
 // result is consumed by a fused unary op (`d2m.tile_negative`) inside the
 // same generic region.  The SFPU reduce declares
 // `getNumDstScratchSlices() == 1`, so the dst-access insertion pass
 // reserves a private scratch slot for it; the fused unary then asks for
-// an in-place DST slot via `getCurrSliceIndex()`.
-//
-// Pre-fix, the scheduled allocator pushed scratch onto `inputStack` and
-// updated `currSliceIndex`, so `getCurrSliceIndex()` returned the scratch
-// slot and the fused negate would read/write the wrong tile (slot 1, the
-// scratch slot, instead of slot 0, the reduce's output).
-//
-// Post-fix, `allocateScratch()` parks scratch in its own pool: the negate
-// reads/writes the reduce's output slot (slot 0), and `dst_scratch_index`
-// on the reduce points at the separately-allocated slot 1.
+// an in-place DST slot via `getCurrSliceIndex()`.  Scratch must live in
+// its own pool: the negate must read/write the reduce's output slot
+// (slot 0) and the reduce's `dst_scratch_index` must point at the
+// separately-allocated slot 1.
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-scheduled --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
@@ -60,20 +52,20 @@ module {
     // CHECK: affine.store %{{.*}}, %[[DST]][0]
     //
     // Reduce reads its accumulator from DST slot 0 and gets scratch slot 1
-    // (separately allocated, no longer pushed onto `inputStack`):
+    // (separately allocated):
     // CHECK: affine.load %[[DST]][0]
     // CHECK: %{{.*}} = "d2m.tile_sfpu_reduce_sum"({{.*}}) <{dst_scratch_index = 1 : i64, reduce_dim = #d2m<reduce_dim R>}>
     //
     // Reduce's output stored back to slot 0; the fused `tile_negative`
-    // reads slot 0 (the reduce's output) -- pre-fix it would have read
-    // slot 1 (the scratch) via the polluted `getCurrSliceIndex()`:
+    // reads/writes the reduce's output slot (slot 0), not the scratch
+    // slot (slot 1):
     // CHECK: affine.store %{{.*}}, %[[DST]][0]
     // CHECK: affine.load %[[DST]][0]
     // CHECK: "d2m.tile_negative"
     // CHECK-NOT: %[[DST]][1]
     // CHECK: affine.store %{{.*}}, %[[DST]][0]
     //
-    // DST->CB store: read final from slot 0 (not slot 1):
+    // DST->CB store reads from slot 0:
     // CHECK: affine.load %[[DST]][0]
     // CHECK: affine.store
     return
