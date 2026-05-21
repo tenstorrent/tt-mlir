@@ -28,43 +28,16 @@ namespace {
 // Helpers
 // ---------------------------------------------------------------------------
 
-static bool needsDMA(Value memref, Value localBuffer) {
-  // Check if the local buffer is a streaming CB.
-  if (localBuffer) {
-    if (auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType())) {
-      if (mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
-        return true;
-      }
-    }
-  }
-
-  // View ops need datamovement, except for reinterpret view_layout ops
-  // which are just type casts.
-  if (auto *defOp = memref.getDefiningOp()) {
-    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
-      return !viewOp.getReinterpretLayout();
-    }
-    if (mlir::isa<ViewOpInterface>(defOp)) {
-      return true;
-    }
-  }
-  if (auto memrefType = mlir::dyn_cast<MemRefType>(memref.getType())) {
-    if (ttcore::getMemorySpace(memrefType) == ttcore::MemorySpace::DeviceDRAM) {
-      return true;
-    }
-  }
-
-  return false;
+bool isAliasedStore(RemoteStoreOp storeOp) {
+  auto operandAliasOp =
+      mlir::dyn_cast<OperandAliasOp>(storeOp.getLocalBuffer().getDefiningOp());
+  return operandAliasOp && operandAliasOp.getMemref() == storeOp.getMemref();
 }
 
 bool isAliasedLoad(RemoteLoadOp loadOp) {
-  return !needsDMA(loadOp.getMemref(), loadOp.getLocalBuffer()) &&
-         !loadOp.isMcast();
-}
-
-bool isAliasedStore(RemoteStoreOp storeOp) {
-  return !needsDMA(storeOp.getMemref(), storeOp.getLocalBuffer()) &&
-         storeOp.getStartDevice().empty();
+  auto operandAliasOp =
+      mlir::dyn_cast<OperandAliasOp>(loadOp.getLocalBuffer().getDefiningOp());
+  return operandAliasOp && operandAliasOp.getMemref() == loadOp.getMemref();
 }
 
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
@@ -112,6 +85,20 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
   // they haven't been lowered yet into non-synchronized ops
   OpBuilder::InsertionGuard guard(rewriter);
+
+  // Collect the ops that directly contain SynchronizableOpInterface ops.
+  // These delimit the scope where compute is synchronized: the outermost
+  // compute ancestor is a direct child of such an op, alongside the
+  // synchronizable ops that bound it.
+  DenseSet<Operation *> opsWithSynchronizableOps;
+  genericOp.getRegion(0).walk([&](Operation *op) {
+    if (dyn_cast<SynchronizableOpInterface>(op)) {
+      opsWithSynchronizableOps.insert(op->getParentOp());
+    }
+  });
+  assert(opsWithSynchronizableOps.size() == 1 &&
+         "synchronized scope must be unambiguous");
+
   DenseSet<Operation *> outermostOps;
   bool walkFailed = false;
   genericOp.getRegion(0).walk([&](Operation *op) {
@@ -119,14 +106,11 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       return WalkResult::advance();
     }
 
-    // Go up loops until we reach one of the two as a parent:
-    // generic op or scf.for tagged as d2m.blocking_loop
+    // Walk up loops until we reach the generic op as a parent, or a op
+    // that directly contains a SynchronizableOpInterface op.
     Operation *outermostOp = op;
-    auto isBlockingLoop = [](Operation *op) {
-      return mlir::isa<scf::ForOp>(op) && op->hasAttr("d2m.blocking_loop");
-    };
     while (outermostOp->getParentOp() != genericOp.getOperation() &&
-           !isBlockingLoop(outermostOp->getParentOp())) {
+           !opsWithSynchronizableOps.contains(outermostOp->getParentOp())) {
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {

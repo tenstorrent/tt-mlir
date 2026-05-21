@@ -53,14 +53,11 @@ public:
       return true;
     }
     // Eltwise binary ops.
-    // Note: ttnn.gt is not allowed to be fused because there's an issue with
-    // insertDstRegisterAccess pass and it was blocking gpt-oss bringup.
-    // This is tracked in: https://github.com/tenstorrent/tt-mlir/issues/8193
     if (mlir::isa<AddOp, DivideOp, MultiplyOp, SubtractOp, EqualOp, NotEqualOp,
-                  GreaterEqualOp, LessEqualOp, LessThanOp, LogicalAndOp,
-                  LogicalOrOp, LogicalXorOp, LogicalRightShiftOp, BitwiseAndOp,
-                  BitwiseOrOp, BitwiseXorOp, MaximumOp, MinimumOp, RemainderOp,
-                  LogicalLeftShiftOp, Atan2Op, PowTensorOp>(op)) {
+                  GreaterEqualOp, LessEqualOp, LessThanOp, GreaterThanOp,
+                  LogicalAndOp, LogicalOrOp, LogicalXorOp, LogicalRightShiftOp,
+                  BitwiseAndOp, BitwiseOrOp, BitwiseXorOp, MaximumOp, MinimumOp,
+                  RemainderOp, LogicalLeftShiftOp, Atan2Op, PowTensorOp>(op)) {
       return true;
     }
 
@@ -264,11 +261,8 @@ private:
                                                  layoutAttr.getDataType());
       auto tensorLayoutAttr =
           LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
-      auto memoryConfigAttr = MemoryConfigAttr::get(layoutAttr);
-
       auto emptyOp = rewriter.create<EmptyOp>(
-          loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr,
-          memoryConfigAttr);
+          loc, tensorType, device, shapeAttr, dtypeAttr, tensorLayoutAttr);
       outputBuffers.push_back(emptyOp.getResult());
       lastEmptyOp = emptyOp.getOperation();
     }

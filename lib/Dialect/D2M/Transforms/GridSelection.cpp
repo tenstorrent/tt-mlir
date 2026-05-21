@@ -86,6 +86,50 @@ deriveVirtualGridAttrs(ArrayRef<int64_t> selectedGrid,
   return {AffineMapAttr::get(inverseMap), AffineMapAttr::get(forwardMap)};
 }
 
+static void recordGenericConsumer(Operation *user,
+                                  d2m::GenericOp &parentGeneric) {
+  d2m::GenericOp useGeneric = dyn_cast<d2m::GenericOp>(user);
+  if (!useGeneric) {
+    useGeneric = user->getParentOfType<d2m::GenericOp>();
+  }
+
+  TT_assertv(useGeneric,
+             "ToLayout result must be used by a single GenericOp, a single "
+             "ViewLayout, or a single MaskOp feeding a single GenericOp");
+
+  if (!parentGeneric) {
+    parentGeneric = useGeneric;
+    return;
+  }
+
+  TT_assertv(parentGeneric == useGeneric,
+             "ToLayout should only be used within one GenericOp");
+}
+
+static void verifySingleGenericConsumerThroughViewsAndMasks(Value root) {
+  d2m::GenericOp parentGeneric = nullptr;
+  SmallVector<Value> worklist{root};
+
+  while (!worklist.empty()) {
+    Value value = worklist.pop_back_val();
+    for (auto &use : value.getUses()) {
+      Operation *user = use.getOwner();
+      if (auto viewLayoutOp = dyn_cast<d2m::ViewLayoutOp>(user)) {
+        worklist.push_back(viewLayoutOp.getResult());
+        continue;
+      }
+      if (auto maskOp = dyn_cast<d2m::MaskOp>(user)) {
+        worklist.push_back(maskOp.getResult());
+        continue;
+      }
+      if (isa<d2m::SpatialOp>(user)) {
+        continue;
+      }
+      recordGenericConsumer(user, parentGeneric);
+    }
+  }
+}
+
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
 // recreating the MetalLayoutAttr with the given grid and proper dimension
 // alignments.
@@ -163,59 +207,10 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
   // 1. Directly by a single GenericOp (or operations within its region)
   // 2. By a view_layout operation, where the result is then
   //    used by a single GenericOp
-  d2m::GenericOp parentGeneric = nullptr;
-
-  for (auto &use : toLayoutOp.getResult(0).getUses()) {
-    mlir::Operation *user = use.getOwner();
-
-    // Check if this use is by a view_layout operation (e.g., tensor
-    // manipulation ops that express data rearrangement as a view).
-    if (auto viewLayoutOp = mlir::dyn_cast<d2m::ViewLayoutOp>(user)) {
-      // Walk through view_layout users to find the parent GenericOp.
-      for (auto &viewUse : viewLayoutOp.getResult().getUses()) {
-        mlir::Operation *viewUser = viewUse.getOwner();
-        d2m::GenericOp viewUseGeneric =
-            mlir::dyn_cast<d2m::GenericOp>(viewUser);
-        if (!viewUseGeneric) {
-          viewUseGeneric = viewUser->getParentOfType<d2m::GenericOp>();
-        }
-        if (viewUseGeneric) {
-          if (!parentGeneric) {
-            parentGeneric = viewUseGeneric;
-          } else if (parentGeneric != viewUseGeneric) {
-            TT_assertv(false,
-                       "ToLayout should only be used within one GenericOp");
-          }
-        }
-      }
-      continue;
-    }
-
-    // Skip Spatial: it only lists the tensor on ins/outs. The real use is
-    // inside the nested d2m.generic, which we handle in the next block.
-    if (mlir::isa<d2m::SpatialOp>(user)) {
-      continue;
-    }
-
-    // Find the parent GenericOp for this use.
-    // The user might be the GenericOp itself (if it's an operand), or
-    // it might be an operation nested within the GenericOp's regions.
-    d2m::GenericOp useGeneric = mlir::dyn_cast<d2m::GenericOp>(user);
-    if (!useGeneric) {
-      useGeneric = user->getParentOfType<d2m::GenericOp>();
-    }
-
-    TT_assertv(useGeneric,
-               "ToLayout result must be used by a single GenericOp or a "
-               "single ViewLayout that feeds a single GenericOp");
-
-    if (!parentGeneric) {
-      parentGeneric = useGeneric;
-    } else if (parentGeneric != useGeneric) {
-      // Use is within a different GenericOp
-      TT_assertv(false, "ToLayout should only be used within one GenericOp");
-    }
-  }
+  // A d2m.mask may also sit between the ToLayout and the GenericOp; in that
+  // case the mask is the materialized padding contract and should not hide the
+  // stream that still needs grid optimization.
+  verifySingleGenericConsumerThroughViewsAndMasks(toLayoutOp.getResult(0));
   toLayoutOp.getResult(0).replaceAllUsesWith(view.getResult());
 
   toLayoutOp.erase();
@@ -265,8 +260,7 @@ static void insertViewForTTNNDRAMTensor(Value operand,
 
   auto viewOutputLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), baseMetalLayout.getLogicalShape(),
-      baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
-      ttcore::TensorMemoryLayout::Interleaved,
+      ttcore::MemorySpace::DeviceDRAM, ttcore::TensorMemoryLayout::Interleaved,
       baseMetalLayout.getCollapsedIntervals(),
       baseMetalLayout.getDimAlignments());
 
@@ -344,6 +338,62 @@ static void applyBehindViewToLayoutUpdate(
                        ttnnMode, info.viewSourceGrid, builder);
 }
 
+static void
+applyMaskUpdate(const OperandGridInfo &info,
+                const EffectiveTargetGridRange &effectiveTargetGridRange,
+                bool ttnnMode, OpBuilder &builder) {
+  auto maskOp = info.operand.getDefiningOp<d2m::MaskOp>();
+  if (!maskOp) {
+    return;
+  }
+
+  if (auto toLayoutOp = maskOp.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
+    optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
+                         ttnnMode, info.selectedGrid, builder);
+  } else if (auto view = maskOp.getInput().getDefiningOp<d2m::ViewLayoutOp>()) {
+    if (auto toLayoutOp = view.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
+      optimizeToLayoutGrid(toLayoutOp, info.targetGrid,
+                           effectiveTargetGridRange, ttnnMode,
+                           info.selectedGrid, builder);
+    }
+  }
+
+  auto oldResultType =
+      mlir::cast<RankedTensorType>(maskOp.getResult().getType());
+  RankedTensorType newResultType = utils::tensorWithOptimalGrid(
+      oldResultType, info.targetGrid, ttnnMode, info.selectedGrid);
+  if (newResultType == oldResultType) {
+    return;
+  }
+
+  auto oldOutput = maskOp.getOutput().getDefiningOp<d2m::EmptyOp>();
+  builder.setInsertionPoint(maskOp);
+
+  Value newInput = maskOp.getInput();
+  if (newInput.getType() != newResultType) {
+    newInput =
+        builder
+            .create<d2m::ViewLayoutOp>(maskOp.getLoc(), newResultType, newInput)
+            .getResult();
+  }
+
+  auto [virtualGridInverseMapping, virtualGridForwardMapping] =
+      deriveVirtualGridAttrs(info.selectedGrid, effectiveTargetGridRange,
+                             builder);
+  auto newOutput = builder.create<d2m::EmptyOp>(maskOp.getLoc(), newResultType,
+                                                virtualGridInverseMapping,
+                                                virtualGridForwardMapping);
+  auto newMask = builder.create<d2m::MaskOp>(
+      maskOp.getLoc(), newInput, newOutput, maskOp.getLogicalShape(),
+      maskOp.getFillValue());
+
+  maskOp.getResult().replaceAllUsesWith(newMask.getResult());
+  maskOp.erase();
+  if (oldOutput && oldOutput.getResult().use_empty()) {
+    oldOutput.erase();
+  }
+}
+
 static void applyTTNNTensorUpdate(const OperandGridInfo &info,
                                   OpBuilder &builder) {
   Value ttnnOperand = info.operand;
@@ -415,9 +465,8 @@ static void applyCompositeViewUpdate(
 
       auto newLayout = ttcore::MetalLayoutAttr::get(
           builder.getContext(), inputLayout.getLogicalShape(),
-          inputLayout.getOobVal(), inputLayout.getMemorySpace(),
-          inputLayout.getMemoryLayout(), inputLayout.getCollapsedIntervals(),
-          inputAlignments);
+          inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+          inputLayout.getCollapsedIntervals(), inputAlignments);
 
       auto inputPhysShape = newLayout.getPhysicalShape(tileShape);
       inputOptimalGrid =
@@ -519,18 +568,9 @@ static ttcore::GridAttr deriveGridAttrForOutput(Value output,
     return builder.getAttr<ttcore::GridAttr>(gridShape);
   }
 
-  if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
-    // Get virtual to physical map from output as well.
-    auto fwdMap = *utils::getVirtualGridForwardMapping(output);
-    size_t rank = gridShape.size();
-    fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
-    for (int i = rank - 1; i >= 0; i--) {
-      fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
-    }
-    fwdMap =
-        fwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()), 0);
-
-    return builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
+  if (auto maps = utils::getGridMapsFromVirtualGridMapping(output, gridShape)) {
+    return builder.getAttr<ttcore::GridAttr>(gridShape, maps->first,
+                                             maps->second);
   }
 
   auto existingRemapping = utils::getAssociatedRemapping(output);
@@ -680,6 +720,7 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
     ViewLayout,
     CompositeView,
     ToLayout,
+    Mask,
     Empty,
     Skip
   };
@@ -698,6 +739,8 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
       kinds.push_back(Kind::CompositeView);
     } else if (operand.getDefiningOp<d2m::ToLayoutOp>()) {
       kinds.push_back(Kind::ToLayout);
+    } else if (operand.getDefiningOp<d2m::MaskOp>()) {
+      kinds.push_back(Kind::Mask);
     } else if (operand.getDefiningOp<d2m::EmptyOp>()) {
       kinds.push_back(Kind::Empty);
     } else {
@@ -718,6 +761,9 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
       break;
     case Kind::ToLayout:
       applyToLayoutUpdate(info, effectiveTargetGridRange, ttnnMode, builder);
+      break;
+    case Kind::Mask:
+      applyMaskUpdate(info, effectiveTargetGridRange, ttnnMode, builder);
       break;
     case Kind::Empty:
       applyEmptyOpUpdate(info, effectiveTargetGridRange, ttnnMode, builder);

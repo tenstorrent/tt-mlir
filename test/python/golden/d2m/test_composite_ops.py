@@ -43,42 +43,60 @@ pytestmark = pytest.mark.frontend("ttir")
             [(1, 24, 128, 128), (1, 8, 128, 128), (1, 8, 128, 128)],
             True,
             None,
-            marks=pytest.mark.skip_config(["sim"]),
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
         ),
         # Llama 3.2 3B GQA 3:1, is_causal=true, Sq=32
         pytest.param(
             [(1, 24, 32, 128), (1, 8, 32, 128), (1, 8, 32, 128)],
             True,
             None,
-            marks=pytest.mark.skip_config(["sim"]),
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
         ),
         # Llama 3.2 3B GQA 3:1, is_causal=true, Sq=64
         pytest.param(
             [(1, 24, 64, 128), (1, 8, 64, 128), (1, 8, 64, 128)],
             True,
             None,
-            marks=pytest.mark.skip_config(["sim"]),
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
         ),
         # GQA non-causal
         pytest.param(
             [(1, 24, 128, 128), (1, 8, 128, 128), (1, 8, 128, 128)],
             False,
             None,
-            marks=pytest.mark.skip_config(["sim"]),
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
         ),
         # GQA causal with custom scale
         pytest.param(
             [(1, 24, 128, 128), (1, 8, 128, 128), (1, 8, 128, 128)],
             True,
             0.1,
-            marks=pytest.mark.skip_config(["sim"]),
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
         ),
         # Qwen 4:1 GQA with mask (from sdpa.mlir), non-causal
         pytest.param(
             [(1, 32, 128, 128), (1, 8, 128, 128), (1, 8, 128, 128)],
             False,
             None,
-            marks=pytest.mark.skip_config(["sim"]),
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
         ),
     ],
     ids=[
@@ -143,7 +161,10 @@ def test_sdpa_decomposition(
             (1, 1, 128, 128),
             False,
             None,
-            marks=pytest.mark.skip_config(["sim"]),
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
         ),
     ],
     ids=["mask_broadcast", "qwen_gqa_mask"],

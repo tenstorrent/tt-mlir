@@ -57,8 +57,8 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   // Create a new layout for fresh storage (no remapping on the layout attr).
   auto newLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
-      layout.getCollapsedIntervals(), layout.getOobVal(),
-      layout.getMemorySpace(), layout.getMemoryLayout());
+      layout.getCollapsedIntervals(), layout.getMemorySpace(),
+      layout.getMemoryLayout());
   auto emptyOp = builder.create<d2m::EmptyOp>(
       loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 

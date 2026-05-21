@@ -15,7 +15,6 @@ module attributes {} {
     // CHECK: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_layout"
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<1x1x16384x32xbf16,
     // %3 = "ttnn.max_pool2d"(%2, %0) <{batch_size = 1 : si32, ceil_mode = false, channels = 32 : si32, dilation_height = 1 : si32, dilation_width = 1 : si32, input_height = 128 : si32, input_width = 128 : si32, kernel_height = 2 : si32, kernel_width = 2 : si32, padding_height = 0 : si32, padding_width = 0 : si32, stride_height = 2 : si32, stride_width = 2 : si32}> : (tensor<1x1x16384x32xf32, #ttnn_layout2>, !ttcore.device<#device>) -> tensor<1x1x4096x32xf32, #ttnn_layout3>
     %2 = "ttnn.max_pool2d"(%1) <{batch_size = 1 : si32, ceil_mode = false, channels = 32 : si32, input_height = 128 : si32, input_width = 128 : si32, kernel_size = array<i32: 2, 2>, stride = array<i32: 2, 2>, dilation = array<i32: 1, 1>, padding = array<i32: 0, 0>, in_place_halo = false}> : (tensor<1x1x16384x32xf32, #ttnn_layout2>) -> tensor<1x1x4096x32xf32, #ttnn_layout3>
@@ -24,7 +23,6 @@ module attributes {} {
     // CHECK-NEXT: %[[TO_LAYOUT_OUTPUT:.*]] = "ttnn.to_layout"(%[[MAX_POOL_2D_OP]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: layout = #ttnn.layout<tile>
-    // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<1x1x4096x32xf32
     %3 = "ttnn.reshape"(%2) <{shape = [1 : i32, 64 : i32, 64 : i32, 32 : i32]}> : (tensor<1x1x4096x32xf32, #ttnn_layout3>) -> tensor<1x64x64x32xf32, #ttnn_layout3>
     // CHECK-NEXT: ttnn.reshape

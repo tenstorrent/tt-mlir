@@ -478,7 +478,7 @@ void MCQExecutor::execute(
     const target::metal::EnqueueWriteBufferCommand *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
 
-  auto input = hostBuffers.at(command->src()->global_id());
+  auto &input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
   checkHostTensorSizeMatchWithMeshBufferSize(input, meshBuffer);
   writeHostTensorToMeshBuffer(mcq, input, meshBuffer, blockingCQ);
@@ -488,8 +488,8 @@ void MCQExecutor::execute(
     const target::metal::EnqueueReadBufferCommand *command) {
   ZoneScopedN("EnqueueReadBufferCommand");
 
+  auto &output = hostBuffers.at(command->dst()->global_id());
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
-  auto output = hostBuffers.at(command->dst()->global_id());
   checkHostTensorSizeMatchWithMeshBufferSize(output, meshBuffer);
   readHostTensorFromMeshBuffer(mcq, meshBuffer, output, blockingCQ);
 }

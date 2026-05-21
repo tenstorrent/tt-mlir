@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_ROPEFUSINGPATTERN_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
@@ -21,15 +21,14 @@ namespace mlir::tt::ttnn::fusing {
 // Produces: rotary_embedding(x, cos, sin)
 class RoPERotateHalfFusing : public mlir::OpRewritePattern<AddOp> {
 public:
-  RoPERotateHalfFusing(mlir::MLIRContext *ctx,
-                       const FusionValidationConfig &config)
+  RoPERotateHalfFusing(mlir::MLIRContext *ctx, const OpValidationConfig &config)
       : OpRewritePattern<AddOp>(ctx), validationConfig(config) {}
 
   mlir::LogicalResult
   matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const override;
 
 private:
-  FusionValidationConfig validationConfig;
+  OpValidationConfig validationConfig;
 };
 
 // Fuses the expanded (trig-identity) RoPE subgraph into a single
@@ -42,8 +41,7 @@ private:
 // Produces: rotary_embedding(x, concat(cos_h, cos_h), concat(sin_h, sin_h))
 class RoPEExpandedFusing : public mlir::OpRewritePattern<ConcatOp> {
 public:
-  RoPEExpandedFusing(mlir::MLIRContext *ctx,
-                     const FusionValidationConfig &config)
+  RoPEExpandedFusing(mlir::MLIRContext *ctx, const OpValidationConfig &config)
       : OpRewritePattern<ConcatOp>(ctx), validationConfig(config) {}
 
   mlir::LogicalResult
@@ -51,7 +49,7 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 
 private:
-  FusionValidationConfig validationConfig;
+  OpValidationConfig validationConfig;
 };
 
 // Commute a downstream permute through an already-fused RotaryEmbeddingOp

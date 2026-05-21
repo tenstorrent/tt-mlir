@@ -2,6 +2,7 @@ add_subdirectory(EraseInverseOps)
 add_subdirectory(HoistCPUOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
+        ConsolidateStaticCacheUpdates.cpp
         CPUBooleanNarrowing.cpp
         DecomposeComplexPermute.cpp
         DecomposeComplexReshape.cpp
@@ -21,6 +22,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         RankNormalization.cpp
         Transforms.cpp
         TTIRFusing.cpp
+        Fusing/TopKFusingPattern.cpp
         MultiDeviceTensorAnnotation.cpp
 
         ADDITIONAL_HEADER_DIRS
@@ -34,4 +36,5 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         LINK_LIBS PUBLIC
         MLIRTTIREraseInverseOps
         MLIRTTIRHoistCPUOps
+        TTMLIRTTNNUtils
         )

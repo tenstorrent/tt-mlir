@@ -5,18 +5,12 @@
 Cross-validate IRModule against the flatbuffer binary: op walk order,
 tensor shapes, and element types.
 """
-from utils import json_string_as_dict
-
-
-def _iterate_programs(binary):
-    """Yield (index, name) for each program."""
-    for i in range(binary.get_num_programs()):
-        yield i, binary.get_program_name(i)
+from utils import iterate_programs, json_string_as_dict
 
 
 def test_ops(ir_module, binary):
     """Cross-validate walk order, debug info, and tensor shapes against the flatbuffer."""
-    for prog_idx, prog_name in _iterate_programs(binary):
+    for prog_idx, prog_name in iterate_programs(binary):
         mlir_ops = ir_module.get_function_ops(prog_name)
         fb_ops = json_string_as_dict(binary.get_program_ops_as_json(prog_idx))
 

@@ -10,11 +10,10 @@
 #include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SplitQKVFusingPatterns.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -252,8 +251,7 @@ public:
 
     auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
         reshapeOp.getLoc(), concatHeadsResultType, input,
-        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
-        /*memory_config=*/MemoryConfigAttr());
+        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)));
 
     // Validate the fused op. The op requires height-sharded L1 input, so
     // try the workaround-sharded version since the workaround pass hasn't
@@ -268,8 +266,7 @@ public:
 
       auto validationOp = rewriter.create<NLPConcatHeadsDecodeOp>(
           reshapeOp.getLoc(), shardedResultType, workaround->getResult(),
-          rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
-          /*memory_config=*/MemoryConfigAttr());
+          rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)));
 
       std::vector<TTNNLayoutAttr> inputLayouts =
           utils::extractInputLayouts(validationOp.getOperation());
@@ -291,8 +288,7 @@ public:
 
     auto newReshapeOp = rewriter.create<ReshapeOp>(
         reshapeOp.getLoc(), reshapeOp.getType(),
-        nlpConcatHeadsDecodeOp.getResult(), reshapeOp.getShapeAttr(),
-        /*memory_config=*/MemoryConfigAttr());
+        nlpConcatHeadsDecodeOp.getResult(), reshapeOp.getShapeAttr());
 
     rewriter.replaceOp(reshapeOp, newReshapeOp.getResult());
     return mlir::success();
@@ -321,14 +317,13 @@ public:
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
-      FusionValidationConfig validationConfig;
+      OpValidationConfig validationConfig;
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
 
       patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
                                                  validationConfig);
       patterns.add<fusing::RoPEExpandedFusing>(&getContext(), validationConfig);
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
-      patterns.add<fusing::TopKFusing>(&getContext(), validationConfig);
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(

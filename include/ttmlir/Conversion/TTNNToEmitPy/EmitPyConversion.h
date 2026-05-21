@@ -93,6 +93,10 @@ namespace prim {
 struct LayerNormShardedMultiCoreProgramConfig;
 } // namespace prim
 
+namespace operations::transformer {
+struct SDPAProgramConfig;
+} // namespace operations::transformer
+
 namespace experimental::prim {
 struct Conv3dConfig;
 } // namespace experimental::prim
@@ -187,6 +191,11 @@ template <>
 struct TypeName<::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
   inline static const std::string value =
       "ttnn.LayerNormShardedMultiCoreProgramConfig";
+};
+
+template <>
+struct TypeName<::ttnn::operations::transformer::SDPAProgramConfig> {
+  inline static const std::string value = "ttnn.SDPAProgramConfig";
 };
 
 template <typename T>
@@ -1958,6 +1967,36 @@ struct EmitPyTypeConverter<
   }
 };
 
+// Specialization for SDPAProgramConfig
+template <>
+struct EmitPyTypeConverter<::ttnn::operations::transformer::SDPAProgramConfig> {
+  static std::optional<std::string> convert(ttnn::SDPAProgramConfigAttr attr) {
+    if (!attr) {
+      return std::nullopt;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::operations::transformer::SDPAProgramConfig> << "(";
+
+    auto gridSize = attr.getComputeWithStorageGridSize();
+    rso << "compute_with_storage_grid_size=ttnn.CoreCoord(" << gridSize.getX()
+        << ", " << gridSize.getY() << ")";
+    rso << ", q_chunk_size=" << attr.getQChunkSize();
+    rso << ", k_chunk_size=" << attr.getKChunkSize();
+    if (auto expApproxMode = attr.getExpApproxMode()) {
+      rso << ", exp_approx_mode="
+          << (expApproxMode.getValue() ? "True" : "False");
+    }
+    if (auto maxCores = attr.getMaxCoresPerHeadBatch()) {
+      rso << ", max_cores_per_head_batch=" << *maxCores;
+    }
+
+    rso << ")";
+    return buf;
+  }
+};
+
 // This template struct retrieves the most relevant C++ type with a one-to-one
 // Python type correspondence for a given template type.
 template <typename T>
@@ -2061,6 +2100,11 @@ struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr> {
   using type = ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::SDPAProgramConfigAttr> {
+  using type = ::ttnn::operations::transformer::SDPAProgramConfig;
 };
 
 // Marker type for matmul program config union (AnyAttrOf<[...]>)
@@ -2306,23 +2350,6 @@ public:
     return rewriter.getType<emitpy::OpaqueAttr>(result);
   }
 
-  // This is a temporary solution for handling the case when
-  // the value of the MemoryConfigAttr is nullptr. This should be removed once
-  // https://github.com/tenstorrent/tt-mlir/issues/2415 lands.
-  ttnn::MemoryConfigAttr getMemoryConfig(mlir::Value val) {
-    auto deviceOp = ttcore::lookupDeviceOp(op);
-
-    TT_assertv(deviceOp, "ttcore.device must exist in the enclosing scope");
-
-    auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
-
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(layoutAttr);
-
-    return memoryConfigAttr;
-  }
-
   ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
     auto resultLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
@@ -2381,20 +2408,6 @@ private:
   llvm::SmallVector<mlir::Value> operands;
   llvm::SmallVector<mlir::Attribute> keywordArgs;
 };
-
-// Helper function to secure memory config attribute.
-// Currently, memory config is an optional attribute. If the attribute is
-// explicitly provided by an op, it is used directly. Otherwise, the attribute
-// is deduced from a tensor output layout attribute in the `getMemoryConfig`
-// function.
-inline ttnn::MemoryConfigAttr
-operator|(std::optional<ttnn::MemoryConfigAttr> lhs,
-          ttnn::MemoryConfigAttr rhs) {
-  if (!lhs) {
-    return rhs;
-  }
-  return *lhs;
-}
 
 // Helper function that serves as an alternative to the
 // `emit<std::variant<...>>` member function of the `EmitPyTTNNEmitter` class.

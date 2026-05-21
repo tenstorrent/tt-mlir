@@ -33,39 +33,6 @@ class TTNNBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict)
-        self.create_tensor_encoding = self._create_tensor_encoding
-
-    def func(
-        self,
-        input_shapes,
-        input_types,
-        host_inputs: bool = False,
-    ):
-        if not host_inputs:
-            return super().func(input_shapes, input_types)
-
-        def wrapper(fn):
-            # Create a wrapper that matches create_tensor_encoding signature
-            # but sets layout to RowMajor and buffer type to SystemMemory for host tensors.
-            def host_row_major_wrapper(
-                shape, element_type, layout=None, buffer_type=None
-            ):
-                return self._create_tensor_encoding(
-                    shape,
-                    element_type,
-                    ttnn.Layout.RowMajor,
-                    ttnn.BufferType.SystemMemory,
-                )
-
-            self.create_tensor_encoding = host_row_major_wrapper
-
-            try:
-                result = super(TTNNBuilder, self).func(input_shapes, input_types)(fn)
-            finally:
-                self.create_tensor_encoding = self._create_tensor_encoding
-            return result
-
-        return wrapper
 
     # ----- Private Methods ----
 
@@ -188,7 +155,7 @@ class TTNNBuilder(Builder):
 
     # ----- Public Helper Methods ----
 
-    def _create_tensor_encoding(
+    def create_tensor_encoding(
         self,
         shape: Shape,
         element_type: Union[torch.dtype, TypeInfo],
@@ -208,45 +175,15 @@ class TTNNBuilder(Builder):
         layouts (L1 or DRAM) require the caller to pass
         `tensor_memory_layout`, `grid_shape`, and `core_range_set`.
         """
-        if grid_shape is None:
-            grid_shape = [1, 1]
-        if isinstance(element_type, torch.dtype):
-            element_type = self._get_type_from_torch_dtype(element_type)
-        with self._ctx, self._loc:
-            if layout == ttnn.Layout.Tile:
-                data_type = util.element_type_to_data_type(element_type)
-                layout_element_type = ttcore.ir.TileType.get(
-                    self._ctx, 32, 32, data_type
-                )
-            elif layout == ttnn.Layout.RowMajor:
-                layout_element_type = element_type
-            else:
-                raise ValueError(f"Unsupported layout: {layout}")
-
-            if buffer_type == ttnn.BufferType.SystemMemory:
-                tensor_memory_layout = None
-
-            is_sharded = (
-                tensor_memory_layout is not None
-                and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
-            )
-
-            if is_sharded and core_range_set is None:
-                raise ValueError(
-                    "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
-                    "the builder does not synthesize one because the canonical "
-                    "placement depends on the target arch's worker/DRAM grid."
-                )
-
-            return ttnn.ir.TTNNLayoutAttr.get(
-                self._ctx,
-                shape,
-                layout_element_type,
-                buffer_type,
-                grid_shape,
-                core_range_set,
-                tensor_memory_layout,
-            )
+        return self._create_ttnn_tensor_encoding(
+            shape,
+            element_type,
+            layout,
+            buffer_type,
+            tensor_memory_layout,
+            grid_shape,
+            core_range_set,
+        )
 
     def create_ttnn_tensor(
         self,
@@ -269,7 +206,7 @@ class TTNNBuilder(Builder):
         `core_range_set` explicitly.
         """
         with self._ctx, self._loc:
-            ttnn_layout_attr = self._create_tensor_encoding(
+            ttnn_layout_attr = self.create_tensor_encoding(
                 shape,
                 element_type,
                 layout,
@@ -286,63 +223,6 @@ class TTNNBuilder(Builder):
         filename = caller_frame.filename
         lineno = caller_frame.lineno
         return Location.name(f"{filename}:{lineno}")
-
-    # ----- Private CCL Helpers -----
-
-    def _create_memory_config_attr(
-        self,
-        buffer_type: ttnn.ir.BufferType = ttnn.BufferType.DRAM,
-        tensor_memory_layout: ttnn.ir.TensorMemoryLayout = ttnn.TensorMemoryLayout.Interleaved,
-        shape: Optional[Shape] = None,
-        grid_shape: Optional[List[int]] = None,
-        core_range_set: Optional[ttnn.ir.CoreRangeSetAttr] = None,
-    ) -> ttnn.ir.MemoryConfigAttr:
-        if buffer_type == ttnn.BufferType.SystemMemory:
-            return self._create_system_memory_memory_config()
-
-        tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
-            self._ctx, tensor_memory_layout
-        )
-        buffer_type_attr = ttnn.ir.BufferTypeAttr.get(self._ctx, buffer_type)
-
-        is_sharded = tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
-        if not is_sharded:
-            return ttnn.ir.MemoryConfigAttr.get(
-                self._ctx, tensor_memory_layout_attr, buffer_type_attr
-            )
-
-        if shape is None or grid_shape is None:
-            raise ValueError(
-                "Sharded MemoryConfigAttr requires `shape` and `grid_shape`; "
-                f"got shape={shape}, grid_shape={grid_shape}."
-            )
-        if core_range_set is None:
-            raise ValueError(
-                "Sharded MemoryConfigAttr requires an explicit `core_range_set`."
-            )
-        if shape[-2] % grid_shape[0] or shape[-1] % grid_shape[1]:
-            raise ValueError(
-                f"Tensor shape {tuple(shape[-2:])} not evenly divisible by "
-                f"shard grid {tuple(grid_shape)}; pass an explicit "
-                f"`core_range_set` and shard_spec for non-uniform shards."
-            )
-        shard_h = shape[-2] // grid_shape[0]
-        shard_w = shape[-1] // grid_shape[1]
-        shard_shape = ttnn.ir.ShapeAttr.get(self._ctx, [shard_h, shard_w])
-        shard_orientation = ttnn.ir.ShardOrientationAttr.get(
-            self._ctx, ttnn.ShardOrientation.RowMajor
-        )
-        shard_spec = ttnn.ir.ShardSpecAttr.get(
-            self._ctx, core_range_set, shard_shape, shard_orientation
-        )
-        return ttnn.ir.MemoryConfigAttr.get(
-            self._ctx, tensor_memory_layout_attr, buffer_type_attr, shard_spec
-        )
-
-    def _create_system_memory_memory_config(self):
-        # The pybound MemoryConfigAttr.get() requires a TensorMemoryLayoutAttr, but system_memory requires no TensorMemoryLayoutAttr
-        memory_config_str = "#ttnn.memory_config<#ttnn.buffer_type<system_memory>>"
-        return Attribute.parse(memory_config_str)
 
     # ----- Public TTNN Op Generators ----
 
@@ -7831,7 +7711,6 @@ class TTNNBuilder(Builder):
             fill_value_attr = FloatAttr.get_f32(fill_value)
 
         layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
-        memory_config_attr = self._create_memory_config_attr(buffer_type)
         result = self.create_ttnn_tensor(
             shape, mlir_output_type, layout=layout, buffer_type=buffer_type
         )
@@ -7855,7 +7734,6 @@ class TTNNBuilder(Builder):
             device=device,
             dtype=dtype,
             layout=layout_attr,
-            memory_config=memory_config_attr,
             loc=loc,
         )
         op_result = op.result
@@ -7885,7 +7763,6 @@ class TTNNBuilder(Builder):
             device=device,
             dtype=old_op.dtype,
             layout=old_op.layout,
-            memory_config=old_op.memory_config,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -7940,7 +7817,6 @@ class TTNNBuilder(Builder):
                         device = new_get_device_op.device
 
                     result = old_op.result.type
-                    memory_config_attr = old_op.memory_config
 
                     new_op = ttnn_op(
                         result,
@@ -7949,7 +7825,6 @@ class TTNNBuilder(Builder):
                         device=device,
                         dtype=old_op.dtype,
                         layout=old_op.layout,
-                        memory_config=old_op.memory_config,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
@@ -7998,7 +7873,6 @@ class TTNNBuilder(Builder):
         mlir_value_type = RankedTensorType.get(value_shape, mlir_output_type)
 
         layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
-        memory_config_attr = self._create_memory_config_attr(buffer_type)
         result = self.create_ttnn_tensor(
             value_shape, mlir_output_type, layout=layout, buffer_type=buffer_type
         )
@@ -8027,7 +7901,6 @@ class TTNNBuilder(Builder):
             device=device,
             dtype=dtype,
             layout=layout_attr,
-            memory_config=memory_config_attr,
             loc=loc,
         )
         op_result = op.result
@@ -8056,7 +7929,6 @@ class TTNNBuilder(Builder):
             device=device,
             dtype=old_op.dtype,
             layout=old_op.layout,
-            memory_config=old_op.memory_config,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -8118,7 +7990,6 @@ class TTNNBuilder(Builder):
                         device=device,
                         dtype=old_op.dtype,
                         layout=old_op.layout,
-                        memory_config=old_op.memory_config,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
@@ -8608,24 +8479,17 @@ class TTNNBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            # Convert L1 sharded output to DRAM, to match expected final output layout
+            # Convert L1 sharded output to DRAM, to match expected final output layout.
+            # DRAM Interleaved is encoded in final_output_type via create_ttnn_tensor's
+            # buffer_type default.
             final_output_type = self.create_ttnn_tensor(
                 shape=op.result.type.shape,
                 element_type=op.result.type.element_type,
+                buffer_type=ttnn.BufferType.DRAM,
             )
 
-            tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
-                self._ctx, ttnn.TensorMemoryLayout.Interleaved
-            )
-            buffer_type_attr = ttnn.ir.BufferTypeAttr.get(
-                self._ctx, ttnn.BufferType.DRAM
-            )
-            memoryConfigAttr = ttnn.ir.MemoryConfigAttr.get(
-                self._ctx, tensor_memory_layout_attr, buffer_type_attr
-            )
             data_type = self._get_data_type_attribute(op.result)
 
-            # Prepare location for the helper ToLayout operation
             id = self._get_next_global_id()
             loc = self._get_loc_of_extra_file_callee(id=id)
 
@@ -8633,7 +8497,6 @@ class TTNNBuilder(Builder):
                 final_output_type,
                 op.result,
                 layout=ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile),
-                memory_config=memoryConfigAttr,
                 loc=loc,
                 dtype=data_type,
             )
@@ -8789,13 +8652,6 @@ class TTNNBuilder(Builder):
             grid_shape = [1, 1]
 
         layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
-        memory_config_attr = self._create_memory_config_attr(
-            buffer_type=buffer_type,
-            tensor_memory_layout=tensor_memory_layout,
-            shape=shape,
-            grid_shape=grid_shape,
-            core_range_set=core_range_set,
-        )
         result = self.create_ttnn_tensor(
             shape,
             mlir_output_type,
@@ -8824,7 +8680,6 @@ class TTNNBuilder(Builder):
             input,
             layout=layout_attr,
             dtype=dtype,
-            memory_config=memory_config_attr,
             loc=loc,
         )
         op_result = op.result
@@ -8849,7 +8704,6 @@ class TTNNBuilder(Builder):
             in0,
             layout=layout_attr,
             dtype=old_op.dtype,
-            memory_config=old_op.memory_config,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -8893,7 +8747,6 @@ class TTNNBuilder(Builder):
                         in0,
                         layout=layout_attr,
                         dtype=old_op.dtype,
-                        memory_config=old_op.memory_config,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
@@ -8923,14 +8776,13 @@ class TTNNBuilder(Builder):
         self,
         input: Operand,
         device: Operand,
-        memory_config=None,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
     ) -> OpResult:
         """Move a tensor to device memory.
 
-        If *memory_config* is ``None`` (the default), a DRAM Interleaved
-        memory configuration is used.
+        Buffer placement (always DRAM Interleaved) is encoded in the result
+        tensor's TTNN layout encoding.
         """
         ttnn_op = self.get_opview_from_method(TTNNBuilder.to_device)
 
@@ -8947,14 +8799,12 @@ class TTNNBuilder(Builder):
             shape, mlir_output_type, ttnn.Layout.RowMajor, ttnn.BufferType.DRAM
         )
 
-        if memory_config is None:
-            memory_config = self._create_memory_config_attr(ttnn.BufferType.DRAM)
         if loc is None:
             loc = self._get_location()
         else:
             loc = Location.name(loc)
 
-        op = ttnn_op(result, input, device, memory_config=memory_config, loc=loc)
+        op = ttnn_op(result, input, device, loc=loc)
         op_result = op.result
 
         self._set_golden_tensor(op_result, golden_output)
@@ -8976,7 +8826,6 @@ class TTNNBuilder(Builder):
             result,
             in0,
             device,
-            memory_config=old_op.memory_config,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -9026,13 +8875,11 @@ class TTNNBuilder(Builder):
 
                     result = old_op.result.type
                     device = new_get_device_op.device
-                    memory_config_attr = old_op.memory_config
 
                     new_op = ttnn_op(
                         result,
                         in0,
                         device,
-                        memory_config=memory_config_attr,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
@@ -9673,7 +9520,6 @@ class TTNNBuilder(Builder):
             loc=old_op.location,
             residual=residual,
             dtype=old_op.dtype,
-            memory_config=old_op.memory_config,
             compute_config=old_op.compute_config,
             program_config=old_op.program_config,
             use_2d_core_grid=old_op.use_2d_core_grid,
@@ -9734,7 +9580,6 @@ class TTNNBuilder(Builder):
                         loc=old_op.location,
                         residual=residual,
                         dtype=old_op.dtype,
-                        memory_config=old_op.memory_config,
                         compute_config=old_op.compute_config,
                         program_config=old_op.program_config,
                         use_2d_core_grid=old_op.use_2d_core_grid,
@@ -9861,7 +9706,6 @@ class TTNNBuilder(Builder):
             residual_input=residual_input,
             recip=recip,
             dtype=old_op.dtype,
-            memory_config=old_op.memory_config,
             compute_config=old_op.compute_config,
             program_config=old_op.program_config,
         )
@@ -9935,7 +9779,6 @@ class TTNNBuilder(Builder):
                         residual_input=residual_input,
                         recip=recip,
                         dtype=old_op.dtype,
-                        memory_config=old_op.memory_config,
                         compute_config=old_op.compute_config,
                         program_config=old_op.program_config,
                     )
@@ -10072,7 +9915,6 @@ class TTNNBuilder(Builder):
             bias=bias,
             epsilon=old_op.epsilon,
             dtype=old_op.dtype,
-            memory_config=old_op.memory_config,
             compute_config=old_op.compute_config,
             program_config=old_op.program_config,
         )
@@ -10148,7 +9990,6 @@ class TTNNBuilder(Builder):
                         bias=bias,
                         epsilon=old_op.epsilon,
                         dtype=old_op.dtype,
-                        memory_config=old_op.memory_config,
                         compute_config=old_op.compute_config,
                         program_config=old_op.program_config,
                     )
@@ -10275,7 +10116,6 @@ class TTNNBuilder(Builder):
             in0,
             index,
             dim_attr,
-            memory_config=old_op.memory_config,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -10500,7 +10340,6 @@ class TTNNBuilder(Builder):
             all_gather_dim_attr,
             cluster_axis_attr,
             sub_device_id=old_op.sub_device_id,
-            memory_config=old_op.memory_config,
             num_links=old_op.num_links,
             topology=old_op.topology,
             loc=old_op.location,
@@ -10553,7 +10392,6 @@ class TTNNBuilder(Builder):
                         all_gather_dim_attr,
                         cluster_axis_attr,
                         sub_device_id=old_op.sub_device_id,
-                        memory_config=old_op.memory_config,
                         num_links=old_op.num_links,
                         topology=old_op.topology,
                         loc=old_op.location,
@@ -10662,7 +10500,6 @@ class TTNNBuilder(Builder):
             scatter_dim_attr,
             cluster_axis_attr,
             sub_device_id=old_op.sub_device_id,
-            memory_config=old_op.memory_config,
             num_links=old_op.num_links,
             topology=old_op.topology,
             compute_config=old_op.compute_config,
@@ -10719,7 +10556,6 @@ class TTNNBuilder(Builder):
                         scatter_dim_attr,
                         cluster_axis_attr,
                         sub_device_id=old_op.sub_device_id,
-                        memory_config=old_op.memory_config,
                         num_links=old_op.num_links,
                         topology=old_op.topology,
                         compute_config=old_op.compute_config,

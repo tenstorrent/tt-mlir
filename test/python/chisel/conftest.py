@@ -11,6 +11,16 @@ from chisel.ops import IRModule
 from utils import json_string_as_dict
 
 
+@pytest.fixture(scope="session")
+def device():
+    mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+    mesh_options.mesh_shape = (1, 1)
+    tt_runtime.runtime.set_current_device_runtime(tt_runtime.runtime.DeviceRuntime.TTNN)
+    dev = tt_runtime.runtime.open_mesh_device(mesh_options)
+    yield dev
+    tt_runtime.runtime.close_mesh_device(dev)
+
+
 @pytest.fixture
 def binary(binary_path):
     return tt_runtime.binary.load_binary_from_path(binary_path)

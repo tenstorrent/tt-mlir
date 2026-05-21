@@ -447,13 +447,13 @@ Tensor createScalarTensor(Scalar scalar) {
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        detail::fatalNotImplemented("createEmptyTensor", DeviceRuntime::TTNN);
+        return ::tt::runtime::ttnn::createScalarTensor(scalar);
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createScalarTensor(scalar);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("createEmptyTensor",
+        detail::fatalNotImplemented("createScalarTensor",
                                     HostRuntime::Distributed);
       });
 }

@@ -77,25 +77,24 @@ def TTNN_MemoryConfigOpInterface : OpInterface<"TTNNMemoryConfigOpInterface"> {
       /*retTy=*/"MemoryConfigAttr",
       /*methodName=*/"getMemoryConfigAttr",
       /*args=*/(ins),
-      /*methodBody=*/[{
-        return $_op.getMemoryConfigAttr();
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return getMemoryConfigFromResult($_op.getOperation());
       }]
     >,
     InterfaceMethod<
       /*desc=*/[{
-        }],
-      /*retTy=*/"void",
-      /*methodName=*/"setMemoryConfigAttr",
-      /*args=*/(ins "MemoryConfigAttr": $memoryConfigAttr),
-      /*methodBody=*/[{
-        $_op.setMemoryConfigAttr(memoryConfigAttr);
+        Compatibility getter that forwards to getMemoryConfigAttr().
+      }],
+      /*retTy=*/"std::optional<MemoryConfigAttr>",
+      /*methodName=*/"getMemoryConfig",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return getMemoryConfigFromResult($_op.getOperation());
       }]
     >,
   ];
-
-  let verify = [{
-    return verifyTTNNMemoryConfigInterface<ConcreteOp>($_op);
-  }];
 }
 
 def TTNN_ComputeKernelConfigOpInterface : OpInterface<"TTNNComputeKernelConfigOpInterface"> {

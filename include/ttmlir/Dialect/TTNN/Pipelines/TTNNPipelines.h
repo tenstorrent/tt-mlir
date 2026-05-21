@@ -214,7 +214,9 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
                        clEnumValN(ttcore::Arch::Blackhole, "blackhole",
-                                  "Use mock blackhole system desc.")),
+                                  "Use mock blackhole system desc."),
+                       clEnumValN(ttcore::Arch::Quasar, "quasar",
+                                  "Use mock quasar system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   // Option to override maximum number of sharded layouts to be generated
@@ -274,6 +276,10 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, "enable-decomposition-workaround-pass",
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
+
+  Option<bool> ttnnDecompositionEnabled{
+      *this, "enable-ttnn-decomposition-pass",
+      llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};
 
   Option<bool> implicitBroadcastFoldingEnabled{
       *this, "enable-implicit-broadcast-folding-pass",

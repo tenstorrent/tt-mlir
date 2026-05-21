@@ -4,8 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
 
+#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -46,19 +46,6 @@ bool isAlreadyCanonicalShape(ArrayRef<int64_t> shape) {
   return shape.size() == 4 && shape[0] == 1 && shape[1] == 1;
 }
 
-mlir::Value reshapeTo(PatternRewriter &rewriter, Location loc, mlir::Value v,
-                      ArrayRef<int64_t> targetShape) {
-  auto srcType = mlir::cast<RankedTensorType>(v.getType());
-  RankedTensorType targetType =
-      utils::RankedTensorTypeFactory::create(srcType, targetShape);
-  SmallVector<int32_t> targetShapeI32(targetShape.begin(), targetShape.end());
-  return rewriter
-      .create<ttnn::ReshapeOp>(loc, targetType, v,
-                               rewriter.getI32ArrayAttr(targetShapeI32),
-                               ttnn::MemoryConfigAttr())
-      .getResult();
-}
-
 } // namespace
 
 LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
@@ -82,12 +69,18 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
     SmallVector<int64_t> canonicalShape = {1, 1, 32, inputShape.back()};
 
     mlir::Value reshapedInput =
-        reshapeTo(rewriter, loc, op.getInput(), canonicalShape);
+        ttir_to_ttnn::utils::generateReshape(
+            mlir::cast<mlir::TypedValue<RankedTensorType>>(op.getInput()),
+            canonicalShape, rewriter, loc)
+            .getResult();
 
     mlir::Value reshapedResidual = op.getResidual();
     if (reshapedResidual) {
       reshapedResidual =
-          reshapeTo(rewriter, loc, reshapedResidual, canonicalShape);
+          ttir_to_ttnn::utils::generateReshape(
+              mlir::cast<mlir::TypedValue<RankedTensorType>>(reshapedResidual),
+              canonicalShape, rewriter, loc)
+              .getResult();
     }
 
     RankedTensorType canonicalResultType =
@@ -96,12 +89,14 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
     auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
         loc, canonicalResultType, reshapedInput, op.getWeight(),
         reshapedResidual, op.getStats(), op.getDevice(), op.getClusterAxis(),
-        op.getEpsilon(), op.getSubDeviceIdAttr(), op.getMemoryConfigAttr(),
-        op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
+        op.getEpsilon(), op.getSubDeviceIdAttr(), op.getNumLinksAttr(),
+        op.getTopologyAttr(), op.getComputeConfigAttr(),
         op.getProgramConfigAttr());
 
     mlir::Value reshapedResult =
-        reshapeTo(rewriter, loc, newOp.getResult(), resultType.getShape());
+        ttir_to_ttnn::utils::generateReshape(
+            newOp.getResult(), resultType.getShape(), rewriter, loc)
+            .getResult();
 
     rewriter.replaceOp(op, reshapedResult);
     return success();
@@ -172,7 +167,6 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       /*all_gather_dim=*/static_cast<int32_t>(rank - 1),
       /*cluster_axis=*/clusterAxis,
       /*sub_device_id=*/nullptr,
-      /*memory_config=*/nullptr,
       /*num_links=*/op.getNumLinksAttr(),
       /*topology=*/op.getTopologyAttr());
 

@@ -22,23 +22,22 @@ const Env &Env::get(bool dumpKernels, bool loadKernels,
 }
 
 const Hooks &Hooks::get(
-    const std::optional<debug::Hooks::OperationCallbackFn> &preOperatorCallback,
-    const std::optional<debug::Hooks::OperationCallbackFn>
-        &postOperatorCallback,
-    const std::optional<debug::Hooks::ProgramCallbackFn> &preProgramCallback,
-    const std::optional<debug::Hooks::ProgramCallbackFn> &postProgramCallback) {
+    std::optional<debug::Hooks::OperationCallbackFn> preOperatorCallback,
+    std::optional<debug::Hooks::OperationCallbackFn> postOperatorCallback,
+    std::optional<debug::Hooks::ProgramCallbackFn> preProgramCallback,
+    std::optional<debug::Hooks::ProgramCallbackFn> postProgramCallback) {
   static Hooks config(std::nullopt, std::nullopt, std::nullopt, std::nullopt);
   if (preOperatorCallback.has_value()) {
-    config.preOperatorCallback = preOperatorCallback;
+    config.preOperatorCallback = std::move(preOperatorCallback);
   }
   if (postOperatorCallback.has_value()) {
-    config.postOperatorCallback = postOperatorCallback;
+    config.postOperatorCallback = std::move(postOperatorCallback);
   }
   if (preProgramCallback.has_value()) {
-    config.preProgramCallback = preProgramCallback;
+    config.preProgramCallback = std::move(preProgramCallback);
   }
   if (postProgramCallback.has_value()) {
-    config.postProgramCallback = postProgramCallback;
+    config.postProgramCallback = std::move(postProgramCallback);
   }
   return config;
 }

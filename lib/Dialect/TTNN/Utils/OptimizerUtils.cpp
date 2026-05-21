@@ -13,11 +13,10 @@
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
-#include <unordered_map>
+#include <map>
 
 namespace mlir::tt::ttnn::optimizer_utils {
 
@@ -36,19 +35,14 @@ getUniqueOpSpecificAttrs(const std::vector<OpConfig> &configs) {
 
 llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
     const std::vector<OpConfig> &consumerConfigs) {
-  // Helper structs for tracking unique (bufferType, memLayout) pairs.
   struct BufferMemLayoutKey {
     BufferType bufferType;
     TensorMemoryLayout memLayout;
-
-    bool operator==(const BufferMemLayoutKey &other) const {
-      return bufferType == other.bufferType && memLayout == other.memLayout;
-    }
-  };
-
-  struct BufferMemLayoutKeyHash {
-    size_t operator()(const BufferMemLayoutKey &key) const {
-      return llvm::hash_combine(key.bufferType, key.memLayout);
+    bool operator<(const BufferMemLayoutKey &other) const {
+      if (bufferType != other.bufferType) {
+        return bufferType < other.bufferType;
+      }
+      return memLayout < other.memLayout;
     }
   };
 
@@ -67,8 +61,13 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
     llvm::DenseSet<OpConfig::OpSpecificAttrs> seenAttrs;
   };
 
-  std::unordered_map<BufferMemLayoutKey, LayoutGroup, BufferMemLayoutKeyHash>
-      groups;
+  // Iteration order must be deterministic: downstream tie-breaks
+  // (e.g., L1-spill's first-fit walk over fallback configs) commit to
+  // the first entry, so a shuffled order produces different IR across
+  // processes. std::unordered_map iteration depends on bucket layout
+  // and varies between processes; std::map iterates in key order
+  // (bufferType, then memLayout).
+  std::map<BufferMemLayoutKey, LayoutGroup> groups;
 
   for (const OpConfig &config : consumerConfigs) {
     assert(config.outputLayout &&
@@ -77,7 +76,7 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
     BufferMemLayoutKey key{config.outputLayout.getBufferType(),
                            config.outputLayout.getMemLayout().getValue()};
 
-    auto &group = groups[key];
+    LayoutGroup &group = groups[key];
     if (!group.partialLayout) {
       TTNNLayoutAttr layout = config.outputLayout;
       group.partialLayout = layout.withIgnorePhysicalLayout(true);

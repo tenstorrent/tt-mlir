@@ -134,6 +134,8 @@ Tensor createMultiDeviceBorrowedHostTensor(
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize);
 
+::tt::runtime::Tensor createScalarTensor(::tt::runtime::Scalar scalar);
+
 inline ::tt::runtime::Tensor createOwnedHostTensor(const void *data,
                                                    const TensorDesc &desc) {
   return ::tt::runtime::ttnn::createOwnedHostTensor(

@@ -174,7 +174,7 @@ private:
            "DPS ops are not supported");
     for (auto operand : op->getOperands()) {
       if (checkIdenticalTms(operand.getDefiningOp(), permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(operand)) {
+          this->tracesToConstantArgs(operand)) {
         continue;
       }
       return false;
@@ -346,7 +346,7 @@ private:
            "DPS ops are not supported");
     for (auto operand : op->getOperands()) {
       if (checkIdenticalTms(operand.getDefiningOp(), reshapeOperand) ||
-          ttcore::valueTracesToConstantArgs(operand)) {
+          this->tracesToConstantArgs(operand)) {
         continue;
       }
       return false;
@@ -358,14 +358,19 @@ private:
 
 template <CommuteDirection commuteDirection>
 void populateConcatCommutePatterns(MLIRContext *ctx,
-                                   RewritePatternSet &patterns) {
-  patterns.insert<TTIRCommutePermuteThroughConcat<commuteDirection>>(ctx);
-  patterns.insert<TTIRCommuteReshapeThroughConcat<commuteDirection>>(ctx);
+                                   RewritePatternSet &patterns,
+                                   ConstevalForwardAnalysis *analysis) {
+  patterns.insert<TTIRCommutePermuteThroughConcat<commuteDirection>>(ctx,
+                                                                     analysis);
+  patterns.insert<TTIRCommuteReshapeThroughConcat<commuteDirection>>(ctx,
+                                                                     analysis);
 }
 
 template void populateConcatCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 template void populateConcatCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 
 } // namespace mlir::tt::ttir

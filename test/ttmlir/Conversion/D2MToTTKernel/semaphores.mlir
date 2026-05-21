@@ -8,7 +8,7 @@ module {
     d2m.semaphore_set %sem0, %c1 : !d2m.local_semaphore
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
-    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>(%[[SEM]])
+    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
     // CHECK: ttkernel.noc_semaphore_set(%[[PTR]], %c1)
     return
   }
@@ -40,7 +40,7 @@ module {
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
     // CHECK: %[[MADDR:[0-9]+]] = ttkernel.experimental::get_noc_multicast_addr({{.*}}, {{.*}}, {{.*}}, {{.*}}, %[[SEM]])
-    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>(%[[SEM]])
+    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
     // CHECK: ttkernel.noc_semaphore_set(%[[PTR]], %c7)
     // CHECK: ttkernel.noc_semaphore_set_multicast(%[[SEM]], %[[MADDR]], {{.*}})
     return
@@ -53,7 +53,7 @@ module {
     d2m.semaphore_wait %sem0, %c2 : !d2m.local_semaphore
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
-    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>(%[[SEM]])
+    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
     // CHECK: ttkernel.experimental::semaphore_wait(%[[PTR]], %c2)
     return
   }
@@ -66,7 +66,7 @@ module {
     d2m.semaphore_wait %sem0, %c2 reset %c0 : !d2m.local_semaphore
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
-    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>(%[[SEM]])
+    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
     // CHECK: ttkernel.experimental::semaphore_wait(%[[PTR]], %c2)
     // CHECK: ttkernel.noc_semaphore_set(%[[PTR]], %c0)
     return

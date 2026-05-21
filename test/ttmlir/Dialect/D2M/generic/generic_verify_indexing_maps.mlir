@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt %s --split-input-file --verify-diagnostics
 
-#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // Verify that indexing_maps must be non-empty when not in explicit datamovement form.
 // This test has non-empty block_factors but empty indexing_maps, which should fail.
@@ -31,7 +31,7 @@ func.func @test_empty_indexing_maps_with_block_factors(%arg0: tensor<1x1x1x1x!tt
 
 // -----
 
-#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // Verify that indexing_maps must be non-empty when iterator_types is non-empty.
 // This test has non-empty iterator_types but empty indexing_maps, which should fail.
@@ -62,7 +62,7 @@ func.func @test_empty_indexing_maps_with_iterator_types(%arg0: tensor<1x1x1x1x!t
 
 // -----
 
-#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // Verify that explicit datamovement form (all three empty) is allowed.

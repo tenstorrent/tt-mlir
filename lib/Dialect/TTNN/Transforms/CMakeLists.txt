@@ -3,9 +3,7 @@ if (TTMLIR_ENABLE_OPMODEL)
         set(OPMODEL_SRCS
                 Fusing/RoPEFusingPattern.cpp
                 Fusing/SDPAFusingPattern.cpp
-                Fusing/SplitQKVFusingPatterns.cpp
-                Fusing/TopKFusingPattern.cpp
-                Fusing/FusionValidator.cpp)
+                Fusing/SplitQKVFusingPatterns.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
@@ -24,9 +22,13 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNFileSplit.cpp
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
+        Decomposition/ConcatenateHeadsDecompositionRewritePattern.cpp
         Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
         Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
+        Decomposition/GroupNormDecompositionRewritePattern.cpp
+        Decomposition/TopKDecompositionRewritePattern.cpp
         Decomposition/TTNNDecompositionPass.cpp
+        OpValidator.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
@@ -46,8 +48,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
-        Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpRewritePattern.cpp
+        Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
