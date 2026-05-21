@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Test that with OpModel enabled, ttir.composite is resolved to the typed
+// Test that with OpModel enabled, ttcore.composite is resolved to the typed
 // ttnn.topk_router_gpt op through the backend pipeline.
 
 // REQUIRES: opmodel
@@ -10,7 +10,7 @@
 
 // CHECK-LABEL: func.func @test_composite_lowering
 // CHECK: "ttnn.topk_router_gpt"
-// CHECK-NOT: "ttnn.composite"
+// CHECK-NOT: "ttcore.composite"
 // CHECK-NOT: @topk_router_gpt_decomp
 module attributes {} {
   func.func @test_composite_lowering(
@@ -18,7 +18,7 @@ module attributes {} {
       %weight: tensor<64x128xbf16>,
       %bias:   tensor<32x128xbf16>
   ) -> (tensor<32x4xui16>, tensor<32x4xbf16>) {
-    %indices, %weights = "ttir.composite"(%input, %weight, %bias)
+    %indices, %weights = "ttcore.composite"(%input, %weight, %bias)
         <{composite_name = "topk_router_gpt",
           decomposition = @topk_router_gpt_decomp,
           composite_attributes = {k = 4 : i32, num_experts = 128 : i32}}>

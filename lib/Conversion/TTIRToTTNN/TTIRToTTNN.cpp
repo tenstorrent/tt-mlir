@@ -3612,24 +3612,6 @@ public:
   }
 };
 
-class CompositeOpConversionPattern
-    : public OpConversionPattern<ttir::CompositeOp> {
-public:
-  using OpConversionPattern<ttir::CompositeOp>::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(ttir::CompositeOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                      resultTypes))) {
-      return failure();
-    }
-    rewriter.replaceOpWithNewOp<ttnn::CompositeOp>(
-        op, resultTypes, adaptor.getInputs(), op.getCompositeNameAttr(),
-        op.getDecompositionAttr(), op.getCompositeAttributesAttr());
-    return success();
-  }
-};
 } // namespace
 
 namespace mlir::tt {
@@ -3783,8 +3765,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
            TopKOpConversionPattern,
-           TopKRouterGptOpConversionPattern,
-           CompositeOpConversionPattern
+           TopKRouterGptOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

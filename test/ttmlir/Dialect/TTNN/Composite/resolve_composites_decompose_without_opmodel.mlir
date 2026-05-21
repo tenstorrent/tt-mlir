@@ -13,7 +13,7 @@
 // CHECK-LABEL: func.func @test_decompose_without_opmodel
 // CHECK: "ttnn.add"
 // CHECK: "ttnn.multiply"
-// CHECK-NOT: "ttnn.composite"
+// CHECK-NOT: "ttcore.composite"
 // CHECK-NOT: "ttnn.topk_router_gpt"
 // CHECK-NOT: @topk_router_gpt_decomp
 module attributes {} {
@@ -22,7 +22,7 @@ module attributes {} {
       %arg1: tensor<32x32xbf16>,
       %arg2: tensor<32x32xbf16>
   ) -> (tensor<32x32xbf16>, tensor<32x32xbf16>) {
-    %0, %1 = "ttir.composite"(%arg0, %arg1, %arg2)
+    %0, %1 = "ttcore.composite"(%arg0, %arg1, %arg2)
         <{composite_name = "topk_router_gpt",
           decomposition = @topk_router_gpt_decomp,
           composite_attributes = {k = 4 : i32, num_experts = 128 : i32}}>

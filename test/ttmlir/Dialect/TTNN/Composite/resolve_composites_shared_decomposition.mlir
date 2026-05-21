@@ -12,7 +12,7 @@
 // CHECK: "ttnn.multiply"
 // CHECK: "ttnn.add"
 // CHECK: "ttnn.multiply"
-// CHECK-NOT: "ttnn.composite"
+// CHECK-NOT: "ttcore.composite"
 // CHECK-NOT: @shared_decomp
 module attributes {} {
   func.func @test_shared_decomposition(
@@ -20,12 +20,12 @@ module attributes {} {
       %arg1: tensor<32x32xbf16>,
       %arg2: tensor<32x32xbf16>
   ) -> (tensor<32x32xbf16>, tensor<32x32xbf16>) {
-    %0 = "ttir.composite"(%arg0, %arg1)
+    %0 = "ttcore.composite"(%arg0, %arg1)
         <{composite_name = "custom_op_a",
           decomposition = @shared_decomp,
           composite_attributes = {}}>
         : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
-    %1 = "ttir.composite"(%arg1, %arg2)
+    %1 = "ttcore.composite"(%arg1, %arg2)
         <{composite_name = "custom_op_b",
           decomposition = @shared_decomp,
           composite_attributes = {}}>

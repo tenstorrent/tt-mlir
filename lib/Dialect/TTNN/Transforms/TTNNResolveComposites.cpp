@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -26,9 +27,9 @@ namespace mlir::tt::ttnn {
 namespace {
 
 using CompositeValidatorFn =
-    std::function<OpValidationResult(CompositeOp, OpBuilder &)>;
+    std::function<OpValidationResult(ttcore::CompositeOp, OpBuilder &)>;
 using CompositeBuilderFn =
-    std::function<Operation *(CompositeOp, OpBuilder &)>;
+    std::function<Operation *(ttcore::CompositeOp, OpBuilder &)>;
 
 struct CompositeEntry {
   CompositeValidatorFn validate;
@@ -48,7 +49,8 @@ static void registerBuiltinComposites() {
 
   registry["topk_router_gpt"] = CompositeEntry{
       // Validate
-      [](CompositeOp compositeOp, OpBuilder &builder) -> OpValidationResult {
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
         TT_assert(compositeOp.getInputs().size() == 3u);
 
         auto optAttrs = compositeOp.getCompositeAttributes();
@@ -70,7 +72,7 @@ static void registerBuiltinComposites() {
             builder.getI32IntegerAttr(numExpertsAttr.getInt()));
       },
       // Build
-      [](CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
         DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
         auto kAttr = attrs.getAs<mlir::IntegerAttr>("k");
         auto numExpertsAttr = attrs.getAs<mlir::IntegerAttr>("num_experts");
@@ -86,7 +88,7 @@ static void registerBuiltinComposites() {
 
 // Inline the decomposition function body at the composite ops location,
 // replacing the composites results with the inlined operations results.
-static LogicalResult inlineDecomposition(CompositeOp compositeOp,
+static LogicalResult inlineDecomposition(ttcore::CompositeOp compositeOp,
                                          ModuleOp moduleOp) {
   auto decompName = compositeOp.getDecomposition();
   auto *symbolOp = SymbolTable::lookupSymbolIn(moduleOp, decompName);
@@ -129,7 +131,7 @@ static LogicalResult inlineDecomposition(CompositeOp compositeOp,
 // in an isolated module before creating it in the real IR.
 // Returns nullptr if the composite name is not in the registry or validation
 // fails — the caller should fall back to inlining the decomposition.
-static Operation *tryCreateTypedOp(CompositeOp compositeOp,
+static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
                                    OpBuilder &builder) {
   auto &registry = getCompositeRegistry();
   auto it = registry.find(compositeOp.getCompositeName());
@@ -159,7 +161,7 @@ public:
     llvm::DenseSet<func::FuncOp> decompositionFuncsToDelete;
     bool passFailed = false;
 
-    moduleOp.walk([&](CompositeOp compositeOp) {
+    moduleOp.walk([&](ttcore::CompositeOp compositeOp) {
       if (passFailed) {
         return;
       }

@@ -10,14 +10,14 @@
 // CHECK-LABEL: func.func @test_unknown_composite_name
 // CHECK: "ttnn.subtract"
 // CHECK: "ttnn.multiply"
-// CHECK-NOT: "ttnn.composite"
+// CHECK-NOT: "ttcore.composite"
 // CHECK-NOT: @unknown_op_decomp
 module attributes {} {
   func.func @test_unknown_composite_name(
       %arg0: tensor<32x32xbf16>,
       %arg1: tensor<32x32xbf16>
   ) -> tensor<32x32xbf16> {
-    %0 = "ttir.composite"(%arg0, %arg1)
+    %0 = "ttcore.composite"(%arg0, %arg1)
         <{composite_name = "unknown_op",
           decomposition = @unknown_op_decomp,
           composite_attributes = {}}>

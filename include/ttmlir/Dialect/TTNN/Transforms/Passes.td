@@ -663,7 +663,7 @@ def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
 def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> {
   let summary = "Resolve composite ops into typed ops or inline decompositions.";
   let description = [{
-    This pass resolves `ttnn.composite` ops by attempting to replace each one
+    This pass resolves `ttcore.composite` ops by attempting to replace each one
     with a dedicated typed TTNN op (e.g. `ttnn.topk_router_gpt`). If the typed
     op fails verification or OpModel validation, the decomposition function body
     is inlined as a fallback.
