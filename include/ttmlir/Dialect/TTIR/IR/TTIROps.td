@@ -6678,4 +6678,72 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
     let hasVerifier = 1;
 }
 
+def TTIR_TtLangOp : TTIR_Op<"tt_lang_op",
+    [TTIROpInterface, DestinationStyleOpInterface]> {
+  let summary = "Opaque tt-lang custom kernel placeholder.";
+  let description = [{
+    Represents an invocation of a user-defined tt-lang kernel registered via
+    `@tt_torch.kernel`. The kernel body is opaque to TTIR: its operands and
+    results are fully typed so type / shape / layout inference on adjacent ops
+    still works (in particular through Shardy and shape refinement), but TTIR
+    does not look inside the kernel body. The kernel is materialised later by
+    the tt-xla plugin via a Python bridge into tt-lang.
+
+    NOTE: tt-lang kernels expect 32x32 tile layout. Attaching `TTIROpInterface`
+    allows TTNN's `TTNNLayoutRewriter` to correct this ops operands and output
+    to have the same matching correct layout type.
+
+    Lowered from `stablehlo.custom_call @tt.tt_lang_op` (carrying the same
+    metadata in `mhlo.frontend_attributes`) and to `ttnn.tt_lang_op` by the
+    TTIR -> TTNN conversion.
+
+    Attributes:
+    - `kernel_id`: stable identifier of the @tt_torch.kernel registration
+      (e.g. `"my_module.my_kernel::v1"`).
+    - `version_tag`: identifier the kernel author bumps to force recompile.
+    - `arg_roles`: comma-separated roles for `inputs` (e.g. `"in,in,out"`).
+      Constrained to the form `in* out+` (all inputs first, then all
+      outputs). The `out`-roled operands are the trailing
+      destination-passing-style init operands and tie positionally to
+      `results`.
+    - `shard_spec`: optional opaque shard description forwarded to the
+      resolver. Empty string means "no spec".
+
+    Example:
+    ```mlir
+    %0 = ttir.tt_lang_op(%a, %b) {
+      kernel_id = "my_pkg.softmax::v1",
+      version_tag = "1.0",
+      arg_roles = "in,out",
+      shard_spec = ""
+    } : (tensor<1x32xf32>, tensor<1x32xf32>) -> (tensor<1x32xf32>)
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$kernel_id,
+                       StrAttr:$version_tag,
+                       StrAttr:$arg_roles,
+                       DefaultValuedStrAttr<StrAttr, "">:$shard_spec);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let extraClassDeclaration = [{
+    // DPS init operands are the trailing `"out"`-roled operands. The
+    // verifier enforces `arg_roles == in* out+` and `#out == #results`,
+    // so the inits are the last `getResults().size()` operands and tie
+    // positionally to the results.
+    ::mlir::MutableOperandRange getDpsInitsMutable() {
+      unsigned numOuts = getResults().size();
+      unsigned numIns = getInputs().size() - numOuts;
+      return ::mlir::MutableOperandRange(*this, numIns, numOuts);
+    }
+  }];
+
+  let assemblyFormat = [{
+    `(` $inputs `)` attr-dict `:` `(` type($inputs) `)` `->` `(` type($results) `)`
+  }];
+
+  let hasVerifier = 1;
+}
+
 #endif
