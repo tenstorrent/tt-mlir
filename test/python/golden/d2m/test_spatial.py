@@ -383,7 +383,7 @@ def test_spatial_two_regions_two_matmuls(
     [
         pytest.param([((0, 0), (1, 0)), ((0, 1), (0, 1))], id="offset_x"),
         pytest.param([((0, 0), (1, 0)), ((1, 1), (1, 1))], id="none_from_origin"),
-        pytest.param([((0, 0), (1, 0)), ((2, 2), (3, 3))], id="multi_cores"),
+        pytest.param([((0, 0), (1, 0)), ((2, 2), (2, 3))], id="multi_cores"),
     ],
 )
 @pytest.mark.parametrize(
