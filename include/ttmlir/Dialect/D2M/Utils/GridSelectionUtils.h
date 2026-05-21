@@ -54,10 +54,11 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
                                                 bool ttnnMode);
 
 // Create a new MetalLayoutAttr with grid-aware dimension alignments for the
-// given target grid.
+// given selected grid. The tile shape is empty for row-major tensors.
 ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
-                                              ArrayRef<int64_t> targetGrid,
-                                              bool ttnnMode);
+                                              ArrayRef<int64_t> selectedGrid,
+                                              bool ttnnMode,
+                                              ArrayRef<int64_t> tileShape);
 
 // Create a new RankedTensorType with the given optimal grid, recomputing the
 // device shape and layout accordingly.

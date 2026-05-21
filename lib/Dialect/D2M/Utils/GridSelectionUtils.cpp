@@ -9,6 +9,9 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
+#include <array>
+#include <numeric>
+
 namespace mlir::tt::d2m::utils {
 
 llvm::SmallVector<int64_t>
@@ -202,9 +205,86 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
 }
 
+static int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
+                                            ArrayRef<int64_t> alignments,
+                                            int64_t intervalStart,
+                                            int64_t intervalEnd) {
+  TT_assert(intervalStart < intervalEnd);
+
+  int64_t collapsedSize = ttmlir::utils::alignUp(logicalShape[intervalEnd - 1],
+                                                 alignments[intervalEnd - 1]);
+  for (int64_t dim = intervalEnd - 2; dim >= intervalStart; --dim) {
+    collapsedSize = ttmlir::utils::alignUp(logicalShape[dim] * collapsedSize,
+                                           alignments[dim]);
+  }
+  return collapsedSize;
+}
+
+static llvm::SmallVector<int64_t>
+computeSelectedGridDimAlignments(ttcore::MetalLayoutAttr layout,
+                                 ArrayRef<int64_t> selectedGrid,
+                                 ArrayRef<int64_t> tileShape) {
+  llvm::SmallVector<int64_t> normalizedIntervals =
+      layout.getNormalizedIntervals();
+  const int64_t tensorGridRank = normalizedIntervals.size() / 2;
+
+  TT_assertv(selectedGrid.size() == static_cast<size_t>(tensorGridRank),
+             "Selected grid rank {} must match tensor grid rank {}.",
+             selectedGrid.size(), tensorGridRank);
+
+  if (tensorGridRank == 2) {
+    return ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
+        layout.getLogicalShape(), selectedGrid, normalizedIntervals);
+  }
+
+  constexpr std::array<int64_t, 2> defaultTileShape =
+      ttcore::TileType::getDefaultShape();
+
+  llvm::SmallVector<int64_t> alignments =
+      ttcore::MetalLayoutAttr::computeTileAlignments(layout.getLogicalShape(),
+                                                     normalizedIntervals);
+
+  for (int64_t intervalIdx = 0; intervalIdx < tensorGridRank; ++intervalIdx) {
+    const int64_t gridDim = selectedGrid[intervalIdx];
+    if (gridDim <= 1) {
+      continue;
+    }
+
+    const bool isTileInterval = intervalIdx >= tensorGridRank - 2;
+    const int64_t tileIdx = intervalIdx - (tensorGridRank - 2);
+    const int64_t gridAwareThreshold =
+        gridDim * (isTileInterval ? defaultTileShape[tileIdx] : 1);
+
+    const int64_t intervalStart = normalizedIntervals[intervalIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[intervalIdx * 2 + 1];
+    const int64_t alignmentDim =
+        (intervalStart + 1 == intervalEnd) ? intervalEnd - 1 : intervalStart;
+
+    int64_t collapsedSize = computeCollapsedIntervalSize(
+        layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+    if (collapsedSize > gridAwareThreshold) {
+      alignments[alignmentDim] =
+          std::lcm(alignments[alignmentDim], gridAwareThreshold);
+      collapsedSize = computeCollapsedIntervalSize(
+          layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+    }
+
+    const bool dividesTiles = !tileShape.empty() && isTileInterval;
+    const int64_t physicalDivisor =
+        gridDim * (dividesTiles ? tileShape[tileIdx] : 1);
+    if (collapsedSize % physicalDivisor != 0) {
+      alignments[alignmentDim] =
+          std::lcm(alignments[alignmentDim], physicalDivisor);
+    }
+  }
+
+  return alignments;
+}
+
 ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
-                                              ArrayRef<int64_t> targetGrid,
-                                              bool ttnnMode) {
+                                              ArrayRef<int64_t> selectedGrid,
+                                              bool ttnnMode,
+                                              ArrayRef<int64_t> tileShape) {
   llvm::SmallVector<int64_t> newDimAlignments;
   if (ttnnMode) {
     // TTNN tensors use simple tile-aligned dim alignments without grid-aware
@@ -214,9 +294,8 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
     newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[1];
     newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[0];
   } else {
-    newDimAlignments = ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
-        oldLayout.getLogicalShape(), targetGrid,
-        oldLayout.getNormalizedIntervals());
+    newDimAlignments =
+        computeSelectedGridDimAlignments(oldLayout, selectedGrid, tileShape);
   }
 
   return ttcore::MetalLayoutAttr::get(
@@ -239,7 +318,7 @@ mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
   }
 
   ttcore::MetalLayoutAttr newLayout =
-      layoutWithOptimalGrid(oldLayout, targetGrid, ttnnMode);
+      layoutWithOptimalGrid(oldLayout, optimalGrid, ttnnMode, tileShape);
 
   llvm::SmallVector<int64_t> deviceShape = newLayout.getDeviceShape(
       optimalGrid, llvm::ArrayRef(tileShape.data(), tileShape.size()));
