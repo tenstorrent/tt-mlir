@@ -63,12 +63,12 @@ def postop(binary, programContext, opContext):
         return
     tensor_ref: ttrt.runtime.TensorRef = output_refs[0]
 
-    tensors = ttrt.runtime.retrieve_tensor_from_pool(programContext, tensor_ref)
-    if tensors is None:
+    tensor = ttrt.runtime.retrieve_tensor_from_pool(programContext, tensor_ref)
+    if tensor is None:
         return
-    tensor: ttrt.runtime.Tensor = tensors[0]
-
-    torch_tensor = get_torch_tensor(tensor)
+    
+    hostTensor = ttrt.runtime.to_host(tensor, untilize=True)[0]
+    torch_tensor = get_torch_tensor(hostTensor)
 
     print(torch_tensor)
     # For linear operation with all-ones inputs: input(10x10) @ weight(10x10) + bias(10)

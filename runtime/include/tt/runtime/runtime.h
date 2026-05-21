@@ -263,11 +263,10 @@ std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef);
 ::tt::target::DataType getTensorRefDataType(TensorRef tensorRef);
 
 // For the given tensor reference, retrieves the tensor from the program's
-// tensor pool. On success, returns one host tensor per device shard (
-// single entry for single-device tensors).
+// tensor pool. 
 // Returns std::nullopt when the tensor cannot be retrieved (e.g. it is not
-// in the pool, or the host transfer produces no tensors).
-std::optional<std::vector<Tensor>>
+// in the pool).
+std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
 

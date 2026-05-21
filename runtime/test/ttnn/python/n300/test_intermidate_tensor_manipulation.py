@@ -89,10 +89,14 @@ def make_linear_postop(expected_per_shard, replacement_per_shard, alive_refs):
             return
         tensor_ref: ttrt.runtime.TensorRef = output_refs[0]
 
-        shards = ttrt.runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
-        if shards is None:
+        tensor = ttrt.runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
+        if tensor is None:
             return
 
+        shards = ttrt.runtime.to_host(tensor, untilize=True)
+
+        assert shards is not None
+    
         assert len(shards) == len(
             expected_per_shard
         ), f"Expected {len(expected_per_shard)} shards, got {len(shards)}"

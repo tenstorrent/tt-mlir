@@ -2207,7 +2207,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   return outputTensors;
 }
 
-std::optional<std::vector<Tensor>>
+std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize) {
   const auto &programContext =
@@ -2231,15 +2231,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
       tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
 
-  std::vector<tt::runtime::Tensor> hostTensors =
-      ::tt::runtime::ttnn::toHost(outTensor, untilize);
-
-  if (hostTensors.empty()) {
-    LOG_WARNING("Failed to get host tensor when retrieving tensor");
-    return std::nullopt;
-  }
-
-  return hostTensors;
+  return outTensor;
 }
 
 std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {

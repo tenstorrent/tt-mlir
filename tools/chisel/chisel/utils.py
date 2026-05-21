@@ -42,10 +42,16 @@ def retrieve_tensor(
     and `mesh_shape` reflects the binary's compiled mesh so downstream
     shape/dtype/PCC checks operate over the right grid.
     """
-    shards = tt_runtime.retrieve_tensor_from_pool(rt_program_context, rt_tensor_ref)
+    tensor = tt_runtime.retrieve_tensor_from_pool(rt_program_context, rt_tensor_ref)
+    if tensor is None:
+        raise RuntimeError(
+            "retrieve_tensor_from_pool returned no tensor for the requested tensor reference"
+        )
+
+    shards = tt_runtime.to_host(tensor, untilize=True)
     if shards is None:
         raise RuntimeError(
-            "retrieve_tensor_from_pool returned no tensors for the requested ref"
+            "retrieve_tensor_from_pool returned no shards for the requested tensor"
         )
 
     # Making sure we fail if submash program appear.
