@@ -80,6 +80,12 @@ class Builder(metaclass=BuilderMeta):
         self._goldens: Dict[Operand, GoldenMapTensor] = {}
         self._deallocated_goldens: Dict[Operand, str] = {}
 
+        # Shard dims for presharded function args, keyed by BlockArgument. The
+        # block arg's MLIR type is already the per-device (local) shape; this
+        # dict lets the golden machinery shard incoming global-shape tensors
+        # at set-time. See builder.func(presharded_args=...).
+        self._presharded_arg_shard_dims: Dict[BlockArgument, Tuple[int, ...]] = {}
+
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
 
@@ -308,6 +314,22 @@ class Builder(metaclass=BuilderMeta):
         loc = str(operand.owner.location)
         self._bypass_ops.append(loc)
 
+    def get_arg_attribute(
+        self, operand: Operand, attr_name: str
+    ) -> Optional[Attribute]:
+        func_op = operand.owner.owner
+
+        arg_attr_list = func_op.arg_attrs
+        if operand.arg_number >= len(arg_attr_list):
+            return None
+
+        arg_attrs = arg_attr_list[operand.arg_number]
+        for attr in arg_attrs:
+            if attr.name == attr_name:
+                return attr.attr
+
+        return None
+
     def set_arg_attribute(
         self, operand: Operand, new_attr_name: str, new_attr: Attribute
     ):
@@ -327,25 +349,32 @@ class Builder(metaclass=BuilderMeta):
 
         func_op.arg_attrs = ArrayAttr.get(new_arg_attr_list)
 
-    def preshard_arg(self, operand: Operand, shard_dims: List[int]):
-        golden_tensor = self._get_golden_tensor(operand)
-        sharded_golden_tensor = apply_sharding(
-            golden_tensor, self._mesh_shape, shard_dims
+    @staticmethod
+    def _local_shape_for_shard_dims(
+        global_shape: Tuple[int, ...],
+        mesh_shape: Tuple[int, ...],
+        shard_dims: Tuple[int, ...],
+    ) -> Tuple[int, ...]:
+        if len(mesh_shape) != len(shard_dims):
+            raise ValueError("mesh_shape and shard_dims must have the same length")
+        local = list(global_shape)
+        for dim_size, shard_dim in zip(mesh_shape, shard_dims):
+            if shard_dim is None or shard_dim == -1:
+                continue
+            if local[shard_dim] % dim_size != 0:
+                raise ValueError(
+                    f"shape {global_shape} not divisible by mesh {mesh_shape} on dim {shard_dim}"
+                )
+            local[shard_dim] //= dim_size
+        return tuple(local)
+
+    def _mark_presharded_arg(self, arg: BlockArgument, shard_dims: Tuple[int, ...]):
+        self._presharded_arg_shard_dims[arg] = shard_dims
+        self.set_arg_attribute(
+            arg,
+            "ttcore.shard_status",
+            ttcore.ir.ShardStatusAttr.get(self._ctx, ttcore.ir.ShardStatus.Presharded),
         )
-
-        # Generate new multi-device golden if it's presharded
-        self._set_golden_tensor(operand, sharded_golden_tensor)
-
-        local_shape = sharded_golden_tensor.shape
-        element_type = self._get_type(operand).element_type
-        local_shape_rtt = RankedTensorType.get(local_shape, element_type)
-        local_shape_attr = ttcore.ir.LocalShapeAttr.get(self._ctx, local_shape_rtt)
-        shard_status_attr = ttcore.ir.ShardStatusAttr.get(
-            self._ctx, ttcore.ir.ShardStatus.Presharded
-        )
-
-        self.set_arg_attribute(operand, "ttcore.shard_status", shard_status_attr)
-        self.set_arg_attribute(operand, "ttcore.local_shape", local_shape_attr)
 
     # ----- Private methods -----
 
@@ -668,6 +697,17 @@ class Builder(metaclass=BuilderMeta):
         operand: Operand,
         goldens: List[Union[GoldenMapTensor, str]],
     ):
+        if (
+            isinstance(goldens, GoldenMapTensor)
+            and operand in self._presharded_arg_shard_dims
+        ):
+            local_shape = tuple(self._get_type(operand).shape)
+            if tuple(goldens.shard_at(0).shape) != local_shape:
+                goldens = apply_sharding(
+                    goldens,
+                    self._mesh_shape,
+                    self._presharded_arg_shard_dims[operand],
+                )
         if isinstance(goldens, str):
             self._deallocated_goldens[operand] = goldens
         else:
@@ -1470,17 +1510,30 @@ class Builder(metaclass=BuilderMeta):
         input_types: List[torch.dtype],
         ttnn_inputs: bool = False,
         custom_inputs: Optional[List[dict]] = None,
+        presharded_args: Optional[Dict[int, Tuple[int, ...]]] = None,
     ):
         if ttnn_inputs or custom_inputs:
             encoding_fn = self._create_ttnn_tensor_encoding
         else:
             encoding_fn = self.create_tensor_encoding
 
+        presharded_args = presharded_args or {}
+        # Global shapes are needed to shard goldens later; the function
+        # signature uses local shapes for presharded args.
+        global_input_shapes = [tuple(s) for s in input_shapes]
+        local_input_shapes = list(global_input_shapes)
+        for idx, shard_dims in presharded_args.items():
+            local_input_shapes[idx] = self._local_shape_for_shard_dims(
+                global_input_shapes[idx], self._mesh_shape, tuple(shard_dims)
+            )
+
         def wrapper(fn):
             # Handle custom_inputs if provided
             if custom_inputs:
                 fn_input_types = []
-                for idx, (shape, dtype) in enumerate(zip(input_shapes, input_types)):
+                for idx, (shape, dtype) in enumerate(
+                    zip(local_input_shapes, input_types)
+                ):
                     if idx < len(custom_inputs) and encoding_fn:
                         # Use custom layout kwargs for this input
                         kwargs = custom_inputs[idx]
@@ -1505,7 +1558,7 @@ class Builder(metaclass=BuilderMeta):
                         self._get_type_from_torch_dtype(dtype),
                         encoding_fn(shape, dtype) if encoding_fn else None,
                     )
-                    for shape, dtype in zip(input_shapes, input_types)
+                    for shape, dtype in zip(local_input_shapes, input_types)
                 ]
 
             ordered_inputs = []
@@ -1513,10 +1566,19 @@ class Builder(metaclass=BuilderMeta):
 
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
+                for idx, shard_dims in presharded_args.items():
+                    self._mark_presharded_arg(inputs[idx], tuple(shard_dims))
+
                 input_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
-                    input_goldens[operand] = self._generate_golden_tensor(
-                        operand, dtype
+                    shape = (
+                        global_input_shapes[index]
+                        if index in presharded_args
+                        else self.get_shape(operand)
+                    )
+                    input_goldens[operand] = GoldenMapTensor(
+                        {0: self._generate_random_tensor(shape, dtype)},
+                        mesh_shape=self._mesh_shape,
                     )
                 self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
