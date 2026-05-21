@@ -6,6 +6,8 @@
 
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include "llvm/ADT/ScopeExit.h"
+
 #include <Python.h>
 
 #pragma clang diagnostic push
@@ -138,6 +140,25 @@ void PythonModelRunner::addToSysPath(const std::string &path) {
 void PythonModelRunner::loadModule(const std::string &moduleName,
                                    const std::string &functionName) {
   nb::gil_scoped_acquire acquire;
+
+  // sys.modules is process-wide. A previously-loaded module of the same name
+  // (e.g. "main" from another graph_N/ directory in this process, or one of
+  // its sibling helper modules such as "utils" / "ttir_cpu") would
+  // short-circuit the import below and the freshly generated source would
+  // never execute, silently yielding wrong results. To prevent this, snapshot
+  // sys.modules, perform the import, then restore the snapshot so that any
+  // entries inserted by the import (the target module and any siblings it
+  // transitively pulled in) are evicted. Our references kept in pImpl keep
+  // the freshly loaded module alive, while subsequent loadModule() calls see
+  // a clean sys.modules and reload from disk. Restoration runs even if the
+  // import throws, so partial imports cannot leave stale entries behind.
+  nb::object sysModules = nb::module_::import_("sys").attr("modules");
+  nb::object savedModules = sysModules.attr("copy")();
+  auto restoreSysModules = llvm::make_scope_exit([&] {
+    sysModules.attr("clear")();
+    sysModules.attr("update")(savedModules);
+  });
+
   pImpl->moduleObject = nb::module_::import_(moduleName.c_str());
   pImpl->forwardFunc = pImpl->moduleObject.attr(functionName.c_str());
 }
