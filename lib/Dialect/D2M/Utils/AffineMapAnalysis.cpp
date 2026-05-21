@@ -746,16 +746,17 @@ ContiguityBound analyzeShardResultExprForContiguity(
             continue;
           }
 
-          // Case 3: FloorDiv expression (dim floordiv const).
-          // If dim extent <= divisor, the result is always 0 (treat as const).
-          if (auto floorDivOp =
+          // Case 3: Nested mod/floordiv expression.
+          if (auto nestedOp =
                   llvm::dyn_cast<mlir::AffineBinaryOpExpr>(sumOperand)) {
-            if (floorDivOp.getKind() == mlir::AffineExprKind::FloorDiv) {
-              if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(
-                      floorDivOp.getLHS())) {
+            if (nestedOp.getKind() == mlir::AffineExprKind::FloorDiv ||
+                nestedOp.getKind() == mlir::AffineExprKind::CeilDiv ||
+                nestedOp.getKind() == mlir::AffineExprKind::Mod) {
+              if (auto dimExpr =
+                      llvm::dyn_cast<mlir::AffineDimExpr>(nestedOp.getLHS())) {
                 if (auto divisorConst =
                         llvm::dyn_cast<mlir::AffineConstantExpr>(
-                            floorDivOp.getRHS())) {
+                            nestedOp.getRHS())) {
                   int64_t dimExtent = dimBounds.lookup(dimExpr.getPosition());
                   int64_t divisor = divisorConst.getValue();
                   if (dimExtent <= divisor) {
@@ -766,7 +767,7 @@ ContiguityBound analyzeShardResultExprForContiguity(
                   if (dimExpr.getPosition() != dimPos) {
                     continue;
                   }
-                  // Target dim in floordiv - fall through to error.
+                  // Target dim in nested expression - analyze below.
                 }
               }
               if (exprContainsDim(sumOperand, dimPos)) {
@@ -1067,8 +1068,11 @@ ContiguityBound analyzeGridResultExprForDiscontinuity(
                 return analyzeGridResultExprForDiscontinuity(
                     sumOperand, dimBounds, dimPos, numGridDims);
               }
-              // Don't try to analyze this for now.
-              return UnanalyzableBound{};
+              // A complex operand that does not contain the target dim is a
+              // variable offset. It can align the target dim arbitrarily close
+              // to a floorDiv boundary, so use the conservative one-step bound
+              // instead of forcing a sampling fallback.
+              return ConstrainedBound{1};
             }
 
             int64_t mulValue = constExpr.getValue();
@@ -1318,10 +1322,9 @@ computeCoalescingFactorForShardDim(mlir::AffineMap map,
   return finalContiguity;
 }
 
-size_t computeCoalescingFactorAnalytically(mlir::AffineMap map,
-                                           mlir::ArrayRef<int64_t> shape,
-                                           unsigned numGridDims,
-                                           size_t elemSizeBytes) {
+std::optional<size_t> tryComputeCoalescingFactorAnalytically(
+    mlir::AffineMap map, mlir::ArrayRef<int64_t> shape, unsigned numGridDims,
+    size_t elemSizeBytes) {
   TT_assert(elemSizeBytes > 0u);
   TT_assertv(shape.size() == map.getNumDims(),
              "Shape size must match number of map dimensions");
@@ -1347,9 +1350,7 @@ size_t computeCoalescingFactorAnalytically(mlir::AffineMap map,
         simplifiedMap, shape, numGridDims, shardDimIdx);
     // Short circuit if unanalyzable bound is found.
     if (!contiguityBound.has_value()) {
-      llvm::errs() << "Warning: Unable to analytically compute coalescing "
-                      "factor, falling back to sampling-based algorithm.\n";
-      return calculateCoalescingFactor(map, shape, elemSizeBytes, numGridDims);
+      return std::nullopt;
     }
     dimContiguityBounds.push_back(contiguityBound);
   }
@@ -1376,9 +1377,7 @@ size_t computeCoalescingFactorAnalytically(mlir::AffineMap map,
       analyzeShardDimStrides(simplifiedMap, shape, numGridDims, elemSizeBytes);
   // Short circuit if unanalyzable stride is found.
   if (!strideLimitOpt.has_value()) {
-    llvm::errs() << "Warning: Unable to analytically compute coalescing "
-                    "factor, falling back to sampling-based algorithm.\n";
-    return calculateCoalescingFactor(map, shape, elemSizeBytes, numGridDims);
+    return std::nullopt;
   }
   size_t strideLimit = strideLimitOpt.value();
   TT_assertv(strideLimit % elemSizeBytes == 0u,
@@ -1390,6 +1389,21 @@ size_t computeCoalescingFactorAnalytically(mlir::AffineMap map,
   }
 
   return coalescingFactor;
+}
+
+size_t computeCoalescingFactorAnalytically(mlir::AffineMap map,
+                                           mlir::ArrayRef<int64_t> shape,
+                                           unsigned numGridDims,
+                                           size_t elemSizeBytes) {
+  std::optional<size_t> coalescingFactor =
+      tryComputeCoalescingFactorAnalytically(map, shape, numGridDims,
+                                             elemSizeBytes);
+  if (!coalescingFactor.has_value()) {
+    llvm::errs() << "Warning: Unable to analytically compute coalescing "
+                    "factor, falling back to sampling-based algorithm.\n";
+    return calculateCoalescingFactor(map, shape, elemSizeBytes, numGridDims);
+  }
+  return *coalescingFactor;
 }
 
 } // namespace ttmlir::utils

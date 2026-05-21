@@ -87,7 +87,17 @@ computeCoalescingFactorForShardDim(mlir::AffineMap map,
 
 /// Computes a combined coalescing factor by analyzing all shard dimensions
 /// from most minor to least minor, checking both stride alignment and
-/// contiguity constraints. Returns the maximum coalescable run length.
+/// contiguity constraints. Returns std::nullopt if the analysis cannot prove a
+/// valid factor without sampling.
+/// Requires exactly one shard result (the last result in the map).
+std::optional<size_t> tryComputeCoalescingFactorAnalytically(
+    mlir::AffineMap map, mlir::ArrayRef<int64_t> shape, unsigned numGridDims,
+    size_t elemSizeBytes);
+
+/// Computes a combined coalescing factor by analyzing all shard dimensions
+/// from most minor to least minor, checking both stride alignment and
+/// contiguity constraints. Falls back to sampling if the analysis cannot prove
+/// a valid factor.
 /// Requires exactly one shard result (the last result in the map).
 size_t computeCoalescingFactorAnalytically(mlir::AffineMap map,
                                            mlir::ArrayRef<int64_t> shape,

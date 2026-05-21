@@ -15,6 +15,7 @@ target_link_libraries(${TESTSUITE}
     MLIRD2MUtils
     MLIRSupport
     MLIRIR
+    MLIRParser
     MLIRAffineDialect
     coverage_config
 )

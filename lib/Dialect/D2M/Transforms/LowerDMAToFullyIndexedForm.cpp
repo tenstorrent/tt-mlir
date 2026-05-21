@@ -77,14 +77,16 @@ static size_t getElementSizeBytes(MemRefType memref) {
                   : elementType.getIntOrFloatBitWidth() / 8;
 }
 
-// Calculates coalescing factor using analytical method with sampling fallback.
-// Mirrors the logic from GenericLowerDMAs::analyzeStream.
-static size_t calculateCoalescingFactorWithFallback(
-    AffineMap memoryMap, ArrayRef<int64_t> gridShape,
-    ArrayRef<int64_t> shardShape, size_t elemSizeBytes,
-    bool debugCoalescingInference) {
+// Calculates the coalescing factor analytically. Sampling is reserved for the
+// explicit debug comparison path because it is prohibitively expensive for
+// large fully-indexed DMA regions.
+static size_t calculateCoalescingFactor(AffineMap memoryMap,
+                                        ArrayRef<int64_t> gridShape,
+                                        ArrayRef<int64_t> shardShape,
+                                        size_t elemSizeBytes,
+                                        bool debugCoalescingInference) {
 
-  static constexpr size_t coalescingFactorSamplingFallbackThreshold = 16;
+  static constexpr size_t conservativeCoalescingFactor = 1;
 
   // Compute full shape (grid + shard)
   SmallVector<int64_t> fullShape;
@@ -92,65 +94,58 @@ static size_t calculateCoalescingFactorWithFallback(
   fullShape.append(shardShape.begin(), shardShape.end());
 
   // Try analytical method first
-  size_t coalescingFactor = ttmlir::utils::computeCoalescingFactorAnalytically(
-      memoryMap, fullShape, gridShape.size(), elemSizeBytes);
+  std::optional<size_t> analyticalCoalescingFactor =
+      ttmlir::utils::tryComputeCoalescingFactorAnalytically(
+          memoryMap, fullShape, gridShape.size(), elemSizeBytes);
+  size_t coalescingFactor =
+      analyticalCoalescingFactor.value_or(conservativeCoalescingFactor);
 
-  // Determine if we should fallback to sampling
-  size_t analyticalChunkSize = coalescingFactor * elemSizeBytes;
-  bool shouldFallbackToSampling =
-      analyticalChunkSize <= coalescingFactorSamplingFallbackThreshold;
-
-  if (shouldFallbackToSampling || debugCoalescingInference) {
-    if (shouldFallbackToSampling) {
-      llvm::dbgs() << "Analytical coalescing factor below threshold, "
-                      "falling back to sampling based coalescing factor...\n";
-    } else {
-      llvm::dbgs() << "--------------------------[CoalescingFactor]------------"
-                      "--------------------\n";
-      llvm::dbgs() << "Computing sampling based coalescing factor...\n";
+  if (debugCoalescingInference) {
+    if (!analyticalCoalescingFactor.has_value()) {
+      llvm::dbgs() << "Analytical coalescing factor unavailable; using "
+                      "conservative factor = "
+                   << coalescingFactor << "\n";
     }
+
+    llvm::dbgs() << "--------------------------[CoalescingFactor]------------"
+                    "--------------------\n";
+    llvm::dbgs() << "Computing sampling based coalescing factor...\n";
 
     size_t sampledCoalescingFactor = ttmlir::utils::calculateCoalescingFactor(
         memoryMap, fullShape, elemSizeBytes, gridShape.size());
 
-    if (debugCoalescingInference) {
-      if (coalescingFactor == sampledCoalescingFactor) {
-        llvm::dbgs() << "  [✓] Analytical and sampled coalescing "
-                        "factors MATCH = "
-                     << coalescingFactor << "\n";
-      } else if (coalescingFactor != sampledCoalescingFactor &&
-                 sampledCoalescingFactor % coalescingFactor == 0) {
-        llvm::dbgs() << "  [✓] Analytical coalescing factor is valid, but "
-                        "smaller than the sampled coalescing factor!\n";
-        llvm::dbgs() << "    analytical = " << coalescingFactor
-                     << " vs sampled = " << sampledCoalescingFactor << "\n";
-        llvm::dbgs() << "    Map: " << memoryMap << "\n";
-        llvm::dbgs() << "    Shape: "
-                     << ttmlir::utils::formatIterable(fullShape, "x") << "\n";
-        llvm::dbgs() << "  Setting coalescing factor to fallback sampled "
-                        "value = "
-                     << sampledCoalescingFactor << "\n";
-        coalescingFactor = sampledCoalescingFactor;
-      }
+    if (coalescingFactor == sampledCoalescingFactor) {
+      llvm::dbgs() << "  [✓] Analytical and sampled coalescing "
+                      "factors MATCH = "
+                   << coalescingFactor << "\n";
+    } else if (sampledCoalescingFactor % coalescingFactor == 0) {
+      llvm::dbgs() << "  [✓] Analytical coalescing factor is valid, but "
+                      "smaller than the sampled coalescing factor!\n";
+      llvm::dbgs() << "    analytical = " << coalescingFactor
+                   << " vs sampled = " << sampledCoalescingFactor << "\n";
+      llvm::dbgs() << "    Map: " << memoryMap << "\n";
+      llvm::dbgs() << "    Shape: "
+                   << ttmlir::utils::formatIterable(fullShape, "x") << "\n";
+      llvm::dbgs() << "  Debug mode only: setting coalescing factor to "
+                      "sampled value = "
+                   << sampledCoalescingFactor << "\n";
+      coalescingFactor = sampledCoalescingFactor;
+    }
 
-      if (sampledCoalescingFactor % coalescingFactor != 0) {
-        llvm::dbgs() << "  [ERROR] Analytical coalescing factor is not a "
-                        "divisor of sampled coalescing factor! Generated DMA "
-                        "indexing is likely incorrect!\n";
-        llvm::dbgs() << "    Sampled coalescing factor: "
-                     << sampledCoalescingFactor << "\n";
-        llvm::dbgs() << "    Analytical coalescing factor: " << coalescingFactor
-                     << "\n";
-        llvm::dbgs() << "    Map: " << memoryMap << "\n";
-        llvm::dbgs() << "    Shape: "
-                     << ttmlir::utils::formatIterable(fullShape, "x") << "\n";
-        llvm::dbgs() << "  Setting coalescing factor to fallback sampled "
-                        "value = "
-                     << sampledCoalescingFactor << "\n";
-        coalescingFactor = sampledCoalescingFactor;
-      }
-    } else if (shouldFallbackToSampling) {
-      // Not in debug mode but we need to fallback
+    if (sampledCoalescingFactor % coalescingFactor != 0) {
+      llvm::dbgs() << "  [ERROR] Analytical coalescing factor is not a "
+                      "divisor of sampled coalescing factor! Generated DMA "
+                      "indexing is likely incorrect!\n";
+      llvm::dbgs() << "    Sampled coalescing factor: "
+                   << sampledCoalescingFactor << "\n";
+      llvm::dbgs() << "    Analytical coalescing factor: " << coalescingFactor
+                   << "\n";
+      llvm::dbgs() << "    Map: " << memoryMap << "\n";
+      llvm::dbgs() << "    Shape: "
+                   << ttmlir::utils::formatIterable(fullShape, "x") << "\n";
+      llvm::dbgs() << "  Debug mode only: setting coalescing factor to "
+                      "sampled value = "
+                   << sampledCoalescingFactor << "\n";
       coalescingFactor = sampledCoalescingFactor;
     }
 
@@ -499,9 +494,9 @@ public:
     AffineMap paddedSrcMap =
         composedSrcMap.replaceDimsAndSymbols(dimShift, {}, 2 * dstRank, 0);
     SmallVector<int64_t> dummyGridShape(dstRank, 1);
-    size_t coalescingFactor = calculateCoalescingFactorWithFallback(
-        paddedSrcMap, dummyGridShape, dstShape, elemSizeBytes,
-        debugCoalescingInference);
+    size_t coalescingFactor =
+        calculateCoalescingFactor(paddedSrcMap, dummyGridShape, dstShape,
+                                  elemSizeBytes, debugCoalescingInference);
 
     // Collect all enclosing blocking loops (there may be multiple for
     // multi-dimensional blocking, e.g. block_factors = [BF0, BF1]).
