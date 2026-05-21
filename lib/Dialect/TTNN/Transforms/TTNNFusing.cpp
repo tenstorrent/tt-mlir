@@ -176,6 +176,25 @@ private:
   }
 };
 
+// Activation fusion changes the lowered TTNN op from
+// `unary(binary(a, b))` into a single `binary(a, b, activations=[unary])`,
+// which routes through tt-metal's `binary_ng` post-activation path. That path
+// currently mishandles broadcast inputs (e.g. height/channel-broadcast bias
+// add) and produces wrong values.
+// Metal issue: https://github.com/tenstorrent/tt-metal/issues/44823
+// Only fuse activations into binary ops whose two inputs have identical
+// shapes (no broadcast).
+inline bool binaryOpInputsHaveSameShape(ElementwiseBinary binaryOp) {
+  auto lhsType =
+      mlir::dyn_cast<mlir::RankedTensorType>(binaryOp.getLhs().getType());
+  auto rhsType =
+      mlir::dyn_cast<mlir::RankedTensorType>(binaryOp.getRhs().getType());
+  if (!lhsType || !rhsType) {
+    return false;
+  }
+  return lhsType.getShape() == rhsType.getShape();
+}
+
 namespace {
 class TTNNBinaryOpInputsActivation
     : public mlir::OpInterfaceRewritePattern<ElementwiseBinaryActivations> {
@@ -188,6 +207,11 @@ public:
                   mlir::PatternRewriter &rewriter) const final {
     auto binaryOp =
         mlir::cast<ElementwiseBinary>(binaryOpWithActivations.getOperation());
+
+    if (!binaryOpInputsHaveSameShape(binaryOp)) {
+      return failure();
+    }
+
     bool isFused = false;
 
     if (auto lhsUnaryOp = getFusableUnaryOp(binaryOp.getLhs())) {
@@ -252,6 +276,11 @@ public:
 
     auto binaryOp = getFusableBinaryOp(unaryOp.getInput());
     if (!binaryOp) {
+      return failure();
+    }
+
+    if (!binaryOpInputsHaveSameShape(
+            mlir::cast<ElementwiseBinary>(binaryOp.getOperation()))) {
       return failure();
     }
 

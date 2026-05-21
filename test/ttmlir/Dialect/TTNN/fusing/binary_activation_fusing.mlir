@@ -96,4 +96,25 @@ module {
 
     return %2 : tensor<64x128xf32>
   }
+
+  // Activation fusion is skipped when binary inputs have different shapes
+  // (broadcast). tt-metal's binary_ng path mishandles broadcast + post/input
+  // activation in fp32, which broke JAX ResNet (BN bias add + ReLU).
+  // CHECK-LABEL: func.func @no_fusion_broadcast_inputs
+  func.func @no_fusion_broadcast_inputs(%arg0: tensor<64x128xf32>, %arg1: tensor<1x128xf32>) -> tensor<64x128xf32> {
+    %0 = "ttir.relu"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
+
+    %1 = "ttir.add"(%0, %arg1) : (tensor<64x128xf32>, tensor<1x128xf32>) -> tensor<64x128xf32>
+
+    %2 = "ttir.relu"(%1) : (tensor<64x128xf32>) -> tensor<64x128xf32>
+
+    // CHECK: "ttnn.relu"
+    // CHECK: "ttnn.add"
+    // CHECK-SAME: activations = []
+    // CHECK-SAME: input_tensor_a_activations = []
+    // CHECK-SAME: input_tensor_b_activations = []
+    // CHECK: "ttnn.relu"
+
+    return %2 : tensor<64x128xf32>
+  }
 }

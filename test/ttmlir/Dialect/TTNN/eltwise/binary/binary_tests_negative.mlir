@@ -5,7 +5,7 @@ module attributes {} {
   func.func @add(%arg0: tensor<64x128xf32, #ttnn_layout>, %arg1: tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<64x128>}> : (!ttnn.device) -> tensor<64x128xf32, #ttnn_layout>
-    %2 = "ttnn.add"(%arg0, %arg1, %1) : (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout>
+    %2 = "ttnn.add"(%arg0, %arg1, %1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout>
     // CHECK: error: 'ttnn.add' op expected 2 operands, but found 3
     return %2 : tensor<64x128xf32, #ttnn_layout>
   }
