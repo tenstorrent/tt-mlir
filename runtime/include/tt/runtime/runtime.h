@@ -263,7 +263,7 @@ std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef);
 ::tt::target::DataType getTensorRefDataType(TensorRef tensorRef);
 
 // For the given tensor reference, retrieves the tensor from the program's
-// tensor pool. 
+// tensor pool.
 // Returns std::nullopt when the tensor cannot be retrieved (e.g. it is not
 // in the pool).
 std::optional<Tensor>

@@ -96,7 +96,7 @@ def make_linear_postop(expected_per_shard, replacement_per_shard, alive_refs):
         shards = ttrt.runtime.to_host(tensor, untilize=True)
 
         assert shards is not None
-    
+
         assert len(shards) == len(
             expected_per_shard
         ), f"Expected {len(expected_per_shard)} shards, got {len(shards)}"
