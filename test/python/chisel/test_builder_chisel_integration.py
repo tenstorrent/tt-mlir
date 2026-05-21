@@ -336,13 +336,11 @@ def _assert_matmul_pcc(
     assert records, "chisel report is empty"
 
     ops_seen = {r.op for r in records}
-    assert "ttnn.matmul" in ops_seen, (
-        f"expected ttnn.matmul in chisel records, got {sorted(ops_seen)}"
-    )
+    assert (
+        "ttnn.matmul" in ops_seen
+    ), f"expected ttnn.matmul in chisel records, got {sorted(ops_seen)}"
 
-    matmul_pcc = [
-        r for r in records if r.op == "ttnn.matmul" and r.check == "numerics"
-    ]
+    matmul_pcc = [r for r in records if r.op == "ttnn.matmul" and r.check == "numerics"]
     assert matmul_pcc, "no PCC records produced for ttnn.matmul"
 
     expected_chips = _mesh_size(mesh)
