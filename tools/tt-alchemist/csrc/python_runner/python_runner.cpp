@@ -9,6 +9,7 @@
 #include <Python.h>
 
 #include <filesystem>
+#include <iostream>
 #include <system_error>
 
 #pragma clang diagnostic push
@@ -154,6 +155,9 @@ static void tryDeleteDictKey(PyObject *dict, const char *key) {
 
 void PythonModelRunner::loadModule(const std::string &moduleName,
                                    const std::string &functionName) {
+  std::cout << "[PythonModelRunner::loadModule] loading module: " << moduleName
+            << " (function: " << functionName << ")" << std::endl;
+
   nb::gil_scoped_acquire acquire;
 
   // sys.modules is process-wide. A previously-loaded module of the same name
