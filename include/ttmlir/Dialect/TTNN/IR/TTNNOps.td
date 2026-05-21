@@ -4045,11 +4045,13 @@ def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
     flatbuffer emission consumes `kernel_artifact` to embed the compiled
     kernel into the executable.
 
-    This op is intentionally opaque to the TTNN optimizer: it carries no
-    workarounds and is exempt from the op-model cost interface via the
-    `OpModelExempt` trait (its kernel body is not authored in TTNN dialects,
-    so neither op constraints nor runtime can be queried from inside
-    tt-mlir).
+    This op is intentionally opaque to the TTNN optimizer: it is exempt
+    from the op-model cost interface via the `OpModelExempt` trait (its
+    kernel body is not authored in TTNN dialects, so neither op constraints
+    nor runtime can be queried from inside tt-mlir). Its only operand
+    workaround is a hard `Layout::Tile` requirement on every input and
+    result so the layout pipeline materialises tilized buffers for the
+    kernel's reader/writer threads.
   }];
 
   let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
@@ -4059,6 +4061,38 @@ def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
                        DefaultValuedStrAttr<StrAttr, "">:$shard_spec,
                        OptionalAttr<DenseI8ArrayAttr>:$kernel_artifact);
   let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let extraClassDeclaration = [{
+    // tt-lang kernels are emitted assuming TILE_LAYOUT for every operand:
+    // the JIT'd readers/writers use ``noc_async_read_tile`` /
+    // ``noc_async_write_tile`` with the synthesized
+    // ``aligned_page_size = tile_h * tile_w * elem_size_bytes`` per
+    // operand, and the compute thread interprets each page as a 32x32
+    // tile (4 16x16 faces). If an operand reaches us in row-major
+    // layout the addresses still land inside the tensor but the bytes
+    // we read don't form a valid tile -- the kernel silently produces
+    // garbage. Reject row-major here so the layout pipeline inserts
+    // ``ttnn.to_layout`` for every operand and the bridge sees a
+    // uniform Tile world.
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      wa::TTNNOperandWorkarounds tile;
+      tile.tensorLayoutWorkaround = Layout::Tile;
+      // ``createEmptyTTNNOperandsWorkarounds(Operation*)`` pre-fills one
+      // slot per ranked-tensor input/result, so we must use the zero-arg
+      // form and append one workaround per input/result ourselves. Using
+      // the operation-aware overload here would double-count and trip
+      // ``ttnn.tt_lang_op``'s verifier ("number of input operand
+      // workarounds N does not match the number of tensor inputs M").
+      auto wa = wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+      for (size_t i = 0; i < this->getInputs().size(); ++i) {
+        wa.addInputOperandWorkaround(tile);
+      }
+      for (size_t i = 0; i < this->getResults().size(); ++i) {
+        wa.addOutputOperandWorkaround(tile);
+      }
+      return wa;
+    }
+  }];
 
   let assemblyFormat = [{
     `(` $inputs `)` attr-dict `:` `(` type($inputs) `)` `->` `(` type($results) `)`
