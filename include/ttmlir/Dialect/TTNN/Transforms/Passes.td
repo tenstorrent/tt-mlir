@@ -263,18 +263,20 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
     Option<"tuplifyInputIfEmpty",
             "tuplify-input-if-empty",
             "bool", /*default=*/"false",
-            "If input arg is originally empty, force create an empty tuple arg. This is useful for scenarios where "
-            "signatures are required have tuples on the input, like the EmitC dylib path.">
+            "If forward function input arg is originally empty, force create an empty tuple arg. This is useful for scenarios where "
+            "signatures are required to have tuples on the input, like the EmitC dylib or EmitPy targetModule path.">
   ];
 }
 
 def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir::ModuleOp"> {
   let summary = "Prepare module for Python module export.";
   let description = [{
-    This pass prepares the module for export as a Python module by:
-    1. Renaming the first public (non-private, non-const-eval) function to "forward"
+    Reshapes the first forward device function into the canonical entry-point
+    signature consumed by the frontends by:
+    1. Renaming the first forward device function to "forward"
     2. Adding a device argument to the function signature
     3. Replacing all ttnn.get_device ops with the device function argument
+    4. Preparing the forward function input tensors to be in the right form (host/device, layout, dtype)
 
     Given a forward function like this:
 
@@ -283,8 +285,8 @@ def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir:
       %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
       %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
       %2 = "ttnn.get_device"() : () -> !ttnn.device
-      %3 = "ttnn.to_device"(%0, %2) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
-      %4 = "ttnn.to_device"(%1, %2) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %3 = "ttnn.to_device"(%0, %2) : (tensor<32x32xbf16>, !ttnn.device) -> tensor<32x32xbf16>
+      %4 = "ttnn.to_device"(%1, %2) : (tensor<32x32xbf16>, !ttnn.device) -> tensor<32x32xbf16>
       %5 = "ttnn.add"(%3, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %6 = ttcore.tuple %5 : tuple<tensor<32x32xbf16>>
       return %6 : tuple<tensor<32x32xbf16>>
@@ -294,15 +296,41 @@ def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir:
     The pass will return:
 
     ```mlir
-    func.func @forward(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
+    func.func @forward(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>> {emitpy.name = "input"},
+                       %arg1: !ttnn.device {emitpy.name = "device"}) -> tuple<tensor<32x32xbf16>> {
       %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
       %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
-      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
-      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16>, !ttnn.device) -> tensor<32x32xbf16>
+      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16>, !ttnn.device) -> tensor<32x32xbf16>
       %4 = "ttnn.add"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %5 = ttcore.tuple %4 : tuple<tensor<32x32xbf16>>
       return %5 : tuple<tensor<32x32xbf16>>
     }
+    ```
+
+    The example above shows the trivial case where tuple elements have no
+    device-buffer layout and step 4 is a no-op. When a tuple element does
+    carry a device-buffer layout, step 4 additionally retypes it to a host
+    layout in the signature and stages each `ttcore.get_tuple_element`
+    host -> device via a `ttnn.to_layout` followed by a `ttnn.to_device`.
+    The target memory config (buffer type, memory layout, shard spec) is
+    conveyed via the result tensor type's `TTNNLayoutAttr` encoding
+    (`#device` below; `#host` is `SystemMemory + RowMajor`, `#host_staged`
+    is `SystemMemory` carrying the target tile/dtype):
+
+    ```mlir
+    // Before:
+    %0 = ttcore.get_tuple_element %arg0[0]
+        : (tuple<tensor<32x32xbf16, #device>, ...>) -> tensor<32x32xbf16, #device>
+
+    // After:
+    %0 = ttcore.get_tuple_element %arg0[0]
+        : (tuple<tensor<32x32xbf16, #host>, ...>)   -> tensor<32x32xbf16, #host>
+    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>, dtype = bf16}>
+        : (tensor<32x32xbf16, #host>) -> tensor<32x32xbf16, #host_staged>
+    %2 = "ttnn.to_device"(%1, %arg1)
+        : (tensor<32x32xbf16, #host_staged>, !ttnn.device)
+          -> tensor<32x32xbf16, #device>
     ```
   }];
 }
