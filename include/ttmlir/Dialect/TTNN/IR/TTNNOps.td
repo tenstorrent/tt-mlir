@@ -3992,7 +3992,9 @@ def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExem
 //===----------------------------------------------------------------------===//
 
 def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
-    [TTNN_WorkaroundInterface, OpModelExempt]> {
+    [TTNN_WorkaroundInterface,
+     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+     OpModelExempt]> {
   let summary = "Opaque tt-lang custom kernel call.";
   let description = [{
     TTNN-level placeholder for a user-defined tt-lang kernel. Lowered from
@@ -4012,6 +4014,16 @@ def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
     workaround is a hard `Layout::Tile` requirement on every input and
     result so the layout pipeline materialises tilized buffers for the
     kernel's reader/writer threads.
+
+    The op publishes its per-operand aliasing contract through
+    `MemoryEffectOpInterface`: each operand tagged `"in"` in
+    `arg_roles` is published with `MemoryEffects::Read`, and each
+    `"out"` operand with `MemoryEffects::Write`. Generic MLIR
+    analyses (the TTNN deallocate pass, LICM, etc.) consume these
+    per-operand effects directly, so the op does not need to be
+    special-cased by name. Operand ordering inside `arg_roles` is
+    free-form (e.g. `"in,out,in"` is valid) so the kernel author's
+    function signature is preserved end-to-end.
   }];
 
   let arguments = (ins Variadic<AnyRankedTensor>:$inputs,

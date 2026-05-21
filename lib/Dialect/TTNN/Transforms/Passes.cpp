@@ -25,6 +25,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -123,7 +124,31 @@ public:
   // detected).
   LogicalResult checkAndInsertDeallocation(IRRewriter &rewriter, Value value,
                                            Operation *lastOp) {
+    // The return op owns its operands' lifetime; the caller will
+    // gather them from the tensor pool, so we must not free them.
     if (isa<func::ReturnOp>(lastOp)) {
+      return success();
+    }
+
+    // Skip the dealloc when `lastOp` writes through `value` --
+    // i.e. `value` is consumed as a mutated operand whose buffer the
+    // op reuses for its SSA result. The flatbuffer emitter aliases
+    // the op's result to that operand's TensorRef, so the operand
+    // and the result share a `global_id` in the runtime tensor pool.
+    // Dealloc-ing here would erase the `global_id` before the
+    // downstream consumer (typically the function return) can fetch
+    // it, and the runtime FATALs with "Tensor not found in tensor
+    // pool." The buffer's lifetime is managed via the aliased result.
+    //
+    // We query this through `MemoryEffectOpInterface` rather than
+    // name-matching on specific ops: today this matches
+    // `ttnn.tt_lang_op` on its `"out"`-roled operands and the
+    // `update_cache` / `fill_cache` family on the cache tensor, but
+    // any op that publishes a per-operand `Write` effect picks up
+    // this handling automatically.
+    if (auto effectOp = dyn_cast<MemoryEffectOpInterface>(lastOp);
+        effectOp &&
+        effectOp.getEffectOnValue<MemoryEffects::Write>(value).has_value()) {
       return success();
     }
 
