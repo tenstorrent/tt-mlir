@@ -71,7 +71,6 @@ def create_binary_op_with_activations(
     in0: Operand,
     in1: Operand,
     *,
-    has_dtype: bool,
     input_tensor_a_activation: Optional[
         Tuple[str, Callable[[torch.Tensor], torch.Tensor], ttnn.UnaryOpType]
     ] = None,
@@ -112,28 +111,15 @@ def create_binary_op_with_activations(
         builder, input_tensor_b_activation[2] if input_tensor_b_activation else None
     )
 
-    if has_dtype:
-        dtype = builder._get_data_type_attribute(in0)
-        op = op_class(
-            result,
-            in0,
-            in1,
-            dtype=dtype,
-            activations=activations,
-            input_tensor_a_activations=input_tensor_a_activations,
-            input_tensor_b_activations=input_tensor_b_activations,
-            loc=loc,
-        )
-    else:
-        op = op_class(
-            result,
-            in0,
-            in1,
-            activations=activations,
-            input_tensor_a_activations=input_tensor_a_activations,
-            input_tensor_b_activations=input_tensor_b_activations,
-            loc=loc,
-        )
+    op = op_class(
+        result,
+        in0,
+        in1,
+        activations=activations,
+        input_tensor_a_activations=input_tensor_a_activations,
+        input_tensor_b_activations=input_tensor_b_activations,
+        loc=loc,
+    )
 
     if unit_attrs is not None:
         for attr_name in unit_attrs:
@@ -364,9 +350,9 @@ def test_add_dram_sharded(
 
 
 activated_binary_ops = [
-    pytest.param("add", ttnn.AddOp, True, id="add"),
-    pytest.param("maximum", ttnn.MaximumOp, False, id="maximum"),
-    pytest.param("multiply", ttnn.MultiplyOp, True, id="multiply"),
+    pytest.param("add", ttnn.AddOp, id="add"),
+    pytest.param("maximum", ttnn.MaximumOp, id="maximum"),
+    pytest.param("multiply", ttnn.MultiplyOp, id="multiply"),
 ]
 
 
@@ -377,11 +363,10 @@ activated_binary_ops = [
 @pytest.mark.parametrize(
     "activation_name,activation_fn,activation_type", activation_specs
 )
-@pytest.mark.parametrize("op_name,op_class,has_dtype", activated_binary_ops)
+@pytest.mark.parametrize("op_name,op_class", activated_binary_ops)
 def test_binary_ops_with_activations(
     op_name: str,
     op_class: type,
-    has_dtype: bool,
     activation_name: str,
     activation_fn: Callable[[torch.Tensor], torch.Tensor],
     activation_type: ttnn.UnaryOpType,
@@ -413,7 +398,6 @@ def test_binary_ops_with_activations(
                 op_class,
                 in0,
                 in1,
-                has_dtype=has_dtype,
                 input_tensor_a_activation=input_tensor_a_activation,
                 input_tensor_b_activation=input_tensor_b_activation,
                 output_activation=output_activation,

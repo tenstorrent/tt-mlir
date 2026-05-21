@@ -1791,9 +1791,9 @@ protected:
     }
 
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
-        CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
-        inputLayoutB, postActivationsAttrs, lhsActivationsAttrs,
-        rhsActivationsAttrs, outputLayout);
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+        postActivationsAttrs, lhsActivationsAttrs, rhsActivationsAttrs,
+        outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -1860,9 +1860,9 @@ protected:
     }
 
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
-        CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB,
-        inputLayoutB, postActivationsAttrs, lhsActivationsAttrs,
-        rhsActivationsAttrs, outputLayout);
+        inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+        postActivationsAttrs, lhsActivationsAttrs, rhsActivationsAttrs,
+        outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
