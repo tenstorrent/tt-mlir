@@ -48,7 +48,8 @@ func.func @sharded_to_interleaved_reblock() -> tensor<32x2048xbf16, #ttnn_dram_i
   // CHECK: d2m.remote_store %[[VIEW]][%{{.*}}, %{{.*}}] {{.*}} : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #layout3>
   // CHECK: } : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #layout3>
   // CHECK-NOT: d2m.generic
-  // CHECK: ttir.ttnn_metal_layout_cast %[[RESULT]]
+  // CHECK: %[[RESULT_VIEW:.*]] = d2m.view_layout %[[RESULT]] remapping = #map6 : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #layout3> -> tensor<1x1x1x64x!ttcore.tile<32x32, bf16>, #layout3>
+  // CHECK: ttir.ttnn_metal_layout_cast %[[RESULT_VIEW]]
 
   %1 = d2m.to_layout %src, %dst : tensor<1x64x1x1x!ttcore.tile<32x32, bf16>, #l1_sharded_2> into tensor<1x1x1x64x!ttcore.tile<32x32, bf16>, #dram_interleaved_2>
     -> tensor<1x1x1x64x!ttcore.tile<32x32, bf16>, #dram_interleaved_2>

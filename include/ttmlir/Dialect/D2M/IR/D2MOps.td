@@ -429,8 +429,6 @@ def D2M_GenericOp
           bool generateReturnView = true);
       static Value findAssocOperand(memref::AllocOp allocOp);
       static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
-      static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
-      static Value findAssocCBByOperand(Operation *op, Value operand);
 
       /// Get the allocation (tensor.empty or memref.alloc) op result at
       /// position `operandIndex` from the region's first block using

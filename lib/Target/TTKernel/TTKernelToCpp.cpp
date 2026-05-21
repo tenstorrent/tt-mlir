@@ -176,8 +176,8 @@ public:
     region->walk([&](emitc::VerbatimOp verbatimOp) {
       llvm::StringRef value = verbatimOp.getValue();
 
-      if (value.starts_with("experimental::CircularBuffer")) {
-        headers.insert("experimental/circular_buffer.h");
+      if (value.starts_with("CircularBuffer")) {
+        headers.insert("api/dataflow/circular_buffer.h");
       }
 
       // Some callees are embedded in VerbatimOps.

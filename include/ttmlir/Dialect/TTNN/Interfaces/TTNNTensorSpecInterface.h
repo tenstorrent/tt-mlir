@@ -5,12 +5,38 @@
 #ifndef TTMLIR_DIALECT_TTNN_INTERFACES_TTNNTENSORSPECINTERFACE_H
 #define TTMLIR_DIALECT_TTNN_INTERFACES_TTNNTENSORSPECINTERFACE_H
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttnn {
+inline MemoryConfigAttr getMemoryConfigFromResult(mlir::Operation *op) {
+  if (op->getNumResults() == 0) {
+    return nullptr;
+  }
+
+  auto output = mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!output) {
+    return nullptr;
+  }
+
+  if (!output.getEncoding()) {
+    return nullptr;
+  }
+
+  return llvm::TypeSwitch<mlir::Attribute, MemoryConfigAttr>(
+             output.getEncoding())
+      .Case<TTNNLayoutAttr>([](TTNNLayoutAttr layoutAttr) {
+        return MemoryConfigAttr::get(layoutAttr);
+      })
+      .Case<TTNNNDLayoutAttr>([](TTNNNDLayoutAttr layoutAttr) {
+        return MemoryConfigAttr::get(layoutAttr);
+      })
+      .Default([](mlir::Attribute) { return MemoryConfigAttr(); });
+}
+
 // Verifies the TTNNDtypeOpInterface
 template <typename ConcreteType>
 mlir::LogicalResult verifyTTNNDtypeOpInterface(mlir::Operation *op) {
@@ -28,11 +54,9 @@ mlir::LogicalResult verifyTTNNDtypeOpInterface(mlir::Operation *op) {
       return mlir::success();
     }
 
+    // Some ops derive output dtype from output layout encoding.
     if (!outputDTypeAttr) {
-      return op->emitOpError()
-             << "output data type attribute is not defined for op "
-             << "that has output layout data attribute "
-             << DataTypeEnumToString(outputLayoutAttr.getDataType());
+      continue;
     }
 
     // Compare output data type attribute with output tensor data type.
@@ -84,82 +108,6 @@ mlir::LogicalResult verifyTTNNLayoutInterface(mlir::Operation *op) {
   return mlir::success();
 }
 
-// Generically support different LayoutAttr types.
-template <typename LayoutAttrType>
-mlir::LogicalResult
-verifyMemoryConfigWithLayout(mlir::Operation *op,
-                             MemoryConfigAttr memoryConfigAttr,
-                             LayoutAttrType outputLayoutAttr) {
-  // Verify if the buffer type is the same.
-  if (memoryConfigAttr.getBufferType().getValue() !=
-      outputLayoutAttr.getBufferType()) {
-    return op->emitOpError()
-           << "Output tensor buffer type "
-           << stringifyBufferType(outputLayoutAttr.getBufferType())
-           << " must match memory config buffer type "
-           << stringifyBufferType(memoryConfigAttr.getBufferType().getValue());
-  }
-
-  // Tensor memory layout is optional, if not set, it is assumed to be the
-  // same as the output tensor memory layout.
-  if (memoryConfigAttr.getTensorMemoryLayout() &&
-      memoryConfigAttr.getTensorMemoryLayout() !=
-          outputLayoutAttr.getMemLayout()) {
-    return op->emitOpError()
-           << "Output tensor layout memory space "
-           << stringifyTensorMemoryLayout(
-                  outputLayoutAttr.getMemLayout().getValue())
-           << " must match memory config memory space "
-           << stringifyTensorMemoryLayout(
-                  memoryConfigAttr.getTensorMemoryLayout().getValue());
-  }
-
-  if (memoryConfigAttr.getShardSpec()) {
-    if (memoryConfigAttr.getShardSpec()->getShape() !=
-        ShapeAttr::get(op->getContext(),
-                       outputLayoutAttr.getScalarShardShape())) {
-      return op->emitOpError()
-             << "Output tensor scalar shard shape ("
-             << outputLayoutAttr.getScalarShardShape()
-             << ") must match memory config shard spec shape ("
-             << memoryConfigAttr.getShardSpec()->getShape().getShape() << ")";
-    }
-  }
-
-  return mlir::success();
-}
-
-// Verifies the TTNNMemoryConfigInterface
-template <typename ConcreteType>
-mlir::LogicalResult verifyTTNNMemoryConfigInterface(mlir::Operation *op) {
-  // Check if the operation defines output memory config attribute.
-  auto memoryConfigAttr = mlir::cast<ConcreteType>(op).getMemoryConfigAttr();
-
-  if (!memoryConfigAttr) {
-    return mlir::success();
-  }
-
-  // Verify the output layout with the memory config attribute if exist.
-  assert(op->getResults().size() == 1 &&
-         "Operation should define only one result.");
-
-  // Retrieve output layout.
-  RankedTensorType output =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  mlir::Attribute encoding = output.getEncoding();
-
-  // Use TypeSwitch to handle both TTNNLayoutAttr and TTNNNDLayoutAttr
-  return llvm::TypeSwitch<mlir::Attribute, mlir::LogicalResult>(encoding)
-      .Case<TTNNLayoutAttr>([&](TTNNLayoutAttr layoutAttr) {
-        return verifyMemoryConfigWithLayout(op, memoryConfigAttr, layoutAttr);
-      })
-      .template Case<TTNNNDLayoutAttr>([&](TTNNNDLayoutAttr layoutAttr) {
-        return verifyMemoryConfigWithLayout(op, memoryConfigAttr, layoutAttr);
-      })
-      .Default([&](mlir::Attribute) {
-        return op->emitOpError() << "Unsupported layout encoding type";
-      });
-}
 // Verifies the TTNNComputeKernelConfigInterface
 template <typename ConcreteType>
 mlir::LogicalResult

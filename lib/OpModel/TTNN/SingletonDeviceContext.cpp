@@ -97,6 +97,9 @@ void SingletonDeviceContext::openDevice(
     case ttcore::Arch::Blackhole:
       metalArch = ::tt::ARCH::BLACKHOLE;
       break;
+    case ttcore::Arch::Quasar:
+      metalArch = ::tt::ARCH::QUASAR;
+      break;
     }
     ::tt::tt_metal::experimental::configure_mock_mode(metalArch, numChips);
   }

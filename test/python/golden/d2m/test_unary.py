@@ -302,7 +302,14 @@ unary_ops = [
 unary_ops_dtypes = [
     torch.float32,
     torch.bfloat16,
-    torch.int32 | SkipIf("sim"),
+    torch.int32
+    | SkipIf(
+        ["n150", "sim"],
+        ["n300", "sim"],
+        ["llmbox", "sim"],
+        ["tg", "sim"],
+        reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+    ),
 ]
 
 
@@ -368,7 +375,7 @@ bitwise_unary_ops = [bitwise_not]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("test_fn", bitwise_unary_ops)
 def test_bitwise_unary_ops(

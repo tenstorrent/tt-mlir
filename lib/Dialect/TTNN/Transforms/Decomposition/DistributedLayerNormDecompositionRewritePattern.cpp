@@ -77,7 +77,6 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
       /*residual_input=*/mlir::Value{},
       /*recip=*/mlir::Value{},
       /*dtype=*/dtypeAttr,
-      /*memory_config=*/nullptr,
       /*compute_config=*/nullptr,
       /*program_config=*/nullptr);
 
@@ -99,7 +98,6 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
       /*all_gather_dim=*/static_cast<int32_t>(rank - 1),
       /*cluster_axis=*/clusterAxis,
       /*sub_device_id=*/nullptr,
-      /*memory_config=*/nullptr,
       /*num_links=*/nullptr,
       /*topology=*/nullptr);
 
@@ -112,7 +110,6 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
       normInput, allGatherOp.getResult(), op.getWeight(), op.getBias(),
       op.getEpsilonAttr(),
       /*dtype=*/dtypeAttr,
-      /*memory_config=*/nullptr,
       /*compute_config=*/nullptr,
       /*program_config=*/nullptr);
 

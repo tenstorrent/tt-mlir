@@ -62,6 +62,7 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"noc_async_write_tile",                           {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_inc",                              {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set",                              {"", "api/dataflow/dataflow_api.h"}},
+        {"noc_semaphore_set_remote",                       {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_multicast",                    {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_multicast_loopback_src",       {"", "api/dataflow/dataflow_api.h"}},
         {"reset_noc_trid_barrier_counter",                 {"", "api/dataflow/dataflow_api.h"}},

@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/ConstevalForwardAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -33,13 +34,13 @@ bool hasFlattenedCompatInfoAttr(Operation *op) {
   return hasAttr;
 }
 
-uint64_t countTms(Operation *op) {
+uint64_t countTms(Operation *op, ConstevalForwardAnalysis &analysis) {
   uint64_t tmCount = 0;
   op->walk([&](Operation *op) {
     if (op->hasTrait<tt::ttir::TensorManipulation::Trait>()) {
       // If the TM lies on a constevalable subgraph then we will not count it
       // as it will be removed from the main graph.
-      if (!ttcore::valueTracesToConstantArgs(op->getResult(0))) {
+      if (!analysis.valueTracesToConstantArgs(op->getResult(0))) {
         tmCount++;
       }
     }
@@ -66,10 +67,6 @@ public:
       return;
     }
 
-    commuteAbovePatterns =
-        getCommuteRewritePatternSet<CommuteDirection::UPWARDS>();
-    commuteBelowPatterns =
-        getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>();
     for (auto funcOp : funcOps) {
       // If no ops were flattened, we don't expect any inverse TMs.
       // TTIR_FlattenedCompatInfoAttr (unless force flag is set)
@@ -77,8 +74,14 @@ public:
         continue;
       }
 
+      ConstevalForwardAnalysis analysis(funcOp);
+      FrozenRewritePatternSet commuteAbovePatterns(
+          getCommuteRewritePatternSet<CommuteDirection::UPWARDS>(&analysis));
+      FrozenRewritePatternSet commuteBelowPatterns(
+          getCommuteRewritePatternSet<CommuteDirection::DOWNWARDS>(&analysis));
+
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
-      const int64_t nonConstevalableTMsBefore = countTms(funcOp);
+      const int64_t nonConstevalableTMsBefore = countTms(funcOp, analysis);
 #endif
 
       uint64_t maxIterationsValue = maxIterations.getValue();
@@ -94,11 +97,11 @@ public:
         // We do not yet have a way of returning the beginning state of the
         // graph So we will return after we have commuted the TMs above at least
         // once
-        applyCommuteAbovePatterns(funcOp);
-        uint64_t afterCommuteAboveTMCount = countTms(funcOp);
+        applyCommuteAbovePatterns(funcOp, commuteAbovePatterns, analysis);
+        uint64_t afterCommuteAboveTMCount = countTms(funcOp, analysis);
 
-        applyCommuteBelowPatterns(funcOp);
-        uint64_t afterCommuteBelowTMCount = countTms(funcOp);
+        applyCommuteBelowPatterns(funcOp, commuteBelowPatterns, analysis);
+        uint64_t afterCommuteBelowTMCount = countTms(funcOp, analysis);
 
         // If the number of TM is the same as in the previous iteration, we have
         // converged.
@@ -108,7 +111,7 @@ public:
           // If the number of TM was smaller before commuting below, commute
           // above one more time.
           if (afterCommuteAboveTMCount < afterCommuteBelowTMCount) {
-            applyCommuteAbovePatterns(funcOp);
+            applyCommuteAbovePatterns(funcOp, commuteAbovePatterns, analysis);
           }
           break;
         }
@@ -124,7 +127,7 @@ public:
       }
 
 #ifdef TTMLIR_ENABLE_DEBUG_LOGS
-      const int64_t nonConstevalableTMsAfter = countTms(funcOp);
+      const int64_t nonConstevalableTMsAfter = countTms(funcOp, analysis);
 #endif
       TTMLIR_DEBUG(ttmlir::LogComponent::General,
                    "Function: {} | Num TMs on the activation paths before "
@@ -138,40 +141,51 @@ public:
   }
 
 private:
-  FrozenRewritePatternSet commuteAbovePatterns;
-  FrozenRewritePatternSet commuteBelowPatterns;
-
   template <CommuteDirection commuteDirection>
-  RewritePatternSet getCommuteRewritePatternSet() {
+  RewritePatternSet
+  getCommuteRewritePatternSet(ConstevalForwardAnalysis *analysis) {
     RewritePatternSet patterns(&getContext());
     populateElementwiseCommutePatterns<commuteDirection>(&getContext(),
-                                                         patterns);
+                                                         patterns, analysis);
     // Elementwise downwards can move reshapes onto consteval paths, creating
     // broadcast->reshape matches; keep broadcast-upwards in both sets so
     // elementwise-upwards does not race and pull those reshapes back first.
-    populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(&getContext(),
-                                                                patterns);
-    populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateRMSNormCommutePatterns<commuteDirection>(&getContext(), patterns);
-    populateSoftmaxCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(
+        &getContext(), patterns, analysis);
+    populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns,
+                                                    analysis);
+    populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns,
+                                                   analysis);
+    populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns,
+                                                    analysis);
+    populateRMSNormCommutePatterns<commuteDirection>(&getContext(), patterns,
+                                                     analysis);
+    populateSoftmaxCommutePatterns<commuteDirection>(&getContext(), patterns,
+                                                     analysis);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
   }
 
-  void applyCommuteAbovePatterns(Operation *op) {
+  void applyCommuteAbovePatterns(Operation *op,
+                                 const FrozenRewritePatternSet &patterns,
+                                 ConstevalForwardAnalysis &analysis) {
     if (enableCommuteUpwards.getValue()) {
-      if (failed(applyPatternsGreedily(op, commuteAbovePatterns))) {
+      GreedyRewriteConfig config;
+      config.setListener(&analysis);
+      if (failed(applyPatternsGreedily(op, patterns, config))) {
         signalPassFailure();
       }
     }
   }
 
-  void applyCommuteBelowPatterns(Operation *op) {
+  void applyCommuteBelowPatterns(Operation *op,
+                                 const FrozenRewritePatternSet &patterns,
+                                 ConstevalForwardAnalysis &analysis) {
     if (enableCommuteDownwards.getValue()) {
-      if (failed(applyPatternsGreedily(op, commuteBelowPatterns))) {
+      GreedyRewriteConfig config;
+      config.setListener(&analysis);
+      if (failed(applyPatternsGreedily(op, patterns, config))) {
         signalPassFailure();
       }
     }

@@ -2,14 +2,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import itertools
 import pytest
 import torch
-from typing import Optional
+from typing import List, Optional
 
-from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
-from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from d2m.test_matmul import create_matmul_constrained_inputs
+from d2m.test_reductions import (
+    _reduction_atol,
+    create_reductions_constrained_inputs,
+)
+from builder.ttir.ttir_builder import TTIRBuilder
+from conftest import get_request_kwargs
 from test_utils import shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -25,15 +31,15 @@ DRAM_FUSION_PIPELINE_OPTIONS = [
 ]
 
 DRAM_SHAPES = [
-    (1, 16),
-    (16, 16),
-    (32, 32),
-    (32, 64),
-    (64, 128),
-    (128, 128),
-    (256, 512),
-    (512, 1024),
+    (1, 15),
+    (17, 1),
+    (73, 467),
+    (449, 89),
+    (512, 8192),
+    (16384, 256),
     (2048, 2048),
+    (23, 383, 457),
+    (5, 3, 439, 373),
 ]
 
 
@@ -54,37 +60,13 @@ def shape_dtype_param(shape: Shape, dtype: torch.dtype):
 
 DRAM_FLOAT_CASES = [
     shape_dtype_param(shape, dtype)
-    for shape, dtype in zip(
-        DRAM_SHAPES,
-        [
-            torch.float32,
-            torch.bfloat16,
-            torch.float32,
-            torch.bfloat16,
-            torch.float32,
-            torch.bfloat16,
-            torch.float32,
-            torch.bfloat16,
-            torch.float32,
-        ],
-    )
+    for shape, dtype in itertools.product(DRAM_SHAPES, [torch.float32, torch.bfloat16])
 ]
 
 DRAM_NUMERIC_CASES = [
     shape_dtype_param(shape, dtype)
-    for shape, dtype in zip(
-        DRAM_SHAPES,
-        [
-            torch.float32,
-            torch.bfloat16,
-            torch.int32,
-            torch.float32,
-            torch.bfloat16,
-            torch.int32,
-            torch.float32,
-            torch.bfloat16,
-            torch.int32,
-        ],
+    for shape, dtype in itertools.product(
+        DRAM_SHAPES, [torch.float32, torch.bfloat16, torch.int32]
     )
 ]
 
@@ -102,13 +84,16 @@ def get_clamp_bounds(dtype: torch.dtype):
     return (0, 3) if dtype == torch.int32 else (-0.5, 0.8)
 
 
-def compile_dram_test(module, request, device, target: str):
+def compile_and_execute_dram_test(
+    module, request, device, target: str, **compile_kwargs
+):
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         target=target,
         device=device,
         pipeline_options=list(DRAM_PIPELINE_OPTIONS),
+        **compile_kwargs,
     )
 
 
@@ -124,17 +109,15 @@ def compile_dram_fusion_test(module, request, device, target: str):
 
 @pytest.mark.parametrize("shape,dtype", DRAM_FLOAT_CASES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_dram_unary_relu(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
+def test_dram_unary_neg(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
-        def relu(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[list[str]] = None
+        def neg(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            return builder.relu(in0, unit_attrs=unit_attrs)
+            return builder.neg(in0, unit_attrs=unit_attrs)
 
-    compile_dram_test(module, request, device, target)
+    compile_and_execute_dram_test(module, request, device, target)
 
 
 @pytest.mark.parametrize("shape,dtype", DRAM_FLOAT_CASES)
@@ -148,11 +131,11 @@ def test_dram_binary_add(
             in0: Operand,
             in1: Operand,
             builder: TTIRBuilder,
-            unit_attrs: Optional[list[str]] = None,
+            unit_attrs: Optional[List[str]] = None,
         ):
             return builder.add(in0, in1, unit_attrs=unit_attrs)
 
-    compile_dram_test(module, request, device, target)
+    compile_and_execute_dram_test(module, request, device, target)
 
 
 @pytest.mark.parametrize("shape,dtype", DRAM_FUSION_CASES)
@@ -167,7 +150,7 @@ def test_dram_fuse_add_relu_multiply(
             in1: Operand,
             in2: Operand,
             builder: TTIRBuilder,
-            unit_attrs: Optional[list[str]] = None,
+            unit_attrs: Optional[List[str]] = None,
         ):
             sum_result = builder.add(in0, in1, unit_attrs=unit_attrs)
             relu_result = builder.relu(sum_result, unit_attrs=unit_attrs)
@@ -188,7 +171,7 @@ def test_dram_fuse_converging_branches(
             in1: Operand,
             in2: Operand,
             builder: TTIRBuilder,
-            unit_attrs: Optional[list[str]] = None,
+            unit_attrs: Optional[List[str]] = None,
         ):
             lhs = builder.relu(in0, unit_attrs=unit_attrs)
             rhs = builder.add(in1, in2, unit_attrs=unit_attrs)
@@ -205,15 +188,13 @@ def test_dram_binary_add_scalar(
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def add_scalar(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[list[str]] = None
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             scalar_value = get_add_scalar_value(dtype)
-            scalar = builder.full(
-                list(shape), dtype, scalar_value, unit_attrs=unit_attrs
-            )
+            scalar = builder.full(shape, dtype, scalar_value, unit_attrs=unit_attrs)
             return builder.add(in0, scalar, unit_attrs=unit_attrs)
 
-    compile_dram_test(module, request, device, target)
+    compile_and_execute_dram_test(module, request, device, target)
 
 
 @pytest.mark.parametrize("shape,dtype", DRAM_NUMERIC_CASES)
@@ -228,7 +209,7 @@ def test_dram_ternary_clamp_tensor(
             min_tensor: Operand,
             max_tensor: Operand,
             builder: TTIRBuilder,
-            unit_attrs: Optional[list[str]] = None,
+            unit_attrs: Optional[List[str]] = None,
         ):
             if dtype == torch.int32:
                 input_golden = torch.randint(-5, 10, shape, dtype=dtype)
@@ -248,7 +229,7 @@ def test_dram_ternary_clamp_tensor(
                 in0, min_tensor, max_tensor, unit_attrs=unit_attrs
             )
 
-    compile_dram_test(module, request, device, target)
+    compile_and_execute_dram_test(module, request, device, target)
 
 
 @pytest.mark.parametrize("shape,dtype", DRAM_NUMERIC_CASES)
@@ -259,7 +240,7 @@ def test_dram_ternary_clamp_scalar(
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def clamp_scalar(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[list[str]] = None
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             if dtype == torch.int32:
                 input_golden = torch.randint(-5, 10, shape, dtype=dtype)
@@ -271,4 +252,98 @@ def test_dram_ternary_clamp_scalar(
                 in0, min_arg=min_value, max_arg=max_value, unit_attrs=unit_attrs
             )
 
-    compile_dram_test(module, request, device, target)
+    compile_and_execute_dram_test(module, request, device, target)
+
+
+DRAM_MATMUL_CASES = [
+    pytest.param(
+        (32, 128),
+        (128, 64),
+        torch.float32,
+        id="f32-32x128x64",
+    ),
+    pytest.param(
+        (128, 320),
+        (320, 768),
+        torch.bfloat16,
+        id="bf16-128x320x768",
+    ),
+    pytest.param(
+        (2, 64, 160),
+        (2, 160, 96),
+        torch.float32,
+        id="f32-batch2-64x160x96",
+    ),
+]
+
+DRAM_REDUCTION_CASES = [
+    pytest.param(
+        (1, 128, 320),
+        "sum",
+        [2],
+        False,
+        torch.float32,
+        id="f32-sum-1x128x320-dim2",
+    ),
+    pytest.param(
+        (2, 128, 160),
+        "mean",
+        [2],
+        True,
+        torch.float32,
+        id="f32-mean-2x128x160-dim2-keep",
+    ),
+    pytest.param(
+        (4, 64, 128),
+        "sum",
+        [1],
+        True,
+        torch.bfloat16,
+        id="bf16-sum-4x64x128-dim1-keep",
+    ),
+]
+
+
+@pytest.mark.parametrize("lhs_shape,rhs_shape,dtype", DRAM_MATMUL_CASES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_matmul(
+    lhs_shape: Shape,
+    rhs_shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    compile_and_execute_dram_test(
+        create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype),
+        request,
+        device,
+        target,
+        pcc=0.99,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,reduce_type,dim_arg,keep_dim,dtype", DRAM_REDUCTION_CASES
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_reduction(
+    shape: Shape,
+    reduce_type: str,
+    dim_arg: List[int],
+    keep_dim: bool,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    compile_and_execute_dram_test(
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim, dtype
+        ),
+        request,
+        device,
+        target,
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
+        pcc=0.99,
+    )

@@ -52,11 +52,11 @@ module {
           %off1 = d2m.block_offset(1) : index
           %idx1 = affine.apply affine_map<(d0)[s0] -> (d0 + s0)>(%j)[%off1]
 
-          %in0 = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>>
+          %in0 = memref.alloc() {alignment = 64 : i64, d2m.synchronized_buffer = 2} : memref<2x4x!ttcore.tile<32x32, f32>>
           d2m.remote_load %in0 %lhs[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-          %in1 = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>>
+          %in1 = memref.alloc() {alignment = 64 : i64, d2m.synchronized_buffer = 2} : memref<2x4x!ttcore.tile<32x32, f32>>
           d2m.remote_load %in1 %rhs[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-          %out = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>>
+          %out = memref.alloc() {alignment = 64 : i64, d2m.synchronized_buffer = 2} : memref<2x4x!ttcore.tile<32x32, f32>>
 
           linalg.generic {indexing_maps = [#eltwise, #eltwise, #eltwise], iterator_types = ["parallel", "parallel"]}
               ins(%in0, %in1 : memref<2x4x!ttcore.tile<32x32, f32>>, memref<2x4x!ttcore.tile<32x32, f32>>)

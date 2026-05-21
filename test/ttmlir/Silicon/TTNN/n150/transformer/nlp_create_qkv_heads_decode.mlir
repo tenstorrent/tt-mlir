@@ -18,7 +18,7 @@ module {
 
   func.func @forward_with_batch_slice(%input: tensor<1x1x32x3072xbf16, #dram_interleaved_encoding_in>) -> (tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>, tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>, tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>) {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.constant"(%0) <{dtype = #ttcore.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, value = dense<[8]> : tensor<1xui32>}> : (!ttnn.device) -> tensor<1xui32, #dram_interleaved_encoding_in_unary_tensor>
+    %1 = "ttnn.constant"(%0) <{dtype = #ttcore.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, value = dense<[8]> : tensor<1xui32>}> : (!ttnn.device) -> tensor<1xui32, #dram_interleaved_encoding_in_unary_tensor>
     %2, %3, %4 = "ttnn.nlp_create_qkv_heads_decode"(%input, %1) <{ num_heads = 32 : ui32, num_kv_heads = 32 : ui32, overlap_qk_coregrid = true, slice_size = 8 : ui32 }> : (tensor<1x1x32x3072xbf16, #dram_interleaved_encoding_in>, tensor<1xui32, #dram_interleaved_encoding_in_unary_tensor>) -> (tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>, tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>, tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>)
     return %2, %3, %4 : tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>, tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>, tensor<1x8x32x32xbf16, #l1_height_sharded_batch_8>
   }

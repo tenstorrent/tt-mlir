@@ -338,6 +338,29 @@ TEST_F(CanonicalizeTest, HostToDeviceVirtualGridUsesNativeLayout) {
   EXPECT_FALSE(static_cast<bool>(step->output.vgmInverse));
 }
 
+TEST_F(CanonicalizeTest, HostToDRAMPreservesTargetVgmOnDRAMStep) {
+  auto collapsed = ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+      &context, /*rank=*/2);
+  Type elemType = Float32Type::get(&context);
+  RankedTensorType systemType = RankedTensorType::get({64, 64}, elemType);
+  RankedTensorType targetType =
+      makeTensorType(context, {64, 64}, {32, 32}, collapsed, {2, 2},
+                     ttcore::MemorySpace::DeviceDRAM,
+                     ttcore::TensorMemoryLayout::Sharded, elemType);
+
+  AffineExpr d0 = getAffineDimExpr(0, &context);
+  AffineExpr d1 = getAffineDimExpr(1, &context);
+  AffineMap vgm = AffineMap::get(2, 0, {d0, d1}, &context);
+
+  Plan plan =
+      canonicalize(PlanState{systemType}, PlanState{targetType, {}, vgm, vgm},
+                   {8, 8}, &context);
+  ASSERT_EQ(plan.size(), 1u);
+  ASSERT_TRUE(std::holds_alternative<HostToDeviceStep>(plan[0]));
+  EXPECT_EQ(std::get<HostToDeviceStep>(plan[0]).output.vgmForward, vgm);
+  EXPECT_EQ(std::get<HostToDeviceStep>(plan[0]).output.vgmInverse, vgm);
+}
+
 TEST_F(CanonicalizeTest, RemapOnlyChangeProducesExplicitRemapStep) {
   auto collapsed = ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
       &context, /*rank=*/2);

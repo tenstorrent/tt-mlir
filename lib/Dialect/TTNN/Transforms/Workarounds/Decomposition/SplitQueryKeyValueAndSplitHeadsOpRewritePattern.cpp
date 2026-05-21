@@ -71,8 +71,7 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
 
     auto reshapeQuery = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_query"),
-        reshapedQueryType, srcOp.getInputTensor(), reshapedQueryShapeAttr,
-        ttnn::MemoryConfigAttr());
+        reshapedQueryType, srcOp.getInputTensor(), reshapedQueryShapeAttr);
 
     // Permute: [batch, seq, num_heads, head_size] -> [batch, num_heads, seq,
     // head_size]
@@ -86,7 +85,7 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     auto permuteQ = rewriter.create<ttnn::PermuteOp>(
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute_query"),
         queryOutputType, reshapeQuery.getResult(), permutationAttr,
-        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+        mlir::FloatAttr());
 
     // kv hidden size is kv_num_heads * head_size
     int64_t kvHiddenSize = static_cast<int64_t>(numKvHeads) * headSize;
@@ -135,8 +134,7 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
         kvIntermediateType, reshapedKShape);
     auto reshapeK = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_k"),
-        reshapedKType, sliceK.getResult(), reshapedKShapeAttr,
-        ttnn::MemoryConfigAttr());
+        reshapedKType, sliceK.getResult(), reshapedKShapeAttr);
 
     // Permute: [batch, seq, num_kv_heads, head_size] ->
     // [batch, num_kv_heads, seq, head_size]
@@ -147,7 +145,7 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     auto permuteK = rewriter.create<ttnn::PermuteOp>(
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute_k"),
         keyOutputType, reshapeK.getResult(), permutationAttr,
-        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+        mlir::FloatAttr());
 
     // Reshape and permute V.
     // Reshape: [batch, seq, 2 * num_kv_heads * head_size] ->
@@ -162,8 +160,7 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
         kvIntermediateType, reshapedVShape);
     auto reshapeV = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_v"),
-        reshapedVType, sliceV.getResult(), reshapedVShapeAttr,
-        ttnn::MemoryConfigAttr());
+        reshapedVType, sliceV.getResult(), reshapedVShapeAttr);
 
     // Permute: [batch, seq, num_kv_heads, head_size] ->
     // [batch, num_kv_heads, seq, head_size]
@@ -174,7 +171,7 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     auto permuteV = rewriter.create<ttnn::PermuteOp>(
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute_v"),
         valueOutputType, reshapeV.getResult(), permutationAttr,
-        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+        mlir::FloatAttr());
 
     // If transpose_key is true, additionally permute K to transpose last two
     // dims.
@@ -190,7 +187,7 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
       auto transposeK = rewriter.create<ttnn::PermuteOp>(
           ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_transpose_k"),
           transposedKType, permuteK.getResult(), transposePermutationAttr,
-          ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+          mlir::FloatAttr());
       finalKey = transposeK.getResult();
     }
 
@@ -267,15 +264,15 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
 
     auto reshapeQ = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_reshape_q"), reshapedType,
-        sliceQ.getResult(), reshapedShapeAttr, ttnn::MemoryConfigAttr());
+        sliceQ.getResult(), reshapedShapeAttr);
 
     auto reshapeK = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_reshape_k"), reshapedType,
-        sliceK.getResult(), reshapedShapeAttr, ttnn::MemoryConfigAttr());
+        sliceK.getResult(), reshapedShapeAttr);
 
     auto reshapeV = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_reshape_v"), reshapedType,
-        sliceV.getResult(), reshapedShapeAttr, ttnn::MemoryConfigAttr());
+        sliceV.getResult(), reshapedShapeAttr);
 
     // Step 3: Permute from [batch, seq, num_heads, head_size] to
     // [batch, num_heads, seq, head_size].
@@ -289,18 +286,15 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
 
     auto permuteQ = rewriter.create<ttnn::PermuteOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_permute_q"), queryOutputType,
-        reshapeQ.getResult(), permutationAttr, ttnn::MemoryConfigAttr(),
-        mlir::FloatAttr());
+        reshapeQ.getResult(), permutationAttr, mlir::FloatAttr());
 
     auto permuteK = rewriter.create<ttnn::PermuteOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_permute_k"), queryOutputType,
-        reshapeK.getResult(), permutationAttr, ttnn::MemoryConfigAttr(),
-        mlir::FloatAttr());
+        reshapeK.getResult(), permutationAttr, mlir::FloatAttr());
 
     auto permuteV = rewriter.create<ttnn::PermuteOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_permute_v"), queryOutputType,
-        reshapeV.getResult(), permutationAttr, ttnn::MemoryConfigAttr(),
-        mlir::FloatAttr());
+        reshapeV.getResult(), permutationAttr, mlir::FloatAttr());
 
     // Step 4: If transpose_key is true, additionally permute K
     // from [batch, num_heads, seq, head_size] to [batch, num_heads, head_size,
@@ -318,7 +312,7 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
       auto transposeK = rewriter.create<ttnn::PermuteOp>(
           ttmlir::utils::appendLocationSuffix(loc, "_transpose_k"),
           keyOutputType, permuteK.getResult(), transposePermutationAttr,
-          ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+          mlir::FloatAttr());
 
       finalK = transposeK.getResult();
     }

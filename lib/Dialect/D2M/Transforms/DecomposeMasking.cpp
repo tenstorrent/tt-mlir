@@ -83,25 +83,11 @@ static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
 
 static ttcore::GridAttr getMaskGridAttr(OpBuilder &builder, Value output,
                                         ArrayRef<int64_t> gridShape) {
-  auto invMap = utils::getVirtualGridInverseMapping(output);
-  auto fwdMap = utils::getVirtualGridForwardMapping(output);
-  if (!invMap || !fwdMap) {
-    return ttcore::GridAttr::get(builder.getContext(), gridShape);
+  if (auto maps = utils::getGridMapsFromVirtualGridMapping(output, gridShape)) {
+    return ttcore::GridAttr::get(builder.getContext(), gridShape, maps->first,
+                                 maps->second);
   }
-
-  AffineMap gridFwdMap = *fwdMap;
-  size_t rank = gridShape.size();
-  gridFwdMap = ttmlir::utils::affineMapDropBackResults(gridFwdMap, rank);
-  for (int64_t i = static_cast<int64_t>(rank) - 1; i >= 0; --i) {
-    unsigned dimToDrop = static_cast<unsigned>(rank + static_cast<size_t>(i));
-    gridFwdMap = ttmlir::utils::dropDim(gridFwdMap, dimToDrop);
-  }
-  gridFwdMap =
-      gridFwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()),
-                              /*resultPos=*/0);
-
-  return ttcore::GridAttr::get(builder.getContext(), gridShape, gridFwdMap,
-                               *invMap);
+  return ttcore::GridAttr::get(builder.getContext(), gridShape);
 }
 
 /// Decompose MaskOp with multi-core support.
@@ -218,16 +204,18 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
                                      MemRefLayoutAttrInterface{}, memorySpace);
     auto outputType = MemRefType::get(shardShape, tileElementType,
                                       MemRefLayoutAttrInterface{}, memorySpace);
-    auto maskLayout = ttcore::CBLayoutAttr::get(
-        rewriter.getContext(), {1, 1},
-        ttcore::getElementSizeBytes(tileElementType), numStreamBuffers);
-    auto maskType =
-        MemRefType::get({1, 1}, tileElementType, maskLayout, memorySpace);
+    auto maskType = MemRefType::get({1, 1}, tileElementType,
+                                    MemRefLayoutAttrInterface{}, memorySpace);
 
-    Value input = rewriter.create<memref::AllocOp>(loc, inputType);
-    Value output = rewriter.create<memref::AllocOp>(loc, outputType);
-    Value rowMaskCB = rewriter.create<memref::AllocOp>(loc, maskType);
-    Value colMaskCB = rewriter.create<memref::AllocOp>(loc, maskType);
+    // The synchronized buffer attribute is set by MarkSynchronizedBuffers pass
+    auto inputOp = rewriter.create<memref::AllocOp>(loc, inputType);
+    Value input = inputOp.getResult();
+    auto outputOp = rewriter.create<memref::AllocOp>(loc, outputType);
+    Value output = outputOp.getResult();
+    auto rowMaskCBOp = rewriter.create<memref::AllocOp>(loc, maskType);
+    Value rowMaskCB = rowMaskCBOp.getResult();
+    auto colMaskCBOp = rewriter.create<memref::AllocOp>(loc, maskType);
+    Value colMaskCB = colMaskCBOp.getResult();
 
     SmallVector<Value> remoteIndices;
     remoteIndices.reserve(gridShape.size());

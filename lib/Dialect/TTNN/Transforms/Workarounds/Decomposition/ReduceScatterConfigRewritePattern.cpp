@@ -32,8 +32,7 @@ LogicalResult ReduceScatterConfigRewritePattern::matchAndRewrite(
       srcOp, srcOp.getResult().getType(), srcOp.getInput(),
       srcOp.getReduceTypeAttr(), srcOp.getScatterDimAttr(),
       srcOp.getClusterAxisAttr(), srcOp.getSubDeviceIdAttr(),
-      srcOp.getMemoryConfigAttr(), srcOp.getNumLinksAttr(),
-      srcOp.getTopologyAttr(), computeConfig);
+      srcOp.getNumLinksAttr(), srcOp.getTopologyAttr(), computeConfig);
   return success();
 }
 

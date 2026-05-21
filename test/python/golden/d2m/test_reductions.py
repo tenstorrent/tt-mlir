@@ -14,6 +14,7 @@ from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs, get_board_id
+from test_utils import SkipIf
 
 pytestmark = pytest.mark.frontend("ttir")
 torch.manual_seed(0)
@@ -123,7 +124,7 @@ _2D_SHAPE_DIM_COMBOS = [
     "m,n,dim_arg,reduce_type,dtype,keep_dim",
     _cycled_reduction_params(_2D_SHAPE_DIM_COMBOS),
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
 def test_reduce_2d(
     m: int,
     n: int,
@@ -390,7 +391,7 @@ def test_reduce_outer_4d(
 @pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
 def test_reduce_i32_2d(
     dim_arg: List[int],
     keep_dim: bool,
@@ -428,7 +429,7 @@ _2D_UNALIGNED_INT_COMBOS = [
         dtypes=_INT_DTYPES,
     ),
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
 def test_reduce_i32_2d_unaligned(
     shape: tuple,
     dim_arg: List[int],
@@ -453,7 +454,7 @@ def test_reduce_i32_2d_unaligned(
 @pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
 def test_reduce_i32_3d_inner(
     dim_arg: List[int],
     reduce_type: str,
@@ -481,7 +482,7 @@ def test_reduce_i32_3d_inner(
 @pytest.mark.parametrize("b", [2, 8])
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
 @pytest.mark.xfail(
     reason="Out of place reduction not supported with blocking. See #8290"
 )
@@ -509,7 +510,7 @@ def test_reduce_i32_outer_3d(
 @pytest.mark.parametrize("dim_arg", [[2], [3]])
 @pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
 def test_reduce_i32_4d_inner(
     dim_arg: List[int],
     reduce_type: str,

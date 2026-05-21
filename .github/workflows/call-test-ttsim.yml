@@ -16,7 +16,7 @@ on:
         description: "TTSim release tag"
         required: false
         type: string
-        default: "v1.5.4"
+        default: "v1.6.1"
       timeout:
         description: "Timeout in minutes for the TTSim test job"
         required: false
@@ -158,9 +158,17 @@ jobs:
             test/python/golden/d2m/test_ttir_ops.py \
             test/python/golden/d2m/test_bfp8_typecast.py \
             test/python/golden/d2m/test_composite_ops.py \
+            test/python/golden/d2m/test_composite_functions.py \
             test/python/golden/d2m/test_tilize.py \
             test/python/golden/d2m/test_tms.py \
             test/python/golden/d2m/test_eltwise_fusion.py \
+            test/python/golden/d2m/test_constants.py \
+            test/python/golden/d2m/test_masking.py \
+            test/python/golden/d2m/test_layout.py \
+            test/python/golden/d2m/test_rand.py \
+            test/python/golden/d2m/test_reductions.py \
+            test/python/golden/d2m/test_dma.py \
+            test/python/golden/d2m/test_dram_ops.py \
             --sys-desc "$SYSTEM_DESC_PATH" \
             --junit-xml "test_reports/ttsim_all_${{ matrix.arch }}.xml"
 

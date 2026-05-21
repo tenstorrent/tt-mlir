@@ -407,13 +407,17 @@ private:
 
 template <CommuteDirection commuteDirection>
 void populateBroadcastCommutePatterns(MLIRContext *ctx,
-                                      RewritePatternSet &patterns) {
+                                      RewritePatternSet &patterns,
+                                      ConstevalForwardAnalysis *analysis) {
   patterns.add<TTIRCommuteReshapeThroughBroadcast<commuteDirection>,
-               TTIRCommutePermuteThroughBroadcast<commuteDirection>>(ctx);
+               TTIRCommutePermuteThroughBroadcast<commuteDirection>>(ctx,
+                                                                     analysis);
 }
 
 template void populateBroadcastCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 template void populateBroadcastCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 } // namespace mlir::tt::ttir

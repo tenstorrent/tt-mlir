@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -1365,8 +1366,8 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 // This operation returns two outputs:
 //   [0] values (same data type as input)
 //   [1] indices (uint16 or uint32 depending on input shape)
-// TopK op pads the dimension to next power of 2, and uses UInt32 for indices if
-// added size >= uint16_t::max
+// TopK op pads the dimension to tile size, and uses UInt32 for indices if
+// padded dimension size > uint16_t::max
 
 // Input is forced to BFloat16 unless it is already BFloat16 or BFP_BFloat8.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
@@ -1398,8 +1399,8 @@ TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
 
   // Calculate padded dim size to determine UInt16 vs UInt32 for indices output.
   auto inputShape = inputType.getShape();
-  int64_t dimSize = inputShape[dimIndex];
-  int64_t paddedDimSize = llvm::PowerOf2Ceil(dimSize);
+  auto paddedShape = utils::getTilePaddedShape(inputShape);
+  int64_t paddedDimSize = paddedShape[dimIndex];
   bool useUint16Indices =
       paddedDimSize <= std::numeric_limits<uint16_t>::max(); // 65535
 

@@ -25,9 +25,8 @@ module attributes {} {
         // Verify that we only insert the to_device op when there are no layout or data type changes.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK: return %[[TO_DEVICE_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_rm>
     }
 
@@ -40,7 +39,7 @@ module attributes {} {
         // CHECK: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>
     }
 
@@ -50,7 +49,7 @@ module attributes {} {
         // CHECK: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
     }
 
@@ -61,9 +60,8 @@ module attributes {} {
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%[[CASTING_OP]], %[[GET_DEVICE_OP]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK-NEXT: return %[[TO_DEVICE_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
     }
 
@@ -72,11 +70,10 @@ module attributes {} {
         // Typecast on device only works for tile layout. Verify that for the tile case we insert the to_device op and the typecast op to cast the data type on device.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -89,7 +86,7 @@ module attributes {} {
         // CHECK: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%arg0)
         // CHECK-SAME: layout = #ttnn.layout<row_major>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_rm>
     }
 
@@ -99,7 +96,7 @@ module attributes {} {
         // CHECK: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%arg0)
         // CHECK-SAME: layout = #ttnn.layout<tile>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_host_tile>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_host_tile>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_tile>
     }
 
@@ -111,7 +108,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: layout = #ttnn.layout<row_major>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
     }
 
@@ -124,7 +121,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: layout = #ttnn.layout<row_major>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}> : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_rm>
     }
 
@@ -137,7 +134,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: layout = #ttnn.layout<tile>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>}> : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -150,7 +147,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: layout = #ttnn.layout<tile>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xui32, #ttnn_layout_host_rm_u32>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u32>, layout = #ttnn.layout<tile>}> : (tensor<64x128xui32, #ttnn_layout_host_rm_u32>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
         return %0 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
 
@@ -165,7 +162,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
         // CHECK-SAME: layout = #ttnn.layout<row_major>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_rm>
     }
 
@@ -177,7 +174,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
         // CHECK-SAME: layout = #ttnn.layout<tile>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_tile>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}> : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_tile>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_tile>
     }
 
@@ -192,7 +189,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
         // CHECK-SAME: layout = #ttnn.layout<row_major>
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_rm>
     }
 
@@ -207,7 +204,7 @@ module attributes {} {
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_LAYOUT_OP]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_tile>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}> : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_tile>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_tile>
     }
 
@@ -222,7 +219,7 @@ module attributes {} {
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_LAYOUT_OP]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -237,7 +234,7 @@ module attributes {} {
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_LAYOUT_OP]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<u32>, layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
         return %0 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
 
@@ -245,11 +242,10 @@ module attributes {} {
     func.func @from_l1_sharded_to_dram_tile_bf16(%arg0: tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,6)>]>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>> {
         // CHECK-LABEL: func.func @from_l1_sharded_to_dram_tile_bf16
         // CHECK: %[[MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%arg0)
-        // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
         // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[MEM_CONFIG]])
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK: return %[[TYPECAST]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<dram>, <interleaved>>}> : (tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,6)>]>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>}> : (tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,6)>]>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
         return %0 : tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     }
 

@@ -214,7 +214,9 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
                        clEnumValN(ttcore::Arch::Blackhole, "blackhole",
-                                  "Use mock blackhole system desc.")),
+                                  "Use mock blackhole system desc."),
+                       clEnumValN(ttcore::Arch::Quasar, "quasar",
+                                  "Use mock quasar system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   // Option to override maximum number of sharded layouts to be generated
@@ -274,6 +276,10 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, "enable-decomposition-workaround-pass",
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
+
+  Option<bool> ttnnDecompositionEnabled{
+      *this, "enable-ttnn-decomposition-pass",
+      llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};
 
   Option<bool> implicitBroadcastFoldingEnabled{
       *this, "enable-implicit-broadcast-folding-pass",
@@ -581,7 +587,7 @@ struct TTNNCommonToEmitCPipelineOptions
       *this, "tuplify-input-if-empty",
       llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
                      "function. This should only be used if the `target-dylib` "
-                     "option is set to `true`"),
+                     "option is set to `true`."),
       llvm::cl::init(false)};
 
   Option<bool> loadInputTensorsFromDisk{
@@ -609,6 +615,14 @@ struct TTNNCommonToEmitPyPipelineOptions
       llvm::cl::desc("Tailor passes for Python module target. When enabled, "
                      "the entry function is named 'forward' with tuple of "
                      "tensors and device as inputs."),
+      llvm::cl::init(false)};
+
+  Option<bool> tuplifyInputIfEmpty{
+      *this, "tuplify-input-if-empty",
+      llvm::cl::desc(
+          "Whether to create an empty tuple if no inputs to forward "
+          "function. This should only be used if the `target-module` "
+          "option is set to `true`."),
       llvm::cl::init(false)};
 
   Option<bool> loadInputTensorsFromDisk{

@@ -363,23 +363,20 @@ public:
     ttcore::GridAttr grid;
     if (outputInfo.isDRAM()) {
       viewOutput = buildConcreteView(output, outputInfo.type, inputInfo.type);
-      if (auto invMap = utils::getVirtualGridInverseMapping(input)) {
-        auto gridShape = llvm::to_vector(inputInfo.getGridShape());
-
-        auto fwdMap = *utils::getVirtualGridForwardMapping(input);
-        size_t rank = gridShape.size();
-        fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
-        for (int i = rank - 1; i >= 0; i--) {
-          fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
-        }
-        fwdMap = fwdMap.insertResult(
-            getAffineConstantExpr(0, rewriter.getContext()), 0);
-
-        grid = rewriter.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
+      auto gridShape = llvm::to_vector(inputInfo.getGridShape());
+      if (auto maps =
+              utils::getGridMapsFromVirtualGridMapping(input, gridShape)) {
+        grid = rewriter.getAttr<ttcore::GridAttr>(gridShape, maps->first,
+                                                  maps->second);
       }
     }
 
-    const size_t gridRank = outputInfo.getGridShape().size();
+    auto viewOutputType = mlir::cast<RankedTensorType>(viewOutput.getType());
+    auto viewOutputLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
+        viewOutputType.getEncoding());
+    const size_t gridRank =
+        viewOutputLayout ? viewOutputLayout.getShardShape(viewOutputType).size()
+                         : viewOutputType.getShape().size();
 
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
@@ -407,6 +404,11 @@ public:
                 },
                 ThreadType::Unified, grid)
             .getResult(0);
+    if (outputInfo.isDRAM() && result.getType() != output.getType()) {
+      return buildConcreteView(result,
+                               mlir::cast<RankedTensorType>(result.getType()),
+                               outputInfo.type);
+    }
     return result;
   }
 
@@ -449,25 +451,6 @@ public:
             },
             ThreadType::Unified)
         .getResult(0);
-  }
-
-  ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
-                              Value input, RankedTensorType desiredType) const {
-    auto layout =
-        mlir::cast<ttcore::MetalLayoutAttr>(desiredType.getEncoding());
-    auto output = rewriter.create<d2m::EmptyOp>(
-        loc, desiredType.getShape(), desiredType.getElementType(), layout);
-    return rewriter.create<d2m::ToLayoutOp>(loc, input, output);
-  }
-
-  Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
-               RankedTensorType bounceType) const {
-    auto bounced =
-        createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceType);
-    return rewriter
-        .replaceOpWithNewOp<d2m::ToLayoutOp>(op, bounced->getResult(0),
-                                             op.getOutput())
-        ->getResult(0);
   }
 
   static bool matchesOutputSpec(Value value, const OutputBufferSpec &spec) {

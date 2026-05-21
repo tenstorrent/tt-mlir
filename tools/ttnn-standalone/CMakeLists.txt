@@ -93,15 +93,8 @@ set(INCLUDE_DIRS
     ${METAL_SRC_DIR}/tt_metal/api
     ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
     ${METAL_SRC_DIR}/tt_metal/hw/inc
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
-    ${METAL_SRC_DIR}/tt_metal/include
     ${METAL_SRC_DIR}/tt_stl
     ${METAL_SRC_DIR}/tt_stl/tt_stl
-    ${METAL_SRC_DIR}/tt_metal/third_party/fmt
-    ${METAL_SRC_DIR}/tt_metal/third_party/enchantum
-    ${METAL_SRC_DIR}/tt_metal/third_party/taskflow
     ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
     ${METAL_SRC_DIR}/tt_metal/third_party/umd
     ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api

@@ -2,8 +2,8 @@
 // RUN: ttmlir-translate --ttkernel-to-cpp -o %t.cpp %t
 // RUN: FileCheck %s --input-file=%t.cpp
 
+// CHECK: #include "api/dataflow/circular_buffer.h"
 // CHECK: #include "api/dataflow/dataflow_api.h"
-// CHECK: #include "experimental/circular_buffer.h"
 // CHECK: void kernel_main
 func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     // CHECK: int32_t [[C0:.*]] = 32
@@ -13,7 +13,7 @@ func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg
     // CHECK: int32_t [[A1:.*]] = 262144;
     %c262144_i32 = arith.constant 262144 : i32
     %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
-    // CHECK: experimental::CircularBuffer [[CB:cb_ctarg_0]](get_compile_time_arg_val(0));
+    // CHECK: CircularBuffer [[CB:cb_ctarg_0]](get_compile_time_arg_val(0));
     %c1_i32 = arith.constant 1 : i32
     // CHECK: [[CB]].reserve_back
     "ttkernel.cb_reserve_back"(%cb, %c1_i32) : (!ttkernel.cb<8, !ttcore.tile<32x32, f32>>, i32) -> ()
@@ -52,6 +52,10 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     %4 = ttkernel.get_noc_addr(%c0_idx, %c0_idx, %c262208_i32) : (index, index, i32) -> !ttkernel.noc_addr
     // CHECK: noc_async_read([[NOCADDR1]], [[B0]], [[C0]])
     ttkernel.noc_async_read(%4, %c262432_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
+    // CHECK: int32_t [[SEM:.*]] = get_semaphore
+    %sem = ttkernel.get_semaphore(%c0_idx) : (index) -> !ttkernel.local_semaphore
+    // CHECK: noc_semaphore_set_remote([[SEM]], [[NOCADDR1]])
+    ttkernel.remote_sram_write_u32(%sem, %4) : (!ttkernel.local_semaphore, !ttkernel.noc_addr) -> ()
     // CHECK: noc_async_read_barrier
     ttkernel.noc_async_read_barrier() : () -> ()
     // CHECK: return

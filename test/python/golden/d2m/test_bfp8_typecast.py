@@ -26,7 +26,19 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize("shape", [(512, 512)])
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttmetal"
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        )
+    ],
+)
 def test_triple_exp_f32(shape: Shape, target: str, request, device):
     pipeline_options = ["global-data-format-target=bfp_bf8"]
 
@@ -62,7 +74,19 @@ def test_triple_exp_f32(shape: Shape, target: str, request, device):
 
 
 @pytest.mark.parametrize("shape", [(512, 512)])
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttmetal"
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        )
+    ],
+)
 def test_exp_f32(shape: Shape, target: str, request, device):
     pipeline_options = ["global-data-format-target=bfp_bf8"]
 
@@ -127,7 +151,19 @@ def test_cos_bf16(shape: Shape, target: str, request, device):
     ids=shape_str,
 )
 @pytest.mark.parametrize("use_tile_matmul", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttmetal"
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        )
+    ],
+)
 def test_matmul_f32(
     shape: tuple[int, ...],
     use_tile_matmul: bool,

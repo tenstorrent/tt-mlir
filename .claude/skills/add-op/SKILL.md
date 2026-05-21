@@ -439,7 +439,7 @@ createOp(FlatbufferObjectCache &cache, YourOp op) {
   }
 
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   return ::tt::target::ttnn::CreateYourOp(
       *cache.fbb, input, weight, bias,

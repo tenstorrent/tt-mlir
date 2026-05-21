@@ -4,6 +4,8 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Fusing/RoPEFusingPattern.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Fusing/TopKFusingPattern.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
@@ -3050,6 +3052,9 @@ public:
       patterns.add<HardsigmoidFusionPattern>(&getContext());
       patterns.add<MishFusingPattern>(&getContext());
       patterns.add<ReshapeBroadcastReshapeToRepeatPattern>(&getContext());
+      patterns.add<fusing::RoPERotateHalfFusingPattern>(&getContext());
+      patterns.add<fusing::RoPEComplexRotationFusingPattern>(&getContext());
+      patterns.add<fusing::TopKFusingPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

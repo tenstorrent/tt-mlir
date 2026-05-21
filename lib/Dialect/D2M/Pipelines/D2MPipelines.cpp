@@ -151,6 +151,11 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   { decomposeMaskingOptions.numStreamBuffers = options.numStreamBuffers; }
   pm.addPass(d2m::createD2MDecomposeMasking(decomposeMaskingOptions));
 
+  // Run right before allocate to mark synchronized buffers
+  d2m::D2MMarkSynchronizedBuffersOptions markSyncBuffersOptions;
+  { markSyncBuffersOptions.numStreamBuffers = options.numStreamBuffers; }
+  pm.addPass(d2m::createD2MMarkSynchronizedBuffers(markSyncBuffersOptions));
+
   d2m::D2MAllocateOptions allocateOptions;
   {
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
@@ -159,6 +164,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
     allocateOptions.availableL1AddrRange.assign(
         options.availableL1AddrRange.begin(),
         options.availableL1AddrRange.end());
+    allocateOptions.forceSpillToDramIfLegal = options.forceSpillToDramIfLegal;
     allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
@@ -252,7 +258,6 @@ void createD2MBackendPipeline(OpPassManager &pm,
   // treat all arguments.
   pm.addPass(d2m::createD2MNormalizeThreadArgs());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());

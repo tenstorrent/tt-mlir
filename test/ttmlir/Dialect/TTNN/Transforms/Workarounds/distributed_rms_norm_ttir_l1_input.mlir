@@ -6,19 +6,30 @@
 
 // TTIR-level test: starting from ttir.relu → ttir.distributed_rms_norm,
 // verify that after the full TTIR→TTNN pipeline (workaround + greedy
-// optimizer including L1SpillManagement) the relu output is converted to
-// L1 width-sharded before reaching distributed_rms_norm with no
-// intermediate DRAM spill on the input path.
+// optimizer including L1SpillManagement) the input reaches
+// distributed_rms_norm as L1 width-sharded with no intermediate DRAM spill.
+//
+// The greedy optimizer assigns L1 width-sharded to relu directly, so the
+// workaround-inserted ToLayoutOp (added before MemoryLayoutPropagation when
+// relu was still DRAM) becomes a no-op and is eliminated by the canonicalizer.
+// L1SpillManagement sees the ToLayoutOp between relu and distributed_rms_norm
+// in its schedule, so relu's output is marked dead before distributed_rms_norm
+// is processed — liveValues is empty and evictAllFromL1 never fires.
 
+// to_memory_config(L1 width-sharded) → relu → distributed_rms_norm.
+// Verify no DRAM spill appears between the L1 conversion and
+// distributed_rms_norm (i.e. the input is never bounced through DRAM on
+// its way to the fused kernel).
+// Capture the DRAM and L1-width-sharded layouts so we can pattern-match
+// against the result tensor type of `ttnn.to_memory_config`
+// CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
+// CHECK-DAG: #[[L1_WIDTH_SHARDED:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}bf16{{.*}}#l1>{{.*}}<width_sharded>
 // CHECK-LABEL: func.func @main
-// relu → to_memory_config(L1 width-sharded) → distributed_rms_norm.
-// Verify no DRAM spill appears before the L1 conversion and none between
-// the L1 conversion and distributed_rms_norm (i.e. the input is never
-// bounced through DRAM on its way to the fused kernel).
+// CHECK-NOT: "ttnn.to_memory_config"{{.*}} -> tensor<{{.*}}, #[[DRAM_LAYOUT]]>
+// CHECK: "ttnn.to_memory_config"{{.*}} -> tensor<{{.*}}, #[[L1_WIDTH_SHARDED]]>
+// CHECK-NOT: "ttnn.to_memory_config"{{.*}} -> tensor<{{.*}}, #[[DRAM_LAYOUT]]>
 // CHECK: "ttnn.relu"
-// CHECK-NOT: "ttnn.to_memory_config"{{.*}}#dram
-// CHECK: "ttnn.to_memory_config"{{.*}}#l1{{.*}}width_sharded
-// CHECK-NOT: "ttnn.to_memory_config"{{.*}}#dram
+// CHECK-NOT: "ttnn.to_memory_config"{{.*}} -> tensor<{{.*}}, #[[DRAM_LAYOUT]]>
 // CHECK: "ttnn.distributed_rms_norm"
 
 module @test_ttir_rms_l1_input attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x2>]>} {

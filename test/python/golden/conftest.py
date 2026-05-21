@@ -484,6 +484,8 @@ def get_board_id(system_desc) -> str:
     num_chips = len(system_desc["chip_desc_indices"])
 
     match arch, num_chips:
+        case "Quasar", 1:
+            return "qsrsim"
         case "Blackhole", 1:
             return "p150"
         case "Blackhole", 2:
@@ -856,11 +858,15 @@ def pytest_collection_modifyitems(config, items):
         board_id = get_board_id(system_desc)
 
         def skip_config_handler(item):
-            item.add_marker(
-                pytest.mark.skip(
-                    reason="Test marked as skip for this platform/target combination"
-                )
+            reason = next(
+                (
+                    m.kwargs["reason"]
+                    for m in item.iter_markers("skip_config")
+                    if "reason" in m.kwargs
+                ),
+                "Test marked as skip for this platform/target combination",
             )
+            item.add_marker(pytest.mark.skip(reason=reason))
 
         def only_config_handler(item):
             item.add_marker(

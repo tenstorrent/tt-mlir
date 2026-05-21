@@ -168,6 +168,9 @@ createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
     case ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor: {
       uint32_t operandIndex =
           kernelArg->arg_as_KernelArgBufferAddressOfTensor()->operand_index();
+      LOG_ASSERT(operandIndex < argRefs.size(),
+                 "KernelArgBufferAddressOfTensor operand_index out of bounds: ",
+                 operandIndex, " >= ", argRefs.size());
       coreArgs[i] = tensorPool
                         .getTTNNTensorAndValidate(
                             reinterpret_cast<const target::ttnn::TensorRef *>(
@@ -187,12 +190,27 @@ createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
     case ::tt::target::ttnn::KernelArgType::KernelArgGlobalSemaphore: {
       uint32_t operandIndex =
           kernelArg->arg_as_KernelArgGlobalSemaphore()->operand_index();
+      LOG_ASSERT(operandIndex < argRefs.size(),
+                 "KernelArgGlobalSemaphore operand_index out of bounds: ",
+                 operandIndex, " >= ", argRefs.size());
       coreArgs[i] =
           globalSemaphorePool
               .getTTNNGlobalSemaphoreAndValidate(
                   reinterpret_cast<const target::ttnn::GlobalSemaphoreRef *>(
                       argRefs[operandIndex]))
               .address();
+      break;
+    }
+    case ::tt::target::ttnn::KernelArgType::KernelArgScalar: {
+      uint32_t operandIndex =
+          kernelArg->arg_as_KernelArgScalar()->operand_index();
+      LOG_ASSERT(operandIndex < argRefs.size(),
+                 "KernelArgScalar operand_index out of bounds: ", operandIndex,
+                 " >= ", argRefs.size());
+      const auto *tensorRef =
+          reinterpret_cast<const ::tt::target::ttnn::TensorRef *>(
+              argRefs[operandIndex]);
+      coreArgs[i] = tensorPool.getScalarKernelArgAndValidate(tensorRef);
       break;
     }
     default: {
