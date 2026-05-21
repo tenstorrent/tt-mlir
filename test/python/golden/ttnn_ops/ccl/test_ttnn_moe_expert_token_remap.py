@@ -9,7 +9,6 @@ from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
-from test_utils import shape_str
 
 pytestmark = pytest.mark.frontend("ttnn")
 
