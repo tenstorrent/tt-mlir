@@ -1409,6 +1409,90 @@ public:
 };
 } // namespace
 
+// tt-metal's ttnn.prod runs on tile math units in bf16 and silently downcasts
+// integer operands: e.g. 1*38*58 = 2204 rounds to 2208 (bf16 step is 16 in
+// [2048, 4096]), corrupting integer shape arithmetic such as Qwen2.5-VL's
+// `image_grid_thw.prod(-1)`. Stay in the integer domain by emitting per-index
+// slices and multiplying them.
+//
+// Multi-dim integer prods are first split into single-dim ttir.ProdOps by
+// ReductionProdPattern, which this pattern then rewrites.
+namespace {
+struct ReductionProdIntegerDecomposePattern
+    : public OpConversionPattern<ttir::ProdOp> {
+public:
+  using OpConversionPattern<ttir::ProdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ProdOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputType = op.getInput().getType();
+    auto elementType = inputType.getElementType();
+    if (!elementType.isIntOrIndex()) {
+      return failure();
+    }
+
+    auto dimArg = op.getDimArg();
+    if (!dimArg || dimArg->size() != 1) {
+      return failure();
+    }
+
+    int64_t rank = inputType.getRank();
+    int64_t reduceDim = mlir::cast<IntegerAttr>(dimArg->getValue()[0]).getInt();
+    int64_t reduceDimSize = inputType.getDimSize(reduceDim);
+
+    // Empty reduction would leave runningProd unset; defer to the ttnn
+    // path so the prod identity (1) is materialized by the existing
+    // lowering instead of duplicating that logic here.
+    if (reduceDimSize == 0) {
+      return failure();
+    }
+
+    // Only begins[reduceDim] and ends[reduceDim] vary across iterations,
+    // so the other slice template attrs are constructed once.
+    llvm::SmallVector<int32_t> begins(rank, 0);
+    llvm::SmallVector<int32_t> ends(
+        llvm::map_range(inputType.getShape(),
+                        [](int64_t d) { return static_cast<int32_t>(d); }));
+    ArrayAttr stepsAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(rank, 1));
+
+    llvm::SmallVector<int64_t> sliceShape(inputType.getShape());
+    sliceShape[reduceDim] = 1;
+    auto sliceType =
+        RankedTensorType::get(sliceShape, elementType, inputType.getEncoding());
+
+    Value runningProd;
+    for (int64_t i = 0; i < reduceDimSize; ++i) {
+      begins[reduceDim] = static_cast<int32_t>(i);
+      ends[reduceDim] = static_cast<int32_t>(i + 1);
+
+      Value slice = rewriter.create<ttir::SliceStaticOp>(
+          op.getLoc(), sliceType, adaptor.getInput(),
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          stepsAttr);
+
+      runningProd = (i == 0) ? slice
+                             : rewriter.create<ttir::MultiplyOp>(
+                                   op.getLoc(), sliceType, runningProd, slice);
+    }
+
+    // Slices retain the reduction dim with size 1; reshape only when the
+    // op's result drops it (keep_dim == false).
+    auto outputType = op.getType();
+    if (ArrayRef<int64_t>(sliceShape) != outputType.getShape()) {
+      runningProd = rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), outputType, runningProd,
+          rewriter.getI32ArrayAttr(
+              llvm::to_vector_of<int32_t>(outputType.getShape())));
+    }
+
+    rewriter.replaceOp(op, runningProd);
+    return success();
+  }
+};
+} // namespace
+
 //===----------------------------------------------------------------------===//
 // Conv2d/Conv3d/ConvTranspose2d Channel Layout Decomposition
 //===----------------------------------------------------------------------===//
@@ -2000,6 +2084,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
+  patterns.add<ReductionProdIntegerDecomposePattern>(typeConverter, ctx);
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
   patterns.add<ArgMaxPattern>(typeConverter, ctx);
   patterns.add<SplitQueryKeyValueAndSplitHeadsDecompositionPattern>(

@@ -120,7 +120,17 @@ struct TTIRToTTIRDecompositionPass
         return true;
       }
       uint64_t rank = op.getInput().getType().getRank();
-      return (dimArg->size() == 1 || dimArg->size() == rank);
+      bool isShapeLegal = (dimArg->size() == 1 || dimArg->size() == rank);
+      if (!isShapeLegal) {
+        return false;
+      }
+      // Route integer prods through ReductionProdIntegerDecomposePattern;
+      // ttnn.prod's bf16 tile math corrupts integer reductions.
+      auto elementType = op.getInput().getType().getElementType();
+      if (dimArg->size() == 1 && elementType.isIntOrIndex()) {
+        return false;
+      }
+      return true;
     });
 
     target.addDynamicallyLegalOp<ttir::MaxPool2dOp>([&](ttir::MaxPool2dOp op) {
