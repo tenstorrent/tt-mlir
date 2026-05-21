@@ -168,8 +168,8 @@ public:
     (UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT == 1)
       pybind11::scoped_ostream_redirect stream(*fd);
 #endif
-      *fd << get_process_prefix() << green << std::setw(23) << type_names[type]
-          << reset_text_attrs << " | " << bold
+      *fd << "[" << get_current_time() << "] " << get_process_prefix() << green
+          << std::setw(23) << type_names[type] << reset_text_attrs << " | " << bold
           << level_colors[static_cast<int>(level)] << std::setw(8)
           << level_names[static_cast<int>(level)] << reset_text_attrs << " | ";
       ((*fd << args), ...);
