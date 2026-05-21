@@ -153,6 +153,79 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   return normalizedOperandGrids;
 }
 
+static llvm::SmallVector<CompositeInputGridInfo>
+computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
+                               ArrayRef<int64_t> targetGrid,
+                               ArrayRef<int64_t> selectedGrid, bool ttnnMode) {
+  llvm::SmallVector<CompositeInputGridInfo> inputInfos;
+  inputInfos.reserve(compositeView.getInputs().size());
+
+  const int32_t concatDim = compositeView.getDim();
+  auto outType =
+      mlir::cast<RankedTensorType>(compositeView.getResult().getType());
+  const bool isTiled = mlir::isa<ttcore::TileType>(outType.getElementType());
+
+  RankedTensorType materializedOutType =
+      utils::tensorWithOptimalGrid(outType, targetGrid, ttnnMode, selectedGrid);
+
+  for (Value input : compositeView.getInputs()) {
+    CompositeInputGridInfo info;
+    info.input = input;
+
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    info.materializedType = inputType;
+
+    auto inputLayout =
+        mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+    if (!inputLayout) {
+      inputInfos.push_back(std::move(info));
+      continue;
+    }
+
+    if (isTiled) {
+      // Match the composite output's padding on non-concat dimensions, but
+      // keep the concat dimension tile-only so individual inputs do not each
+      // inflate their contribution.
+      auto materializedOutLayout = mlir::cast<ttcore::MetalLayoutAttr>(
+          materializedOutType.getEncoding());
+      SmallVector<int64_t> inputAlignments(
+          materializedOutLayout.getDimAlignments().begin(),
+          materializedOutLayout.getDimAlignments().end());
+
+      auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
+      auto tileShape = tileType.getShape();
+      int64_t logicalRank = inputLayout.getLogicalShape().size();
+      const int64_t tileHWIdx = concatDim - (logicalRank - 2);
+      inputAlignments[concatDim] = (tileHWIdx >= 0) ? tileShape[tileHWIdx] : 1;
+
+      auto materializedLayout = ttcore::MetalLayoutAttr::get(
+          input.getContext(), inputLayout.getLogicalShape(),
+          inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+          inputLayout.getCollapsedIntervals(), inputAlignments);
+
+      auto inputPhysShape = materializedLayout.getPhysicalShape(tileShape);
+      info.selectedGrid =
+          utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
+
+      auto deviceShape =
+          materializedLayout.getDeviceShape(info.selectedGrid, tileShape);
+      info.materializedType = RankedTensorType::get(
+          deviceShape, inputType.getElementType(), materializedLayout);
+    } else {
+      auto inputPhysShape =
+          utils::computePhysicalShape(input, targetGrid, ttnnMode);
+      info.selectedGrid =
+          utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
+      info.materializedType = utils::tensorWithOptimalGrid(
+          inputType, targetGrid, ttnnMode, info.selectedGrid);
+    }
+
+    inputInfos.push_back(std::move(info));
+  }
+
+  return inputInfos;
+}
+
 GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     GenericOp genericOp,
     const EffectiveTargetGridRange &effectiveTargetGridRange) {
@@ -289,6 +362,15 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     if (view && !view.getReinterpretLayout()) {
       info.selectedGrid = result.normalizedOperandGrids[idx];
     }
+  }
+
+  for (OperandGridInfo &info : result.operandInfos) {
+    auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
+    if (!compositeView) {
+      continue;
+    }
+    info.compositeInputInfos = computeCompositeInputGridInfos(
+        compositeView, info.targetGrid, info.selectedGrid, ttnnMode);
   }
 
   return result;
