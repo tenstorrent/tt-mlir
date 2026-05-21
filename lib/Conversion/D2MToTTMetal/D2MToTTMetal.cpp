@@ -666,7 +666,8 @@ private:
           unifiedArgs_.push_back(arg);
           globalSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
           continue;
-        } else if (mlir::isa<ttmetal::LocalSemaphoreType>(arg.getType())) {
+        }
+        if (mlir::isa<ttmetal::LocalSemaphoreType>(arg.getType())) {
           size_t unifiedIdx = unifiedArgs_.size();
           unifiedArgs_.push_back(arg);
           localSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
