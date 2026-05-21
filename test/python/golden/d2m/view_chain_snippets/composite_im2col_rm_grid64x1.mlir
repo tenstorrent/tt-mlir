@@ -27,8 +27,14 @@
 // Step 2: 4D grid<64x1> -> 8D grid<1x64x1x1>.
 #flatten_g64x1 = affine_map<(d0, d1, d2, d3) -> (0, ((d0 * 64 + d2) floordiv 64) floordiv 2, 0, 0, 0, ((d0 * 64 + d2) floordiv 64) mod 2, (d0 * 64 + d2) mod 64, d3)>
 
+#vgm_fwd = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> ((d0 * 64 + d1 + d2 + d3) floordiv 8 mod 8, (d0 * 64 + d1 + d2 + d3) mod 8, d4, d5, d6, d7)>
+#vgm_inv = affine_map<(d0, d1) -> (0, 0, (d0 * 8 + d1) mod 64, 0, 0)>
+
 func.func @composite_im2col_nhwc_grid64x1(%arg0: tensor<1x66x66x32xf32>) -> tensor<4096x288xf32> {
-  %d_init = d2m.empty() : tensor<1x64x1x1x1x2x96x32xf32, #l_in>
+  %d_init = d2m.empty() {
+    virtualGridForwardMapping = #vgm_fwd,
+    virtualGridInverseMapping = #vgm_inv
+  } : tensor<1x64x1x1x1x2x96x32xf32, #l_in>
   %dev = d2m.to_layout %arg0, %d_init : tensor<1x66x66x32xf32> into tensor<1x64x1x1x1x2x96x32xf32, #l_in>
     -> tensor<1x64x1x1x1x2x96x32xf32, #l_in>
 
