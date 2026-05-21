@@ -216,6 +216,11 @@ def sin(t, **_):
 
 
 def sqrt(t, **_):
+    # torch.sqrt(f32) routes through MKL VML (1-ULP-bounded), which disagrees
+    # with LLVM-compiled vsqrtss (correctly rounded) used on the runtime path.
+    # Compute via f64 to get the correctly-rounded f32 result.
+    if t.dtype == torch.float32:
+        return t.to(torch.float64).sqrt().to(torch.float32)
     return torch.sqrt(t)
 
 
