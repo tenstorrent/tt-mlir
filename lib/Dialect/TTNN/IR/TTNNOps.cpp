@@ -3886,24 +3886,6 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// MeshShardOp
-//===----------------------------------------------------------------------===//
-// NOTE: This legacy mesh_shard path only handles the "identity" variant.
-// All non-identity behavior has been split out to distribute_tensor /
-// aggregate_tensor. It remains because current TTIR lowering still generates
-// identity mesh_shard for shape tracking.
-::mlir::LogicalResult MeshShardOp::verify() {
-  ::mlir::tt::ttcore::MeshShardType shardType = getShardType();
-
-  if (shardType != ::mlir::tt::ttcore::MeshShardType::Identity) {
-    return emitOpError(
-        "We only support identity shard_type for mesh_shard op.");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // UpdateCacheOp
 //===----------------------------------------------------------------------===//
 
