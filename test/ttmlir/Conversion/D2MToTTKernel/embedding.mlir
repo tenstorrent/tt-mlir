@@ -43,6 +43,24 @@ module {
     return
   }
 
+  func.func private @embedding_dram_bf16_output_ui32_indices() attributes {d2m.thread = #d2m.thread<datamovement>, tt.function_type = "kernel"} {
+    %indices = d2m.get_arg(0) resolution_stage = compile : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>
+    %weight = d2m.get_arg(1) resolution_stage = compile : memref<1x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>
+    %output = d2m.get_arg(2) resolution_stage = compile : memref<2x1x32x32xbf16, #ttcore.shard<64x2, 1>, #dram>
+    %index_scratch = d2m.get_arg(3) resolution_stage = compile : memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>
+    %row_scratch = d2m.get_arg(4) resolution_stage = compile : memref<1x1024xbf16, #ttcore.cb_layout<2048x2, 1>, #l1>
+    // CHECK-LABEL: func.func private @embedding_dram_bf16_output_ui32_indices
+    // CHECK: %[[INDEX_BYTES:.*]] = arith.constant 16 : i32
+    // CHECK: %[[ROW_BYTES:.*]] = arith.constant 32 : i32
+    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[INDEX_BYTES]])
+    // CHECK: ttkernel.load_from_l1({{.*}}, {{.*}}) : (!ttkernel.l1_addr_ptr, i32) -> i32
+    // CHECK: ttkernel.get_noc_addr_from_bank_id
+    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[ROW_BYTES]])
+    // CHECK: ttkernel.noc_async_write({{.*}}, {{.*}}, %[[ROW_BYTES]])
+    d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<6, 5> {indicesShape = array<i64: 2, 3>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<2x1x32x32xbf16, #ttcore.shard<64x2, 1>, #dram>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xbf16, #ttcore.cb_layout<2048x2, 1>, #l1>
+    return
+  }
+
   func.func private @embedding_i32_table_ui32_indices() attributes {d2m.thread = #d2m.thread<datamovement>, tt.function_type = "kernel"} {
     %indices = d2m.get_arg(0) resolution_stage = compile : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>
     %weight = d2m.get_arg(1) resolution_stage = compile : memref<1x1x32x32xi32, #ttcore.shard<128x4, 1>, #l1>

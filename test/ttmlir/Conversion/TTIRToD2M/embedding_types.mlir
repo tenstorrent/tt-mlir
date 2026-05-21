@@ -9,10 +9,10 @@
 // L1-DAG: #[[L1_OUTPUT_I32:.*]] = #ttcore.metal_layout<logical_shape = 3x1x1{{.*}}l1, sharded>
 // DRAM-DAG: #[[DRAM_WEIGHT_BF16:.*]] = #ttcore.metal_layout<logical_shape = 16x8{{.*}}dram, sharded>
 // DRAM-DAG: #[[DRAM_L1_INDICES_BF16:.*]] = #ttcore.metal_layout<logical_shape = 2x3{{.*}}l1, sharded>
-// DRAM-DAG: #[[DRAM_L1_OUTPUT_BF16:.*]] = #ttcore.metal_layout<logical_shape = 2x3x8{{.*}}l1, sharded>
+// DRAM-DAG: #[[DRAM_OUTPUT_BF16:.*]] = #ttcore.metal_layout<logical_shape = 2x3x8{{.*}}dram, sharded>
 // DRAM-DAG: #[[DRAM_WEIGHT_I32:.*]] = #ttcore.metal_layout<logical_shape = 16x1{{.*}}dram, sharded>
 // DRAM-DAG: #[[DRAM_L1_INDICES_I32:.*]] = #ttcore.metal_layout<logical_shape = 3x1{{.*}}l1, sharded>
-// DRAM-DAG: #[[DRAM_L1_OUTPUT_I32:.*]] = #ttcore.metal_layout<logical_shape = 3x1x1{{.*}}l1, sharded>
+// DRAM-DAG: #[[DRAM_OUTPUT_I32:.*]] = #ttcore.metal_layout<logical_shape = 3x1x1{{.*}}dram, sharded>
 
 module {
   // CHECK-LABEL: func.func @embedding_bf16_table_ui32_indices
@@ -35,7 +35,7 @@ module {
     // L1-SAME: tensor<{{[^,]*}}xbf16, #[[L1_OUTPUT_BF16]]
     // DRAM-SAME: tensor<{{[^,]*}}xui32, #[[DRAM_L1_INDICES_BF16]]
     // DRAM-SAME: tensor<{{[^,]*}}xbf16, #[[DRAM_WEIGHT_BF16]]
-    // DRAM-SAME: tensor<{{[^,]*}}xbf16, #[[DRAM_L1_OUTPUT_BF16]]
+    // DRAM-SAME: tensor<{{[^,]*}}xbf16, #[[DRAM_OUTPUT_BF16]]
     %0 = "ttir.embedding"(%indices, %weight) : (tensor<2x3xui32>, tensor<16x8xbf16>) -> tensor<2x3x8xbf16>
     return %0 : tensor<2x3x8xbf16>
   }
@@ -60,7 +60,7 @@ module {
     // L1-SAME: tensor<{{[^,]*}}xi32, #[[L1_OUTPUT_I32]]
     // DRAM-SAME: tensor<{{[^,]*}}xui32, #[[DRAM_L1_INDICES_I32]]
     // DRAM-SAME: tensor<{{[^,]*}}xi32, #[[DRAM_WEIGHT_I32]]
-    // DRAM-SAME: tensor<{{[^,]*}}xi32, #[[DRAM_L1_OUTPUT_I32]]
+    // DRAM-SAME: tensor<{{[^,]*}}xi32, #[[DRAM_OUTPUT_I32]]
     %0 = "ttir.embedding"(%indices, %weight) : (tensor<3x1xui32>, tensor<16x1xi32>) -> tensor<3x1x1xi32>
     return %0 : tensor<3x1x1xi32>
   }

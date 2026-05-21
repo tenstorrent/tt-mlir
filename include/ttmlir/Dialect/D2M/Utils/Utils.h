@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -164,6 +166,17 @@ collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
 
 AffineMap canonicalStridedMap(MLIRContext *context, ArrayRef<int64_t> shape,
                               Type elementType, AffineMap map);
+
+// Return the NoC address alignment (also the minimum NoC transfer size) for a
+// memory space.
+int32_t getNocAddressAlignmentBytes(Operation *op,
+                                    ttcore::MemorySpace memorySpace);
+
+// Return the NoC alignment (also the minimum NoC transfer size) measured in
+// number of tensor/memref elements.
+int32_t
+getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
+                       const std::variant<RankedTensorType, MemRefType> &type);
 
 // Return the L1 NoC alignment (also the minimum L1 NoC transfer size) measured
 // in number of tensor/memref elements.

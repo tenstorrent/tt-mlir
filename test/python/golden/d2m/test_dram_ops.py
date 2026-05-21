@@ -360,6 +360,13 @@ DRAM_EMBEDDING_CASES = [
     ),
     pytest.param(
         (1, 32),
+        (1024, 40),
+        torch.uint32,
+        torch.bfloat16,
+        id="ui32_indices_bf16_table_1x32_1024x40",
+    ),
+    pytest.param(
+        (1, 32),
         (1024, 32),
         torch.uint32,
         torch.int32,
