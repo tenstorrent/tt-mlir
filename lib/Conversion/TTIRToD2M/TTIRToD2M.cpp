@@ -2688,7 +2688,6 @@ public:
     return success();
   }
 };
-
 } // namespace
 
 // Conversion for ttir.to_layout -> d2m.to_layout.
