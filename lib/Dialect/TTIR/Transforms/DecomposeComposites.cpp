@@ -459,126 +459,82 @@ struct DecomposeSoftmaxPattern : public OpRewritePattern<SoftmaxOp> {
 //===----------------------------------------------------------------------===//
 // Repeat pattern
 //
-// Decomposes ttir.repeat into nested ttir.concat ops using hierarchical binary
-// decomposition to minimize concurrent circular buffer usage. For repeat count
-// of 32, instead of creating 32 inputs at once, we create: 2 -> 4 -> 8 -> 16
-// -> 32 (each step only has 2 inputs to concat).
+// Decomposes ttir.repeat into nested ttir.concat ops using bit decomposition
+// to minimize concurrent circular buffer usage. For a repeat count, we examine
+// its binary representation and build only the power-of-two chunks needed.
+//
+// Example: repeatCount = 7 (binary: 111b)
+//   - Build chunks by doubling: 1x, 2x, 4x
+//   - Collect chunks for set bits: [1x, 2x, 4x]
+//   - Concatenate all at once: result = 1x + 2x + 4x = 7x
+//
+// This creates O(log N) intermediate values and O(log N) concat operations.
 //===----------------------------------------------------------------------===//
 
 struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
   using OpRewritePattern<RepeatOp>::OpRewritePattern;
 
-  // Helper function to repeat a tensor along a dimension using hierarchical
-  // concat. Uses binary decomposition: double the size repeatedly until we
-  // reach the target.
+  // Helper function to repeat a tensor along a dimension using bit
+  // decomposition. For repeatCount with binary representation, we build
+  // power-of-two chunks (1x, 2x, 4x, ...) and concatenate only those
+  // corresponding to set bits. This keeps the concat chain O(log repeatCount).
+  //
+  // Example: repeatCount = 7 (binary: 111)
+  //   - Build chunks: 1x, 2x, 4x (doubling each time)
+  //   - Bits 0, 1, 2 are set, so concatenate [1x, 2x, 4x]
   Value repeatAlongDim(Location loc, Value input, int64_t dim,
                        int64_t repeatCount, PatternRewriter &rewriter) const {
     if (repeatCount == 1) {
       return input;
     }
 
-    auto currentType = cast<RankedTensorType>(input.getType());
-    SmallVector<int64_t> currentShape(currentType.getShape().begin(),
-                                      currentType.getShape().end());
-    int64_t originalDimSize = currentShape[dim];
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t originalDimSize = inputType.getShape()[dim];
 
-    Value current = input;
-    int64_t currentRepeat = 1;
+    // Find the highest set bit to know when to stop building chunks
+    int64_t highestBit = 63 - __builtin_clzll(repeatCount);
 
-    // Use binary decomposition: keep doubling until we can't anymore
-    while (currentRepeat * 2 <= repeatCount) {
-      // Double by concatenating with itself
-      SmallVector<Value> inputs = {current, current};
+    // Build power-of-two chunks and collect those needed based on set bits
+    SmallVector<Value> partsToConcat;
+    Value currentChunk = input;
+    int64_t currentPower = 1;
 
-      currentRepeat *= 2;
-      currentShape[dim] = originalDimSize * currentRepeat;
-
-      auto outputType =
-          RankedTensorType::get(currentShape, currentType.getElementType(),
-                                currentType.getEncoding());
-
-      auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-      current = rewriter.create<ConcatOp>(loc, outputType, inputs, dimAttr);
-    }
-
-    // If we haven't reached the exact count, build remainder using bit
-    // decomposition. For remaining=N, we concatenate only the power-of-two
-    // chunks whose bits are set in N's binary representation. This keeps the
-    // concat chain O(log repeatCount) rather than O(remaining).
-    if (currentRepeat < repeatCount) {
-      int64_t remaining = repeatCount - currentRepeat;
-
-      // Build power-of-two chunks: {1x input, 2x input, 4x input, ...}
-      // Stop when the next power of 2 would exceed remaining.
-      SmallVector<Value> powerOfTwoChunks;
-      Value chunk = input;
-      int64_t chunkSize = 1;
-
-      while (chunkSize <= remaining) {
-        powerOfTwoChunks.push_back(chunk);
-
-        // Double the chunk for the next power of 2
-        if (chunkSize * 2 <= remaining) {
-          SmallVector<Value> doubleInputs = {chunk, chunk};
-          chunkSize *= 2;
-
-          SmallVector<int64_t> doubleShape(currentType.getShape().begin(),
-                                           currentType.getShape().end());
-          doubleShape[dim] = originalDimSize * chunkSize;
-          auto doubleType =
-              RankedTensorType::get(doubleShape, currentType.getElementType(),
-                                    currentType.getEncoding());
-
-          auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-          chunk =
-              rewriter.create<ConcatOp>(loc, doubleType, doubleInputs, dimAttr);
-        } else {
-          break;
-        }
+    for (int64_t bit = 0; bit <= highestBit; ++bit) {
+      // If this bit is set in repeatCount, we need this chunk
+      if (repeatCount & (1LL << bit)) {
+        partsToConcat.push_back(currentChunk);
       }
 
-      // Concatenate only the chunks needed based on bit decomposition of
-      // remaining. Walk from highest to lowest power of 2.
-      SmallVector<Value> remainderParts;
-      int64_t accumulated = 0;
-      for (int64_t i = powerOfTwoChunks.size() - 1; i >= 0; --i) {
-        int64_t power = 1LL << i;
-        if (accumulated + power <= remaining) {
-          remainderParts.push_back(powerOfTwoChunks[i]);
-          accumulated += power;
-        }
-      }
+      // Double the chunk for the next power of 2 (unless we're at the last bit)
+      if (bit < highestBit) {
+        SmallVector<Value> inputs = {currentChunk, currentChunk};
+        currentPower *= 2;
 
-      // Build the remainder by concatenating selected power-of-two chunks
-      Value remainder;
-      if (remainderParts.size() == 1) {
-        remainder = remainderParts[0];
-      } else {
-        // Concatenate all parts at once (or iteratively if needed)
-        SmallVector<int64_t> remShape(currentType.getShape().begin(),
-                                      currentType.getShape().end());
-        remShape[dim] = originalDimSize * remaining;
-        auto remType = RankedTensorType::get(
-            remShape, currentType.getElementType(), currentType.getEncoding());
+        SmallVector<int64_t> doubleShape(inputType.getShape().begin(),
+                                         inputType.getShape().end());
+        doubleShape[dim] = originalDimSize * currentPower;
+        auto doubleType = RankedTensorType::get(
+            doubleShape, inputType.getElementType(), inputType.getEncoding());
 
         auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-        remainder =
-            rewriter.create<ConcatOp>(loc, remType, remainderParts, dimAttr);
+        currentChunk =
+            rewriter.create<ConcatOp>(loc, doubleType, inputs, dimAttr);
       }
-
-      // Final concat of current and remainder
-      SmallVector<Value> inputs = {current, remainder};
-      currentShape[dim] = originalDimSize * repeatCount;
-
-      auto outputType =
-          RankedTensorType::get(currentShape, currentType.getElementType(),
-                                currentType.getEncoding());
-
-      auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-      current = rewriter.create<ConcatOp>(loc, outputType, inputs, dimAttr);
     }
 
-    return current;
+    // Concatenate all the collected parts into the final result
+    if (partsToConcat.size() == 1) {
+      return partsToConcat[0];
+    }
+
+    SmallVector<int64_t> outputShape(inputType.getShape().begin(),
+                                     inputType.getShape().end());
+    outputShape[dim] = originalDimSize * repeatCount;
+    auto outputType = RankedTensorType::get(
+        outputShape, inputType.getElementType(), inputType.getEncoding());
+
+    auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+    return rewriter.create<ConcatOp>(loc, outputType, partsToConcat, dimAttr);
   }
 
   LogicalResult matchAndRewrite(RepeatOp op,
