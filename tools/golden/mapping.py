@@ -1698,14 +1698,22 @@ def ttir_moe_expert_token_remap_golden(
     reduction_size=32,
 ) -> GoldenMapTensor:
     """Golden for remap. Returns (mapping, reduced) with matching shapes."""
-    # mapping: same shape as topk but last dim = E_local
-    E_local = expert_mapping.shape[3]  # [1, 1, E, D] -> D = E_local
+    # topk_tensor: [1, BD, S, E], expert_mapping: [1, 1, E, num_devices]
+    E = topk_tensor.shape[3]
+    num_devices = expert_mapping.shape[3]
+    E_local = E // num_devices
     BD = topk_tensor.shape[1]
     S = topk_tensor.shape[2]
-    mapping = torch.zeros(1, BD, S, E_local, dtype=topk_tensor.dtype)
+    mapping = GoldenMapTensor(
+        {0: torch.zeros(1, BD, S, E_local, dtype=topk_tensor.dtype)},
+        mesh_shape=topk_tensor.mesh_shape,
+    )
     M = reduction_size
     reduced_seq = (BD * S + M - 1) // M
-    reduced = torch.zeros(1, 1, reduced_seq, E_local, dtype=topk_tensor.dtype)
+    reduced = GoldenMapTensor(
+        {0: torch.zeros(1, 1, reduced_seq, E_local, dtype=topk_tensor.dtype)},
+        mesh_shape=topk_tensor.mesh_shape,
+    )
     return mapping, reduced
 
 

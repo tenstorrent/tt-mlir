@@ -10641,13 +10641,15 @@ class TTNNBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        golden_mapping = GoldenMapTensor(
-            {0: torch.zeros(mapping_shape, dtype=mapping_type)},
-            mesh_shape=self._mesh_shape,
-        )
-        golden_reduced = GoldenMapTensor(
-            {0: torch.zeros(reduced_shape, dtype=reduced_type)},
-            mesh_shape=self._mesh_shape,
+        topk_golden = self._get_golden_tensor(topk_tensor)
+        expert_mapping_golden = self._get_golden_tensor(expert_mapping)
+        expert_metadata_golden = self._get_golden_tensor(expert_metadata)
+        op_golden_function = get_golden_function(ttnn.MoeExpertTokenRemapOp)
+        golden_mapping, golden_reduced = op_golden_function(
+            topk_golden,
+            expert_mapping_golden,
+            expert_metadata_golden,
+            reduction_size,
         )
         self._set_golden_tensor(op.mapping, golden_mapping)
         self._set_golden_tensor(op.reduced, golden_reduced)
