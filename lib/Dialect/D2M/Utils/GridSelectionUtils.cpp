@@ -11,6 +11,28 @@
 
 namespace mlir::tt::d2m::utils {
 
+GridDecision makeGridDecision(ArrayRef<int64_t> selectedGrid,
+                              ArrayRef<int64_t> targetGrid) {
+  GridDecision decision;
+  decision.selectedGrid = llvm::SmallVector<int64_t>(selectedGrid);
+  decision.targetGrid = llvm::SmallVector<int64_t>(targetGrid);
+
+  if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(selectedGrid,
+                                                      targetGrid)) {
+    decision.physicalGrid = llvm::SmallVector<int64_t>(selectedGrid);
+    return decision;
+  }
+
+  auto physicalGrid = utils::findLegalPhysicalGridForVolume(
+      ttmlir::utils::volume<int64_t>(selectedGrid), targetGrid);
+  TT_assertv(!physicalGrid.empty(),
+             "Unable to find physical grid for virtual grid {} within {}",
+             ttmlir::utils::formatIterable(selectedGrid, "x"),
+             ttmlir::utils::formatIterable(targetGrid, "x"));
+  decision.physicalGrid = physicalGrid;
+  return decision;
+}
+
 llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetGrid) {

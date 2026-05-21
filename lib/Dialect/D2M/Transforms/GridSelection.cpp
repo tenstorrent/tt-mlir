@@ -35,40 +35,39 @@ namespace mlir::tt::d2m {
 // ----------------------------------------------------------------------------
 
 static std::pair<mlir::AffineMapAttr, mlir::AffineMapAttr>
-deriveVirtualGridAttrs(ArrayRef<int64_t> selectedGrid,
+deriveVirtualGridAttrs(const GridDecision &decision,
                        const EffectiveTargetGridRange &effectiveTargetGridRange,
                        OpBuilder &builder) {
+  ArrayRef<int64_t> selectedGrid = decision.selectedGrid;
   ArrayRef<int64_t> effectiveTargetGridShape = effectiveTargetGridRange.shape;
   ArrayRef<int64_t> effectiveTargetGridOffset = effectiveTargetGridRange.offset;
 
+  TT_assertv(llvm::equal(decision.targetGrid, effectiveTargetGridShape),
+             "Grid decision target {} does not match effective target {}",
+             ttmlir::utils::formatIterable(decision.targetGrid, "x"),
+             ttmlir::utils::formatIterable(effectiveTargetGridShape, "x"));
+
   bool hasOffset = llvm::any_of(effectiveTargetGridOffset,
                                 [](int64_t coord) { return coord != 0; });
-  bool requiresVirtualization = ttmlir::d2m::utils::grids::requiresVirtualGrid(
-      selectedGrid, effectiveTargetGridShape);
+  bool requiresVirtualization = decision.isVirtual();
   if (!requiresVirtualization && !hasOffset) {
     return {mlir::AffineMapAttr(), mlir::AffineMapAttr()};
   }
   AffineMap forwardMap;
   AffineMap inverseMap;
   if (requiresVirtualization) {
-    SmallVector<int64_t> physicalGridShape =
-        utils::findLegalPhysicalGridForVolume(
-            ttmlir::utils::volume<int64_t>(selectedGrid),
-            effectiveTargetGridShape);
-    TT_assertv(!physicalGridShape.empty(),
-               "Unable to find 2D rect that can fit virtual grid {} within "
-               "device grid {}",
-               ttmlir::utils::formatIterable(selectedGrid, "x"),
-               ttmlir::utils::formatIterable(effectiveTargetGridShape, "x"));
+    TT_assertv(!decision.physicalGrid.empty(),
+               "Virtual grid decision must carry a physical placement");
     std::tie(forwardMap, inverseMap) =
         ttmlir::d2m::utils::grids::createCoreVirtMaps(
-            builder.getContext(), selectedGrid, physicalGridShape);
+            builder.getContext(), selectedGrid, decision.physicalGrid);
   } else {
     // Offset-only remap without virtualization: start from identity mappings.
     TT_assertv(selectedGrid.size() == 2u,
                "Expected 2D selected grid for offset-only remap");
-    unsigned rank = selectedGrid.size() * 2;
-    forwardMap = AffineMap::getMultiDimIdentityMap(rank, builder.getContext());
+    constexpr unsigned kGridShardRank = 4;
+    forwardMap =
+        AffineMap::getMultiDimIdentityMap(kGridShardRank, builder.getContext());
     inverseMap =
         ttmlir::utils::createIdentityGridInverseMap(builder.getContext());
   }
@@ -179,8 +178,10 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
   // VGM is NOT propagated from the to_layout's input here — the output EmptyOp
   // has its own grid/shard strategy. VGM for DMA addresses is traced through
   // the stream's input at DMA lowering time.
+  GridDecision decision =
+      utils::makeGridDecision(optimalGrid, effectiveTargetGridRange.shape);
   auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-      deriveVirtualGridAttrs(optimalGrid, effectiveTargetGridRange, builder);
+      deriveVirtualGridAttrs(decision, effectiveTargetGridRange, builder);
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
       emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
@@ -377,9 +378,10 @@ applyMaskUpdate(const OperandGridInfo &info,
             .getResult();
   }
 
+  GridDecision decision = utils::makeGridDecision(
+      info.selectedGrid, effectiveTargetGridRange.shape);
   auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-      deriveVirtualGridAttrs(info.selectedGrid, effectiveTargetGridRange,
-                             builder);
+      deriveVirtualGridAttrs(decision, effectiveTargetGridRange, builder);
   auto newOutput = builder.create<d2m::EmptyOp>(maskOp.getLoc(), newResultType,
                                                 virtualGridInverseMapping,
                                                 virtualGridForwardMapping);
@@ -496,8 +498,10 @@ static void applyCompositeViewUpdate(
         toLayoutOp && input.hasOneUse()) {
       auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
       if (emptyOp) {
+        GridDecision inputDecision = utils::makeGridDecision(
+            inputOptimalGrid, effectiveTargetGridRange.shape);
         auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-            deriveVirtualGridAttrs(inputOptimalGrid, effectiveTargetGridRange,
+            deriveVirtualGridAttrs(inputDecision, effectiveTargetGridRange,
                                    builder);
         builder.setInsertionPoint(emptyOp);
         auto newEmptyOp = builder.create<d2m::EmptyOp>(
@@ -545,9 +549,10 @@ applyEmptyOpUpdate(const OperandGridInfo &info,
   // The selected grid may differ from the EmptyOp's previous grid.
   // TODO (#8301): Avoid creating placeholder EmptyOp VGMs before grid
   // selection so this rewrite does not need to repair stale mappings.
+  GridDecision decision = utils::makeGridDecision(
+      info.selectedGrid, effectiveTargetGridRange.shape);
   auto [virtualGridInverseMapping, virtualGridForwardMapping] =
-      deriveVirtualGridAttrs(info.selectedGrid, effectiveTargetGridRange,
-                             builder);
+      deriveVirtualGridAttrs(decision, effectiveTargetGridRange, builder);
 
   auto newEmptyOp = builder.create<d2m::EmptyOp>(
       emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,

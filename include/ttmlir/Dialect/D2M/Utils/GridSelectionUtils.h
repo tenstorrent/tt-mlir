@@ -15,7 +15,24 @@
 
 namespace mlir::tt::d2m {
 
+/// Complete placement decision for one selected tensor grid.
+///
+/// selectedGrid is the grid stored in the tensor layout. targetGrid is the
+/// physical region the selected grid must fit into. physicalGrid is the 2D
+/// worker-grid extent used to place selectedGrid.
+struct GridDecision {
+  llvm::SmallVector<int64_t> selectedGrid;
+  llvm::SmallVector<int64_t> targetGrid;
+  llvm::SmallVector<int64_t> physicalGrid;
+
+  bool empty() const { return selectedGrid.empty(); }
+  bool isVirtual() const { return selectedGrid != physicalGrid; }
+};
+
 namespace utils {
+
+GridDecision makeGridDecision(ArrayRef<int64_t> selectedGrid,
+                              ArrayRef<int64_t> targetGrid);
 
 // Compute optimal grid shape for a given physical shape and target grid by
 // finding the largest grid dimensions that evenly divide the physical shape.
