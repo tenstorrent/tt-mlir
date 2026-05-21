@@ -97,10 +97,12 @@ if (TTMLIR_ENABLE_RUNTIME)
   target_sources(_ttmlir_runtime PRIVATE $<TARGET_OBJECTS:_mlir_runtime_utils>)
   set_property(TARGET _mlir_runtime_utils PROPERTY CXX_STANDARD 20)
 
-  install(FILES $<TARGET_FILE:_ttmlir_runtime>
-    DESTINATION ${TTMLIR_PYTHON_PACKAGES_DIR}
-    COMPONENT SharedLib
-  )
+  if (TTMLIR_PYTHON_PACKAGES_DIR)
+    install(FILES $<TARGET_FILE:_ttmlir_runtime>
+      DESTINATION ${TTMLIR_PYTHON_PACKAGES_DIR}
+      COMPONENT SharedLib
+    )
+  endif()
 endif()
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
