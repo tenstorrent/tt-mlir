@@ -44,7 +44,6 @@ target_link_libraries(_tt_kurbla_torch_native PRIVATE
     tt_kurbla_common
     ${TORCH_LIBRARIES}
 )
-target_include_directories(_tt_kurbla_torch_native PRIVATE ${TORCH_INCLUDE_DIRS})
 
 # Final import name on disk is `_native.so` so Python sees tt_kurbla.torch._native.
 # INSTALL_RPATH points at the in-build-tree locations of libtt_kurbla.so,

@@ -3,6 +3,7 @@
 // runtime through ttsim via src/engine/sim_env.cpp, so these execute without a
 // physical device.
 
+#include "cast.hpp"
 #include "engine/compile.hpp"
 #include "engine/device.hpp"
 #include "engine/execution_payload.hpp"
@@ -46,11 +47,11 @@ std::shared_ptr<tt::kurbla::CompiledProgram> compile_for_current_device() {
 // bf16 has the same sign+exponent encoding as f32; truncating the low 16 bits
 // rounds toward zero, which is fine for the integral fill values we use here.
 std::uint16_t float_to_bf16(float f) {
-    return static_cast<std::uint16_t>(std::bit_cast<std::uint32_t>(f) >> 16);
+    return as<std::uint16_t>(std::bit_cast<std::uint32_t>(f) >> 16);
 }
 
 float bf16_to_float(std::uint16_t b) {
-    return std::bit_cast<float>(static_cast<std::uint32_t>(b) << 16);
+    return std::bit_cast<float>(as<std::uint32_t>(b) << 16);
 }
 
 tt::runtime::Tensor make_filled_host_tensor(const tt::runtime::TensorDesc &desc, float fill) {
@@ -169,7 +170,7 @@ TEST(EngineExecutionPayloadTest, RejectsWrongShape) {
     std::vector<float> buf(wrong.volume(), 0.0F);
     auto wrong_tensor = tt::runtime::createOwnedHostTensor(buf.data(), wrong);
 
-    EXPECT_THROW(payload.bind_tensor(wrong_tensor, 0), tt::kurbla::InputBindingError);
+    EXPECT_THROW(payload.bind_tensor(wrong_tensor, 0), std::runtime_error);
 }
 
 TEST(EngineExecutionPayloadTest, RejectsMissingInput) {
@@ -184,5 +185,5 @@ TEST(EngineExecutionPayloadTest, RejectsMissingInput) {
     payload.bind_tensor(make_filled_host_tensor(input_descs[0], 0.0F), 0);
     // Slot 1 deliberately left unbound.
 
-    EXPECT_THROW(payload.run(), tt::kurbla::InputBindingError);
+    EXPECT_THROW(payload.run(), std::runtime_error);
 }

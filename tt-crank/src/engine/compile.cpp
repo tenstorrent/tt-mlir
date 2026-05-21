@@ -35,10 +35,9 @@ namespace {
 // the moment compile is properly serialized.
 void assert_single_threaded_mlir_access() {
     static const std::thread::id allowed_thread = std::this_thread::get_id();
-    if (std::this_thread::get_id() != allowed_thread) {
-        throw CompileError("tt-kurbla compile: MLIRContext accessed from a different thread than the first caller. "
-                           "The context is not yet thread-safe; serialize calls or add a mutex around compile.");
-    }
+    TT_FATAL(std::this_thread::get_id() == allowed_thread,
+             "tt-kurbla compile: MLIRContext accessed from a different thread than the first caller. "
+             "The context is not yet thread-safe; serialize calls or add a mutex around compile.");
 }
 
 // Process-wide MLIR state. Constructed once on first compile() call.
@@ -97,9 +96,8 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
         auto diag_fn = [&]() -> mlir::InFlightDiagnostic { return module_op->emitOpError(); };
         auto attr_or = mlir::tt::ttcore::SystemDescAttr::getFromBuffer(module_op.getContext(),
                                                                        options.system_desc->handle.get(), diag_fn);
-        if (mlir::failed(attr_or)) {
-            throw PipelineError(make_error_message("failed to attach in-memory system desc", diag_buffer));
-        }
+        TT_FATAL(mlir::succeeded(attr_or), "{}",
+                 make_error_message("failed to attach in-memory system desc", diag_buffer));
         // FailureOr hides has_value()/operator bool, so clang-tidy can't see the gate above.
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         module_op->setAttr(mlir::tt::ttcore::SystemDescAttr::name, attr_or.value());
@@ -115,9 +113,8 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
 
     {
         ZoneScopedN("tt_kurbla::ttir_to_ttnn_pipeline");
-        if (mlir::failed(pm.run(module_op))) {
-            throw PipelineError(make_error_message("ttir-to-ttnn pipeline failed", diag_buffer));
-        }
+        TT_FATAL(mlir::succeeded(pm.run(module_op)), "{}",
+                 make_error_message("ttir-to-ttnn pipeline failed", diag_buffer));
     }
 
     // Opt-in dump of the post-pipeline TTNN IR — useful when debugging op
@@ -132,9 +129,7 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
     {
         ZoneScopedN("tt_kurbla::ttnn_to_flatbuffer");
         fb = mlir::tt::ttnn::ttnnToFlatbuffer(module_op);
-    }
-    if (!fb) {
-        throw PipelineError(make_error_message("ttnnToFlatbuffer returned null", diag_buffer));
+        TT_FATAL(fb != nullptr, "{}", make_error_message("ttnnToFlatbuffer returned null", diag_buffer));
     }
 
     return CompiledProgram{tt::runtime::Binary(std::move(fb))};
@@ -172,9 +167,7 @@ CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const Com
     });
 
     mlir::OwningOpRef<mlir::ModuleOp> module_op = mlir::parseSourceString<mlir::ModuleOp>(ttir, &ctx);
-    if (!module_op) {
-        throw ParseError(make_error_message("failed to parse TTIR module", diag_buffer));
-    }
+    TT_FATAL(module_op, "{}", make_error_message("failed to parse TTIR module", diag_buffer));
 
     return run_ttir_to_ttnn_and_emit(module_op.get(), options, diag_buffer);
 }

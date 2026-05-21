@@ -9,6 +9,7 @@
 
 #include <mlir/IR/OwningOpRef.h>
 #include <mlir/Parser/Parser.h>
+#include <stdexcept>
 
 namespace {
 
@@ -34,7 +35,7 @@ TEST(EngineCompileTest, ThrowsOnParseError) {
     try {
         tt::kurbla::compile_ttir_to_ttnn_flatbuffer("not valid mlir");
         FAIL() << "expected ParseError";
-    } catch (const tt::kurbla::ParseError &e) {
+    } catch (const std::runtime_error &e) {
         EXPECT_NE(std::string_view(e.what()).find_first_not_of(' '), std::string_view::npos);
     } catch (...) {
         FAIL() << "expected ParseError, got a different exception";
