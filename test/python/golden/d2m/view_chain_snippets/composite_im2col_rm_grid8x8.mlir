@@ -22,8 +22,15 @@
 // Step 2: 4D grid<8x8> -> 8D grid<1x8x8x1>.
 #flatten_g8x8 = affine_map<(d0, d1, d2, d3) -> (0, ((d0 * 32 + d2) floordiv 16) floordiv 4, ((d0 * 32 + d2) mod 16) floordiv 4, 0, 0, ((d0 * 32 + d2) floordiv 16) mod 4, ((d0 * 32 + d2) mod 16) mod 4, d1 * 8 + d3)>
 
+// VGM for virt grid [1, 8, 8, 1] placed on physical grid 8x8 (volume=64).
+#vgm_fwd = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> ((d0 * 64 + d1 * 8 + d2 + d3) floordiv 8 mod 8, (d0 * 64 + d1 * 8 + d2 + d3) mod 8, d4, d5, d6, d7)>
+#vgm_inv = affine_map<(d0, d1) -> (0, 0, (d0 * 8 + d1) floordiv 8 mod 8, (d0 * 8 + d1) mod 8, 0)>
+
 func.func @composite_im2col_nhwc_grid8x8(%arg0: tensor<1x17x17x64xf32>) -> tensor<256x256xf32> {
-  %d_init = d2m.empty() : tensor<1x8x8x1x1x4x4x64xf32, #l_in>
+  %d_init = d2m.empty() {
+    virtualGridForwardMapping = #vgm_fwd,
+    virtualGridInverseMapping = #vgm_inv
+  } : tensor<1x8x8x1x1x4x4x64xf32, #l_in>
   %dev = d2m.to_layout %arg0, %d_init : tensor<1x17x17x64xf32> into tensor<1x8x8x1x1x4x4x64xf32, #l_in>
     -> tensor<1x8x8x1x1x4x4x64xf32, #l_in>
 

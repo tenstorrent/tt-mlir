@@ -71,8 +71,12 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
     auto targetGrid = llvm::to_vector(deviceOp.getWorkerGrid().getShape());
     auto gridShape = llvm::to_vector(destGrid.getShape());
     if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape, targetGrid)) {
+      // Use clean-factor physGrid; raw worker grid would mod-wrap unevenly
+      // (e.g. mod 11 on BH 10x11 for a 64-vol virt grid).
+      auto physGrid = ttmlir::d2m::utils::grids::getPhysicalGridExtent(
+          gridShape, targetGrid);
       auto [fwd, inv] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-          builder.getContext(), gridShape, targetGrid);
+          builder.getContext(), gridShape, physGrid);
       fwdAttr = AffineMapAttr::get(fwd);
       invAttr = AffineMapAttr::get(inv);
     }
@@ -85,7 +89,8 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                                              newLayout);
 
   // GridAttr's forward map is grid-rank (not memref-rank), so build it
-  // directly rather than reusing the EmptyOp's memref-level VGM.
+  // directly rather than reusing the EmptyOp's memref-level VGM. Project onto
+  // clean-factor physGrid.
   ttcore::GridAttr grid;
   if (fwdAttr) {
     auto targetGrid =
@@ -95,8 +100,10 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                             .getWorkerGrid()
                             .getShape());
     auto gridShape = llvm::to_vector(destGrid.getShape());
+    auto physGrid =
+        ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape, targetGrid);
     auto fwdGrid = ttmlir::d2m::utils::grids::create1DtoNDMap(
-                       builder.getContext(), targetGrid)
+                       builder.getContext(), physGrid)
                        .compose(ttmlir::d2m::utils::grids::createCollapseMap(
                            builder.getContext(), gridShape));
     fwdGrid =
