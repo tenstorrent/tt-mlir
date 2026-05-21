@@ -116,6 +116,50 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
   ];
 }
 
+def D2MDistributeComputeThreads : Pass<"d2m-distribute-compute-threads", "::mlir::ModuleOp"> {
+  let summary = "Distribute compute work across compute threads via scf.forall.";
+  let description = [{
+    Tiles eligible linalg.generic compute ops across one or two trivially
+    parallel output dimensions, producing scf.forall ops marked with
+    #d2m.compute_thread. This pass only targets compute work; datamovement
+    regions and datamovement-affinity ops are never tiled.
+  }];
+
+  list<Option> options = [
+    Option<"numComputeThreads", "num-compute-threads", "int64_t", "4",
+           "Maximum number of compute threads per L1 region.">,
+    ListOption<"splitDims", "split-dims", "int64_t",
+           "Optional original loop dimension ids to distribute. Empty means automatic.">,
+    ListOption<"matmulInterchange", "matmul-interchange", "int64_t",
+           "Matmul interchange used before this pass; explicit split-dims are mapped through this permutation.">,
+  ];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
+def D2MMaterializeComputeThreadForall : Pass<"d2m-materialize-compute-thread-forall", "::mlir::ModuleOp"> {
+  let summary = "Materialize compute-thread scf.forall ops to d2m.my_thread_id.";
+  let description = [{
+    Lowers scf.forall ops marked with #d2m.compute_thread to D2M SPMD IR by
+    creating d2m.my_thread_id, substituting compute-thread induction variables,
+    and inlining the forall body. The pass only handles compute-thread foralls
+    inside d2m.generic compute regions.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "Tile linalg.generic compute loops to fit DST register capacity.";
   let description = [{

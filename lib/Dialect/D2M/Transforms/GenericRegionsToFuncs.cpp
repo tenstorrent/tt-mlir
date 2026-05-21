@@ -124,13 +124,15 @@ public:
             mlir::cast<ThreadAttr>(origThreads[region.getRegionNumber()]);
         ThreadType threadType = origThreadAttr.getThreadType();
         int32_t processorIndex = origThreadAttr.getProcessorIndex();
+        int64_t numThreadsPerCluster = origThreadAttr.getNumThreadsPerCluster();
         std::string symbolName =
             stringifyEnum(threadType).str() + "_kernel" + Twine(unique++).str();
         auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
             threadType, builder.getAttr<SymbolRefAttr>(symbolName),
-            processorIndex);
-        auto threadAttrWithoutSym =
-            builder.getAttr<ThreadAttr>(threadType, nullptr, processorIndex);
+            processorIndex,
+            numThreadsPerCluster);
+        auto threadAttrWithoutSym = builder.getAttr<ThreadAttr>(
+            threadType, nullptr, processorIndex, numThreadsPerCluster);
         Location loc = region.getNumArguments() > 0
                            ? region.getArgument(0).getLoc()
                            : generic.getLoc();
