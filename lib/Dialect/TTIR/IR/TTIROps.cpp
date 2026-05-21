@@ -8379,4 +8379,69 @@ static bool anyZero(mlir::ElementsAttr elems) {
                                    subtract, subtract);
 }
 
+//===----------------------------------------------------------------------===//
+// TtLangOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::TtLangOp::verify() {
+  if (getInputs().empty()) {
+    return emitOpError("tt-lang kernel must have at least one input operand.");
+  }
+
+  // arg_roles is a comma-separated list of "in" / "out" tokens. Each entry
+  // corresponds positionally to `inputs`; entries marked "out" correspond
+  // positionally to `results` (so the number of "out" tokens must equal
+  // numResults).
+  llvm::StringRef rolesStr = getArgRoles();
+  if (rolesStr.empty()) {
+    return emitOpError("`arg_roles` attribute must not be empty.");
+  }
+
+  llvm::SmallVector<llvm::StringRef> tokens;
+  rolesStr.split(tokens, ',');
+  if (tokens.size() != getInputs().size()) {
+    return emitOpError("`arg_roles` token count (")
+           << tokens.size() << ") must match number of inputs ("
+           << getInputs().size() << ").";
+  }
+
+  size_t outCount = 0;
+  for (llvm::StringRef token : tokens) {
+    llvm::StringRef trimmed = token.trim();
+    if (trimmed == "out") {
+      ++outCount;
+    } else if (trimmed != "in") {
+      return emitOpError("`arg_roles` token must be \"in\" or \"out\", got: \"")
+             << trimmed << "\".";
+    }
+  }
+
+  if (outCount != getResults().size()) {
+    return emitOpError("number of \"out\" roles (")
+           << outCount << ") must match number of results ("
+           << getResults().size() << ").";
+  }
+  // At least one "out" operand is required: a tt-lang kernel must write to
+  // a destination buffer that the runtime hands back as the kernel's output,
+  // so we enforce that semantics for the op here at the TTIR level.
+  // Catching this here also means the StableHLOToTTIR conversion can never
+  // produce an op that the TTNN verifier or flatbuffer emitter would reject
+  // downstream; the diagnostic surfaces at the same layer that built the op.
+  if (outCount == 0) {
+    return emitOpError(
+        "tt-lang kernel must have at least one operand tagged \"out\" "
+        "(the destination buffer the runtime returns as the kernel's "
+        "output).");
+  }
+
+  if (getKernelId().empty()) {
+    return emitOpError("`kernel_id` attribute must not be empty.");
+  }
+  if (getVersionTag().empty()) {
+    return emitOpError("`version_tag` attribute must not be empty.");
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttir

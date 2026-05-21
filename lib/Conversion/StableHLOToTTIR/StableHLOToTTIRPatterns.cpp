@@ -8984,6 +8984,101 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOSamplingConversionPattern>(typeConverter, ctx);
 }
 
+namespace {
+// This pattern recognizes and converts
+// `stablehlo.custom_call @tt.tt_lang_op` to `ttir.tt_lang_op`. The op carries
+// a user-defined tt-lang kernel that the tt-xla plugin resolves later via a
+// Python bridge; tt-mlir's only job here is to lift the metadata from
+// `mhlo.frontend_attributes` onto the op so it survives the TTIR pipeline
+// (in particular Shardy / shape refinement on adjacent ops) with the right
+// number of typed operands and results.
+class StableHLOTtLangOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.tt_lang_op") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().empty() || srcOp.getResults().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tt.tt_lang_op custom call must have at least one operand and one "
+          "result.");
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tt.tt_lang_op custom call must have mhlo.frontend_attributes.");
+    }
+
+    auto kernelIdAttr = frontendAttributes.getAs<mlir::StringAttr>("kernel_id");
+    if (!kernelIdAttr || kernelIdAttr.getValue().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op requires a non-empty `kernel_id` frontend "
+                 "attribute.");
+    }
+
+    auto versionTagAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("version_tag");
+    if (!versionTagAttr || versionTagAttr.getValue().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op requires a non-empty `version_tag` frontend "
+                 "attribute.");
+    }
+
+    auto argRolesAttr = frontendAttributes.getAs<mlir::StringAttr>("arg_roles");
+    if (!argRolesAttr || argRolesAttr.getValue().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op requires a non-empty `arg_roles` frontend "
+                 "attribute.");
+    }
+
+    // `shard_spec` is optional; default to "" if absent.
+    auto shardSpecAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("shard_spec");
+    StringAttr shardSpec =
+        shardSpecAttr ? shardSpecAttr : rewriter.getStringAttr("");
+
+    SmallVector<Type> resultTypes;
+    resultTypes.reserve(srcOp.getNumResults());
+    for (Type resultType : srcOp.getResultTypes()) {
+      Type converted = getTypeConverter()->convertType(resultType);
+      if (!converted) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to convert tt.tt_lang_op result type.");
+      }
+      resultTypes.push_back(converted);
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::TtLangOp>(srcOp, resultTypes,
+                                                adaptor.getOperands(),
+                                                /*kernel_id=*/kernelIdAttr,
+                                                /*version_tag=*/versionTagAttr,
+                                                /*arg_roles=*/argRolesAttr,
+                                                /*shard_spec=*/shardSpec);
+
+    return success();
+  }
+};
+} // namespace
+
+static void addTtLangOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
+  patterns.add<StableHLOTtLangOpConversionPattern>(typeConverter, ctx);
+}
+
 static void
 addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
@@ -9508,6 +9603,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                                         typeConverter);
   addSparseMatmulOpConversionPattern(ctx, patterns, typeConverter);
   addAllToAllOpsConversionPattern(ctx, patterns, typeConverter);
+  addTtLangOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
