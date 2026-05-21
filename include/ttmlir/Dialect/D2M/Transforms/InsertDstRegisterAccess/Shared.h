@@ -103,33 +103,14 @@ struct DstAccessCollection {
 };
 
 // ---------------------------------------------------------------------------
-// Shared DST slice allocator
+// DstStackAllocator
 //
-// Slots come from a free list (`sliceStack`) and are bound to one of four
-// explicit roles:
-//
-//   - `inputStack`     : operand reads of the in-progress compute op, popped
-//                        LIFO (most recent input is deallocated first).
-//   - `currentOutput`  : the result tile of the most recently emitted
-//                        compute op.  Its value may still be consumed
-//                        in-place by the next compute op.
-//   - `retiredOutputs` : prior outputs whose consumer has already been
-//                        emitted; they are dead but not yet recycled.
-//   - `scratchSlots`   : per-op private scratch (e.g. SFPU int reductions
-//                        via `getNumDstScratchSlices()`).  Owned by the op
-//                        for the lifetime of the region; never recycled,
-//                        and deliberately not tracked by `inputStack`,
-//                        `currentOutput`, or `currSliceIndex`.
-//
-// `currSliceIndex` is the most recently allocated *operand or output* slot
-// (never a scratch slot) so callers wanting to overwrite-in-place can grab
-// it directly.
-//
-// The scheduled pass uses the full API (LIFO reuse via `deallocate()` and
-// `deallocateAllButFirstInput()`).  The unscheduled pass uses only
-// `allocate()` / `allocateScratch()` / `getCurrSliceIndex()`, which gives
-// it the same bump-allocator behavior its old `DstSliceAllocationState`
-// had: every call returns a fresh slot in 0,1,2,... order.
+// Free-slot pool for the DST register.  Slots are bump-allocated from
+// `sliceStack` and reclaimed only via `deallocateAllButFirstInput()` (the
+// multi-input fold case); `inputStack` exists so that path has the
+// current op's operand slots to free.  `scratchSlots` is a separate pool
+// so a fused-after-int-reduction op can't pick up the scratch slot as
+// its in-place output (#8081).
 // ---------------------------------------------------------------------------
 
 class DstStackAllocator {
@@ -140,9 +121,10 @@ public:
     initSliceStack();
   }
 
+  // `isStore=true` skips the operand-list bookkeeping (the slot is the
+  // op's output, not an operand of the current op).
   unsigned allocate(bool isStore = false);
   unsigned allocateScratch();
-  unsigned deallocate();
   void setStoreToDst() { storedToDst = true; }
   bool didStoreToDst() const { return storedToDst; }
   unsigned getCurrSliceIndex() const { return currSliceIndex; }
@@ -153,8 +135,6 @@ private:
   unsigned dstSliceCapacity = 0;
   unsigned currSliceIndex = 0;
   SmallVector<unsigned, 16> inputStack;
-  std::optional<unsigned> currentOutput;
-  SmallVector<unsigned, 4> retiredOutputs;
   SmallVector<unsigned, 4> scratchSlots;
   SmallVector<unsigned, 16> sliceStack;
   bool storedToDst = false;

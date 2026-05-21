@@ -28,14 +28,10 @@ namespace {
 using namespace detail;
 
 // ---------------------------------------------------------------------------
-// Unscheduled-only: DST access collection (matmul/reduction)
-//
-// Uses the shared `DstStackAllocator` in bump-allocator mode: `allocate()`
-// always pops a fresh slot off the free list (no `deallocate()` is ever
-// called), `allocateScratch()` parks scratch slots in their own pool so
-// they don't appear on the operand stack or as `getCurrSliceIndex()` --
-// the same fix that prevents the scheduled pass from picking up a scratch
-// slot as the next op's in-place output (#8081).
+// Unscheduled-only: DST access collection (matmul/reduction).
+// Tracks "first input of current op" with a local variable; otherwise
+// just bump-allocates from `DstStackAllocator` and reserves per-op
+// scratch via `allocateScratch()` (#8081).
 // ---------------------------------------------------------------------------
 
 static DstAccessCollection
@@ -193,11 +189,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
       }
     }
 
-    // Reserve any extra DST scratch slices the op declares via the
-    // interface so they don't collide with operand/output slots.
-    // Scratch slots live in their own allocator pool: they don't update
-    // `getCurrSliceIndex()` and don't show up as a candidate for in-place
-    // reuse by a fused-after-int-reduction op (#8081).
+    // Reserve any per-op DST scratch slices (#8081).
     for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
       setDstScratchIndex(computeOp, dstAllocator.allocateScratch());
     }

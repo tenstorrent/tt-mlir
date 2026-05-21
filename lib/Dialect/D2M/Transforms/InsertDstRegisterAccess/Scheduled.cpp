@@ -225,13 +225,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           }
         }
 
-        // Reserve any extra DST scratch slices the op declares via the
-        // interface so they don't collide with operand/output slots.
-        // Scratch slots live in their own allocator pool: they don't land
-        // on `inputStack`, don't update `currSliceIndex`, and don't
-        // participate in `deallocateAllButFirstInput()`.  This prevents a
-        // fused-after-int-reduction op from accidentally consuming the
-        // scratch slot as its in-place output (#8081).
+        // Reserve any per-op DST scratch slices (#8081).
         for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n;
              ++i) {
           setDstScratchIndex(computeOp, dstStackAllocator.allocateScratch());
