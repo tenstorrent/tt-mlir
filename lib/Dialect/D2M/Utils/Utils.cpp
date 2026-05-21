@@ -560,6 +560,8 @@ getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape) {
   SmallVector<int64_t> physicalGridShape =
       ttmlir::utils::evalShape(gridFwdMap, gridShape);
   ArrayRef<int64_t> physicalWorkerGridShape(physicalGridShape);
+  // The transformed map must cover the same worker count after collapsing the
+  // virtual grid back to physical device/core coordinates.
   if (ttmlir::utils::volume<int64_t>(physicalWorkerGridShape.drop_front()) !=
       ttmlir::utils::volume<int64_t>(gridShape)) {
     return std::nullopt;

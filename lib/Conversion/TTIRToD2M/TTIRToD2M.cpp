@@ -360,6 +360,8 @@ protected:
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+    // Relayouts of already-layouted values can still need the original logical
+    // tensor shape, e.g. embedding indices staged from DRAM back to L1.
     if (!logicalType) {
       logicalType = tensorType;
     }
@@ -3269,19 +3271,20 @@ public:
     }
 
     Location loc = op.getLoc();
-    SmallVector<Value> boundaryInputs{
-        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
-                              /*tiled=*/false, /*noCollapse=*/false, rewriter),
+    Value weightInput =
         createOptimalLayoutOp(op.getWeight(), memorySpaces[0],
-                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter);
+    Value indicesBoundaryInput =
+        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter);
     Value indicesInput =
         memorySpaces[0] == ttcore::MemorySpace::DeviceL1
-            ? boundaryInputs[0]
+            ? indicesBoundaryInput
             : createOptimalLayoutOp(
-                  boundaryInputs[0], ttcore::MemorySpace::DeviceL1,
+                  indicesBoundaryInput, ttcore::MemorySpace::DeviceL1,
                   /*tiled=*/false, /*noCollapse=*/false, rewriter,
                   ttcore::OOBVal::Undef, indicesType);
-    SmallVector<Value> inputs{indicesInput, boundaryInputs[1]};
+    SmallVector<Value> inputs{indicesInput, weightInput};
     SmallVector<Value> origOutputs =
         createDpsOutputs(loc, rewriter, {resultType});
     SmallVector<Value> outputs{

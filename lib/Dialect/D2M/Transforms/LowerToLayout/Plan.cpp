@@ -260,6 +260,8 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
   }
 
   ArrayRef<int64_t> tileShape;
+  // `elementType` is the target element type. Tiled-to-untiled changes pass a
+  // scalar `newElementType`, so this branch is only for tiled targets.
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
     if (newTileShape) {
       tileShape = *newTileShape;

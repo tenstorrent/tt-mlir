@@ -19,10 +19,10 @@ module {
   func.func @embedding_bf16_table_ui32_indices(
       %indices: tensor<2x3xui32>,
       %weight: tensor<16x8xbf16>) -> tensor<2x3x8xbf16> {
-    // L1: d2m.to_layout %arg0, %{{.*}} : tensor<2x3xui32> into tensor<{{.*}}xui32, #[[L1_INDICES_BF16]]>
-    // L1: d2m.to_layout %arg1, %{{.*}} : tensor<16x8xbf16> into tensor<{{.*}}xbf16, #[[L1_WEIGHT_BF16]]>
-    // DRAM: d2m.to_layout %arg1, %{{.*}} : tensor<16x8xbf16> into tensor<{{.*}}xbf16, #[[DRAM_WEIGHT_BF16]]>
-    // DRAM: d2m.to_layout %arg0, %{{.*}} : tensor<2x3xui32> into tensor<{{.*}}xui32, #[[DRAM_L1_INDICES_BF16]]>
+    // L1-DAG: d2m.to_layout %arg0, %{{.*}} : tensor<2x3xui32> into tensor<{{.*}}xui32, #[[L1_INDICES_BF16]]>
+    // L1-DAG: d2m.to_layout %arg1, %{{.*}} : tensor<16x8xbf16> into tensor<{{.*}}xbf16, #[[L1_WEIGHT_BF16]]>
+    // DRAM-DAG: d2m.to_layout %arg1, %{{.*}} : tensor<16x8xbf16> into tensor<{{.*}}xbf16, #[[DRAM_WEIGHT_BF16]]>
+    // DRAM-DAG: d2m.to_layout %arg0, %{{.*}} : tensor<2x3xui32> into tensor<{{.*}}xui32, #[[DRAM_L1_INDICES_BF16]]>
     // CHECK: d2m.generic
     // CHECK-SAME: indexing_maps = [
     // CHECK-SAME: iterator_types = [#parallel, #parallel]
@@ -44,10 +44,10 @@ module {
   func.func @embedding_i32_table_ui32_indices(
       %indices: tensor<3x1xui32>,
       %weight: tensor<16x1xi32>) -> tensor<3x1x1xi32> {
-    // L1: d2m.to_layout %arg0, %{{.*}} : tensor<3x1xui32> into tensor<{{.*}}xui32, #[[L1_INDICES_I32]]>
-    // L1: d2m.to_layout %arg1, %{{.*}} : tensor<16x1xi32> into tensor<{{.*}}xi32, #[[L1_WEIGHT_I32]]>
-    // DRAM: d2m.to_layout %arg1, %{{.*}} : tensor<16x1xi32> into tensor<{{.*}}xi32, #[[DRAM_WEIGHT_I32]]>
-    // DRAM: d2m.to_layout %arg0, %{{.*}} : tensor<3x1xui32> into tensor<{{.*}}xui32, #[[DRAM_L1_INDICES_I32]]>
+    // L1-DAG: d2m.to_layout %arg0, %{{.*}} : tensor<3x1xui32> into tensor<{{.*}}xui32, #[[L1_INDICES_I32]]>
+    // L1-DAG: d2m.to_layout %arg1, %{{.*}} : tensor<16x1xi32> into tensor<{{.*}}xi32, #[[L1_WEIGHT_I32]]>
+    // DRAM-DAG: d2m.to_layout %arg1, %{{.*}} : tensor<16x1xi32> into tensor<{{.*}}xi32, #[[DRAM_WEIGHT_I32]]>
+    // DRAM-DAG: d2m.to_layout %arg0, %{{.*}} : tensor<3x1xui32> into tensor<{{.*}}xui32, #[[DRAM_L1_INDICES_I32]]>
     // CHECK: d2m.generic
     // CHECK-SAME: indexing_maps = [
     // CHECK-SAME: iterator_types = [#parallel, #parallel]
