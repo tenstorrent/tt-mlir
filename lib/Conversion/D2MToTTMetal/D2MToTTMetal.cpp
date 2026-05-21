@@ -130,13 +130,18 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        int32_t nocIdx = thread.getNocIndex();
-        if (nocIdx < 0) {
-          nocIdx = unassignedNocCounter++ % 2;
+        int32_t processorIdx = thread.getProcessorIndex();
+        ttcore::NocIndex nocIndex;
+        if (processorIdx < 0) {
+          int32_t index = unassignedNocCounter++ % 2;
+          nocIndex =
+              index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
+        } else {
+          nocIndex = processorIdx == 1 ? ttcore::NocIndex::Noc0
+                                       : ttcore::NocIndex::Noc1;
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs,
-            *ttcore::symbolizeNocIndex(nocIdx));
+            thread.getKernelSymbol(), coreRange, kernelArgs, nocIndex);
         break;
       }
       case d2m::ThreadType::Unified: {
