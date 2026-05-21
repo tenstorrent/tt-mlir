@@ -217,6 +217,9 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /lib/Dialect/TTNN/Transforms/TTNNFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
 /test/ttmlir/Dialect/TTNN/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
 
+# TTNN Collect Perf Metrics
+/lib/Dialect/TTNN/Transforms/TTNNCollectPerfMetrics.cpp @tenstorrent/forge-developers-mlir-optimizer
+
 # LLVM Target
 /include/ttmlir/Target/LLVM/ @tenstorrent/forge-developers-mlir-core
 /lib/Target/LLVM/ @tenstorrent/forge-developers-mlir-core
