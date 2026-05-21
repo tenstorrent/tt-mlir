@@ -29,6 +29,7 @@ target_link_libraries(tt_kurbla_unit_tests
     PRIVATE
         tt_kurbla::tt_kurbla
         tt_kurbla_warnings
+        tt_kurbla_common
         tt_kurbla_sanitizers
         GTest::gtest_main
 )

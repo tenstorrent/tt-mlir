@@ -17,7 +17,6 @@
 #include <mlir/Support/LogicalResult.h>
 
 #include <tracy/Tracy.hpp>
-#include <tt-logger/tt-logger.hpp>
 
 #include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 #include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>

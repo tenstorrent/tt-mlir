@@ -1,5 +1,5 @@
-#include "engine/assert.hpp"
-#include "engine/cast.hpp"
+#include "assert.hpp"
+#include "cast.hpp"
 #include "engine/compile.hpp"
 
 #include <format>
@@ -36,6 +36,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv) {
     log_fatal(tt::LogAlways, "log_fatal");
 
     // TT_ASSERT(false, "Arch: {}", tt::kurbla::CompileOptions::MockArch::WormholeB0);
+    // TT_FATAL(false, "Arch: {}", tt::kurbla::CompileOptions::MockArch::WormholeB0);
+    TT_THROW("Failed something: {}", "something");
     // TT_ASSERT(false, "false");
     return as<int>(std::numeric_limits<uint32_t>::max());
 }
