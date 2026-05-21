@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from ._compare import assert_close_cpu_vs_tt
+from tt_kurbla.torch.testing import assert_close_cpu_vs_tt
 
 
 # Tile-aligned (multiples of 32) bf16 shapes only for now:
