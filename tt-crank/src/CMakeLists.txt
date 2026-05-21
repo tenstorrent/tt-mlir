@@ -1,5 +1,7 @@
 include(GenerateExportHeader)
 
+add_subdirectory(common)
+
 configure_file(
     version.cpp.in
     ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
@@ -45,16 +47,6 @@ target_include_directories(tt_kurbla
 
 target_compile_features(tt_kurbla PUBLIC cxx_std_20)
 
-# Compile out log calls below the active level at build time.
-# Debug/RelWithDebInfo: all levels compiled in (trace and above).
-# Release and others: debug/trace calls become no-ops.
-target_compile_definitions(tt_kurbla PUBLIC
-    $<IF:$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>,
-        SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE,
-        SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO>
-)
-
-
 # tt-mlir's installed libraries are built without RTTI (LLVM convention), so
 # any TU that instantiates tt-mlir's pipeline-options types (llvm::cl::Option,
 # mlir::detail::PassOptions::OptionBase, ...) must also be compiled with
@@ -75,8 +67,8 @@ target_link_libraries(tt_kurbla
     PUBLIC
         tt_mlir::compiler
         tt_mlir::runtime
+        tt_kurbla_common
     PRIVATE
-        tt-logger::tt-logger
         tt_kurbla_warnings
         tt_kurbla_sanitizers
 )
@@ -105,8 +97,8 @@ if (TT_KURBLA_BUILD_MAIN)
             tt_kurbla
             tt_mlir::compiler
             tt_mlir::runtime
+            tt_kurbla_common
         PRIVATE
-            tt-logger::tt-logger
             tt_kurbla_warnings
             tt_kurbla_sanitizers
     )

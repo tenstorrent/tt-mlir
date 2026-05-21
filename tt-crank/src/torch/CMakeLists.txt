@@ -41,6 +41,7 @@ add_dependencies(_tt_kurbla_torch_native tt_kurbla_ttsim_stage)
 # (see note in src/CMakeLists.txt) so it doesn't transitively force consumers.
 target_link_libraries(_tt_kurbla_torch_native PRIVATE
     tt_kurbla::tt_kurbla
+    tt_kurbla_common
     ${TORCH_LIBRARIES}
 )
 target_include_directories(_tt_kurbla_torch_native PRIVATE ${TORCH_INCLUDE_DIRS})
@@ -53,7 +54,7 @@ target_include_directories(_tt_kurbla_torch_native PRIVATE ${TORCH_INCLUDE_DIRS}
 set_target_properties(_tt_kurbla_torch_native PROPERTIES
     OUTPUT_NAME _native
     PREFIX ""
-    INSTALL_RPATH "${CMAKE_BINARY_DIR}/src;${CMAKE_BINARY_DIR}/third_party/tt-mlir-install/lib;${TORCH_INSTALL_PREFIX}/lib"
+    INSTALL_RPATH "${CMAKE_BINARY_DIR}/src;${CMAKE_BINARY_DIR}/src/common;${CMAKE_BINARY_DIR}/third_party/tt-mlir-install/lib;${TORCH_INSTALL_PREFIX}/lib"
 )
 
 install(TARGETS _tt_kurbla_torch_native

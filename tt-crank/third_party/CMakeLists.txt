@@ -4,7 +4,7 @@ include(FetchContent)
 FetchContent_Declare(
     tt-logger
     GIT_REPOSITORY https://github.com/tenstorrent/tt-logger.git
-    GIT_TAG        v1.1.9
+    GIT_TAG        v1.1.8
 )
 set(SPDLOG_BUILD_PIC ON CACHE INTERNAL "")
 FetchContent_MakeAvailable(tt-logger)
