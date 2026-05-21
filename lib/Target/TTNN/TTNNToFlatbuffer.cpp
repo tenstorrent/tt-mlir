@@ -37,7 +37,10 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <limits>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -3750,6 +3753,609 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
       ::tt::target::ttnn::ProgramType::ProgramDescriptor, program.Union());
 }
 
+// ============================================================================
+// tt-lang kernel_artifact deserialiser
+// ============================================================================
+//
+// Schema is documented end-to-end in
+// `python_package/tt_torch/tt_lang.py::_serialize_compiled_kernel`. The
+// shape is::
+//
+//   {
+//     "format_version": 1,
+//     "kernels": [
+//       {"thread_type": "compute"|"noc",
+//        "cpp_source":  "<embedded bytes>",
+//        "tensor_indices": [<int>, ...],
+//        "kernel_config": {...} },
+//       ...
+//     ],
+//     "core_range": {"start": [x, y], "end": [x, y]},
+//     "cb_configs":  [ {buffer_index, data_format, page_size, total_size}, ...
+//     ], "num_tensors": <int>,
+//     ...
+//   }
+//
+// Each helper below maps one piece of that JSON into its flatbuffer
+// counterpart. They all attach a diagnostic to `op` and return an empty
+// optional / zero offset on failure; the caller treats that as fatal.
+
+// `tt-lang/dtype_utils::tile_bytes_from_dtype` mirror — kept here so the
+// helper file isn't required to compile cb sizing in test/lit
+// scenarios. The Python emitter computes these eagerly, but having a
+// secondary check in C++ is cheap insurance against schema drift.
+static ::tt::target::DataType
+parseDataTypeName(llvm::StringRef name,
+                  std::optional<::tt::target::DataType> &out) {
+  // Returns the enum and writes it into `out` for the caller's
+  // convenience. NOLINTNEXTLINE: matches the FBS enum spelling 1:1.
+  out = llvm::StringSwitch<std::optional<::tt::target::DataType>>(name)
+            .Case("Float32", ::tt::target::DataType::Float32)
+            .Case("Float16", ::tt::target::DataType::Float16)
+            .Case("BFloat16", ::tt::target::DataType::BFloat16)
+            .Case("BFP_Float8", ::tt::target::DataType::BFP_Float8)
+            .Case("BFP_BFloat8", ::tt::target::DataType::BFP_BFloat8)
+            .Case("BFP_Float4", ::tt::target::DataType::BFP_Float4)
+            .Case("BFP_BFloat4", ::tt::target::DataType::BFP_BFloat4)
+            .Case("UInt32", ::tt::target::DataType::UInt32)
+            .Case("UInt16", ::tt::target::DataType::UInt16)
+            .Case("UInt8", ::tt::target::DataType::UInt8)
+            .Case("Int32", ::tt::target::DataType::Int32)
+            .Default(std::nullopt);
+  return out.value_or(::tt::target::DataType::BFloat16);
+}
+
+static std::optional<::tt::target::MathFidelity>
+parseMathFidelity(llvm::StringRef name) {
+  return llvm::StringSwitch<std::optional<::tt::target::MathFidelity>>(name)
+      .Case("LoFi", ::tt::target::MathFidelity::LoFi)
+      .Case("HiFi2", ::tt::target::MathFidelity::HiFi2)
+      .Case("HiFi3", ::tt::target::MathFidelity::HiFi3)
+      .Case("HiFi4", ::tt::target::MathFidelity::HiFi4)
+      .Default(std::nullopt);
+}
+
+// Parse `core_range`: {"start": [x, y], "end": [x, y]} -> CoreRangeSet
+// covering the inclusive rectangle. tt-lang currently only emits a
+// single rectangle, so we wrap it in a one-element range set.
+static ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
+parseCoreRange(FlatbufferObjectCache &cache, TtLangOp op,
+               const llvm::json::Object *root) {
+  const llvm::json::Object *cr = root->getObject("core_range");
+  if (!cr) {
+    op.emitError("kernel_artifact is missing required `core_range` object.");
+    return 0;
+  }
+  const llvm::json::Array *startArr = cr->getArray("start");
+  const llvm::json::Array *endArr = cr->getArray("end");
+  if (!startArr || !endArr || startArr->size() != 2 || endArr->size() != 2) {
+    op.emitError("kernel_artifact `core_range` must contain `start` and "
+                 "`end` arrays of length 2.");
+    return 0;
+  }
+  auto sx = (*startArr)[0].getAsInteger();
+  auto sy = (*startArr)[1].getAsInteger();
+  auto ex = (*endArr)[0].getAsInteger();
+  auto ey = (*endArr)[1].getAsInteger();
+  if (!sx || !sy || !ex || !ey) {
+    op.emitError("kernel_artifact `core_range.start`/`end` entries must be "
+                 "integers.");
+    return 0;
+  }
+  // Casting straight to ``uint32_t`` would silently wrap negative
+  // values to gigantic core coordinates and produce a CoreRangeSet
+  // that overlaps DRAM banks (or simply asserts inside tt-metal at
+  // launch). Validate non-negativity and ``start <= end`` here so
+  // the artifact is rejected at translate time with a diagnostic
+  // pointing at the offending entry.
+  if (*sx < 0 || *sy < 0 || *ex < 0 || *ey < 0) {
+    op.emitError("kernel_artifact `core_range.start`/`end` coordinates must "
+                 "be non-negative; got start=(")
+        << *sx << "," << *sy << "), end=(" << *ex << "," << *ey << ").";
+    return 0;
+  }
+  if (*sx > *ex || *sy > *ey) {
+    op.emitError("kernel_artifact `core_range` is empty: start=(")
+        << *sx << "," << *sy << ") must be component-wise <= end=(" << *ex
+        << "," << *ey << ").";
+    return 0;
+  }
+  ::tt::target::ttnn::CoreCoord startCoord(static_cast<uint32_t>(*sx),
+                                           static_cast<uint32_t>(*sy));
+  ::tt::target::ttnn::CoreCoord endCoord(static_cast<uint32_t>(*ex),
+                                         static_cast<uint32_t>(*ey));
+  ::tt::target::ttnn::CoreRange range(startCoord, endCoord);
+  std::vector<::tt::target::ttnn::CoreRange> ranges{range};
+  return ::tt::target::ttnn::CreateCoreRangeSetDirect(*cache.fbb, &ranges);
+}
+
+// Parse one `kernel_config` JSON object into a flatbuffer KernelConfig
+// union member. The Python emitter produces exactly one of:
+//   ComputeKernelConfig | ReaderKernelConfig | WriterKernelConfig
+// per kernel (see `_serialize_kernel_config`).
+static std::pair<::tt::target::ttnn::KernelConfig, ::flatbuffers::Offset<void>>
+parseKernelConfig(FlatbufferObjectCache &cache, TtLangOp op,
+                  const llvm::json::Object *cfg, llvm::StringRef threadType,
+                  uint32_t nocKernelIdx) {
+  auto fail = [&](const llvm::Twine &msg) {
+    op.emitError(msg);
+    return std::make_pair(::tt::target::ttnn::KernelConfig::NONE,
+                          ::flatbuffers::Offset<void>(0));
+  };
+
+  if (!cfg) {
+    return fail("kernel_artifact kernel entry is missing `kernel_config`.");
+  }
+  std::optional<llvm::StringRef> type = cfg->getString("type");
+  if (!type) {
+    return fail("kernel_artifact kernel_config is missing `type`.");
+  }
+
+  // Cross-check `thread_type` against `kernel_config.type`: a compute
+  // thread can only host a ``ComputeKernelConfig``, and a NOC thread
+  // can only host a ``Reader``/``WriterKernelConfig``. A mismatch
+  // (e.g. ``thread_type="compute"`` with ``ReaderKernelConfig``)
+  // would otherwise produce a ``ProgramDescriptor`` that wires the
+  // wrong NOC index / fidelity / fp32 dest acc into tt-metal at
+  // launch, with no obvious failure mode at flatbuffer-write time.
+  // Reject inconsistent combinations here so the diagnostic points
+  // at the offending kernel entry rather than at runtime.
+  const bool isCompute = *type == "ComputeKernelConfig";
+  const bool isNoc =
+      *type == "ReaderKernelConfig" || *type == "WriterKernelConfig";
+  if (threadType == "compute" && !isCompute) {
+    return fail("kernel_artifact: thread_type=\"compute\" requires "
+                "kernel_config.type=\"ComputeKernelConfig\", got \"" +
+                *type + "\".");
+  }
+  if (threadType == "noc" && !isNoc) {
+    return fail(
+        "kernel_artifact: thread_type=\"noc\" requires kernel_config.type "
+        "in {\"ReaderKernelConfig\", \"WriterKernelConfig\"}, got \"" +
+        *type + "\".");
+  }
+
+  if (*type == "ComputeKernelConfig") {
+    auto fidelity =
+        parseMathFidelity(cfg->getString("math_fidelity").value_or("HiFi4"))
+            .value_or(::tt::target::MathFidelity::HiFi4);
+    bool fp32DestAccEn = cfg->getBoolean("fp32_dest_acc_en").value_or(false);
+    bool dstFullSyncEn = cfg->getBoolean("dst_full_sync_en").value_or(false);
+    bool bfp8PackPrecise = cfg->getBoolean("bfp8_pack_precise").value_or(false);
+    bool mathApproxMode = cfg->getBoolean("math_approx_mode").value_or(false);
+    std::vector<::tt::target::UnpackToDestMode> unpackModes;
+    auto off = ::tt::target::ttnn::CreateComputeKernelConfigDirect(
+                   *cache.fbb, fidelity, fp32DestAccEn, dstFullSyncEn,
+                   &unpackModes, bfp8PackPrecise, mathApproxMode)
+                   .Union();
+    return {::tt::target::ttnn::KernelConfig::ComputeKernelConfig, off};
+  }
+  if (*type == "ReaderKernelConfig") {
+    auto off = ::tt::target::ttnn::CreateReaderKernelConfig(*cache.fbb).Union();
+    return {::tt::target::ttnn::KernelConfig::ReaderKernelConfig, off};
+  }
+  if (*type == "WriterKernelConfig") {
+    auto off = ::tt::target::ttnn::CreateWriterKernelConfig(*cache.fbb).Union();
+    return {::tt::target::ttnn::KernelConfig::WriterKernelConfig, off};
+  }
+  // Forward-compat: an unknown `type` is fatal so the build fails loudly
+  // rather than silently swapping the kernel for a default-configured
+  // one that may run with the wrong NOC / fidelity. The `threadType`
+  // cross-check above has already ruled out the well-known mismatches;
+  // anything reaching here is a third config kind we don't recognise.
+  (void)nocKernelIdx;
+  return fail("kernel_artifact kernel_config.type=" + *type +
+              " is not supported (expected ComputeKernelConfig | "
+              "ReaderKernelConfig | WriterKernelConfig).");
+}
+
+// Parse each entry in the `cb_configs` array into a KernelCBDescriptor
+// scoped to the kernel's core range. Pages and totals are passed
+// through verbatim — `_serialize_cb_config` already did the byte
+// arithmetic that mirrors `kernel_runner.py::build_cb_descriptors`.
+static llvm::Expected<
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBDescriptor>>>
+parseCbConfigs(
+    FlatbufferObjectCache &cache, TtLangOp op, const llvm::json::Array *cbs,
+    ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> coreRanges) {
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBDescriptor>>
+      out;
+  if (!cbs) {
+    op.emitError("kernel_artifact is missing required `cb_configs` array.");
+    return llvm::createStringError(std::errc::invalid_argument, "missing cb");
+  }
+  out.reserve(cbs->size());
+  for (size_t i = 0; i < cbs->size(); ++i) {
+    const llvm::json::Object *cb = (*cbs)[i].getAsObject();
+    if (!cb) {
+      op.emitError("cb_configs[") << i << "] is not a JSON object.";
+      return llvm::createStringError(std::errc::invalid_argument, "bad cb");
+    }
+    auto bufferIndex = cb->getInteger("buffer_index");
+    auto pageSize = cb->getInteger("page_size");
+    auto totalSize = cb->getInteger("total_size");
+    auto dtName = cb->getString("data_format");
+    if (!bufferIndex || !pageSize || !totalSize || !dtName) {
+      op.emitError("cb_configs[")
+          << i
+          << "] is missing one of "
+             "buffer_index/page_size/total_size/data_format.";
+      return llvm::createStringError(std::errc::invalid_argument, "bad cb");
+    }
+    // ``llvm::json::Value::getAsInteger`` returns ``int64_t``, but the
+    // flatbuffer schema (and tt-metal's CB descriptor) takes ``uint32_t``.
+    // Silently casting would let a malformed artifact (negative, or
+    // anything > ``UINT32_MAX``) wrap into a tiny/huge value and create a
+    // CB layout that fails late inside tt-metal. Bound-check each field
+    // here so the diagnostic points at the offending JSON entry.
+    auto checkU32 = [&](int64_t v, llvm::StringRef field) -> bool {
+      if (v < 0 ||
+          static_cast<uint64_t>(v) > std::numeric_limits<uint32_t>::max()) {
+        op.emitError("cb_configs[") << i << "]." << field << " = " << v
+                                    << " is out of range for uint32_t.";
+        return false;
+      }
+      return true;
+    };
+    if (!checkU32(*bufferIndex, "buffer_index") ||
+        !checkU32(*pageSize, "page_size") ||
+        !checkU32(*totalSize, "total_size")) {
+      return llvm::createStringError(std::errc::invalid_argument, "bad cb");
+    }
+    std::optional<::tt::target::DataType> dt;
+    parseDataTypeName(*dtName, dt);
+    if (!dt) {
+      op.emitError("cb_configs[")
+          << i << "] has unknown data_format " << *dtName << ".";
+      return llvm::createStringError(std::errc::invalid_argument, "bad cb");
+    }
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBFormat>>
+        formats;
+    formats.push_back(::tt::target::ttnn::CreateKernelCBFormat(
+        *cache.fbb, static_cast<uint32_t>(*bufferIndex), *dt,
+        static_cast<uint32_t>(*pageSize)));
+    out.push_back(::tt::target::ttnn::CreateKernelCBDescriptorDirect(
+        *cache.fbb, static_cast<uint32_t>(*totalSize), coreRanges, &formats,
+        /*buffer*/ 0));
+  }
+  return out;
+}
+
+// Build the per-kernel `compile_time_args` and `common_runtime_args`
+// lists that the GenericOp runtime consumes.
+//
+// * `compile_time_args` starts with the CB-index prefix (one entry per
+//   CB). For *NOC* kernels we then append one
+//   ``KernelArgTensorAccessorArgs`` marker per operand (in operand
+//   declaration order). At launch time the TTNN GenericOp runtime
+//   resolves each marker to the live ``Buffer*``, calls
+//   ``::tt::tt_metal::TensorAccessorArgs(buffer).get_compile_time_args()``,
+//   and splices the resulting uint32 sequence into the kernel binary's
+//   compile-time args. ``operand_index`` carried by the marker is the
+//   index into ``GenericOp.io_tensors`` (NOT the original tt_lang_op
+//   operand position): the caller passes the
+//   declaration-index-to-io-tensors-index mapping so the marker walks
+//   are stable regardless of how the io_tensors array is reordered
+//   (today: ins first, then outs).
+// * Compute kernels do not access DRAM directly (they read/write
+//   through CBs), so they get the CB-index prefix only -- no
+//   TensorAccessor markers.
+// * `common_runtime_args` maps each kernel's `tensor_indices` to
+//   `KernelArgBufferAddressOfTensor` records. The TTNN GenericOp
+//   runtime resolves the address from the surrounding io_tensors at
+//   launch time, so the flatbuffer stays address-free and survives
+//   serialisation across program runs.
+static ::mlir::LogicalResult buildKernelArgsFromJson(
+    FlatbufferObjectCache &cache, TtLangOp op,
+    const llvm::json::Object *kernelObj, llvm::StringRef threadType,
+    uint32_t numCbs, llvm::ArrayRef<uint32_t> declToIoIndex,
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> &ctArgs,
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
+        &commonRtArgs) {
+  for (uint32_t cb = 0; cb < numCbs; ++cb) {
+    auto cbArg =
+        ::tt::target::ttnn::CreateKernelArgCBBufferIndex(*cache.fbb, cb)
+            .Union();
+    ctArgs.push_back(::tt::target::ttnn::CreateKernelArg(
+        *cache.fbb, ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex,
+        cbArg));
+  }
+
+  if (threadType == "noc") {
+    // tt-lang's data-movement kernels reference operands via
+    // ``TensorAccessor<CTA_offset>`` templates; the offsets are baked
+    // at kernel-compile time and walk through *every* operand in the
+    // op's declaration order regardless of which operands a given
+    // kernel actually reads/writes. Emit one marker per operand so
+    // the runtime expansion produces the same flat CT-args sequence
+    // that the kernel binary's offsets index into.
+    for (uint32_t d = 0; d < declToIoIndex.size(); ++d) {
+      uint32_t ioIdx = declToIoIndex[d];
+      auto ta = ::tt::target::ttnn::CreateKernelArgTensorAccessorArgs(
+                    *cache.fbb, ioIdx)
+                    .Union();
+      ctArgs.push_back(::tt::target::ttnn::CreateKernelArg(
+          *cache.fbb,
+          ::tt::target::ttnn::KernelArgType::KernelArgTensorAccessorArgs, ta));
+    }
+  }
+
+  if (const llvm::json::Array *idxs = kernelObj->getArray("tensor_indices")) {
+    for (size_t i = 0; i < idxs->size(); ++i) {
+      const llvm::json::Value &v = (*idxs)[i];
+      // `tensor_indices` is the kernel author's contract for which
+      // io_tensors get their addresses passed in as common runtime
+      // args (one `KernelArgBufferAddressOfTensor` per entry). A
+      // non-integer entry would silently shrink that list and leave
+      // the kernel binary indexing into the wrong slot at launch
+      // time, so reject the artifact here with a diagnostic that
+      // names the offending position.
+      auto idx = v.getAsInteger();
+      if (!idx) {
+        op.emitError("kernel_artifact tensor_indices[")
+            << i << "] is not an integer.";
+        return ::mlir::failure();
+      }
+      if (*idx < 0) {
+        op.emitError("kernel_artifact tensor_indices[")
+            << i << "] is negative (" << *idx << ").";
+        return ::mlir::failure();
+      }
+      auto rtArg = ::tt::target::ttnn::CreateKernelArgBufferAddressOfTensor(
+                       *cache.fbb, static_cast<uint32_t>(*idx))
+                       .Union();
+      commonRtArgs.push_back(::tt::target::ttnn::CreateKernelArg(
+          *cache.fbb,
+          ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor,
+          rtArg));
+    }
+  }
+  return ::mlir::success();
+}
+
+// Build a flatbuffer ProgramDescriptor from a tt-lang kernel_artifact
+// (UTF-8 JSON produced by tt-xla's
+// python_package/tt_torch/tt_lang.py::_serialize_compiled_kernel).
+//
+// ``declToIoIndex`` maps each ``ttnn.tt_lang_op`` operand position
+// (declaration order) to its position in the surrounding
+// ``GenericOp.io_tensors`` array (today: ``[in_0, ..., in_k, out_0,
+// ..., out_m]``). The marker emitted for each operand carries the
+// io_tensors index so the runtime can resolve it to a live
+// ``::ttnn::Tensor`` without re-deriving the mapping.
+//
+// On parse failure or schema mismatch we attach a diagnostic to `op` and
+// return a zero offset; callers should treat that as fatal.
+static ::flatbuffers::Offset<::tt::target::ttnn::ProgramDescriptor>
+createProgramDescriptorFromTtLangArtifact(
+    FlatbufferObjectCache &cache, TtLangOp op, llvm::StringRef artifactJson,
+    llvm::ArrayRef<uint32_t> declToIoIndex) {
+  llvm::Expected<llvm::json::Value> parsed = llvm::json::parse(artifactJson);
+  if (!parsed) {
+    op.emitError("kernel_artifact is not valid JSON: ")
+        << llvm::toString(parsed.takeError());
+    return 0;
+  }
+
+  const llvm::json::Object *root = parsed->getAsObject();
+  if (!root) {
+    op.emitError("kernel_artifact root is not a JSON object.");
+    return 0;
+  }
+
+  // Schema version gate. The emitter inserts
+  // ``KernelArgTensorAccessorArgs`` markers into every NOC kernel's
+  // compile-time args (one per operand, in declaration order) and the
+  // runtime expands each marker by calling
+  // ``TensorAccessorArgs(io_tensors[i].buffer())`` against the live
+  // buffer at launch time -- so the artifact does not carry any
+  // pre-baked TensorAccessor values. Anything other than the current
+  // version is fatal so the build fails loudly on schema drift.
+  constexpr int64_t kFormatVersion = 1;
+  auto fv = root->getInteger("format_version");
+  if (!fv || *fv != kFormatVersion) {
+    op.emitError("kernel_artifact has unsupported format_version (expected ")
+        << kFormatVersion << ").";
+    return 0;
+  }
+
+  auto coreRanges = parseCoreRange(cache, op, root);
+  if (coreRanges.o == 0) {
+    return 0;
+  }
+
+  const llvm::json::Array *cbConfigs = root->getArray("cb_configs");
+  auto cbsExpected = parseCbConfigs(cache, op, cbConfigs, coreRanges);
+  if (!cbsExpected) {
+    llvm::consumeError(cbsExpected.takeError());
+    return 0;
+  }
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBDescriptor>>
+      cbs = std::move(*cbsExpected);
+  const uint32_t numCbs = static_cast<uint32_t>(cbs.size());
+
+  const llvm::json::Array *kernelArr = root->getArray("kernels");
+  if (!kernelArr || kernelArr->empty()) {
+    op.emitError("kernel_artifact is missing required non-empty `kernels` "
+                 "array.");
+    return 0;
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelDescriptor>>
+      kernels;
+  kernels.reserve(kernelArr->size());
+  uint32_t nocKernelIdx = 0;
+  for (size_t i = 0; i < kernelArr->size(); ++i) {
+    const llvm::json::Object *kobj = (*kernelArr)[i].getAsObject();
+    if (!kobj) {
+      op.emitError("kernels[") << i << "] is not a JSON object.";
+      return 0;
+    }
+    std::optional<llvm::StringRef> src = kobj->getString("cpp_source");
+    std::optional<llvm::StringRef> thr = kobj->getString("thread_type");
+    if (!src || !thr) {
+      op.emitError("kernels[")
+          << i << "] is missing required `cpp_source` / `thread_type`.";
+      return 0;
+    }
+    // Whitelist `thread_type`: the rest of the emitter (and the
+    // ``parseKernelConfig`` consistency check above) only knows how to
+    // dispatch on ``"compute"`` and ``"noc"``. An unrecognised
+    // ``thread_type`` would skip both branches and emit a
+    // ProgramDescriptor with a kernel mapped to no thread, which fails
+    // at runtime with no clear pointer back to the offending kernel
+    // entry. Reject unknown values here so the diagnostic does.
+    if (*thr != "compute" && *thr != "noc") {
+      op.emitError("kernels[")
+          << i << "].thread_type=\"" << *thr
+          << "\" is not supported (expected \"compute\" or \"noc\").";
+      return 0;
+    }
+
+    auto [configType, configOffset] = parseKernelConfig(
+        cache, op, kobj->getObject("kernel_config"), *thr, nocKernelIdx);
+    if (configType == ::tt::target::ttnn::KernelConfig::NONE) {
+      return 0;
+    }
+    if (*thr == "noc") {
+      ++nocKernelIdx;
+    }
+
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> ctArgs;
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
+        commonRtArgs;
+    if (::mlir::failed(buildKernelArgsFromJson(cache, op, kobj, *thr, numCbs,
+                                               declToIoIndex, ctArgs,
+                                               commonRtArgs))) {
+      return 0;
+    }
+
+    // Per-core runtime args are reserved for kernels that need
+    // address-of-tensor or named scalars varying across cores. tt-lang's
+    // current compile path puts everything into common_rt_args, so we
+    // emit an empty list here.
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>>
+        rtArgs;
+
+    kernels.push_back(::tt::target::ttnn::CreateKernelDescriptorDirect(
+        *cache.fbb, src->str().c_str(),
+        ::tt::target::ttnn::SourceType::SOURCE_CODE, configType, configOffset,
+        coreRanges,
+        ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb, &ctArgs),
+        &rtArgs,
+        ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb,
+                                                       &commonRtArgs)));
+  }
+
+  // PipeNet semaphores are not yet plumbed through the artifact; we
+  // emit an empty list here. tt-lang's `num_pipe_nets` field gives the
+  // count, but assigning IDs and core ranges needs the structured
+  // semaphore layout that a future schema bump will carry.
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::SemaphoreDescriptor>>
+      semaphores;
+
+  return ::tt::target::ttnn::CreateProgramDescriptorDirect(*cache.fbb, &kernels,
+                                                           &semaphores, &cbs);
+}
+
+// Lower `ttnn.tt_lang_op` to a `GenericOp` flatbuffer record. The op
+// carries an opaque `kernel_artifact` attribute (the resolver's JSON
+// payload, stored as a `StringAttr`) populated by tt-mlir's
+// `--ttnn-resolve-tt-lang-kernels` pass. Here we translate that JSON
+// payload into the existing `GenericOp` flatbuffer schema so the
+// runtime can execute it through the same generic-kernel path it
+// already supports for hand-written kernels.
+::flatbuffers::Offset<::tt::target::ttnn::GenericOp>
+createOp(FlatbufferObjectCache &cache, TtLangOp op) {
+  auto artifactAttr = op.getKernelArtifactAttr();
+  if (!artifactAttr) {
+    op.emitError("ttnn.tt_lang_op is missing the `kernel_artifact` "
+                 "attribute; the `--ttnn-resolve-tt-lang-kernels` pass must "
+                 "populate it before flatbuffer emission.");
+    return 0;
+  }
+
+  llvm::StringRef artifactJson = artifactAttr.getValue();
+
+  // io_tensors contract (mirrors what the runtime's
+  // tt::runtime::ttnn::operations::generic_op::run expects):
+  //
+  //   * Every entry must already exist in the program tensor pool when
+  //     the GenericOp executes, because the runtime walks io_tensors and
+  //     does `tensorPool.getTTNNTensorAndValidate(io_tensors[i])` for
+  //     every i in [0, n). The standard GenericOp emitter satisfies
+  //     this via DestinationStyleOpInterface: the output buffer is one
+  //     of the op's operands (allocated upstream by a `ttnn.empty`),
+  //     and the SSA result is DPS-tied to that operand so emitting it
+  //     reuses the operand's TensorRef.
+  //   * After ::ttnn::generic_op runs, the runtime *inserts* the
+  //     kernel's output tensor into the pool keyed by
+  //     `io_tensors[n - 1]->global_id()`. That entry must therefore
+  //     name the "out"-roled operand's TensorRef -- if it named a
+  //     fresh, unregistered TensorRef the runtime's earlier lookup
+  //     loop would have aborted with "Tensor not found in tensor
+  //     pool".
+  //
+  // `ttnn.tt_lang_op` is destination-passing style
+  // (`DestinationStyleOpInterface`): the verifier guarantees `arg_roles ==
+  // in* out+`, so operand declaration order already matches the
+  // `io_tensors` order the runtime expects -- "in" operands first, then
+  // the trailing "out" (DPS init) operands, so `io_tensors[n - 1]` always
+  // names an "out" buffer. We:
+  //
+  //   (a) push every operand into `ios` in declaration order (the
+  //       declaration-index -> io-index map is therefore the identity);
+  //   (b) alias each result's cache entry to its tied "out" operand's
+  //       TensorRef (result `i` ties to operand `numIns + i`) so
+  //       downstream IR (`return %0`, follow-on ops) resolves the result
+  //       to the same global_id the runtime updated.
+  unsigned numOperands = op.getInputs().size();
+  unsigned numResults = op.getResults().size();
+  assert(numResults > 0 && numResults <= numOperands &&
+         "tt_lang_op verifier guarantees 1..=numOperands DPS results");
+  unsigned numIns = numOperands - numResults;
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ios;
+  ios.reserve(numOperands);
+  // Track each operand's position in `ios` so we can map results back
+  // to the right TensorRef offset.
+  llvm::SmallVector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>>
+      operandOffsets(numOperands);
+  // Operand declaration order already matches `io_tensors` order, so the
+  // declaration-index -> io-index map (consumed by the
+  // ``KernelArgTensorAccessorArgs`` marker expansion) is the identity.
+  llvm::SmallVector<uint32_t> declToIoIndex(numOperands);
+  for (unsigned i = 0; i < numOperands; ++i) {
+    Value operand = op.getInputs()[i];
+    auto offset = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(operand));
+    operandOffsets[i] = offset;
+    declToIoIndex[i] = i;
+    ios.push_back(offset);
+  }
+
+  for (unsigned resultIdx = 0; resultIdx < numResults; ++resultIdx) {
+    Value result = op.getResult(resultIdx);
+    cache.insert(result, operandOffsets[numIns + resultIdx]);
+  }
+
+  auto program = createProgramDescriptorFromTtLangArtifact(
+      cache, op, artifactJson, declToIoIndex);
+  if (program.o == 0) {
+    return 0;
+  }
+
+  // tt-lang ops don't (yet) take additional non-tensor arguments. When
+  // they do, this is where they'd be packed; see GenericOp above for the
+  // additional_args / ArgRef union pattern.
+  std::vector<::tt::target::ttnn::ArgRef> additionalArgsTypes;
+  std::vector<::flatbuffers::Offset<void>> additionalArgs;
+
+  return ::tt::target::ttnn::CreateGenericOpDirect(
+      *cache.fbb, &ios, &additionalArgsTypes, &additionalArgs,
+      ::tt::target::ttnn::ProgramType::ProgramDescriptor, program.Union());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlamaOp>
 createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4823,6 +5429,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {
     return createOperation(cache, createOp(cache, genericOp), debugString,
+                           locInfo);
+  }
+  if (auto ttLangOp = dyn_cast<TtLangOp>(op); ttLangOp) {
+    return createOperation(cache, createOp(cache, ttLangOp), debugString,
                            locInfo);
   }
   if (auto nlpConcatHeadsDecodeOp = dyn_cast<NLPConcatHeadsDecodeOp>(op);
