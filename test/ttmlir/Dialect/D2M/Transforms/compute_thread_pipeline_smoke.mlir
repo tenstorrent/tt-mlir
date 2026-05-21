@@ -14,7 +14,7 @@
 //   - the inner linalg.generic operates on memref.subview ops indexed by
 //     the my_thread_id result
 //   - the Compute ThreadAttr carries num_threads_per_cluster = 4 (the
-//     default num-compute-threads value distribute uses).
+//     hardcoded number of available compute threads).
 
 // -----
 

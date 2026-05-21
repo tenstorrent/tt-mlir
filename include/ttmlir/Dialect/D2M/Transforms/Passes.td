@@ -126,8 +126,6 @@ def D2MDistributeComputeThreads : Pass<"d2m-distribute-compute-threads", "::mlir
   }];
 
   list<Option> options = [
-    Option<"numComputeThreads", "num-compute-threads", "int64_t", "4",
-           "Maximum number of compute threads per L1 region.">,
     ListOption<"splitDims", "split-dims", "int64_t",
            "Optional original loop dimension ids to distribute. Empty means automatic.">,
     ListOption<"matmulInterchange", "matmul-interchange", "int64_t",

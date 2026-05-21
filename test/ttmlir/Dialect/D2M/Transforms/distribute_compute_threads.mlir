@@ -1,10 +1,10 @@
 // RUN: ttmlir-opt --split-input-file \
 // RUN:   --d2m-distribute-compute-threads %s | FileCheck %s
 // RUN: ttmlir-opt --split-input-file \
-// RUN:   --d2m-distribute-compute-threads="num-compute-threads=4 split-dims=1" \
+// RUN:   --d2m-distribute-compute-threads="split-dims=1" \
 // RUN:   %s | FileCheck %s --check-prefix=SPLITN
 // RUN: ttmlir-opt --split-input-file \
-// RUN:   --d2m-distribute-compute-threads="num-compute-threads=4 split-dims=0 matmul-interchange=2,0,1" \
+// RUN:   --d2m-distribute-compute-threads="split-dims=0 matmul-interchange=2,0,1" \
 // RUN:   %s | FileCheck %s --check-prefix=INTERCHANGE
 
 // -----
@@ -226,7 +226,9 @@ func.func @distribute_matmul_factor2(
 
 // -----
 
-// Factor 3 is supported for a single eligible output dimension.
+// With 4 hardcoded available compute threads, automatic mode maximizes thread
+// use when 4 threads are unavailable. A single eligible output dimension of
+// size 3 uses 3 threads rather than falling back to 2.
 
 // CHECK-LABEL: func.func @distribute_matmul_factor3
 // CHECK: d2m.generic

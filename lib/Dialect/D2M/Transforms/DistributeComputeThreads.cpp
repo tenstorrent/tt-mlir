@@ -125,42 +125,35 @@ getOrderedCandidates(linalg::GenericOp op, ArrayRef<int64_t> splitDims,
 }
 
 static std::optional<SplitPlan>
-chooseSplitPlan(ArrayRef<SplitCandidate> candidates,
-                int64_t numComputeThreads) {
-  if (numComputeThreads >= 4) {
-    for (const SplitCandidate &candidate : candidates) {
-      if (isEligibleForFactor(candidate, 4)) {
-        return SplitPlan{{SplitDim{candidate.loopDim, 4}}, 4};
-      }
+chooseSplitPlan(ArrayRef<SplitCandidate> candidates) {
+  for (const SplitCandidate &candidate : candidates) {
+    if (isEligibleForFactor(candidate, 4)) {
+      return SplitPlan{{SplitDim{candidate.loopDim, 4}}, 4};
     }
+  }
 
-    for (size_t i = 0; i < candidates.size(); ++i) {
-      if (!isEligibleForFactor(candidates[i], 2)) {
-        continue;
-      }
-      for (size_t j = i + 1; j < candidates.size(); ++j) {
-        if (isEligibleForFactor(candidates[j], 2)) {
-          return SplitPlan{{SplitDim{candidates[i].loopDim, 2},
-                            SplitDim{candidates[j].loopDim, 2}},
-                           4};
-        }
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    if (!isEligibleForFactor(candidates[i], 2)) {
+      continue;
+    }
+    for (size_t j = i + 1; j < candidates.size(); ++j) {
+      if (isEligibleForFactor(candidates[j], 2)) {
+        return SplitPlan{{SplitDim{candidates[i].loopDim, 2},
+                          SplitDim{candidates[j].loopDim, 2}},
+                         4};
       }
     }
   }
 
-  if (numComputeThreads >= 3) {
-    for (const SplitCandidate &candidate : candidates) {
-      if (isEligibleForFactor(candidate, 3)) {
-        return SplitPlan{{SplitDim{candidate.loopDim, 3}}, 3};
-      }
+  for (const SplitCandidate &candidate : candidates) {
+    if (isEligibleForFactor(candidate, 3)) {
+      return SplitPlan{{SplitDim{candidate.loopDim, 3}}, 3};
     }
   }
 
-  if (numComputeThreads >= 2) {
-    for (const SplitCandidate &candidate : candidates) {
-      if (isEligibleForFactor(candidate, 2)) {
-        return SplitPlan{{SplitDim{candidate.loopDim, 2}}, 2};
-      }
+  for (const SplitCandidate &candidate : candidates) {
+    if (isEligibleForFactor(candidate, 2)) {
+      return SplitPlan{{SplitDim{candidate.loopDim, 2}}, 2};
     }
   }
 
@@ -198,13 +191,6 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    // Validate options.
-    if (numComputeThreads < 1) {
-      moduleOp->emitError() << "num-compute-threads must be at least 1, got "
-                            << numComputeThreads;
-      return signalPassFailure();
-    }
-
     // Collect targets first; tiling mutates the IR.
     SmallVector<linalg::GenericOp> targets;
     moduleOp->walk([&](d2m::GenericOp genericOp) {
@@ -224,8 +210,7 @@ private:
   LogicalResult distribute(IRRewriter &rewriter, linalg::GenericOp linalgOp) {
     SmallVector<SplitCandidate, 2> candidates =
         getOrderedCandidates(linalgOp, splitDims, matmulInterchange);
-    std::optional<SplitPlan> plan =
-        chooseSplitPlan(candidates, numComputeThreads);
+    std::optional<SplitPlan> plan = chooseSplitPlan(candidates);
     if (!plan) {
       return success();
     }

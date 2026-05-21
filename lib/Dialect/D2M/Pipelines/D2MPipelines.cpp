@@ -183,7 +183,6 @@ void createD2MBackendPipeline(OpPassManager &pm,
 
   if (options.enableComputeThreadTiling) {
     d2m::D2MDistributeComputeThreadsOptions distributeOptions;
-    distributeOptions.numComputeThreads = options.numComputeThreads;
     distributeOptions.splitDims =
         llvm::to_vector(options.computeThreadSplitDims);
     distributeOptions.matmulInterchange =

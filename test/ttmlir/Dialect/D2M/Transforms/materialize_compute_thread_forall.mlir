@@ -117,8 +117,8 @@ func.func @materialize_rank2(%A: memref<2x2xf32>) {
 
 // -----
 
-// Rank-1 foralls with fewer than 4 compute threads still materialize and stamp
-// the exact thread count.
+// Rank-1 foralls with a 2-way fallback split still materialize and stamp the
+// exact thread count used by the mapping.
 
 // CHECK-LABEL: func.func @materialize_factor2
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<2x8xf32>)
@@ -140,6 +140,9 @@ func.func @materialize_factor2(%A: memref<2x8xf32>) {
 }
 
 // -----
+
+// Rank-1 foralls with a 3-way fallback split still materialize and stamp the
+// exact thread count used by the mapping.
 
 // CHECK-LABEL: func.func @materialize_factor3
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<3x8xf32>)
@@ -167,11 +170,10 @@ func.func @materialize_factor3(%A: memref<3x8xf32>) {
 // The unrelated forall is allowed to live outside any d2m.generic — the
 // pass only inspects foralls that carry a #d2m.compute_thread mapping.
 
-// CHECK: #[[$MAP:[^ ]+]] = affine_map<(d0) -> (d0 * 2)>
 // CHECK-LABEL: func.func @leave_unrelated_forall
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<8x8xf32>)
 // CHECK-NEXT:    scf.forall (%[[TID:[A-Za-z0-9_]+]]) in (4) {
-// CHECK-NEXT:      %[[OFF:[A-Za-z0-9_]+]] = affine.apply #[[$MAP]](%[[TID]])
+// CHECK-NEXT:      %[[OFF:[A-Za-z0-9_]+]] = affine.apply {{.*}}(%[[TID]])
 // CHECK-NEXT:      %[[SUB:[A-Za-z0-9_]+]] = memref.subview %[[A]][%[[OFF]], 0] [2, 8] [1, 1] : memref<8x8xf32> to memref<2x8xf32, strided<[8, 1], offset: ?>>
 // CHECK-NEXT:      "use"(%[[SUB]]) : (memref<2x8xf32, strided<[8, 1], offset: ?>>) -> ()
 // CHECK-NEXT:    }

@@ -229,11 +229,6 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "scf.forall with #d2m.compute_thread mapping."),
       llvm::cl::init(false)};
 
-  Option<int64_t> numComputeThreads{
-      *this, "num-compute-threads",
-      llvm::cl::desc("Number of compute threads per L1 region."),
-      llvm::cl::init(4)};
-
   ListOption<int64_t> computeThreadSplitDims{
       *this, "compute-thread-split-dims",
       llvm::cl::desc("Optional original loop dimension ids to distribute "
