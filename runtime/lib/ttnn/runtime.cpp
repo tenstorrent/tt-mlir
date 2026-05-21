@@ -2267,6 +2267,7 @@ void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
   }
 }
 
+// TODO(mmilosevicTT): Rework updating tensor to ensure all required fields are preserved.
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor tensor) {
   auto &programContext =

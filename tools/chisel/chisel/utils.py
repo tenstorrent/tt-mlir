@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import functools
 import logging
+import math
 import os
 import traceback
 from typing import Optional, Tuple
@@ -29,16 +30,34 @@ def get_torch_tensor(tensor: Tensor) -> torch.Tensor:
 
 
 def retrieve_tensor(
-    rt_program_context: CallbackContext, rt_tensor_ref: TensorRef
+    rt_program_context: CallbackContext,
+    rt_tensor_ref: TensorRef,
+    mesh_shape: Tuple[int, ...],
 ) -> GoldenMapTensor:
-    device_tensor = tt_runtime.retrieve_tensor_from_pool(
-        rt_program_context, rt_tensor_ref
-    )
-    if device_tensor is None:
+    """Pull the pool entry for `rt_tensor_ref` and wrap it as a GoldenMapTensor.
+
+    The runtime returns one host tensor per device shard (single entry for
+    single-device tensors). Shards are keyed 0..N-1 to match the convention
+    used elsewhere (see tools/builder/base/builder_runtime.py:create_tensor),
+    and `mesh_shape` reflects the binary's compiled mesh so downstream
+    shape/dtype/PCC checks operate over the right grid.
+    """
+    shards = tt_runtime.retrieve_tensor_from_pool(rt_program_context, rt_tensor_ref)
+    if shards is None:
         raise RuntimeError(
-            "retrieve_tensor_from_pool returned no tensor for the requested ref"
+            "retrieve_tensor_from_pool returned no tensors for the requested ref"
         )
-    return GoldenMapTensor({0: get_torch_tensor(device_tensor)}, (1, 1))
+
+    # Making sure we fail if submash program appear.
+    expected_shards = math.prod(mesh_shape) if mesh_shape else -1
+    if len(shards) != expected_shards:
+        raise RuntimeError(
+            f"retrieve_tensor_from_pool shard count ({len(shards)}) does not "
+            f"match mesh_shape {mesh_shape} (expected {expected_shards})"
+        )
+
+    shard_map = {i: get_torch_tensor(t) for i, t in enumerate(shards)}
+    return GoldenMapTensor(shard_map, mesh_shape)
 
 
 def get_op_asm(op) -> str:

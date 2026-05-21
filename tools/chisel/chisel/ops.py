@@ -5,9 +5,9 @@
 MLIR operation utilities: IRModule wrapper, tensor operand extraction, and
 chisel-specific op classification (non-executable / in-place).
 """
-from typing import NewType, Optional
+from typing import NewType, Optional, Tuple
 
-from ttmlir.dialects import func, ttnn
+from ttmlir.dialects import func, ttcore, ttnn
 from ttmlir.ir import (
     AsmState,
     BlockArgument,
@@ -117,6 +117,22 @@ class IRModule:
     def get_asm_state(self) -> AsmState:
         """Module-wide AsmState (speeds up get_name calls)."""
         return self._asm_state
+
+    def get_mesh_shape(self) -> Tuple[int, ...]:
+        """Mesh shape from the module's `ttcore.meshes` attribute.
+
+        Returns `(1, 1)` when the attribute is absent (single-chip programs).
+        When multiple meshes are declared, the first one is used - matches
+        builder's convention (see ttir_builder._maybe_promote_to_device_module).
+        """
+        for named_attr in self.module.operation.attributes:
+            if named_attr.name != "ttcore.meshes":
+                continue
+            meshes = ttcore.ir.MeshesAttr.maybe_downcast(named_attr.attr)
+            if meshes is None or not meshes.meshes:
+                continue
+            return tuple(int(d) for d in meshes.meshes[0].shape)
+        return (1, 1)
 
     def get_function(self, function_name: str) -> func.FuncOp:
         """The func.FuncOp for the given function."""
