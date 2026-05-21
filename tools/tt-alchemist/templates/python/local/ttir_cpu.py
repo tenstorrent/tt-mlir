@@ -220,7 +220,7 @@ def sqrt(t, **_):
     # with LLVM-compiled vsqrtss (correctly rounded) used on the runtime path.
     # Compute via f64 to get the correctly-rounded f32 result.
     if t.dtype == torch.float32:
-        return t.to(torch.float64).sqrt().to(torch.float32)
+        return torch.sqrt(t.to(torch.float64)).to(torch.float32)
     return torch.sqrt(t)
 
 
