@@ -936,6 +936,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
         ((1, 32, 32), [1, 2, 2]),
         ((1, 32, 64, 128), [1, 2, 3, 4]),
         ((3, 3, 64, 64), [1, 1, 5, 5]),
+        ((2, 3), [5, 7]),
     ],
 )
 @pytest.mark.parametrize(
