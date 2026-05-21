@@ -720,8 +720,41 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-    rewriter.replaceOpWithNewOp<ttir::GroupNormOp>(
-        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    // ttir.group_norm requires 4D; reshape rank<4 to 4D by appending
+    // trailing unit dims (keeps channel_dim at the same index), then
+    // reshape the result back to the original rank.
+    Value input = adaptor.getOperands()[0];
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    int64_t inputRank = inputType.getRank();
+    if (inputRank > 4) {
+      return rewriter.notifyMatchFailure(srcOp, "input rank must be <= 4");
+    }
+
+    if (inputRank == 4) {
+      rewriter.replaceOpWithNewOp<ttir::GroupNormOp>(
+          srcOp, outputType, adaptor.getOperands(), namedAttrs);
+      return success();
+    }
+
+    SmallVector<int64_t> paddedShape(inputType.getShape().begin(),
+                                     inputType.getShape().end());
+    paddedShape.append(4 - inputRank, 1);
+    auto paddedType =
+        RankedTensorType::get(paddedShape, inputType.getElementType());
+
+    SmallVector<Value> gnOperands(adaptor.getOperands().begin(),
+                                  adaptor.getOperands().end());
+    gnOperands[0] = rewriter.create<ttir::ReshapeOp>(
+        srcOp.getLoc(), paddedType, input,
+        rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
+
+    Value gnResult = rewriter.create<ttir::GroupNormOp>(
+        srcOp.getLoc(), paddedType, gnOperands, namedAttrs);
+
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        srcOp, outputType, gnResult,
+        rewriter.getI32ArrayAttr(
+            llvm::to_vector_of<int32_t>(outputType.getShape())));
     return success();
   }
 };
