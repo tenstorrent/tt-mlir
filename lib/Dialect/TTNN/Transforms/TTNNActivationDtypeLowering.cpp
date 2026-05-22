@@ -5,11 +5,14 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/PatternMatch.h"
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -77,6 +80,29 @@ static bool rewriteResultDtype(Operation *op, ttcore::DataType targetDtype) {
 static void setOpDtype(Operation *op, ttcore::DataType dtype) {
   op->setAttr("dtype", ttcore::DataTypeAttr::get(op->getContext(), dtype));
   rewriteResultDtype(op, dtype);
+}
+
+// Insert a ttnn.to_layout(RowMajor, bf16) on `useOp`'s `operandIdx`. The
+// producer's result is expected to be (Tile, bfp_bf8); the to_layout op
+// implicitly upcasts to bf16 as part of de-tiling, which is the
+// "untilize" fast-path on hardware (see tt-metal's
+// `untilize_device_operation.cpp:268`, where BFLOAT8_B input always
+// produces BFLOAT16 output). The combined to_layout is preserved through
+// TTNNDecomposeLayouts via the bfp_bf8 -> bf16 special-case, lowering to a
+// single tt-metal untilize kernel. Mirrors the tt-metal llama3_70b_galaxy
+// lm_head -> untilize -> argmax chain.
+static void insertToLayoutRowMajorBF16(IRRewriter &rewriter, Operation *useOp,
+                                       unsigned operandIdx) {
+  Value operand = useOp->getOperand(operandIdx);
+  auto operandTV = mlir::cast<mlir::TypedValue<RankedTensorType>>(operand);
+  TTNNLayoutAttr inputLayoutAttr =
+      ttnn::utils::getLayoutAttrFromTensor(operandTV.getType());
+  rewriter.setInsertionPoint(useOp);
+  auto toLayout = ttnn::utils::createToLayoutOp(
+      useOp, operandTV, rewriter, Layout::RowMajor,
+      inputLayoutAttr.getBufferType(), inputLayoutAttr.getMemLayout(),
+      ttcore::DataType::BFloat16, "_to_layout_pre_argmax");
+  useOp->setOperand(operandIdx, toLayout.getResult());
 }
 
 // Insert a ttnn.typecast on `useOp`'s `operandIdx` so that the value
@@ -327,7 +353,13 @@ static bool tryLMHeadArgmaxMatcher(MatmulOp matmul, OpBuilder &builder) {
   if (exits.empty()) {
     return false;
   }
-  if (!llvm::any_of(flowThroughOps, isCCLOp)) {
+  int lastCCLIdx = -1;
+  for (size_t i = 0; i < flowThroughOps.size(); ++i) {
+    if (isCCLOp(flowThroughOps[i])) {
+      lastCCLIdx = static_cast<int>(i);
+    }
+  }
+  if (lastCCLIdx < 0) {
     return false;
   }
 
@@ -343,12 +375,24 @@ static bool tryLMHeadArgmaxMatcher(MatmulOp matmul, OpBuilder &builder) {
     return false;
   }
 
+  // Lower the matmul + every flow-through op (slice, reshape, sum, CCL) to
+  // bfp_bf8 tile. Then insert a single ttnn.to_layout(RowMajor, bf16) at the
+  // argmax operand — that op lowers (via TTNNDecomposeLayouts' bfp_bf8→bf16
+  // special-case + tt-metal's to_layout_op relax) to a single tt-metal
+  // `untilize` kernel that does the bfp8→bf16 upcast inline as part of
+  // de-tiling. The view-op invariant guard in MemoryLayoutPropagation /
+  // OperationValidationAndFallback (narrowed to SliceStaticOp) keeps
+  // intermediate slices consistent; the return-cast logic in
+  // updateFunctionReturnTypes keeps the function signature stable for
+  // integer mismatches like the argmax ui32→si32 case.
+  (void)lastCCLIdx;
   setOpDtype(matmul, ttcore::DataType::BFP_BFloat8);
   for (Operation *flow : flowThroughOps) {
     rewriteResultDtype(flow, ttcore::DataType::BFP_BFloat8);
   }
+  IRRewriter rewriter(builder.getContext());
   for (auto [exitOp, operandIdx] : exits) {
-    insertTypecast(builder, exitOp, operandIdx, ttcore::DataType::BFloat16);
+    insertToLayoutRowMajorBF16(rewriter, exitOp, operandIdx);
   }
   return true;
 }
