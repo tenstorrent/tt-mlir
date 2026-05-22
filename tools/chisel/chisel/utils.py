@@ -36,7 +36,8 @@ def retrieve_tensor(
 ) -> GoldenMapTensor:
     """Pull the pool entry for `rt_tensor_ref` and wrap it as a GoldenMapTensor.
 
-    The runtime returns one host tensor per device shard (single entry for single-device tensors). Shards are keyed 0..N-1 and `mesh_shape` reflects the binary's compiled mesh so downstream
+    The runtime returns one host tensor per device shard (single entry for single-device tensors).
+    Shards are keyed 0..N-1 and `mesh_shape` reflects the binary's compiled mesh so downstream
     shape/dtype/PCC checks operate over the right grid.
     """
     tensor = tt_runtime.retrieve_tensor_from_pool(rt_program_context, rt_tensor_ref)
