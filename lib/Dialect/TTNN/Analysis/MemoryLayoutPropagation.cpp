@@ -1350,6 +1350,16 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     return;
   }
 
+  // Only `ttnn.slice_static`'s verifier enforces that
+  // input.elementType == output.elementType. `ttnn.reshape` and
+  // `ttnn.to_memory_config` permit element type changes (the propagation
+  // engine uses this to "absorb" downstream conversions like ui32→si32).
+  // Including reshape/to_memory_config here would prevent legitimate dtype
+  // conversions and leave function returns with the wrong dtype.
+  auto isViewLikeForLayoutProp = [](Operation *op) {
+    return mlir::isa<ttnn::SliceStaticOp>(op);
+  };
+
   // Update all tensor results. For single-output ops this iterates once.
   // For multi-output ops (e.g. SplitQueryKeyValueAndSplitHeads), each result
   // gets its own layout from outputLayouts.
@@ -1371,6 +1381,21 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     Type newElementType = originalElementType;
     if (!mlir::isa<mlir::quant::QuantizedType>(originalElementType)) {
       newElementType = resultLayout.getScalarElementType();
+    }
+
+    // View-op invariant: result element type must match operand 0's element
+    // type. If the chosen layout would diverge, keep the operand's element
+    // type (and rebuild the encoding to match).
+    if (isViewLikeForLayoutProp(op) && op->getNumOperands() > 0) {
+      auto operandTensorType =
+          mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
+      if (operandTensorType &&
+          operandTensorType.getElementType() != newElementType) {
+        newElementType = operandTensorType.getElementType();
+        // Rebuild the result layout so its encoded element type matches.
+        resultLayout = TTNNLayoutAttr::Builder(resultLayout, tensorShape)
+                           .setElementType(newElementType);
+      }
     }
 
     RankedTensorType newTensorType =
@@ -1475,8 +1500,73 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
 }
 
 void MemoryLayoutPropagation::updateFunctionReturnTypes() {
-  SmallVector<Type> funcResultTypes;
+  // For integer dtype mismatches between a return operand and the function's
+  // declared return type, insert a ttnn.typecast so the operand matches the
+  // signature. This keeps the function signature stable (which the frontend
+  // / runtime memcpy alias check relies on, e.g. for argmax's ui32 output
+  // when the IR-declared return is si32). Float/bfp dtype mismatches still
+  // fall through to the original "rewrite signature" behavior.
+  FunctionType origFuncType = func.getFunctionType();
+  ArrayRef<Type> declaredResultTypes = origFuncType.getResults();
 
+  func->walk([&](Operation *op) {
+    auto funcReturn = dyn_cast<func::ReturnOp>(op);
+    if (!funcReturn) {
+      return;
+    }
+    OpBuilder builder(funcReturn);
+    for (auto it : llvm::enumerate(funcReturn.getOperands())) {
+      unsigned idx = it.index();
+      Value operand = it.value();
+      if (idx >= declaredResultTypes.size()) {
+        continue;
+      }
+      auto operandTensor = mlir::dyn_cast<RankedTensorType>(operand.getType());
+      auto declaredTensor =
+          mlir::dyn_cast<RankedTensorType>(declaredResultTypes[idx]);
+      if (!operandTensor || !declaredTensor) {
+        continue;
+      }
+      Type operandElem = operandTensor.getElementType();
+      Type declaredElem = declaredTensor.getElementType();
+      if (operandElem == declaredElem) {
+        continue;
+      }
+      if (operandTensor.getShape() != declaredTensor.getShape()) {
+        continue;
+      }
+      // Only intercede on integer-to-integer mismatches (e.g. ui32 vs si32).
+      auto operandIntType = mlir::dyn_cast<IntegerType>(operandElem);
+      auto declaredIntType = mlir::dyn_cast<IntegerType>(declaredElem);
+      if (!operandIntType || !declaredIntType) {
+        continue;
+      }
+      auto castResultType = utils::RankedTensorTypeFactory::create(
+          operandTensor,
+          mlir::tt::ttcore::elementTypeToDataType(declaredElem));
+      ttcore::DataTypeAttr dtypeAttr = ttcore::DataTypeAttr::get(
+          builder.getContext(),
+          mlir::tt::ttcore::elementTypeToDataType(declaredElem));
+      // Insert the typecast immediately after the operand's defining op
+      // (when in the same block) instead of right before func.return.
+      // TTNNTraceHoistTransform requires hoistable ops to form a contiguous
+      // block bounded by non-hoistable ops at the boundaries; mesh_shard /
+      // get_device ops are non-hoistable and may sit between this return's
+      // tensor-producing chain and the return itself. Inserting the typecast
+      // at the producer keeps it inside the hoistable region.
+      Operation *defOp = operand.getDefiningOp();
+      if (defOp && defOp->getBlock() == funcReturn->getBlock()) {
+        builder.setInsertionPointAfter(defOp);
+      } else {
+        builder.setInsertionPoint(funcReturn);
+      }
+      auto typecast = builder.create<ttnn::TypecastOp>(
+          funcReturn.getLoc(), castResultType, operand, dtypeAttr);
+      funcReturn.setOperand(idx, typecast.getResult());
+    }
+  });
+
+  SmallVector<Type> funcResultTypes;
   func->walk([&](Operation *op) {
     if (op->getNumResults() == 0) {
       if (auto funcReturn = dyn_cast<func::ReturnOp>(op)) {
@@ -1486,9 +1576,8 @@ void MemoryLayoutPropagation::updateFunctionReturnTypes() {
     }
   });
 
-  FunctionType funcType = func.getFunctionType();
   FunctionType newFuncType = FunctionType::get(
-      func.getContext(), funcType.getInputs(), funcResultTypes);
+      func.getContext(), origFuncType.getInputs(), funcResultTypes);
   func.setType(newFuncType);
 }
 
