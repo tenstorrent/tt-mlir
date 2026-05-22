@@ -178,8 +178,9 @@ public:
 
   // --- Layout helpers ---
 
+  /// Default grid {8, 1} is the canonical HeightSharded layout (M, 1).
   TTNNLayoutAttr makeL1Sharded(llvm::ArrayRef<int64_t> shape,
-                               llvm::ArrayRef<int64_t> grid = {8, 8}) {
+                               llvm::ArrayRef<int64_t> grid = {8, 1}) {
     auto elemType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
     auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     return TTNNLayoutAttr::Builder(&context, shape, elemType)
@@ -317,6 +318,11 @@ public:
 
   // --- Pass execution ---
 
+  /// Pass instance kept alive as a fixture member so the observer (owned by
+  /// the pass via unique_ptr) outlives run() and stays accessible through
+  /// the returned raw pointer.
+  std::unique_ptr<L1SpillManagement<SumL1MemoryTracker>> pass;
+
   struct RunResult {
     RecordingObserver *observer;
   };
@@ -330,10 +336,10 @@ public:
     auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     ttcore::GridAttr deviceGrid = deviceAttr.getWorkerGrid();
 
-    L1SpillManagement<SumL1MemoryTracker> pass(func, deviceGrid,
-                                               l1BudgetPerCore, std::move(obs));
-    pass.getMemoryTracker().backendValidator = makeValidator();
-    pass.run();
+    pass = std::make_unique<L1SpillManagement<SumL1MemoryTracker>>(
+        func, deviceGrid, l1BudgetPerCore, std::move(obs));
+    pass->getMemoryTracker().backendValidator = makeValidator();
+    pass->run();
     return {rawObs};
   }
 
