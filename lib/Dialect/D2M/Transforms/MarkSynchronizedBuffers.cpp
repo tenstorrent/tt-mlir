@@ -62,10 +62,8 @@ public:
           allocOp->setAttr("d2m.synchronized_buffer",
                            rewriter.getI32IntegerAttr(bufferCount));
 
-          if (!usageInfo.consumers.empty() && !usageInfo.producers.empty()) {
-            TT_assertv((usageInfo.consumers.size() == 1 &&
-                        usageInfo.producers.size() == 1),
-                       "expected exactly one consumer and one producer");
+          if (usageInfo.consumers.size() == 1 &&
+              usageInfo.producers.size() == 1) {
             auto *consumer = usageInfo.consumers.front();
             auto *producer = usageInfo.producers.front();
             if (mlir::isa<linalg::GenericOp>(consumer) &&

@@ -34,6 +34,10 @@ if config.enable_stablehlo:
 if config.enable_pykernel:
     config.available_features.add("pykernel")
 
+# d2m-jit tests are optionally enabled.
+if getattr(config, "enable_d2m_jit", False):
+    config.available_features.add("d2m-jit")
+
 # suffixes: A list of file extensions to treat as test files.
 config.suffixes = [".mlir"]
 
@@ -142,6 +146,16 @@ if config.enable_ttnn_jit:
     llvm_config.with_environment(
         "PYTHONPATH",
         os.path.join(config.test_source_root, "ttnn-jit"),
+        append_path=True,
+    )
+
+if getattr(config, "enable_d2m_jit", False):
+    lit_config.parallelism_groups["d2m-jit"] = 1
+
+    # Add test/d2m-jit to PYTHONPATH so tests can import the local utils module.
+    llvm_config.with_environment(
+        "PYTHONPATH",
+        os.path.join(config.test_source_root, "d2m-jit"),
         append_path=True,
     )
 
