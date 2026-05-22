@@ -102,10 +102,46 @@ struct DstAccessCollection {
   DstIntermediatesMap dstIntermediates;
 };
 
-// DST slice allocator types live in their respective pass .cpp files
-// (`DstSliceAllocationState` in InsertDstRegisterAccess/Unscheduled.cpp,
-// `DstStackAllocator` in InsertDstRegisterAccess/Scheduled.cpp), since each is
-// only used by one pass.
+// ---------------------------------------------------------------------------
+// DstSliceAllocator
+//
+// Free-slot pool for the DST register.  Slots are bump-allocated from
+// `sliceStack` and reclaimed only via `deallocateAllButFirstInput()` (the
+// multi-input fold case); `inputStack` exists so that path has the
+// current op's operand slots to free.  `scratchSlots` is a separate pool
+// so that a later compute op can never pick a scratch slot as a
+// candidate for in-place reuse.
+// ---------------------------------------------------------------------------
+
+class DstSliceAllocator {
+public:
+  DstSliceAllocator() = delete;
+  explicit DstSliceAllocator(unsigned dstSliceCapacityIn)
+      : dstSliceCapacity(dstSliceCapacityIn) {
+    initSliceStack();
+  }
+
+  unsigned allocateInput();
+  unsigned allocateOutput();
+  unsigned allocateScratch();
+
+  void setStoreToDst() { storedToDst = true; }
+  bool didStoreToDst() const { return storedToDst; }
+
+  unsigned getCurrSliceIndex() const;
+  unsigned getFirstInputSliceIndex() const;
+  void deallocateAllButFirstInput();
+
+private:
+  unsigned dstSliceCapacity = 0;
+  std::optional<unsigned> currSliceIndex;
+  SmallVector<unsigned, 16> inputStack;
+  SmallVector<unsigned, 4> scratchSlots;
+  SmallVector<unsigned, 16> sliceStack;
+  bool storedToDst = false;
+
+  void initSliceStack();
+};
 
 // ---------------------------------------------------------------------------
 // Shared utility free functions
