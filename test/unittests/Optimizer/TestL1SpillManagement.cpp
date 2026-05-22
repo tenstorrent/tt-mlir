@@ -552,3 +552,86 @@ TEST_F(CushionDominantTriggerTest, SmallCBPlusCushionFiresAtTightFit) {
       << " demotions=" << obs->demotions.size()
       << " spills=" << countSpills();
 }
+
+//===----------------------------------------------------------------------===//
+// HandleNoFitTest (smoke coverage)
+//===----------------------------------------------------------------------===//
+
+class HandleNoFitTest : public L1SpillTestFixture {};
+
+// Alloc → free → realloc with the SAME size at the same slot must succeed
+// (free-list coalescing). A regression in freeAddress' adjacent-merge
+// logic would surface as an unexpected spurious eviction here. Full
+// geometric handleNoFit (non-contiguous free space) requires alias-aware
+// setup (addTensorAtAddress) and is parked out of scope.
+TEST_F(HandleNoFitTest, AllocFreeReallocCoalesces) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 512};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opA   = addUnary(args[0], tt, /*l1UsageBytes=*/700 * kKiB);
+  auto *useA  = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
+  // After useA runs, opA dies. opB can now reuse the freed slot.
+  auto *opB   = addUnary(args[0], tt, /*l1UsageBytes=*/700 * kKiB);
+  finishFunc({useA->getResult(0), opB->getResult(0)});
+
+  auto [obs] = run();
+
+  EXPECT_EQ(obs->evictions.size(), 0u)
+      << "free-list coalesce should let opB reuse opA's freed slot";
+  EXPECT_EQ(countSpills(), 0u);
+}
+
+//===----------------------------------------------------------------------===//
+// ViewEligibleReshapeAliasTest
+//===----------------------------------------------------------------------===//
+
+class ViewEligibleReshapeAliasTest : public L1SpillTestFixture {};
+
+// DISABLED until the pass recognises view-eligible reshapes BEFORE
+// ensureFitsL1 / wouldAllocateAt.
+//
+// As of L1SpillManagement.cpp:1124-1133, the alias path
+// (`addTensorAtAddress`) is taken only AFTER `ensureFitsL1` already
+// queried `wouldAllocateAt(perResultL1)` using the reshape's full L1
+// size — the size the IR claims, ignoring that aliasing would not
+// consume a fresh slot. So in any scenario where the would-be alias
+// budget would otherwise force eviction, the pass evicts the input
+// instead of recognizing the alias.
+//
+// To meaningfully test the alias path, the pass needs to consult
+// canReshapeBeView (or an analogous predicate) before the fit/CB
+// checks. Until then, this test reproduces the limitation: opA is
+// spilled even though the reshape SHOULD alias it.
+TEST_F(ViewEligibleReshapeAliasTest, DISABLED_ReshapeAliasesInputNoDoubleCount) {
+  l1BudgetPerCore = 1300 * kKiB;
+
+  // 1024 = 32 × 32 (tile-aligned). 256 = 32 × 8 (tile-aligned).
+  // Last dim (1024) is preserved between input and output shapes →
+  // canReshapeBeView returns true.
+  llvm::SmallVector<int64_t> shapeIn  = {1, 1, 1024, 1024};
+  llvm::SmallVector<int64_t> shapeOut = {1, 4,  256, 1024};
+  auto layoutIn  = makeL1Sharded(shapeIn);
+  auto layoutOut = makeL1Sharded(shapeOut);
+  auto ttIn  = tensorType(shapeIn,  layoutIn);
+  auto ttOut = tensorType(shapeOut, layoutOut);
+
+  auto args = beginFunc({ttIn});
+  auto *opA       = addUnary(args[0], ttIn, /*l1UsageBytes=*/1000 * kKiB);
+  auto *opReshape = addReshape(opA->getResult(0), ttOut,
+                                /*l1UsageBytes=*/1000 * kKiB);
+  auto *opConsumer = addUnary(opReshape->getResult(0), ttOut,
+                               /*l1UsageBytes=*/100 * kKiB);
+  finishFunc({opConsumer->getResult(0)});
+
+  auto [obs] = run();
+  (void)obs;
+
+  EXPECT_EQ(obs->evictions.size(), 0u)
+      << "view-eligible reshape must alias opA's slot — no eviction expected";
+  EXPECT_EQ(countSpills(), 0u);
+  EXPECT_FALSE(wasSpilled(opA->getResult(0)))
+      << "opA must stay in L1; reshape aliases its slot";
+}
