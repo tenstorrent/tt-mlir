@@ -23,54 +23,6 @@ bool GridAnalysis::isTTNNOperand(Value operand) {
   return operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() != nullptr;
 }
 
-// Walk forward through layout-bridge ops (ToLayoutOp, ViewLayoutOp, MaskOp)
-// until we reach a ToLayoutOp whose output is tiled. Returns that tile's shape,
-// or empty if no tiled consumer is reachable. Visited values are tracked to
-// keep the walk linear even when the same value has multiple uses that
-// re-converge downstream.
-static llvm::SmallVector<int64_t> getTiledConsumerTileShape(Value value) {
-  llvm::SmallVector<Value> worklist{value};
-  llvm::SmallPtrSet<Value, 8> visited{value};
-
-  while (!worklist.empty()) {
-    Value current = worklist.pop_back_val();
-    for (OpOperand &use : current.getUses()) {
-      Operation *user = use.getOwner();
-
-      if (auto toLayout = dyn_cast<d2m::ToLayoutOp>(user)) {
-        auto outputType = mlir::dyn_cast<RankedTensorType>(toLayout.getType(0));
-        if (!outputType) {
-          continue;
-        }
-        if (auto tileType =
-                mlir::dyn_cast<ttcore::TileType>(outputType.getElementType())) {
-          return llvm::to_vector(tileType.getShape());
-        }
-        if (visited.insert(toLayout.getResult(0)).second) {
-          worklist.push_back(toLayout.getResult(0));
-        }
-        continue;
-      }
-
-      if (auto view = dyn_cast<d2m::ViewLayoutOp>(user)) {
-        if (visited.insert(view.getResult()).second) {
-          worklist.push_back(view.getResult());
-        }
-        continue;
-      }
-
-      if (auto mask = dyn_cast<d2m::MaskOp>(user)) {
-        if (visited.insert(mask.getResult()).second) {
-          worklist.push_back(mask.getResult());
-        }
-        continue;
-      }
-    }
-  }
-
-  return {};
-}
-
 // Find the largest value <= maxFactor that divides all the given physical
 // dimensions. Returns 1 if no better common factor exists.
 static int64_t findLargestCommonFactor(int64_t maxFactor,
@@ -251,126 +203,176 @@ GridAnalysis::normalizeOperandGridsForGeneric(
   return normalizedOperandGrids;
 }
 
+static int64_t getTileSizeForLogicalDim(int64_t logicalRank, int64_t dim,
+                                        ArrayRef<int64_t> tileShape) {
+  const int64_t tileIdx = dim - (logicalRank - 2);
+  if (tileIdx < 0 || static_cast<size_t>(tileIdx) >= tileShape.size()) {
+    return 1;
+  }
+  return tileShape[tileIdx];
+}
+
+static ArrayRef<int64_t>
+getEffectiveCompositePaddingTileShape(bool isTiled,
+                                      ArrayRef<int64_t> paddingTileShape,
+                                      SmallVector<int64_t> &storage) {
+  if (isTiled || !paddingTileShape.empty()) {
+    return paddingTileShape;
+  }
+
+  storage = llvm::to_vector(ttcore::TileType::getDefaultShape());
+  return storage;
+}
+
+static SmallVector<int64_t>
+deriveCompositeInputAlignments(ttcore::MetalLayoutAttr inputLayout,
+                               ttcore::MetalLayoutAttr materializedOutLayout,
+                               int64_t concatDim,
+                               ArrayRef<int64_t> paddingShape) {
+  SmallVector<int64_t> inputAlignments(
+      materializedOutLayout.getDimAlignments().begin(),
+      materializedOutLayout.getDimAlignments().end());
+  inputAlignments[concatDim] = getTileSizeForLogicalDim(
+      inputLayout.getLogicalShape().size(), concatDim, paddingShape);
+  return inputAlignments;
+}
+
+static ttcore::MetalLayoutAttr
+makeCompositeInputLayout(Value input, RankedTensorType materializedOutType,
+                         int64_t concatDim, ArrayRef<int64_t> paddingShape) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto inputLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+  auto materializedOutLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(materializedOutType.getEncoding());
+  SmallVector<int64_t> inputAlignments = deriveCompositeInputAlignments(
+      inputLayout, materializedOutLayout, concatDim, paddingShape);
+
+  return ttcore::MetalLayoutAttr::get(
+      input.getContext(), inputLayout.getLogicalShape(),
+      inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+      inputLayout.getCollapsedIntervals(), inputAlignments);
+}
+
+static SmallVector<int64_t> computeScalarCompositeInputGrid(
+    ttcore::MetalLayoutAttr materializedLayout, int64_t concatDim,
+    ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> paddingShape,
+    ArrayRef<int64_t> targetGrid) {
+  SmallVector<int64_t> inputGrid(selectedGrid.begin(), selectedGrid.end());
+  int64_t concatIntervalIdx =
+      findIntervalIdxForDim(materializedLayout, concatDim);
+  if (concatIntervalIdx < 0) {
+    return inputGrid;
+  }
+
+  ArrayRef<int64_t> logicalShape = materializedLayout.getLogicalShape();
+  const int64_t tileSize =
+      getTileSizeForLogicalDim(logicalShape.size(), concatDim, paddingShape);
+  const int64_t inputTileCount =
+      ttmlir::utils::alignUp(logicalShape[concatDim], tileSize) / tileSize;
+
+  auto intervals = materializedLayout.getNormalizedIntervals();
+  SmallVector<int64_t> alignments(materializedLayout.getDimAlignments().begin(),
+                                  materializedLayout.getDimAlignments().end());
+  const int64_t intervalSize = utils::computeCollapsedIntervalSize(
+      logicalShape, alignments, intervals[concatIntervalIdx * 2],
+      intervals[concatIntervalIdx * 2 + 1]);
+
+  inputGrid[concatIntervalIdx] = computeScalarConcatGridDim(
+      selectedGrid[concatIntervalIdx], inputTileCount, intervalSize, inputGrid,
+      concatIntervalIdx, targetGrid);
+  return inputGrid;
+}
+
+static SmallVector<int64_t> computeCompositeInputSelectedGrid(
+    RankedTensorType inputType, ttcore::MetalLayoutAttr materializedLayout,
+    bool isTiled, int64_t concatDim, ArrayRef<int64_t> selectedGrid,
+    ArrayRef<int64_t> paddingShape, ArrayRef<int64_t> targetGrid) {
+  if (isTiled) {
+    SmallVector<int64_t> inputPhysShape =
+        materializedLayout.getPhysicalShape(paddingShape);
+    return utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
+  }
+
+  return computeScalarCompositeInputGrid(
+      materializedLayout, concatDim, selectedGrid, paddingShape, targetGrid);
+}
+
+static CompositeInputGridInfo computePaddedCompositeInputGridInfo(
+    Value input, RankedTensorType materializedOutType,
+    ArrayRef<int64_t> targetGrid, ArrayRef<int64_t> selectedGrid, bool isTiled,
+    int64_t concatDim, ArrayRef<int64_t> paddingShape) {
+  CompositeInputGridInfo info;
+  info.input = input;
+
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  ttcore::MetalLayoutAttr materializedLayout = makeCompositeInputLayout(
+      input, materializedOutType, concatDim, paddingShape);
+
+  info.selectedGrid = computeCompositeInputSelectedGrid(
+      inputType, materializedLayout, isTiled, concatDim, selectedGrid,
+      paddingShape, targetGrid);
+
+  ArrayRef<int64_t> elementTileShape =
+      isTiled ? paddingShape : ArrayRef<int64_t>();
+  SmallVector<int64_t> deviceShape =
+      materializedLayout.getDeviceShape(info.selectedGrid, elementTileShape);
+  info.materializedType = RankedTensorType::get(
+      deviceShape, inputType.getElementType(), materializedLayout);
+  return info;
+}
+
+static CompositeInputGridInfo computeCompositeInputGridInfo(
+    Value input, RankedTensorType materializedOutType,
+    ArrayRef<int64_t> targetGrid, ArrayRef<int64_t> selectedGrid, bool isTiled,
+    int64_t concatDim, ArrayRef<int64_t> effectivePaddingShape) {
+  CompositeInputGridInfo info;
+  info.input = input;
+  info.materializedType = mlir::cast<RankedTensorType>(input.getType());
+
+  if (!mlir::isa<ttcore::MetalLayoutAttr>(
+          info.materializedType.getEncoding())) {
+    return info;
+  }
+
+  if (isTiled) {
+    auto tileType =
+        mlir::cast<ttcore::TileType>(info.materializedType.getElementType());
+    SmallVector<int64_t> tileShape = llvm::to_vector(tileType.getShape());
+    return computePaddedCompositeInputGridInfo(input, materializedOutType,
+                                               targetGrid, selectedGrid,
+                                               isTiled, concatDim, tileShape);
+  }
+
+  TT_assert(!effectivePaddingShape.empty());
+  return computePaddedCompositeInputGridInfo(input, materializedOutType,
+                                             targetGrid, selectedGrid, isTiled,
+                                             concatDim, effectivePaddingShape);
+}
+
 static llvm::SmallVector<CompositeInputGridInfo>
 computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
                                ArrayRef<int64_t> targetGrid,
                                ArrayRef<int64_t> selectedGrid, bool ttnnMode,
                                ArrayRef<int64_t> paddingTileShape = {}) {
-  llvm::SmallVector<CompositeInputGridInfo> inputInfos;
-  inputInfos.reserve(compositeView.getInputs().size());
-
-  const int32_t concatDim = compositeView.getDim();
   auto outType =
       mlir::cast<RankedTensorType>(compositeView.getResult().getType());
   const bool isTiled = mlir::isa<ttcore::TileType>(outType.getElementType());
 
-  SmallVector<int64_t> scalarCompositePaddingTileShape;
-  ArrayRef<int64_t> effectivePaddingTileShape = paddingTileShape;
-  if (!isTiled && effectivePaddingTileShape.empty()) {
-    scalarCompositePaddingTileShape =
-        llvm::to_vector(ttcore::TileType::getDefaultShape());
-    effectivePaddingTileShape = scalarCompositePaddingTileShape;
-  }
-
+  SmallVector<int64_t> scalarPaddingStorage;
+  ArrayRef<int64_t> effectivePaddingShape =
+      getEffectiveCompositePaddingTileShape(isTiled, paddingTileShape,
+                                            scalarPaddingStorage);
   RankedTensorType materializedOutType = utils::tensorWithOptimalGrid(
-      outType, targetGrid, ttnnMode, selectedGrid, effectivePaddingTileShape);
+      outType, targetGrid, ttnnMode, selectedGrid, effectivePaddingShape);
 
+  llvm::SmallVector<CompositeInputGridInfo> inputInfos;
+  inputInfos.reserve(compositeView.getInputs().size());
   for (Value input : compositeView.getInputs()) {
-    CompositeInputGridInfo info;
-    info.input = input;
-
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    info.materializedType = inputType;
-
-    auto inputLayout =
-        mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-    if (!inputLayout) {
-      inputInfos.push_back(std::move(info));
-      continue;
-    }
-
-    if (isTiled || !effectivePaddingTileShape.empty()) {
-      // Match the composite output's padding on non-concat dimensions, and
-      // pad the concat dimension only to a tile so each input's contribution
-      // does not get inflated.
-      auto materializedOutLayout = mlir::cast<ttcore::MetalLayoutAttr>(
-          materializedOutType.getEncoding());
-      SmallVector<int64_t> inputAlignments(
-          materializedOutLayout.getDimAlignments().begin(),
-          materializedOutLayout.getDimAlignments().end());
-
-      ArrayRef<int64_t> paddingShape = effectivePaddingTileShape;
-      if (isTiled) {
-        auto tileType =
-            mlir::cast<ttcore::TileType>(inputType.getElementType());
-        paddingShape = tileType.getShape();
-      }
-      int64_t logicalRank = inputLayout.getLogicalShape().size();
-      const int64_t tileHWIdx = concatDim - (logicalRank - 2);
-      inputAlignments[concatDim] =
-          (tileHWIdx >= 0) ? paddingShape[tileHWIdx] : 1;
-
-      auto materializedLayout = ttcore::MetalLayoutAttr::get(
-          input.getContext(), inputLayout.getLogicalShape(),
-          inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
-          inputLayout.getCollapsedIntervals(), inputAlignments);
-
-      ArrayRef<int64_t> elementTileShape =
-          isTiled ? paddingShape : ArrayRef<int64_t>();
-      if (isTiled) {
-        auto inputPhysShape =
-            materializedLayout.getPhysicalShape(elementTileShape);
-        info.selectedGrid =
-            utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
-      } else {
-        // Scalar input shares composite's grid on every axis except the
-        // concat axis, where it owns only its own tile count.
-        info.selectedGrid = llvm::to_vector(selectedGrid);
-        int64_t concatIntervalIdx =
-            findIntervalIdxForDim(materializedLayout, concatDim);
-        if (concatIntervalIdx >= 0) {
-          const int64_t logicalRank =
-              materializedLayout.getLogicalShape().size();
-          const int64_t tileHWIdx = concatDim - (logicalRank - 2);
-          const int64_t tileSize =
-              (tileHWIdx >= 0 &&
-               static_cast<size_t>(tileHWIdx) < paddingShape.size())
-                  ? paddingShape[tileHWIdx]
-                  : 1;
-          const int64_t inputTileCount =
-              ttmlir::utils::alignUp(
-                  materializedLayout.getLogicalShape()[concatDim], tileSize) /
-              tileSize;
-          auto intervals = materializedLayout.getNormalizedIntervals();
-          SmallVector<int64_t> alignments(
-              materializedLayout.getDimAlignments().begin(),
-              materializedLayout.getDimAlignments().end());
-          const int64_t intervalSize = utils::computeCollapsedIntervalSize(
-              materializedLayout.getLogicalShape(), alignments,
-              intervals[concatIntervalIdx * 2],
-              intervals[concatIntervalIdx * 2 + 1]);
-          info.selectedGrid[concatIntervalIdx] = computeScalarConcatGridDim(
-              selectedGrid[concatIntervalIdx], inputTileCount, intervalSize,
-              info.selectedGrid, concatIntervalIdx, targetGrid);
-        }
-      }
-
-      auto deviceShape = materializedLayout.getDeviceShape(info.selectedGrid,
-                                                           elementTileShape);
-      info.materializedType = RankedTensorType::get(
-          deviceShape, inputType.getElementType(), materializedLayout);
-    } else {
-      auto inputPhysShape =
-          utils::computePhysicalShape(input, targetGrid, ttnnMode);
-      info.selectedGrid =
-          utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
-      info.materializedType = utils::tensorWithOptimalGrid(
-          inputType, targetGrid, ttnnMode, info.selectedGrid);
-    }
-
-    inputInfos.push_back(std::move(info));
+    inputInfos.push_back(computeCompositeInputGridInfo(
+        input, materializedOutType, targetGrid, selectedGrid, isTiled,
+        compositeView.getDim(), effectivePaddingShape));
   }
-
   return inputInfos;
 }
 
@@ -476,8 +478,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
         !mlir::isa<ttcore::TileType>(operandType.getElementType())) {
       unsigned resultIndex = operandIndex - outputBegin;
       if (resultIndex < genericOp.getNumResults()) {
-        info.paddingTileShape =
-            getTiledConsumerTileShape(genericOp.getResult(resultIndex));
+        info.paddingTileShape = utils::findDownstreamTiledToLayoutTileShape(
+            genericOp.getResult(resultIndex));
       }
     }
 

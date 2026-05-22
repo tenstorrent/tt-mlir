@@ -24,6 +24,16 @@ namespace utils {
 // a ToLayoutOp.
 d2m::ToLayoutOp getToLayoutProducerBehindViews(mlir::Value operand);
 
+// Walk forward through layout-bridge ops until reaching a tiled ToLayoutOp
+// consumer. Returns the tile shape, or empty if no tiled consumer is reachable.
+llvm::SmallVector<int64_t>
+findDownstreamTiledToLayoutTileShape(mlir::Value value);
+
+// Walk backward through layout-bridge producers until reaching a tiled tensor.
+// Returns the tile shape, or empty if the producer chain remains scalar.
+llvm::SmallVector<int64_t>
+findUpstreamTiledLayoutBridgeTileShape(mlir::Value value);
+
 // Compute the size of a single collapsed-interval row across the given
 // logical-shape range, propagating alignment from the innermost dim outward.
 int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,

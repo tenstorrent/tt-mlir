@@ -9,6 +9,8 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/SmallPtrSet.h"
+
 #include <array>
 #include <numeric>
 
@@ -21,6 +23,70 @@ d2m::ToLayoutOp getToLayoutProducerBehindViews(mlir::Value operand) {
     operand = view.getInput();
   }
   return sawView ? operand.getDefiningOp<d2m::ToLayoutOp>() : d2m::ToLayoutOp();
+}
+
+llvm::SmallVector<int64_t>
+findDownstreamTiledToLayoutTileShape(mlir::Value value) {
+  llvm::SmallVector<Value> worklist{value};
+  llvm::SmallPtrSet<Value, 8> visited{value};
+
+  while (!worklist.empty()) {
+    Value current = worklist.pop_back_val();
+    for (OpOperand &use : current.getUses()) {
+      Operation *user = use.getOwner();
+
+      if (auto toLayout = dyn_cast<d2m::ToLayoutOp>(user)) {
+        auto outputType = mlir::dyn_cast<RankedTensorType>(toLayout.getType(0));
+        if (!outputType) {
+          continue;
+        }
+        if (auto tileType =
+                mlir::dyn_cast<ttcore::TileType>(outputType.getElementType())) {
+          return llvm::to_vector(tileType.getShape());
+        }
+        if (visited.insert(toLayout.getResult(0)).second) {
+          worklist.push_back(toLayout.getResult(0));
+        }
+        continue;
+      }
+
+      if (auto view = dyn_cast<d2m::ViewLayoutOp>(user)) {
+        if (visited.insert(view.getResult()).second) {
+          worklist.push_back(view.getResult());
+        }
+        continue;
+      }
+
+      if (auto mask = dyn_cast<d2m::MaskOp>(user)) {
+        if (visited.insert(mask.getResult()).second) {
+          worklist.push_back(mask.getResult());
+        }
+        continue;
+      }
+    }
+  }
+
+  return {};
+}
+
+llvm::SmallVector<int64_t>
+findUpstreamTiledLayoutBridgeTileShape(mlir::Value value) {
+  while (auto valueType = mlir::dyn_cast<RankedTensorType>(value.getType())) {
+    if (auto tileType =
+            mlir::dyn_cast<ttcore::TileType>(valueType.getElementType())) {
+      return llvm::to_vector(tileType.getShape());
+    }
+    if (auto view = value.getDefiningOp<d2m::ViewLayoutOp>()) {
+      value = view.getInput();
+      continue;
+    }
+    if (auto toLayout = value.getDefiningOp<d2m::ToLayoutOp>()) {
+      value = toLayout.getInput();
+      continue;
+    }
+    break;
+  }
+  return {};
 }
 
 llvm::SmallVector<int64_t>
@@ -244,10 +310,6 @@ computeSelectedGridDimAlignments(ttcore::MetalLayoutAttr layout,
              "Selected grid rank {} must match tensor grid rank {}.",
              selectedGrid.size(), tensorGridRank);
 
-  // This helper is used after the grid decision is final. Always make the
-  // materialized physical shape divisible by the selected tensor grid, even for
-  // 2D tensors where TTCore's generic helper may otherwise keep smaller
-  // tile-only padding.
   constexpr std::array<int64_t, 2> defaultTileShape =
       ttcore::TileType::getDefaultShape();
 
