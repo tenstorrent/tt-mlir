@@ -1510,7 +1510,7 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
                  "    EVICT_ALL: {0} (L1: {1} bytes)",
                  ttmlir::opToString(victimOp), freedBytes);
     observer_->onEviction(victimOp, pos, freedBytes);
-    spillToDram(victim, triggerOp);
+    spillToDramBeforeTrigger(victim, triggerOp);
     memoryTracker.removeTensor(victim);
     evictedOps.push_back(victimOp);
   }
@@ -1520,6 +1520,11 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
     event.skipped = true;
   }
   memoryTracker.init(l1BudgetPerCore);
+  // INVARIANT: spillToDramBeforeTrigger requires a full tracker reset.
+  // Anything else here means the address simulator is out of sync with
+  // the IR's L1 occupancy.
+  assert(memoryTracker.getOccupiedL1() == 0 &&
+         "evictAllFromL1: tracker not fully reset after flush");
 
   // Revalidate consumers after all evictions to avoid revalidating against
   // transient intermediate IR states.
@@ -1574,12 +1579,24 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
 }
 
 //===----------------------------------------------------------------------===//
-// spillToDram
+// spillToDram / spillToDramBeforeTrigger / spillToDramImpl
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
-                                                   Operation *insertBefore) {
+void L1SpillManagement<MemoryTracker>::spillToDram(Value result) {
+  spillToDramImpl(result, /*insertBefore=*/nullptr);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::spillToDramBeforeTrigger(
+    Value result, Operation *triggerOp) {
+  assert(triggerOp && "spillToDramBeforeTrigger requires a non-null trigger");
+  spillToDramImpl(result, triggerOp);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::spillToDramImpl(
+    Value result, Operation *insertBefore) {
   Operation *defOp = result.getDefiningOp();
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(result.getType());
   TTNNLayoutAttr layoutAttr =

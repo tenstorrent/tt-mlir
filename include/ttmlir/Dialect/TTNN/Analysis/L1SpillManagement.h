@@ -299,10 +299,30 @@ private:
   /// For ToMemoryConfigOp, also updates the memory_config attribute.
   void demoteToDram(Operation *op);
 
-  /// Insert ToMemoryConfigOp to spill a single result value to DRAM
-  /// interleaved. When insertBefore is provided, the spill op is placed
-  /// right before that op (e.g., a CCL op) instead of after the defining op.
-  void spillToDram(Value result, Operation *insertBefore = nullptr);
+  /// Insert a ToMemoryConfigOp right after `result`'s defining op to spill
+  /// `result` to DRAM. ALL uses of `result` (past and future) get rewired
+  /// to read from the spill. Snapshot/replay-safe: pair with
+  /// `markEvictedAndRebuild` to keep the address simulator consistent.
+  void spillToDram(Value result);
+
+  /// Insert a ToMemoryConfigOp just BEFORE `triggerOp` to spill `result` to
+  /// DRAM. Only uses at/after `triggerOp` get rewired; earlier uses keep
+  /// reading from L1.
+  ///
+  /// INVARIANT: callers MUST follow with a full tracker reset (e.g.
+  /// `memoryTracker.init(l1BudgetPerCore)`) because the past-of-trigger
+  /// uses still occupy L1 in the IR. The default `markEvictedAndRebuild`
+  /// snapshot/replay path is NOT compatible with this overload — it would
+  /// mark `result`'s alloc as skipped at the producer's event index, which
+  /// disagrees with the IR (`result` is still allocated between defOp and
+  /// triggerOp).
+  ///
+  /// Currently the only caller is `evictAllFromL1`.
+  void spillToDramBeforeTrigger(Value result, Operation *triggerOp);
+
+  /// Shared implementation of the two spill overloads. Not part of the
+  /// public API.
+  void spillToDramImpl(Value result, Operation *insertBefore);
 
   /// Bundled schedule data built once at the start of run().
   struct ScheduleData {
