@@ -586,7 +586,10 @@ createOp(FlatbufferObjectCache &cache, SparseMatmulOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
-  int64_t nnz = op.getNnz().value_or(0);
+  ::flatbuffers::Optional<int64_t> nnz = std::nullopt;
+  if (op.getNnz()) {
+    nnz = op.getNnz().value();
+  }
 
   return ::tt::target::ttnn::CreateSparseMatmulOp(
       *cache.fbb, a, b, sparsity, output, op.getIsInputASparse(),
