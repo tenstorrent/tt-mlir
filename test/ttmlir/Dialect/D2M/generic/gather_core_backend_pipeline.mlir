@@ -12,6 +12,13 @@
 // Fixture: 4x4 worker grid, 1x4 gather group at (0,0), collector at (0,0).
 // Each source shard is 2x4 tiles. Src/dst CB scratch buffers are
 // pre-allocated (post-D2MAllocate shape).
+//
+// The 1x4 group is statically degenerate on the Y axis, so the collectorDone
+// fan-out lowers to a loop of unicast ttkernel.noc_semaphore_inc calls rather
+// than to a single experimental::get_noc_multicast_addr +
+// noc_semaphore_set_multicast. See `LowerLoadStoreOpsToDMA.cpp` for the
+// gather-local degenerate-axis dispatch. The non-degenerate mcast path is
+// pinned by `gather_core_backend_pipeline_mcast.mlir`.
 
 #l1 = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
@@ -48,13 +55,22 @@ module attributes {ttcore.system_desc = #system_desc} {
   // core in the group consumes one src-CB element).
   // CHECK: ttkernel.cb_wait_front(%[[SRC_CB]], %{{.*}})
   //
-  // isCollector test against (0, 0); these use my_logical_y/x (this core's
-  // own location), distinct from the gather-loop source coords below.
+  // Two nested scf.if gates:
+  //   - outer: isInGroup (this core's logical coord is within the gather
+  //     group's [groupStart, groupStart + groupShape) rectangle); cores
+  //     outside the group skip the gather protocol entirely.
+  //   - inner: isCollector (this core's logical coord matches collectorIdx).
+  // Both use my_logical_y/x for the per-core test. Canonicalize may fold
+  // trivially-true in-group axis comparisons when the generic's grid is
+  // contained in the gather group's range on that axis (e.g. the X axis
+  // is in [0, 4) on a 4x4 grid for a 1x4 group), so the exact set of
+  // arith.cmpi/andi ops here is not pinned.
   // CHECK: ttkernel.my_logical_y
   // CHECK: ttkernel.my_logical_x
   // CHECK: scf.if %{{.*}} {
+  // CHECK-NEXT: scf.if %{{.*}} {
 
-  // ---- Collector branch ----
+  // ---- Collector branch (inside both gates) ----
   // Reserve the dst CB (only the collector does this; option (c)).
   // CHECK: ttkernel.cb_reserve_back(%[[DST_CB]], %{{.*}})
   //
@@ -75,18 +91,25 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK:   ttkernel.noc_async_read_barrier
   // CHECK: }
   //
-  // Multicast the collectorDone signal to the entire group (group_volume - 1
-  // peers receive it; the collector also writes its own copy locally first).
-  // CHECK: ttkernel.experimental::get_noc_multicast_addr
-  // CHECK: ttkernel.noc_semaphore_set
-  // CHECK: ttkernel.noc_semaphore_set_multicast(%[[SEM_DONE]],
+  // Fan-out the collectorDone signal to every group core. The 1x4 group is
+  // statically degenerate on the Y axis, so this lowers to a loop of unicast
+  // noc_semaphore_inc calls (one per group core), NOT to
+  // experimental::get_noc_multicast_addr + noc_semaphore_set_multicast.
+  // CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+  // CHECK:   ttkernel.experimental::convert_logical_y_to_translated
+  // CHECK:   ttkernel.experimental::convert_logical_x_to_translated
+  // CHECK:   ttkernel.get_noc_addr
+  // CHECK:   ttkernel.noc_semaphore_inc(%{{.*}}, %{{.*}}) : (!ttkernel.noc_addr, index) -> ()
+  // CHECK: }
+  // CHECK-NOT: ttkernel.experimental::get_noc_multicast_addr
+  // CHECK-NOT: ttkernel.noc_semaphore_set_multicast
   //
   // Push the dst CB (only the collector).
   // CHECK: ttkernel.cb_push_back(%[[DST_CB]], %{{.*}})
   // CHECK: } else {
 
   // ---- Source branch ----
-  // Producers signal the collector and wait for the multicast release.
+  // Producers signal the collector and wait for the per-core inc.
   // No NoC reads, no dst-CB reserve/push (option (c)).
   // CHECK: ttkernel.experimental::convert_logical_y_to_translated
   // CHECK: ttkernel.experimental::convert_logical_x_to_translated
@@ -97,10 +120,12 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK-NOT: ttkernel.noc_async_read
   // CHECK-NOT: ttkernel.cb_reserve_back
   // CHECK-NOT: ttkernel.cb_push_back
+  // Close both the inner (isCollector) and outer (isInGroup) scf.if.
+  // CHECK: }
   // CHECK: }
   //
-  // pop_front on the src CB after the branch (every core pops, mirroring
-  // the wait_front before the branch).
+  // pop_front on the src CB after the gates (every core pops, mirroring
+  // the wait_front before the gates).
   // CHECK: ttkernel.cb_pop_front(%[[SRC_CB]], %{{.*}})
 
   // The compute kernel is empty: gather_core lives entirely on the DM

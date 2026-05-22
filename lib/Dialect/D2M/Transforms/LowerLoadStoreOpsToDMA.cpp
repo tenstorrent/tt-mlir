@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -345,19 +346,58 @@ public:
     Value endX =
         rewriter.create<arith::AddIOp>(loc, groupStart[1], groupShape[1]);
 
-    // isCollector: virtual core index == collectorIdx on every axis.
+    // Compute the two per-core booleans we need to dispatch the gather
+    // protocol:
+    //
+    //   isInGroup  : this core's virtual coord is inside the gather group's
+    //                logical rectangle
+    //                [groupStart[0], groupStart[0] + groupShape[0]) ×
+    //                [groupStart[1], groupStart[1] + groupShape[1]).
+    //   isCollector: this core's virtual coord matches collectorIdx.
+    //
+    // The enclosing d2m.generic may be configured for a grid that strictly
+    // contains the gather group, in which case "not collector" is NOT the
+    // same as "I am a gather source". Without the explicit in-group gate,
+    // cores outside the group would still execute the source-side
+    // semaphore protocol (inc'ing sourceReady, waiting on collectorDone),
+    // which would (a) over-saturate sourceReady on the collector and (b)
+    // deadlock on collectorDone (the per-group fan-out only inc's group
+    // cores). Gating the whole isCollector if/else by isInGroup keeps
+    // non-group cores entirely out of the protocol.
+    //
+    // CB-level handshakes on the src CB (`d2m.wait`/`d2m.pop`, currently
+    // emitted unconditionally outside the if/else) are intentionally NOT
+    // gated: src CB allocation is per-core-uniform today, and every core's
+    // upstream compute thread pushes one element into it. Refining CB
+    // allocation so non-group cores can skip the CB entirely is tracked as
+    // a follow-up.
     AffineMap gridMapping = genericOp.getGrid().getPhysicalToVirtMap();
     Value isCollector;
-    for (auto [i, collIdx] : llvm::enumerate(collectorIdx)) {
+    Value isInGroup;
+    for (unsigned i = 0; i < 2u; ++i) {
       Value coreIdx = rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(i),
                                                    gridMapping);
-      Value cond = rewriter.create<arith::CmpIOp>(loc, rewriter.getI1Type(),
-                                                  arith::CmpIPredicate::eq,
-                                                  coreIdx, collIdx);
-      isCollector = isCollector
-                        ? rewriter.create<arith::AndIOp>(loc, isCollector, cond)
-                              .getResult()
-                        : cond;
+      Value collEq = rewriter.create<arith::CmpIOp>(loc, rewriter.getI1Type(),
+                                                    arith::CmpIPredicate::eq,
+                                                    coreIdx, collectorIdx[i]);
+      isCollector =
+          isCollector ? rewriter.create<arith::AndIOp>(loc, isCollector, collEq)
+                            .getResult()
+                      : collEq;
+
+      Value axisEnd = (i == 0) ? endY : endX;
+      Value geStart = rewriter.create<arith::CmpIOp>(loc, rewriter.getI1Type(),
+                                                     arith::CmpIPredicate::sge,
+                                                     coreIdx, groupStart[i]);
+      Value ltEnd = rewriter.create<arith::CmpIOp>(loc, rewriter.getI1Type(),
+                                                   arith::CmpIPredicate::slt,
+                                                   coreIdx, axisEnd);
+      Value axisInGroup = rewriter.create<arith::AndIOp>(loc, geStart, ltEnd);
+      isInGroup =
+          isInGroup
+              ? rewriter.create<arith::AndIOp>(loc, isInGroup, axisInGroup)
+                    .getResult()
+              : axisInGroup;
     }
 
     // Pre-compute physical coordinates we need across the branches:
@@ -368,74 +408,149 @@ public:
     SmallVector<Value> physCollector = utils::mapVirtualToPhysicalCoreIndex(
         rewriter, loc, genericOp.getGrid(), collectorIdx);
 
+    // Build the gather protocol body inside an `if (isInGroup)` gate. The
+    // body is the existing collector / source dispatch -- unchanged in
+    // shape, just lifted into an outer scf.if.
     rewriter.create<scf::IfOp>(
-        loc, isCollector,
-        [&](OpBuilder &builder, Location loc) {
-          // Collector branch: wait for sources, pull each source's payload,
-          // signal the entire group.
+        loc, isInGroup, [&](OpBuilder &groupBuilder, Location groupLoc) {
+          groupBuilder.create<scf::IfOp>(
+              groupLoc, isCollector,
+              [&](OpBuilder &builder, Location loc) {
+                // Collector branch: wait for sources, pull each source's
+                // payload, signal the entire group.
 
-          // Unwrap dst CB inside the collector branch only (option (c)):
-          // the dst CB is allocated on every core but only the collector
-          // performs the reserve/push.
-          Value dstLocal = dst;
-          if (dstCb) {
-            dstLocal = builder.create<ReserveOp>(loc, dstCb).getResult();
-          }
+                // Unwrap dst CB inside the collector branch only (option (c)):
+                // the dst CB is allocated on every core but only the collector
+                // performs the reserve/push.
+                Value dstLocal = dst;
+                if (dstCb) {
+                  dstLocal = builder.create<ReserveOp>(loc, dstCb).getResult();
+                }
 
-          builder.create<SemaphoreWaitOp>(loc, sourceReady, numSources, zero);
+                builder.create<SemaphoreWaitOp>(loc, sourceReady, numSources,
+                                                zero);
 
-          // Row-major iteration over the gather group. The collector's own
-          // coordinate is included; the resulting "self read" is correct
-          // (just slightly inefficient) and avoids an inner-loop branch.
-          builder.create<scf::ForOp>(
-              loc, groupStart[0], endY, one, ValueRange(),
-              [&](OpBuilder &yBuilder, Location yLoc, Value srcY, ValueRange) {
-                yBuilder.create<scf::ForOp>(
-                    yLoc, groupStart[1], endX, one, ValueRange(),
-                    [&](OpBuilder &xBuilder, Location xLoc, Value srcX,
+                // Row-major iteration over the gather group. The collector's
+                // own coordinate is included; the resulting "self read" is
+                // correct (just slightly inefficient) and avoids an inner-loop
+                // branch.
+                builder.create<scf::ForOp>(
+                    loc, groupStart[0], endY, one, ValueRange(),
+                    [&](OpBuilder &yBuilder, Location yLoc, Value srcY,
                         ValueRange) {
-                      SmallVector<Value> physSrc =
-                          utils::mapVirtualToPhysicalCoreIndex(
-                              xBuilder, xLoc, genericOp.getGrid(),
-                              {srcY, srcX});
-                      // Shard-level dma_read: read the entire src shard
-                      // from core[physSrc] into dst on the current core.
-                      // The expansion to fully indexed form (and the
-                      // srcCore-aware NoC lowering) is handled by the
-                      // downstream passes.
-                      Value tx = xBuilder.create<DMAReadOp>(
-                          xLoc, src, /*srcIndices=*/ValueRange(), dstLocal,
-                          /*srcCore=*/ValueRange(physSrc));
-                      xBuilder.create<DMAWaitOp>(xLoc, tx);
-                      xBuilder.create<scf::YieldOp>(xLoc);
+                      yBuilder.create<scf::ForOp>(
+                          yLoc, groupStart[1], endX, one, ValueRange(),
+                          [&](OpBuilder &xBuilder, Location xLoc, Value srcX,
+                              ValueRange) {
+                            SmallVector<Value> physSrc =
+                                utils::mapVirtualToPhysicalCoreIndex(
+                                    xBuilder, xLoc, genericOp.getGrid(),
+                                    {srcY, srcX});
+                            // Shard-level dma_read: read the entire src shard
+                            // from core[physSrc] into dst on the current core.
+                            // The expansion to fully indexed form (and the
+                            // srcCore-aware NoC lowering) is handled by the
+                            // downstream passes.
+                            Value tx = xBuilder.create<DMAReadOp>(
+                                xLoc, src, /*srcIndices=*/ValueRange(),
+                                dstLocal,
+                                /*srcCore=*/ValueRange(physSrc));
+                            xBuilder.create<DMAWaitOp>(xLoc, tx);
+                            xBuilder.create<scf::YieldOp>(xLoc);
+                          });
+                      yBuilder.create<scf::YieldOp>(yLoc);
                     });
-                yBuilder.create<scf::YieldOp>(yLoc);
+
+                // Signal collector-done to every core in the group.
+                //
+                // For non-degenerate groups (both groupShape axes statically ≥
+                // 2, or shape unknown at compile time) we emit a single
+                // multicast SemaphoreSet that covers the whole group in one NoC
+                // transaction. The collector itself is in this multicast region
+                // but does not wait on the semaphore.
+                //
+                // For groups that are statically degenerate on at least one
+                // axis (1×1, 1×N, or N×1), the multicast set would lower
+                // downstream to an
+                // ttkernel::experimental::get_noc_multicast_addr call whose
+                // start/end coords on the degenerate axis are the same SSA
+                // value (CSE collapses them after Canonicalize folds the `start
+                // + 1 - 1` end-coord arithmetic). The emitc.expression wrapper
+                // produced by mlir's FormExpressionsPass cannot roundtrip
+                // duplicate operands -- the printer shadows region arguments
+                // with operand SSA names and the re-parser rejects two block
+                // args with the same name. We sidestep that by emitting an
+                // equivalent loop of unicast SemaphoreInc calls.
+                //
+                // The two forms are observable-equivalent inside the gather
+                // protocol: collectorDone is zero-initialized, reset on each
+                // source's wait, and only ever published with value 1, so
+                // "set everyone in the group to 1" and "inc each group core's
+                // semaphore by 1" land on the same observed state. The
+                // unicast incs on cores other than the collector unblock the
+                // sources; the inc on the collector itself is harmless because
+                // the collector does not wait on collectorDone.
+                std::optional<int64_t> staticShapeY =
+                    getConstantIntValue(groupShape[0]);
+                std::optional<int64_t> staticShapeX =
+                    getConstantIntValue(groupShape[1]);
+                bool yIsOne = staticShapeY && *staticShapeY == 1;
+                bool xIsOne = staticShapeX && *staticShapeX == 1;
+                if (yIsOne && xIsOne) {
+                  // 1×1: a single unicast inc to the (only) group core, which
+                  // is the collector itself.
+                  builder.create<SemaphoreIncOp>(loc, collectorDone, one,
+                                                 physGroupStart);
+                } else if (yIsOne || xIsOne) {
+                  // 1×N or N×1: walk the non-degenerate axis and emit one
+                  // unicast inc per group core.
+                  Value lb = yIsOne ? groupStart[1] : groupStart[0];
+                  Value ub = yIsOne ? endX : endY;
+                  bool axisIsX = yIsOne;
+                  builder.create<scf::ForOp>(
+                      loc, lb, ub, one, ValueRange(),
+                      [&](OpBuilder &incBuilder, Location incLoc, Value iv,
+                          ValueRange) {
+                        Value virtY = axisIsX ? groupStart[0] : iv;
+                        Value virtX = axisIsX ? iv : groupStart[1];
+                        SmallVector<Value> physTarget =
+                            utils::mapVirtualToPhysicalCoreIndex(
+                                incBuilder, incLoc, genericOp.getGrid(),
+                                {virtY, virtX});
+                        incBuilder.create<SemaphoreIncOp>(incLoc, collectorDone,
+                                                          one, physTarget);
+                        incBuilder.create<scf::YieldOp>(incLoc);
+                      });
+                } else {
+                  // ≥2×≥2 (or fully dynamic): single mcast SET. Note that the
+                  // dynamic case can still hit the duplicate-operand bug if at
+                  // runtime an axis is 1, but in our pipeline group shapes are
+                  // typically constant; treat that as a follow-up.
+                  builder.create<SemaphoreSetOp>(
+                      loc, collectorDone, one, physGroupStart, groupShape,
+                      /*startDevice=*/ValueRange(),
+                      /*deviceMcastShape=*/ValueRange());
+                }
+
+                // After all reads are complete and the collector-done multicast
+                // has been issued, push the dst CB so the downstream compute
+                // thread on the collector can wait/pop it. Non-collector cores
+                // never reach this PushOp (option (c)).
+                if (dstCb) {
+                  builder.create<PushOp>(loc, dstCb);
+                }
+
+                builder.create<scf::YieldOp>(loc);
+              },
+              [&](OpBuilder &builder, Location loc) {
+                // Source branch: signal collector that we are ready, then
+                // wait until the collector has finished pulling us.
+                builder.create<SemaphoreIncOp>(loc, sourceReady, one,
+                                               physCollector);
+                builder.create<SemaphoreWaitOp>(loc, collectorDone, one, zero);
+                builder.create<scf::YieldOp>(loc);
               });
-
-          // Signal collector-done to every core in the group. The collector
-          // itself is in this multicast region but does not wait on the
-          // semaphore.
-          builder.create<SemaphoreSetOp>(loc, collectorDone, one,
-                                         physGroupStart, groupShape,
-                                         /*startDevice=*/ValueRange(),
-                                         /*deviceMcastShape=*/ValueRange());
-
-          // After all reads are complete and the collector-done multicast
-          // has been issued, push the dst CB so the downstream compute
-          // thread on the collector can wait/pop it. Non-collector cores
-          // never reach this PushOp (option (c)).
-          if (dstCb) {
-            builder.create<PushOp>(loc, dstCb);
-          }
-
-          builder.create<scf::YieldOp>(loc);
-        },
-        [&](OpBuilder &builder, Location loc) {
-          // Source branch: signal collector that we are ready, then wait
-          // until the collector has finished pulling us.
-          builder.create<SemaphoreIncOp>(loc, sourceReady, one, physCollector);
-          builder.create<SemaphoreWaitOp>(loc, collectorDone, one, zero);
-          builder.create<scf::YieldOp>(loc);
+          groupBuilder.create<scf::YieldOp>(groupLoc);
         });
 
     // Release the src CB on every group core (consumer-side pop). Safe
