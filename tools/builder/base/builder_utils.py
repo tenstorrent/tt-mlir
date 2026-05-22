@@ -369,6 +369,9 @@ def get_metal_tensor_layout(
     elif element_dtype == torch.uint16:
         elemType = IntegerType.get_unsigned(16, ctx)
         tile_elem_dtype = ttcore.DataType.UInt16
+    elif element_dtype == torch.uint32:
+        elemType = IntegerType.get_unsigned(32, ctx)
+        tile_elem_dtype = ttcore.DataType.UInt32
     elif element_dtype == torch.bfloat16:
         elemType = BF16Type.get(ctx)
         tile_elem_dtype = ttcore.DataType.BFloat16
