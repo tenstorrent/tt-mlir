@@ -112,3 +112,41 @@ TEST_F(SelfSpillTest, DISABLED_OpTooLargeForBudgetDemotes) {
   ASSERT_FALSE(obs->demotions.empty()) << "expected at least one demotion event";
   EXPECT_TRUE(obs->demotions.front().success);
 }
+
+//===----------------------------------------------------------------------===//
+// NotImplementedTest
+//===----------------------------------------------------------------------===//
+
+class NotImplementedTest : public L1SpillTestFixture {};
+
+// When an op returns NotImplemented from validation, the pass cannot know
+// its L1 requirements and must conservatively evict all live tensors before
+// running that op.
+TEST_F(NotImplementedTest, EvictsAllLiveTensorsBeforeNotImplementedOp) {
+  l1BudgetPerCore = 4000 * kKiB; // ample budget — OOM is not the trigger here
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB = addUnary(args[0], tt, /*l1UsageBytes=*/400 * kKiB);
+  // opC is NotImplemented: pass must flush A and B before processing it.
+  auto *opC = addBinary(opA->getResult(0), opB->getResult(0), tt,
+                        /*l1UsageBytes=*/0);
+  finishFunc({opC->getResult(0)});
+
+  forceNotImplemented(opC);
+  auto [obs] = run();
+
+  // Both opA and opB must be spilled before opC runs.
+  EXPECT_TRUE(wasSpilled(opA->getResult(0)))
+      << "opA should be spilled before NotImplemented opC";
+  EXPECT_TRUE(wasSpilled(opB->getResult(0)))
+      << "opB should be spilled before NotImplemented opC";
+  EXPECT_GE(countSpills(), 2u)
+      << "at least 2 spill-to-DRAM ops expected";
+  // evictAllFromL1 calls onEviction for each victim.
+  EXPECT_EQ(obs->evictions.size(), 2u)
+      << "evictAllFromL1 should record exactly 2 eviction events (A and B)";
+}
