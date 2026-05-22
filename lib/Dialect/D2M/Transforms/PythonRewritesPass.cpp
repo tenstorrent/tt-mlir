@@ -125,7 +125,8 @@ static std::string capturePythonError() {
 class D2MPythonRewritesPass
     : public impl::D2MPythonRewritesBase<D2MPythonRewritesPass> {
 public:
-  using impl::D2MPythonRewritesBase<D2MPythonRewritesPass>::D2MPythonRewritesBase;
+  using impl::D2MPythonRewritesBase<
+      D2MPythonRewritesPass>::D2MPythonRewritesBase;
 
   void runOnOperation() override {
     if (modulePaths.empty()) {
@@ -181,9 +182,8 @@ public:
       PyList_SET_ITEM(pathsList.get(), static_cast<Py_ssize_t>(i), path);
     }
 
-    PyRef resultPy(
-        PyObject_CallFunctionObjArgs(applyText.get(), inputPy.get(),
-                                     pathsList.get(), nullptr));
+    PyRef resultPy(PyObject_CallFunctionObjArgs(applyText.get(), inputPy.get(),
+                                                pathsList.get(), nullptr));
     if (!resultPy) {
       emitPyError("d2m_jit apply_patterns_text raised");
       return;
@@ -263,7 +263,8 @@ namespace {
 class D2MPythonRewritesPass
     : public impl::D2MPythonRewritesBase<D2MPythonRewritesPass> {
 public:
-  using impl::D2MPythonRewritesBase<D2MPythonRewritesPass>::D2MPythonRewritesBase;
+  using impl::D2MPythonRewritesBase<
+      D2MPythonRewritesPass>::D2MPythonRewritesBase;
 
   void runOnOperation() override {
     getOperation().emitError(

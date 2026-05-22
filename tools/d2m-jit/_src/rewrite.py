@@ -289,9 +289,7 @@ def infer_layout(value_or_type, **overrides) -> Layout:
     """
     t = value_or_type.type if isinstance(value_or_type, ir.Value) else value_or_type
     if not ir.RankedTensorType.isinstance(t):
-        raise TypeError(
-            f"infer_layout: expected RankedTensorType, got {t}"
-        )
+        raise TypeError(f"infer_layout: expected RankedTensorType, got {t}")
     rtt = ir.RankedTensorType(t)
     shape = list(rtt.shape)
     elem = rtt.element_type
@@ -428,9 +426,7 @@ def apply_patterns_text(input_text: str, pattern_paths: Sequence[str]) -> str:
             mod_name = f"d2m_python_rewrites_user_{uuid.uuid4().hex}"
             spec = importlib.util.spec_from_file_location(mod_name, path)
             if spec is None or spec.loader is None:
-                raise ImportError(
-                    f"could not build a module spec for {path}"
-                )
+                raise ImportError(f"could not build a module spec for {path}")
             user_mod = importlib.util.module_from_spec(spec)
             sys.modules[mod_name] = user_mod
             spec.loader.exec_module(user_mod)
@@ -476,7 +472,9 @@ def apply_patterns(module_or_op) -> None:
     for pat in patterns:
         pdl.register_rewrite_function(pat.dispatch_name, _make_dispatcher(pat))
         if pat.match_fn is not None:
-            pdl.register_constraint_function(pat.match_name, _make_match_dispatcher(pat))
+            pdl.register_constraint_function(
+                pat.match_name, _make_match_dispatcher(pat)
+            )
     frozen = pdl.freeze()
 
     apply_patterns_and_fold_greedily(module_or_op, frozen)

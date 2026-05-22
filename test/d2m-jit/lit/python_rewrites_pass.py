@@ -60,9 +60,7 @@ def main():
         print(f"FATAL: ttmlir-opt not found at {ttmlir_opt}", file=sys.stderr)
         sys.exit(1)
 
-    with tempfile.NamedTemporaryFile(
-        "w", suffix=".mlir", delete=False
-    ) as tmp:
+    with tempfile.NamedTemporaryFile("w", suffix=".mlir", delete=False) as tmp:
         tmp.write(TTIR_INPUT)
         tmp_path = tmp.name
 

@@ -297,9 +297,7 @@ class RewriteScope:
         # would have added a func arg in lazy mode.
         with self.ctx, self.loc, self.insert_point:
             idx_ty = IndexType.get(self.ctx)
-            return arith.ConstantOp(
-                idx_ty, IntegerAttr.get(idx_ty, int(value))
-            ).result
+            return arith.ConstantOp(idx_ty, IntegerAttr.get(idx_ty, int(value))).result
 
 
 # --- LazyTensor --------------------------------------------------------------
