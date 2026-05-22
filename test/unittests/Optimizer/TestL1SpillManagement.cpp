@@ -74,3 +74,41 @@ TEST_F(FarthestLastUseOrderingTest, EvictsFarthestNotNearest) {
   EXPECT_TRUE(wasSpilled(opA->getResult(0)));
   EXPECT_FALSE(wasSpilled(opB->getResult(0)));
 }
+
+//===----------------------------------------------------------------------===//
+// SelfSpillTest
+//===----------------------------------------------------------------------===//
+
+class SelfSpillTest : public L1SpillTestFixture {};
+
+// DISABLED until rpavlovic/remove-output-l1-usage-attr lands. On that
+// branch the Stage-3 OOM path switches from spillToDram to demoteToDram
+// for ops whose output alone exceeds the budget. Remove the DISABLED_
+// prefix after the branch merges.
+TEST_F(SelfSpillTest, DISABLED_OpTooLargeForBudgetDemotes) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 2048, 1024};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  // opA output ≈ 2 MB; budget ≈ 1.3 MB → cannot fit even with empty live set.
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/2000 * kKiB);
+  finishFunc({opA->getResult(0)});
+
+  auto [obs] = run();
+
+  // No farthest-last-use evictions expected (live set was empty).
+  EXPECT_TRUE(obs->evictions.empty())
+      << "no eviction — nothing else was live to evict";
+
+  // After demotion, opA's result type should have a DRAM layout.
+  auto rt = mlir::cast<mlir::RankedTensorType>(opA->getResult(0).getType());
+  auto layout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(rt.getEncoding());
+  EXPECT_FALSE(layout.hasL1BufferType())
+      << "opA should be demoted in place to DRAM";
+
+  // Observer should record the demotion (success=true).
+  ASSERT_FALSE(obs->demotions.empty()) << "expected at least one demotion event";
+  EXPECT_TRUE(obs->demotions.front().success);
+}
