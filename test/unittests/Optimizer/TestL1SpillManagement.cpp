@@ -282,3 +282,68 @@ TEST_F(SnapshotReplayCrossEvictionTest, SecondEvictionUsesUpdatedSnapshots) {
   EXPECT_TRUE(wasSpilled(opA->getResult(0)));
   EXPECT_TRUE(wasSpilled(opB->getResult(0)));
 }
+
+//===----------------------------------------------------------------------===//
+// SnapshotReplayNonEmptyAndCascadeTest
+//===----------------------------------------------------------------------===//
+
+class SnapshotReplayNonEmptyAndCascadeTest : public L1SpillTestFixture {};
+
+// Two evictions exercise both halves of the snapshot mechanism:
+//   1. First eviction restores a NON-EMPTY snapshot (opA and opB exist
+//      before opVictim).
+//   2. Second eviction (opB) is allocated BEFORE opVictim, so its
+//      pre-alloc snapshot is even smaller. The replay forward from B's
+//      alloc index must walk past opVictim's already-skipped events
+//      (preserving them as skipped) and re-allocate Trigger1 and Post.
+TEST_F(SnapshotReplayNonEmptyAndCascadeTest,
+       NonEmptySnapshotPlusCascadeStaysConsistent) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 512};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opA        = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opB        = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opVictim   = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opTrigger1 = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opPost     = addUnary(args[0], tt, /*l1UsageBytes=*/100 * kKiB);
+  auto *opTrigger2 = addUnary(args[0], tt, /*l1UsageBytes=*/200 * kKiB);
+  // Consumers ordered so last-use is:
+  //   Trigger2(6) < Trigger1(7) < Post(8) < A(9) < B(10) < Victim(11).
+  // → at OOM #1, farthest is opVictim; at OOM #2, farthest among live is opB.
+  auto *useTrigger2 = addUnary(opTrigger2->getResult(0), tt,
+                                /*l1UsageBytes=*/50 * kKiB);
+  auto *useTrigger1 = addUnary(opTrigger1->getResult(0), tt,
+                                /*l1UsageBytes=*/50 * kKiB);
+  auto *usePost     = addUnary(opPost->getResult(0), tt,
+                                /*l1UsageBytes=*/50 * kKiB);
+  auto *useA        = addUnary(opA->getResult(0), tt,
+                                /*l1UsageBytes=*/50 * kKiB);
+  auto *useB        = addUnary(opB->getResult(0), tt,
+                                /*l1UsageBytes=*/50 * kKiB);
+  auto *useVictim   = addUnary(opVictim->getResult(0), tt,
+                                /*l1UsageBytes=*/50 * kKiB);
+  finishFunc({useTrigger2->getResult(0), useTrigger1->getResult(0),
+              usePost->getResult(0),     useA->getResult(0),
+              useB->getResult(0),        useVictim->getResult(0)});
+
+  auto [obs] = run();
+
+  ASSERT_EQ(obs->evictions.size(), 2u)
+      << "expected two evictions (Victim at OOM #1, B at OOM #2)";
+  EXPECT_EQ(obs->evictions[0].victim, opVictim)
+      << "OOM #1: farthest-last-use is opVictim";
+  EXPECT_EQ(obs->evictions[1].victim, opB)
+      << "OOM #2: farthest-last-use among live ops is opB";
+  EXPECT_TRUE(wasSpilled(opVictim->getResult(0)));
+  EXPECT_TRUE(wasSpilled(opB->getResult(0)));
+  // opA must survive both evictions and stay in L1.
+  EXPECT_FALSE(wasSpilled(opA->getResult(0)));
+  // Trigger1 and Post must survive eviction #2 (they were re-allocated by
+  // the replay forward from B's snapshot at correct addresses).
+  EXPECT_FALSE(wasSpilled(opTrigger1->getResult(0)));
+  EXPECT_FALSE(wasSpilled(opPost->getResult(0)));
+  EXPECT_FALSE(wasSpilled(opTrigger2->getResult(0)));
+}
