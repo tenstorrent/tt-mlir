@@ -8235,6 +8235,128 @@ public:
 } // namespace
 
 namespace {
+// Converts tt.sharded_topk custom_call into:
+//   ttir::topk (local, on each chip's vocab shard)
+//   ttir::all_gather (values and indices — tiny tensors)
+//   ttir::add (offset local indices to global vocab positions)
+//
+// This avoids all-gathering the full vocab tensor before topk. Instead only
+// the small topk results (k candidates per device) are communicated.
+//
+// Frontend attributes:
+//   k          — candidates per shard (e.g. 32)
+//   num_shards — number of vocab shards / TP devices on the vocab axis
+//
+// Input:  logits [batch, vocab_per_shard]  (sharded, one shard per device)
+// Output: (values [batch, k*num_shards], global_indices [batch, k*num_shards])
+class StableHLOShardedTopKConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != "tt.sharded_topk") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 1 || srcOp.getResults().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.sharded_topk requires 1 operand and 2 results.");
+    }
+
+    mlir::DictionaryAttr frontendAttrs =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttrs) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Missing mhlo.frontend_attributes.");
+    }
+
+    auto kAttrStr = frontendAttrs.getAs<mlir::StringAttr>("k");
+    auto numShardsAttrStr =
+        frontendAttrs.getAs<mlir::StringAttr>("num_shards");
+    if (!kAttrStr || !numShardsAttrStr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Missing k or num_shards in frontend_attributes.");
+    }
+
+    int32_t k = 0, numShards = 0;
+    if (kAttrStr.getValue().getAsInteger(10, k) ||
+        numShardsAttrStr.getValue().getAsInteger(10, numShards)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to parse k or num_shards as integers.");
+    }
+
+    Value logits = adaptor.getOperands()[0];
+    auto logitsType = mlir::cast<RankedTensorType>(logits.getType());
+    int64_t batch = logitsType.getShape()[0];
+    int64_t vocabPerShard = logitsType.getShape()[1];
+    mlir::Type elemType = logitsType.getElementType();
+    auto loc = srcOp.getLoc();
+
+    // Step 1: local topk on this device's vocab shard.
+    auto topkValType = RankedTensorType::get({batch, k}, elemType);
+    auto topkIndType =
+        RankedTensorType::get({batch, k}, rewriter.getI32Type());
+    auto topkOp = rewriter.create<ttir::TopKOp>(
+        loc, TypeRange{topkValType, topkIndType}, logits,
+        rewriter.getI32IntegerAttr(k),
+        rewriter.getI32IntegerAttr(-1), // dim = last
+        rewriter.getBoolAttr(true),     // largest
+        rewriter.getBoolAttr(false));   // sorted
+    Value localVals = topkOp.getValues();
+    Value localInds = topkOp.getIndices();
+
+    // Step 2: all-gather the tiny topk results across devices.
+    // Vocab is sharded on cluster_axis=0 (the "batch" mesh axis).
+    int64_t totalCandidates = (int64_t)numShards * k;
+    auto gatheredValType =
+        RankedTensorType::get({batch, totalCandidates}, elemType);
+    auto gatheredIndType =
+        RankedTensorType::get({batch, totalCandidates}, rewriter.getI32Type());
+
+    // all_gather_dim=1 (vocab/last dim), cluster_axis=0 ("batch" mesh axis).
+    auto gatheredVals = rewriter.create<ttir::AllGatherOp>(
+        loc, gatheredValType, localVals, (int32_t)1, (uint32_t)0);
+    auto gatheredInds = rewriter.create<ttir::AllGatherOp>(
+        loc, gatheredIndType, localInds, (int32_t)1, (uint32_t)0);
+
+    // Step 3: fix up indices — after all-gather, each device's k indices are
+    // local (0..vocabPerShard-1). Add compile-time offset so that device i's
+    // block of k indices becomes global vocab positions.
+    // offset layout: [0..0, vocabPerShard..vocabPerShard, 2*vocabPerShard..]
+    //                 k zeros        k copies               k copies ...
+    SmallVector<int32_t> offsetValues;
+    offsetValues.reserve(batch * totalCandidates);
+    for (int64_t b = 0; b < batch; ++b) {
+      for (int32_t shard = 0; shard < numShards; ++shard) {
+        int32_t shardOffset = shard * static_cast<int32_t>(vocabPerShard);
+        for (int32_t j = 0; j < k; ++j) {
+          offsetValues.push_back(shardOffset);
+        }
+      }
+    }
+    auto offsetType = RankedTensorType::get({batch, totalCandidates},
+                                            rewriter.getI32Type());
+    auto offsetAttr = DenseElementsAttr::get(
+        offsetType, llvm::ArrayRef<int32_t>(offsetValues));
+    auto offsetConst =
+        rewriter.create<ttir::ConstantOp>(loc, offsetType, offsetAttr);
+
+    auto globalInds = rewriter.create<ttir::AddOp>(
+        loc, gatheredIndType, gatheredInds.getResult(),
+        offsetConst.getResult());
+
+    rewriter.replaceOp(srcOp, {gatheredVals.getResult(), globalInds.getResult()});
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOPagedFillCacheConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -9807,6 +9929,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOPagedFillCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOSamplingConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOShardedTopKConversionPattern>(typeConverter, ctx);
 }
 
 namespace {
