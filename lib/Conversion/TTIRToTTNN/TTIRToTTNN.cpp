@@ -471,6 +471,18 @@ public:
     // Get data type, tensor layout, buffer type and memory config.
     ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
         rewriter.getContext(), layoutAttr.getDataType());
+
+    auto currentIndicesType =
+        mlir::cast<RankedTensorType>(inputIndices.getType());
+    if (currentIndicesType.getRank() == 2) {
+      llvm::SmallVector<int64_t, 4> fourDShape{
+          currentIndicesType.getDimSize(0), 1, 1,
+          currentIndicesType.getDimSize(1)};
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices), fourDShape,
+          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_4d_indices"));
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
         op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
         adaptor.getWeight(), reshapedGrad, dTypeAttr);
