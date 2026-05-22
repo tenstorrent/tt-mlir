@@ -1363,7 +1363,7 @@ public:
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.emit(srcOp.getComputeConfig()),
-        /*dram_slice_config=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1421,6 +1421,7 @@ public:
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);

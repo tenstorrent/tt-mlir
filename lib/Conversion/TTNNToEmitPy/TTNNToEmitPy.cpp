@@ -1547,6 +1547,7 @@ public:
         emitter.template emit<std::vector<uint32_t>>(conv2dOp.getDilationAttr(),
                                                      "dilation"),
         emitter.emit(conv2dOp.getGroups(), "groups"),
+        emitter.emit(conv2dOp.getDtype(), "dtype"),
         emitter.emit(conv2dOp.getBias(), "bias_tensor"),
         emitter.emit(conv2dOp.getConv2dConfig(), "conv_config"),
         emitter.emit(conv2dOp.getComputeConfig(), "compute_config"),
@@ -1757,7 +1758,7 @@ public:
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_config"),
-        emitter.emit(std::nullopt, "slice_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1817,6 +1818,7 @@ public:
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
     emitter.replaceOp(*this, args);
