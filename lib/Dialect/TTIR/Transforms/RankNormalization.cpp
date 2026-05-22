@@ -59,6 +59,25 @@ static bool needsRankExpansion(Type type) {
   return false;
 }
 
+/// Collects the `func.func` ops referenced by any `ttnn.d2m_subgraph` op in
+/// the module. These callees still participate in rank normalization (their
+/// bodies get promoted) but their function signatures and `func.return` ops
+/// are pinned to their original types so the matching `ttnn.d2m_subgraph` call
+/// site (in the legal `ttnn` dialect, not visited by the pass) stays
+/// well-typed against `D2MSubgraphOp::verify()`. The dialect-conversion
+/// framework auto-inserts `ttir.reshape` ops at the entry-block / pre-return
+/// boundary via the type converter's source/target/argument materializers.
+static DenseSet<func::FuncOp> collectD2MSubgraphCallees(ModuleOp module) {
+  DenseSet<func::FuncOp> result;
+  module.walk([&](ttnn::D2MSubgraphOp op) {
+    StringRef name = op.getD2mFunc().getRootReference();
+    if (auto callee = module.lookupSymbol<func::FuncOp>(name)) {
+      result.insert(callee);
+    }
+  });
+  return result;
+}
+
 /// Collects functions that participate in rank normalization. A non-external
 /// function participates if its body contains at least one TTIR-dialect op.
 /// An external declaration participates only if it is called from a
@@ -84,13 +103,12 @@ static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
     }
   });
 
-  //include external declarations that are called from
-  // participating functions (their signatures must be promoted to match).
+  // include external declarations that are called from
+  //  participating functions (their signatures must be promoted to match).
   SmallVector<func::FuncOp> externalCallees;
   for (func::FuncOp participatingFunc : result) {
     participatingFunc.walk([&](func::CallOp callOp) {
-      auto callee =
-          module.lookupSymbol<func::FuncOp>(callOp.getCallee());
+      auto callee = module.lookupSymbol<func::FuncOp>(callOp.getCallee());
       if (callee && callee.isExternal() &&
           (llvm::any_of(callee.getArgumentTypes(), needsRankExpansion) ||
            llvm::any_of(callee.getResultTypes(), needsRankExpansion))) {
@@ -111,15 +129,31 @@ public:
     addConversion([](RankedTensorType type) -> RankedTensorType {
       return expandRank(type);
     });
-    addSourceMaterialization(materializeCast);
-    addTargetMaterialization(materializeCast);
+    // The materializer emits `ttir.reshape` for rank-only conversions, which
+    // is what the framework auto-inserts at d2m_subgraph callee boundaries
+    // (entry block / pre-return) when the callee signature is pinned but the
+    // body is promoted. For any other shape conversion we don't expect (the
+    // type converter only changes rank), fall back to
+    // `unrealized_conversion_cast` to surface the mismatch loudly.
+    addSourceMaterialization(materializeRankReshape);
+    addTargetMaterialization(materializeRankReshape);
   }
 
 private:
-  static Value materializeCast(OpBuilder &builder, Type type, ValueRange inputs,
-                               Location loc) {
+  static Value materializeRankReshape(OpBuilder &builder, Type type,
+                                      ValueRange inputs, Location loc) {
     assert(inputs.size() == 1 && "Expected single input.");
-    return builder.create<UnrealizedConversionCastOp>(loc, type, inputs.front())
+    Value input = inputs.front();
+    auto inT = dyn_cast<RankedTensorType>(input.getType());
+    auto outT = dyn_cast<RankedTensorType>(type);
+    if (inT && outT && inT.getElementType() == outT.getElementType() &&
+        inT.getEncoding() == outT.getEncoding()) {
+      SmallVector<int32_t> shape(outT.getShape().begin(),
+                                 outT.getShape().end());
+      return builder.create<ttir::ReshapeOp>(loc, outT, input,
+                                             builder.getI32ArrayAttr(shape));
+    }
+    return builder.create<UnrealizedConversionCastOp>(loc, type, input)
         .getResult(0);
   }
 };
@@ -383,8 +417,31 @@ public:
     target.addLegalDialect<ttcore::TTCoreDialect>();
 
     auto participatingFuncs = collectParticipatingFuncs(module);
+    auto d2mCallees = collectD2MSubgraphCallees(module);
 
     target.markUnknownOpDynamicallyLegal([&](Operation *op) {
+      // d2m_subgraph callee `func.func` ops: pin signature so the matching
+      // `ttnn.d2m_subgraph` op stays well-typed. Body ops still get rewritten
+      // (the func.func is a container, not a body op) - the framework will
+      // auto-materialize boundary `ttir.reshape`s via the type converter.
+      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        if (d2mCallees.contains(funcOp)) {
+          return true;
+        }
+      }
+      // `func.return` inside d2m_subgraph callees: pin operand types so they
+      // stay aligned with the (pinned) function result types. The framework
+      // will auto-insert a target materialization (rank-2 -> rank-1
+      // `ttir.reshape`) before this op when the body produces a promoted
+      // value.
+      if (auto returnOp = dyn_cast<func::ReturnOp>(op)) {
+        if (auto parent = returnOp->getParentOfType<func::FuncOp>()) {
+          if (d2mCallees.contains(parent)) {
+            return true;
+          }
+        }
+      }
+
       bool needsRewrite;
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
         needsRewrite =
