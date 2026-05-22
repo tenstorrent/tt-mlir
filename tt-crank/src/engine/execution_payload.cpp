@@ -108,13 +108,7 @@ std::vector<tt::runtime::Tensor> ExecutionPayload::run() {
     }
 
     try {
-        std::vector<tt::runtime::Tensor> outputs;
-        outputs = tt::runtime::submit(runtime_device(), impl_->program->binary, impl_->program_index, inputs);
-        {
-            ZoneScopedN("tt_kurbla::wait");
-            tt::runtime::wait(outputs);
-        }
-        return outputs;
+        return tt::runtime::submit(runtime_device(), impl_->program->binary, impl_->program_index, inputs);
     } catch (const std::exception &e) {
         TT_THROW("run: submit failed: {}", e.what());
     }

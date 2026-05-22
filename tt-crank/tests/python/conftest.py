@@ -15,7 +15,7 @@ if "--sim" in sys.argv:
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-import tt_kurbla.torch  # noqa: E402, F401  — registers the backend
+import tt_kurbla.torch  # noqa: E402, F401  - registers the backend
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -24,6 +24,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Route the runtime through ttsim by setting TT_KURBLA_USE_SIMULATOR=1.",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "benchmark: marks a test as a benchmark (deselect with '-m \"not benchmark\"').",
     )
 
 

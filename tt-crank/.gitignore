@@ -27,6 +27,10 @@ __pycache__/
 generated/
 .tracy_artifacts/
 
+# Benchmark outputs
+/benchmark_results.json
+/profile_data/
+
 # scikit-build-core editable install bookkeeping — the .so lands next to the
 # Python source under editable.mode = "redirect".
 /python/tt_kurbla/**/_native*.so
