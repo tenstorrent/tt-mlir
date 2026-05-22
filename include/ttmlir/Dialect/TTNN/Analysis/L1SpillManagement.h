@@ -27,9 +27,29 @@ namespace mlir::tt::ttnn {
 /// sum of per-result tensor sizes, and simulates top-down allocation to detect
 /// fragmentation (CB clash with low-address tensors).
 struct SumL1MemoryTracker {
+  /// Backend validator hook. When null, calls go to
+  /// op_constraint_validation::validateOperation(). When set (test-only),
+  /// forwards to the supplied callback. Used by every backend-validator
+  /// call in the pass (validate() and the two direct probes).
+  using BackendValidatorFn =
+      std::function<op_constraint_validation::ValidationResult(
+          Operation *, llvm::ArrayRef<TTNNLayoutAttr>, const OpConfig &,
+          uint64_t /*additionalL1*/)>;
+  BackendValidatorFn backendValidator;
+
   op_constraint_validation::ValidationResult
   validate(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
            const OpConfig &config) const;
+
+  /// Bypass input-overlap accounting and call the backend (or hook) with an
+  /// explicit additionalL1Usage. Used by consumer-reshard probes and DRAM
+  /// CB re-queries inside L1SpillManagement — those call sites already know
+  /// the L1 pressure they want to express.
+  op_constraint_validation::ValidationResult
+  validateBackendDirect(Operation *op,
+                        llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                        const OpConfig &config,
+                        uint64_t additionalL1Usage) const;
 
   /// Initialize address simulation with the L1 budget. Must be called before
   /// addTensor/removeTensor.
@@ -172,6 +192,11 @@ public:
 
   /// Access the observer (always non-null; NullObject when tracing disabled).
   L1SpillObserver *getObserver() { return observer_.get(); }
+
+  /// Access the memory tracker. Intended for test-only use: install a
+  /// backendValidator before calling run().
+  MemoryTracker &getMemoryTracker() { return memoryTracker; }
+  const MemoryTracker &getMemoryTracker() const { return memoryTracker; }
 
 private:
   func::FuncOp func;

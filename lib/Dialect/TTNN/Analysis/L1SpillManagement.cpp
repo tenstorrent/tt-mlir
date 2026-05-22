@@ -60,8 +60,18 @@ SumL1MemoryTracker::validate(Operation *op,
   }
   uint64_t additionalL1 =
       currentOccupied > inputOverlap ? currentOccupied - inputOverlap : 0;
+  return validateBackendDirect(op, inputLayouts, config, additionalL1);
+}
+
+op_constraint_validation::ValidationResult
+SumL1MemoryTracker::validateBackendDirect(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage) const {
+  if (backendValidator) {
+    return backendValidator(op, inputLayouts, config, additionalL1Usage);
+  }
   return op_constraint_validation::validateOperation(op, inputLayouts, config,
-                                                     additionalL1);
+                                                     additionalL1Usage);
 }
 
 uint64_t SumL1MemoryTracker::getOccupiedL1() const { return currentOccupied; }
@@ -830,7 +840,7 @@ void L1SpillManagement<MemoryTracker>::evictValue(
       if (!needsReshard) {
         auto consumerInputs = utils::extractInputLayouts(consumer);
         auto consumerConfig = extractOpConfigFromIR(consumer);
-        auto consumerResult = op_constraint_validation::validateOperation(
+        auto consumerResult = memoryTracker.validateBackendDirect(
             consumer, consumerInputs, consumerConfig,
             /*additionalL1Usage=*/0);
         needsReshard = consumerResult.isMetalBackendError();
@@ -1540,9 +1550,8 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
 
   auto inputLayouts = utils::extractInputLayouts(op);
   auto config = extractOpConfigFromIR(op);
-  auto result =
-      op_constraint_validation::validateOperation(op, inputLayouts, config,
-                                                  /*additionalL1Usage=*/0);
+  auto result = memoryTracker.validateBackendDirect(op, inputLayouts, config,
+                                                    /*additionalL1Usage=*/0);
   if (!result.isSuccess()) {
     op->emitError("L1SpillManagement: DRAM output config failed validation "
                   "after demotion (")
