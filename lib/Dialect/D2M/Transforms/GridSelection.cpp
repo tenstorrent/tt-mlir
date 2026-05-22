@@ -130,30 +130,28 @@ static void verifySingleGenericConsumerThroughViewsAndMasks(Value root) {
   }
 }
 
+// Walk back through any chain of ViewLayoutOp/ToLayoutOp producers until we
+// reach a tiled tensor, and return that tile's shape. Returns empty if the
+// chain ends before reaching a tile.
 static llvm::SmallVector<int64_t> getTileShapeThroughLayoutBridge(Value value) {
-  while (true) {
-    auto valueType = mlir::dyn_cast<RankedTensorType>(value.getType());
-    if (!valueType) {
-      return {};
-    }
-
+  for (auto valueType = mlir::dyn_cast<RankedTensorType>(value.getType());
+       valueType;
+       valueType = mlir::dyn_cast<RankedTensorType>(value.getType())) {
     if (auto tileType =
             mlir::dyn_cast<ttcore::TileType>(valueType.getElementType())) {
       return llvm::to_vector(tileType.getShape());
     }
-
     if (auto view = value.getDefiningOp<d2m::ViewLayoutOp>()) {
       value = view.getInput();
       continue;
     }
-
     if (auto toLayout = value.getDefiningOp<d2m::ToLayoutOp>()) {
       value = toLayout.getInput();
       continue;
     }
-
-    return {};
+    break;
   }
+  return {};
 }
 
 static llvm::SmallVector<int64_t>

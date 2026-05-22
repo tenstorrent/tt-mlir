@@ -98,65 +98,46 @@ static int64_t getVolume(ArrayRef<int64_t> shape) {
   return volume;
 }
 
-static llvm::SmallVector<int64_t> capCompositeScalarInputGrid(
-    ttcore::MetalLayoutAttr materializedLayout, ArrayRef<int64_t> alignments,
-    ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> targetGrid,
-    int32_t concatDim, ArrayRef<int64_t> paddingShape) {
-  llvm::SmallVector<int64_t> grid = llvm::to_vector(selectedGrid);
-  auto intervals = materializedLayout.getNormalizedIntervals();
+// Locate the collapsed interval that owns a given logical-shape dim. Exactly
+// one interval covers it for a valid layout; returns -1 otherwise.
+static int64_t findIntervalIdxForDim(ttcore::MetalLayoutAttr layout,
+                                     int64_t dim) {
+  auto intervals = layout.getNormalizedIntervals();
   const int64_t tensorGridRank = intervals.size() / 2;
-  TT_assert(static_cast<int64_t>(grid.size()) == tensorGridRank);
-
-  // The concat dimension is intentionally only padded to a tile. If the
-  // composite output grid splits that small input tile further, a scalar DMA
-  // kernel can end up attaching a full tile CB to a sub-tile L1 shard. Keep the
-  // already-selected grid on every other axis, but cap this input's concat-axis
-  // grid by the number of full tiles it can actually provide. Exactly one
-  // collapsed interval contains `concatDim`; if none do, the layout is invalid.
-  int64_t concatIntervalIdx = -1;
-  for (int64_t intervalIdx = 0; intervalIdx < tensorGridRank; ++intervalIdx) {
-    if (concatDim >= intervals[intervalIdx * 2] &&
-        concatDim < intervals[intervalIdx * 2 + 1]) {
-      concatIntervalIdx = intervalIdx;
-      break;
+  for (int64_t i = 0; i < tensorGridRank; ++i) {
+    if (dim >= intervals[i * 2] && dim < intervals[i * 2 + 1]) {
+      return i;
     }
   }
-  if (concatIntervalIdx < 0) {
-    return grid;
-  }
+  return -1;
+}
 
-  const int64_t intervalStart = intervals[concatIntervalIdx * 2];
-  const int64_t intervalEnd = intervals[concatIntervalIdx * 2 + 1];
-  const int64_t logicalRank = materializedLayout.getLogicalShape().size();
-  const int64_t tileHWIdx = concatDim - (logicalRank - 2);
-  const bool isTileInterval = concatIntervalIdx >= tensorGridRank - 2;
-  const int64_t minShard =
-      (isTileInterval && tileHWIdx >= 0 &&
-       static_cast<size_t>(tileHWIdx) < paddingShape.size())
-          ? paddingShape[tileHWIdx]
-          : 1;
-  const int64_t intervalSize = utils::computeCollapsedIntervalSize(
-      materializedLayout.getLogicalShape(), alignments, intervalStart,
-      intervalEnd);
-  const int64_t maxGridDim = std::max<int64_t>(1, intervalSize / minShard);
-  const int64_t upperBound = std::min(grid[concatIntervalIdx], maxGridDim);
-
-  llvm::SmallVector<int64_t> candidateGrid = grid;
-  for (int64_t candidate = upperBound; candidate > 0; --candidate) {
-    if (intervalSize % candidate != 0 || intervalSize / candidate < minShard) {
+// Compute the per-input concat-axis grid for a scalar composite_view input.
+//
+// Inputs share the composite operand's grid on every axis except the concat
+// axis (alignments must match for layout compatibility). On the concat axis,
+// each input only owns `inputTileCount` tiles, so its grid there is clamped
+// to that count — walking downward for the largest divisor of the input's
+// concat-axis interval that still yields a worker-grid-legal volume.
+static int64_t computeScalarConcatGridDim(int64_t compositeConcatGridDim,
+                                          int64_t inputTileCount,
+                                          int64_t intervalSize,
+                                          ArrayRef<int64_t> candidateGrid,
+                                          int64_t concatIntervalIdx,
+                                          ArrayRef<int64_t> targetGrid) {
+  const int64_t upperBound = std::min(compositeConcatGridDim, inputTileCount);
+  llvm::SmallVector<int64_t> trial(candidateGrid.begin(), candidateGrid.end());
+  for (int64_t v = upperBound; v > 0; --v) {
+    if (intervalSize % v != 0) {
       continue;
     }
-
-    candidateGrid[concatIntervalIdx] = candidate;
-    if (!utils::findLegalPhysicalGridForVolume(getVolume(candidateGrid),
-                                               targetGrid)
+    trial[concatIntervalIdx] = v;
+    if (!utils::findLegalPhysicalGridForVolume(getVolume(trial), targetGrid)
              .empty()) {
-      grid = candidateGrid;
-      break;
+      return v;
     }
   }
-
-  return grid;
+  return 1;
 }
 
 llvm::SmallVector<llvm::SmallVector<int64_t>>
@@ -309,11 +290,9 @@ computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
     }
 
     if (isTiled || !effectivePaddingTileShape.empty()) {
-      // Match the composite output's padding on non-concat dimensions, but
-      // keep the concat dimension tile-only so individual inputs do not each
-      // inflate their contribution. Scalar inputs reuse the already-selected
-      // composite grid; reselecting here can pick a different legal grid for
-      // the padded shape and break the one-grid contract for the concat.
+      // Match the composite output's padding on non-concat dimensions, and
+      // pad the concat dimension only to a tile so each input's contribution
+      // does not get inflated.
       auto materializedOutLayout = mlir::cast<ttcore::MetalLayoutAttr>(
           materializedOutType.getEncoding());
       SmallVector<int64_t> inputAlignments(
@@ -338,14 +317,43 @@ computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
 
       ArrayRef<int64_t> elementTileShape =
           isTiled ? paddingShape : ArrayRef<int64_t>();
-      auto inputPhysShape =
-          materializedLayout.getPhysicalShape(elementTileShape);
-      info.selectedGrid =
-          isTiled
-              ? utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid)
-              : capCompositeScalarInputGrid(materializedLayout, inputAlignments,
-                                            selectedGrid, targetGrid, concatDim,
-                                            paddingShape);
+      if (isTiled) {
+        auto inputPhysShape =
+            materializedLayout.getPhysicalShape(elementTileShape);
+        info.selectedGrid =
+            utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
+      } else {
+        // Scalar input shares composite's grid on every axis except the
+        // concat axis, where it owns only its own tile count.
+        info.selectedGrid = llvm::to_vector(selectedGrid);
+        int64_t concatIntervalIdx =
+            findIntervalIdxForDim(materializedLayout, concatDim);
+        if (concatIntervalIdx >= 0) {
+          const int64_t logicalRank =
+              materializedLayout.getLogicalShape().size();
+          const int64_t tileHWIdx = concatDim - (logicalRank - 2);
+          const int64_t tileSize =
+              (tileHWIdx >= 0 &&
+               static_cast<size_t>(tileHWIdx) < paddingShape.size())
+                  ? paddingShape[tileHWIdx]
+                  : 1;
+          const int64_t inputTileCount =
+              ttmlir::utils::alignUp(
+                  materializedLayout.getLogicalShape()[concatDim], tileSize) /
+              tileSize;
+          auto intervals = materializedLayout.getNormalizedIntervals();
+          SmallVector<int64_t> alignments(
+              materializedLayout.getDimAlignments().begin(),
+              materializedLayout.getDimAlignments().end());
+          const int64_t intervalSize = utils::computeCollapsedIntervalSize(
+              materializedLayout.getLogicalShape(), alignments,
+              intervals[concatIntervalIdx * 2],
+              intervals[concatIntervalIdx * 2 + 1]);
+          info.selectedGrid[concatIntervalIdx] = computeScalarConcatGridDim(
+              selectedGrid[concatIntervalIdx], inputTileCount, intervalSize,
+              info.selectedGrid, concatIntervalIdx, targetGrid);
+        }
+      }
 
       auto deviceShape = materializedLayout.getDeviceShape(info.selectedGrid,
                                                            elementTileShape);
