@@ -383,3 +383,97 @@ TEST_F(ForkJoinTest, SharedTensorEvictedAsFarthestLastUse) {
   EXPECT_EQ(obs->evictions.front().victim, opA)
       << "first eviction must be opA";
 }
+
+//===----------------------------------------------------------------------===//
+// SequentialMLPTest
+//===----------------------------------------------------------------------===//
+
+class SequentialMLPTest : public L1SpillTestFixture {};
+
+// 8-op sequential chain (MLP-style). Each tensor dies one step after birth,
+// so the pass should add ZERO spills. Regressions that inflate lifetimes or
+// double-count inputs would surface as unexpected evictions here.
+TEST_F(SequentialMLPTest, EightOpChainProducesNoSpills) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 512};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  mlir::Operation *prev = nullptr;
+  for (int i = 0; i < 8; ++i) {
+    mlir::Value input = prev ? prev->getResult(0) : args[0];
+    prev = addUnary(input, tt, /*l1UsageBytes=*/400 * kKiB);
+  }
+  finishFunc({prev->getResult(0)});
+
+  auto [obs] = run();
+
+  EXPECT_EQ(obs->evictions.size(), 0u) << "linear chain should not spill";
+  EXPECT_EQ(countSpills(), 0u);
+}
+
+//===----------------------------------------------------------------------===//
+// ResidualBlockTest
+//===----------------------------------------------------------------------===//
+
+class ResidualBlockTest : public L1SpillTestFixture {};
+
+// Residual / skip-connection block. opSkip lives through both branch ops.
+// inputOverlap accounting must correctly subtract the skip tensor when
+// validating branch ops — otherwise we'd see spurious evictions.
+TEST_F(ResidualBlockTest, SkipConnectionDoesNotForceEviction) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 512};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opSkip    = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opBranch1 = addUnary(opSkip->getResult(0), tt, /*l1UsageBytes=*/400 * kKiB);
+  auto *opBranch2 = addUnary(opBranch1->getResult(0), tt,
+                              /*l1UsageBytes=*/400 * kKiB);
+  auto *opAdd     = addBinary(opSkip->getResult(0), opBranch2->getResult(0), tt,
+                               /*l1UsageBytes=*/100 * kKiB);
+  finishFunc({opAdd->getResult(0)});
+
+  auto [obs] = run();
+
+  EXPECT_EQ(obs->evictions.size(), 0u)
+      << "residual block fits in budget — input-overlap must cancel pressure";
+  EXPECT_EQ(countSpills(), 0u);
+}
+
+//===----------------------------------------------------------------------===//
+// QKVForkJoinTest
+//===----------------------------------------------------------------------===//
+
+class QKVForkJoinTest : public L1SpillTestFixture {};
+
+// 3-way fork (Q, K, V projections from one input), then 2-way join.
+// Exercises input-overlap correctness across multiple consumers of the
+// same producer.
+TEST_F(QKVForkJoinTest, ThreeWayForkJoinFitsInBudget) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 512};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opIn   = addUnary(args[0], tt, /*l1UsageBytes=*/400 * kKiB);
+  auto *opQ    = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opK    = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opV    = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *useQK  = addBinary(opQ->getResult(0), opK->getResult(0), tt,
+                            /*l1UsageBytes=*/200 * kKiB);
+  auto *useV   = addUnary(opV->getResult(0), tt, /*l1UsageBytes=*/200 * kKiB);
+  auto *opAttn = addBinary(useQK->getResult(0), useV->getResult(0), tt,
+                            /*l1UsageBytes=*/100 * kKiB);
+  finishFunc({opAttn->getResult(0)});
+
+  auto [obs] = run();
+
+  EXPECT_EQ(obs->evictions.size(), 0u)
+      << "QKV fork-join should fit within 1.3 MiB budget";
+  EXPECT_EQ(countSpills(), 0u);
+}
