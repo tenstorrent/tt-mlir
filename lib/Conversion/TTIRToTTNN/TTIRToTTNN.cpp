@@ -453,7 +453,8 @@ public:
           ttmlir::utils::appendLocationSuffix(loc, "_pad_indices"),
           paddedIndicesType, inputIndices,
           rewriter.getDenseI32ArrayAttr(indicesPadding),
-          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true),
+          /*memory_config=*/nullptr);
 
       uint64_t dimensionToPad = gradShape.size() - 2;
       llvm::SmallVector<int64_t> paddedGradShape(gradShape);
@@ -469,7 +470,8 @@ public:
           ttmlir::utils::appendLocationSuffix(loc, "_pad_gradient"),
           paddedGradType, adaptor.getInGradient(),
           rewriter.getDenseI32ArrayAttr(gradPadding),
-          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true),
+          /*memory_config=*/nullptr);
     }
 
     // Reshape grad tensor to [1, 1, R, C] where R is all the first N-1
@@ -498,16 +500,22 @@ public:
     // Get data type, tensor layout, buffer type and memory config.
     ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
         rewriter.getContext(), layoutAttr.getDataType());
-    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
-    ttnn::BufferType bufferType = layoutAttr.getBufferType();
 
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), memLayout,
-        ttnn::BufferTypeAttr::get(op.getContext(), bufferType), std::nullopt);
+    auto currentIndicesType =
+        mlir::cast<RankedTensorType>(inputIndices.getType());
+    if (currentIndicesType.getRank() == 2) {
+      llvm::SmallVector<int64_t, 4> fourDShape{
+          currentIndicesType.getDimSize(0), 1, 1,
+          currentIndicesType.getDimSize(1)};
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices), fourDShape,
+          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_4d_indices"));
+    }
 
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
         op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
-        adaptor.getWeight(), reshapedGrad, dTypeAttr, memoryConfigAttr);
+        adaptor.getWeight(), reshapedGrad, dTypeAttr,
+        /*memory_config=*/nullptr);
     return success();
   }
 };

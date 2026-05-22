@@ -1920,6 +1920,14 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
     return emitOpError("Input's last dim must be divisible by TILE_WIDTH");
   }
 
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input index tensor must be a 4D tensor");
+  }
+  if (inputType.getDimSize(1) != 1 || inputType.getDimSize(2) != 1) {
+    return emitOpError("Input index tensor dims 1 and 2 must be 1, "
+                       "got shape (B, ?, ?, N) where ? must be 1");
+  }
+
   // weightType must have rank of 2: (dictionary_size, embedding_size).
   if (weightType.getRank() != 2) {
     return emitOpError("Input must be a 2D tensor");
@@ -1938,13 +1946,10 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
     return emitOpError("Input gradient must be in the form (1, 1, R, C)");
   }
 
-  int64_t inputTypeVolume = 1;
-  for (int64_t dim : inputType.getShape()) {
-    inputTypeVolume *= dim;
-  }
-  if (inputGradType.getDimSize(2) != inputTypeVolume) {
-    return emitOpError("Input gradient first dimension must match the volume "
-                       "of the input tensor");
+  int64_t expectedRows = inputType.getDimSize(0) * inputType.getShape().back();
+  if (inputGradType.getDimSize(2) != expectedRows) {
+    return emitOpError(
+        "Input gradient dim 2 must equal index_shape[0] * index_shape[-1]");
   }
   if (inputGradType.getDimSize(3) != weightType.getDimSize(1)) {
     return emitOpError("Input gradient second dimension must match the second "
