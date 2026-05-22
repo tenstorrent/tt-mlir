@@ -361,7 +361,7 @@ module {
         ins(%view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
         outs(%out_view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>) {
       ^region_0:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_spatial_view, noc = 0>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_spatial_view, processor = 1>]}
             ins(%view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
             outs(%out_view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
     }
