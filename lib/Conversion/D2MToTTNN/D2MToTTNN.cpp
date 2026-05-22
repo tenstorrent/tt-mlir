@@ -418,6 +418,24 @@ createCBDescriptors(Builder &builder, d2m::GenericOp op,
   return {cbDescriptors, cbOperandIndexToPort};
 }
 
+struct TensorAllocAttrs {
+  ttcore::DataTypeAttr dtype;
+  ttnn::LayoutAttr layout;
+};
+
+static ttnn::EmptyOp createTTNNEmptyAtBlockPrelude(
+    IRRewriter &rewriter, Location loc, RankedTensorType tensorType,
+    Operation *referenceOp, ttcore::DataTypeAttr dtypeAttr,
+    ttnn::LayoutAttr layoutAttr) {
+  auto device = ttnn::utils::getOrInsertDevice(rewriter, referenceOp);
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointAfter(device);
+  return rewriter.create<ttnn::EmptyOp>(
+      loc, tensorType, device,
+      ttnn::ShapeAttr::get(referenceOp->getContext(), tensorType.getShape()),
+      dtypeAttr, layoutAttr);
+}
+
 static LogicalResult
 materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
                               DenseMap<Value, Value> &valueMapping) {
@@ -490,13 +508,8 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
 
     auto emptyLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
-    auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointAfter(op);
-    auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-        loc, emptyTensorType, device,
-        ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
+    auto emptyOp = createTTNNEmptyAtBlockPrelude(
+        rewriter, loc, emptyTensorType, op,
         ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
         ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()));
 
@@ -509,11 +522,6 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
 
   return op.emitOpError("Unsupported memref.alloc");
 }
-
-struct TensorAllocAttrs {
-  ttcore::DataTypeAttr dtype;
-  ttnn::LayoutAttr layout;
-};
 
 static FailureOr<TensorAllocAttrs>
 getTensorAllocAttrs(Operation *op, RankedTensorType tensorType) {
@@ -541,13 +549,8 @@ static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
     return failure();
   }
 
-  auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-  auto shape = ttnn::ShapeAttr::get(op.getContext(), tensorType.getShape());
-
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPointAfter(op);
-  auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-      op.getLoc(), tensorType, device, shape, attrs->dtype, attrs->layout);
+  auto emptyOp = createTTNNEmptyAtBlockPrelude(
+      rewriter, op.getLoc(), tensorType, op, attrs->dtype, attrs->layout);
   valueMapping[op.getResult()] = emptyOp.getResult();
   return success();
 }
