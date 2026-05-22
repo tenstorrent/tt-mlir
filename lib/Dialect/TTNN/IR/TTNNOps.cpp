@@ -3998,10 +3998,15 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     if (batchIdxTensorType.getShape().size() != 1) {
       return emitOpError("Batch index tensor must be a 1D tensor");
     }
-    if (batchIdxTensorType.getShape()[0] != 1) {
+    // batch_idx_tensor must have one batch_idx per input batch row. The
+    // legacy single-batch case (inputShape[0] == 1, tensor.shape == [1])
+    // is covered by the same rule.
+    int64_t batchIdxLen = batchIdxTensorType.getShape()[0];
+    if (batchIdxLen != inputShape[0]) {
       return emitOpError(
-          "Batch index tensor must have dim 0 be equal to 1, got " +
-          std::to_string(batchIdxTensorType.getShape()[0]));
+          "Batch index tensor must have dim 0 equal to input batch (" +
+          std::to_string(inputShape[0]) + "), got " +
+          std::to_string(batchIdxLen));
     }
     if (!batchIdxTensorType.getElementType().isInteger()) {
       return emitOpError("Batch index tensor must be an integer type");
