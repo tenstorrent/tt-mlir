@@ -235,3 +235,50 @@ TEST_F(SnapshotReplayManyAllocsTest, EvictEarliestTensorReplaysAllSuccessors) {
   EXPECT_FALSE(wasSpilled(opC->getResult(0)));
   EXPECT_FALSE(wasSpilled(opD->getResult(0)));
 }
+
+//===----------------------------------------------------------------------===//
+// SnapshotReplayCrossEvictionTest
+//===----------------------------------------------------------------------===//
+
+class SnapshotReplayCrossEvictionTest : public L1SpillTestFixture {};
+
+// Two evictions at consecutive positions. Eviction 2 restores from a
+// snapshot that was UPDATED by eviction 1's replay loop. If the
+// implementation forgot to refresh snapshots during replay, eviction 2
+// produces wrong free-list state and downstream allocations either crash
+// or land at wrong addresses.
+//
+// Critical: opP1 and opP2 each need a downstream consumer (useP1, useP2) —
+// func.return is NOT in the schedule, so values consumed only by it have
+// lastUse = their own creation position and die immediately. The consumers
+// also dictate the eviction order at OOM #2: we want opB evicted before
+// opP1, so opB.lastUse must be FURTHER than opP1.lastUse.
+TEST_F(SnapshotReplayCrossEvictionTest, SecondEvictionUsesUpdatedSnapshots) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 512};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opA  = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opB  = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opP1 = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opP2 = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  // Consumers in REVERSE order of producers so opA has the farthest
+  // last-use (→ evicted first), then opB, then opP1, then opP2.
+  auto *useP2 = addUnary(opP2->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *useP1 = addUnary(opP1->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *useB  = addUnary(opB->getResult(0),  tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *useA  = addUnary(opA->getResult(0),  tt, /*l1UsageBytes=*/50 * kKiB);
+  finishFunc({useP2->getResult(0), useP1->getResult(0),
+              useB->getResult(0),  useA->getResult(0)});
+
+  auto [obs] = run();
+
+  ASSERT_EQ(obs->evictions.size(), 2u)
+      << "expected two evictions (one at each pressure op)";
+  EXPECT_EQ(obs->evictions[0].victim, opA) << "first eviction = farthest = opA";
+  EXPECT_EQ(obs->evictions[1].victim, opB) << "second eviction = opB";
+  EXPECT_TRUE(wasSpilled(opA->getResult(0)));
+  EXPECT_TRUE(wasSpilled(opB->getResult(0)));
+}
