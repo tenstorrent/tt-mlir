@@ -44,7 +44,7 @@ struct OpRuleBook {
     return nullptr;
   }
 
-  virtual LayoutFilterFn getInputLayoutFilter(Operation *op,
+  virtual LayoutFilterFn getInputLayoutFilter(RankedTensorType inputType,
                                               unsigned operandIdx) const {
     return getInputLayoutFilter(operandIdx);
   }

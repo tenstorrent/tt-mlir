@@ -82,7 +82,7 @@ struct SplitQKVRuleBook : OpRuleBook {
 /// height-sharded on a {numUsers, 1} virtual grid, where numUsers is the
 /// batch size (input1.shape[1]).
 struct PagedUpdateCacheRuleBook : OpRuleBook {
-  LayoutFilterFn getInputLayoutFilter(Operation *op,
+  LayoutFilterFn getInputLayoutFilter(RankedTensorType inputType,
                                       unsigned operandIdx) const override;
 };
 
