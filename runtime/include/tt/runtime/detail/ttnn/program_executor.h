@@ -19,12 +19,13 @@ class ProgramContext; // Forward declaration
  */
 class ProgramExecutor {
 public:
-  ProgramExecutor(
-      ::tt::runtime::Device deviceHandle,
-      ::tt::runtime::Binary &executableHandle, const size_t programIndex,
-      std::vector<::tt::runtime::Tensor> &programInputs,
-      bool constEvalProgram = false,
-      const std::vector<::ttnn::GlobalSemaphore> &programSemaphoreInputs = {});
+  ProgramExecutor(::tt::runtime::Device deviceHandle,
+                  ::tt::runtime::Binary &executableHandle,
+                  const size_t programIndex,
+                  std::vector<::tt::runtime::Tensor> &programInputs,
+                  bool constEvalProgram = false,
+                  const std::vector<::tt::runtime::GlobalSemaphore>
+                      &programSemaphoreInputs = {});
 
   /**
    * Executes pre/post operation callbacks if registered

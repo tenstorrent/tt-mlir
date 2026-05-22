@@ -19,7 +19,7 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
         context.getTensorPool().getRuntimeTensorAndValidate(input));
   }
 
-  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs =
+  std::vector<::tt::runtime::GlobalSemaphore> semaphoreInputs =
       utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
 
   ProgramExecutor executor(context.getDeviceHandle(),

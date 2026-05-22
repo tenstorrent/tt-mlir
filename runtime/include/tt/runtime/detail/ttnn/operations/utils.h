@@ -62,7 +62,7 @@ createLayerNormShardedMultiCoreProgramConfig(
 allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
                        ::ttnn::MeshDevice &meshDevice);
 
-std::vector<::ttnn::GlobalSemaphore> collectSemaphoreInputs(
+std::vector<::tt::runtime::GlobalSemaphore> collectSemaphoreInputs(
     const ::flatbuffers::Vector<
         ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
         *semaphoreInputs,

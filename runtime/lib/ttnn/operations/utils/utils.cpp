@@ -15,19 +15,19 @@ void eventSync(::ttnn::MeshDevice *meshDevice, const ::ttnn::QueueId &recordCq,
   ::ttnn::events::wait_for_mesh_event(waitCq, event);
 }
 
-std::vector<::ttnn::GlobalSemaphore> collectSemaphoreInputs(
+std::vector<::tt::runtime::GlobalSemaphore> collectSemaphoreInputs(
     const ::flatbuffers::Vector<
         ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
         *semaphoreInputs,
     ProgramContext &context) {
-  std::vector<::ttnn::GlobalSemaphore> result;
+  std::vector<::tt::runtime::GlobalSemaphore> result;
   if (!semaphoreInputs) {
     return result;
   }
   result.reserve(semaphoreInputs->size());
   for (const auto *semaphoreRef : *semaphoreInputs) {
     result.push_back(
-        context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
+        context.getGlobalSemaphorePool().getRuntimeGlobalSemaphoreAndValidate(
             semaphoreRef));
   }
   return result;

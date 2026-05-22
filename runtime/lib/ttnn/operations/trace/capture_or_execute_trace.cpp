@@ -58,7 +58,7 @@ static void runTraceProgramAndCaptureTrace(
     inputTensors.push_back(inputTensor);
   }
 
-  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs =
+  std::vector<::tt::runtime::GlobalSemaphore> semaphoreInputs =
       utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
 
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),

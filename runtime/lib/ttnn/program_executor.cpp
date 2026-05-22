@@ -132,7 +132,7 @@ ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
     std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram,
-    const std::vector<::ttnn::GlobalSemaphore> &programSemaphoreInputs)
+    const std::vector<::tt::runtime::GlobalSemaphore> &programSemaphoreInputs)
     : program(utils::getProgram(executableHandle, programIndex)),
       executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
@@ -165,13 +165,8 @@ ProgramExecutor::ProgramExecutor(
     size_t i = 0;
     for (const ::tt::target::ttnn::GlobalSemaphoreRef *semaphoreRef :
          *program->semaphore_inputs()) {
-      auto semaphorePtr = std::make_shared<::ttnn::GlobalSemaphore>(
-          programSemaphoreInputs[i++]);
       auto [iter, inserted] = liveGlobalSemaphores.try_emplace(
-          semaphoreRef->global_id(),
-          ::tt::runtime::GlobalSemaphore(
-              std::static_pointer_cast<void>(semaphorePtr),
-              DeviceRuntime::TTNN));
+          semaphoreRef->global_id(), programSemaphoreInputs[i++]);
       LOG_ASSERT(inserted, "Duplicate input semaphore");
     }
   }
