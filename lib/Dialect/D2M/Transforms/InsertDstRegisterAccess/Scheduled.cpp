@@ -16,12 +16,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/DebugLog.h"
-
-#include <deque>
-#include <optional>
 
 #define DEBUG_TYPE "D2MInsertDstRegisterAccessScheduled"
 
@@ -32,135 +26,6 @@ namespace mlir::tt::d2m {
 namespace {
 
 using namespace detail;
-
-// ---------------------------------------------------------------------------
-// Stack-based allocator used by the scheduled path.  Each compute op pops
-// inputs off `inputStack` (LIFO), and stores push onto `outputQueue`; on
-// deallocate inputs come back first, otherwise the second-from-tail entry
-// of the output queue (the previous output, no longer live) is dropped so
-// the running tail output stays available for the next consumer.
-// ---------------------------------------------------------------------------
-
-class DstStackAllocator {
-public:
-  DstStackAllocator() = delete;
-  explicit DstStackAllocator(unsigned dstSliceCapacityIn)
-      : dstSliceCapacity(dstSliceCapacityIn) {
-    initSliceStack();
-  }
-
-  unsigned allocate(bool isStore = false);
-  unsigned deallocate();
-  void setStoreToDst() { storedToDst = true; }
-  bool didStoreToDst() const { return storedToDst; }
-  unsigned getCurrSliceIndex() const { return currSliceIndex; }
-  unsigned getFirstInputSliceIndex();
-  void deallocateAllButFirstInput();
-
-private:
-  unsigned dstSliceCapacity = 0;
-  unsigned currSliceIndex = 0;
-  SmallVector<unsigned, 16> inputStack;
-  std::deque<unsigned> outputQueue;
-  SmallVector<unsigned, 16> sliceStack;
-  bool storedToDst = false;
-
-  void initSliceStack();
-};
-
-// Print allocator state to debug log, prefixed by `header`.
-static void debugDumpDstStackAllocator(StringRef header,
-                                       ArrayRef<unsigned> sliceStack,
-                                       ArrayRef<unsigned> inputStack,
-                                       const std::deque<unsigned> &outputQueue,
-                                       std::optional<unsigned> action) {
-  LDBG_OS([&](raw_ostream &os) {
-    os << header << "\n";
-    os << "  SliceStack  = ";
-    llvm::interleaveComma(sliceStack, os);
-    os << "\n  InputStack  = ";
-    llvm::interleaveComma(inputStack, os);
-    os << "\n  OutputQueue = ";
-    llvm::interleaveComma(outputQueue, os);
-    if (action) {
-      os << "\n  --> " << *action;
-    }
-  });
-}
-
-unsigned DstStackAllocator::allocate(bool isStore) {
-  TT_assertv(!sliceStack.empty(), "Out of dst slices");
-
-  currSliceIndex = sliceStack.pop_back_val();
-
-  if (isStore) {
-    outputQueue.push_back(currSliceIndex);
-  } else {
-    inputStack.push_back(currSliceIndex);
-  }
-
-  debugDumpDstStackAllocator("== ALLOCATE ==", sliceStack, inputStack,
-                             outputQueue, currSliceIndex);
-  return currSliceIndex;
-}
-
-unsigned DstStackAllocator::deallocate() {
-  TT_assertv(!(inputStack.empty() && outputQueue.empty()),
-             "Deallocating non-existent dst slice");
-
-  // Inputs are deallocated LIFO (most recent input first).  If there are no
-  // inputs left, deallocate from outputQueue.  When the output queue holds
-  // more than one slice, the *last* one is the running output that the next
-  // op may still consume, so we drop the second-from-tail entry instead and
-  // keep the tail live.  TODO(sgholami): once the allocator is reworked to
-  // make this implicit (e.g. by tracking the running output separately),
-  // this special case can go away.
-  unsigned id = 0;
-  if (!inputStack.empty()) {
-    id = inputStack.pop_back_val();
-  } else if (outputQueue.size() > 1) {
-    id = outputQueue.at(outputQueue.size() - 2);
-    outputQueue.erase(outputQueue.end() - 2);
-  } else {
-    id = outputQueue.back();
-    outputQueue.pop_back();
-  }
-
-  sliceStack.push_back(id);
-
-  debugDumpDstStackAllocator("== DEALLOCATE ==", sliceStack, inputStack,
-                             outputQueue, id);
-  return id;
-}
-
-unsigned DstStackAllocator::getFirstInputSliceIndex() {
-  TT_assertv(!inputStack.empty(), "No input slots allocated");
-  return inputStack.front();
-}
-
-void DstStackAllocator::deallocateAllButFirstInput() {
-  TT_assertv(inputStack.size() >= 1u, "Need at least one input to keep");
-
-  unsigned firstInput = inputStack.front();
-  inputStack.erase(inputStack.begin());
-
-  while (!inputStack.empty()) {
-    unsigned id = inputStack.pop_back_val();
-    sliceStack.push_back(id);
-    debugDumpDstStackAllocator("== DEALLOCATE (keeping first) ==", sliceStack,
-                               inputStack, outputQueue, id);
-  }
-
-  currSliceIndex = firstInput;
-}
-
-void DstStackAllocator::initSliceStack() {
-  TT_assert((dstSliceCapacity > 0u && dstSliceCapacity <= 16u));
-
-  for (int i = dstSliceCapacity - 1; i >= 0; --i) {
-    sliceStack.push_back(static_cast<unsigned>(i));
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Scheduled-only: in-place data copy generation (no loop cloning)
@@ -248,7 +113,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
                             Operation *outermostInnerComputeLoop,
                             unsigned dstCapacity) {
   CopyInfoMap copyInfos;
-  DstStackAllocator dstStackAllocator(dstCapacity);
+  DstSliceAllocator dstAllocator(dstCapacity);
   DstIntermediatesMap dstIntermediates;
   region.walk<WalkOrder::PreOrder>(
       [&](OperandLoadStoreRegisterOpInterface computeOp) {
@@ -290,13 +155,13 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
               affineLoad && notDstMemspace(affineLoad)) {
             collectDstLoadWithAccumAnalysis(
                 affineLoad, operandIdx, carriedOutputRegions,
-                accumOperandIndices, copyInfos, dstStackAllocator.allocate(),
+                accumOperandIndices, copyInfos, dstAllocator.allocateInput(),
                 outermostInnerComputeLoop, noAccumGuardForLoads);
           } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
                      memrefLoad && notDstMemspace(memrefLoad)) {
             collectDstLoadWithAccumAnalysis(
                 memrefLoad, operandIdx, carriedOutputRegions,
-                accumOperandIndices, copyInfos, dstStackAllocator.allocate(),
+                accumOperandIndices, copyInfos, dstAllocator.allocateInput(),
                 outermostInnerComputeLoop, noAccumGuardForLoads);
           }
         }
@@ -308,7 +173,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           bool isMemrefStore = memrefStore && notDstMemspace(memrefStore);
 
           if (isAffineStore || isMemrefStore) {
-            TT_assertv(!dstStackAllocator.didStoreToDst(),
+            TT_assertv(!dstAllocator.didStoreToDst(),
                        "Multiple stores from last op to dst not supported");
 
             bool dstRegInPlace = computeOp.getDstRegInPlace();
@@ -316,14 +181,14 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
 
             int64_t dstSliceIndex = -1;
             if (dstRegInPlace || rhsIsScalar) {
-              dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
+              dstSliceIndex = dstAllocator.getCurrSliceIndex();
             } else if (numLoads >= 2) {
-              dstSliceIndex = dstStackAllocator.getFirstInputSliceIndex();
-              dstStackAllocator.deallocateAllButFirstInput();
-              dstStackAllocator.setStoreToDst();
+              dstSliceIndex = dstAllocator.getFirstInputSliceIndex();
+              dstAllocator.deallocateAllButFirstInput();
+              dstAllocator.setStoreToDst();
             } else {
-              dstSliceIndex = dstStackAllocator.allocate(true);
-              dstStackAllocator.setStoreToDst();
+              dstSliceIndex = dstAllocator.allocateOutput();
+              dstAllocator.setStoreToDst();
             }
 
             if (isAffineStore) {
@@ -347,12 +212,12 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
 
             int32_t allocatedIndex;
             if (overwriteInput) {
-              allocatedIndex = dstStackAllocator.getCurrSliceIndex();
+              allocatedIndex = dstAllocator.getCurrSliceIndex();
             } else if (numLoads >= 2) {
-              allocatedIndex = dstStackAllocator.getFirstInputSliceIndex();
-              dstStackAllocator.deallocateAllButFirstInput();
+              allocatedIndex = dstAllocator.getFirstInputSliceIndex();
+              dstAllocator.deallocateAllButFirstInput();
             } else {
-              allocatedIndex = dstStackAllocator.allocate(true);
+              allocatedIndex = dstAllocator.allocateOutput();
             }
 
             dstIntermediates[computeOp] = {allocatedIndex,
@@ -360,15 +225,10 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           }
         }
 
-        // Reserve any extra DST scratch slices the op declares via the
-        // interface so they don't collide with operand/output slots. No
-        // deallocate: the slot is logically owned by the op for its
-        // lifetime.  TODO(https://github.com/tenstorrent/tt-mlir/issues/8081):
-        // scratch lands on `inputStack`; safe today but a future in-region
-        // fusion would trip `deallocateAllButFirstInput()`.
+        // Reserve any per-op DST scratch slices.
         for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n;
              ++i) {
-          setDstScratchIndex(computeOp, dstStackAllocator.allocate());
+          setDstScratchIndex(computeOp, dstAllocator.allocateScratch());
         }
       });
 
@@ -389,7 +249,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
 
     auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
 
-    int dstSlice = dstStackAllocator.allocate();
+    int dstSlice = dstAllocator.allocateInput();
     iter->second.record(load, dstSlice, ArrayRef<Value>{});
     iter->second.record(store, dstSlice, ArrayRef<Value>{});
   });

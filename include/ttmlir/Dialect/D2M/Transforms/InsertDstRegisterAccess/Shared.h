@@ -102,10 +102,46 @@ struct DstAccessCollection {
   DstIntermediatesMap dstIntermediates;
 };
 
-// DST slice allocator types live in their respective pass .cpp files
-// (`DstSliceAllocationState` in InsertDstRegisterAccess/Unscheduled.cpp,
-// `DstStackAllocator` in InsertDstRegisterAccess/Scheduled.cpp), since each is
-// only used by one pass.
+// ---------------------------------------------------------------------------
+// DstSliceAllocator
+//
+// Free-slot pool for the DST register.  Slots are bump-allocated from
+// `sliceStack` and reclaimed only via `deallocateAllButFirstInput()` (the
+// multi-input fold case); `inputStack` exists so that path has the
+// current op's operand slots to free.  `scratchSlots` is a separate pool
+// so that a later compute op can never pick a scratch slot as a
+// candidate for in-place reuse.
+// ---------------------------------------------------------------------------
+
+class DstSliceAllocator {
+public:
+  DstSliceAllocator() = delete;
+  explicit DstSliceAllocator(unsigned dstSliceCapacityIn)
+      : dstSliceCapacity(dstSliceCapacityIn) {
+    initSliceStack();
+  }
+
+  unsigned allocateInput();
+  unsigned allocateOutput();
+  unsigned allocateScratch();
+
+  void setStoreToDst() { storedToDst = true; }
+  bool didStoreToDst() const { return storedToDst; }
+
+  unsigned getCurrSliceIndex() const;
+  unsigned getFirstInputSliceIndex() const;
+  void deallocateAllButFirstInput();
+
+private:
+  unsigned dstSliceCapacity = 0;
+  std::optional<unsigned> currSliceIndex;
+  SmallVector<unsigned, 16> inputStack;
+  SmallVector<unsigned, 4> scratchSlots;
+  SmallVector<unsigned, 16> sliceStack;
+  bool storedToDst = false;
+
+  void initSliceStack();
+};
 
 // ---------------------------------------------------------------------------
 // Shared utility free functions
@@ -133,17 +169,17 @@ bool isPackerL1AccumulationSupportedDataType(ttcore::DataType dt);
 // gating on `hasTileMatmul`).
 bool allTileMatmulOutputsSupportPackerL1Acc(Operation *loopOp);
 
-// Find the outermost ancestor reduction loop IV of `acquireDst`, where
+// Find the closest ancestor reduction loop IV of `acquireDst`, where
 // "reduction" means: no output store recorded in `copyInfos` depends on the
-// loop's induction variable. This is the loop whose iterations accumulate
-// into the same output L1 slot, and is therefore the correct trigger for
-// switching the packer to L1-acc mode.
+// loop's induction variable. The closest such loop is the loop whose adjacent
+// iterations accumulate into the same output L1 slot, and is therefore the
+// correct trigger for switching the packer to L1-acc mode.
 //
-// Returns nullptr if there is no such reduction loop, or if the candidate
-// reduction loop has a constant trip count <= 1 (in which case L1-acc is
-// not needed and the trigger comparison would never fire correctly).
-Value findOutermostReductionLoopIVForL1Acc(Operation *acquireDstOp,
-                                           const CopyInfoMap &copyInfos);
+// Returns nullptr if there is no qualifying reduction loop with trip count > 1.
+// Reduction loops with constant trip count <= 1 are skipped because L1-acc is
+// not needed for them.
+Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
+                                         const CopyInfoMap &copyInfos);
 
 // Stamp a pass-allocated scratch slice onto the op's `dst_scratch_index`
 // attribute for the TTKernel lowering to consume.  Today only supports ops

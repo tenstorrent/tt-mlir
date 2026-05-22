@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import json
 import logging
-from typing import Dict, Iterator, List, Optional, Type
+from typing import Dict, Iterator, List, Optional, Tuple, Type
 
 from _ttmlir_runtime import runtime as tt_runtime
 from _ttmlir_runtime.binary import Binary
@@ -75,6 +75,19 @@ class ChiselContext:
         if binary_state is None:
             raise UnexpectedStateError("asm_state")
         return binary_state.ir_module.get_asm_state()
+
+    @property
+    def mesh_shape(self) -> Tuple[int, ...]:
+        """Mesh shape of the binary in the current callback scope.
+
+        Sourced from `ttcore.meshes` on the binary's MLIR module so it tracks
+        whatever mesh the program was compiled for (no need to plumb it from
+        the user / Device handle).
+        """
+        binary_state = self._current_callback_binary
+        if binary_state is None:
+            raise UnexpectedStateError("mesh_shape")
+        return binary_state.mesh_shape
 
     @property
     def is_in_op_scope(self) -> bool:
@@ -254,6 +267,7 @@ class BinaryState:
             rt_binary.get_program_name(i) for i in range(rt_binary.get_num_programs())
         ]
         self.ir_module = IRModule(mlir_source=self.mlir_source, functions=functions)
+        self.mesh_shape: Tuple[int, ...] = self.ir_module.get_mesh_shape()
         self.programs: Dict[int, "ProgramState"] = {}
 
 

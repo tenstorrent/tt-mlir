@@ -51,6 +51,104 @@ LogicalResult verifyInsertDstRegisterAccessPreconditions(ModuleOp moduleOp) {
 namespace detail {
 
 // ---------------------------------------------------------------------------
+// DstSliceAllocator
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void debugDumpDstSliceAllocator(StringRef header, ArrayRef<unsigned> sliceStack,
+                                ArrayRef<unsigned> inputStack,
+                                ArrayRef<unsigned> scratchSlots,
+                                std::optional<unsigned> action) {
+  LDBG_OS([&](raw_ostream &os) {
+    os << header << "\n";
+    os << "  SliceStack   = ";
+    llvm::interleaveComma(sliceStack, os);
+    os << "\n  InputStack   = ";
+    llvm::interleaveComma(inputStack, os);
+    os << "\n  ScratchSlots = ";
+    llvm::interleaveComma(scratchSlots, os);
+    if (action) {
+      os << "\n  --> " << *action;
+    }
+  });
+}
+
+} // namespace
+
+unsigned DstSliceAllocator::allocateInput() {
+  TT_assertv(!sliceStack.empty(), "Out of dst slices");
+
+  unsigned id = sliceStack.pop_back_val();
+  currSliceIndex = id;
+  inputStack.push_back(id);
+
+  debugDumpDstSliceAllocator("== ALLOCATE INPUT ==", sliceStack, inputStack,
+                             scratchSlots, id);
+  return id;
+}
+
+unsigned DstSliceAllocator::allocateOutput() {
+  TT_assertv(!sliceStack.empty(), "Out of dst slices");
+
+  unsigned id = sliceStack.pop_back_val();
+  currSliceIndex = id;
+
+  debugDumpDstSliceAllocator("== ALLOCATE OUTPUT ==", sliceStack, inputStack,
+                             scratchSlots, id);
+  return id;
+}
+
+unsigned DstSliceAllocator::allocateScratch() {
+  TT_assertv(!sliceStack.empty(), "Out of dst slices");
+
+  unsigned id = sliceStack.pop_back_val();
+  scratchSlots.push_back(id);
+
+  // Intentionally do NOT update `currSliceIndex` or `inputStack`.
+  // Scratch is owned by the op for the lifetime of the region; it must
+  // not show up as a candidate for in-place reuse by later compute ops.
+  debugDumpDstSliceAllocator("== ALLOCATE SCRATCH ==", sliceStack, inputStack,
+                             scratchSlots, id);
+  return id;
+}
+
+unsigned DstSliceAllocator::getCurrSliceIndex() const {
+  TT_assertv(currSliceIndex.has_value(),
+             "No dst slice allocated yet (call allocate* first)");
+  return *currSliceIndex;
+}
+
+unsigned DstSliceAllocator::getFirstInputSliceIndex() const {
+  TT_assertv(!inputStack.empty(), "No input slots allocated");
+  return inputStack.front();
+}
+
+void DstSliceAllocator::deallocateAllButFirstInput() {
+  TT_assertv(inputStack.size() >= 1u, "Need at least one input to keep");
+
+  unsigned firstInput = inputStack.front();
+  inputStack.erase(inputStack.begin());
+
+  while (!inputStack.empty()) {
+    unsigned id = inputStack.pop_back_val();
+    sliceStack.push_back(id);
+    debugDumpDstSliceAllocator("== DEALLOCATE (keeping first) ==", sliceStack,
+                               inputStack, scratchSlots, id);
+  }
+
+  currSliceIndex = firstInput;
+}
+
+void DstSliceAllocator::initSliceStack() {
+  TT_assert((dstSliceCapacity > 0u && dstSliceCapacity <= 16u));
+
+  for (int i = dstSliceCapacity - 1; i >= 0; --i) {
+    sliceStack.push_back(static_cast<unsigned>(i));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------
 
@@ -278,17 +376,17 @@ static std::optional<int64_t> tryGetConstantTripCount(Operation *loopOp) {
   return std::nullopt;
 }
 
-Value findOutermostReductionLoopIVForL1Acc(Operation *acquireDstOp,
-                                           const CopyInfoMap &copyInfos) {
+Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
+                                         const CopyInfoMap &copyInfos) {
   // `collectAncestorLoopIVs` returns IVs in outermost-to-innermost order
   // (it reverses the upward walk).
   SmallVector<Value> ancestorIVs = collectAncestorLoopIVs(acquireDstOp);
-  for (Value iv : ancestorIVs) {
+  for (Value iv : llvm::reverse(ancestorIVs)) {
     if (anyOutputStoreDependsOnIV(copyInfos, iv)) {
       // This loop indexes the output -- it is parallel, not a reduction.
       continue;
     }
-    // Found the outermost reduction loop. Only enable L1-acc if the loop
+    // Found the closest reduction loop. Only enable L1-acc if the loop
     // actually iterates more than once (otherwise the per-iteration
     // accumulation guard would never fire and we'd just emit dead code).
     Operation *loopOp = nullptr;
@@ -296,11 +394,11 @@ Value findOutermostReductionLoopIVForL1Acc(Operation *acquireDstOp,
       loopOp = blockArg.getOwner()->getParentOp();
     }
     if (!loopOp) {
-      return nullptr;
+      continue;
     }
     std::optional<int64_t> tripCount = tryGetConstantTripCount(loopOp);
     if (tripCount.has_value() && *tripCount <= 1) {
-      return nullptr;
+      continue;
     }
     return iv;
   }
@@ -317,57 +415,47 @@ void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
                   mlir::IntegerType::get(op->getContext(), 64), scratchSlice));
 }
 
-static Value getSecondIterationValue(PatternRewriter &rewriter, Location loc,
-                                     Value loopIV) {
-  auto one = rewriter.create<arith::ConstantOp>(
+static Value getFirstIterationValue(PatternRewriter &rewriter, Location loc,
+                                    Value loopIV) {
+  auto zero = rewriter.create<arith::ConstantOp>(
       loc, rewriter.getIndexType(),
-      rewriter.getIntegerAttr(rewriter.getIndexType(), 1));
+      rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
 
   auto ivBlockArg = mlir::dyn_cast<BlockArgument>(loopIV);
   if (!ivBlockArg) {
-    return one;
+    return zero;
   }
 
   auto *ownerBlock = ivBlockArg.getOwner();
   if (!ownerBlock) {
-    return one;
+    return zero;
   }
 
   auto *ownerOp = ownerBlock->getParentOp();
   if (!ownerOp) {
-    return one;
+    return zero;
   }
 
   if (auto scfFor = mlir::dyn_cast<scf::ForOp>(ownerOp)) {
-    return rewriter.create<arith::AddIOp>(loc, scfFor.getLowerBound(),
-                                          scfFor.getStep());
+    return scfFor.getLowerBound();
   }
 
   if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(ownerOp)) {
-    Value lb = nullptr;
     if (affineFor.hasConstantLowerBound()) {
-      lb = rewriter.create<arith::ConstantOp>(
+      return rewriter.create<arith::ConstantOp>(
           loc, rewriter.getIndexType(),
           rewriter.getIntegerAttr(rewriter.getIndexType(),
                                   affineFor.getConstantLowerBound()));
-    } else {
-      AffineMap lowerBoundMap = affineFor.getLowerBoundMap();
-      if (lowerBoundMap.getNumResults() == 1) {
-        lb = rewriter.create<affine::AffineApplyOp>(
-            loc, lowerBoundMap, affineFor.getLowerBoundOperands());
-      }
     }
 
-    if (lb) {
-      Value step = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIndexType(),
-          rewriter.getIntegerAttr(rewriter.getIndexType(),
-                                  affineFor.getStepAsInt()));
-      return rewriter.create<arith::AddIOp>(loc, lb, step);
+    AffineMap lowerBoundMap = affineFor.getLowerBoundMap();
+    if (lowerBoundMap.getNumResults() == 1) {
+      return rewriter.create<affine::AffineApplyOp>(
+          loc, lowerBoundMap, affineFor.getLowerBoundOperands());
     }
   }
 
-  return one;
+  return zero;
 }
 
 // ---------------------------------------------------------------------------
@@ -1085,14 +1173,16 @@ buildIndices(PatternRewriter &rewriter, Location loc,
 void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
                             AcquireDstOp acquireDst, Value loopIV) {
   rewriter.setInsertionPointAfter(acquireDst);
-  Value secondIterationValue = getSecondIterationValue(rewriter, loc, loopIV);
-  Value cond = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                              loopIV, secondIterationValue);
-  auto ifOp = rewriter.create<scf::IfOp>(loc, cond);
-  rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+  Value firstIterationValue = getFirstIterationValue(rewriter, loc, loopIV);
+  Value isFirstIteration = rewriter.create<arith::CmpIOp>(
+      loc, arith::CmpIPredicate::eq, loopIV, firstIterationValue);
+  Value disableFlag = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(0));
   Value enableFlag = rewriter.create<arith::ConstantOp>(
       loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(1));
-  rewriter.create<SetL1AccumulateOp>(loc, enableFlag);
+  Value flag = rewriter.create<arith::SelectOp>(loc, isFirstIteration,
+                                                disableFlag, enableFlag);
+  rewriter.create<SetL1AccumulateOp>(loc, flag);
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,15 +1217,12 @@ bool insertDstRegisterAccessFinalize(
 
   Value l1AccLoopIV = nullptr;
   if (!disableL1Acc) {
-    // L1-acc must be triggered by the outermost ancestor *reduction* loop --
-    // i.e. an outer loop that does NOT index the output store. Using the
-    // outermost ancestor unconditionally is incorrect for batched matmuls,
-    // where the outermost loop is parallel (e.g. the batch dim) and turning
-    // on L1-acc on its second iteration would cause the packer to accumulate
-    // a fresh batch's tile into uninitialized L1 contents at a different
-    // output address.
-    l1AccLoopIV = findOutermostReductionLoopIVForL1Acc(
-        acquireDst.getOperation(), copyInfos);
+    // L1-acc must be triggered by the closest ancestor reduction loop: the
+    // innermost enclosing loop that does NOT index the output store. Outer
+    // parallel loops, and outer loops that only look reduction-like because
+    // the immediate store is to a scratch buffer, are not valid triggers.
+    l1AccLoopIV = findClosestReductionLoopIVForL1Acc(acquireDst.getOperation(),
+                                                     copyInfos);
     if (!l1AccLoopIV) {
       LDBG() << "Skipping L1 accumulation insertion: no outer reduction loop "
                 "with trip count > 1";

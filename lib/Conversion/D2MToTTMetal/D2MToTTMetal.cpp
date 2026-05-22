@@ -130,13 +130,18 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        int32_t nocIdx = thread.getNocIndex();
-        if (nocIdx < 0) {
-          nocIdx = unassignedNocCounter++ % 2;
+        int32_t processorIdx = thread.getProcessorIndex();
+        ttcore::NocIndex nocIndex;
+        if (processorIdx < 0) {
+          int32_t index = unassignedNocCounter++ % 2;
+          nocIndex =
+              index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
+        } else {
+          nocIndex = processorIdx == 1 ? ttcore::NocIndex::Noc0
+                                       : ttcore::NocIndex::Noc1;
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs,
-            *ttcore::symbolizeNocIndex(nocIdx));
+            thread.getKernelSymbol(), coreRange, kernelArgs, nocIndex);
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -654,6 +659,7 @@ private:
     DenseMap<Value, size_t> ioToUnifiedIdx_;
     DenseMap<LocalKey, size_t> ioArgMap_;
     DenseMap<LocalKey, size_t> globalSemaphoreArgMap_;
+    DenseMap<LocalKey, size_t> localSemaphoreArgMap_;
 
   public:
     void addEnqueueArgs(ttmetal::EnqueueProgramOp enqueueProgram) {
@@ -664,6 +670,12 @@ private:
           size_t unifiedIdx = unifiedArgs_.size();
           unifiedArgs_.push_back(arg);
           globalSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
+          continue;
+        }
+        if (mlir::isa<ttmetal::LocalSemaphoreType>(arg.getType())) {
+          size_t unifiedIdx = unifiedArgs_.size();
+          unifiedArgs_.push_back(arg);
+          localSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
           continue;
         }
 
@@ -701,6 +713,17 @@ private:
       }
       return std::nullopt;
     }
+
+    std::optional<size_t>
+    lookupLocalSemaphore(ttmetal::EnqueueProgramOp enqueueProgram,
+                         size_t localIdx) const {
+      auto it =
+          localSemaphoreArgMap_.find({enqueueProgram.getOperation(), localIdx});
+      if (it != localSemaphoreArgMap_.end()) {
+        return it->second;
+      }
+      return std::nullopt;
+    }
   };
 
   static KernelArgAttr remapKernelArg(Builder &builder, KernelArgAttr kernelArg,
@@ -715,6 +738,11 @@ private:
     } else if (kernelArg.getType() == ttkernel::ArgType::GlobalSemaphore) {
       if (auto unified =
               remapTable.lookupGlobalSemaphore(enqueueProgram, operandIndex)) {
+        operandIndex = *unified;
+      }
+    } else if (kernelArg.getType() == ttkernel::ArgType::LocalSemaphore) {
+      if (auto unified =
+              remapTable.lookupLocalSemaphore(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
     } else if (kernelArg.getType() == ttkernel::ArgType::CBPort) {

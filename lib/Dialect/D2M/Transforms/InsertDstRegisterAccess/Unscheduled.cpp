@@ -16,8 +16,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/DebugLog.h"
 
 #define DEBUG_TYPE "D2MInsertDstRegisterAccessUnscheduled"
 
@@ -30,31 +28,17 @@ namespace {
 using namespace detail;
 
 // ---------------------------------------------------------------------------
-// Simple bump allocator used by the unscheduled path -- slices are handed
-// out in increasing order and never reclaimed within a region.
-// ---------------------------------------------------------------------------
-
-class DstSliceAllocationState {
-public:
-  int allocate() { return nextSliceIndex++; }
-  void setStoreToDst() { storedToDst = true; }
-  bool didStoreToDst() { return storedToDst; }
-  int getCurrSliceIndex() { return nextSliceIndex - 1; }
-
-private:
-  int64_t nextSliceIndex = 0;
-  bool storedToDst = false;
-};
-
-// ---------------------------------------------------------------------------
-// Unscheduled-only: DST access collection (bump allocator, matmul/reduction)
+// Unscheduled-only: DST access collection (matmul/reduction).
+// Tracks "first input of current op" with a local variable; otherwise
+// just bump-allocates from `DstSliceAllocator` and reserves per-op
+// scratch via `allocateScratch()`.
 // ---------------------------------------------------------------------------
 
 static DstAccessCollection
 collectDstAccesses(GenericOp gOp, Region &region,
-                   Operation *outermostInnerComputeLoop) {
+                   Operation *outermostInnerComputeLoop, unsigned dstCapacity) {
   CopyInfoMap copyInfos;
-  DstSliceAllocationState dstSliceAllocationState;
+  DstSliceAllocator dstAllocator(dstCapacity);
   DstIntermediatesMap dstIntermediates;
 
   auto getInPlaceDstSlice = [&](OperandLoadStoreRegisterOpInterface op) -> int {
@@ -70,7 +54,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
         }
       }
     }
-    return dstSliceAllocationState.getCurrSliceIndex();
+    return dstAllocator.getCurrSliceIndex();
   };
 
   region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
@@ -111,7 +95,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
       auto potentialLoad = computeOp->getOperand(operandIdx)
                                .getDefiningOp<affine::AffineLoadOp>();
       if (potentialLoad && notDstMemspace(potentialLoad)) {
-        int dstSlice = dstSliceAllocationState.allocate();
+        int dstSlice = dstAllocator.allocateInput();
         if (numLoads == 0) {
           firstInputDstSlice = dstSlice;
         }
@@ -128,7 +112,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
     for (auto *user : computeOp->getUsers()) {
       if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
           notDstMemspace(potentialStore)) {
-        TT_assertv(!dstSliceAllocationState.didStoreToDst(),
+        TT_assertv(!dstAllocator.didStoreToDst(),
                    "Multiple stores from last op to dst not supported");
 
         const bool rhsIsScalar = computeOp.isScalarOperand(1);
@@ -144,15 +128,15 @@ collectDstAccesses(GenericOp gOp, Region &region,
           dstSlice = getInPlaceDstSlice(computeOp);
         } else if (numLoads >= 2) {
           dstSlice = firstInputDstSlice;
-          dstSliceAllocationState.setStoreToDst();
+          dstAllocator.setStoreToDst();
         } else {
-          dstSlice = dstSliceAllocationState.allocate();
-          dstSliceAllocationState.setStoreToDst();
+          dstSlice = dstAllocator.allocateOutput();
+          dstAllocator.setStoreToDst();
         }
         collectDstStoreAccess(potentialStore, copyInfos, dstSlice,
                               outermostInnerComputeLoop);
       } else if (auto scratchStore = mlir::dyn_cast<memref::StoreOp>(user)) {
-        TT_assertv(!dstSliceAllocationState.didStoreToDst(),
+        TT_assertv(!dstAllocator.didStoreToDst(),
                    "Multiple stores from last op to dst not supported");
 
         const bool rhsIsScalar = computeOp.isScalarOperand(1);
@@ -168,10 +152,10 @@ collectDstAccesses(GenericOp gOp, Region &region,
           dstSlice = getInPlaceDstSlice(computeOp);
         } else if (numLoads >= 2) {
           dstSlice = firstInputDstSlice;
-          dstSliceAllocationState.setStoreToDst();
+          dstAllocator.setStoreToDst();
         } else {
-          dstSlice = dstSliceAllocationState.allocate();
-          dstSliceAllocationState.setStoreToDst();
+          dstSlice = dstAllocator.allocateOutput();
+          dstAllocator.setStoreToDst();
         }
         collectDstStoreAccess(scratchStore, copyInfos, dstSlice,
                               outermostInnerComputeLoop);
@@ -189,7 +173,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
         } else if (numLoads >= 2) {
           dstSlice = firstInputDstSlice;
         } else {
-          dstSlice = dstSliceAllocationState.allocate();
+          dstSlice = dstAllocator.allocateOutput();
         }
 
         if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
@@ -205,13 +189,9 @@ collectDstAccesses(GenericOp gOp, Region &region,
       }
     }
 
-    // Reserve any extra DST scratch slices the op declares via the
-    // interface so they don't collide with operand/output slots.
-    // TODO(https://github.com/tenstorrent/tt-mlir/issues/8081): scratch
-    // becomes the new `getCurrSliceIndex()`; safe today but a future
-    // in-region fusion would trip it.
+    // Reserve any per-op DST scratch slices.
     for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
-      setDstScratchIndex(computeOp, dstSliceAllocationState.allocate());
+      setDstScratchIndex(computeOp, dstAllocator.allocateScratch());
     }
   });
   return {copyInfos, dstIntermediates};
@@ -400,7 +380,7 @@ struct D2MInsertDstRegisterAccessUnscheduledRewriter final
             !allTileMatmulOutputsSupportPackerL1Acc(loopOp);
 
         auto [copyInfos, dstIntermediates] =
-            collectDstAccesses(gOp, *loopRegion, loopOp);
+            collectDstAccesses(gOp, *loopRegion, loopOp, dstCapacity);
 
         modified |= insertDstRegisterAccessFinalize(
             rewriter, gOp, *loopRegion, dstCapacity, loopOp, disablePackerL1Acc,

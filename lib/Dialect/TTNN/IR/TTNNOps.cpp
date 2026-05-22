@@ -2533,6 +2533,11 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType sparsityType = getSparsity().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
 
+  // Verify that nnz is positive when set.
+  if (auto nnz = getNnz(); nnz && *nnz <= 0) {
+    return emitOpError("nnz must be greater than 0 when set");
+  }
+
   // Verify that input A is at least 4D tensor
   if (inputAType.getRank() < 4) {
     return emitOpError("Input A must be at least a 4D tensor");

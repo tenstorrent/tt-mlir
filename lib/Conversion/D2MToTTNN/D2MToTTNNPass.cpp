@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -42,6 +43,13 @@ struct ConvertD2MToTTNNPass final
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
+
+    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
+            moduleOp, "D2MToTTNN"))) {
+      signalPassFailure();
+      return;
+    }
+
     auto result = runD2MToTTNNConversion(moduleOp, mathFidelity);
     if (failed(result)) {
       signalPassFailure();

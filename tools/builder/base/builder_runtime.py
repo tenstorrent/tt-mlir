@@ -431,8 +431,14 @@ def golden(callback_runtime_config, binary, program_context, op_context):
                     tensor = tt_runtime.runtime.retrieve_tensor_from_pool(
                         program_context, output_tensor_ref
                     )
+                    if tensor is None:
+                        return
+                    host_tensor = tt_runtime.runtime.to_host(tensor, untilize=True)[0]
                     update_device_tensor(
-                        program_context, output_tensor_ref, tensor, golden_tensor_torch
+                        program_context,
+                        output_tensor_ref,
+                        host_tensor,
+                        golden_tensor_torch,
                     )
                     results["bypassed"] = "True"
 

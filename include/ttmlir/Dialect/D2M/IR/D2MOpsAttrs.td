@@ -21,19 +21,23 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
   let summary = "Thread information for a generic op.";
   let description = [{
     Holds the thread information corresponding to a single generic op region.
-    For datamovement threads, nocIndex indicates the assigned NoC (0 or 1).
+    For datamovement threads, processorIndex indicates the assigned hardware
+    datamovement processor. ProcessorIndex 0 is a mapped to NoC1 and
+    ProcessorIndex 1 is mapped to NoC0.
+
     A value of -1 means unassigned.
   }];
   let parameters = (ins
     "ThreadType":$threadType,
     OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
-    DefaultValuedParameter<"int32_t", "-1">:$nocIndex
+    DefaultValuedParameter<"int32_t", "-1">:$processorIndex
   );
 
-  // Format: `<` threadType (`,` kernelSymbol)? (`,` `noc` `=` nocIndex)? `>`.
-  // Both optional groups start with `,`, which the declarative format cannot
-  // disambiguate, so we hand-roll the parser to peek for the `noc` keyword
-  // after a comma and pick the right branch.
+  // Format: `<` threadType (`,` kernelSymbol)?
+  //             (`,` `processor` `=` processorIndex)? `>`.
+  // The optional groups all start with `,`, which the declarative format cannot
+  // disambiguate when kernelSymbol is absent, so we hand-roll the parser to
+  // peek for the keyword after a comma and pick the right branch.
   let hasCustomAssemblyFormat = 1;
 
   let extraClassDeclaration = [{

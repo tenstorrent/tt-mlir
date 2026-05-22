@@ -6,7 +6,9 @@
 #define TTMLIR_DIALECT_D2M_UTILS_DMAUTILS_H
 
 #include "mlir/IR/Block.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace mlir::tt::d2m::utils {
 
@@ -16,6 +18,11 @@ namespace mlir::tt::d2m::utils {
 // as all threads would execute the operation, creating a race condition on the
 // shared semaphore.
 LogicalResult checkForIllegalSemaphoreOps(Block *block);
+
+// Backends currently support only the WH/BH 2-DM processor model. Reject
+// Quasar and any explicit processor index beyond RiscV0/RiscV1 up front.
+LogicalResult checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
+                                                       llvm::StringRef backend);
 
 } // namespace mlir::tt::d2m::utils
 

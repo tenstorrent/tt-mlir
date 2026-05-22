@@ -10583,6 +10583,205 @@ class TTNNBuilder(Builder):
 
         return reduce_scatter_module, reduce_scatter_builder
 
+    ############### ttnn.MoeExpertTokenRemapOp ###############
+
+    @tag(ttnn.MoeExpertTokenRemapOp)
+    def moe_expert_token_remap(
+        self,
+        topk_tensor: Operand,
+        expert_mapping: Operand,
+        expert_metadata: Operand,
+        reduction_size: int = 32,
+        mapping_shape: Optional[Shape] = None,
+        mapping_type: Optional[torch.dtype] = None,
+        reduced_shape: Optional[Shape] = None,
+        reduced_type: Optional[torch.dtype] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult]:
+        assert (
+            mapping_shape is not None
+        ), "mapping_shape must be provided for moe_expert_token_remap"
+        assert (
+            mapping_type is not None
+        ), "mapping_type must be provided for moe_expert_token_remap"
+        assert (
+            reduced_shape is not None
+        ), "reduced_shape must be provided for moe_expert_token_remap"
+        assert (
+            reduced_type is not None
+        ), "reduced_type must be provided for moe_expert_token_remap"
+
+        mlir_mapping_type = self._get_type_from_torch_dtype(mapping_type)
+        mlir_reduced_type = self._get_type_from_torch_dtype(reduced_type)
+
+        mapping_result = self._create_ranked_tensor_type(
+            mapping_shape, mlir_mapping_type
+        )
+        reduced_result = self._create_ranked_tensor_type(
+            reduced_shape, mlir_reduced_type
+        )
+
+        reduction_size_attr = IntegerAttr.get(
+            IntegerType.get_signless(64), reduction_size
+        )
+
+        loc = self._get_location()
+
+        op = ttnn.MoeExpertTokenRemapOp(
+            mapping_result,
+            reduced_result,
+            topk_tensor,
+            expert_mapping,
+            expert_metadata,
+            reduction_size_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        topk_golden = self._get_golden_tensor(topk_tensor)
+        expert_mapping_golden = self._get_golden_tensor(expert_mapping)
+        expert_metadata_golden = self._get_golden_tensor(expert_metadata)
+        op_golden_function = get_golden_function(ttnn.MoeExpertTokenRemapOp)
+        golden_mapping, golden_reduced = op_golden_function(
+            topk_golden,
+            expert_mapping_golden,
+            expert_metadata_golden,
+            reduction_size,
+        )
+        self._set_golden_tensor(op.mapping, golden_mapping)
+        self._set_golden_tensor(op.reduced, golden_reduced)
+
+        return op.mapping, op.reduced
+
+    @parse(ttnn.MoeExpertTokenRemapOp)
+    def moe_expert_token_remap_parser(
+        self,
+        old_op: ttnn.MoeExpertTokenRemapOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.moe_expert_token_remap_parser)
+
+        topk_tensor = global_dict[old_op.topk_tensor]
+        expert_mapping = global_dict[old_op.expert_mapping]
+        expert_metadata = global_dict[old_op.expert_metadata]
+        reduction_size_attr = old_op.reduction_size
+
+        mapping_result = old_op.mapping.type
+        reduced_result = old_op.reduced.type
+
+        new_op = ttnn_op(
+            mapping_result,
+            reduced_result,
+            topk_tensor,
+            expert_mapping,
+            expert_metadata,
+            reduction_size_attr,
+            loc=old_op.location,
+        )
+
+        topk_golden = self._get_golden_tensor(topk_tensor)
+        expert_mapping_golden = self._get_golden_tensor(expert_mapping)
+        expert_metadata_golden = self._get_golden_tensor(expert_metadata)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_mapping, golden_reduced = op_golden_function(
+            topk_golden,
+            expert_mapping_golden,
+            expert_metadata_golden,
+            unpack_mlir_attr(reduction_size_attr),
+        )
+        self._set_golden_tensor(new_op.mapping, golden_mapping)
+        self._set_golden_tensor(new_op.reduced, golden_reduced)
+
+        return new_op, {
+            old_op.mapping: new_op.mapping,
+            old_op.reduced: new_op.reduced,
+        }
+
+    @split(ttnn.MoeExpertTokenRemapOp)
+    def moe_expert_token_remap_split(
+        self,
+        old_op: ttnn.MoeExpertTokenRemapOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.moe_expert_token_remap_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            moe_module = Module.create()
+            moe_builder = TTNNBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [
+                old_op.topk_tensor.type,
+                old_op.expert_mapping.type,
+                old_op.expert_metadata.type,
+            ]
+
+            with InsertionPoint(moe_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="moe_expert_token_remap_module")
+                def decorated_func(*inputs):
+                    topk_tensor = inputs[0]
+                    expert_mapping = inputs[1]
+                    expert_metadata = inputs[2]
+
+                    mapping_result = old_op.mapping.type
+                    reduced_result = old_op.reduced.type
+                    reduction_size_attr = old_op.reduction_size
+
+                    new_op = ttnn_op(
+                        mapping_result,
+                        reduced_result,
+                        topk_tensor,
+                        expert_mapping,
+                        expert_metadata,
+                        reduction_size_attr,
+                        loc=old_op.location,
+                    )
+
+                    old_mapping_golden = self._get_golden_tensor(old_op.mapping)
+                    old_reduced_golden = self._get_golden_tensor(old_op.reduced)
+                    moe_builder._set_golden_tensor(new_op.mapping, old_mapping_golden)
+                    moe_builder._set_golden_tensor(new_op.reduced, old_reduced_golden)
+
+                    topk_golden = self._get_golden_tensor(old_op.topk_tensor)
+                    expert_mapping_golden = self._get_golden_tensor(
+                        old_op.expert_mapping
+                    )
+                    expert_metadata_golden = self._get_golden_tensor(
+                        old_op.expert_metadata
+                    )
+                    moe_builder._set_golden_tensor(topk_tensor, topk_golden)
+                    moe_builder._set_golden_tensor(
+                        expert_mapping, expert_mapping_golden
+                    )
+                    moe_builder._set_golden_tensor(
+                        expert_metadata, expert_metadata_golden
+                    )
+                    moe_builder._annotate_presharded_arg(topk_tensor)
+                    moe_builder._annotate_presharded_arg(expert_mapping)
+                    moe_builder._annotate_presharded_arg(expert_metadata)
+                    ordered_inputs.extend(
+                        [topk_tensor, expert_mapping, expert_metadata]
+                    )
+                    ordered_outputs.extend([new_op.mapping, new_op.reduced])
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                moe_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return moe_module, moe_builder
+
     # ----- Parse ttnn module ----
 
     @staticmethod

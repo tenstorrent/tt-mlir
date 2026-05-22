@@ -30,8 +30,7 @@ module {
     // CHECK: "ttnn.sparse_matmul"(%{{.*}}, %{{.*}}, %[[SPARSITY_BF16]])
     %0 = "ttir.sparse_matmul"(%a, %b, %s) <{
       is_input_a_sparse = false,
-      is_input_b_sparse = true,
-      nnz = 0 : i64
+      is_input_b_sparse = true
     }> : (tensor<1x4x32x256xbf16>, tensor<1x4x256x64xbf16>, tensor<1x4x1x4xf32>)
        -> tensor<1x4x1x4x32x64xbf16>
     return %0 : tensor<1x4x1x4x32x64xbf16>
@@ -57,8 +56,7 @@ module {
     // CHECK: "ttnn.sparse_matmul"(%{{.*}}, %{{.*}}, %[[SPARSITY_BF16]])
     %0 = "ttir.sparse_matmul"(%a, %b, %s) <{
       is_input_a_sparse = false,
-      is_input_b_sparse = true,
-      nnz = 0 : i64
+      is_input_b_sparse = true
     }> : (tensor<1x4x32x256xbf16>, tensor<1x4x256x64xbf16>, tensor<1x4x1x4xui16>)
        -> tensor<1x4x1x4x32x64xbf16>
     return %0 : tensor<1x4x1x4x32x64xbf16>

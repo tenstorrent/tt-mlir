@@ -82,7 +82,7 @@ def _validate_and_retrieve_tensor(
 ) -> GoldenMapTensor:
     op = ctx.op
     check_shape_dtype(op, "mlir_vs_tensor_ref", mlir_value, rt_tensor_ref)
-    tensor = retrieve_tensor(ctx.rt_program_context, rt_tensor_ref)
+    tensor = retrieve_tensor(ctx.rt_program_context, rt_tensor_ref, ctx.mesh_shape)
     check_shape_dtype(op, "mlir_vs_runtime_tensor", mlir_value, tensor)
     return tensor
 

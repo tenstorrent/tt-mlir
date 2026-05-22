@@ -1,13 +1,12 @@
 // RUN: ttmlir-opt %s | ttmlir-opt | FileCheck %s
 
 // Verify all valid forms of #d2m.thread<...> round-trip.
-// Historically, the assembly format had two optional groups both led by a
-// comma, which caused `#d2m.thread<datamovement, noc = 0>` to be misparsed
-// as if the kernel symbol position contained `noc = 0`.
+// Datamovement placement is represented by processor index. NoC selection is
+// derived by lowerings that know the target architecture.
 
 module {
-  // CHECK: func.func private @no_kernel_no_noc() attributes {d2m.thread = #d2m.thread<compute>}
-  func.func private @no_kernel_no_noc() attributes {d2m.thread = #d2m.thread<compute>} {
+  // CHECK: func.func private @no_kernel_no_processor() attributes {d2m.thread = #d2m.thread<compute>}
+  func.func private @no_kernel_no_processor() attributes {d2m.thread = #d2m.thread<compute>} {
     return
   }
 
@@ -16,19 +15,18 @@ module {
     return
   }
 
-  // The case from the bug report: noc only, no kernel symbol.
-  // CHECK: func.func private @noc_only_0() attributes {d2m.thread = #d2m.thread<datamovement, noc = 0>}
-  func.func private @noc_only_0() attributes {d2m.thread = #d2m.thread<datamovement, noc = 0>} {
+  // CHECK: func.func private @processor_only_0() attributes {d2m.thread = #d2m.thread<datamovement, processor = 0>}
+  func.func private @processor_only_0() attributes {d2m.thread = #d2m.thread<datamovement, processor = 0>} {
     return
   }
 
-  // CHECK: func.func private @noc_only_1() attributes {d2m.thread = #d2m.thread<datamovement, noc = 1>}
-  func.func private @noc_only_1() attributes {d2m.thread = #d2m.thread<datamovement, noc = 1>} {
+  // CHECK: func.func private @processor_only_1() attributes {d2m.thread = #d2m.thread<datamovement, processor = 1>}
+  func.func private @processor_only_1() attributes {d2m.thread = #d2m.thread<datamovement, processor = 1>} {
     return
   }
 
-  // CHECK: func.func private @kernel_and_noc() attributes {d2m.thread = #d2m.thread<datamovement, @some_sym, noc = 1>}
-  func.func private @kernel_and_noc() attributes {d2m.thread = #d2m.thread<datamovement, @some_sym, noc = 1>} {
+  // CHECK: func.func private @kernel_and_processor() attributes {d2m.thread = #d2m.thread<datamovement, @some_sym, processor = 1>}
+  func.func private @kernel_and_processor() attributes {d2m.thread = #d2m.thread<datamovement, @some_sym, processor = 1>} {
     return
   }
 }

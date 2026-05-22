@@ -277,9 +277,9 @@ using OpWalkFn = std::function<void(tt::runtime::OpContext)>;
 void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
                  const OpWalkFn &cb);
 
-// Returns tensor to which tensorRef refers
-// In case that that tensor is not in the tensor pool, returns std::nullopt
-// For now only supports single device tensors
+// Returns the tensor from the tensor pool that is referenced by the given
+// tensor reference. Returns std::nullopt if the tensor is not present in the
+// pool.
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize);

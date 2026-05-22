@@ -1363,7 +1363,7 @@ public:
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.emit(srcOp.getComputeConfig()),
-        /*dram_slice_config=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1421,6 +1421,7 @@ public:
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -4094,8 +4095,10 @@ public:
         emitter.emit(srcOp.getTopkTensor()),
         emitter.emit(srcOp.getExpertMapping()),
         emitter.emit(srcOp.getExpertMetadata()),
-        emitter.emit(srcOp.getReductionSize()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
+        /*optional_output_tensor=*/emitter.emit(std::nullopt),
+        /*optional_reduced_tensor=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getReductionSize()),
     };
 
     // Multi-result: returns std::vector<ttnn::Tensor> with 2 elements.
