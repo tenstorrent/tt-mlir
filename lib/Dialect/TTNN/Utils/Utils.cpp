@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -34,6 +36,31 @@ float getTensorL1UsageCap(Operation *op, float defaultValue) {
   }
 
   return defaultValue;
+}
+
+uint64_t getReservedL1Usage(Operation *op) {
+  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+
+  if (moduleOp) {
+    if (auto attr =
+            moduleOp->getAttrOfType<IntegerAttr>(g_L1ConstEvalUsageAttrName)) {
+      return attr.getValue().getZExtValue();
+    }
+  }
+
+  return 0;
+}
+
+uint64_t getUsableL1PerCore(Operation *op) {
+  const float cap = getTensorL1UsageCap(op);
+
+  ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(op);
+  const uint64_t capped =
+      static_cast<uint64_t>(cap * chipDesc.getUsableL1Size());
+
+  const uint64_t reserved = getReservedL1Usage(op);
+
+  return reserved >= capped ? 0 : capped - reserved;
 }
 
 bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {
