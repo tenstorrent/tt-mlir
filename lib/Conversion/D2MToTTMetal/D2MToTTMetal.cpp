@@ -659,6 +659,7 @@ private:
     DenseMap<Value, size_t> ioToUnifiedIdx_;
     DenseMap<LocalKey, size_t> ioArgMap_;
     DenseMap<LocalKey, size_t> globalSemaphoreArgMap_;
+    DenseMap<LocalKey, size_t> localSemaphoreArgMap_;
 
   public:
     void addEnqueueArgs(ttmetal::EnqueueProgramOp enqueueProgram) {
@@ -669,6 +670,12 @@ private:
           size_t unifiedIdx = unifiedArgs_.size();
           unifiedArgs_.push_back(arg);
           globalSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
+          continue;
+        }
+        if (mlir::isa<ttmetal::LocalSemaphoreType>(arg.getType())) {
+          size_t unifiedIdx = unifiedArgs_.size();
+          unifiedArgs_.push_back(arg);
+          localSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
           continue;
         }
 
@@ -706,6 +713,17 @@ private:
       }
       return std::nullopt;
     }
+
+    std::optional<size_t>
+    lookupLocalSemaphore(ttmetal::EnqueueProgramOp enqueueProgram,
+                         size_t localIdx) const {
+      auto it =
+          localSemaphoreArgMap_.find({enqueueProgram.getOperation(), localIdx});
+      if (it != localSemaphoreArgMap_.end()) {
+        return it->second;
+      }
+      return std::nullopt;
+    }
   };
 
   static KernelArgAttr remapKernelArg(Builder &builder, KernelArgAttr kernelArg,
@@ -720,6 +738,11 @@ private:
     } else if (kernelArg.getType() == ttkernel::ArgType::GlobalSemaphore) {
       if (auto unified =
               remapTable.lookupGlobalSemaphore(enqueueProgram, operandIndex)) {
+        operandIndex = *unified;
+      }
+    } else if (kernelArg.getType() == ttkernel::ArgType::LocalSemaphore) {
+      if (auto unified =
+              remapTable.lookupLocalSemaphore(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
     } else if (kernelArg.getType() == ttkernel::ArgType::CBPort) {
