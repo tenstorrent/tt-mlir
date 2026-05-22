@@ -26,6 +26,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
         Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
         Decomposition/GroupNormDecompositionRewritePattern.cpp
+        Decomposition/RotaryEmbeddingDecompositionRewritePattern.cpp
         Decomposition/TopKDecompositionRewritePattern.cpp
         Decomposition/TTNNDecompositionPass.cpp
         OpValidator.cpp

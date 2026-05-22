@@ -7,7 +7,7 @@
 // Input A must be at least 4D
 module attributes {} {
   func.func @sparse_matmul_input_a_rank(%a: tensor<32x2880xbf16>, %b: tensor<1x4x2880x5760xbf16>, %s: tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16> {
-    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true, nnz = 0 : i64}> : (tensor<32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true}> : (tensor<32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
     return %0 : tensor<2x4x1x4x32x5760xbf16>
   }
 }
@@ -18,7 +18,7 @@ module attributes {} {
 // Input B must be 4D
 module attributes {} {
   func.func @sparse_matmul_input_b_rank(%a: tensor<2x4x32x2880xbf16>, %b: tensor<2880x5760xbf16>, %s: tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16> {
-    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true, nnz = 0 : i64}> : (tensor<2x4x32x2880xbf16>, tensor<2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true}> : (tensor<2x4x32x2880xbf16>, tensor<2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
     return %0 : tensor<2x4x1x4x32x5760xbf16>
   }
 }
@@ -29,7 +29,7 @@ module attributes {} {
 // Sparsity must be 4D
 module attributes {} {
   func.func @sparse_matmul_sparsity_rank(%a: tensor<2x4x32x2880xbf16>, %b: tensor<1x4x2880x5760xbf16>, %s: tensor<4xbf16>) -> tensor<2x4x1x4x32x5760xbf16> {
-    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true, nnz = 0 : i64}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
     return %0 : tensor<2x4x1x4x32x5760xbf16>
   }
 }
@@ -40,7 +40,7 @@ module attributes {} {
 // At least one input must be sparse
 module attributes {} {
   func.func @sparse_matmul_no_sparse(%a: tensor<2x4x32x2880xbf16>, %b: tensor<1x4x2880x5760xbf16>, %s: tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16> {
-    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = false, nnz = 0 : i64}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = false}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
     return %0 : tensor<2x4x1x4x32x5760xbf16>
   }
 }
@@ -51,7 +51,7 @@ module attributes {} {
 // Input B first dimension must be 1
 module attributes {} {
   func.func @sparse_matmul_b_dim0(%a: tensor<2x4x32x2880xbf16>, %b: tensor<2x4x2880x5760xbf16>, %s: tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16> {
-    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true, nnz = 0 : i64}> : (tensor<2x4x32x2880xbf16>, tensor<2x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true}> : (tensor<2x4x32x2880xbf16>, tensor<2x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
     return %0 : tensor<2x4x1x4x32x5760xbf16>
   }
 }
@@ -62,8 +62,19 @@ module attributes {} {
 // Output rank for dense-sparse must be 6D
 module attributes {} {
   func.func @sparse_matmul_output_rank(%a: tensor<2x4x32x2880xbf16>, %b: tensor<1x4x2880x5760xbf16>, %s: tensor<2x4x1x4xbf16>) -> tensor<2x4x32x5760xbf16> {
-    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true, nnz = 0 : i64}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x32x5760xbf16>
+    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x32x5760xbf16>
     return %0 : tensor<2x4x32x5760xbf16>
   }
 }
 // CHECK: error: 'ttir.sparse_matmul' op Output must be 6D for dense-sparse mode
+
+// -----
+
+// nnz must be greater than 0 when set
+module attributes {} {
+  func.func @sparse_matmul_nnz_zero(%a: tensor<2x4x32x2880xbf16>, %b: tensor<1x4x2880x5760xbf16>, %s: tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16> {
+    %0 = "ttir.sparse_matmul"(%a, %b, %s) <{is_input_a_sparse = false, is_input_b_sparse = true, nnz = 0 : i64}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+    return %0 : tensor<2x4x1x4x32x5760xbf16>
+  }
+}
+// CHECK: error: 'ttir.sparse_matmul' op nnz must be greater than 0 when set

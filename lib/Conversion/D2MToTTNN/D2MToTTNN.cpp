@@ -340,15 +340,19 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       break;
     }
     case d2m::ThreadType::Datamovement: {
-      int32_t nocIdx = threadAttr.getNocIndex();
-      // For unassigned NOCs, alternate between NOC0 and NOC1.
-      if (nocIdx < 0) {
-        nocIdx = unassignedNocCounter++ % 2;
+      int32_t processorIdx = threadAttr.getProcessorIndex();
+      ttcore::NocIndex nocIndex;
+      if (processorIdx < 0) {
+        int32_t index = unassignedNocCounter++ % 2;
+        nocIndex = index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
+        processorIdx = index == 0 ? 1 : 0;
+      } else {
+        nocIndex =
+            processorIdx == 1 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
       }
-      auto nocIndex =
-          nocIdx == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-      auto processor = nocIdx == 0 ? ttnn::DataMovementProcessor::RiscV1
-                                   : ttnn::DataMovementProcessor::RiscV0;
+      auto processor = processorIdx == 1 ? ttnn::DataMovementProcessor::RiscV1
+                                         : ttnn::DataMovementProcessor::RiscV0;
+
       kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
           kernelSymbol, coreRangeSet, processor, nocIndex,
           ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);

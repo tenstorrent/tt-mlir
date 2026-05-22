@@ -5,6 +5,10 @@
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 
 namespace mlir::tt::d2m::utils {
 
@@ -42,6 +46,50 @@ LogicalResult checkForIllegalSemaphoreOps(Block *block) {
     }
   }
   return success();
+}
+
+LogicalResult
+checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
+                                         llvm::StringRef backend) {
+  auto systemDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+      ttcore::SystemDescAttr::name);
+  if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==
+                        ttcore::Arch::Quasar) {
+    moduleOp.emitError() << backend << " lowering does not support Quasar";
+    return failure();
+  }
+
+  auto checkThread = [&](Operation *op, ThreadAttr thread) {
+    if (thread.getThreadType() == ThreadType::Datamovement &&
+        thread.getProcessorIndex() >= 2) {
+      op->emitError() << "datamovement processor indices greater than 1 are "
+                         "not supported by "
+                      << backend << " lowering yet";
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  };
+
+  WalkResult unsupportedProcessor = moduleOp->walk([&](Operation *op) {
+    if (auto generic = dyn_cast<GenericOp>(op)) {
+      for (Attribute threadAttr : generic.getThreads()) {
+        if (checkThread(op, cast<ThreadAttr>(threadAttr)).wasInterrupted()) {
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    }
+
+    if (auto func = dyn_cast<func::FuncOp>(op)) {
+      auto threadAttr = func->getAttrOfType<ThreadAttr>(ThreadAttr::name);
+      if (threadAttr) {
+        return checkThread(op, threadAttr);
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  return unsupportedProcessor.wasInterrupted() ? failure() : success();
 }
 
 } // namespace mlir::tt::d2m::utils

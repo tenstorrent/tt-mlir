@@ -519,8 +519,9 @@ void createTTNNCommonToEmitCPipeline(
 
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
-    // This ensures tensor inputs are always tuplified even when the input is
-    // empty, which is necessary for proper dylib interface generation.
+    // This ensures that forward function input tensors are always tuplified
+    // even when the input is empty, which is necessary for proper dylib
+    // interface generation.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
@@ -563,9 +564,9 @@ void createTTNNCommonToEmitPyPipeline(
 
   if (options.targetModule) {
     // In module path, run tuplification with forced settings and add device
-    // argument. This ensures tensor inputs are always tuplified even when the
-    // input is empty, which is necessary for proper module interface
-    // generation.
+    // argument. This ensures forward function input tensors are always
+    // tuplified even when the input is empty, which is necessary for proper
+    // module interface generation.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
@@ -577,7 +578,9 @@ void createTTNNCommonToEmitPyPipeline(
     // weights first. Then tuplify everything else.
     //
     devicePm.addPass(createTTNNSplitForwardFuncArgsByType());
-    devicePm.addPass(createTTNNTuplifyTensors());
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
+    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;

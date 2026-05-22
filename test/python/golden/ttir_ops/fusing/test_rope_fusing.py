@@ -4,8 +4,8 @@
 
 import pytest
 import torch
-from typing import List, Optional
-from builder.base.builder_utils import Operand, Shape
+from typing import List
+from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs
@@ -22,125 +22,235 @@ def check_op(mlir_file: str, op_name: str) -> bool:
     return False
 
 
-def rotate(x):
+def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
 
-def build_torch_golden(
-    input_data: torch.Tensor,
-    cos_data: torch.Tensor,
-    sin_data: torch.Tensor,
-) -> torch.Tensor:
-    # Unsqueeze cos and sin
-    cos_unsqueezed = torch.unsqueeze(cos_data, dim=0)
-    sin_unsqueezed = torch.unsqueeze(sin_data, dim=0)
-
-    # Rotate input
-    rotated = rotate(input_data)
-
-    # Final computation: input * cos + rotated * sin
-    return input_data * cos_unsqueezed + rotated * sin_unsqueezed
+def torch_rope(x, cos, sin):
+    """Golden reference for RoPE. Works for both patterns since they are
+    mathematically equivalent. cos/sin are broadcast over batch and heads."""
+    return x * cos + rotate_half(x) * sin
 
 
-def build_ttir(
+# ---------------------------------------------------------------------------
+# Pattern 1: rotate_half
+#   result = x * cos + rotate_half(x) * sin
+#   where rotate_half(x) = concat(neg(x[D/2:]), x[:D/2])
+# ---------------------------------------------------------------------------
+
+
+def build_rope_rotate_half(
     input: Operand,
     cos_input: Operand,
     sin_input: Operand,
     builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
 ):
-    unsqueezed_shape = [1] + sin_input.type.shape
-    cos_unsqueezed = builder.reshape(cos_input, shape=unsqueezed_shape)
+    """Build Pattern 1 (rotate_half) as a sequence of TTIR ops.
 
-    # Multiply input with sin
-    unrotated = builder.multiply(input, cos_unsqueezed)
+    cos/sin are 3D [1, seq, head_dim] and get reshaped to 4D [1, 1, seq, head_dim]
+    then broadcast to match the input [batch, heads, seq, head_dim].
+    This mirrors how tt-xla emits the pattern for llama, falcon, qwen, etc.
+    """
+    cos_4d_shape = [1, 1] + cos_input.type.shape[1:]
+    cos_reshaped = builder.reshape(cos_input, shape=cos_4d_shape)
+    sin_reshaped = builder.reshape(sin_input, shape=cos_4d_shape)
+
+    # x * cos (broadcast cos over batch and heads)
+    x_cos = builder.multiply(input, cos_reshaped)
 
     last_dim = input.type.shape[-1]
     half_dim = last_dim // 2
 
-    # Slice second half of input
-    begins = [0, 0, 0, half_dim]
-    ends = input.type.shape[:3] + [last_dim]
-    slice1 = builder.slice(input, begins=begins, ends=ends, step=[1, 1, 1, 1])
+    # rotate_half(x) = concat(neg(x[D/2:]), x[:D/2])
+    begins_hi = [0, 0, 0, half_dim]
+    ends_hi = list(input.type.shape[:3]) + [last_dim]
+    x_hi = builder.slice(input, begins=begins_hi, ends=ends_hi, step=[1, 1, 1, 1])
+    neg_hi = builder.neg(x_hi)
 
-    # Negate the second half
-    neg_slice = builder.neg(slice1, unit_attrs=unit_attrs)
+    begins_lo = [0, 0, 0, 0]
+    ends_lo = list(input.type.shape[:3]) + [half_dim]
+    x_lo = builder.slice(input, begins=begins_lo, ends=ends_lo, step=[1, 1, 1, 1])
 
-    # Slice first half of input
-    begins = [0, 0, 0, 0]
-    ends = input.type.shape[:3] + [half_dim]
-    slice2 = builder.slice(input, begins=begins, ends=ends, step=[1, 1, 1, 1])
+    rotated = builder.concat([neg_hi, x_lo], dim=3)
 
-    # Concat negated second half with first half
-    input_rotated = builder.concat([neg_slice, slice2], dim=3)
+    # rotate_half(x) * sin (broadcast sin over batch and heads)
+    rot_sin = builder.multiply(rotated, sin_reshaped)
 
-    # Unsqueeze sin
-    sin_unsqueezed = builder.reshape(sin_input, shape=unsqueezed_shape)
-
-    # Multiply rotated with broadcasted cos
-    rotated = builder.multiply(input_rotated, sin_unsqueezed)
-
-    # Add the two products
-    return builder.add(unrotated, rotated)
+    return builder.add(x_cos, rot_sin)
 
 
-@pytest.mark.skip(
-    "TTNN fusing is only available when optimizer is enabled, but currently optimizer isn't enabled in builder tests: https://github.com/tenstorrent/tt-mlir/issues/5909"
-)
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # prefill
-        [
-            (1, 32, 1024, 64),  # input
-            (1, 1024, 64),  # cos input
-            (1, 1024, 64),  # sin input
-        ],
-        [
-            (1, 8, 1, 64),  # input
-            (1, 1, 64),  # cos input
-            (1, 1, 64),  # sin input
-        ],
-        # Phi decode: query path (seq=1, head_dim=32 partial rotary)
-        [
-            (32, 32, 1, 32),  # input [num_heads, batch, seq=1, head_dim/2]
-            (1, 1, 32),  # cos input
-            (1, 1, 32),  # sin input
-        ],
-        # Phi decode: key path after EIO commute pushes reshape back through
-        # RoPE, folding batch into seq: [1, nH=32, B*S=32, D/2=32].
-        # cos/sin seq=1 < input seq=32 so fusion is correctly rejected.
-        # Should fuse once RoPE fusion moves before EIO pass.
-        # https://github.com/tenstorrent/tt-mlir/issues/8341
-        pytest.param(
-            [
-                (1, 32, 32, 32),  # input [1, num_heads, batch, head_dim/2]
-                (1, 1, 32),  # cos input
-                (1, 1, 32),  # sin input
-            ],
-            marks=pytest.mark.xfail(
-                reason="cos/sin seq < input seq — fusion rejected until "
-                "RoPE fusion moves before EIO "
-                "(https://github.com/tenstorrent/tt-mlir/issues/8341)"
-            ),
-        ),
-    ],
-)
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 3])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_rotary_embedding(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
+# ---------------------------------------------------------------------------
+# Pattern 2: complex rotation (expanded / trig-identity form)
+#   real = x1*cos - x2*sin
+#   imag = x2*cos + x1*sin
+#   result = concat(real, imag)
+#   where x1 = x[:D/2], x2 = x[D/2:]
+# Used by gpt_oss models. cos/sin are half-dim and get doubled.
+# ---------------------------------------------------------------------------
+
+
+def build_rope_complex_rotation(
+    input: Operand,
+    cos_half_input: Operand,
+    sin_half_input: Operand,
+    builder: TTIRBuilder,
 ):
+    """Build Pattern 2 (complex rotation) as a sequence of TTIR ops.
+
+    cos/sin are half-dim 3D [1, seq, head_dim/2] and get reshaped to 4D
+    then broadcast. This mirrors how tt-xla emits the gpt_oss pattern.
     """
-    Test rotary position embedding (RoPE) pattern.
-    This test implements the RoPE operation as a sequence of TTIR ops:
-    - Reshape cos/sin to unsqueeze first dimension
-    - Split input into two halves along last dimension
-    - Rotate: concat(neg(second_half), first_half)
-    - Multiply and add: input * cos + rotated * sin
+    cos_4d_shape = [1, 1] + cos_half_input.type.shape[1:]
+    cos_reshaped = builder.reshape(cos_half_input, shape=cos_4d_shape)
+    sin_reshaped = builder.reshape(sin_half_input, shape=cos_4d_shape)
+
+    last_dim = input.type.shape[-1]
+    half_dim = last_dim // 2
+
+    # x1 = x[:D/2], x2 = x[D/2:]
+    begins_lo = [0, 0, 0, 0]
+    ends_lo = list(input.type.shape[:3]) + [half_dim]
+    x1 = builder.slice(input, begins=begins_lo, ends=ends_lo, step=[1, 1, 1, 1])
+
+    begins_hi = [0, 0, 0, half_dim]
+    ends_hi = list(input.type.shape[:3]) + [last_dim]
+    x2 = builder.slice(input, begins=begins_hi, ends=ends_hi, step=[1, 1, 1, 1])
+
+    # real = x1*cos - x2*sin
+    x1_cos = builder.multiply(x1, cos_reshaped)
+    x2_sin = builder.multiply(x2, sin_reshaped)
+    real = builder.subtract(x1_cos, x2_sin)
+
+    # imag = x2*cos + x1*sin
+    x2_cos = builder.multiply(x2, cos_reshaped)
+    x1_sin = builder.multiply(x1, sin_reshaped)
+    imag = builder.add(x2_cos, x1_sin)
+
+    return builder.concat([real, imag], dim=3)
+
+
+# ---------------------------------------------------------------------------
+# Test parameters: shapes extracted from 40 LLM TTIR graphs (tt-xla CI)
+#
+# Pattern 1 (rotate_half):
+#   input: [B, H, S, D]  cos/sin: [1, S, D]  (3D, reshaped to 4D in builder)
+#
+# Pattern 2 (complex rotation):
+#   input: [B, H, S, D]  cos/sin: [1, S, D/2] (half-dim, 3D)
+# ---------------------------------------------------------------------------
+
+# Representative shapes per model family for Pattern 1
+ROTATE_HALF_SHAPES = [
+    # --- Prefill (seq > 1) ---
+    pytest.param(
+        (32, 8, 18, 128),
+        (1, 18, 128),
+        id="llama_3_1_8b-prefill",
+    ),
+    pytest.param(
+        (32, 8, 18, 64),
+        (1, 18, 64),
+        id="llama_3_2_1b-prefill",
+    ),
+    pytest.param(
+        (32, 4, 17, 256),
+        (1, 17, 256),
+        id="falcon3_1b-prefill",
+    ),
+    pytest.param(
+        (32, 32, 17, 32),
+        (1, 17, 32),
+        id="phi1_5-prefill",
+    ),
+    pytest.param(
+        (32, 2, 17, 128),
+        (1, 17, 128),
+        id="qwen_2_5_1_5b-prefill",
+    ),
+    pytest.param(
+        (32, 8, 18, 128),
+        (1, 18, 128),
+        id="mistral_7b-prefill",
+    ),
+    pytest.param(
+        (32, 1, 17, 256),
+        (1, 17, 256),
+        id="gemma_1_1_2b-prefill",
+    ),
+    # --- Decode (seq = 1) ---
+    pytest.param(
+        (32, 8, 1, 128),
+        (1, 1, 128),
+        id="llama_3_1_8b-decode",
+    ),
+    pytest.param(
+        (32, 8, 1, 64),
+        (1, 1, 64),
+        id="llama_3_2_1b-decode",
+    ),
+    pytest.param(
+        (32, 4, 1, 256),
+        (1, 1, 256),
+        id="falcon3_1b-decode",
+    ),
+    pytest.param(
+        (32, 32, 1, 32),
+        (1, 1, 32),
+        id="phi1_5-decode",
+    ),
+    pytest.param(
+        (32, 2, 1, 128),
+        (1, 1, 128),
+        id="qwen_2_5_1_5b-decode",
+    ),
+    pytest.param(
+        (32, 8, 1, 128),
+        (1, 1, 128),
+        id="ministral_8b-decode",
+    ),
+]
+
+# Representative shapes for Pattern 2 (complex rotation / expanded)
+COMPLEX_ROTATION_SHAPES = [
+    pytest.param(
+        (32, 8, 17, 64),
+        (1, 17, 32),
+        id="gpt_oss_20b_tp-prefill",
+    ),
+    pytest.param(
+        (32, 8, 1, 64),
+        (1, 1, 32),
+        id="gpt_oss_20b_tp-decode",
+    ),
+    pytest.param(
+        (64, 8, 17, 64),
+        (1, 17, 32),
+        id="gpt_oss_120b_tp_galaxy-prefill",
+    ),
+    pytest.param(
+        (1, 8, 17, 64),
+        (1, 17, 32),
+        id="gpt_oss_20b_tp_batch_size_1-prefill",
+    ),
+]
+
+
+@pytest.mark.parametrize("input_shape, cos_sin_shape", ROTATE_HALF_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rope_rotate_half(input_shape, cos_sin_shape, dtype, target, request, device):
     """
+    Pattern 1: rotate_half RoPE.
+    Used by llama, falcon, gemma, qwen, mistral, ministral, phi, kimi.
+
+    Shapes extracted from tt-xla CI artifacts (40 LLM models).
+    Verifies that the decomposed RoPE pattern fuses into ttnn.rotary_embedding
+    through the full pipeline.
+    """
+    shapes = [input_shape, cos_sin_shape, cos_sin_shape]
+    dtypes = [dtype] * 3
 
     def module(builder: TTIRBuilder):
         @builder.func(shapes, dtypes)
@@ -149,22 +259,20 @@ def test_rotary_embedding(
             cos_input: Operand,
             sin_input: Operand,
             builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
         ):
-            # Create input tensors
-            input_data = torch.randn(shapes[0], dtype=dtypes[1])
-            cos_data = torch.randn(shapes[1], dtype=dtypes[0])
-            sin_data = torch.randn(shapes[2], dtype=dtypes[2])
+            input_data = torch.randn(input_shape, dtype=dtype)
+            cos_data = torch.randn(cos_sin_shape, dtype=dtype)
+            sin_data = torch.randn(cos_sin_shape, dtype=dtype)
 
-            golden_output = build_torch_golden(input_data, cos_data, sin_data)
+            cos_4d = cos_data.unsqueeze(0)
+            sin_4d = sin_data.unsqueeze(0)
+            golden = torch_rope(input_data, cos_4d, sin_4d)
 
-            result = build_ttir(
-                input, cos_input, sin_input, builder, unit_attrs=unit_attrs
-            )
+            result = build_rope_rotate_half(input, cos_input, sin_input, builder)
 
             builder.set_goldens(
                 {input: input_data, cos_input: cos_data, sin_input: sin_data},
-                {result: golden_output},
+                {result: golden},
             )
             return result
 
@@ -173,71 +281,61 @@ def test_rotary_embedding(
         target=target,
         **get_request_kwargs(request),
         device=device,
+        pipeline_options=["enable-ttnn-decomposition-pass=false"],
+        save_artifacts=True,
     )
 
     assert check_op(output, "rotary_embedding")
-    if shapes[0][-2] % 32 != 0:
-        assert check_op(output, "slice_static")
 
 
-@pytest.mark.skip(
-    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
-)
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # decode
-        pytest.param(
-            [
-                (1, 8, 1, 64),  # input
-                (1, 1, 64),  # cos input
-                (1, 1, 64),  # sin input
-            ],
-            # Mark as fail because of https://github.com/tenstorrent/tt-metal/issues/31567
-            # I will follow up with decomposition to slice tensor until there is
-            # some resolution from metal team.
-            # Issue for decomposition https://github.com/tenstorrent/tt-mlir/issues/5621
-            marks=pytest.mark.xfail,
-        ),
-    ],
-)
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 3])
+@pytest.mark.parametrize("input_shape, cos_sin_half_shape", COMPLEX_ROTATION_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_rotary_embedding_failure(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
+def test_rope_complex_rotation(
+    input_shape, cos_sin_half_shape, dtype, target, request, device
 ):
     """
-    Test rotary position embedding (RoPE) pattern.
-    This test implements the RoPE operation as a sequence of TTIR ops:
-    - Reshape cos/sin to unsqueeze first dimension
-    - Split input into two halves along last dimension
-    - Rotate: concat(neg(second_half), first_half)
-    - Multiply and add: input * cos + rotated * sin
+    Pattern 2: complex rotation (expanded / trig-identity) RoPE.
+    Used by gpt_oss_20b and gpt_oss_120b.
+
+    cos/sin are half-dim [1, S, D/2]. The fusion doubles them to full-dim
+    by concatenating with themselves before creating ttnn.rotary_embedding.
+
+    Previously unfused at TTNN level when cos/sin were pre-scaled (#8415).
+    Now fused at TTIR level where the scaled values are absorbed naturally.
     """
+    shapes = [input_shape, cos_sin_half_shape, cos_sin_half_shape]
+    dtypes = [dtype] * 3
 
     def module(builder: TTIRBuilder):
         @builder.func(shapes, dtypes)
         def rotary_embedding(
             input: Operand,
-            cos_input: Operand,
-            sin_input: Operand,
+            cos_half_input: Operand,
+            sin_half_input: Operand,
             builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
         ):
-            # Create input tensors
-            input_data = torch.randn(shapes[0], dtype=dtypes[1])
-            cos_data = torch.randn(shapes[1], dtype=dtypes[0])
-            sin_data = torch.randn(shapes[2], dtype=dtypes[2])
+            input_data = torch.randn(input_shape, dtype=dtype)
+            cos_half_data = torch.randn(cos_sin_half_shape, dtype=dtype)
+            sin_half_data = torch.randn(cos_sin_half_shape, dtype=dtype)
 
-            golden_output = build_torch_golden(input_data, cos_data, sin_data)
+            cos_full = torch.cat([cos_half_data, cos_half_data], dim=-1)
+            sin_full = torch.cat([sin_half_data, sin_half_data], dim=-1)
+            golden = torch_rope(
+                input_data, cos_full.unsqueeze(0), sin_full.unsqueeze(0)
+            )
 
-            result = build_ttir(
-                input, cos_input, sin_input, builder, unit_attrs=unit_attrs
+            result = build_rope_complex_rotation(
+                input, cos_half_input, sin_half_input, builder
             )
 
             builder.set_goldens(
-                {input: input_data, cos_input: cos_data, sin_input: sin_data},
-                {result: golden_output},
+                {
+                    input: input_data,
+                    cos_half_input: cos_half_data,
+                    sin_half_input: sin_half_data,
+                },
+                {result: golden},
             )
             return result
 
@@ -246,7 +344,8 @@ def test_rotary_embedding_failure(
         target=target,
         **get_request_kwargs(request),
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=["enable-ttnn-decomposition-pass=false"],
+        save_artifacts=True,
     )
 
     assert check_op(output, "rotary_embedding")
