@@ -63,10 +63,20 @@ getTTRunCommand(uint16_t port,
   std::optional<std::string> hostnameOpt =
       multiProcessArgs.getControllerHostname();
 
+  // Check for optional worker wrapper command (e.g., heaptrack, perf, etc.)
+  const char *wrapperEnv = std::getenv("TTNN_WORKER_WRAPPER");
+  std::string workerWrapper = wrapperEnv ? wrapperEnv : "";
+
   oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString()
       << " "
       << "bash -c "
-      << "\"" << getWorkerExecutableCommand(port, workerPathOpt, hostnameOpt)
+      << "\"";
+
+  if (!workerWrapper.empty()) {
+    oss << workerWrapper << " ";
+  }
+
+  oss << getWorkerExecutableCommand(port, workerPathOpt, hostnameOpt)
       << "\"";
 
   return oss.str();
