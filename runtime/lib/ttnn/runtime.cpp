@@ -2231,19 +2231,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
       tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
 
-  std::vector<tt::runtime::Tensor> hostTensors =
-      ::tt::runtime::ttnn::toHost(outTensor, untilize);
-
-  if (hostTensors.empty()) {
-    LOG_WARNING("Failed to get host tensor when retrieving tensor");
-    return std::nullopt;
-  }
-
-  if (hostTensors.size() != 1) {
-    LOG_FATAL("Multi device tensor not supported when retrieving tensor");
-  }
-
-  return hostTensors[0];
+  return outTensor;
 }
 
 std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {
@@ -2271,6 +2259,8 @@ void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
   }
 }
 
+// TODO(mmilosevicTT): Rework updating tensor to ensure all required fields are
+// preserved.
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor tensor) {
   auto &programContext =

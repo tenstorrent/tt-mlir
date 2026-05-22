@@ -560,8 +560,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       nb::arg("program_context_handle"), nb::arg("tensor_ref"),
       nb::arg("untilize") = true,
       R"(
-    Returns tensor from tensor pool to which tensor_ref refers
-    For now only supports single device tensors
+    Returns the tensor from the tensor pool that is referenced by the given tensor reference.
 
     Parameters
     ----------
@@ -574,8 +573,7 @@ void registerRuntimeBindings(nb::module_ &m) {
     Returns
     -------
     Optional[tt.runtime.Tensor]
-        The tensor corresponding to *tensor_ref*, or ``None`` if the
-        tensor is not present in the pool (e.g., it was deallocated).
+        The tensor from the tensor pool that is referenced by the given tensor reference, or ``None`` when the tensor is not present in the pool (e.g., it was deallocated).
     )");
 
   m.def(
