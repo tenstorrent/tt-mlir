@@ -1637,6 +1637,9 @@ private:
                 if (tileBcastType != d2m::TileBcastType::None) {
                   yield = bbBuilder.create<d2m::TileBcastOp>(
                       bbLoc, bbArgs[1].getType(), yield, tileBcastType);
+                } else {
+                  yield = bbBuilder.create<d2m::TileTypecastOp>(
+                      bbLoc, bbArgs[1].getType(), yield);
                 }
                 bbBuilder.create<linalg::YieldOp>(bbLoc, yield);
               });
