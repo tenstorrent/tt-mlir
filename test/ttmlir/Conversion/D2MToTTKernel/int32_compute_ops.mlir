@@ -160,3 +160,40 @@ func.func @test_minimum_i32(%lhs: !ttype_i32, %rhs: !ttype_i32) -> (!ttype_i32) 
   %0 = "ttir.minimum"(%lhs, %rhs) : (!ttype_i32, !ttype_i32) -> !ttype_i32
   return %0 : !ttype_i32
 }
+
+// -----
+
+// Multi-tile-per-core int32 chain: regression test for the per-iteration
+// DST allocation bug. The integer binary op rewriter used to hardcode
+// `dst0 = 0, dst1 = 1` for the SFPU `*_int_tile` operands, which produced
+// wrong results in any fused load/compute/store loop with >1 tile per
+// iteration (every iteration overwrote DST[0..1]; the pack step then
+// read stale data). After fixing
+// `TileMulOp::getOperandsLoadFromDstRegister` to return `{0, 1}` for
+// integer tiles (matching f32), `d2m-insert-dst-register-access` allocates
+// distinct DST slots per loop iteration and the SFPU path picks them up
+// via `getDstIdxFromResult` instead of constants. We verify that the
+// generated kernel has explicit `copy_tile` loads (one per loop iter, into
+// per-iteration DST slots) before the `mul_int_tile`, instead of two
+// hardcoded `copy_tile(..., 0)` / `copy_tile(..., 1)` calls inside a fused
+// loop body.
+// Tensor is 64x32 -> 2 tiles in the row direction so the inner tile loop
+// has trip count 2 and the bug shows up.
+!ttype_i32_multi = tensor<64x32xsi32>
+// CHECK-LABEL: func.func @test_multiply_i32_multi_tile
+func.func @test_multiply_i32_multi_tile(%lhs: !ttype_i32_multi,
+                                        %rhs: !ttype_i32_multi)
+    -> (!ttype_i32_multi) {
+  // The fix: per-iteration DST slot for each tile (allocated by
+  // insert-dst-register-access via `getOperandsLoadFromDstRegister`).
+  // We require at least two distinct `copy_tile` invocations before the
+  // `mul_int_tile`, indicating the rewriter no longer hardcoded a single
+  // dst slot per side.
+  // CHECK: ttkernel.copy_tile
+  // CHECK: ttkernel.copy_tile
+  // CHECK: ttkernel.mul_int_tile_init(<si32>)
+  // CHECK: ttkernel.mul_int_tile({{.*}}, <si32>)
+  %0 = "ttir.multiply"(%lhs, %rhs)
+      : (!ttype_i32_multi, !ttype_i32_multi) -> !ttype_i32_multi
+  return %0 : !ttype_i32_multi
+}

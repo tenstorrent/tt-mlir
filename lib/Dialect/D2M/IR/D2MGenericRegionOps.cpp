@@ -2065,8 +2065,22 @@ getOperandsLoadFromDstRegisterFPUOrSFPUBinary(Operation *op) {
   if (!mlir::isa<mlir::tt::ttcore::TileType>(rhsType)) {
     return {0};
   }
-  // Both operands are tiles (not float32) - FPU reads directly from CBs, no
-  // DST load needed.
+
+  // Integer tile-tile binary ops have no FPU path; they lower to the SFPU
+  // int tile ops (e.g. add_int_tile, mul_int_tile) which require both
+  // operands resident in DST. Loading from DST also ensures that the per-
+  // iteration DST slot allocated by d2m-insert-dst-register-access is used
+  // (one DST slot per loop iteration) instead of a fixed hardcoded slot,
+  // which would otherwise produce wrong results when multiple tiles per
+  // core are processed in a fused load/compute/store loop.
+  auto lhsTileType = mlir::dyn_cast<mlir::tt::ttcore::TileType>(lhsType);
+  if (lhsTileType &&
+      mlir::isa<mlir::IntegerType>(lhsTileType.getElementType())) {
+    return {0, 1};
+  }
+
+  // Both operands are tiles (not float32, not integer) - FPU reads directly
+  // from CBs, no DST load needed.
   return {};
 }
 

@@ -1404,6 +1404,18 @@ public:
       return failure();
     }
 
+    // Integer tile-tile binary ops have no FPU path; let the SFPU rewriter
+    // handle them. By the time we reach lowering, d2m-insert-dst-register-
+    // access will have inserted load_tiles into DST for both operands (see
+    // TileAddOp::getOperandsLoadFromDstRegister and friends), so the SFPU
+    // path will use the correctly allocated per-iteration DST slots instead
+    // of hardcoded ones.
+    if (auto lhsTileType =
+            mlir::dyn_cast<ttcore::TileType>(op.getLhs().getType());
+        lhsTileType && llvm::isa<IntegerType>(lhsTileType.getElementType())) {
+      return failure();
+    }
+
     auto loc = op->getLoc();
     bool lhsFromDst = operandFromDst(op.getLhs());
     bool rhsFromDst = operandFromDst(op.getRhs());
@@ -1448,16 +1460,6 @@ private:
     auto cbB = getCB(rewriter, op.getRhs());
     auto outCB = getOutCB(rewriter, op);
 
-    // Integer ops use SFPU with explicit copy_tile from CB to DST.
-    if constexpr (hasMapping<ConcreteOp, IntComputeOpMap>) {
-      const auto elemType =
-          mlir::cast<ttcore::TileType>(op.getLhs().getType()).getElementType();
-      if (llvm::isa<IntegerType>(elemType)) {
-        return emitIntegerBinaryTiles(rewriter, op, adaptor, loc, cbA, cbB,
-                                      outCB);
-      }
-    }
-
     auto insertionPoint = rewriter.getInsertionPoint();
     setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
                                    /*allowHoisting*/ true);
@@ -1479,47 +1481,6 @@ private:
       rewriter.create<ttkernel::MulTilesInitOp>(loc, cbA, cbB);
       rewriter.create<ttkernel::MulTilesOp>(loc, cbA, cbB, adaptor.getLhs(),
                                             adaptor.getRhs(), dstIdx);
-    }
-
-    rewriter.eraseOp(op);
-    return success();
-  }
-
-  // Integer binary: copy tiles from CB to DST, then use the int32 SFPU op.
-  LogicalResult emitIntegerBinaryTiles(ConversionPatternRewriter &rewriter,
-                                       ConcreteOp op,
-                                       typename ConcreteOp::Adaptor adaptor,
-                                       Location loc, Value cbA, Value cbB,
-                                       Value outCB) const {
-    using IntPair = TTKernelOpPair<ConcreteOp, IntComputeOpMap>;
-    using IntInit = typename IntPair::first_type;
-    using IntSFPUOp = typename IntPair::second_type;
-
-    auto dst0 = index(rewriter, loc, 0);
-    auto dst1 = index(rewriter, loc, 1);
-
-    auto insertionPoint = rewriter.getInsertionPoint();
-    setInsertionPointAfterOperands(rewriter, {cbA, outCB},
-                                   /*allowHoisting*/ true);
-    rewriter.create<ttkernel::InitSFPUOp>(loc, cbA, outCB);
-    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-
-    rewriter.create<ttkernel::CopyTileInitOp>(loc, cbA);
-    rewriter.create<ttkernel::CopyTileOp>(loc, cbA, adaptor.getLhs(), dst0);
-    rewriter.create<ttkernel::CopyTileInitOp>(loc, cbB);
-    rewriter.create<ttkernel::CopyTileOp>(loc, cbB, adaptor.getRhs(), dst1);
-
-    const auto dtype =
-        mlir::cast<ttcore::TileType>(op.getLhs().getType()).getDataType();
-    if constexpr (needsDtypeArg<IntInit>) {
-      rewriter.create<IntInit>(loc, dtype);
-    } else {
-      rewriter.create<IntInit>(loc);
-    }
-    if constexpr (needsDtypeArg<IntSFPUOp>) {
-      rewriter.create<IntSFPUOp>(loc, dst0, dst1, dst0, dtype);
-    } else {
-      rewriter.create<IntSFPUOp>(loc, dst0, dst1, dst0);
     }
 
     rewriter.eraseOp(op);

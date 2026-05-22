@@ -17,7 +17,16 @@
 namespace mlir::tt::d2m {
 
 bool GridAnalysis::isTTNNOperand(Value operand) {
+  // Only walk through view_layouts that are pure reblocks (volume-preserving).
+  // A view that changes the underlying data (e.g. a broadcast view inserted
+  // to materialize an implicit cross-tile broadcast) must be treated as a
+  // first-class ViewLayout op so its remapping is preserved through grid
+  // selection — otherwise `applyTTNNTensorUpdate` would replace it with the
+  // bare cast and silently drop the broadcast.
   while (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+    if (!view.isReblockOnly()) {
+      return false;
+    }
     operand = view.getInput();
   }
   return operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() != nullptr;

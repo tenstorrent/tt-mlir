@@ -137,6 +137,38 @@ static bool producerResultUsedOnlyByConsumer(GenericOp producer,
   return true;
 }
 
+// Returns true if `gOp` has an integer-typed result tensor.
+static bool hasIntegerResult(GenericOp gOp) {
+  for (Value result : gOp->getResults()) {
+    auto rankedTy = mlir::dyn_cast<RankedTensorType>(result.getType());
+    if (!rankedTy) {
+      continue;
+    }
+    Type elemTy = rankedTy.getElementType();
+    if (auto tileTy = mlir::dyn_cast<ttcore::TileType>(elemTy)) {
+      elemTy = tileTy.getElementType();
+    }
+    if (mlir::isa<IntegerType>(elemTy)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Returns true if `gOp` has any input operand whose indexing map is not a
+// pure permutation of dims (i.e. it broadcasts at least one iteration dim
+// onto a constant or other dim). Such inputs lower to `unary_bcast` /
+// `tile_bcast` patterns in the kernel.
+static bool hasBroadcastInputIndexing(GenericOp gOp) {
+  for (OpOperand *input : gOp.getDpsInputOperands()) {
+    AffineMap m = gOp.getIndexingMap(input->getOperandNumber());
+    if (!m.isProjectedPermutation(/*allowZeroInResults=*/false)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Checks shared by all fusion variants: CB/DST budget, blocking compatibility,
 // and rank/permutation constraints on the indexing maps.
 static bool passesSharedFusionShapeChecks(OpOperand *fusionTargetOperand,
@@ -149,6 +181,22 @@ static bool passesSharedFusionShapeChecks(OpOperand *fusionTargetOperand,
     return false;
   }
   if (!fitsInDstPostFusion(producer, consumer)) {
+    return false;
+  }
+
+  // Workaround for a TT-Metal backend issue: chains of integer (e.g. si32)
+  // SFPU binary tile ops produce wrong results when fused across a producer
+  // that has a broadcast input. The same chain works correctly when not
+  // fused, and the equivalent f32/bf16 chain (using FPU `*_binary_tile`)
+  // works correctly with fusion. The single-op + broadcast case also works.
+  // The failure is specific to: integer element type + broadcast on a
+  // producer input + fused chain (so the producer's output stays in DST
+  // across into the consumer's int SFPU op). Fall back to not fusing such
+  // chains so the producer/consumer each get their own kernel and run with
+  // independent DST state.
+  if ((hasIntegerResult(producer) || hasIntegerResult(consumer)) &&
+      (hasBroadcastInputIndexing(producer) ||
+       hasBroadcastInputIndexing(consumer))) {
     return false;
   }
 

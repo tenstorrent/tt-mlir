@@ -889,6 +889,235 @@ private:
       std::is_same_v<ConcreteOp, ttir::LessThanOp> ||
       std::is_same_v<ConcreteOp, ttir::LessEqualOp>;
 
+  // Helper: read the shard shape (in tiles) of a layouted physical value.
+  static SmallVector<int64_t> getShardTilesForValue(Value v) {
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(v.getType());
+    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+    return SmallVector<int64_t>(layout.getShardShape(tensorType));
+  }
+
+  // Compute the per-logical-dim tile strides for the *row* physical dim
+  // (assuming default collapse [[0, N-1], [N-1, N]]). The returned vector has
+  // one entry per logical dim except the last (which is col).
+  //
+  // For logical shape [D_0, ..., D_{N-1}] with default collapse:
+  //   element_stride[N-2] = 1
+  //   element_stride[i]   = product(D_{i+1}, ..., D_{N-2}) for i < N-2
+  //   tile_stride[i]      = element_stride[i] / tileRowSize  (0 if within tile)
+  static SmallVector<int64_t>
+  computeRowTileStrides(ArrayRef<int64_t> logicalShape, int64_t tileRowSize) {
+    const int N = static_cast<int>(logicalShape.size());
+    SmallVector<int64_t> tileStrides(N - 1, 0);
+    if (N < 2) {
+      return tileStrides;
+    }
+    // Element stride for d_{N-2} is 1; for d_i (i < N-2) it is
+    // product of D_{i+1}, ..., D_{N-2}.
+    int64_t elementStride = 1;
+    tileStrides[N - 2] = (elementStride / tileRowSize);
+    for (int i = N - 3; i >= 0; --i) {
+      elementStride *= logicalShape[i + 1];
+      tileStrides[i] = elementStride / tileRowSize;
+    }
+    return tileStrides;
+  }
+
+  // For each input, detect physical-dim broadcasts that the d2m.generic
+  // indexing-map machinery cannot express directly (input shard dim is neither
+  // equal to the output's nor 1) and materialize them with a `d2m.view_layout`
+  // that aliases the smaller input as a larger tensor matching the output's
+  // shard shape in the problematic dims.
+  //
+  // Why a view: the d2m.generic indexing maps must remain broadcast-projected
+  // permutations (AffineDimExpr or constant 0); any `mod`/`floordiv` would
+  // break downstream verifiers and analyses such as `inversePermutation` and
+  // `inverseAndBroadcastProjectedPermutation`. The mod arithmetic that
+  // realizes the cross-tile broadcast is therefore captured inside the
+  // view's `remapping` attribute, which the d2m runtime + grid-selection
+  // infrastructure already know how to handle (see `mul_add_dram_2d.mlir`
+  // and friends for similar patterns).
+  //
+  // The view's remapping is built directly from the logical broadcast pattern.
+  // For an input whose logical d_i is 1 but output's d_i is > 1, the
+  // contribution of d_i to the input's physical row index is 0 (broadcast);
+  // contributions from non-broadcast dims are reconstructed from the output's
+  // physical tile-row using the standard mixed-radix extraction
+  //   d_i = (T_out floordiv outputTileStride[i]) mod outputLogical[i]
+  // and remapped to the input via the input's tile stride.
+  //
+  // The materialization is gated on the existence of at least one physical
+  // dim with `inShard[d] != outShard[d]` and `inShard[d] != 1` — i.e., a
+  // genuinely cross-tile broadcast — so inputs that only need the simple
+  // {identity, 1->N} broadcasts handled by
+  // `buildPhysicalImplicitBcastIndexingMaps` (and the existing lit-test
+  // FileChecks for those patterns) are left unchanged.
+  static SmallVector<Value> materializeComplexImplicitBroadcasts(
+      mlir::OpBuilder &builder, mlir::Location loc,
+      ArrayRef<Value> physicalInputs, Value physicalOutput,
+      std::size_t physicalRank) {
+    SmallVector<int64_t> outShard = getShardTilesForValue(physicalOutput);
+    auto outputTensorType =
+        mlir::cast<mlir::RankedTensorType>(physicalOutput.getType());
+    auto outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
+
+    SmallVector<Value> result;
+    result.reserve(physicalInputs.size());
+
+    for (Value input : physicalInputs) {
+      auto inputTensorType =
+          mlir::dyn_cast<mlir::RankedTensorType>(input.getType());
+      if (!inputTensorType || !mlir::isa_and_nonnull<ttcore::MetalLayoutAttr>(
+                                  inputTensorType.getEncoding())) {
+        // Not a layouted tensor (e.g. constant) - skip, downstream will
+        // either accept it or fail with its own diagnostic.
+        result.push_back(input);
+        continue;
+      }
+
+      SmallVector<int64_t> inShard = getShardTilesForValue(input);
+      if (inShard.size() != physicalRank) {
+        result.push_back(input);
+        continue;
+      }
+
+      // Detect whether any physical dim needs a non-{identity, 1->N} bcast.
+      bool needsMaterialization = false;
+      for (std::size_t d = 0; d < physicalRank; ++d) {
+        if (inShard[d] == outShard[d] || inShard[d] == 1) {
+          continue;
+        }
+        if (outShard[d] % inShard[d] != 0) {
+          // Pattern we still cannot express; leave it for the existing
+          // assertion in `buildPhysicalImplicitBcastIndexingMaps` to flag.
+          needsMaterialization = false;
+          break;
+        }
+        needsMaterialization = true;
+      }
+
+      if (!needsMaterialization) {
+        result.push_back(input);
+        continue;
+      }
+
+      auto inputLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
+
+      // We currently only support the standard TTNN default collapse
+      // ([[0, N-1], [N-1, N]]). If either layout uses a non-default collapse,
+      // fall back to leaving the input unchanged (the existing assertion in
+      // `buildPhysicalImplicitBcastIndexingMaps` will flag the unsupported
+      // case with a clear diagnostic instead of producing wrong data).
+      ArrayRef<int64_t> inputLogical = inputLayout.getLogicalShape();
+      ArrayRef<int64_t> outputLogical = outputLayout.getLogicalShape();
+      if (inputLogical.size() != outputLogical.size() ||
+          inputLogical.size() < 2) {
+        result.push_back(input);
+        continue;
+      }
+
+      // The view's logical shape is the output's logical shape so that the
+      // resulting physical/device shape matches the output's. We keep the
+      // input's memory-space and memory-layout (the view never moves data).
+      ttcore::MetalLayoutAttr viewLayout = ttcore::MetalLayoutAttr::get(
+          builder.getContext(), outputLogical, inputLayout.getMemorySpace(),
+          inputLayout.getMemoryLayout());
+
+      // Compute device shape using the input's grid so the grid-dim portion
+      // of the view's type matches the input's. The shard-dim portion comes
+      // from the layout's collapse of the (broadcasted) logical shape and
+      // therefore matches the output's shard shape.
+      ArrayRef<int64_t> gridShape = inputLayout.getGridShape(inputTensorType);
+      constexpr std::array<int64_t, 2> defaultTileShape =
+          ttcore::TileType::getDefaultShape();
+      SmallVector<int64_t> viewDeviceShape = viewLayout.getDeviceShape(
+          gridShape, SmallVector<int64_t>(defaultTileShape.begin(),
+                                          defaultTileShape.end()));
+      auto viewType = mlir::RankedTensorType::get(
+          viewDeviceShape, inputTensorType.getElementType(), viewLayout);
+
+      // Compute per-logical-dim tile strides for the row contribution in
+      // both input and output, using the default-collapse stride formula.
+      const int64_t tileRowSize = defaultTileShape[0];
+      SmallVector<int64_t> outputRowStrides =
+          computeRowTileStrides(outputLogical, tileRowSize);
+      SmallVector<int64_t> inputRowStrides =
+          computeRowTileStrides(inputLogical, tileRowSize);
+
+      // Build remapping affine expression for the row shard dim:
+      //   T_in = sum over non-broadcast logical dims i (
+      //              ((T_out floordiv outputRowStrides[i]) mod
+      //                 outputLogical[i]) * inputRowStrides[i])
+      // For the col shard dim:
+      //   - input col == output col -> identity
+      //   - input col == 1          -> constant 0
+      //   - otherwise               -> fall back (let outer assertion fire)
+      const std::size_t totalRank = viewDeviceShape.size();
+      TT_assertv(totalRank == 2 * physicalRank,
+                 "view device shape rank ({}) must equal 2*physicalRank ({})",
+                 totalRank, 2 * physicalRank);
+
+      SmallVector<mlir::AffineExpr> exprs;
+      exprs.reserve(totalRank);
+      // Grid dims: identity (we kept the input's grid, so grid dims match).
+      for (std::size_t d = 0; d < physicalRank; ++d) {
+        exprs.push_back(builder.getAffineDimExpr(d));
+      }
+
+      // Row shard dim (physical dim 0): build the broadcasted expression
+      // using the per-logical-dim strides.
+      const std::size_t rowShardDimIdx = physicalRank + 0;
+      mlir::AffineExpr rowExpr =
+          mlir::getAffineConstantExpr(0, builder.getContext());
+      mlir::AffineExpr rowShardDimExpr =
+          builder.getAffineDimExpr(rowShardDimIdx);
+      const int numRowLogicalDims = static_cast<int>(inputLogical.size()) - 1;
+      for (int i = 0; i < numRowLogicalDims; ++i) {
+        if (outputRowStrides[i] == 0) {
+          // Logical dim is within a single tile row; doesn't appear in
+          // tile-row coordinates.
+          continue;
+        }
+        if (inputLogical[i] == 1 && outputLogical[i] > 1) {
+          // Broadcast dim, contributes 0 to the input's row index.
+          continue;
+        }
+        // Extract d_i from the output's tile-row index using mixed-radix
+        // arithmetic, then weight it by the input's stride for that dim.
+        mlir::AffineExpr extracted =
+            (rowShardDimExpr.floorDiv(outputRowStrides[i])) % outputLogical[i];
+        rowExpr = rowExpr + extracted * inputRowStrides[i];
+      }
+      exprs.push_back(rowExpr);
+
+      // Col shard dim (physical dim 1): only simple identity/scalar bcast is
+      // handled here; mismatched col dims that aren't 1 fall back to the
+      // outer assertion path, mirroring
+      // `buildPhysicalImplicitBcastIndexingMaps`.
+      if (physicalRank >= 2) {
+        const std::size_t colShardDimIdx = physicalRank + 1;
+        if (inShard[1] == outShard[1]) {
+          exprs.push_back(builder.getAffineDimExpr(colShardDimIdx));
+        } else if (inShard[1] == 1) {
+          exprs.push_back(builder.getAffineConstantExpr(0));
+        } else {
+          // Unsupported pattern; bail out for this input.
+          result.push_back(input);
+          continue;
+        }
+      }
+
+      auto remapping = mlir::AffineMap::get(totalRank, /*symbolCount=*/0, exprs,
+                                            builder.getContext());
+
+      auto viewOp = builder.create<d2m::ViewLayoutOp>(
+          loc, viewType, input, remapping, /*reinterpretLayout=*/false);
+      result.push_back(viewOp.getResult());
+    }
+    return result;
+  }
+
   // Build outer (per-shard) implicit-broadcast indexing maps in `physicalRank`,
   // by comparing each input's physical shard shape (in tiles) to the output's.
   //
@@ -902,7 +1131,9 @@ private:
   // Per physical dim:
   //   - input dim == output dim         -> identity dim expr
   //   - input dim == 1 && output dim > 1 -> constant 0 (broadcast)
-  //   - any other mismatch              -> assertion failure
+  //   - any other mismatch              -> assertion failure (caller is
+  //     expected to have already materialized the broadcast via
+  //     `materializeComplexImplicitBroadcasts`)
   //
   // In-tile broadcasts (TileBcastType::{Row, Col, Scalar}) are computed
   // independently from the original logical shapes via `getImplicitBcastInfo`
@@ -910,20 +1141,7 @@ private:
   static SmallVector<mlir::AffineMap> buildPhysicalImplicitBcastIndexingMaps(
       mlir::OpBuilder &builder, mlir::ArrayRef<Value> physicalInputs,
       Value physicalOutput, std::size_t physicalRank) {
-    // Return an owning SmallVector rather than ArrayRef: even though the
-    // current MetalLayoutAttr::getShardShape implementation returns a slice
-    // backed by the MLIR type's stable storage, the interface contract
-    // returns ArrayRef<int64_t> and a future implementation could return a
-    // view into a temporary container, which would dangle. Copying once per
-    // operand is cheap and removes that footgun.
-    auto getShardTiles = [](Value v) -> SmallVector<int64_t> {
-      auto tensorType = mlir::cast<mlir::RankedTensorType>(v.getType());
-      auto layout =
-          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-      return SmallVector<int64_t>(layout.getShardShape(tensorType));
-    };
-
-    SmallVector<int64_t> outShard = getShardTiles(physicalOutput);
+    SmallVector<int64_t> outShard = getShardTilesForValue(physicalOutput);
     TT_assertv(outShard.size() == physicalRank,
                "output shard rank ({}) must equal physicalRank ({})",
                outShard.size(), physicalRank);
@@ -932,7 +1150,7 @@ private:
     maps.reserve(physicalInputs.size() + 1);
 
     for (Value input : physicalInputs) {
-      SmallVector<int64_t> inShard = getShardTiles(input);
+      SmallVector<int64_t> inShard = getShardTilesForValue(input);
       TT_assertv(inShard.size() == physicalRank,
                  "input shard rank ({}) must equal physicalRank ({})",
                  inShard.size(), physicalRank);
@@ -1174,12 +1392,58 @@ private:
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true, isImplicitBcast);
-    const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
-    const std::size_t numOperands = (numInputs + numOutputs);
 
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+
+    // For TTNN-collapsed layouts, an outer logical broadcast dim that folds
+    // into the same physical row as one or more non-trivial dims produces a
+    // shard whose physical dim is neither equal to the output's nor 1
+    // (e.g. arg<1x16x1x32x1> collapses to physical tiles 16x1 while the
+    // arg<32x16x1x32x1> output collapses to 512x1). These cases cannot be
+    // expressed as a broadcast-projected permutation in the d2m.generic
+    // indexing map; materialize them as a `d2m.view_layout` (a logical alias,
+    // no data motion) so the generic itself sees inputs whose shard shapes
+    // are compatible with simple identity/constant-0 indexing maps.
+    if (isImplicitBcast) {
+      inputs = materializeComplexImplicitBroadcasts(rewriter, loc, inputs,
+                                                    outputs[0], physicalRank);
+    }
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOperands = (numInputs + numOutputs);
+
+    // Workaround for a D2M backend bug: when a fused chain has a producer
+    // whose broadcasted operand is RHS (op1) and the per-cell block has
+    // multiple tiles, the generated TT-Kernel code interleaves the unpacker
+    // `copy_tile_init` (TILE mode) and `unary_bcast_init` (BCAST mode) calls
+    // in an order that produces wrong results (PCC ~0). The same chain with
+    // the broadcast on LHS (op0) generates the bcast-first unpacker pattern
+    // and works correctly.
+    //
+    // For commutative binary ops (TileMul, TileAdd) we sidestep this by
+    // swapping operands so the broadcasted input is always LHS, matching the
+    // working pattern. This is purely a workaround and should be removed once
+    // the underlying ordering bug in InsertDstRegisterAccess /
+    // ConvertD2MToTTKernel (or in TT-Metal itself) is fixed.
+    constexpr bool isCommutativeBinary =
+        std::is_same_v<ConcreteOp, ttir::MultiplyOp> ||
+        std::is_same_v<ConcreteOp, ttir::AddOp> ||
+        std::is_same_v<ConcreteOp, ttir::EqualOp> ||
+        std::is_same_v<ConcreteOp, ttir::NotEqualOp> ||
+        std::is_same_v<ConcreteOp, ttir::MaximumOp> ||
+        std::is_same_v<ConcreteOp, ttir::MinimumOp> ||
+        std::is_same_v<ConcreteOp, ttir::LogicalAndOp> ||
+        std::is_same_v<ConcreteOp, ttir::LogicalOrOp> ||
+        std::is_same_v<ConcreteOp, ttir::LogicalXorOp>;
+    if constexpr (isCommutativeBinary) {
+      if (isImplicitBcast && numInputs == 2 && tileBcastTypes.size() == 2 &&
+          tileBcastTypes[0] == d2m::TileBcastType::None &&
+          tileBcastTypes[1] != d2m::TileBcastType::None) {
+        std::swap(inputs[0], inputs[1]);
+        std::swap(tileBcastTypes[0], tileBcastTypes[1]);
+      }
+    }
 
     // Build indexing maps in the *physical* iteration domain. For implicit
     // broadcasts we cannot reuse the logical-rank maps from

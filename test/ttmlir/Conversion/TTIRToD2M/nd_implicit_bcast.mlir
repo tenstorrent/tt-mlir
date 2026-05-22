@@ -47,12 +47,19 @@ module {
   // ND implicit col broadcast (input is 1 along the last logical dim):
   // physical shard tiles differ (1,1 vs 1,4), so the outer indexing map
   // broadcasts on physical dim 1, plus an in-tile col broadcast.
+  //
+  // For commutative binary ops with a single broadcasted operand on RHS,
+  // TTIRToD2M swaps operands so the broadcast lands on LHS. This works
+  // around a downstream `InsertDstRegisterAccess` ordering bug that surfaces
+  // when fusion + multi-tile per-cell blocks meet a broadcast on RHS; for
+  // single-op cases the swap is semantically a no-op (ttir.add is
+  // commutative) but visibly reorders the d2m.generic's indexing maps.
   // CHECK-LABEL: func.func @nd4_col_bcast
   func.func @nd4_col_bcast(
       %arg0: tensor<1x1x32x128xbf16, #layout4d_full>,
       %arg1: tensor<1x1x32x1xbf16, #layout4d_col_bcast>) -> tensor<1x1x32x128xbf16, #layout4d_full> {
     // CHECK: d2m.generic
-    // CHECK-SAME: indexing_maps = [#[[MAP_ID]], #[[MAP_COL_BCAST]], #[[MAP_ID]]]
+    // CHECK-SAME: indexing_maps = [#[[MAP_COL_BCAST]], #[[MAP_ID]], #[[MAP_ID]]]
     // CHECK-SAME: iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic
     // CHECK: "d2m.tile_bcast"(%{{.*}}) <{bcast_type = #d2m<tile_bcast_type col>}>

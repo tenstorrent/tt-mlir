@@ -22,6 +22,21 @@ SNIPPETS_BASE_DIR = os.path.join(os.path.dirname(__file__), "../mlir_snippets")
 # Each entry is a path under SNIPPETS_BASE_DIR (without the .mlir extension).
 # Pytest auto-derives test IDs from these strings, so they double as the
 # parametrize IDs. Use pytest.param(..., marks=...) to attach xfail/skip marks.
+# Marks for tests with known pre-existing D2M backend bugs (unrelated to the
+# DeepSeek-V3 broadcast / fusion work that adds these snippets).
+#
+# fusion_bcast_div_xfail:
+#   Fusion + multi-tile per-cell block + producer with broadcast on RHS (op1)
+#   of a non-commutative op (here ttir.div) generates `InsertDstRegisterAccess`
+#   ordering that produces wrong results. For commutative ops (mul/add) the
+#   TTIRToD2M lowering works around this by swapping operands so the broadcast
+#   lands on LHS; that swap is unsafe for div / sub. See the corresponding
+#   workaround comment in lib/Conversion/TTIRToD2M/TTIRToD2M.cpp.
+fusion_bcast_div_xfail = pytest.mark.xfail(
+    reason="Pre-existing D2M fusion + multi-tile + non-commutative producer "
+    "broadcast on RHS produces wrong results; tracked separately."
+)
+
 SNIPPETS = [
     "models/gpt_oss_20b/swiglu_prefill",
     "models/gpt_oss_20b/swiglu_decode",
@@ -34,6 +49,19 @@ SNIPPETS = [
     "models/gpt_oss_20b/rope_sin_decode",
     "models/gpt_oss_20b/rope_cos_prefill",
     "models/gpt_oss_20b/rope_cos_decode",
+    "models/deepseek_v3/multiply_chain_3d",
+    "models/deepseek_v3/multiply_chain_2d",
+    "models/deepseek_v3/rsqrt_chain",
+    pytest.param("models/deepseek_v3/div_mul_3d", marks=fusion_bcast_div_xfail),
+    "models/deepseek_v3/mul_add_si32",
+    "models/deepseek_v3/mul_mul_add_add_si32",
+    "models/deepseek_v3/rope_5d_add_d2",
+    "models/deepseek_v3/rope_5d_sub_d2",
+    "models/deepseek_v3/rope_5d_add_d16",
+    "models/deepseek_v3/rope_5d_sub_d16",
+    "models/deepseek_v3/rope_5d_add_d8",
+    "models/deepseek_v3/rope_5d_sub_d8",
+    "models/deepseek_v3/mul_mul_2d",
     "ttir/d2m_optimizer_two_d2m_subgraphs/unary_matmul_unary",
     "ttir/d2m_optimizer_two_d2m_subgraphs/eltwise_matmul_eltwise",
 ]
