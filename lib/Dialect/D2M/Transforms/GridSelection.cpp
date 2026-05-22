@@ -130,15 +130,6 @@ static void verifySingleGenericConsumerThroughViewsAndMasks(Value root) {
   }
 }
 
-static d2m::ToLayoutOp getToLayoutProducerBehindViews(Value operand) {
-  bool sawView = false;
-  while (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-    sawView = true;
-    operand = view.getInput();
-  }
-  return sawView ? operand.getDefiningOp<d2m::ToLayoutOp>() : d2m::ToLayoutOp();
-}
-
 static llvm::SmallVector<int64_t> getTileShapeThroughLayoutBridge(Value value) {
   while (true) {
     auto valueType = mlir::dyn_cast<RankedTensorType>(value.getType());
@@ -382,7 +373,7 @@ static void applyBehindViewToLayoutUpdate(
     const OperandGridInfo &info,
     const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
     OpBuilder &builder) {
-  auto toLayoutOp = getToLayoutProducerBehindViews(info.operand);
+  auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
   TT_assert(toLayoutOp);
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
                        ttnnMode, info.viewSourceGrid, builder);

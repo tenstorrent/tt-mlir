@@ -23,17 +23,14 @@ bool GridAnalysis::isTTNNOperand(Value operand) {
   return operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() != nullptr;
 }
 
-static d2m::ToLayoutOp getToLayoutProducerBehindViews(Value operand) {
-  bool sawView = false;
-  while (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-    sawView = true;
-    operand = view.getInput();
-  }
-  return sawView ? operand.getDefiningOp<d2m::ToLayoutOp>() : d2m::ToLayoutOp();
-}
-
+// Walk forward through layout-bridge ops (ToLayoutOp, ViewLayoutOp, MaskOp)
+// until we reach a ToLayoutOp whose output is tiled. Returns that tile's shape,
+// or empty if no tiled consumer is reachable. Visited values are tracked to
+// keep the walk linear even when the same value has multiple uses that
+// re-converge downstream.
 static llvm::SmallVector<int64_t> getTiledConsumerTileShape(Value value) {
   llvm::SmallVector<Value> worklist{value};
+  llvm::SmallPtrSet<Value, 8> visited{value};
 
   while (!worklist.empty()) {
     Value current = worklist.pop_back_val();
@@ -49,17 +46,23 @@ static llvm::SmallVector<int64_t> getTiledConsumerTileShape(Value value) {
                 mlir::dyn_cast<ttcore::TileType>(outputType.getElementType())) {
           return llvm::to_vector(tileType.getShape());
         }
-        worklist.push_back(toLayout.getResult(0));
+        if (visited.insert(toLayout.getResult(0)).second) {
+          worklist.push_back(toLayout.getResult(0));
+        }
         continue;
       }
 
       if (auto view = dyn_cast<d2m::ViewLayoutOp>(user)) {
-        worklist.push_back(view.getResult());
+        if (visited.insert(view.getResult()).second) {
+          worklist.push_back(view.getResult());
+        }
         continue;
       }
 
       if (auto mask = dyn_cast<d2m::MaskOp>(user)) {
-        worklist.push_back(mask.getResult());
+        if (visited.insert(mask.getResult()).second) {
+          worklist.push_back(mask.getResult());
+        }
         continue;
       }
     }
@@ -95,21 +98,6 @@ static int64_t getVolume(ArrayRef<int64_t> shape) {
   return volume;
 }
 
-static int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
-                                            ArrayRef<int64_t> alignments,
-                                            int64_t intervalStart,
-                                            int64_t intervalEnd) {
-  TT_assert(intervalStart < intervalEnd);
-
-  int64_t collapsedSize = ttmlir::utils::alignUp(logicalShape[intervalEnd - 1],
-                                                 alignments[intervalEnd - 1]);
-  for (int64_t dim = intervalEnd - 2; dim >= intervalStart; --dim) {
-    collapsedSize = ttmlir::utils::alignUp(logicalShape[dim] * collapsedSize,
-                                           alignments[dim]);
-  }
-  return collapsedSize;
-}
-
 static llvm::SmallVector<int64_t> capCompositeScalarInputGrid(
     ttcore::MetalLayoutAttr materializedLayout, ArrayRef<int64_t> alignments,
     ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> targetGrid,
@@ -123,44 +111,49 @@ static llvm::SmallVector<int64_t> capCompositeScalarInputGrid(
   // composite output grid splits that small input tile further, a scalar DMA
   // kernel can end up attaching a full tile CB to a sub-tile L1 shard. Keep the
   // already-selected grid on every other axis, but cap this input's concat-axis
-  // grid by the number of full tiles it can actually provide.
+  // grid by the number of full tiles it can actually provide. Exactly one
+  // collapsed interval contains `concatDim`; if none do, the layout is invalid.
+  int64_t concatIntervalIdx = -1;
   for (int64_t intervalIdx = 0; intervalIdx < tensorGridRank; ++intervalIdx) {
-    const int64_t intervalStart = intervals[intervalIdx * 2];
-    const int64_t intervalEnd = intervals[intervalIdx * 2 + 1];
-    if (concatDim < intervalStart || concatDim >= intervalEnd) {
+    if (concatDim >= intervals[intervalIdx * 2] &&
+        concatDim < intervals[intervalIdx * 2 + 1]) {
+      concatIntervalIdx = intervalIdx;
+      break;
+    }
+  }
+  if (concatIntervalIdx < 0) {
+    return grid;
+  }
+
+  const int64_t intervalStart = intervals[concatIntervalIdx * 2];
+  const int64_t intervalEnd = intervals[concatIntervalIdx * 2 + 1];
+  const int64_t logicalRank = materializedLayout.getLogicalShape().size();
+  const int64_t tileHWIdx = concatDim - (logicalRank - 2);
+  const bool isTileInterval = concatIntervalIdx >= tensorGridRank - 2;
+  const int64_t minShard =
+      (isTileInterval && tileHWIdx >= 0 &&
+       static_cast<size_t>(tileHWIdx) < paddingShape.size())
+          ? paddingShape[tileHWIdx]
+          : 1;
+  const int64_t intervalSize = utils::computeCollapsedIntervalSize(
+      materializedLayout.getLogicalShape(), alignments, intervalStart,
+      intervalEnd);
+  const int64_t maxGridDim = std::max<int64_t>(1, intervalSize / minShard);
+  const int64_t upperBound = std::min(grid[concatIntervalIdx], maxGridDim);
+
+  llvm::SmallVector<int64_t> candidateGrid = grid;
+  for (int64_t candidate = upperBound; candidate > 0; --candidate) {
+    if (intervalSize % candidate != 0 || intervalSize / candidate < minShard) {
       continue;
     }
 
-    const int64_t logicalRank = materializedLayout.getLogicalShape().size();
-    const int64_t tileHWIdx = concatDim - (logicalRank - 2);
-    const bool isTileInterval = intervalIdx >= tensorGridRank - 2;
-    const int64_t minShard =
-        (isTileInterval && tileHWIdx >= 0 &&
-         static_cast<size_t>(tileHWIdx) < paddingShape.size())
-            ? paddingShape[tileHWIdx]
-            : 1;
-    const int64_t intervalSize =
-        computeCollapsedIntervalSize(materializedLayout.getLogicalShape(),
-                                     alignments, intervalStart, intervalEnd);
-    const int64_t maxGridDim = std::max<int64_t>(1, intervalSize / minShard);
-    const int64_t upperBound = std::min(grid[intervalIdx], maxGridDim);
-
-    llvm::SmallVector<int64_t> candidateGrid = grid;
-    for (int64_t candidate = upperBound; candidate > 0; --candidate) {
-      if (intervalSize % candidate != 0 ||
-          intervalSize / candidate < minShard) {
-        continue;
-      }
-
-      candidateGrid[intervalIdx] = candidate;
-      if (!utils::findLegalPhysicalGridForVolume(getVolume(candidateGrid),
-                                                 targetGrid)
-               .empty()) {
-        grid = candidateGrid;
-        break;
-      }
+    candidateGrid[concatIntervalIdx] = candidate;
+    if (!utils::findLegalPhysicalGridForVolume(getVolume(candidateGrid),
+                                               targetGrid)
+             .empty()) {
+      grid = candidateGrid;
+      break;
     }
-    break;
   }
 
   return grid;
@@ -479,17 +472,11 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
             getTiledConsumerTileShape(genericOp.getResult(resultIndex));
       }
     }
-    if (!mlir::isa<ttcore::TileType>(operandType.getElementType()) &&
-        info.paddingTileShape.empty() &&
-        operand.getDefiningOp<d2m::CompositeViewOp>()) {
-      info.paddingTileShape =
-          llvm::to_vector(ttcore::TileType::getDefaultShape());
-    }
 
     // If the operand is a view over a ToLayoutOp (not fronting a TTNN cast),
     // pre-compute the ToLayoutOp's own optimal grid so it can be updated
     // independently at apply time.
-    if (auto toLayoutOp = getToLayoutProducerBehindViews(operand)) {
+    if (auto toLayoutOp = utils::getToLayoutProducerBehindViews(operand)) {
       if (!toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
         Value toLayoutResult = toLayoutOp.getResult(0);
         auto inputType =
@@ -504,11 +491,27 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     result.operandInfos.push_back(std::move(info));
   }
 
+  // Pick the padding tile shape from the output-derived consumer info first
+  // (set by the per-operand loop above) so it wins over any defaulted shape.
+  // If no output operand has a downstream tiled consumer but the generic does
+  // feed a composite-view-style scalar pipeline, fall back to the default tile
+  // shape so the eventual tile bridge has a consistent padding contract.
   llvm::SmallVector<int64_t> genericPaddingTileShape;
   for (const OperandGridInfo &info : result.operandInfos) {
     if (!info.paddingTileShape.empty()) {
       genericPaddingTileShape = info.paddingTileShape;
       break;
+    }
+  }
+  if (genericPaddingTileShape.empty()) {
+    for (const OperandGridInfo &info : result.operandInfos) {
+      auto operandType = mlir::cast<RankedTensorType>(info.operand.getType());
+      if (!mlir::isa<ttcore::TileType>(operandType.getElementType()) &&
+          info.operand.getDefiningOp<d2m::CompositeViewOp>()) {
+        genericPaddingTileShape =
+            llvm::to_vector(ttcore::TileType::getDefaultShape());
+        break;
+      }
     }
   }
   if (!genericPaddingTileShape.empty()) {
@@ -540,6 +543,9 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     }
   }
 
+  // Must run after normalization above has finalized `info.selectedGrid`:
+  // composite input grids are derived from the parent operand's *final*
+  // selected grid, not its pre-normalization optimal grid.
   for (OperandGridInfo &info : result.operandInfos) {
     auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
     if (!compositeView) {

@@ -14,6 +14,15 @@
 
 namespace mlir::tt::d2m::utils {
 
+d2m::ToLayoutOp getToLayoutProducerBehindViews(mlir::Value operand) {
+  bool sawView = false;
+  while (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+    sawView = true;
+    operand = view.getInput();
+  }
+  return sawView ? operand.getDefiningOp<d2m::ToLayoutOp>() : d2m::ToLayoutOp();
+}
+
 llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetGrid) {
@@ -145,13 +154,10 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
     return false;
   }
 
-  // Collapsed layouts are still virtual-grid compatible once they have been
-  // normalized to a 2D physical grid: the VGM maps only the materialized grid
-  // dimensions, while the layout keeps the logical-to-physical collapse.
-  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) &&
-      physicalShape.size() != 2) {
-    return false;
-  }
+  // Non-2D physical shapes always go through virtual grid. Collapsed-dim
+  // layouts that have already been normalized to a 2D physical grid stay
+  // VGM-compatible — the VGM maps only the materialized grid dimensions while
+  // the layout keeps the logical-to-physical collapse.
   if (physicalShape.size() != 2) {
     return true;
   }
@@ -211,10 +217,10 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
 }
 
-static int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
-                                            ArrayRef<int64_t> alignments,
-                                            int64_t intervalStart,
-                                            int64_t intervalEnd) {
+int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> alignments,
+                                     int64_t intervalStart,
+                                     int64_t intervalEnd) {
   TT_assert(intervalStart < intervalEnd);
 
   int64_t collapsedSize = ttmlir::utils::alignUp(logicalShape[intervalEnd - 1],

@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_GRIDSELECTIONUTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_GRIDSELECTIONUTILS_H
 
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/IR/Builders.h"
@@ -16,6 +17,19 @@
 namespace mlir::tt::d2m {
 
 namespace utils {
+
+// Walk back through any chain of ViewLayoutOp producers and return the
+// ToLayoutOp that feeds them. Returns a null ToLayoutOp if `operand` is not
+// produced through at least one view, or if the value behind the views is not
+// a ToLayoutOp.
+d2m::ToLayoutOp getToLayoutProducerBehindViews(mlir::Value operand);
+
+// Compute the size of a single collapsed-interval row across the given
+// logical-shape range, propagating alignment from the innermost dim outward.
+int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> alignments,
+                                     int64_t intervalStart,
+                                     int64_t intervalEnd);
 
 // Compute optimal grid shape for a given physical shape and target grid by
 // finding the largest grid dimensions that evenly divide the physical shape.
