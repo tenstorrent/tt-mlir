@@ -347,3 +347,39 @@ TEST_F(SnapshotReplayNonEmptyAndCascadeTest,
   EXPECT_FALSE(wasSpilled(opPost->getResult(0)));
   EXPECT_FALSE(wasSpilled(opTrigger2->getResult(0)));
 }
+
+//===----------------------------------------------------------------------===//
+// ForkJoinTest
+//===----------------------------------------------------------------------===//
+
+class ForkJoinTest : public L1SpillTestFixture {};
+
+// opA forks into opB and opC, joined by opJoin. opAfterAll keeps opA alive
+// past opJoin so that opA has the farthest last-use when the no-fit check
+// fires at opC. Pass evicts opA and inserts the spill-to-DRAM so all three
+// consumers can still read it.
+TEST_F(ForkJoinTest, SharedTensorEvictedAsFarthestLastUse) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opA   = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB   = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opC   = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opJoin = addBinary(opB->getResult(0), opC->getResult(0), tt,
+                           /*l1UsageBytes=*/100 * kKiB);
+  // opAfterAll keeps opA's last-use later than opJoin's, making opA the
+  // farthest-last-use eviction target.
+  auto *opAfterAll = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
+  finishFunc({opJoin->getResult(0), opAfterAll->getResult(0)});
+
+  auto [obs] = run();
+
+  EXPECT_TRUE(wasSpilled(opA->getResult(0)))
+      << "opA (farthest-last-use of the shared fork tensor) should be spilled";
+  ASSERT_FALSE(obs->evictions.empty());
+  EXPECT_EQ(obs->evictions.front().victim, opA)
+      << "first eviction must be opA";
+}
