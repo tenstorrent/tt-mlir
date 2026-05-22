@@ -86,6 +86,47 @@ mlir::Value maybeReshapeWeightToTileWidth(PatternRewriter &rewriter,
   return reshapeTo(rewriter, loc, weight, reshapedShape);
 }
 
+LogicalResult rewriteDistributedRMSNormWithReshape(
+    ttnn::DistributedRMSNormOp op, PatternRewriter &rewriter,
+    ArrayRef<int64_t> targetShape, mlir::Value weight) {
+  Location loc = op.getLoc();
+  RankedTensorType resultType =
+      mlir::cast<RankedTensorType>(op.getResult().getType());
+
+  mlir::Value reshapedInput =
+      ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<mlir::TypedValue<RankedTensorType>>(op.getInput()),
+          targetShape, rewriter, loc)
+          .getResult();
+
+  mlir::Value reshapedResidual = op.getResidual();
+  if (reshapedResidual) {
+    reshapedResidual =
+        ttir_to_ttnn::utils::generateReshape(
+            mlir::cast<mlir::TypedValue<RankedTensorType>>(reshapedResidual),
+            targetShape, rewriter, loc)
+            .getResult();
+  }
+
+  RankedTensorType canonicalResultType =
+      utils::RankedTensorTypeFactory::create(resultType, targetShape);
+
+  auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
+      loc, canonicalResultType, reshapedInput, weight, reshapedResidual,
+      op.getStats(), op.getSemaphore(), op.getDevice(), op.getClusterAxis(),
+      op.getEpsilon(), op.getSubDeviceIdAttr(), op.getNumLinksAttr(),
+      op.getTopologyAttr(), op.getComputeConfigAttr(),
+      op.getProgramConfigAttr());
+
+  mlir::Value reshapedResult =
+      ttir_to_ttnn::utils::generateReshape(newOp.getResult(),
+                                           resultType.getShape(), rewriter, loc)
+          .getResult();
+
+  rewriter.replaceOp(op, reshapedResult);
+  return success();
+}
+
 } // namespace
 
 LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
@@ -127,44 +168,25 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
     // Reshape to canonical (1,1,32,M), forward to the fused kernel, then
     // reshape the result back to the original shape.
-    SmallVector<int64_t> canonicalShape = {1, 1, 32, inputShape.back()};
+    SmallVector<int64_t> canonicalShapeForFusedKernel = {1, 1, 32,
+                                                         inputShape.back()};
+    return rewriteDistributedRMSNormWithReshape(
+        op, rewriter, canonicalShapeForFusedKernel, reshapedWeight);
+  }
 
-    mlir::Value reshapedInput =
-        ttir_to_ttnn::utils::generateReshape(
-            mlir::cast<mlir::TypedValue<RankedTensorType>>(op.getInput()),
-            canonicalShape, rewriter, loc)
-            .getResult();
-
-    mlir::Value reshapedResidual = op.getResidual();
-    if (reshapedResidual) {
-      reshapedResidual =
-          ttir_to_ttnn::utils::generateReshape(
-              mlir::cast<mlir::TypedValue<RankedTensorType>>(reshapedResidual),
-              canonicalShape, rewriter, loc)
-              .getResult();
-    }
-
-    RankedTensorType canonicalResultType =
-        utils::RankedTensorTypeFactory::create(resultType, canonicalShape);
-
-    auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
-        loc, canonicalResultType, reshapedInput, reshapedWeight,
-        reshapedResidual, op.getStats(), op.getSemaphore(), op.getDevice(),
-        op.getClusterAxis(), op.getEpsilon(), op.getSubDeviceIdAttr(),
-        op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
-        op.getProgramConfigAttr());
-
-    mlir::Value reshapedResult =
-        ttir_to_ttnn::utils::generateReshape(
-            newOp.getResult(), resultType.getShape(), rewriter, loc)
-            .getResult();
-
-    rewriter.replaceOp(op, reshapedResult);
-    return success();
+  int64_t rank = inputType.getRank();
+  // The fallback decomposition lowers through rms_norm_pre_all_gather, whose
+  // runtime expects a rank-4 tensor. Left-pad lower-rank shapes with ones so
+  // HxW and 1xHxW become 1x1xHxW before decomposition.
+  if (rank < 4) {
+    SmallVector<int64_t> canonicalShapeForPreAllGather;
+    canonicalShapeForPreAllGather.append(4 - rank, 1);
+    canonicalShapeForPreAllGather.append(inputShape.begin(), inputShape.end());
+    return rewriteDistributedRMSNormWithReshape(
+        op, rewriter, canonicalShapeForPreAllGather, op.getWeight());
   }
 
   Location loc = op.getLoc();
-  int64_t rank = inputType.getRank();
   uint32_t clusterAxis = op.getClusterAxis();
   mlir::Value input = op.getInput();
 
@@ -211,7 +233,6 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       ttmlir::utils::appendLocationSuffix(loc, "_pre_all_gather"), statsType,
       /*input*/ x,
       /*residual_input=*/mlir::Value{},
-      /*memory_config=*/nullptr,
       /*compute_config=*/nullptr,
       /*program_config=*/nullptr,
       /*dtype=*/dtypeAttr,
@@ -237,9 +258,6 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
   // --- Post all-gather: normalize using global stats ---
 
-  // TODO: Replace the below primitive, reshape and slice ops with the
-  // rms_norm_post_all_gather
-  //
   // rms_norm_pre_all_gather produces per-device statistics with shape
   // [..., TILE_WIDTH], where only column 0 stores E(x^2) and the remaining
   // columns are padding/unused.
@@ -280,8 +298,7 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   auto reshapedStats = rewriter.create<ttnn::ReshapeOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_reshape_stats"),
       reshapedStatsType, allGatherOp.getResult(),
-      rewriter.getI32ArrayAttr(reshapedStatsShape32),
-      /*memory_config=*/nullptr);
+      rewriter.getI32ArrayAttr(reshapedStatsShape32));
 
   // Slice column 0: [..., numDevices, TILE_WIDTH] -> [..., numDevices, 1]
   SmallVector<int64_t> slicedShape(reshapedStatsShape);
@@ -326,7 +343,7 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   auto flattenedStats = rewriter.create<ttnn::ReshapeOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_flatten_stats"),
       flattenedStatsType, sliceEx2.getResult(),
-      rewriter.getI32ArrayAttr(flattenedStatsShapeI32), nullptr);
+      rewriter.getI32ArrayAttr(flattenedStatsShapeI32));
 
   // Mean across device dimension (now last dim).
   // [..., numDevices] to [..., 1]
