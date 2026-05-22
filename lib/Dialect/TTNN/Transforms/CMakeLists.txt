@@ -47,6 +47,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNWeightDtypeConversion.cpp
         TTNNKVCacheDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
+        Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpRewritePattern.cpp
