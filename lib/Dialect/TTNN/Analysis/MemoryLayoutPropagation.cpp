@@ -84,7 +84,9 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// Returns nullptr when no filtering is needed (all layouts accepted).
 /// Delegates to per-op rule files via OpRuleBook.
 static LayoutFilterFn getInputLayoutFilter(Operation *op, unsigned operandIdx) {
-  return getRuleBook(op).getInputLayoutFilter(op, operandIdx);
+  auto inputType =
+      mlir::cast<RankedTensorType>(op->getOperand(operandIdx).getType());
+  return getRuleBook(op).getInputLayoutFilter(inputType, operandIdx);
 }
 
 /// Check if a layout is sharded.

@@ -101,22 +101,22 @@ OutputHints SplitQKVRuleBook::getOutputHints(
 //===----------------------------------------------------------------------===//
 
 LayoutFilterFn
-PagedUpdateCacheRuleBook::getInputLayoutFilter(Operation *op,
+PagedUpdateCacheRuleBook::getInputLayoutFilter(RankedTensorType inputType,
                                                unsigned operandIdx) const {
   // Operand 1 (fill value) must be L1 height-sharded on a {numUsers, 1}
   // virtual grid.  Any other grid causes PCC degradation;
   // https://github.com/tenstorrent/tt-metal/issues/44923 relax when tt-metal
   // enforces this and raises an error for PCC-degrading layouts.
   if (operandIdx == 1) {
-    int64_t numUsers =
-        mlir::cast<RankedTensorType>(op->getOperand(1).getType()).getShape()[1];
+    int64_t numUsers = inputType.getShape()[1];
     return [numUsers](TTNNLayoutAttr layout) -> bool {
       auto ml = layout.getMemLayout();
+      assert(ml && "expected non-null memory layout");
       auto gridShape = layout.getGridShape();
-      return layout.hasL1BufferType() && ml &&
+      assert(gridShape.size() == 2 && "expected 2D grid shape");
+      return layout.hasL1BufferType() &&
              ml.getValue() == TensorMemoryLayout::HeightSharded &&
-             gridShape.size() == 2 && gridShape[0] == numUsers &&
-             gridShape[1] == 1;
+             gridShape[0] == numUsers && gridShape[1] == 1;
     };
   }
   return nullptr;
