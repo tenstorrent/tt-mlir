@@ -80,6 +80,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static FillCacheRuleBook fillCache;
   static PagedFillCacheRuleBook pagedFillCache;
+  static ToLayoutRuleBook toLayout;
+  static UpsampleRuleBook upsample;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -116,6 +118,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(FillCacheOp::getOperationName(), &fillCache);
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
+    reg(ToLayoutOp::getOperationName(), &toLayout);
+    reg(UpsampleOp::getOperationName(), &upsample);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;

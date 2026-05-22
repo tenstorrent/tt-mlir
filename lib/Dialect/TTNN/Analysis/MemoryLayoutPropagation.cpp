@@ -1294,6 +1294,31 @@ void MemoryLayoutPropagation::applyToIR() {
     applyOpConfig(op, *chosen);
   });
 
+  // Pass 1.5: Pin memory_config on existing to_layout ops.
+  // to_layout ops are skipped during beam search (processOp returns early).
+  // Their memory_config attr is typically nullopt, so tt-metal inherits the
+  // input tensor's memory layout at runtime. When a producer (e.g., slice)
+  // changes from DRAM to HEIGHT_SHARDED via applyOpConfig, the to_layout
+  // would inherit HS and produce HS-TILE instead of the DRAM-TILE encoded in
+  // its MLIR result type. Explicitly set memory_config from the result type so
+  // the output memory layout is always correct regardless of input.
+  func->walk([&](ttnn::ToLayoutOp toLayoutOp) {
+    if (toLayoutOp.getMemoryConfigAttr()) {
+      return; // Already pinned, leave it.
+    }
+    auto resultType =
+        mlir::dyn_cast<RankedTensorType>(toLayoutOp.getResult().getType());
+    if (!resultType) {
+      return;
+    }
+    auto resultLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
+    if (!resultLayout) {
+      return;
+    }
+    toLayoutOp.setMemoryConfigAttr(MemoryConfigAttr::get(resultLayout));
+  });
+
   // Second pass: insert reshard ops.
   func->walk([&](Operation *op) {
     const BeamCandidate *chosen = getChosenCandidate(op);

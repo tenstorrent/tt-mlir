@@ -46,8 +46,10 @@ struct ConcatRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
-/// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded
-/// output, no reshards.
+/// SliceStaticOp, SliceDynamicOp: allow HEIGHT_SHARDED ROW_MAJOR input for
+/// width-trim slices (begins=[0,...,0], only last dim sliced); reject all
+/// other sharded inputs. Non-sharded output by default; HEIGHT_SHARDED ROW_MAJOR
+/// output proposed as fallback for width-trim SliceStaticOp. No reshards.
 struct SliceRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
@@ -70,6 +72,27 @@ struct ReshapeRuleBook : OpRuleBook {
 /// PadOp: non-sharded output only, no reshards.
 struct PadRuleBook : OpRuleBook {
   bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// ToLayoutOp: reject HEIGHT_SHARDED inputs to prevent the HS cascade from
+/// propagating through layout conversion into reshape/conv2d chains that
+/// require TILED tensors. Without this filter the optimizer threads HS-RM
+/// through to_layout → HS-TILE output → reshape fails on HS-TILE → inserts a
+/// wasteful DRAM→HS→DRAM round-trip.
+struct ToLayoutRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  OutputHints getOutputHints(Operation *op,
+                             const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// UpsampleOp (bilinear): proposes HEIGHT_SHARDED output with the exact core
+/// count that compute_bilinear_autoshard_memory_config will use at runtime:
+/// num_cores = min(max_cores, N*H*W_input).
+/// For nearest-mode, falls back to default (NULL hint + sharded fallbacks).
+struct UpsampleRuleBook : OpRuleBook {
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;

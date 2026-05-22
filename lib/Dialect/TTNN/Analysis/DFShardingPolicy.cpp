@@ -2304,7 +2304,7 @@ void DFShardingPolicy::run() {
                     ttnn::MatmulOp, ttnn::LinearOp, ttnn::MinimumOp,
                     ttnn::GeluOp, ttnn::NegOp, ttnn::RsqrtOp, ttnn::ConcatOp,
                     ttnn::PowScalarOp, ttnn::RotaryEmbeddingOp,
-                    ttnn::D2MSubgraphOp>(currentOp) &&
+                    ttnn::D2MSubgraphOp, ttnn::UpsampleOp>(currentOp) &&
           legalConfigs.lookup(currentOp).size() > 0;
 
       // Special handling for ConcatOp: isolate it into its own single-op

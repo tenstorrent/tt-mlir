@@ -4,8 +4,11 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 
@@ -244,6 +247,85 @@ PadRuleBook::getOutputHints(Operation * /*op*/,
   // sharded.
   // https://github.com/tenstorrent/tt-metal/issues/40898
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
+//===----------------------------------------------------------------------===//
+// ToLayoutRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+ToLayoutRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  return layout_filter_utils::rejectAllSharded;
+}
+
+OutputHints
+ToLayoutRuleBook::getOutputHints(Operation * /*op*/,
+                                 const std::vector<OpConfig> &legalConfigs) const {
+  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
+//===----------------------------------------------------------------------===//
+// UpsampleRuleBook
+//===----------------------------------------------------------------------===//
+
+OutputHints
+UpsampleRuleBook::getOutputHints(Operation *op,
+                                 const std::vector<OpConfig> &legalConfigs) const {
+  OutputHints result;
+  result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+
+  auto upsampleOp = mlir::cast<ttnn::UpsampleOp>(op);
+  if (upsampleOp.getMode() != "bilinear") {
+    // Nearest-mode: standard sharded fallbacks.
+    for (const auto &cfg : legalConfigs) {
+      if (!cfg.outputLayout) {
+        continue;
+      }
+      auto ml = cfg.outputLayout.getMemLayout();
+      if (ml && isShardedMemoryLayout(ml.getValue())) {
+        result.fallbackHints.push_back(cfg);
+      }
+    }
+    return result;
+  }
+
+  // Bilinear: compute the exact HEIGHT_SHARDED grid that
+  // compute_bilinear_autoshard_memory_config will use at runtime.
+  auto inputType =
+      mlir::cast<RankedTensorType>(upsampleOp.getInput().getType());
+  auto inputShape = inputType.getShape();
+  if (inputShape.size() != 4) {
+    return result;
+  }
+
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+  if (!deviceAttr) {
+    return result;
+  }
+
+  const int64_t N = inputShape[0], H = inputShape[1], W = inputShape[2];
+  const int64_t max_cores =
+      static_cast<int64_t>(ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape()));
+  const int64_t num_cores = std::min(max_cores, N * H * W);
+
+  // Build HEIGHT_SHARDED ROW_MAJOR output layout with num_cores.
+  auto outputType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  auto outputEncoding =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+  auto outputShape = outputType.getShape();
+  auto scalarType = outputEncoding.getScalarElementType();
+
+  TTNNLayoutAttr hsLayout =
+      TTNNLayoutAttr::Builder(outputEncoding, outputShape)
+          .setElementType(scalarType)
+          .setBufferType(BufferType::L1)
+          .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+          .setGridShape({num_cores, 1})
+          .buildWithCanonicalCorePlacement(deviceAttr);
+
+  result.fallbackHints.push_back(OpConfig(hsLayout));
+  return result;
 }
 
 } // namespace mlir::tt::ttnn

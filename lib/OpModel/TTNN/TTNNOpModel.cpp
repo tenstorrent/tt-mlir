@@ -1895,6 +1895,56 @@ llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> outputShape,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // Analytical bypass for HEIGHT_SHARDED ROW_MAJOR input.
+  // ttnn::reshape handles HS input natively (ReshapeRuleBook::getInputLayoutFilter
+  // only rejects width-sharded), but QUERY_OP_CONSTRAINTS fails for HS inputs
+  // in the op-model dry-run context.
+  //
+  // Two cases:
+  //   outputLayout != null (non-view reshape): HS → DRAM/L1-interleaved,
+  //     return the requested outputLayout with 2-CB analytical L1 estimate.
+  //   outputLayout == null (view-eligible reshape with NULL hint): HS → HS,
+  //     the reshape inherits the input shard spec via the reshape.cpp view
+  //     path; return an HS output layout built from the (reshaped) output dims.
+  bool isHSRM =
+      inputLayout && inputLayout.getMemLayout() &&
+      inputLayout.getMemLayout().getValue() ==
+          TensorMemoryLayout::HeightSharded &&
+      inputLayout.getLayout() == Layout::RowMajor;
+  if (isHSRM) {
+    auto gridShape = inputLayout.getGridShape();
+    int64_t numCores = 1;
+    for (auto d : gridShape)
+      numCores *= static_cast<int64_t>(d);
+    int64_t inputElems = 1;
+    for (auto d : inputShape)
+      inputElems *= d;
+    constexpr int64_t kElemBytes = 2; // bf16
+    size_t shardBytes = static_cast<size_t>(
+        (inputElems * kElemBytes + numCores - 1) / numCores);
+
+    if (!outputLayout) {
+      // View-eligible reshape (NULL hint): output inherits the HS shard spec.
+      // The output shape has the same total elements; per-core shard is
+      // unchanged. No data copy: L1 usage = one shard (already allocated).
+      TTNNLayoutAttr outputHSLayout =
+          TTNNLayoutAttr::Builder(inputLayout, outputShape)
+              .setElementType(inputLayout.getScalarElementType())
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+              .setGridShape(gridShape)
+              .setCoreRangeSet(inputLayout.getCoreRangeSet())
+              .build();
+      llvm::SmallVector<TTNNLayoutAttr> outLayouts = {outputHSLayout};
+      return OpConstraints(shardBytes, 0, shardBytes, 0, outLayouts);
+    }
+
+    // Non-view reshape: HS → DRAM/L1-interleaved.
+    size_t cbPeak = 2 * shardBytes;
+    llvm::SmallVector<TTNNLayoutAttr> outLayouts = {outputLayout};
+    return OpConstraints(cbPeak, 0, cbPeak, 0, outLayouts);
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -1955,6 +2005,60 @@ llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // Analytical path for HEIGHT_SHARDED ROW_MAJOR width-trim slices.
+  // QUERY_OP_CONSTRAINTS cannot be used: the graph-trace dry-run calls
+  // validate_on_program_cache_miss which asserts input.buffer() != nullptr —
+  // this fails for HEIGHT_SHARDED inputs in the op-model singleton context.
+  // A dedicated kernel (SliceRmShardedWidthTrimProgramFactory) handles this
+  // case; here we replicate its two-CB accounting analytically.
+  // Width-trim = all begins zero, step 1 everywhere, only last dim reduced.
+  bool isHSRM =
+      inputLayout && inputLayout.getMemLayout() &&
+      inputLayout.getMemLayout().getValue() ==
+          TensorMemoryLayout::HeightSharded &&
+      inputLayout.getLayout() == Layout::RowMajor;
+  if (isHSRM && !outputLayout) {
+    unsigned rank = inputShape.size();
+    bool widthTrim = (rank > 0);
+    for (unsigned i = 0; i + 1 < rank && widthTrim; ++i) {
+      widthTrim &= (begins[i] == 0) && (ends[i] == inputShape[i]) &&
+                   (step[i] == 1);
+    }
+    if (rank > 0) {
+      widthTrim &= (begins[rank - 1] == 0) &&
+                   (ends[rank - 1] < inputShape[rank - 1]) &&
+                   (step[rank - 1] == 1);
+    }
+    if (widthTrim) {
+      auto gridShape = inputLayout.getGridShape();
+      int64_t numCores = 1;
+      for (auto d : gridShape) numCores *= static_cast<int64_t>(d);
+      int64_t totalSticks = 1;
+      for (unsigned i = 0; i + 1 < rank; ++i) totalSticks *= inputShape[i];
+      int64_t sticksPerCore = (totalSticks + numCores - 1) / numCores;
+      constexpr int64_t kElemBytes = 2; // bf16
+      const int64_t CIn  = inputShape[rank - 1];
+      const int64_t COut = ends[rank - 1];
+      const size_t cbInSize  = static_cast<size_t>(sticksPerCore * CIn * kElemBytes);
+      const size_t cbOutSize = static_cast<size_t>(sticksPerCore * COut * kElemBytes);
+      const size_t cbPeak    = cbInSize + cbOutSize;
+      // Build output HEIGHT_SHARDED ROW_MAJOR layout: same grid and core
+      // ranges as the input, last dim trimmed to ends[rank-1].
+      llvm::SmallVector<int64_t> outShape(inputShape.begin(), inputShape.end());
+      outShape[rank - 1] = COut;
+      TTNNLayoutAttr outputHSLayout =
+          TTNNLayoutAttr::Builder(inputLayout, outShape)
+              .setElementType(inputLayout.getScalarElementType())
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+              .setGridShape(gridShape)
+              .setCoreRangeSet(inputLayout.getCoreRangeSet())
+              .build();
+      llvm::SmallVector<TTNNLayoutAttr> outLayouts = {outputHSLayout};
+      return OpConstraints(cbPeak, cbPeak, cbPeak, cbOutSize, outLayouts);
+    }
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -7454,13 +7558,13 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     llvm::StringRef mode, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-
-  // Convert params
+  // Parse scale factors before any guard checks so they are available for
+  // both the analytical path and the QUERY fallback.
   std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
       convertedScaleFactor;
+  int64_t scale_h = 1, scale_w = 1;
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
+    scale_h = scale_w = static_cast<int64_t>(value.getSInt());
     convertedScaleFactor = static_cast<int>(value.getSInt());
   } else if (auto tuple =
                  mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
@@ -7469,10 +7573,229 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     std::array<int, 2> arr;
     arr[0] = static_cast<int>(tuple[0]);
     arr[1] = static_cast<int>(tuple[1]);
+    scale_h = static_cast<int64_t>(arr[0]);
+    scale_w = static_cast<int64_t>(arr[1]);
     convertedScaleFactor = arr;
   } else {
     return llvm::createStringError("Invalid scaleFactor");
   }
+
+  if (mode == "bilinear") {
+    // Helper: true when a layout is sharded L1 but NOT HEIGHT_SHARDED.
+    // Block/width sharded is never valid for bilinear upsample.
+    auto isUnsupportedShardedL1 = [](TTNNLayoutAttr layout) -> bool {
+      if (!layout || !layout.hasShardedL1TensorMemoryLayout()) {
+        return false;
+      }
+      return layout.getMemLayout().getValue() !=
+             TensorMemoryLayout::HeightSharded;
+    };
+    if (isUnsupportedShardedL1(inputLayout) ||
+        isUnsupportedShardedL1(outputLayout)) {
+      return llvm::createStringError(
+          "Bilinear upsample only supports HEIGHT_SHARDED for L1 (not "
+          "block/width sharded)");
+    }
+
+    // For HEIGHT_SHARDED bilinear: compute L1 analytically to avoid calling
+    // QUERY_OP_CONSTRAINTS which triggers ttnn::halo() and crashes in the
+    // OpModel singleton device dry-run context.
+    // Only valid when channels are divisible by 32 (bilinear factory
+    // requirement: "input channels should be divisible by 32").
+    if (inputLayout && inputLayout.hasShardedL1TensorMemoryLayout()) {
+      // Bilinear halo() requires ROW_MAJOR HEIGHT_SHARDED input.  TILED
+      // HEIGHT_SHARDED (typical conv output) causes a segfault inside
+      // generate_halo_kernel_config_tensors.  Reject TILED input so the
+      // optimizer cannot form a conv→upsample sharded chain; the upsample
+      // will instead start its own chain with DRAM input (autosharded
+      // to ROW_MAJOR at runtime by compute_bilinear_autoshard_memory_config).
+      if (inputLayout.isTiled()) {
+        return llvm::createStringError(
+            "Bilinear upsample HEIGHT_SHARDED requires ROW_MAJOR input, "
+            "not TILED (conv output); rejecting to prevent halo segfault");
+      }
+      if (inputShape.size() != 4) {
+        return llvm::createStringError(
+            "Bilinear upsample HEIGHT_SHARDED requires 4D input shape [N,H,W,C]");
+      }
+      const int64_t channels = inputShape[3];
+      if (channels % 32 != 0) {
+        return llvm::createStringError(
+            "Bilinear upsample HEIGHT_SHARDED requires channels divisible by 32");
+      }
+
+      const int64_t N = inputShape[0];
+      const int64_t H = inputShape[1];
+      const int64_t W = inputShape[2];
+      const int64_t C = channels;
+
+      // Grid sizing mirrors compute_bilinear_autoshard_memory_config in
+      // ttnn/operations/pool/upsample/upsample.cpp.
+      const int64_t total_input_sticks = N * H * W;
+      const int64_t max_cores =
+          static_cast<int64_t>(deviceGrid.getShape()[0]) *
+          static_cast<int64_t>(deviceGrid.getShape()[1]);
+      const int64_t num_cores = std::min(max_cores, total_input_sticks);
+      const int64_t in_shard_h =
+          (total_input_sticks + num_cores - 1) / num_cores;
+
+      const int64_t total_output_sticks = N * (H * scale_h) * (W * scale_w);
+      const int64_t out_shard_h =
+          (total_output_sticks + num_cores - 1) / num_cores;
+
+      // bf16 = 2 bytes per element
+      constexpr int64_t ELEMENT_SIZE = 2;
+      const int64_t input_stick_nbytes = C * ELEMENT_SIZE;
+
+      // Halo preprocessing (apply_bilinear_halo_preprocessing) creates a
+      // gather tensor where each output position references its 2x2 input
+      // neighbourhood.  For scale=s the halo shard grows by ~s² plus a small
+      // fixed border from the 1-pixel halo padding.
+      const int64_t halo_shard_h = in_shard_h * scale_h * scale_w + 4;
+
+      // CB sizes from UpsampleBilinearProgramFactory::create() in
+      // upsample_bilinear_program_factory_multicore.cpp:
+      //   in_cb      : halo_shard_h pages of input_stick_nbytes each
+      //   inter_cb_0 : 4*2 pages of min(8*TILE_WIDTH*2, input_stick_nbytes)
+      //   inter_cb_1 : 4*2 pages of input_stick_nbytes
+      //   scalar_cb  : 2 CBs × tile_size × 1 × 2 (buffering)
+      //   out_cb     : out_shard_h * ceil(C/32) pages of TILE_WIDTH*2 bytes
+      constexpr int64_t TILE_WIDTH = 32;
+      constexpr int64_t MAX_TILES_PER_REDUCTION = 8;
+      constexpr int64_t BUFFERING_FACTOR = 2;
+
+      const int64_t in_cb_size = halo_shard_h * input_stick_nbytes;
+
+      const int64_t in1_cb_pagesize =
+          std::min(MAX_TILES_PER_REDUCTION * TILE_WIDTH * ELEMENT_SIZE,
+                   input_stick_nbytes);
+      const int64_t inter_cb0_size = in1_cb_pagesize * 4 * BUFFERING_FACTOR;
+      const int64_t inter_cb1_size = input_stick_nbytes * 4 * BUFFERING_FACTOR;
+
+      const int64_t tile_size_bytes = TILE_WIDTH * TILE_WIDTH * ELEMENT_SIZE;
+      const int64_t scalar_cb_size =
+          2 * tile_size_bytes * 1 * BUFFERING_FACTOR; // 2 scalar CBs
+
+      const int64_t in_ntiles_c = (C + TILE_WIDTH - 1) / TILE_WIDTH;
+      const int64_t out_cb_pagesize = TILE_WIDTH * ELEMENT_SIZE;
+      const int64_t out_cb_size = out_cb_pagesize * out_shard_h * in_ntiles_c;
+
+      const size_t cb_l1_peak = static_cast<size_t>(
+          in_cb_size + inter_cb0_size + inter_cb1_size + scalar_cb_size +
+          out_cb_size);
+
+      // Tensor shard buffers live alongside the CBs in L1.
+      const size_t input_tensor_l1 =
+          static_cast<size_t>(in_shard_h * input_stick_nbytes);
+      const size_t output_tensor_l1 =
+          static_cast<size_t>(out_shard_h * C * ELEMENT_SIZE);
+      const size_t tensor_l1_peak = input_tensor_l1 + output_tensor_l1;
+      const size_t peak_l1_memory = cb_l1_peak + tensor_l1_peak;
+
+      // Build output TTNNLayoutAttr: inherit the input grid/shard config and
+      // update to the upsampled tensor shape.  Builder(layout, shape) inherits
+      // bufferType, memLayout, gridShape, and coreRangeSet from inputLayout.
+      const llvm::SmallVector<int64_t, 4> outputShape = {N, H * scale_h,
+                                                         W * scale_w, C};
+      TTNNLayoutAttr outLayout =
+          TTNNLayoutAttr::Builder(inputLayout, outputShape).build();
+
+      llvm::SmallVector<TTNNLayoutAttr> outLayouts = {outLayout};
+      return OpConstraints(cb_l1_peak, tensor_l1_peak, peak_l1_memory,
+                           output_tensor_l1, outLayouts);
+    }
+  }
+
+  // For bilinear upsample with DRAM/L1-interleaved input and HEIGHT_SHARDED
+  // output: the runtime internally autoshards the input before calling halo().
+  // QUERY_OP_CONSTRAINTS cannot be used (halo() crashes in dry-run). Use the
+  // same analytical CB formula as the HEIGHT_SHARDED→HEIGHT_SHARDED path.
+  if (mode == "bilinear" && outputLayout &&
+      outputLayout.hasShardedL1TensorMemoryLayout()) {
+    if (outputLayout.getMemLayout().getValue() !=
+        TensorMemoryLayout::HeightSharded) {
+      return llvm::createStringError(
+          "Bilinear upsample only supports HEIGHT_SHARDED L1 output");
+    }
+    if (inputShape.size() != 4) {
+      return llvm::createStringError(
+          "Bilinear upsample requires 4D [N,H,W,C] input shape");
+    }
+    const int64_t N = inputShape[0], H = inputShape[1], W = inputShape[2],
+                  C = inputShape[3];
+    if (C % 32 != 0) {
+      return llvm::createStringError(
+          "Bilinear upsample requires channels % 32 == 0, got " +
+          std::to_string(C));
+    }
+
+    const int64_t total_input_sticks = N * H * W;
+    const int64_t max_cores =
+        deviceGrid.getShape()[0] * deviceGrid.getShape()[1];
+    const int64_t num_cores = std::min(max_cores, total_input_sticks);
+    const int64_t in_shard_h =
+        (total_input_sticks + num_cores - 1) / num_cores;
+    const int64_t total_output_sticks = N * (H * scale_h) * (W * scale_w);
+    const int64_t out_shard_h =
+        (total_output_sticks + num_cores - 1) / num_cores;
+
+    constexpr int64_t ELEMENT_SIZE = 2;
+    const int64_t input_stick_nbytes = C * ELEMENT_SIZE;
+    const int64_t halo_shard_h = in_shard_h * scale_h * scale_w + 4;
+
+    constexpr int64_t TILE_WIDTH = 32, MAX_TILES_PER_REDUCTION = 8,
+                      BUFFERING_FACTOR = 2;
+    const int64_t in_cb_size = halo_shard_h * input_stick_nbytes;
+    const int64_t in1_cb_pagesize =
+        std::min(MAX_TILES_PER_REDUCTION * TILE_WIDTH * ELEMENT_SIZE,
+                 input_stick_nbytes);
+    const int64_t inter_cb0_size = in1_cb_pagesize * 4 * BUFFERING_FACTOR;
+    const int64_t inter_cb1_size = input_stick_nbytes * 4 * BUFFERING_FACTOR;
+    const int64_t tile_size_bytes = TILE_WIDTH * TILE_WIDTH * ELEMENT_SIZE;
+    const int64_t scalar_cb_size = 2 * tile_size_bytes * 1 * BUFFERING_FACTOR;
+    const int64_t in_ntiles_c = (C + TILE_WIDTH - 1) / TILE_WIDTH;
+    const int64_t out_cb_pagesize = TILE_WIDTH * ELEMENT_SIZE;
+    const int64_t out_cb_size = out_cb_pagesize * out_shard_h * in_ntiles_c;
+
+    const size_t cb_l1_peak = static_cast<size_t>(
+        in_cb_size + inter_cb0_size + inter_cb1_size + scalar_cb_size +
+        out_cb_size);
+    const size_t input_tensor_l1 =
+        static_cast<size_t>(in_shard_h * input_stick_nbytes);
+    const size_t output_tensor_l1 =
+        static_cast<size_t>(out_shard_h * C * ELEMENT_SIZE);
+    const size_t tensor_l1_peak = input_tensor_l1 + output_tensor_l1;
+    const size_t peak_l1_memory = cb_l1_peak + tensor_l1_peak;
+
+    // Only accept a proposed output layout whose core count matches what
+    // compute_bilinear_autoshard_memory_config will actually use at runtime
+    // (num_cores = min(max_cores, N*H*W_input)).  A core-count mismatch causes
+    // a shard-spec validation failure ("N shards > M cores") during the
+    // to_memory_config call that the runtime issues when its autoshard output
+    // differs from the compiler-requested layout.
+    auto outGridShape = outputLayout.getGridShape();
+    if (outGridShape.size() < 2) {
+      return llvm::createStringError(
+          "Bilinear DRAM-input upsample: outputLayout has invalid grid");
+    }
+    const int64_t proposed_cores = static_cast<int64_t>(outGridShape[0]) *
+                                   static_cast<int64_t>(outGridShape[1]);
+    if (proposed_cores != num_cores) {
+      return llvm::createStringError(
+          "Bilinear DRAM-input upsample: proposed core count " +
+          std::to_string(proposed_cores) + " != autoshard num_cores " +
+          std::to_string(num_cores) + "; rejecting layout");
+    }
+
+    llvm::SmallVector<TTNNLayoutAttr> outLayouts = {outputLayout};
+    return OpConstraints(cb_l1_peak, tensor_l1_peak, peak_l1_memory,
+                         output_tensor_l1, outLayouts);
+  }
+
+  // Fallback for DRAM / L1-interleaved bilinear with DRAM output,
+  // and all nearest-mode upsamples: use the standard QUERY_OP_CONSTRAINTS path.
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
 
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
@@ -7502,6 +7825,33 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
     TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+  if (mode == "bilinear") {
+    // Reject block/width sharded L1 — bilinear requires HEIGHT_SHARDED.
+    auto isUnsupportedShardedL1 = [](TTNNLayoutAttr layout) -> bool {
+      if (!layout || !layout.hasShardedL1TensorMemoryLayout()) {
+        return false;
+      }
+      return layout.getMemLayout().getValue() !=
+             TensorMemoryLayout::HeightSharded;
+    };
+    if (isUnsupportedShardedL1(inputLayout) ||
+        isUnsupportedShardedL1(outputLayout)) {
+      return llvm::createStringError(
+          "Bilinear upsample only supports HEIGHT_SHARDED for L1 (not "
+          "block/width sharded)");
+    }
+
+    // For HEIGHT_SHARDED bilinear: QUERY_OP_RUNTIME would call ttnn::halo()
+    // and crash in the OpModel singleton device context.  Return an error so
+    // the scheduler uses its fallback; layout selection is driven solely by
+    // getOpConstraints and is unaffected by this error.
+    if (inputLayout && inputLayout.hasShardedL1TensorMemoryLayout()) {
+      return llvm::createStringError(
+          "Bilinear upsample HEIGHT_SHARDED runtime measurement not supported "
+          "in OpModel (halo preprocessing crashes in dry-run context)");
+    }
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
