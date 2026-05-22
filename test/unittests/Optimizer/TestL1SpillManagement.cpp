@@ -193,3 +193,45 @@ TEST_F(NotImplementedPostFlushTest, PostFlushAllocationSeesEmptyTracker) {
   EXPECT_EQ(countSpills(), 2u);
   EXPECT_EQ(obs->evictions.size(), 2u);
 }
+
+//===----------------------------------------------------------------------===//
+// SnapshotReplayManyAllocsTest
+//===----------------------------------------------------------------------===//
+
+class SnapshotReplayManyAllocsTest : public L1SpillTestFixture {};
+
+// Evict opA (allocated first; pos 0). 3 subsequent allocations (B, C, D)
+// must be replayed forward from the empty-tracker snapshot. If the replay
+// machinery is broken, the pass crashes inside markEvictedAndRebuild.
+TEST_F(SnapshotReplayManyAllocsTest, EvictEarliestTensorReplaysAllSuccessors) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 512};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/200 * kKiB);
+  auto *opB = addUnary(args[0], tt, /*l1UsageBytes=*/200 * kKiB);
+  auto *opC = addUnary(args[0], tt, /*l1UsageBytes=*/200 * kKiB);
+  auto *opD = addUnary(args[0], tt, /*l1UsageBytes=*/200 * kKiB);
+  auto *opPressure = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  // useD, useC, useB, useA in reverse order so opA's lastUse is the
+  // farthest — eviction picks opA deterministically.
+  auto *useD = addUnary(opD->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *useC = addUnary(opC->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *useB = addUnary(opB->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *useA = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  finishFunc({opPressure->getResult(0), useD->getResult(0),
+              useC->getResult(0), useB->getResult(0), useA->getResult(0)});
+
+  auto [obs] = run();
+
+  ASSERT_EQ(obs->evictions.size(), 1u)
+      << "expected exactly one eviction (opA, allocated earliest)";
+  EXPECT_EQ(obs->evictions[0].victim, opA);
+  EXPECT_TRUE(wasSpilled(opA->getResult(0)));
+  // B, C, D must NOT be spilled — replay reproduced their addresses correctly.
+  EXPECT_FALSE(wasSpilled(opB->getResult(0)));
+  EXPECT_FALSE(wasSpilled(opC->getResult(0)));
+  EXPECT_FALSE(wasSpilled(opD->getResult(0)));
+}
