@@ -56,20 +56,23 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
               ::tt::target::EnumNameDataType(dataTypeToUse),
               ", this may impact throughput and the integrity of the data.");
 
-    uint64_t numElements = std::accumulate(shape.begin(), shape.end(),
-                                           static_cast<std::uint64_t>(1),
-                                           std::multiplies<std::uint64_t>());
-
-    std::uint32_t itemSizeToUse =
-        ::tt::runtime::utils::dataTypeElementSize(dataTypeToUse);
-
-    castedData.resize(itemSizeToUse * numElements);
-
+    // Null data means "uninitialized"; skip the cast and let createTTNNTensor
+    // zero-init the aliased buffer.
     if (data != nullptr) {
+      uint64_t numElements = std::accumulate(shape.begin(), shape.end(),
+                                             static_cast<std::uint64_t>(1),
+                                             std::multiplies<std::uint64_t>());
+
+      std::uint32_t itemSizeToUse =
+          ::tt::runtime::utils::dataTypeElementSize(dataTypeToUse);
+
+      castedData.resize(itemSizeToUse * numElements);
       ::tt::runtime::utils::handleBufferCast(data, castedData.data(), dataType,
                                              dataTypeToUse, numElements);
+      dataToUse = castedData.data();
+    } else {
+      dataToUse = nullptr;
     }
-    dataToUse = castedData.data();
   }
 
   ::ttnn::Shape ttnnShape(shape);
@@ -888,6 +891,11 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
   }
 
   const ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(src);
+
+  // Nothing to copy; `dst` may legitimately be null for a 0-element tensor.
+  if (srcTensor.physical_volume() == 0) {
+    return;
+  }
 
   // Handle cast and copy
   if (dstDataType.has_value() &&
