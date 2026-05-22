@@ -723,9 +723,7 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
       // Returns the scalar element type of the tile, if compressed it returns
       // the corresponding uncompressed element type, i.e. bfp_bf8 -> bf16
       Type getElementType() const;
-      const ::llvm::fltSemantics &getFloatSemantics() {
-        llvm_unreachable("TTCore_Tile::getFloatSemantics unimplemented #5124");
-      }
+      const ::llvm::fltSemantics &getFloatSemantics();
 
       // ShapedTypeInterface methods
       /// Clone this type with the given shape and element type. If the
