@@ -31,6 +31,11 @@ struct OperandGridInfo {
   llvm::SmallVector<int64_t> selectedGrid;
   llvm::SmallVector<int64_t> targetGrid;
 
+  // Set only when a scalar materialized operand must stay compatible with
+  // a tiled layout bridge selected during analysis. Empty means row-major
+  // padding is sufficient.
+  llvm::SmallVector<int64_t> paddingTileShape;
+
   // Set only when the operand is a ViewLayoutOp whose input is a ToLayoutOp
   // that should have its grid optimized independently. Carries the optimal
   // grid for that upstream ToLayoutOp's own tensor shape. Empty otherwise.

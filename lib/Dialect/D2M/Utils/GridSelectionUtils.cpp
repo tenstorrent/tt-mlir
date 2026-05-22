@@ -141,9 +141,15 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
   ttcore::MetalLayoutAttr layout =
       mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-  // For now, only non-collapsed 2D virtual grids on L1 are supported.
-  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) ||
-      layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+  if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+    return false;
+  }
+
+  // Collapsed layouts are still virtual-grid compatible once they have been
+  // normalized to a 2D physical grid: the VGM maps only the materialized grid
+  // dimensions, while the layout keeps the logical-to-physical collapse.
+  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) &&
+      physicalShape.size() != 2) {
     return false;
   }
   if (physicalShape.size() != 2) {
@@ -232,11 +238,10 @@ computeSelectedGridDimAlignments(ttcore::MetalLayoutAttr layout,
              "Selected grid rank {} must match tensor grid rank {}.",
              selectedGrid.size(), tensorGridRank);
 
-  if (tensorGridRank == 2) {
-    return ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
-        layout.getLogicalShape(), selectedGrid, normalizedIntervals);
-  }
-
+  // This helper is used after the grid decision is final. Always make the
+  // materialized physical shape divisible by the selected tensor grid, even for
+  // 2D tensors where TTCore's generic helper may otherwise keep smaller
+  // tile-only padding.
   constexpr std::array<int64_t, 2> defaultTileShape =
       ttcore::TileType::getDefaultShape();
 
@@ -273,8 +278,20 @@ computeSelectedGridDimAlignments(ttcore::MetalLayoutAttr layout,
     const int64_t physicalDivisor =
         gridDim * (dividesTiles ? tileShape[tileIdx] : 1);
     if (collapsedSize % physicalDivisor != 0) {
-      alignments[alignmentDim] =
-          std::lcm(alignments[alignmentDim], physicalDivisor);
+      const int64_t baseAlignment = alignments[alignmentDim];
+      const int64_t maxAlignment = std::lcm(baseAlignment, physicalDivisor);
+      for (int64_t candidate = baseAlignment; candidate <= maxAlignment;
+           candidate += baseAlignment) {
+        alignments[alignmentDim] = candidate;
+        collapsedSize = computeCollapsedIntervalSize(
+            layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+        if (collapsedSize % physicalDivisor == 0) {
+          break;
+        }
+      }
+      TT_assertv(collapsedSize % physicalDivisor == 0,
+                 "Unable to make collapsed interval size {} divisible by {}",
+                 collapsedSize, physicalDivisor);
     }
   }
 
@@ -304,10 +321,11 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
       oldLayout.getCollapsedIntervals(), newDimAlignments);
 }
 
-mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
-                                             ArrayRef<int64_t> targetGrid,
-                                             bool ttnnMode,
-                                             ArrayRef<int64_t> optimalGrid) {
+mlir::RankedTensorType
+tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
+                      ArrayRef<int64_t> targetGrid, bool ttnnMode,
+                      ArrayRef<int64_t> optimalGrid,
+                      ArrayRef<int64_t> paddingTileShape) {
   auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
 
   llvm::SmallVector<int64_t> tileShape;
@@ -317,8 +335,11 @@ mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
     elementType = tileType.getElementType();
   }
 
+  ArrayRef<int64_t> layoutTileShape = paddingTileShape.empty()
+                                          ? ArrayRef<int64_t>(tileShape)
+                                          : paddingTileShape;
   ttcore::MetalLayoutAttr newLayout =
-      layoutWithOptimalGrid(oldLayout, optimalGrid, ttnnMode, tileShape);
+      layoutWithOptimalGrid(oldLayout, optimalGrid, ttnnMode, layoutTileShape);
 
   llvm::SmallVector<int64_t> deviceShape = newLayout.getDeviceShape(
       optimalGrid, llvm::ArrayRef(tileShape.data(), tileShape.size()));
