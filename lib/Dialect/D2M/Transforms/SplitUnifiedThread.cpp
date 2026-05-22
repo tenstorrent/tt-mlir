@@ -143,7 +143,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     return failure();
   }
 
-  // Expand and merge compute regions until we hit a syncrhonizable op on both
+  // Expand and merge compute regions until we hit a synchronizable op on both
   // ends.
   //
   // Beyond hitting a SynchronizableOpInterface op (which bounds the wrap),
@@ -249,42 +249,11 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   // erases the shared op (B-1), leaving the second region's start iterator
   // dangling and triggering an ilist sentinel crash.
   if (!computeRegions.empty()) {
-    Block *block = computeRegions[0].first->getBlock();
-
-    // Position map: op → sequential index within the block.
-    DenseMap<Operation *, unsigned> posMap;
-    SmallVector<Block::iterator> posToIter;
-    {
-      unsigned pos = 0;
-      for (auto it = block->begin(); it != block->end(); ++it, ++pos) {
-        posMap[&*it] = pos;
-        posToIter.push_back(it);
-      }
-    }
-
-    // Convert regions to (startPos, endPosInclusive) pairs and sort.
-    SmallVector<std::pair<unsigned, unsigned>> posRegions;
-    posRegions.reserve(computeRegions.size());
-    for (auto [s, e] : computeRegions) {
-      posRegions.push_back({posMap[&*s], posMap[&*std::prev(e)]});
-    }
-    llvm::sort(posRegions,
-               [](const auto &a, const auto &b) { return a.first < b.first; });
-
-    // Merge overlapping intervals.
-    SmallVector<std::pair<unsigned, unsigned>> merged;
-    for (auto [s, e] : posRegions) {
-      if (!merged.empty() && s <= merged.back().second) {
-        merged.back().second = std::max(merged.back().second, e);
-      } else {
-        merged.push_back({s, e});
-      }
-    }
-
     // Purity cache mirroring isPurelyDerivedOp in wrapInSynchronizedRegion:
     // an op is purely derived if it is pure and every operand-defining op is
     // also purely derived.  Ops that are not purely derived will be erased by
     // wrapInSynchronizedRegion; their results must not escape the region.
+    // The cache is block-agnostic and shared across all per-block passes below.
     DenseMap<Operation *, bool> pureCache;
     auto isPurelyDerived = [&](auto &self, Operation *op) -> bool {
       auto it = pureCache.find(op);
@@ -305,97 +274,145 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       return (pureCache[op] = result);
     };
 
-    // Fixpoint expansion: extend each merged region in both directions.
-    //
-    // Downward (end grows): a non-pure op in [startPos, endPos) has result
-    // users outside the range that would dangle after wrapInSynchronizedRegion
-    // erases the op.  Expand endPos to include those users.
-    //
-    // Upward (start shrinks): a non-pure op in the range has an operand
-    // defined by another non-pure op just before startPos.  Expand startPos
-    // to include that defining op so that CB-load detection (which walks ops
-    // inside [start, end)) can find the CB operand feeding the region.
-    //
-    // Both directions stop at SynchronizableOpInterface boundaries.
-    for (auto &[startPos, endPos] : merged) {
-      bool changed = true;
-      while (changed) {
-        changed = false;
-        for (unsigned p = startPos; p <= endPos; ++p) {
-          Operation *op = &*posToIter[p];
-          if (isPurelyDerived(isPurelyDerived, op)) {
-            continue;
-          }
-          // Downward: result users outside range.
-          for (Value result : op->getResults()) {
-            for (Operation *user : result.getUsers()) {
-              Operation *userInBlock = user;
-              while (userInBlock && userInBlock->getBlock() != block) {
-                userInBlock = userInBlock->getParentOp();
+    // Group regions by block: multi-level scopes can produce regions in
+    // different blocks (e.g. inner K-loop body vs. enclosing block).
+    // A stable insertion-order vector preserves deterministic processing.
+    SmallVector<Block *> blockOrder;
+    DenseMap<Block *, SmallVector<std::pair<Block::iterator, Block::iterator>>>
+        regionsByBlock;
+    for (auto [s, e] : computeRegions) {
+      Block *blk = s->getBlock();
+      if (!regionsByBlock.count(blk)) {
+        blockOrder.push_back(blk);
+      }
+      regionsByBlock[blk].push_back({s, e});
+    }
+
+    computeRegions.clear();
+    for (Block *block : blockOrder) {
+      auto &regions = regionsByBlock[block];
+
+      // Position map: op → sequential index within the block.
+      DenseMap<Operation *, unsigned> posMap;
+      SmallVector<Block::iterator> posToIter;
+      {
+        unsigned pos = 0;
+        for (auto it = block->begin(); it != block->end(); ++it, ++pos) {
+          posMap[&*it] = pos;
+          posToIter.push_back(it);
+        }
+      }
+
+      // Convert regions to (startPos, endPosInclusive) pairs and sort.
+      SmallVector<std::pair<unsigned, unsigned>> posRegions;
+      posRegions.reserve(regions.size());
+      for (auto [s, e] : regions) {
+        posRegions.push_back({posMap[&*s], posMap[&*std::prev(e)]});
+      }
+      llvm::sort(posRegions,
+                 [](const auto &a, const auto &b) { return a.first < b.first; });
+
+      // Merge overlapping intervals.
+      SmallVector<std::pair<unsigned, unsigned>> merged;
+      for (auto [s, e] : posRegions) {
+        if (!merged.empty() && s <= merged.back().second) {
+          merged.back().second = std::max(merged.back().second, e);
+        } else {
+          merged.push_back({s, e});
+        }
+      }
+
+      // Fixpoint expansion: extend each merged region in both directions.
+      //
+      // Downward (end grows): a non-pure op in [startPos, endPos) has result
+      // users outside the range that would dangle after wrapInSynchronizedRegion
+      // erases the op.  Expand endPos to include those users.
+      //
+      // Upward (start shrinks): a non-pure op in the range has an operand
+      // defined by another non-pure op just before startPos.  Expand startPos
+      // to include that defining op so that CB-load detection (which walks ops
+      // inside [start, end)) can find the CB operand feeding the region.
+      //
+      // Both directions stop at SynchronizableOpInterface boundaries.
+      for (auto &[startPos, endPos] : merged) {
+        bool changed = true;
+        while (changed) {
+          changed = false;
+          for (unsigned p = startPos; p <= endPos; ++p) {
+            Operation *op = &*posToIter[p];
+            if (isPurelyDerived(isPurelyDerived, op)) {
+              continue;
+            }
+            // Downward: result users outside range.
+            for (Value result : op->getResults()) {
+              for (Operation *user : result.getUsers()) {
+                Operation *userInBlock = user;
+                while (userInBlock && userInBlock->getBlock() != block) {
+                  userInBlock = userInBlock->getParentOp();
+                }
+                if (!userInBlock) {
+                  continue;
+                }
+                auto posIt = posMap.find(userInBlock);
+                if (posIt == posMap.end()) {
+                  continue;
+                }
+                unsigned userPos = posIt->second;
+                if (userPos <= endPos) {
+                  continue;
+                }
+                // Don't expand past a SynchronizableOpInterface boundary.
+                bool blocked = false;
+                for (unsigned q = endPos + 1; q <= userPos; ++q) {
+                  if (isa<SynchronizableOpInterface>(&*posToIter[q])) {
+                    blocked = true;
+                    break;
+                  }
+                }
+                if (!blocked) {
+                  endPos = userPos;
+                  changed = true;
+                }
               }
-              if (!userInBlock) {
+            }
+            // Upward: operands defined by non-pure ops before startPos.
+            for (Value operand : op->getOperands()) {
+              Operation *defOp = operand.getDefiningOp();
+              if (!defOp) {
                 continue;
               }
-              auto posIt = posMap.find(userInBlock);
+              auto posIt = posMap.find(defOp);
               if (posIt == posMap.end()) {
                 continue;
               }
-              unsigned userPos = posIt->second;
-              if (userPos <= endPos) {
-                continue;
+              unsigned defPos = posIt->second;
+              if (defPos >= startPos) {
+                continue; // already in range
+              }
+              if (isPurelyDerived(isPurelyDerived, defOp)) {
+                continue; // pure ops are not erased; no need to pull them in
               }
               // Don't expand past a SynchronizableOpInterface boundary.
               bool blocked = false;
-              for (unsigned q = endPos + 1; q <= userPos; ++q) {
+              for (unsigned q = defPos; q < startPos; ++q) {
                 if (isa<SynchronizableOpInterface>(&*posToIter[q])) {
                   blocked = true;
                   break;
                 }
               }
               if (!blocked) {
-                endPos = userPos;
+                startPos = defPos;
                 changed = true;
               }
             }
           }
-          // Upward: operands defined by non-pure ops before startPos.
-          for (Value operand : op->getOperands()) {
-            Operation *defOp = operand.getDefiningOp();
-            if (!defOp) {
-              continue;
-            }
-            auto posIt = posMap.find(defOp);
-            if (posIt == posMap.end()) {
-              continue;
-            }
-            unsigned defPos = posIt->second;
-            if (defPos >= startPos) {
-              continue; // already in range
-            }
-            if (isPurelyDerived(isPurelyDerived, defOp)) {
-              continue; // pure ops are not erased; no need to pull them in
-            }
-            // Don't expand past a SynchronizableOpInterface boundary.
-            bool blocked = false;
-            for (unsigned q = defPos; q < startPos; ++q) {
-              if (isa<SynchronizableOpInterface>(&*posToIter[q])) {
-                blocked = true;
-                break;
-              }
-            }
-            if (!blocked) {
-              startPos = defPos;
-              changed = true;
-            }
-          }
         }
       }
-    }
 
-    // Rebuild computeRegions from the merged+expanded positions.
-    computeRegions.clear();
-    for (auto [s, e] : merged) {
-      computeRegions.push_back({posToIter[s], std::next(posToIter[e])});
+      // Append this block's merged+expanded regions to computeRegions.
+      for (auto [s, e] : merged) {
+        computeRegions.push_back({posToIter[s], std::next(posToIter[e])});
+      }
     }
   }
 
