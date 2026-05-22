@@ -534,7 +534,7 @@ public:
   LogicalResult
   matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Value sourceInput = op.getInput();
+    Value sourceInput = adaptor.getInput();
 
     // When d2m.spatial consumes the view result, pre-update that use to the
     // view input so the spatial operand type tracks the underlying memref type.
