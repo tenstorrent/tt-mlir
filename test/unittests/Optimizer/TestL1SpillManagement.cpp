@@ -150,3 +150,46 @@ TEST_F(NotImplementedTest, EvictsAllLiveTensorsBeforeNotImplementedOp) {
   EXPECT_EQ(obs->evictions.size(), 2u)
       << "evictAllFromL1 should record exactly 2 eviction events (A and B)";
 }
+
+//===----------------------------------------------------------------------===//
+// NotImplementedPostFlushTest
+//===----------------------------------------------------------------------===//
+
+class NotImplementedPostFlushTest : public L1SpillTestFixture {};
+
+// After evictAllFromL1 resets the tracker, a subsequent allocation must
+// land at a fresh top-of-budget address as if no prior tensors existed.
+// This is the runtime check for Task 1.5's invariant (spillToDramBeforeTrigger
+// must be paired with a full tracker reset).
+TEST_F(NotImplementedPostFlushTest, PostFlushAllocationSeesEmptyTracker) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto l1Layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1Layout);
+
+  auto args = beginFunc({tt});
+  auto *opA         = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB         = addUnary(args[0], tt, /*l1UsageBytes=*/400 * kKiB);
+  auto *opC         = addBinary(opA->getResult(0), opB->getResult(0), tt,
+                                 /*l1UsageBytes=*/0);
+  forceNotImplemented(opC);
+  // After the NotImplemented flush, allocate 1 MiB — this is ~77% of the
+  // 1.3 MiB budget. If the tracker still thinks A and B are live, this
+  // would push occupied past budget and OOM. With a correct reset, it fits.
+  auto *opPostFlush    = addUnary(args[0], tt, /*l1UsageBytes=*/1000 * kKiB);
+  auto *usePostFlush   = addUnary(opPostFlush->getResult(0), tt,
+                                   /*l1UsageBytes=*/50 * kKiB);
+  finishFunc({opC->getResult(0), usePostFlush->getResult(0)});
+
+  auto [obs] = run();
+
+  // A and B must have been spilled by evictAllFromL1.
+  EXPECT_TRUE(wasSpilled(opA->getResult(0)));
+  EXPECT_TRUE(wasSpilled(opB->getResult(0)));
+  // opPostFlush must NOT be spilled — the reset tracker has 1.3 MiB free.
+  EXPECT_FALSE(wasSpilled(opPostFlush->getResult(0)))
+      << "post-flush allocation should fit on a fully-reset tracker";
+  // Exactly the 2 evict-all spills, no extras from opPostFlush.
+  EXPECT_EQ(countSpills(), 2u);
+  EXPECT_EQ(obs->evictions.size(), 2u);
+}
