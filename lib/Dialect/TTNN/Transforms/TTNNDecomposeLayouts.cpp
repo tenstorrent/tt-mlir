@@ -1156,6 +1156,37 @@ private:
       return;
     }
 
+    // Special case: bfp_bf8 -> bf16 untilize on device. tt-metal's untilize
+    // op accepts BFLOAT8_B input and produces BFLOAT16 output natively (see
+    // `ttnn/cpp/ttnn/operations/data_movement/untilize/device/
+    // untilize_device_operation.cpp:268`). Emit a single ttnn.to_layout that
+    // carries the target dtype attribute, so flatbuffer lowering produces one
+    // untilize kernel instead of typecast-then-untilize.
+    if (info.shouldUntilize() && canUntilizeOnDevice(input, output) &&
+        opsToCreate.createDataTypeCastOp &&
+        input.dataType == ttcore::DataType::BFP_BFloat8 &&
+        output.dataType == ttcore::DataType::BFloat16) {
+      // Build the combined-untilize result type directly as (RowMajor, bf16),
+      // bypassing the layout-only RankedTensorTypeFactory::create(rt, Layout)
+      // helper which would otherwise inherit the input bfp_bf8 element type.
+      auto currentInputType =
+          mlir::cast<RankedTensorType>(currentInput.getType());
+      auto bf16ResultType = utils::RankedTensorTypeFactory::create(
+          currentInputType, ttcore::DataType::BFloat16);
+      bf16ResultType = utils::RankedTensorTypeFactory::create(
+          bf16ResultType, output.layoutEnum);
+      ttnn::LayoutAttr layoutAttr =
+          ttnn::LayoutAttr::get(op.getContext(), output.layoutEnum);
+      ttcore::DataTypeAttr dtypeAttr =
+          ttcore::DataTypeAttr::get(op.getContext(), ttcore::DataType::BFloat16);
+      currentInput = this->createOp<ttnn::ToLayoutOp>(
+          rewriter, op, bf16ResultType, currentInput, layoutAttr, dtypeAttr);
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
     // If we need to untilize and the output can be untilized on
     // device typecast and untilize on device
     if (info.shouldUntilize() && canUntilizeOnDevice(input, output)) {
