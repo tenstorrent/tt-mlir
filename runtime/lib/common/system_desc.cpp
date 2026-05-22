@@ -38,6 +38,8 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
     return ::tt::target::Arch::Wormhole_b0;
   case ::tt::ARCH::BLACKHOLE:
     return ::tt::target::Arch::Blackhole;
+  case ::tt::ARCH::QUASAR:
+    return ::tt::target::Arch::Quasar;
   default:
     break;
   }
@@ -202,12 +204,14 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto buildBankToWorkerVec =
         [&](::tt::tt_metal::NOC noc) -> std::vector<::tt::target::Dim2d> {
-      std::vector<::tt::tt_metal::CoreCoord> assignment =
-          device->get_optimal_dram_bank_to_logical_worker_assignment(noc);
       std::vector<::tt::target::Dim2d> result;
-      result.reserve(assignment.size());
-      for (const auto &core : assignment) {
-        result.emplace_back(core.y, core.x);
+      if (tt::tt_metal::hal::get_arch() != tt::ARCH::QUASAR) {
+        std::vector<::tt::tt_metal::CoreCoord> assignment =
+            device->get_optimal_dram_bank_to_logical_worker_assignment(noc);
+        result.reserve(assignment.size());
+        for (const auto &core : assignment) {
+          result.emplace_back(core.y, core.x);
+        }
       }
       return result;
     };
@@ -217,8 +221,13 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         buildBankToWorkerVec(::tt::tt_metal::NOC::NOC_1);
 
     constexpr std::uint32_t kDstPhysicalSizeTiles = 16;
-    constexpr std::uint32_t kNumComputeThreads = 1;
-    constexpr std::uint32_t kNumDatamovementThreads = 2;
+    std::uint32_t kNumComputeThreads = 1;
+    std::uint32_t kNumDatamovementThreads = 2;
+    if (tt::tt_metal::hal::get_arch() == tt::ARCH::QUASAR) {
+      kNumComputeThreads = 4;
+      // QSR DM cores: 6 programmable v.s. 8 physical.
+      kNumDatamovementThreads = 6;
+    }
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         &coordTranslationOffsets, device->l1_size_per_core(),

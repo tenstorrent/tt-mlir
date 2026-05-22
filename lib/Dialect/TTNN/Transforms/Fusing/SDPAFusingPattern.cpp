@@ -7,7 +7,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
@@ -61,8 +61,7 @@ static Value squeezeToOriginalRank(Value v, RankedTensorType originalType,
   SmallVector<int32_t> shapeAttr(originalType.getShape().begin(),
                                  originalType.getShape().end());
   return rewriter
-      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr),
-                         /*memory_config=*/MemoryConfigAttr())
+      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr))
       .getResult();
 }
 
@@ -447,8 +446,7 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
       c.mask =
           rewriter
               .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, c.mask,
-                                 rewriter.getI32ArrayAttr(shapeAttr),
-                                 /*memory_config=*/MemoryConfigAttr())
+                                 rewriter.getI32ArrayAttr(shapeAttr))
               .getResult();
     }
   }
@@ -514,8 +512,7 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
     SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
     return rewriter
         .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, v,
-                           rewriter.getI32ArrayAttr(shapeAttr),
-                           /*memory_config=*/MemoryConfigAttr())
+                           rewriter.getI32ArrayAttr(shapeAttr))
         .getResult();
   };
 
@@ -698,7 +695,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
   auto qShape = qType.getShape();
 
-  FusionValidator validator(rewriter.getContext(), validationConfig);
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
 
   bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
   if (isDecode) {
@@ -716,16 +714,15 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     }
 
     auto validationResult =
-        validator.validateFusion<ScaledDotProductAttentionDecodeOp>(
+        validator.validateOp<ScaledDotProductAttentionDecodeOp>(
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
             /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
             /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
-            /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
 
     if (!validationResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+      TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                    "SDPA decode fusion validation failed: {0}",
                    validationResult.errorMessage);
       return failure();
@@ -736,7 +733,6 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.key, c.value,
         /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
-        /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
 
     Value finalResult = ttir_to_ttnn::utils::generatePermute(
@@ -749,16 +745,14 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
-    auto validationResult =
-        validator.validateFusion<ScaledDotProductAttentionOp>(
-            c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
-            {c.query.getType()}, c.query, c.key, c.value, c.mask,
-            /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-            /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
-            /*memory_config=*/MemoryConfigAttr());
+    auto validationResult = validator.validateOp<ScaledDotProductAttentionOp>(
+        c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
+        {c.query.getType()}, c.query, c.key, c.value, c.mask,
+        /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
 
     if (!validationResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+      TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                    "SDPA fusion validation failed: {0}",
                    validationResult.errorMessage);
       return failure();
@@ -768,8 +762,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
         c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
-        /*memory_config=*/MemoryConfigAttr());
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
 
     Value finalResult =
         squeezeToOriginalRank(sdpaOp.getResult(), originalOutputType, rewriter,

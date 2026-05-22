@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-d2m-to-ttnn -o %t.mlir %s
+// RUN: ttmlir-opt --convert-d2m-to-ttnn --mlir-print-local-scope -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // DRAM interleaved, shape (32, 2048). Exercises only --convert-d2m-to-ttnn on IR extracted from the JIT pipeline.
@@ -10,7 +10,7 @@
 // CHECK-NOT: d2m.empty
 
 // CHECK: "ttnn.get_device"
-// CHECK: %[[MUL_OUT:.*]] = "ttnn.empty"{{.*}}<width_sharded>{{.*}}core_range<(0,0), (7,7)>{{.*}}shape = #ttnn.shape<32x2048>
+// CHECK: %[[MUL_OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<32x2048>{{.*}}<8x8>{{.*}}<width_sharded>
 // CHECK: "ttnn.generic"(%arg1, %arg2, %[[MUL_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel0, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>], rt_args = []
@@ -20,7 +20,7 @@
 // CHECK-SAME: <total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 1, dtype = bf16, page_size = 2048>]>
 // CHECK-SAME: <total_size = 2048, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 2, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<2>>
 // CHECK-SAME: semaphores = []>
-// CHECK: %[[ADD_OUT:.*]] = "ttnn.empty"{{.*}}<width_sharded>{{.*}}core_range<(0,0), (7,7)>{{.*}}shape = #ttnn.shape<32x2048>
+// CHECK: %[[ADD_OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<32x2048>{{.*}}<8x8>{{.*}}<width_sharded>
 // CHECK: "ttnn.generic"(%[[MUL_OUT]], %arg0, %[[ADD_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 3, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel3, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<1>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<1>], rt_args = []
@@ -29,7 +29,7 @@
 // CHECK-SAME: <total_size = 4096, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 1, dtype = bf16, page_size = 2048>]>
 // CHECK-SAME: <total_size = 2048, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>, formats = [<buffer_index = 2, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<2>>
 // CHECK-SAME: semaphores = []>
-// CHECK: %[[RESHARD_OUT:.*]] = "ttnn.empty"{{.*}}<block_sharded>{{.*}}core_range<(0,0), (7,0)>{{.*}}shape = #ttnn.shape<32x2048>
+// CHECK: %[[RESHARD_OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<32x2048>{{.*}}<1x8>{{.*}}<block_sharded>
 // CHECK: "ttnn.generic"(%[[ADD_OUT]], %[[RESHARD_OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 2, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel5, core_ranges = <[#ttnn.core_range<(0,0), (7,0)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<1>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>], rt_args = []
@@ -51,7 +51,7 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     %alloc_4 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #ttcore.memory_space<l1>>
     %alloc_5 = memref.alloc() {address = 107808 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #ttcore.memory_space<l1>>
     %alias_2 = d2m.operand_alias %alloc : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>
-    d2m.generic {block_factors = [], grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0, noc = 0>, #d2m.thread<datamovement, @datamovement_kernel1, noc = 1>, #d2m.thread<compute, @compute_kernel2>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0, processor = 1>, #d2m.thread<datamovement, @datamovement_kernel1, processor = 0>, #d2m.thread<compute, @compute_kernel2>]}
         ins(%view_0, %view_1 : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>, memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%alloc : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)
         additionalArgs(%alloc_4, %alloc_5, %alias_2 : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>)
@@ -62,7 +62,7 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     %alloc_10 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #ttcore.memory_space<l1>>
     %alias_1_0 = d2m.operand_alias %alloc : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>
     %alias_1_2 = d2m.operand_alias %alloc_7 : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>> -> memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>
-    d2m.generic {block_factors = [], grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel3, noc = 0>, #d2m.thread<compute, @compute_kernel4>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel3, processor = 1>, #d2m.thread<compute, @compute_kernel4>]}
         ins(%alloc, %view_2 : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>, memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%alloc_7 : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>)
         additionalArgs(%alias_1_0, %alloc_10, %alias_1_2 : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 1>, #ttcore.memory_space<l1>>)
@@ -73,7 +73,7 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     %view = d2m.view_layout %alloc_7 remapping = affine_map<(d0, d1, d2, d3) -> (0, (d1 * 8 + d3) mod 64, 0, 0)> : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>> -> memref<1x8x1x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<l1>>
     %cb_2_0 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>
     %cb_2_1 = d2m.operand_alias %cast_11 : memref<1x8x1x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>> -> memref<1x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>
-    d2m.generic {block_factors = [], grid = #ttcore.grid<1x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel5, noc = 0>, #d2m.thread<compute, @compute_kernel6>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel5, processor = 1>, #d2m.thread<compute, @compute_kernel6>]}
         ins(%view : memref<1x8x1x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
         outs(%cast_11 : memref<1x8x1x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>)
         additionalArgs(%cb_2_0, %cb_2_1 : memref<1x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>, memref<1x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>)

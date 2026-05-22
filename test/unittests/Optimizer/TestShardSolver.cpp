@@ -63,7 +63,7 @@ public:
     ShapeAttr shapeAttr = ShapeAttr::get(&context, getTensorShape());
     return builder.create<OnesOp>(builder.getUnknownLoc(),
                                   getTensorRankedType(), nullptr, shapeAttr,
-                                  nullptr, nullptr, nullptr);
+                                  nullptr, nullptr);
   }
 
   mlir::func::FuncOp createFuncOp() {

@@ -25,12 +25,11 @@ RankedTensorType
 makeTensorType(MLIRContext &context, ArrayRef<int64_t> logicalShape,
                ArrayRef<int64_t> dimAlignments,
                DenseIntElementsAttr collapsedIntervals,
-               ArrayRef<int64_t> gridShape, ttcore::OOBVal oobVal,
-               ttcore::MemorySpace memorySpace,
+               ArrayRef<int64_t> gridShape, ttcore::MemorySpace memorySpace,
                ttcore::TensorMemoryLayout memoryLayout, Type elementType) {
   auto layout = ttcore::MetalLayoutAttr::get(&context, logicalShape,
                                              dimAlignments, collapsedIntervals,
-                                             oobVal, memorySpace, memoryLayout);
+                                             memorySpace, memoryLayout);
   ArrayRef<int64_t> tileShape;
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
     tileShape = tileType.getShape();
@@ -121,9 +120,9 @@ TEST(MinimizerCancelTest, NoCancelWhenRoundTripChangesScalarType) {
 
 TEST(MinimizerCancelTest, NoCancelWithDifferentKindBetween) {
   FormatRoundTripTypes types;
-  // Tilize; Mask; Untilize is not a cancellation candidate; Mask blocks it.
-  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
-         MaskStep{ttcore::OOBVal::Zero, {4, 4}},
+  // Tilize; Rebuffer; Untilize is not a cancellation candidate; Rebuffer
+  // blocks it.
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType), RebufferStep{},
          makeUntilizeStep(types.tiledType, types.scalarType)};
   auto result = minimize(std::move(p));
   EXPECT_EQ(result.size(), 3u);
@@ -206,21 +205,9 @@ TEST(MinimizerFuseTest, F3ReshardMergeKeepsLast) {
             (llvm::SmallVector<int64_t>{8, 8}));
 }
 
-TEST(MinimizerFuseTest, F6MaskMerge) {
-  Plan p{
-      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
-      MaskStep{ttcore::OOBVal::NegInf, {4, 4}},
-  };
-  auto result = minimize(std::move(p));
-  ASSERT_EQ(result.size(), 1u);
-  ASSERT_TRUE(std::holds_alternative<MaskStep>(result[0]));
-  EXPECT_EQ(std::get<MaskStep>(result[0]).oobVal, ttcore::OOBVal::NegInf);
-}
-
 TEST(MinimizerFuseTest, NoFuseBetweenUnrelatedKinds) {
   FormatRoundTripTypes types;
-  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
-         MaskStep{ttcore::OOBVal::Zero, {4, 4}}};
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType), RebufferStep{}};
   auto result = minimize(std::move(p));
   EXPECT_EQ(result.size(), 2u);
 }
@@ -236,81 +223,6 @@ TEST(MinimizerFuseTest, NoFuseReshardAcrossTilize) {
   };
   auto result = minimize(std::move(p));
   EXPECT_EQ(result.size(), 3u);
-}
-
-TEST(MinimizerFuseTest, F6MaskMergeKeepsLastLogicalShape) {
-  // When two masks fuse, the second's payload wins (oobVal + logicalShape).
-  Plan p{
-      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
-      MaskStep{ttcore::OOBVal::NegInf, {8, 8}},
-  };
-  auto result = minimize(std::move(p));
-  ASSERT_EQ(result.size(), 1u);
-  auto &m = std::get<MaskStep>(result[0]);
-  EXPECT_EQ(m.oobVal, ttcore::OOBVal::NegInf);
-  EXPECT_EQ(m.logicalShape, (llvm::SmallVector<int64_t>{8, 8}));
-}
-
-// Commutation rules (only applied when they enable further simplification).
-
-TEST(MinimizerCommuteTest, MaskAcrossReshardEnablesMaskFusion) {
-  // Mask; Reshard; Mask → (commute) → Reshard; Mask; Mask → (fuse F6) →
-  // Reshard; Mask.
-  Plan p{
-      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
-      ReshardStep{{2, 2}, {32, 32}, {}},
-      MaskStep{ttcore::OOBVal::NegInf, {4, 4}},
-  };
-  auto result = minimize(std::move(p));
-  ASSERT_EQ(result.size(), 2u);
-  EXPECT_TRUE(std::holds_alternative<ReshardStep>(result[0]));
-  ASSERT_TRUE(std::holds_alternative<MaskStep>(result[1]));
-  EXPECT_EQ(std::get<MaskStep>(result[1]).oobVal, ttcore::OOBVal::NegInf);
-}
-
-TEST(MinimizerCommuteTest, ReshardAcrossMaskEnablesReshardFusion) {
-  // Reshard; Mask; Reshard → (commute) → Mask; Reshard; Reshard → (fuse F3) →
-  // Mask; Reshard.
-  Plan p{
-      ReshardStep{{2, 2}, {32, 32}, {}},
-      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
-      ReshardStep{{4, 4}, {32, 32}, {}},
-  };
-  auto result = minimize(std::move(p));
-  ASSERT_EQ(result.size(), 2u);
-  EXPECT_TRUE(std::holds_alternative<MaskStep>(result[0]));
-  ASSERT_TRUE(std::holds_alternative<ReshardStep>(result[1]));
-  EXPECT_EQ(std::get<ReshardStep>(result[1]).gridShape,
-            (llvm::SmallVector<int64_t>{4, 4}));
-}
-
-TEST(MinimizerCommuteTest, NoCommuteWithoutSimplificationBenefit) {
-  // Mask; Reshard on its own: commutation is legal but would not enable any
-  // cancel or fuse. The gate prevents unmotivated swaps (and infinite flip).
-  Plan p{MaskStep{ttcore::OOBVal::Zero, {4, 4}},
-         ReshardStep{{2, 2}, {32, 32}, {}}};
-  auto result = minimize(std::move(p));
-  ASSERT_EQ(result.size(), 2u);
-  EXPECT_TRUE(std::holds_alternative<MaskStep>(result[0]));
-  EXPECT_TRUE(std::holds_alternative<ReshardStep>(result[1]));
-}
-
-TEST(MinimizerCommuteTest, InterleavedFuseAndCommuteFullyReduce) {
-  // Mask; Reshard; Reshard; Mask — F3 collapses the Reshards, then commutation
-  // enables F6 mask fusion. End state: Reshard; Mask.
-  Plan p{
-      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
-      ReshardStep{{2, 2}, {32, 32}, {}},
-      ReshardStep{{4, 4}, {32, 32}, {}},
-      MaskStep{ttcore::OOBVal::NegInf, {4, 4}},
-  };
-  auto result = minimize(std::move(p));
-  ASSERT_EQ(result.size(), 2u);
-  ASSERT_TRUE(std::holds_alternative<ReshardStep>(result[0]));
-  ASSERT_TRUE(std::holds_alternative<MaskStep>(result[1]));
-  EXPECT_EQ(std::get<ReshardStep>(result[0]).gridShape,
-            (llvm::SmallVector<int64_t>{4, 4}));
-  EXPECT_EQ(std::get<MaskStep>(result[1]).oobVal, ttcore::OOBVal::NegInf);
 }
 
 // Fixpoint driver.
@@ -337,14 +249,14 @@ TEST_F(CanonicalizeTest, DetectsCollapsedIntervalOnlyMappingChange) {
   auto collapsedB = makeCollapsedIntervals(context, {0, 1, 1, 4});
   Type elemType = Float32Type::get(&context);
 
-  RankedTensorType srcType = makeTensorType(
-      context, {1, 40, 32, 128}, {1, 1, 32, 32}, collapsedA, {1, 1},
-      ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
-      ttcore::TensorMemoryLayout::Sharded, elemType);
-  RankedTensorType tgtType = makeTensorType(
-      context, {1, 40, 32, 128}, {1, 1, 32, 32}, collapsedB, {1, 1},
-      ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
-      ttcore::TensorMemoryLayout::Sharded, elemType);
+  RankedTensorType srcType =
+      makeTensorType(context, {1, 40, 32, 128}, {1, 1, 32, 32}, collapsedA,
+                     {1, 1}, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, elemType);
+  RankedTensorType tgtType =
+      makeTensorType(context, {1, 40, 32, 128}, {1, 1, 32, 32}, collapsedB,
+                     {1, 1}, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, elemType);
 
   Plan plan =
       canonicalize(PlanState{srcType}, PlanState{tgtType}, {8, 8}, &context);
@@ -356,14 +268,14 @@ TEST_F(CanonicalizeTest, DetectsCollapsedIntervalOnlyMappingChange) {
 TEST_F(CanonicalizeTest, BfpBridgeRoundTripDoesNotCancel) {
   auto collapsed = makeCollapsedIntervals(context, {0, 1, 1, 2});
   RankedTensorType srcType = makeTensorType(
-      context, {256, 256}, {256, 256}, collapsed, {8, 8}, ttcore::OOBVal::Undef,
+      context, {256, 256}, {256, 256}, collapsed, {8, 8},
       ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded,
       Float32Type::get(&context));
   Type bfpTile =
       ttcore::TileType::get(&context, {32, 32}, ttcore::DataType::BFP_BFloat8);
   RankedTensorType tgtType =
       makeTensorType(context, {256, 256}, {128, 128}, collapsed, {4, 4},
-                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::MemorySpace::DeviceL1,
                      ttcore::TensorMemoryLayout::Sharded, bfpTile);
 
   Plan plan = minimize(
@@ -385,11 +297,11 @@ TEST_F(CanonicalizeTest, CollapseOnlyPhysicalNoopErasesToLayout) {
 
   RankedTensorType srcType =
       makeTensorType(context, {32, 32}, {32, 32}, collapsed, {1, 1},
-                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::MemorySpace::DeviceL1,
                      ttcore::TensorMemoryLayout::Sharded, elemType);
   RankedTensorType tgtType =
       makeTensorType(context, {32, 32}, {32, 32}, uncollapsed, {1, 1},
-                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::MemorySpace::DeviceL1,
                      ttcore::TensorMemoryLayout::Sharded, elemType);
 
   ASSERT_EQ(srcType.getShape(), tgtType.getShape());
@@ -406,7 +318,7 @@ TEST_F(CanonicalizeTest, HostToDeviceVirtualGridUsesNativeLayout) {
       RankedTensorType::get({32, 5120}, tiledElemType);
   RankedTensorType targetType =
       makeTensorType(context, {32, 5120}, {32, 256}, collapsed, {1, 16},
-                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::MemorySpace::DeviceL1,
                      ttcore::TensorMemoryLayout::Sharded, tiledElemType);
 
   Plan plan = canonicalize(PlanState{systemType}, PlanState{targetType}, {8, 8},
@@ -426,25 +338,27 @@ TEST_F(CanonicalizeTest, HostToDeviceVirtualGridUsesNativeLayout) {
   EXPECT_FALSE(static_cast<bool>(step->output.vgmInverse));
 }
 
-TEST_F(CanonicalizeTest, OobOnlyChangeProducesReinterpretThenMask) {
+TEST_F(CanonicalizeTest, HostToDRAMPreservesTargetVgmOnDRAMStep) {
   auto collapsed = ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
       &context, /*rank=*/2);
-  Type elemType = ttcore::TileType::get(Float32Type::get(&context));
-  RankedTensorType srcType =
-      makeTensorType(context, {32, 33}, {32, 32}, collapsed, {1, 1},
-                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
-                     ttcore::TensorMemoryLayout::Sharded, elemType);
-  RankedTensorType tgtType =
-      makeTensorType(context, {32, 33}, {32, 32}, collapsed, {1, 1},
-                     ttcore::OOBVal::Zero, ttcore::MemorySpace::DeviceL1,
+  Type elemType = Float32Type::get(&context);
+  RankedTensorType systemType = RankedTensorType::get({64, 64}, elemType);
+  RankedTensorType targetType =
+      makeTensorType(context, {64, 64}, {32, 32}, collapsed, {2, 2},
+                     ttcore::MemorySpace::DeviceDRAM,
                      ttcore::TensorMemoryLayout::Sharded, elemType);
 
+  AffineExpr d0 = getAffineDimExpr(0, &context);
+  AffineExpr d1 = getAffineDimExpr(1, &context);
+  AffineMap vgm = AffineMap::get(2, 0, {d0, d1}, &context);
+
   Plan plan =
-      canonicalize(PlanState{srcType}, PlanState{tgtType}, {8, 8}, &context);
-  ASSERT_EQ(plan.size(), 2u);
-  ASSERT_TRUE(std::holds_alternative<ReinterpretLayoutStep>(plan[0]));
-  ASSERT_TRUE(std::holds_alternative<MaskStep>(plan[1]));
-  EXPECT_EQ(std::get<MaskStep>(plan[1]).oobVal, ttcore::OOBVal::Zero);
+      canonicalize(PlanState{systemType}, PlanState{targetType, {}, vgm, vgm},
+                   {8, 8}, &context);
+  ASSERT_EQ(plan.size(), 1u);
+  ASSERT_TRUE(std::holds_alternative<HostToDeviceStep>(plan[0]));
+  EXPECT_EQ(std::get<HostToDeviceStep>(plan[0]).output.vgmForward, vgm);
+  EXPECT_EQ(std::get<HostToDeviceStep>(plan[0]).output.vgmInverse, vgm);
 }
 
 TEST_F(CanonicalizeTest, RemapOnlyChangeProducesExplicitRemapStep) {
@@ -453,7 +367,7 @@ TEST_F(CanonicalizeTest, RemapOnlyChangeProducesExplicitRemapStep) {
   Type elemType = Float32Type::get(&context);
   RankedTensorType type =
       makeTensorType(context, {64, 64}, {32, 32}, collapsed, {2, 2},
-                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::MemorySpace::DeviceL1,
                      ttcore::TensorMemoryLayout::Sharded, elemType);
 
   AffineExpr d0 = getAffineDimExpr(0, &context);
@@ -473,7 +387,7 @@ TEST_F(CanonicalizeTest, VgmOnlyChangeProducesRebufferStep) {
   Type elemType = Float32Type::get(&context);
   RankedTensorType type =
       makeTensorType(context, {64, 64}, {32, 32}, collapsed, {2, 2},
-                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::MemorySpace::DeviceL1,
                      ttcore::TensorMemoryLayout::Sharded, elemType);
 
   AffineExpr d0 = getAffineDimExpr(0, &context);
@@ -491,10 +405,10 @@ TEST_F(CanonicalizeTest, VgmOnlyChangeProducesRebufferStep) {
 TEST_F(CanonicalizeTest, HostReturnTransfersDirectlyFromVirtualGrid) {
   auto uncollapsed = makeCollapsedIntervals(context, {});
   Type elemType = Float32Type::get(&context);
-  RankedTensorType srcType = makeTensorType(
-      context, {1, 136, 2048}, {1, 32, 256}, uncollapsed, {1, 1, 64},
-      ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
-      ttcore::TensorMemoryLayout::Sharded, elemType);
+  RankedTensorType srcType =
+      makeTensorType(context, {1, 136, 2048}, {1, 32, 256}, uncollapsed,
+                     {1, 1, 64}, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, elemType);
   RankedTensorType tgtType = RankedTensorType::get({1, 136, 2048}, elemType);
 
   AffineExpr d0 = getAffineDimExpr(0, &context);

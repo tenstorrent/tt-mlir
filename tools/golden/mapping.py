@@ -3,12 +3,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Golden function mappings for TTIR and StableHLO operations.
+Golden function mappings for TTIR, StableHLO, TTNN, and related dialects.
 
-This module provides a centralized mapping between TTIR and StableHLO operations and their
-corresponding PyTorch golden reference implementations. Each golden function
-serves as a reference implementation that produces the expected output for
-comparison with TTIR or StableHLO operation results.
+Two registries live here, split by calling convention rather than by dialect:
+
+- ``GOLDEN_MAPPINGS`` — keyed by op class across all supported dialects
+  (TTIR, StableHLO, TTNN, D2M, SDY, Debug). Goldens take torch values plus raw
+  MLIR attributes; consumed by the builders in ``tools/builder/`` while
+  constructing IR.
+- ``CHISEL_GOLDEN_MAPPINGS`` — keyed by TTNN op class. Goldens take
+  ``(op, inputs: Dict[str, GoldenMapTensor])`` and return one tensor per SSA
+  result followed by one per provided in-place operand; consumed by
+  ``tools/chisel/chisel/executor.py`` when replaying flatbuffers.
+
+Each golden function is a PyTorch reference implementation that produces the
+expected output for comparison with the corresponding op's result.
 """
 
 from __future__ import annotations
@@ -75,6 +84,7 @@ class GoldenMapTensor:
         "detach",
         "requires_grad_",
         "long",
+        "bool",
     ]
     _MUTATING_METHODS = {
         name: (
@@ -393,6 +403,16 @@ def unpack_mlir_attr(attr):
         array = np.array(attr)
         return array
     raise ValueError(f"Unexpected attribute type: {type(attr)}")
+
+
+def _attr_get(attrs, key, default=None):
+    """Safe attribute access for MLIR OpAttributeMap (which lacks .get())."""
+    return attrs[key] if key in attrs else default
+
+
+def _attr_get_value(attrs, key, default=None):
+    """Return `unpack_mlir_attr(attrs[key])` or `default` if `key` is absent."""
+    return unpack_mlir_attr(attrs[key]) if key in attrs else default
 
 
 def mlir_type_to_torch_dtype(mlir_type: Type) -> torch.dtype:
@@ -1678,14 +1698,26 @@ def ttir_moe_expert_token_remap_golden(
     reduction_size=32,
 ) -> GoldenMapTensor:
     """Golden for remap. Returns (mapping, reduced) with matching shapes."""
-    # mapping: same shape as topk but last dim = E_local
-    E_local = expert_mapping.shape[3]  # [1, 1, E, D] -> D = E_local
+    # topk_tensor: [1, BD, S, E], expert_mapping: [1, 1, E, num_devices]
+    E = topk_tensor.shape[3]
+    num_devices = expert_mapping.shape[3]
+    E_local = E // num_devices
     BD = topk_tensor.shape[1]
     S = topk_tensor.shape[2]
-    mapping = torch.zeros(1, BD, S, E_local, dtype=topk_tensor.dtype)
+    mesh_shape = topk_tensor.mesh_shape
+    num_shards = mesh_shape[0] * mesh_shape[1]
+    mapping_tensor = torch.zeros(1, BD, S, E_local, dtype=topk_tensor.dtype)
+    mapping = GoldenMapTensor(
+        {i: mapping_tensor.clone() for i in range(num_shards)},
+        mesh_shape=mesh_shape,
+    )
     M = reduction_size
     reduced_seq = (BD * S + M - 1) // M
-    reduced = torch.zeros(1, 1, reduced_seq, E_local, dtype=topk_tensor.dtype)
+    reduced_tensor = torch.zeros(1, 1, reduced_seq, E_local, dtype=topk_tensor.dtype)
+    reduced = GoldenMapTensor(
+        {i: reduced_tensor.clone() for i in range(num_shards)},
+        mesh_shape=mesh_shape,
+    )
     return mapping, reduced
 
 
@@ -4238,8 +4270,11 @@ def ttir_argmax_golden(
     keep_dim_attr: BoolAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    dim_arg = unpack_mlir_attr(dim_arg_attr)
+    dim_arg = None if dim_arg_attr is None else unpack_mlir_attr(dim_arg_attr)
     keep_dim = unpack_mlir_attr(keep_dim_attr)
+
+    if isinstance(dim_arg, int):
+        dim_arg = [dim_arg]
 
     if dim_arg is None:
         result = torch.argmax(input_tensor, keepdim=keep_dim)
@@ -4610,6 +4645,13 @@ def ttir_erf_golden(
     return torch.erf(input_tensor).to(output_dtype)
 
 
+def ttir_gelu_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.gelu(input_tensor).to(output_dtype)
+
+
 def ttir_floor_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4765,6 +4807,40 @@ def ttir_reduce_scatter_golden(
     )
 
 
+def ttir_mesh_partition_golden(
+    input: GoldenMapTensor,
+    dim_attr: IntegerAttr,
+    cluster_axis_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # `mesh_partition` is the lowering of `sdy.all_slice`: along `cluster_axis`
+    # the input is replicated, and we split it into N pieces along `dim` (where
+    # N is the mesh size on `cluster_axis`), distributing one slice to each
+    # device in the group. We assume the per-group shards are identical
+    # (replicated) and slice the first one. The input may also arrive fully
+    # replicated (single shard) when wrapped with `MeshShardType.Identity`, in
+    # which case we treat that single tensor as the per-group source.
+    dim = unpack_mlir_attr(dim_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    rows, cols = input.mesh_shape
+    shard_map = input.shard_map
+    fallback_shard = next(iter(shard_map.values()))
+
+    cluster_size = cols if cluster_axis == 1 else rows
+    output_shards: Dict[int, torch.Tensor] = {}
+    for r in range(rows):
+        for c in range(cols):
+            device_id = r * cols + c
+            group_index = c if cluster_axis == 1 else r
+            source = shard_map.get(device_id, fallback_shard)
+            scattered = torch.chunk(source, cluster_size, dim=dim)
+            output_shards[device_id] = scattered[group_index].clone().to(output_dtype)
+
+    return GoldenMapTensor(output_shards, input.mesh_shape)
+
+
 def ttir_collective_permute_golden(
     input: GoldenMapTensor,
     source_target_pairs_attr: I64ElementsAttr,
@@ -4909,8 +4985,13 @@ def ttir_topk_golden(
     sorted = unpack_mlir_attr(sorted_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
+    # Always produce sorted output for golden comparison. When sorted=False,
+    # the order of returned elements is implementation-defined, so both torch
+    # and the hardware are free to return any ordering. The golden comparison
+    # uses element-wise PCC which requires positional correspondence, so we
+    # must normalize the order.
     values, indices = torch.topk(
-        input_tensor, k=k, dim=dim, largest=largest, sorted=sorted
+        input_tensor, k=k, dim=dim, largest=largest, sorted=True
     )
 
     return values.to(output_dtype), indices.to(torch.uint16)
@@ -7716,6 +7797,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AllReduceOp: ttir_all_reduce_golden,
     ttir.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttir.ReduceScatterOp: ttir_reduce_scatter_golden,
+    ttir.MeshPartitionOp: ttir_mesh_partition_golden,
     ttir.CollectivePermuteOp: ttir_collective_permute_golden,
     ttir.AllToAllOp: ttir_all_to_all_golden,
     ttir.CollectiveBroadcastOp: ttir_collective_broadcast_golden,
@@ -7907,6 +7989,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.SamplingOp: ttnn_sampling_golden,
     ttnn.AllReduceAsyncOp: ttnn_all_reduce_async_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
+    ttnn.MoeExpertTokenRemapOp: ttir_moe_expert_token_remap_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
@@ -7942,3 +8025,1199 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
         return GOLDEN_MAPPINGS[ttir_op_class]
 
     assert False, f"No golden function found for TTIR operation: {ttir_op_class}"
+
+
+# Chisel golden interface: fn(op, inputs: Dict[str, GoldenMapTensor]) -> GoldenMapTensor | tuple
+# TODO(ndrakulic, #8399) this needs unification with other goldens
+
+
+def _ttnn_unflatten_nhwc(tensor, batch_size, input_height, input_width, channels):
+    """Unflatten TTNN's [1, 1, N*H*W, C] layout to NHWC."""
+    return tensor.reshape(batch_size, input_height, input_width, channels)
+
+
+def _ttnn_flatten_nhwc(tensor):
+    """Flatten an NHWC tensor back to TTNN's [1, 1, N*H*W, C] layout."""
+    n, h, w, c = tensor.shape
+    return tensor.reshape(1, 1, n * h * w, c)
+
+
+def _chisel_unary(golden_fn):
+    def wrapper(op, inputs):
+        return golden_fn(
+            input_tensor=inputs["input"],
+            output_type_mlir=op.results[0].type.element_type,
+        )
+
+    return wrapper
+
+
+def _chisel_binary(golden_fn, *, rhs_kwarg="other_tensor"):
+    def wrapper(op, inputs):
+        return golden_fn(
+            input_tensor=inputs["lhs"],
+            output_type_mlir=op.results[0].type.element_type,
+            **{rhs_kwarg: inputs["rhs"]},
+        )
+
+    return wrapper
+
+
+def chisel_ttnn_where(op, inputs):
+    return ttnn_where_golden(
+        condition=inputs["first"].bool(),
+        x=inputs["second"],
+        y=inputs["third"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_clamp_tensor(op, inputs):
+    return ttnn_clamp_tensor_golden(
+        input_tensor=inputs["input"],
+        min_tensor=inputs["min"],
+        max_tensor=inputs["max"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_typecast(op, inputs):
+    return ttnn_typecast_golden(
+        input_tensor=inputs["input"], output_type_mlir=op.results[0].type.element_type
+    )
+
+
+def chisel_ttnn_to_layout(op, inputs):
+    return ttnn_to_layout_golden(
+        input_tensor=inputs["input"],
+        layout_attr=op.attributes["layout"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_leaky_relu(op, inputs):
+    return ttnn_leaky_relu_golden(
+        input_tensor=inputs["input"],
+        parameter_attr=op.attributes["parameter"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_clamp_scalar(op, inputs):
+    return ttnn_clamp_scalar_golden(
+        input_tensor=inputs["input"],
+        min_attr=op.attributes["min"],
+        max_attr=op.attributes["max"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_repeat_interleave(op, inputs):
+    return ttnn_repeat_interleave_golden(
+        input_tensor=inputs["input"],
+        repeats_attr=op.attributes["repeats"],
+        dim_attr=op.attributes["dim"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_matmul(op, inputs):
+    return ttnn_matmul_golden(
+        input_tensor=inputs["a"],
+        other_tensor=inputs["b"],
+        transpose_a_attr=op.attributes["transpose_a"],
+        transpose_b_attr=op.attributes["transpose_b"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_concat(op, inputs):
+    return ttnn_concat_golden(
+        input_tensors=tuple(inputs["inputs"]),
+        dim_attr=op.attributes["dim"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_repeat(op, inputs):
+    return ttnn_repeat_golden(
+        input_tensor=inputs["input"],
+        repeat_dims_attr=op.attributes["repeat_dims"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_debug_annotate(op, inputs):
+    return debug_annotate_golden(inputs["input"], op.attributes["annotation"])
+
+
+def chisel_debug_region_start(op, inputs):
+    return debug_region_start_golden(inputs["input"], op.attributes["region_id"])
+
+
+def chisel_debug_region_end(op, inputs):
+    return debug_region_end_golden(inputs["input"], op.attributes["region_id"])
+
+
+def chisel_ttnn_assign(op, inputs):
+    return (
+        inputs["input"]
+        .clone()
+        .to(mlir_type_to_torch_dtype(op.results[0].type.element_type))
+    )
+
+
+def chisel_ttnn_to_memory_config(op, inputs):
+    return (
+        inputs["input"]
+        .clone()
+        .to(mlir_type_to_torch_dtype(op.results[0].type.element_type))
+    )
+
+
+def chisel_ttnn_deallocate(op, inputs):
+    return ()
+
+
+def chisel_ttnn_linear(op, inputs):
+    return ttnn_linear_golden(
+        input_tensor=inputs["a"],
+        other_tensor=inputs["b"],
+        bias_tensor=inputs["bias"],
+        transpose_a_attr=op.attributes["transpose_a"],
+        transpose_b_attr=op.attributes["transpose_b"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_layer_norm(op, inputs):
+    # ttnn.layer_norm always normalizes over the last dimension of the input
+    # (the op carries no `normalized_shape` attribute, unlike its TTIR counterpart).
+    input_shape = list(op.operands[0].type.shape)
+    return ttnn_layer_norm_golden(
+        input=inputs["input"],
+        weight=inputs["weight"],
+        bias=inputs["bias"],
+        normalized_shape=[input_shape[-1]],
+        epsilon=op.attributes["epsilon"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_layer_norm_pre_all_gather(op, inputs):
+    return ttnn_layer_norm_pre_all_gather_golden(
+        input=inputs["input"],
+        residual_input=inputs["residual_input"],
+        recip=inputs["recip"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_layer_norm_post_all_gather(op, inputs):
+    return ttnn_layer_norm_post_all_gather_golden(
+        input=inputs["input"],
+        stats=inputs["stats"],
+        weight=inputs["weight"],
+        bias=inputs["bias"],
+        epsilon=op.attributes["epsilon"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_rms_norm(op, inputs):
+    input_tensor = inputs["input"]
+    normalized_shape = [input_tensor.shape[-1]]
+    return rms_norm_golden(
+        input=input_tensor,
+        weight=inputs["weight"],
+        bias=inputs["bias"],
+        normalized_shape=normalized_shape,
+        epsilon=unpack_mlir_attr(op.attributes["epsilon"]),
+    )
+
+
+def chisel_ttnn_distribute_tensor(op, inputs):
+    return ttnn_distribute_tensor_golden(
+        input=inputs["input"],
+        mapper_config=op.attributes["mapper_config"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_aggregate_tensor(op, inputs):
+    return ttnn_aggregate_tensor_golden(
+        input=inputs["input"],
+        composer_config=op.attributes["composer_config"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_all_gather(op, inputs):
+    return ttnn_all_gather_golden(
+        input=inputs["input"],
+        all_gather_dim_attr=op.attributes["all_gather_dim"],
+        cluster_axis_attr=op.attributes["cluster_axis"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_reduce_scatter(op, inputs):
+    return ttnn_reduce_scatter_golden(
+        input=inputs["input"],
+        reduce_type_attr=op.attributes["reduce_type"],
+        scatter_dim_attr=op.attributes["scatter_dim"],
+        cluster_axis_attr=op.attributes["cluster_axis"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_all_reduce_async(op, inputs):
+    return ttir_all_reduce_golden(
+        input=inputs["input"],
+        reduce_type_attr=op.attributes["reduce_type"],
+        cluster_axis_attr=op.attributes["cluster_axis"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_gather(op, inputs):
+    return ttnn_gather_dim_golden(
+        input_tensor=inputs["input"],
+        index=inputs["index"],
+        dim=op.attributes["dim"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_paged_flash_multi_latent_attention_decode(op, inputs):
+    return ttir_paged_flash_multi_latent_attention_decode_golden(
+        query=inputs["query"],
+        key=inputs["key"],
+        value=inputs["value"],
+        page_table=inputs["page_table"],
+        attention_mask=inputs["attention_mask"],
+        cur_pos_tensor=inputs["cur_pos_tensor"],
+        attention_sink=inputs["attention_sink"],
+        head_dim_v=op.attributes["head_dim_v"],
+        is_causal=_attr_get(op.attributes, "is_causal"),
+        scale=_attr_get(op.attributes, "scale"),
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_sum(op, inputs):
+    return ttir_sum_golden(
+        input_tensor=inputs["input"],
+        dim_arg_attr=op.attributes["dim_arg"],
+        keep_dim_attr=op.attributes["keep_dim"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_max(op, inputs):
+    return ttir_max_golden(
+        input_tensor=inputs["input"],
+        dim_arg_attr=op.attributes["dim_arg"],
+        keep_dim_attr=op.attributes["keep_dim"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_mean(op, inputs):
+    return mean_golden(
+        input_tensor=inputs["input"],
+        dim_arg=_attr_get_value(op.attributes, "dim_arg"),
+        keep_dim=unpack_mlir_attr(op.attributes["keep_dim"]),
+    )
+
+
+def chisel_ttnn_min(op, inputs):
+    return min_golden(
+        input_tensor=inputs["input"],
+        dim_arg=_attr_get_value(op.attributes, "dim_arg"),
+        keep_dim=unpack_mlir_attr(op.attributes["keep_dim"]),
+    )
+
+
+def chisel_ttnn_prod(op, inputs):
+    dim_arg_val = _attr_get_value(op.attributes, "dim_arg")
+    if isinstance(dim_arg_val, int):
+        dim_arg_val = [dim_arg_val]
+    return prod_golden(
+        input_tensor=inputs["input"],
+        dim_arg=dim_arg_val,
+        keep_dim=unpack_mlir_attr(op.attributes["keep_dim"]),
+    )
+
+
+def chisel_ttnn_argmax(op, inputs):
+    input_tensor = inputs["input"]
+    keep_dim = unpack_mlir_attr(op.attributes["keep_dim"])
+    output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    dim = _attr_get_value(op.attributes, "dim")
+    if dim is not None:
+        result = torch.argmax(input_tensor, dim=dim, keepdim=keep_dim)
+    else:
+        result = torch.argmax(input_tensor, keepdim=keep_dim)
+    return result.to(output_dtype)
+
+
+def chisel_ttnn_cumsum(op, inputs):
+    return ttir_cumsum_golden(
+        input_tensor=inputs["input"],
+        dim=op.attributes["dim"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_sort(op, inputs):
+    values, indices = ttir_sort_golden(
+        input_tensor=inputs["input"],
+        dim_attr=op.attributes["dim"],
+        descending_attr=op.attributes["descending"],
+        stable_attr=op.attributes["stable"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+    indices_dtype = mlir_type_to_torch_dtype(op.results[1].type.element_type)
+    return values, indices.to(indices_dtype)
+
+
+def chisel_ttnn_transpose(op, inputs):
+    return transpose_golden(
+        input_tensor=inputs["input"],
+        dim0=unpack_mlir_attr(op.attributes["dim0"]),
+        dim1=unpack_mlir_attr(op.attributes["dim1"]),
+    )
+
+
+def chisel_ttnn_reshape(op, inputs):
+    return reshape_golden(
+        input_tensor=inputs["input"], shape=unpack_mlir_attr(op.attributes["shape"])
+    )
+
+
+def chisel_ttnn_permute(op, inputs):
+    return ttir_permute_golden(
+        input_tensor=inputs["input"],
+        permutation_attr=op.attributes["permutation"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_slice_static(op, inputs):
+    return ttir_slice_golden(
+        input_tensor=inputs["input"],
+        begins=op.attributes["begins"],
+        ends=op.attributes["ends"],
+        step=op.attributes["step"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_slice_dynamic(op, inputs):
+    return dynamic_slice_golden(
+        input_tensor=inputs["input"],
+        begins=inputs["begins"],
+        ends=inputs["ends"],
+        step=_attr_get_value(op.attributes, "step"),
+    )
+
+
+def chisel_ttnn_topk(op, inputs):
+    values, indices = ttir_topk_golden(
+        input_tensor=inputs["input_tensor"],
+        k_attr=op.attributes["k"],
+        dim_attr=op.attributes["dim"],
+        largest_attr=op.attributes["largest"],
+        sorted_attr=op.attributes["sorted"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+    indices_dtype = mlir_type_to_torch_dtype(op.results[1].type.element_type)
+    return values, indices.to(indices_dtype)
+
+
+def chisel_ttnn_pad(op, inputs):
+    return ttir_pad_golden(
+        input_tensor=inputs["input"],
+        padding=op.attributes["padding"],
+        value=op.attributes["value"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_softmax(op, inputs):
+    return softmax_golden(
+        input_tensor=inputs["input"],
+        dimension=unpack_mlir_attr(op.attributes["dimension"]),
+    )
+
+
+def chisel_ttnn_hardsigmoid(op, inputs):
+    return ttir_hardsigmoid_golden(
+        input_tensor=inputs["input"], output_type_mlir=op.results[0].type.element_type
+    )
+
+
+def chisel_ttnn_embedding(op, inputs):
+    return ttir_embedding_golden(
+        indices_tensor=inputs["input"],
+        weight_tensor=inputs["weight"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_embedding_backward(op, inputs):
+    return ttir_embedding_backward_golden(
+        indices_tensor=inputs["input"],
+        weight_tensor=inputs["weight"],
+        in_gradient_tensor=inputs["in_gradient"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_gelu_backward(op, inputs):
+    return ttir_gelu_backward_golden(
+        grad=inputs["lhs"],
+        input=inputs["rhs"],
+        approximate=_attr_get_value(op.attributes, "approximate", default="none"),
+    )
+
+
+def chisel_ttnn_dropout(op, inputs):
+    return ttir_dropout_golden(
+        input_tensor=inputs["input"],
+        prob=op.attributes["prob"],
+        scale=op.attributes["scale"],
+        seed=op.attributes["seed"],
+        use_per_device_seed=op.attributes["use_per_device_seed"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_global_avg_pool2d(op, inputs):
+    return global_avg_pool2d_golden(
+        input_tensor=inputs["input"], output_type_mlir=op.results[0].type.element_type
+    )
+
+
+def chisel_ttnn_max_pool2d(op, inputs):
+    # TTNN max_pool2d receives a flat [1, 1, batch*H*W, C] tensor.
+    batch_size = unpack_mlir_attr(op.attributes["batch_size"])
+    input_height = unpack_mlir_attr(op.attributes["input_height"])
+    input_width = unpack_mlir_attr(op.attributes["input_width"])
+    channels = unpack_mlir_attr(op.attributes["channels"])
+    kernel_size = unpack_mlir_attr(op.attributes["kernel_size"])
+    stride = unpack_mlir_attr(op.attributes["stride"])
+    dilation = unpack_mlir_attr(op.attributes["dilation"])
+    ceil_mode = unpack_mlir_attr(op.attributes["ceil_mode"])
+    padding = unpack_mlir_attr(op.attributes["padding"])
+    output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
+
+    # Unflatten to NHWC then transpose to NCHW for PyTorch pooling.
+    nhwc = _ttnn_unflatten_nhwc(
+        inputs["input"], batch_size, input_height, input_width, channels
+    )
+    nchw = nhwc.transpose(-2, -1).transpose(-3, -2)
+
+    if isinstance(padding, (list, tuple)) and len(padding) == 4:
+        top, left, bottom, right = padding
+        if top == bottom and left == right:
+            torch_padding = (top, left)
+        else:
+            nchw = torch.nn.functional.pad(
+                nchw, [left, right, top, bottom], mode="constant", value=float("-inf")
+            )
+            torch_padding = 0
+    else:
+        torch_padding = padding
+
+    result = torch.nn.MaxPool2d(
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=torch_padding,
+        dilation=dilation,
+        ceil_mode=ceil_mode,
+    )(nchw)
+
+    # Transpose back to NHWC and flatten to [1, 1, batch*H_out*W_out, C].
+    result = result.transpose(-3, -2).transpose(-2, -1).to(output_dtype)
+    return _ttnn_flatten_nhwc(result)
+
+
+def chisel_ttnn_avg_pool2d(op, inputs):
+    # TTNN input/output is flat [1, 1, N*H*W, C]; unflatten to NHWC, run pool, re-flatten.
+    batch_size = unpack_mlir_attr(op.attributes["batch_size"])
+    input_height = unpack_mlir_attr(op.attributes["input_height"])
+    input_width = unpack_mlir_attr(op.attributes["input_width"])
+    channels = unpack_mlir_attr(op.attributes["channels"])
+    nhwc = _ttnn_unflatten_nhwc(
+        inputs["input"], batch_size, input_height, input_width, channels
+    )
+    result_nhwc = avg_pool2d_golden(
+        input_tensor=nhwc,
+        kernel=unpack_mlir_attr(op.attributes["kernel_size"]),
+        stride=unpack_mlir_attr(op.attributes["stride"]),
+        padding=unpack_mlir_attr(op.attributes["padding"]),
+        ceil_mode=unpack_mlir_attr(op.attributes["ceil_mode"]),
+        count_include_pad=_attr_get_value(
+            op.attributes, "count_include_pad", default=True
+        ),
+    )
+    return _ttnn_flatten_nhwc(result_nhwc)
+
+
+def chisel_ttnn_max_pool2d_with_indices(op, inputs):
+    # TTNN input/output is flat [1, 1, N*H*W, C]; unflatten to NHWC, run pool, re-flatten.
+    batch_size = unpack_mlir_attr(op.attributes["batch_size"])
+    input_height = unpack_mlir_attr(op.attributes["input_height"])
+    input_width = unpack_mlir_attr(op.attributes["input_width"])
+    channels = unpack_mlir_attr(op.attributes["channels"])
+    nhwc = _ttnn_unflatten_nhwc(
+        inputs["input"], batch_size, input_height, input_width, channels
+    )
+    # TTNN padding is [pad_H, pad_W]; expand to [top, left, bottom, right] for the golden.
+    padding = unpack_mlir_attr(op.attributes["padding"])
+    if len(padding) == 2:
+        padding = [padding[0], padding[1], padding[0], padding[1]]
+    values_nhwc, indices_nhwc = ttir_max_pool2d_with_indices(
+        nhwc,
+        op.attributes["kernel_size"],
+        op.attributes["stride"],
+        padding,
+        op.attributes["dilation"],
+        op.attributes["ceil_mode"],
+        op.results[0].type.element_type,
+    )
+    indices_dtype = mlir_type_to_torch_dtype(op.results[1].type.element_type)
+    return (
+        _ttnn_flatten_nhwc(values_nhwc),
+        _ttnn_flatten_nhwc(indices_nhwc).to(indices_dtype),
+    )
+
+
+def chisel_ttnn_conv2d(op, inputs):
+    # TTNN input/output is flat [1, 1, N*H*W, C]; unflatten to NHWC, run conv, re-flatten.
+    batch_size = unpack_mlir_attr(op.attributes["batch_size"])
+    input_height = unpack_mlir_attr(op.attributes["input_height"])
+    input_width = unpack_mlir_attr(op.attributes["input_width"])
+    in_channels = unpack_mlir_attr(op.attributes["in_channels"])
+    out_channels = unpack_mlir_attr(op.attributes["out_channels"])
+    kh, kw = unpack_mlir_attr(op.attributes["kernel_size"])
+    groups = unpack_mlir_attr(op.attributes["groups"])
+    nhwc = _ttnn_unflatten_nhwc(
+        inputs["input"], batch_size, input_height, input_width, in_channels
+    )
+    # TTNN weight is [1, 1, (C_in/groups)*kH*kW, C_out]; reshape to OIHW for torch conv2d.
+    in_channels_per_group = in_channels // groups
+    weight_oihw = (
+        inputs["weight"]
+        .reshape(in_channels_per_group, kh, kw, out_channels)
+        .permute(3, 0, 1, 2)
+    )
+    result_nhwc = conv2d_golden(
+        input_tensor=nhwc,
+        weight=weight_oihw,
+        bias=inputs["bias"],
+        stride=op.attributes["stride"],
+        padding=op.attributes["padding"],
+        dilation=op.attributes["dilation"],
+        groups=op.attributes["groups"],
+        batch_dim=0,
+        height_dim=1,
+        width_dim=2,
+        channel_dim=3,
+    )
+    return _ttnn_flatten_nhwc(result_nhwc)
+
+
+def chisel_ttnn_conv3d(op, inputs):
+    # TTNN conv3d receives a flat [1, 1, batch*D*H*W, C] tensor; unflatten to NDHWC.
+    batch_size = unpack_mlir_attr(op.attributes["batch_size"])
+    input_depth = unpack_mlir_attr(op.attributes["input_depth"])
+    input_height = unpack_mlir_attr(op.attributes["input_height"])
+    input_width = unpack_mlir_attr(op.attributes["input_width"])
+    in_channels = unpack_mlir_attr(op.attributes["in_channels"])
+    out_channels = unpack_mlir_attr(op.attributes["out_channels"])
+    groups = unpack_mlir_attr(op.attributes["groups"])
+    kernel_size = unpack_mlir_attr(op.attributes["kernel_size"])
+    input_ndhwc = inputs["input"].reshape(
+        batch_size, input_depth, input_height, input_width, in_channels
+    )
+    # TTNN weight is [K_D*K_H*K_W*(C_in/groups), C_out]; reshape to OIDHW for torch conv3d.
+    kd, kh, kw = kernel_size
+    in_channels_per_group = in_channels // groups
+    weight_ncdhw = (
+        inputs["weight"]
+        .reshape(kd, kh, kw, in_channels_per_group, out_channels)
+        .permute(4, 3, 0, 1, 2)
+    )
+    result_ndhwc = conv3d_golden(
+        input_tensor=input_ndhwc,
+        weight=weight_ncdhw,
+        bias=inputs["bias"],
+        stride=op.attributes["stride"],
+        padding=op.attributes["padding"],
+        groups=op.attributes["groups"],
+        batch_dim=0,
+        depth_dim=1,
+        height_dim=2,
+        width_dim=3,
+        channel_dim=4,
+        padding_mode=op.attributes["padding_mode"],
+    )
+    # TTNN result type is NDHWC (not flat), so return as-is.
+    return result_ndhwc
+
+
+def chisel_ttnn_conv_transpose2d(op, inputs):
+    # TTNN input/output is flat [1, 1, N*H*W, C]; unflatten to NHWC, run conv, re-flatten.
+    batch_size = unpack_mlir_attr(op.attributes["batch_size"])
+    input_height = unpack_mlir_attr(op.attributes["input_height"])
+    input_width = unpack_mlir_attr(op.attributes["input_width"])
+    in_channels = unpack_mlir_attr(op.attributes["in_channels"])
+    out_channels = unpack_mlir_attr(op.attributes["out_channels"])
+    kh, kw = unpack_mlir_attr(op.attributes["kernel_size"])
+    nhwc = inputs["input"].reshape(batch_size, input_height, input_width, in_channels)
+    # TTNN weight is [1, 1, C_in*kH*kW, C_out]; reshape to IOHW for torch conv_transpose2d.
+    weight_iohw = (
+        inputs["weight"].reshape(in_channels, kh, kw, out_channels).permute(0, 3, 1, 2)
+    )
+    result_nhwc = conv_transpose2d_golden(
+        input_tensor=nhwc,
+        weight=weight_iohw,
+        bias=inputs["bias"],
+        stride=op.attributes["stride"],
+        padding=op.attributes["padding"],
+        output_padding=op.attributes["output_padding"],
+        dilation=op.attributes["dilation"],
+        groups=op.attributes["groups"],
+        batch_dim=0,
+        height_dim=1,
+        width_dim=2,
+        channel_dim=3,
+    )
+    n, h_out, w_out, c_out = result_nhwc.shape
+    return result_nhwc.reshape(1, 1, n * h_out * w_out, c_out)
+
+
+def chisel_ttnn_prepare_conv2d_weights(op, inputs):
+    output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    out_shape = list(op.results[0].type.shape)
+    # Permute [C_out, C_in, kH, kW] -> [C_in, kH, kW, C_out] then reshape to out_shape.
+    perm = inputs["weight_tensor"].permute(1, 2, 3, 0)
+    return perm.reshape(out_shape).to(output_dtype)
+
+
+def chisel_ttnn_prepare_conv2d_bias(op, inputs):
+    return (
+        inputs["bias_tensor"]
+        .clone()
+        .to(mlir_type_to_torch_dtype(op.results[0].type.element_type))
+    )
+
+
+def chisel_ttnn_prepare_conv_transpose2d_weights(op, inputs):
+    output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    out_shape = list(op.results[0].type.shape)
+    # Permute [C_in, C_out, kH, kW] -> [C_in, kH, kW, C_out] then reshape to out_shape.
+    perm = inputs["weight_tensor"].permute(0, 2, 3, 1)
+    return perm.reshape(out_shape).to(output_dtype)
+
+
+def chisel_ttnn_prepare_conv_transpose2d_bias(op, inputs):
+    return (
+        inputs["bias_tensor"]
+        .clone()
+        .to(mlir_type_to_torch_dtype(op.results[0].type.element_type))
+    )
+
+
+def chisel_ttnn_batch_norm_inference(op, inputs):
+    return ttir_batch_norm_inference_golden(
+        input_tensor=inputs["input"],
+        scale=inputs["weight"],
+        offset=inputs["bias"],
+        mean=inputs["running_mean"],
+        variance=inputs["running_var"],
+        epsilon_attr=op.attributes["epsilon"],
+        dimension_attr=1,
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_distributed_rms_norm(op, inputs):
+    return ttir_distributed_rms_norm_golden(
+        input=inputs["input"],
+        weight=inputs["weight"],
+        residual=inputs["residual"],
+        cluster_axis_attr=op.attributes["cluster_axis"],
+        epsilon_attr=op.attributes["epsilon"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_scatter(op, inputs):
+    return ttir_scatter_golden(
+        input_tensor=inputs["input"],
+        index=inputs["index"],
+        source=inputs["source"],
+        dim=op.attributes["dim"],
+        scatter_reduce_type_attr=op.attributes["scatter_reduce_type"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_scaled_dot_product_attention(op, inputs):
+    return ttir_sdpa_golden(
+        query=inputs["query"],
+        key=inputs["key"],
+        value=inputs["value"],
+        attention_mask=inputs["attention_mask"],
+        is_causal_attr=_attr_get(op.attributes, "is_causal"),
+        scale_attr=_attr_get(op.attributes, "scale"),
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_scaled_dot_product_attention_decode(op, inputs):
+    return sdpa_decode_golden(
+        query=inputs["query"],
+        key=inputs["key"],
+        value=inputs["value"],
+        cur_pos_tensor=inputs["cur_pos_tensor"],
+        attention_mask=inputs["attention_mask"],
+        is_causal=_attr_get_value(op.attributes, "is_causal", default=True),
+        scale=_attr_get_value(op.attributes, "scale"),
+    )
+
+
+def chisel_ttnn_paged_scaled_dot_product_attention_decode(op, inputs):
+    return ttir_paged_sdpa_decode_golden(
+        query=inputs["query"],
+        key=inputs["key"],
+        value=inputs["value"],
+        page_table=inputs["page_table"],
+        output=None,
+        is_causal_attr=_attr_get(op.attributes, "is_causal"),
+        attention_mask=inputs["attention_mask"],
+        cur_pos_tensor=inputs["cur_pos_tensor"],
+        attention_sink=inputs["attention_sink"],
+        scale_attr=_attr_get(op.attributes, "scale"),
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_fill_cache(op, inputs):
+    return fill_cache_golden(cache_tensor=inputs["cache"], input_tensor=inputs["input"])
+
+
+def chisel_ttnn_update_cache(op, inputs):
+    return update_cache_golden(
+        cache_tensor=inputs["cache"],
+        update_tensor=inputs["input"],
+        indices_tensor=inputs["update_index"],
+        batch_offset=op.attributes["batch_offset"],
+    )
+
+
+def chisel_ttnn_paged_fill_cache(op, inputs):
+    cache = inputs["cache"]
+    if cache.device.type == "meta":
+        return cache.clone()
+    return ttir_paged_fill_cache_golden(
+        cache_tensor=cache,
+        input_tensor=inputs["input"],
+        page_table_tensor=inputs["page_table"],
+        batch_idx_tensor=inputs["batch_idx_tensor"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_paged_update_cache(op, inputs):
+    cache = inputs["cache"]
+    if cache.device.type == "meta":
+        return cache.clone()
+    return ttir_paged_update_cache_golden(
+        cache_tensor=cache,
+        input_tensor=inputs["input"],
+        update_index_tensor=inputs["update_index"],
+        share_cache_attr=_attr_get(op.attributes, "share_cache", default=False),
+        page_table_tensor=inputs["page_table"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_all_reduce(op, inputs):
+    return ttir_all_reduce_golden(
+        input=inputs["input"],
+        reduce_type_attr=op.attributes["reduce_type"],
+        cluster_axis_attr=op.attributes["cluster_axis"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_all_to_all_dispatch(op, inputs):
+    return ttir_all_to_all_dispatch_golden(
+        input_tensor=inputs["input_tensor"],
+        expert_indices=inputs["expert_indices"],
+        expert_mapping=inputs["expert_mapping"],
+        num_devices_attr=op.attributes["num_devices"],
+        cluster_axis_attr=op.attributes["cluster_axis"],
+        dispatched_type_mlir=op.results[0].type.element_type,
+        metadata_type_mlir=op.results[1].type.element_type,
+    )
+
+
+def chisel_ttnn_all_to_all_combine(op, inputs):
+    return all_to_all_combine_golden(
+        input_tensor=inputs["input_tensor"],
+        expert_metadata=inputs["expert_metadata"],
+        expert_mapping=inputs["expert_mapping"],
+        num_devices=unpack_mlir_attr(op.attributes["num_devices"]),
+        cluster_axis=unpack_mlir_attr(op.attributes["cluster_axis"]),
+        num_experts_per_tok=unpack_mlir_attr(op.attributes["num_experts_per_tok"]),
+    )
+
+
+def chisel_ttnn_concatenate_heads(op, inputs):
+    return ttir_concatenate_heads_golden(
+        input_tensor=inputs["input"], output_type_mlir=op.results[0].type.element_type
+    )
+
+
+def chisel_ttnn_split_query_key_value_and_split_heads(op, inputs):
+    return ttir_split_query_key_value_and_split_heads_golden(
+        input_tensor=inputs["input_tensor"],
+        kv_input_tensor=inputs["kv_input_tensor"],
+        num_heads_attr=op.attributes["num_heads"],
+        num_kv_heads_attr=_attr_get(op.attributes, "num_kv_heads"),
+        transpose_key_attr=op.attributes["transpose_key"],
+        query_output_type_mlir=op.results[0].type.element_type,
+        key_output_type_mlir=op.results[1].type.element_type,
+        value_output_type_mlir=op.results[2].type.element_type,
+    )
+
+
+def chisel_ttnn_topk_router_gpt(op, inputs):
+    return ttir_topk_router_gpt_golden(
+        input_tensor=inputs["input"],
+        weight_tensor=inputs["weight"],
+        bias_tensor=inputs["bias"],
+        k_attr=op.attributes["k"],
+        _num_experts_attr=op.attributes["num_experts"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_moe_expert_token_remap(op, inputs):
+    return ttir_moe_expert_token_remap_golden(
+        topk_tensor=inputs["topk_tensor"],
+        expert_mapping=inputs["expert_mapping"],
+        expert_metadata=inputs["expert_metadata"],
+        reduction_size=unpack_mlir_attr(op.attributes["reduction_size"]),
+    )
+
+
+def chisel_ttnn_sparse_matmul(op, inputs):
+    return sparse_matmul_golden(
+        a=inputs["a"],
+        b=inputs["b"],
+        sparsity=inputs["sparsity"],
+        is_input_a_sparse=unpack_mlir_attr(op.attributes["is_input_a_sparse"]),
+        is_input_b_sparse=unpack_mlir_attr(op.attributes["is_input_b_sparse"]),
+        nnz=_attr_get_value(op.attributes, "nnz"),
+    )
+
+
+def chisel_ttnn_upsample(op, inputs):
+    input_tensor = inputs["input"]
+    scale_factor = unpack_mlir_attr(op.attributes["scale_factor"])
+    mode = unpack_mlir_attr(op.attributes["mode"])
+    # NHWC -> NCHW for torch.interpolate.
+    nchw = input_tensor.permute(0, 3, 1, 2).float()
+    h_in, w_in = nchw.shape[2], nchw.shape[3]
+    if isinstance(scale_factor, (list, tuple)):
+        scale_h, scale_w = scale_factor[0], scale_factor[1]
+    else:
+        scale_h = scale_w = scale_factor
+    output_size = (int(h_in * scale_h), int(w_in * scale_w))
+    # align_corners=False matches the default TTNN upsample behaviour.
+    align_corners = False if mode in ("bilinear", "bicubic", "linear") else None
+    interp_kwargs = (
+        {"align_corners": align_corners} if align_corners is not None else {}
+    )
+    result_nchw = torch.nn.functional.interpolate(
+        nchw, size=output_size, mode=mode, **interp_kwargs
+    )
+    return result_nchw.permute(0, 2, 3, 1).to(input_tensor.dtype)
+
+
+def chisel_ttnn_pow_scalar(op, inputs):
+    exponent = unpack_mlir_attr(op.attributes["rhs"])
+    output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    return torch.pow(inputs["lhs"], exponent).to(output_dtype)
+
+
+def _chisel_mesh_shape_from_op(op) -> list:
+    """Return [rows, cols] mesh shape from the device operand, or [1, 1] if absent."""
+    for operand in op.operands:
+        try:
+            defining_op = operand.owner
+            if "mesh_shape" in defining_op.attributes:
+                ms = ttnn.ir.MeshShapeAttr.maybe_downcast(
+                    defining_op.attributes["mesh_shape"]
+                )
+                return [ms.y, ms.x]
+        except Exception:
+            continue
+    return [1, 1]
+
+
+def chisel_ttnn_arange(op, inputs):
+    # TTNN ArangeOp always produces a 1D result - no arange_dimension concept.
+    start = unpack_mlir_attr(op.attributes["start"])
+    end = unpack_mlir_attr(op.attributes["end"])
+    step = unpack_mlir_attr(op.attributes["step"])
+    output_shape = list(op.results[0].type.shape)
+    output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    mesh_shape = _chisel_mesh_shape_from_op(op)
+    result = torch.arange(start=start, end=end, step=step).to(output_dtype)
+    if list(result.shape) != output_shape:
+        result = result.reshape(output_shape)
+    num_devices = mesh_shape[0] * mesh_shape[1]
+    return GoldenMapTensor({i: result.clone() for i in range(num_devices)}, mesh_shape)
+
+
+def chisel_ttnn_full(op, inputs):
+    shape = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["shape"]).shape
+    return ttir_full_golden(
+        shape_attr=shape,
+        fill_value_attr=op.attributes["fill_value"],
+        mesh_shape_attr=_chisel_mesh_shape_from_op(op),
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_ones(op, inputs):
+    shape = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["shape"]).shape
+    return ttir_ones_golden(
+        shape=shape,
+        mesh_shape_attr=_chisel_mesh_shape_from_op(op),
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_zeros(op, inputs):
+    shape = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["shape"]).shape
+    return ttir_zeros_golden(
+        shape=shape,
+        mesh_shape_attr=_chisel_mesh_shape_from_op(op),
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_empty(op, inputs):
+    shape = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["shape"]).shape
+    return ttir_zeros_golden(
+        shape=shape,
+        mesh_shape_attr=_chisel_mesh_shape_from_op(op),
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+def chisel_ttnn_dump_tensor(op, inputs):
+    return ()
+
+
+def chisel_ttnn_rand(op, inputs):
+    size = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["size"]).shape
+    return ttir_rand_golden(
+        size=size,
+        low=op.attributes["low"],
+        high=op.attributes["high"],
+        seed=op.attributes["seed"],
+        mesh_shape_attr=_chisel_mesh_shape_from_op(op),
+        output_type_mlir=op.results[0].type.element_type,
+    )
+
+
+CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {
+    # Unary ops
+    ttnn.AbsOp: _chisel_unary(ttnn_abs_golden),
+    ttnn.CbrtOp: _chisel_unary(ttnn_cbrt_golden),
+    ttnn.CeilOp: _chisel_unary(ttnn_ceil_golden),
+    ttnn.CosOp: _chisel_unary(ttnn_cos_golden),
+    ttnn.AcosOp: _chisel_unary(ttnn_acos_golden),
+    ttnn.ErfOp: _chisel_unary(ttnn_erf_golden),
+    ttnn.ErfcOp: _chisel_unary(ttnn_erfc_golden),
+    ttnn.ExpOp: _chisel_unary(ttnn_exp_golden),
+    ttnn.FloorOp: _chisel_unary(ttnn_floor_golden),
+    ttnn.GeluOp: _chisel_unary(ttnn_gelu_golden),
+    ttnn.IsFiniteOp: _chisel_unary(ttnn_isfinite_golden),
+    ttnn.NegOp: _chisel_unary(ttnn_neg_golden),
+    ttnn.TanOp: _chisel_unary(ttnn_tan_golden),
+    ttnn.AtanOp: _chisel_unary(ttnn_atan_golden),
+    ttnn.TanhOp: _chisel_unary(ttnn_tanh_golden),
+    ttnn.ReciprocalOp: _chisel_unary(ttnn_reciprocal_golden),
+    ttnn.ReluOp: _chisel_unary(ttnn_relu_golden),
+    ttnn.Relu6Op: _chisel_unary(ttnn_relu6_golden),
+    ttnn.RsqrtOp: _chisel_unary(ttnn_rsqrt_golden),
+    ttnn.SigmoidOp: _chisel_unary(ttnn_sigmoid_golden),
+    ttnn.SignOp: _chisel_unary(ttnn_sign_golden),
+    ttnn.SiluOp: _chisel_unary(ttnn_silu_golden),
+    ttnn.SinOp: _chisel_unary(ttnn_sin_golden),
+    ttnn.AsinOp: _chisel_unary(ttnn_asin_golden),
+    ttnn.SqrtOp: _chisel_unary(ttnn_sqrt_golden),
+    ttnn.LogOp: _chisel_unary(ttnn_log_golden),
+    ttnn.Log1pOp: _chisel_unary(ttnn_log1p_golden),
+    ttnn.Expm1Op: _chisel_unary(ttnn_expm1_golden),
+    ttnn.MishOp: _chisel_unary(ttnn_mish_golden),
+    ttnn.LogicalNotOp: _chisel_unary(ttnn_logical_not_golden),
+    ttnn.BitwiseNotOp: _chisel_unary(ttnn_bitwise_not_golden),
+    ttnn.ToDeviceOp: _chisel_unary(ttnn_to_device_golden),
+    ttnn.FromDeviceOp: _chisel_unary(ttnn_from_device_golden),
+    # Binary ops
+    ttnn.AddOp: _chisel_binary(ttnn_add_golden),
+    ttnn.Atan2Op: _chisel_binary(ttnn_atan2_golden),
+    ttnn.MultiplyOp: _chisel_binary(ttnn_multiply_golden),
+    ttnn.SubtractOp: _chisel_binary(ttnn_subtract_golden),
+    ttnn.DivideOp: _chisel_binary(ttnn_divide_golden),
+    ttnn.MaximumOp: _chisel_binary(ttnn_maximum_golden),
+    ttnn.MinimumOp: _chisel_binary(ttnn_minimum_golden),
+    ttnn.RemainderOp: _chisel_binary(ttnn_remainder_golden),
+    ttnn.PowTensorOp: _chisel_binary(ttnn_pow_tensor_golden),
+    ttnn.EqualOp: _chisel_binary(ttnn_eq_golden),
+    ttnn.NotEqualOp: _chisel_binary(ttnn_ne_golden),
+    ttnn.GreaterEqualOp: _chisel_binary(ttnn_ge_golden),
+    ttnn.GreaterThanOp: _chisel_binary(ttnn_gt_golden),
+    ttnn.LessEqualOp: _chisel_binary(ttnn_le_golden),
+    ttnn.LessThanOp: _chisel_binary(ttnn_lt_golden),
+    ttnn.LogicalAndOp: _chisel_binary(ttnn_logical_and_golden),
+    ttnn.LogicalOrOp: _chisel_binary(ttnn_logical_or_golden),
+    ttnn.LogicalXorOp: _chisel_binary(ttnn_logical_xor_golden),
+    ttnn.LogicalLeftShiftOp: _chisel_binary(
+        ttnn_logical_left_shift_golden, rhs_kwarg="shift_tensor"
+    ),
+    ttnn.LogicalRightShiftOp: _chisel_binary(
+        ttnn_logical_right_shift_golden, rhs_kwarg="shift_tensor"
+    ),
+    ttnn.BitwiseAndOp: _chisel_binary(ttnn_bitwise_and_golden),
+    ttnn.BitwiseOrOp: _chisel_binary(ttnn_bitwise_or_golden),
+    ttnn.BitwiseXorOp: _chisel_binary(ttnn_bitwise_xor_golden),
+    # Ternary ops
+    ttnn.WhereOp: chisel_ttnn_where,
+    ttnn.ClampTensorOp: chisel_ttnn_clamp_tensor,
+    # Type / layout ops
+    ttnn.TypecastOp: chisel_ttnn_typecast,
+    ttnn.ToLayoutOp: chisel_ttnn_to_layout,
+    # Unary + scalar attrs
+    ttnn.LeakyReluOp: chisel_ttnn_leaky_relu,
+    ttnn.ClampScalarOp: chisel_ttnn_clamp_scalar,
+    ttnn.RepeatInterleaveOp: chisel_ttnn_repeat_interleave,
+    # Binary + attrs
+    ttnn.MatmulOp: chisel_ttnn_matmul,
+    # Variadic + attrs
+    ttnn.ConcatOp: chisel_ttnn_concat,
+    ttnn.RepeatOp: chisel_ttnn_repeat,
+    # Optional tensors + attrs
+    ttnn.LinearOp: chisel_ttnn_linear,
+    ttnn.LayerNormOp: chisel_ttnn_layer_norm,
+    ttnn.LayerNormPreAllGatherOp: chisel_ttnn_layer_norm_pre_all_gather,
+    ttnn.LayerNormPostAllGatherOp: chisel_ttnn_layer_norm_post_all_gather,
+    ttnn.RMSNormOp: chisel_ttnn_rms_norm,
+    # CCL ops
+    ttnn.DistributeTensorOp: chisel_ttnn_distribute_tensor,
+    ttnn.AggregateTensorOp: chisel_ttnn_aggregate_tensor,
+    ttnn.AllGatherOp: chisel_ttnn_all_gather,
+    ttnn.ReduceScatterOp: chisel_ttnn_reduce_scatter,
+    ttnn.AllReduceAsyncOp: chisel_ttnn_all_reduce_async,
+    # Index-based
+    ttnn.GatherOp: chisel_ttnn_gather,
+    # Attention
+    ttnn.PagedFlashMultiLatentAttentionDecodeOp: chisel_ttnn_paged_flash_multi_latent_attention_decode,
+    # Layout / memory ops
+    ttnn.AssignOp: chisel_ttnn_assign,
+    ttnn.ToMemoryConfigOp: chisel_ttnn_to_memory_config,
+    ttnn.DeallocateOp: chisel_ttnn_deallocate,
+    # Reduction ops
+    ttnn.SumOp: chisel_ttnn_sum,
+    ttnn.MeanOp: chisel_ttnn_mean,
+    ttnn.MaxOp: chisel_ttnn_max,
+    ttnn.MinOp: chisel_ttnn_min,
+    ttnn.ProdOp: chisel_ttnn_prod,
+    ttnn.ArgMaxOp: chisel_ttnn_argmax,
+    ttnn.CumSumOp: chisel_ttnn_cumsum,
+    ttnn.SortOp: chisel_ttnn_sort,
+    # Shape/layout ops
+    ttnn.TransposeOp: chisel_ttnn_transpose,
+    ttnn.ReshapeOp: chisel_ttnn_reshape,
+    ttnn.PermuteOp: chisel_ttnn_permute,
+    ttnn.SliceStaticOp: chisel_ttnn_slice_static,
+    ttnn.SliceDynamicOp: chisel_ttnn_slice_dynamic,
+    ttnn.TopKOp: chisel_ttnn_topk,
+    ttnn.PadOp: chisel_ttnn_pad,
+    ttnn.SoftmaxOp: chisel_ttnn_softmax,
+    # NN / activation ops
+    ttnn.HardsigmoidOp: chisel_ttnn_hardsigmoid,
+    ttnn.EmbeddingOp: chisel_ttnn_embedding,
+    ttnn.EmbeddingBackwardOp: chisel_ttnn_embedding_backward,
+    ttnn.GeluBackwardOp: chisel_ttnn_gelu_backward,
+    ttnn.DropoutOp: chisel_ttnn_dropout,
+    # Conv/Pool ops
+    ttnn.GlobalAvgPool2dOp: chisel_ttnn_global_avg_pool2d,
+    ttnn.MaxPool2dOp: chisel_ttnn_max_pool2d,
+    ttnn.AvgPool2dOp: chisel_ttnn_avg_pool2d,
+    ttnn.MaxPool2dWithIndicesOp: chisel_ttnn_max_pool2d_with_indices,
+    ttnn.Conv2dOp: chisel_ttnn_conv2d,
+    ttnn.Conv3dOp: chisel_ttnn_conv3d,
+    ttnn.ConvTranspose2dOp: chisel_ttnn_conv_transpose2d,
+    ttnn.PrepareConv2dWeightsOp: chisel_ttnn_prepare_conv2d_weights,
+    ttnn.PrepareConv2dBiasOp: chisel_ttnn_prepare_conv2d_bias,
+    ttnn.PrepareConvTranspose2dWeightsOp: chisel_ttnn_prepare_conv_transpose2d_weights,
+    ttnn.PrepareConvTranspose2dBiasOp: chisel_ttnn_prepare_conv_transpose2d_bias,
+    # BatchNorm / DistRMSNorm / Scatter
+    ttnn.BatchNormInferenceOp: chisel_ttnn_batch_norm_inference,
+    ttnn.DistributedRMSNormOp: chisel_ttnn_distributed_rms_norm,
+    ttnn.ScatterOp: chisel_ttnn_scatter,
+    # SDPA / Attention ops
+    ttnn.ScaledDotProductAttentionOp: chisel_ttnn_scaled_dot_product_attention,
+    ttnn.ScaledDotProductAttentionDecodeOp: chisel_ttnn_scaled_dot_product_attention_decode,
+    ttnn.PagedScaledDotProductAttentionDecodeOp: chisel_ttnn_paged_scaled_dot_product_attention_decode,
+    # Cache ops
+    ttnn.FillCacheOp: chisel_ttnn_fill_cache,
+    ttnn.UpdateCacheOp: chisel_ttnn_update_cache,
+    ttnn.PagedFillCacheOp: chisel_ttnn_paged_fill_cache,
+    ttnn.PagedUpdateCacheOp: chisel_ttnn_paged_update_cache,
+    # CCL ops
+    ttnn.AllReduceOp: chisel_ttnn_all_reduce,
+    ttnn.AllToAllDispatchOp: chisel_ttnn_all_to_all_dispatch,
+    ttnn.AllToAllCombineOp: chisel_ttnn_all_to_all_combine,
+    # NLP / attention-specific ops
+    ttnn.ConcatenateHeadsOp: chisel_ttnn_concatenate_heads,
+    ttnn.SplitQueryKeyValueAndSplitHeadsOp: chisel_ttnn_split_query_key_value_and_split_heads,
+    ttnn.TopKRouterGptOp: chisel_ttnn_topk_router_gpt,
+    ttnn.MoeExpertTokenRemapOp: chisel_ttnn_moe_expert_token_remap,
+    ttnn.SparseMatmulOp: chisel_ttnn_sparse_matmul,
+    # Remaining ops
+    ttnn.UpsampleOp: chisel_ttnn_upsample,
+    ttnn.PowScalarOp: chisel_ttnn_pow_scalar,
+    # Tensor creation stubs
+    ttnn.ArangeOp: chisel_ttnn_arange,
+    ttnn.FullOp: chisel_ttnn_full,
+    ttnn.OnesOp: chisel_ttnn_ones,
+    ttnn.ZerosOp: chisel_ttnn_zeros,
+    ttnn.RandOp: chisel_ttnn_rand,
+    # Tensor creation ops
+    ttnn.EmptyOp: chisel_ttnn_empty,
+    # Side-effect-only ops (no result)
+    ttnn.DumpTensorOp: chisel_ttnn_dump_tensor,
+    # Debug ops
+    debug.AnnotateOp: chisel_debug_annotate,
+    debug.RegionStartOp: chisel_debug_region_start,
+    debug.RegionEndOp: chisel_debug_region_end,
+}
+
+
+def get_chisel_golden_function(op_class: type) -> Optional[Callable]:
+    """Return the chisel golden for `op_class`, or None if unregistered."""
+    return CHISEL_GOLDEN_MAPPINGS.get(op_class, None)

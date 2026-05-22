@@ -27,6 +27,7 @@
 #include "llvm/ADT/DenseSet.h"
 
 #include <algorithm>
+#include <map>
 
 namespace mlir::tt::ttnn {
 
@@ -534,14 +535,17 @@ MemoryLayoutPropagation::processOp(Operation *op) {
                "  processOp {0}: {1} valid candidates from cross-product",
                op->getName(), candidates.size());
 
-  // Step 4: Sort by score descending, keep top-K.
-  std::sort(candidates.begin(), candidates.end(),
-            [op](const BeamCandidate &a, const BeamCandidate &b) {
-              if (a.score != b.score) {
-                return a.score > b.score;
-              }
-              return preferCandidate(op, a, b);
-            });
+  // Step 4: Sort by score descending, keep top-K. Stable sort: when both
+  // LayoutScore and preferCandidate tie, fall back to insertion order so
+  // downstream consumers (e.g. L1-spill's first-fit walk) see a fixed
+  // beam-slot assignment across runs.
+  std::stable_sort(candidates.begin(), candidates.end(),
+                   [op](const BeamCandidate &a, const BeamCandidate &b) {
+                     if (a.score != b.score) {
+                       return a.score > b.score;
+                     }
+                     return preferCandidate(op, a, b);
+                   });
 
   if (candidates.size() > beamWidth) {
     candidates.resize(beamWidth);
@@ -617,11 +621,9 @@ bool MemoryLayoutPropagation::validateReshard(
     return false;
   }
 
-  MemoryConfigAttr memConfig = MemoryConfigAttr::get(reshardLayout);
-
   auto result = op_constraint_validation::validateOperation<ToMemoryConfigOp>(
       consumerOp, /*additionalL1Usage=*/0, deviceAttr.getWorkerGrid(),
-      inputShape, producerOutputLayout, memConfig, reshardLayout);
+      inputShape, producerOutputLayout, reshardLayout);
 
   bool valid = result.isSuccess();
 
@@ -1033,16 +1035,21 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
   // representation — without this, high-volume types (e.g., block_sharded)
   // would crowd out lower-volume types (e.g., height_sharded) when
   // candidates compete for a single global budget.
-  llvm::DenseMap<TensorMemoryLayout, std::vector<TTNNLayoutAttr>> buckets;
+  //
+  // std::map (sorted iteration) + std::stable_sort: layouts with equal
+  // grid volume keep their insertion order, and buckets are merged in a
+  // fixed enum order, so the final reshard-candidate list is
+  // reproducible across runs.
+  std::map<TensorMemoryLayout, std::vector<TTNNLayoutAttr>> buckets;
   for (const auto &layout : deduped) {
     buckets[layout.getMemLayout().getValue()].push_back(layout);
   }
   for (auto &[type, layouts] : buckets) {
-    std::sort(layouts.begin(), layouts.end(),
-              [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
-                return ttmlir::utils::volume(a.getGridShape()) >
-                       ttmlir::utils::volume(b.getGridShape());
-              });
+    std::stable_sort(layouts.begin(), layouts.end(),
+                     [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
+                       return ttmlir::utils::volume(a.getGridShape()) >
+                              ttmlir::utils::volume(b.getGridShape());
+                     });
     if (layouts.size() > maxReshardCandidatesPerType) {
       layouts.resize(maxReshardCandidatesPerType);
     }
@@ -1052,12 +1059,15 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
     deduped.insert(deduped.end(), layouts.begin(), layouts.end());
   }
 
-  // Final sort for deterministic ordering.
-  std::sort(deduped.begin(), deduped.end(),
-            [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
-              return ttmlir::utils::volume(a.getGridShape()) >
-                     ttmlir::utils::volume(b.getGridShape());
-            });
+  // Final stable sort by grid volume. For layouts with equal grid volume,
+  // stable_sort preserves the concat order above (buckets in enum order),
+  // so same-volume layouts from different sharding types stay grouped
+  // consistently across runs rather than interleaving arbitrarily.
+  std::stable_sort(deduped.begin(), deduped.end(),
+                   [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
+                     return ttmlir::utils::volume(a.getGridShape()) >
+                            ttmlir::utils::volume(b.getGridShape());
+                   });
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "  generated {0} reshard candidates for {1}", deduped.size(),
@@ -1395,12 +1405,6 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     dtypeOp.setDtypeAttr(newDataTypeAttr);
   }
 
-  // Handle existing ToLayoutOp memory config alignment.
-  if (isa<ttnn::ToLayoutOp>(op)) {
-    ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
-    toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(chosenLayout));
-  }
-
   applyOpSpecificAttrs(op, candidate);
 
   // Attach L1 usage annotation for spill management.
@@ -1460,14 +1464,12 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
 
-  MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(reshardLayout);
-
   OpBuilder builder(consumerOp);
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                      "_mem_reconfig");
 
-  ToMemoryConfigOp memoryReconfigOp = builder.create<ToMemoryConfigOp>(
-      loc, newTensorType, operand, outputMemConfigAttr);
+  ToMemoryConfigOp memoryReconfigOp =
+      builder.create<ToMemoryConfigOp>(loc, newTensorType, operand);
 
   consumerOp->setOperand(operandIndex, memoryReconfigOp->getResult(0));
 

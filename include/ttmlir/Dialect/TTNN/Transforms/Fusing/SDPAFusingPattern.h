@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_SDPAFUSINGPATTERN_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
@@ -23,7 +23,7 @@ namespace mlir::tt::ttnn::fusing {
 class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
 public:
   SDPAFusing(mlir::MLIRContext *context,
-             const FusionValidationConfig &validationConfig = {})
+             const OpValidationConfig &validationConfig = {})
       : OpRewritePattern<MatmulOp>(context),
         validationConfig(validationConfig) {}
 
@@ -32,7 +32,7 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 
 private:
-  FusionValidationConfig validationConfig;
+  OpValidationConfig validationConfig;
 
   struct SDPAComponents;
 

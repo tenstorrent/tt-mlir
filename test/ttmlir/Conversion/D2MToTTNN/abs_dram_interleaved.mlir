@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-d2m-to-ttnn -o %t.mlir %s
+// RUN: ttmlir-opt --convert-d2m-to-ttnn --mlir-print-local-scope -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // DRAM interleaved, shape (64, 128), unary abs with streaming CBs. Exercises
@@ -11,7 +11,7 @@
 // CHECK-NOT: d2m.empty
 
 // CHECK: "ttnn.get_device"
-// CHECK: %[[OUT:.*]] = "ttnn.empty"{{.*}}<interleaved>{{.*}}shape = #ttnn.shape<64x128>
+// CHECK: %[[OUT:.*]] = "ttnn.empty"{{.*}}shape = #ttnn.shape<64x128>{{.*}}<interleaved>
 // CHECK: "ttnn.generic"(%arg0, %[[OUT]])
 // CHECK-SAME: operandSegmentSizes = array<i32: 2, 0>
 // CHECK-SAME: symbol_ref = @datamovement_kernel0, core_ranges = <[#ttnn.core_range<(0,0), (3,1)>]>, processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>], common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>], rt_args = []
@@ -32,7 +32,7 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     %view_1 = d2m.view_layout %cast remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, (d0 + d1 floordiv 4) mod 2, d1 mod 4)> : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #ttcore.memory_space<dram>> -> memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>
     %alloc_3 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #ttcore.memory_space<l1>>
     %alloc_4 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #ttcore.memory_space<l1>>
-    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0, noc = 0>, #d2m.thread<datamovement, @datamovement_kernel1, noc = 1>, #d2m.thread<compute, @compute_kernel2>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0, processor = 1>, #d2m.thread<datamovement, @datamovement_kernel1, processor = 0>, #d2m.thread<compute, @compute_kernel2>]}
         ins(%view_1 : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%view : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         additionalArgs(%alloc_3, %alloc_4 : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #ttcore.memory_space<l1>>)

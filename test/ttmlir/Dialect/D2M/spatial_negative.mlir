@@ -10,7 +10,7 @@
 // 6. when grid mapping is present: virtual grid [0,0]-[gridY-1,gridX-1] contained
 //    in region virtual bbox (inverse map applied to CoreRange)
 
-#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 1. grid_ranges must contain at least one CoreRange
 // CHECK: error: 'd2m.spatial' op grid_ranges must contain at least one CoreRange
@@ -41,7 +41,7 @@ module {
 
 // -----
 
-#layout_2 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_2 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 2. number of CoreRanges must match number of Regions (two ranges, one region)
 // CHECK: error: 'd2m.spatial' op number of CoreRanges (2) must match the number of Regions (1)
@@ -76,7 +76,7 @@ module {
 
 // -----
 
-#layout_3 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_3 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 3a. each region must contain exactly one d2m.generic (got 0)
 // CHECK: error: 'd2m.spatial' op each region must contain exactly one d2m.generic op, got 0
@@ -97,7 +97,7 @@ module {
 
 // -----
 
-#layout_3b = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_3b = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 3b. each region must contain exactly one d2m.generic (got 2)
 // CHECK: error: 'd2m.spatial' op each region must contain exactly one d2m.generic op, got 2
@@ -140,7 +140,7 @@ module {
 
 // -----
 
-#layout_4 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_4 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 4. generic grid must be 2D
 // CHECK: error: 'd2m.spatial' op d2m.generic inside d2m.spatial: only 2D grid is considered for now, got 3D
@@ -173,7 +173,7 @@ module {
 
 // -----
 
-#layout_5 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_5 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 5. mapping empty: grid shape must not exceed region shape (CoreRange (1,1)-(2,4), shape 2x4)
 // CHECK: error: 'd2m.spatial' op generic op grid shape [3, 5] exceeds region CoreRange shape [2, 4]
@@ -205,7 +205,7 @@ module {
 
 // -----
 
-#layout_6b = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping present: virtual grid contained in region virtual range (identity map)
 // Region (2,2)-(2,2) -> virtual bbox (2,2)-(2,2).
@@ -240,7 +240,7 @@ module {
 
 // -----
 
-#layout_6b_2 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b_2 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // GenericOp verify (not SpatialOp): same pipeline; generic with grid mapping requires output with VGM.
 // CHECK: error: 'd2m.generic' op grid has an inverse map but output operand does not have a VGM
@@ -273,7 +273,7 @@ module {
 
 // -----
 
-#layout_6b_3 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b_3 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping present: virtual range containment with offset map (d0-1,d1-1)
 // Region (2,2)-(2,2) -> virtual bbox (1,1)-(1,1).
@@ -308,7 +308,7 @@ module {
 
 // -----
 
-#layout_6b_4 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b_4 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping present: only Y axis out. Region (2,0)-(2,3) -> virtual (2,0)-(2,3); grid [0,0]-[1,1] has Y 0,1 not in [2,2].
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [2, 0] to [2, 3]
@@ -342,7 +342,7 @@ module {
 
 // -----
 
-#layout_6b_5 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b_5 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping present: only X axis out. Region (0,2)-(3,2) -> virtual (0,2)-(3,2); grid [0,0]-[1,1] has X 0,1 not in [2,2].
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 2] to [3, 2]
@@ -376,7 +376,7 @@ module {
 
 // -----
 
-#layout_6b_6 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b_6 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping present: map (d0,d1)->(2-d0,d1) reverses Y; Region (0,0)-(1,0) -> virtual (1,0)-(2,0); grid [0,0] not in that range.
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 0] to [1, 0]
@@ -410,7 +410,7 @@ module {
 
 // -----
 
-#layout_6b_7 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b_7 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping (d0,d1)->(d1,d0) swap: Region (0,2)-(0,2) -> virtual (2,0)-(2,0).
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 2] to [0, 2]
@@ -444,7 +444,7 @@ module {
 
 // -----
 
-#layout_6b_8 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b_8 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping (d0,d1)->(d0,d1-1) offset on X: Region (1,1)-(2,1) -> virtual (1,0)-(2,0).
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [1, 1] to [2, 1]
@@ -478,7 +478,7 @@ module {
 
 // -----
 
-#layout_6b_9 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_6b_9 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping (d0,d1)->(2*d0,d1) scale Y: Region (0,0)-(1,0) -> virtual (0,0)-(2,0); grid 2x2 needs X in [0,1] but virtual X only [0,0].
 // CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 0] to [1, 0]

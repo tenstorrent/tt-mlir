@@ -261,7 +261,7 @@ private:
 
     for (auto operandValue : op->getOperands()) {
       if (checkIdenticalTms(operandValue.getDefiningOp(), permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(operandValue)) {
+          this->tracesToConstantArgs(operandValue)) {
         continue;
       }
       return false;
@@ -474,7 +474,8 @@ private:
 
 template <CommuteDirection commuteDirection>
 void populateReduceCommutePatterns(MLIRContext *ctx,
-                                   RewritePatternSet &patterns) {
+                                   RewritePatternSet &patterns,
+                                   ConstevalForwardAnalysis *analysis) {
   patterns.add<TTIRCommutePermuteThroughReduce<SumOp, commuteDirection>,
                TTIRCommutePermuteThroughReduce<MeanOp, commuteDirection>,
                TTIRCommutePermuteThroughReduce<MaxOp, commuteDirection>,
@@ -491,12 +492,14 @@ void populateReduceCommutePatterns(MLIRContext *ctx,
                TTIRCommuteReshapeThroughReduce<ReduceAndOp, commuteDirection>,
                TTIRCommuteReshapeThroughReduce<ReduceOrOp, commuteDirection>,
                TTIRCommuteReshapeThroughReduce<ArgMaxOp, commuteDirection>>(
-      ctx);
+      ctx, analysis);
 }
 
 template void populateReduceCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 template void populateReduceCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 
 } // namespace mlir::tt::ttir

@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -649,6 +650,175 @@ bool ToLayoutOp::isDeviceToHost() {
 }
 
 //===----------------------------------------------------------------------===//
+// MaskOp
+//===----------------------------------------------------------------------===//
+
+static bool hasNoMaskablePadding(ShapedType shapedType,
+                                 ArrayRef<int64_t> logicalShape) {
+  auto tileType = dyn_cast<ttcore::TileType>(shapedType.getElementType());
+  if (!tileType) {
+    return true;
+  }
+
+  ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
+  if (!layout || logicalShape.size() < 2) {
+    return false;
+  }
+
+  if (auto metalLayout = dyn_cast<ttcore::MetalLayoutAttr>(layout)) {
+    ArrayRef<int64_t> dimAlignments = metalLayout.getDimAlignments();
+    if (logicalShape.size() != dimAlignments.size()) {
+      return false;
+    }
+    for (auto [logicalDim, alignment] :
+         llvm::zip(logicalShape, dimAlignments)) {
+      if (ttmlir::utils::alignUp(logicalDim, alignment) != logicalDim) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  ArrayRef<int64_t> gridShape = layout.getGridShape(shapedType);
+  ArrayRef<int64_t> shardShape = layout.getShardShape(shapedType);
+  if (gridShape.size() < 2 || shardShape.size() < 2) {
+    return false;
+  }
+
+  ArrayRef<int64_t> tileShape = tileType.getShape();
+  int64_t physicalRows = gridShape[gridShape.size() - 2] *
+                         shardShape[shardShape.size() - 2] * tileShape[0];
+  int64_t physicalCols = gridShape[gridShape.size() - 1] *
+                         shardShape[shardShape.size() - 1] * tileShape[1];
+  return logicalShape[logicalShape.size() - 2] == physicalRows &&
+         logicalShape[logicalShape.size() - 1] == physicalCols;
+}
+
+mlir::OpFoldResult MaskOp::fold(FoldAdaptor) {
+  if (!isa<RankedTensorType>(getResult().getType())) {
+    return {};
+  }
+
+  if (getInput().getType() != getResult().getType()) {
+    return {};
+  }
+
+  if (getFillValue() == ttcore::OOBVal::Undef) {
+    return getInput();
+  }
+
+  auto inputType = dyn_cast<ShapedType>(getInput().getType());
+  if (inputType && hasNoMaskablePadding(inputType, getLogicalShape())) {
+    return getInput();
+  }
+
+  return {};
+}
+
+::mlir::LogicalResult MaskOp::verify() {
+  auto inputType = dyn_cast<ShapedType>(getInput().getType());
+  auto outputType = dyn_cast<ShapedType>(getOutput().getType());
+  auto resultType = dyn_cast<ShapedType>(getResult().getType());
+
+  if (!inputType || !outputType || !resultType) {
+    return emitOpError("input, output, and result must be shaped types");
+  }
+
+  if (inputType != outputType || outputType != resultType) {
+    return emitOpError("input, output, and result must have identical types");
+  }
+
+  if (getLogicalShape().size() < 2) {
+    return emitOpError("logical_shape must have rank at least 2");
+  }
+
+  return success();
+}
+
+bool MaskOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.getOperandNumber() == 0;
+}
+
+bool MaskOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.getOperandNumber() == 1;
+}
+
+mlir::LogicalResult
+MaskOp::bufferize(mlir::RewriterBase &rewriter,
+                  const mlir::bufferization::BufferizationOptions &options,
+                  mlir::bufferization::BufferizationState &state) {
+  if (!isa<RankedTensorType>(getResult().getType())) {
+    return failure();
+  }
+
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  auto maybeOutput =
+      mlir::bufferization::getBuffer(rewriter, getOutput(), options, state);
+  if (failed(maybeOutput)) {
+    return maybeOutput;
+  }
+
+  Value input = *maybeInput;
+  if (input.getType() != maybeOutput->getType()) {
+    auto inputType = mlir::cast<MemRefType>(input.getType());
+    auto outputType = mlir::cast<MemRefType>(maybeOutput->getType());
+    assert(inputType.hasStaticShape() && outputType.hasStaticShape());
+    assert(inputType.getRank() % 2 == 0 && outputType.getRank() % 2 == 0);
+    if (inputType.getElementType() != outputType.getElementType() ||
+        inputType.getMemorySpace() != outputType.getMemorySpace() ||
+        ttmlir::utils::volume<int64_t>(inputType.getShape()) !=
+            ttmlir::utils::volume<int64_t>(outputType.getShape())) {
+      return emitOpError("bufferized input and output types are incompatible");
+    }
+    input =
+        rewriter.create<ViewLayoutOp>(getLoc(), maybeOutput->getType(), input);
+  }
+
+  rewriter.create<MaskOp>(getLoc(), maybeOutput->getType(), input, *maybeOutput,
+                          getLogicalShapeAttr(), getFillValueAttr());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     *maybeOutput);
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+MaskOp::getAliasingValues(mlir::OpOperand &operand,
+                          const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  if (operand.getOperandNumber() == 1) {
+    aliasList.addAlias(
+        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+MaskOp::getBufferType(mlir::Value value,
+                      const mlir::bufferization::BufferizationOptions &,
+                      const mlir::bufferization::BufferizationState &,
+                      ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+void MaskOp::getEffects(mlir::SmallVectorImpl<mlir::SideEffects::EffectInstance<
+                            mlir::MemoryEffects::Effect>> &effects) {
+  if (!isa<MemRefType>(getInput().getType())) {
+    return;
+  }
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
 // ToDeviceOp
 //===----------------------------------------------------------------------===//
 
@@ -989,9 +1159,6 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
           inputTensor.getEncoding());
       auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
           resultTensor.getEncoding());
-      if (inputLayout.getOobVal() != resultLayout.getOobVal()) {
-        return emitOpError("view cannot change oob_val");
-      }
 
       if (inputLayout.getMemorySpace() != resultLayout.getMemorySpace()) {
         return emitOpError("view cannot change memory space");
@@ -1316,18 +1483,10 @@ void d2m::GenericOp::build(
       // 1. Check for an explicit virtualGridInverseMapping (inverse map) on the
       //    output's EmptyOp.  Use the stored map directly — it encodes the
       //    correct physical grid from the TTNN layout.
-      if (auto invMap = utils::getVirtualGridInverseMapping(output)) {
-        // Get virtual to physical map from output as well.
-        auto fwdMap = *utils::getVirtualGridForwardMapping(output);
-        size_t rank = gridShape.size();
-        fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
-        for (int i = rank - 1; i >= 0; i--) {
-          fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
-        }
-        fwdMap = fwdMap.insertResult(
-            getAffineConstantExpr(0, builder.getContext()), 0);
-
-        grid = builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
+      if (auto maps =
+              utils::getGridMapsFromVirtualGridMapping(output, gridShape)) {
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape, maps->first,
+                                                 maps->second);
       }
 
       // 2. Check for a 2D→2D permutation reblocking on a ViewLayoutOp.
@@ -1721,42 +1880,42 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       }
       return false;
     };
-    // Verify per-output VGM consistency:
-    // 1. For non-DRAM outputs, the output's inverse VGM must match the
-    // GridAttr's inverse map.
-    // 2. The inverse map applied to the physical grid shape must produce
-    //    a virtual grid shape matching the output's grid shape.
+    // For non-DRAM outputs, verify that:
+    // 1. The output operand's inverse VGM matches the GenericOp GridAttr's
+    //    inverse map.
+    // 2. The inverse map applied to the physical grid shape produces a virtual
+    //    grid shape matching the output's grid shape.
+    // DRAM outputs may carry VGM attrs used for address calculation, but they
+    // are not constrained by the GenericOp's L1 execution grid.
     AffineMap gridInvMap = getGrid().getPhysicalToVirtMap();
     for (Value output : getOutputs()) {
       if (!isDRAM(output)) {
         auto outputInvMap = utils::getVirtualGridInverseMapping(output);
         if (outputInvMap && *outputInvMap != gridInvMap) {
-          return emitOpError("grid inverse map does not match output operand's "
-                             "inverse VGM");
+          return emitOpError(
+              "grid inverse map does not match output operand's inverse VGM");
         }
         if (!outputInvMap && !gridInvMap.isEmpty()) {
           return emitOpError("grid has an inverse map but output operand "
                              "does not have a VGM");
         }
-      }
 
-      SmallVector<int64_t> physicalGridShape =
-          d2m::utils::getPhysicalGridShape(output);
-      // Drop the deviceID result (first result) from the inverse map.
-      AffineMap invMapNoDevice = gridInvMap.dropResult(0);
+        SmallVector<int64_t> physicalGridShape =
+            d2m::utils::getPhysicalGridShape(output);
+        // Drop the deviceID result (first result) from the inverse map.
+        AffineMap invMapNoDevice = gridInvMap.dropResult(0);
 
-      SmallVector<int64_t> impliedVirtShape =
-          ttmlir::utils::evalShape(invMapNoDevice, physicalGridShape);
+        SmallVector<int64_t> impliedVirtShape =
+            ttmlir::utils::evalShape(invMapNoDevice, physicalGridShape);
 
-      SmallVector<int64_t> outputGridShape =
-          llvm::to_vector(ttcore::getGridShape(output));
+        SmallVector<int64_t> outputGridShape =
+            llvm::to_vector(ttcore::getGridShape(output));
 
-      if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
-        if (auto viewOp = output.getDefiningOp<d2m::ViewOpInterface>()) {
-          if (!viewOp.isComposite()) {
-            auto [baseMemrefType, viewMap] = applyViews(viewOp.getOperation());
-            if (ttcore::isL1MemorySpace(
-                    ttcore::getMemorySpace(baseMemrefType))) {
+        if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
+          if (auto viewOp = output.getDefiningOp<d2m::ViewOpInterface>()) {
+            if (!viewOp.isComposite()) {
+              auto [baseMemrefType, viewMap] =
+                  applyViews(viewOp.getOperation());
               SmallVector<int64_t> baseGridShape =
                   getGridAndShardFromShapedType(baseMemrefType).first;
               AffineMap gridViewMap = ttmlir::utils::affineMapTakeFrontResults(
@@ -1766,11 +1925,12 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
             }
           }
         }
-      }
 
-      if (outputGridShape != impliedVirtShape) {
-        return emitOpError("output grid shape does not match implied virtual "
-                           "grid shape from physical grid and inverse mapping");
+        if (outputGridShape != impliedVirtShape) {
+          return emitOpError(
+              "output grid shape does not match implied virtual "
+              "grid shape from physical grid and inverse mapping");
+        }
       }
     }
   }
@@ -3030,50 +3190,6 @@ Value d2m::GenericOp::findAssocOperand(mlir::tensor::EmptyOp emptyOp) {
   return analyzeLocalBufferAssociation(emptyOp.getResult(),
                                        genericOp.getOutputs()[0])
       .operand;
-}
-
-Value d2m::GenericOp::findAssocCBByOperandIndex(Operation *op,
-                                                unsigned operandIndex) {
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (!generic) {
-    return Value();
-  }
-
-  // Find the generic op's thread region that contains this operation
-  Region *genericRegion = nullptr;
-  if (generic.getNumRegions() == 1) {
-    genericRegion = &generic.getRegion(0);
-  } else {
-    genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
-  }
-
-  if (!genericRegion || genericRegion->empty()) {
-    return Value();
-  }
-
-  return getOperandAlloc(*genericRegion, operandIndex);
-}
-
-Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (!generic) {
-    return Value();
-  }
-
-  // Find which operand index this corresponds to.
-  unsigned operandIndex = UINT_MAX;
-  for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
-    if (generic->getOperand(i) == operand) {
-      operandIndex = i;
-      break;
-    }
-  }
-
-  if (operandIndex == UINT_MAX) {
-    return Value();
-  }
-
-  return findAssocCBByOperandIndex(op, operandIndex);
 }
 
 Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {

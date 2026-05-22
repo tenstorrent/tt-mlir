@@ -236,12 +236,11 @@ protected:
       DenseIntElementsAttr emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
       metalLayout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
-          memSpace, memLayout, emptyCollapseIntervals, dimAlignments);
+          rewriter.getContext(), tensorType.getShape(), memSpace, memLayout,
+          emptyCollapseIntervals, dimAlignments);
     } else {
       metalLayout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
-          memSpace, memLayout,
+          rewriter.getContext(), tensorType.getShape(), memSpace, memLayout,
           ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
               rewriter.getContext(), tensorType.getShape().size()),
           dimAlignments);
@@ -256,13 +255,51 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
+  static void copyVirtualGridAttrs(d2m::EmptyOp dst, d2m::EmptyOp src) {
+    if (auto attr = src.getVirtualGridInverseMappingAttr()) {
+      dst.setVirtualGridInverseMappingAttr(attr);
+    }
+    if (auto attr = src.getVirtualGridForwardMappingAttr()) {
+      dst.setVirtualGridForwardMappingAttr(attr);
+    }
+  }
+
+  bool createMaskOpIfNeeded(Value &value, d2m::EmptyOp layoutEmpty,
+                            ttcore::OOBVal fillValue,
+                            mlir::ConversionPatternRewriter &rewriter) const {
+    if (fillValue == ttcore::OOBVal::Undef) {
+      return false;
+    }
+
+    auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(value.getType());
+    if (!tensorType || !ttcore::isTiled(tensorType)) {
+      return false;
+    }
+
+    auto maskOutput = rewriter.create<d2m::EmptyOp>(
+        value.getLoc(), tensorType.getShape(), tensorType.getElementType(),
+        tensorType.getEncoding());
+    copyVirtualGridAttrs(maskOutput, layoutEmpty);
+
+    auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        tensorType.getEncoding());
+    ArrayRef<int64_t> logicalShape =
+        layout ? layout.getLogicalShape() : tensorType.getShape();
+    value = rewriter
+                .create<d2m::MaskOp>(value.getLoc(), value, maskOutput,
+                                     logicalShape, fillValue)
+                .getResult();
+    return true;
+  }
+
   // Create a ToLayout operation for a value using the provided layout
   // information with a simple 1x1 grid; actual grid optimization and proper
   // dimension alignments are computed later in the D2MGridSelection pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled, bool noCollapse,
                               mlir::ConversionPatternRewriter &rewriter,
-                              ttcore::OOBVal oobVal) const {
+                              ttcore::OOBVal oobVal,
+                              RankedTensorType logicalType = {}) const {
     bool isTTNN = isTTNNTensor(value.getType());
     if (isTTNN) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
@@ -323,9 +360,14 @@ protected:
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+    // Relayouts of already-layouted values can still need the original logical
+    // tensor shape, e.g. embedding indices staged from DRAM back to L1.
+    if (!logicalType) {
+      logicalType = tensorType;
+    }
+    ArrayRef<int64_t> logicalShape = logicalType.getShape();
 
-    Type elementType = tensorType.getElementType();
+    Type elementType = logicalType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
     if (tiled) {
       constexpr std::array<int64_t, 2> defaultShape =
@@ -343,12 +385,12 @@ protected:
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
 
       layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
+          rewriter.getContext(), logicalShape, memSpace,
           ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
 
     } else {
       layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, oobVal, memSpace,
+          rewriter.getContext(), logicalShape, memSpace,
           ttcore::TensorMemoryLayout::Sharded);
     }
 
@@ -356,11 +398,12 @@ protected:
     llvm::SmallVector<int64_t> unshardedShape =
         layout.getPhysicalShape(tileShape);
 
-    // Use a placeholder, 1-filled grid for this pass.
-    llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
+    // Use a placeholder, 1-filled tensor grid for this pass. The length is the
+    // physical tensor rank, not a device-grid height.
+    llvm::SmallVector<int64_t> placeholderTensorGrid(unshardedShape.size(), 1);
 
     llvm::SmallVector<int64_t> shardedShape =
-        layout.getDeviceShape(simpleGrid, tileShape);
+        layout.getDeviceShape(placeholderTensorGrid, tileShape);
 
     auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
                                                  elementType, layout);
@@ -370,14 +413,17 @@ protected:
     // optimizes the grid.
     if (logicalShape.size() > 2) {
       auto [forwardMap, inverseMap] =
-          ttmlir::d2m::utils::grids::createCoreVirtMaps(rewriter.getContext(),
-                                                        simpleGrid, {1, 1});
+          ttmlir::d2m::utils::grids::createCoreVirtMaps(
+              rewriter.getContext(), placeholderTensorGrid, {1, 1});
       emptyOp.setVirtualGridInverseMappingAttr(AffineMapAttr::get(inverseMap));
       emptyOp.setVirtualGridForwardMappingAttr(AffineMapAttr::get(forwardMap));
     }
 
-    return rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp)
-        ->getResult(0);
+    auto toLayoutOp =
+        rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp);
+    Value layoutResult = toLayoutOp.getResult(0);
+    createMaskOpIfNeeded(layoutResult, emptyOp, oobVal, rewriter);
+    return layoutResult;
   }
 
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
@@ -2382,9 +2428,9 @@ public:
 
     // Create the result layout by composing with input layout.
     auto resultLayout = ttcore::MetalLayoutAttr::get(
-        ctx, permuted.logicalShape, inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
-        inputLayout.getCollapsedIntervals(), permuted.dimAlignments);
+        ctx, permuted.logicalShape, inputLayout.getMemorySpace(),
+        inputLayout.getMemoryLayout(), inputLayout.getCollapsedIntervals(),
+        permuted.dimAlignments);
 
     auto viewType = mlir::RankedTensorType::get(
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
@@ -3114,7 +3160,7 @@ public:
     auto tileType = ttcore::TileType::get(outputElemType);
     SmallVector<int64_t> scratchLogicalShape = {1, 1};
     auto scratchLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), scratchLogicalShape, ttcore::OOBVal::Undef,
+        rewriter.getContext(), scratchLogicalShape,
         ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
 
     Value indexTileTensor =
@@ -3197,12 +3243,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::EmbeddingOp op, ttir::EmbeddingOp::Adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (memorySpaces[0] != ttcore::MemorySpace::DeviceL1 ||
-        memorySpaces[1] != ttcore::MemorySpace::DeviceL1) {
-      return rewriter.notifyMatchFailure(
-          op, "D2M embedding currently supports L1 inputs and outputs only");
-    }
-
     auto indicesType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
     auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
@@ -3231,12 +3271,20 @@ public:
     }
 
     Location loc = op.getLoc();
-    SmallVector<Value> inputs{
-        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
-                              /*tiled=*/false, /*noCollapse=*/false, rewriter),
+    Value weightInput =
         createOptimalLayoutOp(op.getWeight(), memorySpaces[0],
-                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
-
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter);
+    Value indicesBoundaryInput =
+        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter);
+    Value indicesInput =
+        memorySpaces[0] == ttcore::MemorySpace::DeviceL1
+            ? indicesBoundaryInput
+            : createOptimalLayoutOp(
+                  indicesBoundaryInput, ttcore::MemorySpace::DeviceL1,
+                  /*tiled=*/false, /*noCollapse=*/false, rewriter,
+                  ttcore::OOBVal::Undef, indicesType);
+    SmallVector<Value> inputs{indicesInput, weightInput};
     SmallVector<Value> origOutputs =
         createDpsOutputs(loc, rewriter, {resultType});
     SmallVector<Value> outputs{
@@ -3403,8 +3451,8 @@ public:
     Type tiledElementType = ttcore::TileType::get(
         tensorType.getElementType(), ttcore::TileType::getDefaultShape());
     ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
-        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
+        rewriter.getContext(), logicalShape, memorySpaces[0],
+        ttcore::TensorMemoryLayout::Sharded);
     auto optimalGrid = d2m::utils::computeOptimalBlockShardedGrid(
         layout.getPhysicalShape(ttcore::TileType::getDefaultShape()),
         workerGridShape);
@@ -3426,8 +3474,8 @@ public:
     Type elementType = mlir::IntegerType::get(rewriter.getContext(), 32,
                                               mlir::IntegerType::Unsigned);
     ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), workerGridShape, ttcore::OOBVal::Undef,
-        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded,
+        rewriter.getContext(), workerGridShape, memorySpaces[0],
+        ttcore::TensorMemoryLayout::Sharded,
         ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
             rewriter.getContext(), workerGridShape.size()),
         {1, 1});
@@ -3493,8 +3541,7 @@ public:
     ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(),
         mlir::cast<mlir::RankedTensorType>(origInputs[0].getType()).getShape(),
-        ttcore::OOBVal::Undef, memorySpaces[0],
-        ttcore::TensorMemoryLayout::Sharded);
+        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
     llvm::SmallVector<int64_t> physicalShape =
         layout.getPhysicalShape(ttcore::TileType::getDefaultShape());
     uint32_t workerCoreSplitDim = inputRank;
@@ -3706,9 +3753,9 @@ public:
     auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
     auto layout = mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
     auto newLayout = ttcore::MetalLayoutAttr::get(
-        layout.getContext(), layout.getLogicalShape(), layout.getOobVal(),
-        layout.getMemorySpace(), layout.getMemoryLayout(),
-        layout.getCollapsedIntervals(), layout.getDimAlignments());
+        layout.getContext(), layout.getLogicalShape(), layout.getMemorySpace(),
+        layout.getMemoryLayout(), layout.getCollapsedIntervals(),
+        layout.getDimAlignments());
     auto newOutTy = RankedTensorType::get(outTy.getShape(),
                                           outTy.getElementType(), newLayout);
 

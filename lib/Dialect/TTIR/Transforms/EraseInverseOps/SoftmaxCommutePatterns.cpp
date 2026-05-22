@@ -206,14 +206,18 @@ private:
 
 template <CommuteDirection commuteDirection>
 void populateSoftmaxCommutePatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns) {
-  patterns.insert<TTIRCommuteReshapeThroughSoftmax<commuteDirection>>(ctx);
+                                    RewritePatternSet &patterns,
+                                    ConstevalForwardAnalysis *analysis) {
+  patterns.insert<TTIRCommuteReshapeThroughSoftmax<commuteDirection>>(ctx,
+                                                                      analysis);
 }
 
 template void populateSoftmaxCommutePatterns<CommuteDirection::UPWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 
 template void populateSoftmaxCommutePatterns<CommuteDirection::DOWNWARDS>(
-    MLIRContext *ctx, RewritePatternSet &patterns);
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis);
 
 } // namespace mlir::tt::ttir

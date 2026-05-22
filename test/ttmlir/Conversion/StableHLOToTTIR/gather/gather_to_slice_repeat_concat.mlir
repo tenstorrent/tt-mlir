@@ -5,7 +5,10 @@
 // CHECK-LABEL: func.func @repeat_front
 module @test_gather_repeat_front {
   func.func @repeat_front(%arg0: tensor<1x768x4x60x106xbf16>) -> (tensor<1x768x6x60x106xbf16>) {
+    // Front pad must slice the *first* element along the indexed dim ([0,1)).
     // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32]
+    // CHECK-SAME: ends = [1 : i32, 768 : i32, 1 : i32, 60 : i32, 106 : i32]
     // CHECK-SAME: (tensor<1x768x4x60x106xbf16>) -> tensor<1x768x1x60x106xbf16>
     // CHECK: "ttir.repeat"
     // CHECK-SAME: repeat_dimensions = array<i64: 1, 1, 2, 1, 1>
@@ -23,7 +26,10 @@ module @test_gather_repeat_front {
 // CHECK-LABEL: func.func @repeat_back
 module @test_gather_repeat_back {
   func.func @repeat_back(%arg0: tensor<1x768x4x60x106xbf16>) -> (tensor<1x768x6x60x106xbf16>) {
+    // Back pad must slice the *last* element along the indexed dim ([3,4)).
     // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 3 : i32, 0 : i32, 0 : i32]
+    // CHECK-SAME: ends = [1 : i32, 768 : i32, 4 : i32, 60 : i32, 106 : i32]
     // CHECK-SAME: (tensor<1x768x4x60x106xbf16>) -> tensor<1x768x1x60x106xbf16>
     // CHECK: "ttir.repeat"
     // CHECK-SAME: repeat_dimensions = array<i64: 1, 1, 2, 1, 1>
@@ -41,7 +47,17 @@ module @test_gather_repeat_back {
 // CHECK-LABEL: func.func @repeat_both
 module @test_gather_slice_no_repeat_both {
   func.func @repeat_both(%arg0: tensor<1x768x4x60x106xbf16>) -> (tensor<1x768x6x60x106xbf16>) {
+    // Front pad: slice [0,1) along indexed dim.
     // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32]
+    // CHECK-SAME: ends = [1 : i32, 768 : i32, 1 : i32, 60 : i32, 106 : i32]
+    // CHECK-SAME: (tensor<1x768x4x60x106xbf16>) -> tensor<1x768x1x60x106xbf16>
+    // CHECK: "ttir.repeat"
+    // CHECK-SAME: repeat_dimensions = array<i64: 1, 1, 1, 1, 1>
+    // Back pad: slice [3,4) along indexed dim.
+    // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 3 : i32, 0 : i32, 0 : i32]
+    // CHECK-SAME: ends = [1 : i32, 768 : i32, 4 : i32, 60 : i32, 106 : i32]
     // CHECK-SAME: (tensor<1x768x4x60x106xbf16>) -> tensor<1x768x1x60x106xbf16>
     // CHECK: "ttir.repeat"
     // CHECK-SAME: repeat_dimensions = array<i64: 1, 1, 1, 1, 1>
@@ -59,7 +75,18 @@ module @test_gather_slice_no_repeat_both {
 // CHECK-LABEL: func.func @repeat_both_multiple
 module @test_gather_repeat_both_multiple {
   func.func @repeat_both_multiple(%arg0: tensor<1x768x4x60x106xbf16>) -> (tensor<1x768x8x60x106xbf16>) {
+    // Front pad: slice [0,1) along indexed dim, repeated 2x.
     // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32]
+    // CHECK-SAME: ends = [1 : i32, 768 : i32, 1 : i32, 60 : i32, 106 : i32]
+    // CHECK-SAME: (tensor<1x768x4x60x106xbf16>) -> tensor<1x768x1x60x106xbf16>
+    // CHECK: "ttir.repeat"
+    // CHECK-SAME: repeat_dimensions = array<i64: 1, 1, 2, 1, 1>
+    // CHECK-SAME: (tensor<1x768x1x60x106xbf16>) -> tensor<1x768x2x60x106xbf16>
+    // Back pad: slice [3,4) along indexed dim, repeated 2x.
+    // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 3 : i32, 0 : i32, 0 : i32]
+    // CHECK-SAME: ends = [1 : i32, 768 : i32, 4 : i32, 60 : i32, 106 : i32]
     // CHECK-SAME: (tensor<1x768x4x60x106xbf16>) -> tensor<1x768x1x60x106xbf16>
     // CHECK: "ttir.repeat"
     // CHECK-SAME: repeat_dimensions = array<i64: 1, 1, 2, 1, 1>

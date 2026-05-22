@@ -84,7 +84,7 @@ ops to understand how C++ parameter types translate to tablegen definitions.
 | `ttcore::MeshShardDirection` | `TTCore_MeshShardDirectionAttr` | `TTCoreOpsTypes.td` | Enum: FullToShard, ShardToFull |
 | `ttcore::MeshShardType` | `TTCore_MeshShardTypeAttr` | `TTCoreOpsTypes.td` | Enum: Identity, Replicate, Maximal, Devices |
 | `ttcore::OOBVal` | `TTCore_OOBValAttr` | `TTCoreOpsTypes.td` | Enum: Undef, Zero, One, Inf, NegInf |
-| `ttcore::Arch` | `TTCore_ArchAttr` | `TTCoreOpsTypes.td` | Enum: WormholeB0, Blackhole |
+| `ttcore::Arch` | `TTCore_ArchAttr` | `TTCoreOpsTypes.td` | Enum: WormholeB0, Blackhole, Quasar |
 
 ### C.4 Device & Synchronization Types
 

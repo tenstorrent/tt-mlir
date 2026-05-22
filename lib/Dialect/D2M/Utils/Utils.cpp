@@ -287,6 +287,20 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     ttcore::DeviceAttr device = ttcore::lookupDevice(viewOp);
     auto deviceGridShape = device.getWorkerGrid().getShape();
     TT_assert(ttcore::hasDeviceLayout(tensorOrMemref));
+
+    if (auto fwdMap = utils::getVirtualGridForwardMapping(tensorOrMemref)) {
+      auto shapedType = dyn_cast<ShapedType>(tensorOrMemref.getType());
+      TT_assert(shapedType);
+      if (fwdMap->getNumDims() == shapedType.getRank()) {
+        auto physicalShape =
+            ttmlir::utils::evalShape(*fwdMap, shapedType.getShape());
+        TT_assert(physicalShape.size() >= deviceGridShape.size());
+        return SmallVector<int64_t>(physicalShape.begin(),
+                                    physicalShape.begin() +
+                                        deviceGridShape.size());
+      }
+    }
+
     SmallVector<int64_t> outputGridShape =
         llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
 
@@ -308,11 +322,18 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
   if (auto fwdMap = utils::getVirtualGridForwardMapping(tensorOrMemref)) {
     auto shapedType = dyn_cast<ShapedType>(tensorOrMemref.getType());
     TT_assert(shapedType);
-    auto fullShape = shapedType.getShape();
-    auto physShape = ttmlir::utils::evalShape(*fwdMap, fullShape);
-    unsigned gridRank = fullShape.size() / 2;
-    return SmallVector<int64_t>(physShape.begin(),
-                                physShape.begin() + gridRank);
+    if (fwdMap->getNumDims() == shapedType.getRank()) {
+      auto fullShape = shapedType.getShape();
+      auto physShape = ttmlir::utils::evalShape(*fwdMap, fullShape);
+      unsigned physicalGridRank = 2;
+      if (auto *definingOp = tensorOrMemref.getDefiningOp()) {
+        physicalGridRank =
+            ttcore::lookupDevice(definingOp).getWorkerGrid().getShape().size();
+      }
+      TT_assert(physShape.size() >= physicalGridRank);
+      return SmallVector<int64_t>(physShape.begin(),
+                                  physShape.begin() + physicalGridRank);
+    }
   }
 
   // Check for a reblocking remapping on a view/stream op.
@@ -503,6 +524,52 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
   return std::nullopt;
 }
 
+std::optional<std::pair<AffineMap, AffineMap>>
+getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape) {
+  auto invMap = getVirtualGridInverseMapping(val);
+  auto fwdMap = getVirtualGridForwardMapping(val);
+  if (!invMap || !fwdMap) {
+    return std::nullopt;
+  }
+
+  // Full VGM maps are shaped as:
+  //   (virtual grid dims, shard dims) -> (physical grid dims, shard dims)
+  // The generic grid only consumes the virtual grid dims. If a view has changed
+  // the apparent grid rank, the stored VGM describes the backing value instead
+  // and must not be attached to this GridAttr.
+  const unsigned rank = gridShape.size();
+  if (rank == 0 || fwdMap->getNumDims() != 2 * rank ||
+      fwdMap->getNumResults() != rank + 2 || invMap->getNumDims() != 2 ||
+      invMap->getNumResults() != rank + 1) {
+    return std::nullopt;
+  }
+
+  AffineMap gridFwdMap = *fwdMap;
+  gridFwdMap = ttmlir::utils::affineMapDropBackResults(gridFwdMap, rank);
+  for (int64_t i = static_cast<int64_t>(rank) - 1; i >= 0; --i) {
+    gridFwdMap =
+        ttmlir::utils::dropDim(gridFwdMap, rank + static_cast<unsigned>(i));
+  }
+  gridFwdMap = gridFwdMap.insertResult(
+      getAffineConstantExpr(0, gridFwdMap.getContext()), 0);
+
+  if (gridFwdMap.getNumDims() != rank || gridFwdMap.getNumResults() != 3) {
+    return std::nullopt;
+  }
+
+  SmallVector<int64_t> physicalGridShape =
+      ttmlir::utils::evalShape(gridFwdMap, gridShape);
+  ArrayRef<int64_t> physicalWorkerGridShape(physicalGridShape);
+  // The transformed map must cover the same worker count after collapsing the
+  // virtual grid back to physical device/core coordinates.
+  if (ttmlir::utils::volume<int64_t>(physicalWorkerGridShape.drop_front()) !=
+      ttmlir::utils::volume<int64_t>(gridShape)) {
+    return std::nullopt;
+  }
+
+  return std::make_pair(gridFwdMap, *invMap);
+}
+
 std::optional<AffineMap> getAssociatedRemapping(Value val) {
   if (auto viewOp = val.getDefiningOp<ViewLayoutOp>()) {
     AffineMap map = viewOp.getRemapping();
@@ -525,6 +592,62 @@ AffineMap resolveEffectiveAffineMap(Value val, MemRefType memrefType) {
   }
   return AffineMap::getMultiDimIdentityMap(memrefType.getRank(),
                                            memrefType.getContext());
+}
+
+static void appendShapeCollapsedToRank(SmallVectorImpl<int64_t> &symbols,
+                                       ArrayRef<int64_t> shape, unsigned rank) {
+  if (rank == 0) {
+    return;
+  }
+
+  if (shape.size() < rank) {
+    symbols.append(rank - shape.size(), 1);
+    symbols.append(shape.begin(), shape.end());
+    return;
+  }
+
+  if (shape.size() == rank) {
+    symbols.append(shape.begin(), shape.end());
+    return;
+  }
+
+  symbols.push_back(ttmlir::utils::volume(shape.drop_back(rank - 1)));
+  symbols.append(shape.end() - (rank - 1), shape.end());
+}
+
+static SmallVector<int64_t>
+getDramMapShapeSymbols(ttcore::DeviceAttr device, MemRefType memrefType,
+                       ttcore::ShardLayoutAttr shardLayout,
+                       std::optional<AffineMap> storedForwardMap) {
+  unsigned workerRank = device.getWorkerGrid().getShape().size();
+  TT_assertv(device.getDramMap().getNumSymbols() == workerRank * 2 + 3,
+             "Unexpected DRAM map symbol count");
+
+  SmallVector<int64_t> gridShape;
+  SmallVector<int64_t> shardShape;
+  if (storedForwardMap && !storedForwardMap->isEmpty()) {
+    SmallVector<int64_t> physicalShape =
+        ttmlir::utils::evalShape(*storedForwardMap, memrefType.getShape());
+    TT_assert(physicalShape.size() >= workerRank);
+    gridShape.assign(physicalShape.begin(), physicalShape.begin() + workerRank);
+    shardShape.assign(physicalShape.begin() + workerRank, physicalShape.end());
+  } else {
+    unsigned shardRank = shardLayout.getRank();
+    unsigned gridRank = memrefType.getRank() - shardRank;
+    gridShape = llvm::to_vector(memrefType.getShape().take_front(gridRank));
+    shardShape = llvm::to_vector(memrefType.getShape().drop_front(gridRank));
+
+    if (ttmlir::d2m::utils::grids::requiresVirtualGrid(
+            gridShape, device.getWorkerGrid().getShape())) {
+      gridShape = llvm::to_vector(collapseToPhysicalGrid2D(
+          gridShape, device.getWorkerGrid().getShape()));
+    }
+  }
+
+  SmallVector<int64_t> symbols;
+  appendShapeCollapsedToRank(symbols, gridShape, workerRank);
+  appendShapeCollapsedToRank(symbols, shardShape, workerRank);
+  return symbols;
 }
 
 // Core implementation of getMemoryMap. When storedForwardMap is provided, it
@@ -604,7 +727,8 @@ getMemoryMapImpl(ttcore::DeviceAttr device, MemRefType memrefType,
     case ttcore::MemorySpace::DeviceDRAM: {
       pageSize = device.getMemrefSizeBytes(memrefType);
       assert(pageSize > 0 && "expected positive page size");
-      SmallVector<int64_t> symbols(memrefType.getShape());
+      SmallVector<int64_t> symbols = getDramMapShapeSymbols(
+          device, memrefType, shardLayout, storedForwardMap);
       symbols.push_back(static_cast<int64_t>(pageSize));
       symbols.push_back(static_cast<int64_t>(baseOffset));
       symbols.push_back(
@@ -824,11 +948,24 @@ collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
   return result;
 }
 
-int32_t getNocElementAlignmentL1(
-    Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
-  const int32_t nocAlignmentL1 =
-      ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes();
+int32_t getNocAddressAlignmentBytes(Operation *op,
+                                    ttcore::MemorySpace memorySpace) {
+  ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(op);
+  switch (memorySpace) {
+  case ttcore::MemorySpace::DeviceL1:
+    return chipDesc.getNocL1AddressAlignBytes();
+  case ttcore::MemorySpace::DeviceDRAM:
+    return chipDesc.getNocDRAMAddressAlignBytes();
+  default:
+    llvm_unreachable("Unsupported NoC memory space");
+  }
+}
 
+int32_t
+getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
+                       const std::variant<RankedTensorType, MemRefType> &type) {
+  const int32_t nocAlignmentBytes =
+      getNocAddressAlignmentBytes(op, memorySpace);
   const int32_t elemBitWidth = std::visit(
       [&](auto &&ty) -> int32_t {
         return static_cast<int32_t>(ty.getElementTypeBitWidth());
@@ -836,8 +973,13 @@ int32_t getNocElementAlignmentL1(
       type);
   const int32_t elemBytes = std::max(1, elemBitWidth / 8);
 
-  TT_assert(((nocAlignmentL1 != 0) && (nocAlignmentL1 % elemBytes == 0)));
-  return nocAlignmentL1 / elemBytes;
+  TT_assert(((nocAlignmentBytes != 0) && (nocAlignmentBytes % elemBytes == 0)));
+  return nocAlignmentBytes / elemBytes;
+}
+
+int32_t getNocElementAlignmentL1(
+    Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
+  return getNocElementAlignment(op, ttcore::MemorySpace::DeviceL1, type);
 }
 
 } // namespace mlir::tt::d2m::utils

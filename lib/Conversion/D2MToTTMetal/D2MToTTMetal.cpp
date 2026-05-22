@@ -130,13 +130,18 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        int32_t nocIdx = thread.getNocIndex();
-        if (nocIdx < 0) {
-          nocIdx = unassignedNocCounter++ % 2;
+        int32_t processorIdx = thread.getProcessorIndex();
+        ttcore::NocIndex nocIndex;
+        if (processorIdx < 0) {
+          int32_t index = unassignedNocCounter++ % 2;
+          nocIndex =
+              index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
+        } else {
+          nocIndex = processorIdx == 1 ? ttcore::NocIndex::Noc0
+                                       : ttcore::NocIndex::Noc1;
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs,
-            *ttcore::symbolizeNocIndex(nocIdx));
+            thread.getKernelSymbol(), coreRange, kernelArgs, nocIndex);
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -558,7 +563,6 @@ public:
           op, "SpatialOp with results is not supported in TTMetal lowering");
     }
 
-    ArrayAttr gridRanges = op.getGridRanges();
     unsigned chipNumCbs = 0;
     bool foundSystemDesc = false;
     for (Operation *walk = op->getParentOp(); walk;
@@ -587,11 +591,7 @@ public:
     SmallVector<Operation *> preEnqueueOps;
     SmallVector<Operation *> postEnqueueOps;
 
-    for (auto [regionIndex, region] : llvm::enumerate(op.getRegions())) {
-      auto spatialCoreRange =
-          mlir::cast<ttcore::CoreRangeAttr>(gridRanges.getValue()[regionIndex]);
-      CoreRangeAttr spatialMetalRange =
-          ttCoreSpatialRangeToTtmetalCoreRange(rewriter, spatialCoreRange);
+    for (Region &region : op.getRegions()) {
       FailureOr<ttmetal::EnqueueProgramOp> maybeEnqueue =
           collectRegionOps(region, preEnqueueOps, postEnqueueOps);
       if (failed(maybeEnqueue)) {
@@ -615,9 +615,8 @@ public:
           llvm::seq<int64_t>(
               portBase, portBase + static_cast<int64_t>(regionCbPortCount)));
       for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
-        mergedKernelConfigs.push_back(
-            remapKernelConfig(kernelConfig, spatialMetalRange, enqueueProgram,
-                              remapTable, mergedCbSlotBase));
+        mergedKernelConfigs.push_back(remapKernelConfig(
+            kernelConfig, enqueueProgram, remapTable, mergedCbSlotBase));
       }
 
       auto enqueueFabricConfig = enqueueProgram.getFabricConnectionConfigAttr();
@@ -754,7 +753,6 @@ private:
   }
 
   static Attribute remapKernelConfig(Attribute kernelConfig,
-                                     CoreRangeAttr spatialCoreRange,
                                      ttmetal::EnqueueProgramOp enqueueProgram,
                                      const SpatialRemapTable &remapTable,
                                      size_t mergedCbSlotBase) {
@@ -763,7 +761,7 @@ private:
         .Case<ComputeConfigAttr>([&](ComputeConfigAttr computeConfig) {
           return ComputeConfigAttr::get(
               computeConfig.getContext(), computeConfig.getKernelSymbol(),
-              spatialCoreRange,
+              computeConfig.getCoreRange(),
               remapKernelArgs(builder, computeConfig.getKernelArgs(),
                               enqueueProgram, remapTable, mergedCbSlotBase),
               computeConfig.getMathFidelity(), computeConfig.getFp32DestAccEn(),
@@ -774,7 +772,7 @@ private:
         .Case<NocConfigAttr>([&](NocConfigAttr nocConfig) {
           return NocConfigAttr::get(
               nocConfig.getContext(), nocConfig.getKernelSymbol(),
-              spatialCoreRange,
+              nocConfig.getCoreRange(),
               remapKernelArgs(builder, nocConfig.getKernelArgs(),
                               enqueueProgram, remapTable, mergedCbSlotBase),
               nocConfig.getNocIndex());
@@ -782,7 +780,7 @@ private:
         .Case<EthernetConfigAttr>([&](EthernetConfigAttr ethernetConfig) {
           return EthernetConfigAttr::get(
               ethernetConfig.getContext(), ethernetConfig.getKernelSymbol(),
-              spatialCoreRange,
+              ethernetConfig.getCoreRange(),
               remapKernelArgs(builder, ethernetConfig.getKernelArgs(),
                               enqueueProgram, remapTable, mergedCbSlotBase),
               ethernetConfig.getEthType(), ethernetConfig.getNocIndex());
@@ -831,21 +829,7 @@ private:
     }
     return onlyEnqueue;
   }
-
-  static CoreRangeAttr
-  ttCoreSpatialRangeToTtmetalCoreRange(Builder &builder,
-                                       ttcore::CoreRangeAttr cr);
 };
-
-CoreRangeAttr SpatialOpRewriter::ttCoreSpatialRangeToTtmetalCoreRange(
-    Builder &builder, ttcore::CoreRangeAttr cr) {
-  auto sc = cr.getStartCoord();
-  auto ec = cr.getEndCoord();
-  SmallVector<int64_t> offset = {sc.getY(), sc.getX()};
-  SmallVector<int64_t> size = {ec.getY() - sc.getY() + 1,
-                               ec.getX() - sc.getX() + 1};
-  return CoreRangeAttr::get(builder.getContext(), offset, size);
-}
 
 } // namespace
 

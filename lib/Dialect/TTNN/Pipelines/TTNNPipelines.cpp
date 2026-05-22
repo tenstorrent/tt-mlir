@@ -92,6 +92,8 @@ void createTTNNPipelineTTIRPasses(
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
   pm.addPass(mlir::tt::ttir::createTTIRFoldFullToScalar());
+  pm.addPass(mlir::tt::ttir::createTTIRConsolidateStaticCacheUpdates());
+  pm.addPass(mlir::createCSEPass());
 }
 
 void createTTNNPipelineAnalysisPasses(
@@ -322,7 +324,31 @@ void createTTIRToTTNNCommonPipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
-    devicePm.addPass(createTTNNDecomposition());
+
+    // Create TTNN decomposition pass, optionally with op-model validation.
+    if (options.ttnnDecompositionEnabled) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+      if (options.optimizerPassEnabled) {
+        DevicePassesWrapperOptions decompWrapperOptions;
+        decompWrapperOptions.devicePtr = options.devicePtr;
+        decompWrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+
+        uint32_t decompFallbackAttempts = options.maxFallbackAttempts;
+        devicePm.addPass(createDevicePassesWrapper(
+            [decompFallbackAttempts](OpPassManager &innerPm) {
+              TTNNDecompositionOptions decompOptions;
+              decompOptions.enableOpConstraints = true;
+              decompOptions.maxFallbackAttempts = decompFallbackAttempts;
+              innerPm.addPass(
+                  mlir::tt::ttnn::createTTNNDecomposition(decompOptions));
+            },
+            decompWrapperOptions));
+      } else
+#endif
+      {
+        devicePm.addPass(createTTNNDecomposition());
+      }
+    }
 
     if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());
@@ -417,6 +443,10 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
 
+    // Workarounds pass and Layout decompositions can leave behind redundant
+    // typecast->typecast chains. Canonicalize them away to save memory.
+    devicePm.addPass(mlir::createCanonicalizerPass());
+
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 
@@ -489,8 +519,9 @@ void createTTNNCommonToEmitCPipeline(
 
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
-    // This ensures tensor inputs are always tuplified even when the input is
-    // empty, which is necessary for proper dylib interface generation.
+    // This ensures that forward function input tensors are always tuplified
+    // even when the input is empty, which is necessary for proper dylib
+    // interface generation.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
@@ -533,9 +564,9 @@ void createTTNNCommonToEmitPyPipeline(
 
   if (options.targetModule) {
     // In module path, run tuplification with forced settings and add device
-    // argument. This ensures tensor inputs are always tuplified even when the
-    // input is empty, which is necessary for proper module interface
-    // generation.
+    // argument. This ensures forward function input tensors are always
+    // tuplified even when the input is empty, which is necessary for proper
+    // module interface generation.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
@@ -547,7 +578,9 @@ void createTTNNCommonToEmitPyPipeline(
     // weights first. Then tuplify everything else.
     //
     devicePm.addPass(createTTNNSplitForwardFuncArgsByType());
-    devicePm.addPass(createTTNNTuplifyTensors());
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
+    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;

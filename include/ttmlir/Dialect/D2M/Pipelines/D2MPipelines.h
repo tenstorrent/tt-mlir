@@ -49,7 +49,9 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::values(clEnumValN(ttcore::Arch::WormholeB0, "wormhole_b0",
                                   "Use mock wormhole_b0 system desc."),
                        clEnumValN(ttcore::Arch::Blackhole, "blackhole",
-                                  "Use mock blackhole system desc.")),
+                                  "Use mock blackhole system desc."),
+                       clEnumValN(ttcore::Arch::Quasar, "quasar",
+                                  "Use mock quasar system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
   Option<unsigned> maxDstPhysicalSizeTiles{
@@ -137,6 +139,13 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
 
+  // Force all non-bound allocator variables to spill into DRAM.
+  Option<bool> forceSpillToDramIfLegal{
+      *this, "force-spill-to-dram-if-legal",
+      llvm::cl::desc(
+          "Force all non-bound allocator variables to spill into DRAM."),
+      llvm::cl::init(false)};
+
   // The allocator will not consider generic outputs eligible for spilling
   // unless this option is turned on.
   Option<bool> allowL1OutputSpilling{
@@ -208,9 +217,11 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "prints debug output comparing them."),
       llvm::cl::init(false)};
 
-  Option<bool> enableL1Acc{*this, "enable-l1-acc",
-                           llvm::cl::desc("Enable L1 accumulation."),
-                           llvm::cl::init(false)};
+  Option<bool> disableL1Acc{
+      *this, "disable-l1-acc",
+      llvm::cl::desc("Disable L1 accumulation (force reloading from L1 to DST "
+                     "instead of accumulating partials in L1)."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm,

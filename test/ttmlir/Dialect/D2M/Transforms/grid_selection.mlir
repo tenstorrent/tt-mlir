@@ -24,7 +24,7 @@ module attributes {ttcore.device = #any_device} {
 
 // -----
 
-#layout = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 module {
   func.func @test_update_empty() -> (tensor<256x256xf32>) {
@@ -60,7 +60,7 @@ module {
 
  #stale_forward = affine_map<(d0, d1, d2, d3) -> (0, 0, d2, d3)>
  #stale_inverse = affine_map<(d0, d1) -> (0, 0, 0)>
- #layout_stale_vgm = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+ #layout_stale_vgm = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
  module {
    func.func @test_update_empty_drops_stale_vgm() -> (tensor<256x256xf32>) {
@@ -91,8 +91,8 @@ module {
 
  // -----
 
- #layout_tm_device_input = #ttcore.metal_layout<logical_shape = 33x2x8, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
- #layout_tm_stream_map = #ttcore.metal_layout<logical_shape = 2x264, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+ #layout_tm_device_input = #ttcore.metal_layout<logical_shape = 33x2x8, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+ #layout_tm_stream_map = #ttcore.metal_layout<logical_shape = 2x264, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
 
  module {
    // Test to make sure aligned tensor shapes is used in TM affine maps when we start with unaligned view output.
@@ -114,8 +114,8 @@ module {
 
  // -----
 
- #layout_in = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
- #layout_op = #ttcore.metal_layout<logical_shape = 40x40, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+ #layout_in = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+ #layout_op = #ttcore.metal_layout<logical_shape = 40x40, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
 
  module {
    // Test to make sure the reblock map contains no unnecessary terms.
@@ -134,8 +134,8 @@ module {
 
 // -----
 
-#layout_in_S = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#layout_out_S = #ttcore.metal_layout<logical_shape = 32x64, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#layout_in_S = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#layout_out_S = #ttcore.metal_layout<logical_shape = 32x64, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
 
 module  {
   func.func @test_reblock_composite_view_small(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x64xf32> {
@@ -168,8 +168,8 @@ module  {
 
 // -----
 
-#layout_in_L = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
-#layout_out_L = #ttcore.metal_layout<logical_shape = 256x512, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#layout_in_L = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#layout_out_L = #ttcore.metal_layout<logical_shape = 256x512, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
 
 module  {
   func.func @test_reblock_composite_view_large(%arg0: tensor<256x256xf32>, %arg1: tensor<256x256xf32>) -> tensor<256x512xf32> attributes {tt.function_type = "forward_device"} {

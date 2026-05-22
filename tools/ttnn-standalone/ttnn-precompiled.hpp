@@ -17,10 +17,12 @@
 #include "operations/creation/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"
 #include "operations/data_movement/gather/gather.hpp"
+#include "operations/data_movement/moe_expert_token_remap/moe_expert_token_remap.hpp"
 #include "operations/data_movement/pad/pad.hpp"
 #include "operations/data_movement/permute/permute.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
 #include "operations/data_movement/repeat_interleave/repeat_interleave.hpp"
+#include "operations/data_movement/reshape_view/reshape.hpp"
 #include "operations/data_movement/scatter/scatter.hpp"
 #include "operations/data_movement/slice/slice.hpp"
 #include "operations/data_movement/sort/sort.hpp"
@@ -48,7 +50,6 @@
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
-#include "operations/pool/global_avg_pool/global_avg_pool.hpp"
 #include "operations/pool/upsample/upsample.hpp"
 #include "operations/rand/rand.hpp"
 #include "operations/reduction/accumulation/cumsum/cumsum.hpp"
@@ -81,6 +82,7 @@
 #include "workarounds.hpp"
 // ANCHOR_END: standalone_includes
 
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <iostream>
@@ -266,5 +268,48 @@ nlp_create_qkv_heads_decode_wrapper(
 }
 
 } // namespace ttnn
+
+namespace ttmlir::standalone {
+
+inline ::ttnn::Tensor
+global_avg_pool2d(const ::ttnn::Tensor &inputTensor,
+                  const std::optional<const ::ttnn::MemoryConfig> &memoryConfig,
+                  const std::optional<::ttnn::DataType> &dtype) {
+  ::ttnn::Tensor input = inputTensor;
+  auto shape = input.logical_shape();
+  assert(shape.rank() == 4 && "global_avg_pool2d expects NHWC rank 4 input");
+
+  const uint32_t batchSize = shape[0];
+  const uint32_t inputHeight = shape[1];
+  const uint32_t inputWidth = shape[2];
+  const uint32_t channels = shape[3];
+
+  if (input.memory_config().is_sharded()) {
+    input = ::ttnn::to_memory_config(
+        input, ::ttnn::MemoryConfig(::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                    input.memory_config().buffer_type()));
+  }
+
+  ::ttnn::Tensor result = ::ttnn::avg_pool2d(
+      input, batchSize, inputHeight, inputWidth, channels,
+      /*kernel_size=*/std::array<uint32_t, 2>{inputHeight, inputWidth},
+      /*stride=*/std::array<uint32_t, 2>{1, 1},
+      /*padding=*/std::array<uint32_t, 2>{0, 0}, /*ceil_mode=*/false,
+      /*count_include_pad=*/true, /*divisor_override=*/std::nullopt,
+      memoryConfig, /*dram_slice_config=*/std::nullopt,
+      /*applied_shard_scheme=*/std::nullopt,
+      /*compute_kernel_config=*/std::nullopt,
+      /*deallocate_input=*/false, /*reallocate_halo_output=*/true,
+      dtype.value_or(::ttnn::DataType::BFLOAT16), ::ttnn::Layout::TILE,
+      /*config_tensor_in_dram=*/false);
+
+  std::optional<::ttnn::MemoryConfig> reshapeMemoryConfig =
+      memoryConfig ? std::make_optional<::ttnn::MemoryConfig>(*memoryConfig)
+                   : std::nullopt;
+  return ::ttnn::reshape(result, ::ttnn::Shape({batchSize, 1, 1, channels}),
+                         reshapeMemoryConfig);
+}
+
+} // namespace ttmlir::standalone
 
 #endif // TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP

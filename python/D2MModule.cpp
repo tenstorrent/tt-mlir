@@ -40,6 +40,11 @@ void populateD2MModule(nb::module_ &m) {
         return wrap(tt::d2m::LocalSemaphoreType::get(unwrap(ctx)));
       });
 
+  tt_type_class<tt::d2m::GlobalSemaphoreType>(m, "GlobalSemaphoreType")
+      .def_static("get", [](MlirContext ctx) {
+        return wrap(tt::d2m::GlobalSemaphoreType::get(unwrap(ctx)));
+      });
+
   tt_type_class<tt::d2m::CBType>(m, "CBType")
       .def_static("get",
                   [](MlirContext ctx, MlirType shapedType) {

@@ -56,7 +56,7 @@ module attributes {} {
     %weight: tensor<1x4x2880x5760xbf16>,
     %sparsity: tensor<2x4x1x4xbf16>
   ) -> tensor<2x4x1x4x32x5760xbf16> {
-    %result = "ttir.sparse_matmul"(%input, %weight, %sparsity) <{is_input_a_sparse = false, is_input_b_sparse = true, nnz = 0 : i64}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
+    %result = "ttir.sparse_matmul"(%input, %weight, %sparsity) <{is_input_a_sparse = false, is_input_b_sparse = true}> : (tensor<2x4x32x2880xbf16>, tensor<1x4x2880x5760xbf16>, tensor<2x4x1x4xbf16>) -> tensor<2x4x1x4x32x5760xbf16>
     return %result : tensor<2x4x1x4x32x5760xbf16>
   }
 }
@@ -70,7 +70,7 @@ module attributes {} {
     %weight: tensor<1x4x2880x2880xbf16>,
     %sparsity: tensor<1x1x8x4xbf16>
   ) -> tensor<8x4x32x2880xbf16> {
-    %result = "ttir.sparse_matmul"(%input, %weight, %sparsity) <{is_input_a_sparse = true, is_input_b_sparse = false, nnz = 0 : i64}> : (tensor<8x4x32x2880xbf16>, tensor<1x4x2880x2880xbf16>, tensor<1x1x8x4xbf16>) -> tensor<8x4x32x2880xbf16>
+    %result = "ttir.sparse_matmul"(%input, %weight, %sparsity) <{is_input_a_sparse = true, is_input_b_sparse = false}> : (tensor<8x4x32x2880xbf16>, tensor<1x4x2880x2880xbf16>, tensor<1x1x8x4xbf16>) -> tensor<8x4x32x2880xbf16>
     return %result : tensor<8x4x32x2880xbf16>
   }
 }

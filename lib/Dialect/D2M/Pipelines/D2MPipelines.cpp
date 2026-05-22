@@ -122,6 +122,8 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MMaterializeViewReturns());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
+  pm.addPass(d2m::createD2MOptimizeMasks());
+  pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
   pm.addPass(d2m::createD2MMaterializeViewReturns());
 
@@ -145,6 +147,14 @@ void createD2MFrontendPipeline(OpPassManager &pm,
 
   // After GenerateOuterLoops, all generic ops are in Affine Blocked form.
   pm.addPass(d2m::createD2MGenerateOuterLoops());
+  d2m::D2MDecomposeMaskingOptions decomposeMaskingOptions;
+  { decomposeMaskingOptions.numStreamBuffers = options.numStreamBuffers; }
+  pm.addPass(d2m::createD2MDecomposeMasking(decomposeMaskingOptions));
+
+  // Run right before allocate to mark synchronized buffers
+  d2m::D2MMarkSynchronizedBuffersOptions markSyncBuffersOptions;
+  { markSyncBuffersOptions.numStreamBuffers = options.numStreamBuffers; }
+  pm.addPass(d2m::createD2MMarkSynchronizedBuffers(markSyncBuffersOptions));
 
   d2m::D2MAllocateOptions allocateOptions;
   {
@@ -154,6 +164,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
     allocateOptions.availableL1AddrRange.assign(
         options.availableL1AddrRange.begin(),
         options.availableL1AddrRange.end());
+    allocateOptions.forceSpillToDramIfLegal = options.forceSpillToDramIfLegal;
     allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
@@ -168,7 +179,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
 
 void createD2MBackendPipeline(OpPassManager &pm,
                               const D2MPipelineOptions &options) {
-  pm.addPass(d2m::createD2MDecomposeMasking());
   pm.addPass(d2m::createD2MDecomposeArange());
 
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
@@ -197,13 +207,13 @@ void createD2MBackendPipeline(OpPassManager &pm,
   d2m::D2MInsertDstRegisterAccessUnscheduledOptions unschedDstOpts;
   {
     unschedDstOpts.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
-    unschedDstOpts.enableL1Acc = options.enableL1Acc;
+    unschedDstOpts.disableL1Acc = options.disableL1Acc;
   }
   pm.addPass(d2m::createD2MInsertDstRegisterAccessUnscheduled(unschedDstOpts));
   d2m::D2MInsertDstRegisterAccessScheduledOptions schedDstOpts;
   {
     schedDstOpts.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
-    schedDstOpts.enableL1Acc = options.enableL1Acc;
+    schedDstOpts.disableL1Acc = options.disableL1Acc;
   }
   pm.addPass(d2m::createD2MInsertDstRegisterAccessScheduled(schedDstOpts));
   d2m::D2MInsertTileMatmulBlockOptions insertTileMatmulBlockOptions;
@@ -248,7 +258,6 @@ void createD2MBackendPipeline(OpPassManager &pm,
   // treat all arguments.
   pm.addPass(d2m::createD2MNormalizeThreadArgs());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());

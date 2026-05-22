@@ -490,21 +490,6 @@ public:
             } else {
               emptyOp.setLayout(ttnn::Layout::RowMajor);
             }
-
-            emptyOp.setMemoryConfigAttr(
-                ttnn::MemoryConfigAttr::get(layoutAttr));
-          }
-          // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Align
-          // MemoryConfigAttr with layout attribute of its output tensor. This
-          // redundant info should be removed or made consistent as part of temp
-          // ToLayoutOp decomposition pass.
-          //
-          else if (isa<ttnn::ToLayoutOp>(op)) {
-            // Update the device op with the new tensor type.
-            //
-            ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
-            toLayoutOp.setMemoryConfigAttr(
-                ttnn::MemoryConfigAttr::get(layoutAttr));
           }
 
           // Set specific Conv(Transpose)2d Op configuration if it is exists.
@@ -776,9 +761,6 @@ private:
           producerOpTensorShape, producerOpTensorType.getElementType(),
           reshardOpLayout);
 
-      MemoryConfigAttr outputMemConfigAttr =
-          MemoryConfigAttr::get(reshardOpLayout);
-
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
       // toLayoutOp, insert a toLayoutOp in between producerOp
@@ -787,7 +769,6 @@ private:
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
         toLayoutOp.setLayout(reshardOpLayout.getLayout());
-        toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {
         OpBuilder builder(consumerOp);
@@ -800,8 +781,7 @@ private:
             LayoutAttr::get(consumerOp->getContext(),
                             reshardOpLayout.getLayout()),
             ttcore::DataTypeAttr::get(consumerOp->getContext(),
-                                      reshardOpLayout.getDataType()),
-            outputMemConfigAttr);
+                                      reshardOpLayout.getDataType()));
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
@@ -856,8 +836,6 @@ private:
       LayoutAttr newLayout =
           LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
-      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(dramLayout);
-
       builder.setInsertionPointAfter(spilledOp);
       Location loc =
           ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(), "_spill");
@@ -870,8 +848,7 @@ private:
 
       // Step 2: Insert spilling to DRAM.
       Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
-          memConfigAttr);
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType);
 
       // Step 3: Reconnect uses.
       for (auto &use : uses) {
@@ -968,9 +945,6 @@ private:
           spilledOp->getContext(), l1InterleavedLayout.getDataType());
       LayoutAttr newLayout = LayoutAttr::get(spilledOp->getContext(),
                                              l1InterleavedLayout.getLayout());
-      MemoryConfigAttr memConfigAttr =
-          MemoryConfigAttr::get(l1InterleavedLayout);
-
       builder.setInsertionPointAfter(spilledOp);
       Location loc = ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(),
                                                          "_to_l1_interleaved");
@@ -982,8 +956,7 @@ private:
       }
 
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
-          memConfigAttr);
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType);
 
       for (auto &[useOp, operandIdx] : uses) {
         useOp->setOperand(operandIdx, toLayoutOp->getResult(0));

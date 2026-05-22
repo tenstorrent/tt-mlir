@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -57,6 +58,7 @@ struct ConvertD2MToTTKernel
   }
 
   void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<arith::ArithDialect>();
@@ -104,6 +106,12 @@ struct ConvertD2MToTTKernel
 
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
+
+    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
+            moduleOp, "D2MToTTKernel"))) {
+      signalPassFailure();
+      return;
+    }
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
@@ -158,7 +166,6 @@ struct ConvertD2MToTTKernel
     // If there is any fabric related writes,
     // insert fabric connection manager ops and setup fabric connections at the
     // start of the function and close at the end.
-    ModuleOp moduleOp = getOperation();
     moduleOp->walk([&](func::FuncOp func) {
       bool fabric_write_present = false;
       func.walk([&](d2m::DMAWriteOp dmaWriteOp) {

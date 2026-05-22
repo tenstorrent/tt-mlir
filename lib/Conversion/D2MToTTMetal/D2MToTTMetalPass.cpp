@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -81,6 +82,12 @@ struct ConvertD2MToTTMetal
     // in the first pass so nested D2M can become ttmetal (including one
     // enqueue_program per spatial region); SpatialOpRewriter in the second pass
     // merges those enqueue_program ops and then erases the spatial wrapper.
+
+    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
+            getOperation(), "D2MToTTMetal"))) {
+      signalPassFailure();
+      return;
+    }
 
     ConversionTarget target(getContext());
     addD2MToTTMetalConversionTargetBase(target);

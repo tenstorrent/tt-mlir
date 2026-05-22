@@ -7,7 +7,6 @@
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
-#include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
@@ -23,17 +22,17 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
-#include "ttmlir/Version.h"
 #include "ttnn/tensor/serialization.hpp"
-#include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
 
 #include "tracy/Tracy.hpp"
 
+#include <cstring>
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <variant>
 #include <vector>
 
 namespace tt::runtime::ttnn {
@@ -320,6 +319,31 @@ Tensor createMultiDeviceBorrowedHostTensor(
       ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
 
   return utils::createRuntimeTensorFromTTNN(tensor);
+}
+
+template <typename T>
+static ::tt::runtime::Tensor createScalarTensorImpl(T scalar) {
+  static_assert(sizeof(T) <= sizeof(std::uint32_t));
+  std::uint32_t scalarPacked = 0;
+  std::memcpy(&scalarPacked, &scalar, sizeof(T));
+  return utils::createRuntimeTensorFromTTNN(
+      utils::createTTNNTensor<std::uint32_t>(&scalarPacked, ::ttnn::Shape({1}),
+                                             ::ttnn::DataType::UINT32));
+}
+
+::tt::runtime::Tensor createScalarTensor(::tt::runtime::Scalar scalar) {
+  return std::visit(
+      ::tt::runtime::utils::overloaded{
+          [&](const uint32_t &s) { return createScalarTensorImpl(s); },
+          [&](const int32_t &s) { return createScalarTensorImpl(s); },
+          [&](const uint16_t &s) { return createScalarTensorImpl(s); },
+          [&](const int16_t &s) { return createScalarTensorImpl(s); },
+          [&](const uint8_t &s) { return createScalarTensorImpl(s); },
+          [&](const int8_t &s) { return createScalarTensorImpl(s); },
+          [&](const bool &s) { return createScalarTensorImpl(s); },
+          [&](const float &s) { return createScalarTensorImpl(s); },
+      },
+      scalar);
 }
 
 bool isTensorAllocated(::tt::runtime::Tensor tensor) {

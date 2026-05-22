@@ -92,7 +92,7 @@ table SparseMatmulOp {
   out: tt.target.ttnn.TensorRef;
   is_input_a_sparse: bool;
   is_input_b_sparse: bool;
-  nnz: int64;
+  nnz: int64 = null;
   program_config: tt.target.ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
   dtype: tt.target.DataType;

@@ -5703,13 +5703,18 @@ public:
 
     SmallVector<Value> slicesToConcat;
 
-    slicesToConcat = createSlices(starts, indexedDim, sliceSize, inputShape,
-                                  inputType, rewriter, srcOp, input);
+    // Front pad: replicate the first slice along indexedDim.
+    slicesToConcat = createSlices(starts, indexedDim, sliceSize,
+                                  /*sliceStart=*/0, inputShape, inputType,
+                                  rewriter, srcOp, input);
 
     slicesToConcat.push_back(input);
 
-    slicesToConcat.append(createSlices(ends, indexedDim, sliceSize, inputShape,
-                                       inputType, rewriter, srcOp, input));
+    // Back pad: replicate the *last* slice along indexedDim.
+    slicesToConcat.append(
+        createSlices(ends, indexedDim, sliceSize,
+                     /*sliceStart=*/inputShape[indexedDim] - sliceSize,
+                     inputShape, inputType, rewriter, srcOp, input));
 
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -5744,15 +5749,16 @@ private:
 
   SmallVector<Value>
   createSlices(int32_t numberOfRepeats, int32_t indexedDim, int32_t sliceSize,
-               ArrayRef<int64_t> inputShape, RankedTensorType inputType,
-               ConversionPatternRewriter &rewriter,
+               int32_t sliceStart, ArrayRef<int64_t> inputShape,
+               RankedTensorType inputType, ConversionPatternRewriter &rewriter,
                mlir::stablehlo::GatherOp srcOp, Value input) const {
     SmallVector<Value> slices;
     if (numberOfRepeats > 0) {
+      int32_t sliceEnd = sliceStart + sliceSize;
       auto [begins, endsArr, step] =
-          buildSliceArrays(0, sliceSize, indexedDim, inputShape);
+          buildSliceArrays(sliceStart, sliceEnd, indexedDim, inputShape);
       auto sliceShape =
-          computeSliceResultShape(0, sliceSize, indexedDim, inputShape);
+          computeSliceResultShape(sliceStart, sliceEnd, indexedDim, inputShape);
       auto sliceType = RankedTensorType::get(
           sliceShape, inputType.getElementType(), inputType.getEncoding());
 
@@ -8929,7 +8935,10 @@ public:
     BoolAttr isInputASparseAttr = rewriter.getBoolAttr(isInputASparse);
     BoolAttr isInputBSparseAttr = rewriter.getBoolAttr(isInputBSparse);
 
-    // Parse nnz attribute (optional)
+    // Parse nnz attribute (optional).
+    // In SHLO world, nnz=0 means "infer from sparsity tensor at runtime"
+    // In TTIR world (and TTNN), nnz=0 means "this matmul is dense"
+    // Proper way to convert SHLO to TTIR is to omit the nnz attribute entirely.
     auto nnzStringAttr = frontendAttributes.getAs<mlir::StringAttr>("nnz");
     IntegerAttr nnzAttr = nullptr;
     if (nnzStringAttr) {
@@ -8940,7 +8949,9 @@ public:
             "nnz attribute string must be convertible to integer. Received \"" +
                 nnzStringAttr.getValue() + "\".");
       }
-      nnzAttr = rewriter.getI64IntegerAttr(nnz);
+      if (nnz > 0) {
+        nnzAttr = rewriter.getI64IntegerAttr(nnz);
+      }
     }
 
     // Get operands

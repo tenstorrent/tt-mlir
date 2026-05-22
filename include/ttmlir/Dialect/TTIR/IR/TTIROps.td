@@ -45,8 +45,8 @@ def TTIR_ToLayoutOp : TTIR_DPSOp<"to_layout",
         - Some combination of the above
 
       ```llvm
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, system, sharded>
+      #layout1 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
       %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
@@ -3236,6 +3236,35 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let hasVerifier = 1;
 }
 
+def TTIR_RotaryEmbeddingOp : TTIR_NamedOp<"rotary_embedding"> {
+  let summary = "Rotary position embedding operation.";
+  let description = [{
+    Applies rotary position embedding (RoPE) to the input tensor using
+    precomputed cosine and sine caches.
+
+    Formula:
+      result = x * cos + rotate_half(x) * sin
+      where rotate_half(x) = concat(neg(x[D/2:]), x[:D/2])
+
+    The input tensor must be 4D [batch, heads, seq_len, head_dim].
+    cos_cache and sin_cache must be 4D and broadcastable to the input shape,
+    with the last dimension (head_dim) matching the input exactly.
+
+    Example:
+      %result = "ttir.rotary_embedding"(%input, %cos_cache, %sin_cache)
+        : (tensor<1x32x128x64xbf16>, tensor<1x1x128x64xbf16>,
+           tensor<1x1x128x64xbf16>) -> tensor<1x32x128x64xbf16>
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$cos_cache,
+                       AnyRankedTensor:$sin_cache);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_SortOp : TTIR_NamedOp<"sort"> {
   let summary = "Sort operation.";
   let description = [{
@@ -6309,8 +6338,8 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
       Attributes:
       - `is_input_a_sparse` (Boolean, default=false): Whether `a` has block structure.
       - `is_input_b_sparse` (Boolean, default=true): Whether `b` has block structure.
-      - `nnz` (Optional Integer): Number of non-zero blocks per row. If 0 or absent,
-        inferred at runtime.
+      - `nnz` (Optional Integer): Number of non-zero blocks per row. If absent, it is
+         inferred at runtime.
 
       Supported Modes:
       - is_input_a_sparse=false, is_input_b_sparse=true (column-parallel):

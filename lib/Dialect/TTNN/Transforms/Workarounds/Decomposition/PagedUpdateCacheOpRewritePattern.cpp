@@ -54,8 +54,6 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
   }
 
   // Apply ToLayoutOp to convert the input tensor to the desired layout.
-  ttnn::MemoryConfigAttr inputMemoryConfig =
-      ttnn::MemoryConfigAttr::get(desiredInputLayout);
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
   auto toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
@@ -63,8 +61,7 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
       tt::ttnn::Layout::Tile,
       ttcore::DataTypeAttr::get(
           rewriter.getContext(),
-          ttcore::elementTypeToDataType(inputElementType)),
-      inputMemoryConfig);
+          ttcore::elementTypeToDataType(inputElementType)));
 
   // Replace the original PagedUpdateCacheOp with one which takes our properly
   // configured input tensor.

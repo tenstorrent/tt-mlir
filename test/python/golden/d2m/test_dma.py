@@ -4,7 +4,7 @@
 
 import pytest
 import torch
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
@@ -17,7 +17,7 @@ from conftest import get_request_kwargs
 pytestmark = pytest.mark.frontend("ttir")
 
 
-def compile_dma_test(test_func, shape, request, device):
+def compile_dma_test(test_func, request, device):
 
     # Back to back tolayout ops are normally folded during canonicalization into
     # a single ToLayoutOp representing the final result. The option
@@ -55,7 +55,7 @@ def test_host_interop_single_bank_dram_dma(
         def tilize(
             in0: Operand,
             builder: TTIRBuilder,
-            unit_attrs: List[str] = None,
+            unit_attrs: Optional[List[str]] = None,
         ):
 
             to_device = builder.to_layout(
@@ -74,7 +74,7 @@ def test_host_interop_single_bank_dram_dma(
 
             return system_out
 
-    compile_dma_test(module, shape, request, device=device)
+    compile_dma_test(module, request, device=device)
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -98,17 +98,15 @@ def test_roundtrip_dma_tiled(
         def tilize(
             in0: Operand,
             builder: TTIRBuilder,
-            unit_attrs: List[str] = None,
+            unit_attrs: Optional[List[str]] = None,
         ):
             # derive sharded shapes
             assert (shape[0] % start_grid[0] == 0) and (
                 shape[1] % start_grid[1] == 0
             ), "shape must be divisible by start_grid"
-            start_shard_shape = (shape[0] // start_grid[0], shape[1] // start_grid[1])
             assert (shape[0] % end_grid[0] == 0) and (
                 shape[1] % end_grid[1] == 0
             ), "shard_shape must be divisible by end_grid"
-            end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
 
             # tilize the tensor on a single worker
             to_device = builder.tilize(
@@ -153,14 +151,11 @@ def test_roundtrip_dma_tiled(
 
             return untilize_out
 
-    compile_dma_test(module, shape, request, device=device)
+    compile_dma_test(module, request, device=device)
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize(
-    "shape",
-    [(128, 128)],
-)
+@pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])
 @pytest.mark.parametrize(
@@ -180,7 +175,7 @@ def test_roundtrip_dma_rowmajor(
         def dram_write(
             in0: Operand,
             builder: TTIRBuilder,
-            unit_attrs: List[str] = None,
+            unit_attrs: Optional[List[str]] = None,
         ):
 
             to_device = builder.to_layout(
@@ -199,7 +194,6 @@ def test_roundtrip_dma_rowmajor(
             assert (start_shard_shape[0] % end_grid[0] == 0) and (
                 start_shard_shape[1] % end_grid[1] == 0
             ), "start_shard_shape must be divisible by end_grid"
-            end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
 
             # WRITE L1 to initial shard layout
             tensor_layoutA = builder.to_layout(
@@ -233,7 +227,82 @@ def test_roundtrip_dma_rowmajor(
 
             return system_out
 
-    compile_dma_test(module, shape, request, device=device)
+    compile_dma_test(module, request, device=device)
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("shape", [(256, 256)])
+@pytest.mark.parametrize("dram_grid", [(1, 2), (2, 1), (2, 2), (4, 4)])
+def test_host_sharded_dram_roundtrip(
+    shape: Shape,
+    dram_grid: tuple[int, int],
+    target: str,
+    request,
+    device,
+):
+    """Tests direct host -> sharded DRAM -> host transfers."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def dram_roundtrip(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            to_dram = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=False,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                    grid=dram_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            return builder.to_layout(
+                to_dram,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_dma_test(module, request, device=device)
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("shape", [(2560, 256)])
+def test_host_dram_roundtrip_exceeds_l1(
+    shape: Shape,
+    target: str,
+    request,
+    device,
+):
+    """Tests host -> DRAM -> host for a tensor too large to stage in L1."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def dram_roundtrip(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            to_dram = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=False,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            return builder.to_layout(
+                to_dram,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_dma_test(module, request, device=device)
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -247,14 +316,13 @@ def test_interleaved_dma(
         def interleaved_dma(
             in0: Operand,
             builder: TTIRBuilder,
-            unit_attrs: List[str] = None,
+            unit_attrs: Optional[List[str]] = None,
         ):
             # derive sharded shapes
             assert (
                 (shape[0] % end_grid[0] == 0) and (shape[1] % end_grid[1] == 0),
                 "shard_shape must be divisible by end_grid",
             )
-            end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
 
             # tilize the tensor on a single worker
             to_device = builder.tilize(
@@ -300,4 +368,4 @@ def test_interleaved_dma(
 
             return untilize_out
 
-    compile_dma_test(module, shape, request, device=device)
+    compile_dma_test(module, request, device=device)

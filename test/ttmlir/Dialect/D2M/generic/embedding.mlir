@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --split-input-file --canonicalize %s | FileCheck %s
 
-#indices_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#weight_layout = #ttcore.metal_layout<logical_shape = 8x16, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
-#output_layout = #ttcore.metal_layout<logical_shape = 2x4x16, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, undef, l1, sharded>
+#indices_layout = #ttcore.metal_layout<logical_shape = 2x4, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#weight_layout = #ttcore.metal_layout<logical_shape = 8x16, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#output_layout = #ttcore.metal_layout<logical_shape = 2x4x16, dim_alignments = 1x32x32, collapsed_intervals = dense<[[0, 2], [2, 3]]> : tensor<2x2xi64>, l1, sharded>
 
 module {
   // CHECK-LABEL: func.func @tensor_embedding_result
@@ -29,6 +29,7 @@ module {
 // -----
 
 #l1 = #ttcore.memory_space<l1>
+#dram = #ttcore.memory_space<dram>
 
 module {
   // CHECK-LABEL: func.func @memref_indexed_row_copy_explicit
@@ -41,6 +42,19 @@ module {
     // CHECK: d2m.indexed_row_copy {{.*}} scratch {{.*}}<8, 16>
     // CHECK-SAME: {indicesShape = array<i64: 2, 4>}
     d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<8, 16> {indicesShape = array<i64: 2, 4>} : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1024xi32, #l1>, memref<1x1024xf32, #l1>
+    return
+  }
+
+  // CHECK-LABEL: func.func @memref_indexed_row_copy_dram_source_explicit
+  func.func @memref_indexed_row_copy_dram_source_explicit(
+      %indices: memref<1x1x2x4xi32, #l1>,
+      %weight: memref<1x1x8x16xf32, #dram>,
+      %output: memref<1x1x8x16xf32, #l1>,
+      %index_scratch: memref<1x1024xi32, #l1>,
+      %row_scratch: memref<1x1024xf32, #l1>) {
+    // CHECK: d2m.indexed_row_copy {{.*}} scratch {{.*}}<8, 16>
+    // CHECK-SAME: : memref<{{.*}}, #l1>, memref<{{.*}}, #dram>, memref<{{.*}}, #l1>
+    d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<8, 16> {indicesShape = array<i64: 2, 4>} : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #dram>, memref<1x1x8x16xf32, #l1>, memref<1x1024xi32, #l1>, memref<1x1024xf32, #l1>
     return
   }
 }

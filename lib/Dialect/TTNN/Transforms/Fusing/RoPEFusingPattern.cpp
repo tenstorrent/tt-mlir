@@ -6,7 +6,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -869,7 +869,7 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
                            Value x, Value cos, Value sin,
                            ArrayRef<int64_t> outPermutation,
                            DeviceComputeKernelConfigAttr computeConfig,
-                           const FusionValidationConfig &validationConfig) {
+                           const OpValidationConfig &validationConfig) {
   // The metal rotary_embedding kernel indexes into cos/sin along the sequence
   // dimension (dim -2) for each input position — it does not broadcast.
   // If cos/sin have fewer sequence positions than the input, the kernel reads
@@ -885,7 +885,7 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
     int64_t inputSeq = xType.getShape()[xRank - 2];
     int64_t cosSeq = cosType.getShape()[cosRank - 2];
     if (cosSeq < inputSeq) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+      TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                    "RoPE fusion rejected: cos/sin seq dim ({0}) < input seq "
                    "dim ({1}) — kernel would read padding garbage",
                    cosSeq, inputSeq);
@@ -896,15 +896,15 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
   op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp);
 
   // Validate in an isolated module before committing to fusion.
-  FusionValidator validator(rewriter.getContext(), validationConfig);
-  auto validationResult = validator.validateFusion<RotaryEmbeddingOp>(
+  IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                        validationConfig);
+  auto validationResult = validator.validateOp<RotaryEmbeddingOp>(
       srcOp, srcOp->getLoc(), {x.getType()}, x, cos, sin,
       /*token_index=*/nullptr,
-      /*memory_config=*/MemoryConfigAttr(),
       /*compute_config=*/computeConfig);
 
   if (!validationResult.isSuccess()) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+    TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                  "RoPE fusion validation failed: {0}",
                  validationResult.errorMessage);
     return failure();
@@ -913,7 +913,6 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
   auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
       srcOp->getLoc(), x.getType(), x, cos, sin,
       /*token_index=*/nullptr,
-      /*memory_config=*/nullptr,
       /*compute_config=*/computeConfig);
 
   Value result = ropeOp.getResult();
@@ -923,7 +922,7 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
         rewriter.getDenseI64ArrayAttr(outPermutation);
     auto permuted = rewriter.create<ttnn::PermuteOp>(
         srcOp->getLoc(), srcOp->getResult(0).getType(), result, permutationAttr,
-        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+        mlir::FloatAttr());
     result = permuted.getResult();
   }
 
@@ -963,11 +962,9 @@ std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
       sinFullShape, sinType.getElementType(), sinEncoding);
 
   auto cosFull = rewriter.create<ConcatOp>(
-      srcOp.getLoc(), cosFullType, ValueRange{cosHalf, cosHalf}, concatDim,
-      /*memory_config=*/MemoryConfigAttr());
+      srcOp.getLoc(), cosFullType, ValueRange{cosHalf, cosHalf}, concatDim);
   auto sinFull = rewriter.create<ConcatOp>(
-      srcOp.getLoc(), sinFullType, ValueRange{sinHalf, sinHalf}, concatDim,
-      /*memory_config=*/MemoryConfigAttr());
+      srcOp.getLoc(), sinFullType, ValueRange{sinHalf, sinHalf}, concatDim);
 
   return {cosFull.getResult(), sinFull.getResult()};
 }
@@ -1092,7 +1089,7 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
   auto newRope = rewriter.create<RotaryEmbeddingOp>(
       ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
-      ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
+      ropeOp.getComputeConfigAttr());
 
   // Validate the fused op. If validation fails, try the workaround-padded
   // version since the workaround pass (seq_len tile alignment) hasn't run yet.

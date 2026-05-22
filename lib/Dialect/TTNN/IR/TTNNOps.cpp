@@ -1298,7 +1298,7 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
       ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
   build(builder, state, resultType, device, shapeAttr, fillValue, dtypeAttr,
-        tensorLayoutAttr, /*memory_config=*/nullptr);
+        tensorLayoutAttr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1330,19 +1330,6 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
     }
     if (getDtype() != layoutAttr.getDataType()) {
       return emitOpError("Data type mismatch between op and layoutAttr.");
-    }
-
-    // MemoryConfig
-    // Compare internal attrs with output tensor attrs.
-    //
-    if (getMemoryConfig().getBufferType().getValue() !=
-        layoutAttr.getBufferType()) {
-      return emitOpError("Buffer type mismatch between op and layoutAttr.");
-    }
-    if (getMemoryConfig().getTensorMemoryLayout() !=
-        layoutAttr.getMemLayout()) {
-      return emitOpError(
-          "Tensor memory layout mismatch between op and layoutAttr.");
     }
 
     return success();
@@ -2078,8 +2065,14 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
   bool hasOpsBetween = (nextOp != op.getOperation());
 
   if (hasOpsBetween) {
-    MemoryConfigAttr producerMemConfig = producerOp.getMemoryConfigAttr();
-    MemoryConfigAttr consumerMemConfig = op.getMemoryConfigAttr();
+    MemoryConfigAttr producerMemConfig =
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            producerOp.getOperation())
+            .getMemoryConfigAttr();
+    MemoryConfigAttr consumerMemConfig =
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            op.getOperation())
+            .getMemoryConfigAttr();
 
     if (producerMemConfig && consumerMemConfig &&
         producerMemConfig.getBufferType().getValue() == BufferType::DRAM &&
@@ -2090,9 +2083,6 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
 
   if (!op.getDtype()) {
     op.setDtypeAttr(producerOp.getDtypeAttr());
-  }
-  if (!op.getMemoryConfig()) {
-    op.setMemoryConfigAttr(producerOp.getMemoryConfigAttr());
   }
   op.getInputMutable().set(producerOp.getInput());
 
@@ -2144,7 +2134,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     ttcore::DataTypeAttr targetDataTypeAttr = toLayoutOp.getDtypeAttr();
     LayoutAttr targetLayoutAttr = toLayoutOp.getLayoutAttr();
-    MemoryConfigAttr targetMemoryConfigAttr = toLayoutOp.getMemoryConfigAttr();
+    MemoryConfigAttr targetMemoryConfigAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            toLayoutOp.getOperation())
+            .getMemoryConfigAttr();
 
     // If the to layout op tends to move the tensor to host, we can't merge it
     // into creation op if creation op doesn't support execution on host. For
@@ -2162,12 +2155,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     tensorSpecOp.setDtypeAttr(targetDataTypeAttr);
     tensorSpecOp.setLayoutAttr(targetLayoutAttr);
-    tensorSpecOp.setMemoryConfigAttr(targetMemoryConfigAttr);
 
-    BufferTypeAttr newBufferType = nullptr;
-    if (tensorSpecOp.getMemoryConfigAttr()) {
-      newBufferType = tensorSpecOp.getMemoryConfigAttr().getBufferType();
-    }
+    BufferTypeAttr newBufferType = targetMemoryConfigAttr
+                                       ? targetMemoryConfigAttr.getBufferType()
+                                       : nullptr;
 
     TTNNDeviceOperandInterface deviceOperandInterface =
         mlir::cast<TTNNDeviceOperandInterface>(creationOp);
@@ -2215,8 +2206,13 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     // Verify that the target buffer type is a system memory.
     BufferTypeAttr bufferTypeAttr = nullptr;
-    if (toLayoutOp.getMemoryConfigAttr()) {
-      bufferTypeAttr = toLayoutOp.getMemoryConfigAttr().getBufferType();
+    if (mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+            toLayoutOp.getOperation())
+            .getMemoryConfigAttr()) {
+      bufferTypeAttr = mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
+                           toLayoutOp.getOperation())
+                           .getMemoryConfigAttr()
+                           .getBufferType();
     }
 
     if (bufferTypeAttr && !isSystemBufferType(bufferTypeAttr.getValue())) {
@@ -2228,9 +2224,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
         toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
                                   : emptyOp.getDtypeAttr(),
         toLayoutOp.getLayoutAttr() ? toLayoutOp.getLayoutAttr()
-                                   : emptyOp.getLayoutAttr(),
-        toLayoutOp.getMemoryConfigAttr() ? toLayoutOp.getMemoryConfigAttr()
-                                         : emptyOp.getMemoryConfigAttr());
+                                   : emptyOp.getLayoutAttr());
 
     rewriter.replaceAllOpUsesWith(toLayoutOp, zerosOp);
     rewriter.eraseOp(toLayoutOp);
@@ -2538,6 +2532,11 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType inputBType = getB().getType();
   ::mlir::RankedTensorType sparsityType = getSparsity().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
+
+  // Verify that nnz is positive when set.
+  if (auto nnz = getNnz(); nnz && *nnz <= 0) {
+    return emitOpError("nnz must be greater than 0 when set");
+  }
 
   // Verify that input A is at least 4D tensor
   if (inputAType.getRank() < 4) {
@@ -4019,9 +4018,9 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
                        std::to_string(blockSize));
   }
 
-  if (numInputHeads % numCacheHeads != 0) {
-    return emitOpError("Input must have a number of heads that is a multiple "
-                       "of the number of heads in the cache.");
+  if (numInputHeads != numCacheHeads) {
+    return emitOpError(
+        "Input must have the same number of heads as the cache.");
   }
 
   if (inputShape[3] != headDim) {
@@ -4147,10 +4146,9 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
     llvm::SmallVector<int32_t> newShape(outShape.begin(), outShape.end());
 
     auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
-    auto memCfg = op.getMemoryConfigAttr();
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
-        op, resultType, op.getInput(), shapeAttr, memCfg);
+        op, resultType, op.getInput(), shapeAttr);
 
     return mlir::success();
   });

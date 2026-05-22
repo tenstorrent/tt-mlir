@@ -203,11 +203,10 @@ static constexpr int64_t kIndexedRowCopyScratchPageElements = 1024;
 static MemRefType createIndexedRowCopyScratchType(MLIRContext *ctx,
                                                   ArrayRef<int64_t> shape,
                                                   Type elementType) {
-  auto cbLayout =
-      mlir::tt::ttcore::CBLayoutAttr::get(shape, elementType, /*buffers=*/1);
   auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
       ctx, mlir::tt::ttcore::MemorySpace::DeviceL1);
-  return MemRefType::get(shape, elementType, cbLayout, l1MemorySpace);
+  return MemRefType::get(shape, elementType, MemRefLayoutAttrInterface{},
+                         l1MemorySpace);
 }
 
 static bool isSupportedIndexedRowCopyElementType(Type type) {
@@ -363,7 +362,9 @@ getBufferIfTensor(Value value, RewriterBase &rewriter,
 
 static Value createEmbeddingScratch(EmbeddingOp op, MemRefType scratchType,
                                     RewriterBase &rewriter) {
-  return rewriter.create<memref::AllocOp>(op.getLoc(), scratchType).getResult();
+  auto allocOp = rewriter.create<memref::AllocOp>(op.getLoc(), scratchType);
+  allocOp->setAttr("d2m.synchronized_buffer", rewriter.getI32IntegerAttr(1));
+  return allocOp.getResult();
 }
 
 mlir::LogicalResult
@@ -1795,11 +1796,8 @@ mlir::LogicalResult TileTilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), out.getType(), in,
-                                                    out);
-  // DPS-style op: replace uses of result with the output buffer, not the new
-  // op's result. This ensures downstream ops correctly use the original buffer
-  // allocation.
+  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), mlir::TypeRange{},
+                                                    in, out);
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();
@@ -1861,7 +1859,7 @@ mlir::LogicalResult TileTilizeBlockOp::verify() {
   }
 
   // Verify result type matches output type (DPS style)
-  if (getResult().getType() != getOutput().getType()) {
+  if (getResult() && getResult().getType() != getOutput().getType()) {
     return emitOpError("result type must match output parameter type");
   }
 
@@ -1904,11 +1902,8 @@ mlir::LogicalResult TileUntilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(getLoc(), out.getType(),
-                                                      in, out);
-  // DPS-style op: replace uses of result with the output buffer, not the new
-  // op's result. This ensures downstream ops correctly use the original buffer
-  // allocation.
+  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(
+      getLoc(), mlir::TypeRange{}, in, out);
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();
@@ -1959,7 +1954,7 @@ mlir::LogicalResult TileUntilizeBlockOp::verify() {
   }
 
   // Verify result type matches output type (DPS style)
-  if (getResult().getType() != getOutput().getType()) {
+  if (getResult() && getResult().getType() != getOutput().getType()) {
     return emitOpError("result type must match output parameter type");
   }
 
@@ -2128,147 +2123,6 @@ mlir::OpFoldResult TilePowOp::fold(FoldAdaptor adaptor) {
       return v.isExactlyValue(1.0);
     }
   });
-}
-
-//===----------------------------------------------------------------------===//
-// BlockMaskOp
-//===----------------------------------------------------------------------===//
-
-// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-mlir::LogicalResult
-BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
-                       const mlir::bufferization::BufferizationOptions &options,
-                       mlir::bufferization::BufferizationState &state) {
-  mlir::OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPoint(getOperation());
-
-  mlir::Value in = getInput();
-  mlir::Value out = getOutput();
-
-  if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
-    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
-    if (failed(maybe)) {
-      return maybe;
-    }
-    in = *maybe;
-  }
-  if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
-    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options, state);
-    if (failed(maybe)) {
-      return maybe;
-    }
-    out = *maybe;
-  }
-
-  // Bufferize mask tensors if present.
-  mlir::Value rowMaskCb = getRowMaskCb();
-  if (rowMaskCb && mlir::isa<mlir::RankedTensorType>(rowMaskCb.getType())) {
-    auto maybe =
-        mlir::bufferization::getBuffer(rewriter, rowMaskCb, options, state);
-    if (failed(maybe)) {
-      return maybe;
-    }
-    rowMaskCb = *maybe;
-  }
-
-  mlir::Value colMaskCb = getColMaskCb();
-  if (colMaskCb && mlir::isa<mlir::RankedTensorType>(colMaskCb.getType())) {
-    auto maybe =
-        mlir::bufferization::getBuffer(rewriter, colMaskCb, options, state);
-    if (failed(maybe)) {
-      return maybe;
-    }
-    colMaskCb = *maybe;
-  }
-
-  rewriter.create<mlir::tt::d2m::BlockMaskOp>(
-      getLoc(), out.getType(), in, out, rowMaskCb, colMaskCb, getLogicalRows(),
-      getLogicalCols(), getFillValue());
-  rewriter.replaceAllUsesWith(getResult(), out);
-  rewriter.eraseOp(*this);
-  return mlir::success();
-}
-// NOLINTEND(clang-analyzer-core.StackAddressEscape)
-
-bool BlockMaskOp::bufferizesToMemoryRead(
-    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // Input and mask CBs (if present) are read.
-  return operand.get() == getInput() || operand.get() == getRowMaskCb() ||
-         operand.get() == getColMaskCb();
-}
-
-bool BlockMaskOp::bufferizesToMemoryWrite(
-    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // We technically write to the scratch CBs as well as output.
-  return operand.get() == getOutput() || operand.get() == getRowMaskCb() ||
-         operand.get() == getColMaskCb();
-}
-
-mlir::bufferization::AliasingValueList
-BlockMaskOp::getAliasingValues(mlir::OpOperand &operand,
-                               const mlir::bufferization::AnalysisState &) {
-  mlir::bufferization::AliasingValueList aliasList;
-  // Result aliases output operand since this is a DPS-style op that writes
-  // in-place to the output buffer.
-  if (operand.get() == getOutput()) {
-    aliasList.addAlias(
-        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
-  }
-  return aliasList;
-}
-
-mlir::FailureOr<mlir::bufferization::BufferLikeType>
-BlockMaskOp::getBufferType(mlir::Value,
-                           const mlir::bufferization::BufferizationOptions &,
-                           const mlir::bufferization::BufferizationState &,
-                           ::llvm::SmallVector<mlir::Value> &) {
-  assert(false && "should already have bufferized types via parent generic op "
-                  "bufferization");
-  return mlir::failure();
-}
-
-mlir::LogicalResult BlockMaskOp::verify() {
-  // Verify input and output have compatible types.
-  auto inType = getInput().getType();
-  auto outType = getOutput().getType();
-
-  auto inShapedType = mlir::dyn_cast<mlir::ShapedType>(inType);
-  auto outShapedType = mlir::dyn_cast<mlir::ShapedType>(outType);
-
-  if (!inShapedType || !outShapedType) {
-    return emitOpError("input and output must be shaped types");
-  }
-
-  if (inShapedType.getShape() != outShapedType.getShape()) {
-    return emitOpError("input and output must have the same shape");
-  }
-
-  if (inShapedType.getElementType() != outShapedType.getElementType()) {
-    return emitOpError("input and output must have the same element type");
-  }
-
-  // Mask CBs must be either both provided or both absent.
-  bool hasRowMask = getRowMaskCb() != nullptr;
-  bool hasColMask = getColMaskCb() != nullptr;
-  if (hasRowMask != hasColMask) {
-    return emitOpError("row_mask_cb and col_mask_cb must both be provided or "
-                       "both be absent");
-  }
-
-  return success();
-}
-
-void BlockMaskOp::getEffects(
-    mlir::SmallVectorImpl<
-        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
-        &effects) {
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
-                       0, true, mlir::SideEffects::DefaultResource::get());
-  // Mask CBs are read-only inputs. Since they're optional and tracked via
-  // AttrSizedOperandSegments, we handle them via bufferizesToMemoryRead()
-  // rather than effects, which is sufficient for bufferization analysis.
 }
 
 //===----------------------------------------------------------------------===//

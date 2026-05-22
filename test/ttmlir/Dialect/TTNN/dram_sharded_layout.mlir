@@ -53,12 +53,14 @@ module {
 #l1_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x12x!ttcore.tile<32x32, f32>, #l1>, <interleaved>>
 #dram_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x12>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <width_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (11, 0)>]>>
 
+// CHECK-DAG: #[[L1_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}<1x1>, memref<1x12x!ttcore.tile<32x32, f32>, #l1>, <interleaved>>
+// CHECK-DAG: #[[DRAM_WS_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}<1x12>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <width_sharded>, core_ranges = <[#ttnn.core_range<(0,0), (11,0)>]>>
 // CHECK-LABEL: func.func @forward_to_dram_sharded
 // CHECK: ttnn.to_memory_config
-// CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <width_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (11,0)>]>, <32x32>, <row_major>>>
+// CHECK-SAME: (tensor<32x384xf32, #[[L1_LAYOUT]]>) -> tensor<32x384xf32, #[[DRAM_WS_LAYOUT]]>
 module {
   func.func @forward_to_dram_sharded(%arg0: tensor<32x384xf32, #l1_layout>) -> tensor<32x384xf32, #dram_layout> {
-    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#dram, <width_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0, 0), (11, 0)>]>, <32x32>, <row_major>>>}> : (tensor<32x384xf32, #l1_layout>) -> tensor<32x384xf32, #dram_layout>
+    %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x384xf32, #l1_layout>) -> tensor<32x384xf32, #dram_layout>
     return %1 : tensor<32x384xf32, #dram_layout>
   }
 }
