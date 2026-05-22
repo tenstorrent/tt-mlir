@@ -79,6 +79,64 @@ pytest tests/python/op_tests/         # run a subdirectory only
 
 `--sim` sets `TT_KURBLA_USE_SIMULATOR=1` before the extension is loaded. It is equivalent to setting the variable manually, but must be passed as a pytest flag (not an env var) because the extension reads it in a static initializer at import time — before pytest option parsing runs.
 
+## Benchmarks
+
+Benchmarks live under `tests/python/benchmarks/` and run as a pytest target. The benchmark-only CLI flags are registered by `tests/python/benchmarks/conftest.py`, so you have to invoke pytest at-or-below that directory for them to be recognized.
+
+```sh
+pytest tests/python/                                   # sanity suite (this is what CI runs)
+pytest tests/python/benchmarks/                        # run all benchmarks
+pytest tests/python/benchmarks/test_mnist_linear.py    # one benchmark
+```
+
+The `benchmarks/` directory is in `norecursedirs` (`pytest.ini`), so plain `pytest tests/python` skips it during collection. Targeting a path inside `tests/python/benchmarks/` overrides that — pytest always collects from paths passed on the CLI.
+
+Flags (defaults shown):
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--mode={eager,compile}` | `eager` | `compile` wraps the model with `torch.compile(backend="tt_kurbla")`; fails until the compile backend lands |
+| `--warmup=N` | `3` | Untimed warmup iterations before measurement starts |
+| `--iters=N` | `20` | Timed iterations per benchmark |
+| `--cpu-baseline` | off | Time the same model on CPU for a comparison row |
+| `--accuracy` | off | Build a CPU reference and emit `pcc_before_warmup` / `pcc_after_warmup` |
+| `--benchmark-json=PATH` | `benchmark_results.json` | Per-test JSON output for CI ingestion |
+| `--profiler` | off | Capture a `torch.profiler` Chrome trace per benchmark (open in `chrome://tracing` or Perfetto) |
+| `--profile-dir=DIR` | `./profile_data` | Where `--profiler` writes its traces |
+| `--llama-model=ID` | `meta-llama/Llama-3.2-1B` | HuggingFace id for the Llama benchmark |
+
+Results print as one card per test at session end, with `total_ms`, `iter_mean_ms`, `samples_per_sec` for CNN/prefill workloads and `ttft_ms`, `itl_p50_ms`, `itl_p95_ms`, `tokens_per_sec` for the decode benchmark. The same data lands in `--benchmark-json` keyed on `measurement_name` (matches tt-xla's schema for cross-project comparison).
+
+```sh
+# typical run on real silicon
+pytest tests/python/benchmarks/ --mode=eager --warmup=5 --iters=50
+
+# under sim, with accuracy + cpu baseline for the workloads that can run
+pytest tests/python/benchmarks/ --sim --accuracy --cpu-baseline
+
+# capture a torch.profiler trace per benchmark for kernel-level inspection
+pytest tests/python/benchmarks/ --profiler                       # → ./profile_data/
+pytest tests/python/benchmarks/ --profiler --profile-dir=./traces
+```
+
+The runners emit Tracy signposts — named timestamps in the captured trace — at every phase boundary, so a post-run `tt-perf-report` invocation can slice the device-side perf for one phase (e.g. just the decode steps, or just the drain) instead of the whole region. The signposts are emitted unconditionally; if Tracy isn't loaded into the process they become no-ops.
+
+CNN / prefill (`run_benchmark`) emits:
+
+- `warmup_start` / `warmup_end`
+- `dispatch_start` — start of the timed iter loop
+- `drain_start` — start of the final `_sync` pass
+- `end`
+
+Decode (`run_decode_benchmark`) emits:
+
+- `warmup_start` / `warmup_end`
+- `prefill_start` / `prefill_end`
+- `decode_<i>_start` / `decode_<i>_end` for each step `i`
+- `end`
+
+The ResNet50 and Llama benchmarks currently `pytest.skip` with the backend gaps documented in their skip reasons (Long dtype, factory-op fallback path, etc.). MNIST runs end-to-end.
+
 ## Layout
 
 ```

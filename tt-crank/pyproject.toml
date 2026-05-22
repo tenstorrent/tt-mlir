@@ -7,7 +7,9 @@ name = "tt-kurbla"
 version = "0.1.0"
 description = "Compiler & runtime frontend for Tenstorrent hardware"
 requires-python = ">=3.10"
-dependencies = ["torch==2.10.0"]
+dependencies = []
+# Deps live in requirements-dev.txt — it carries the --extra-index-url and
+# +cpu wheel pins that pyproject.toml can't.
 
 [project.scripts]
 tracy = "tracy.__main__:main"

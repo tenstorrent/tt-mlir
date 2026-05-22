@@ -1,20 +1,9 @@
 import pytest
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
-from tt_kurbla.torch.testing import get_supported_dtypes, strict_no_fallback, assert_close_cpu_vs_tt
+from tt_kurbla.torch.testing import get_supported_dtypes, assert_close_cpu_vs_tt
 
-
-class MNISTLinear(nn.Module):
-    def __init__(self, feat: int, hidden: int, classes: int) -> None:
-        super().__init__()
-        self.fc1 = nn.Linear(feat, hidden)
-        self.fc2 = nn.Linear(hidden, classes)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.relu(self.fc1(x))
-        return self.fc2(x)
+from _models import MNISTLinear
 
 
 @pytest.mark.parametrize("dtype", get_supported_dtypes(), ids=lambda d: str(d).removeprefix("torch."))
