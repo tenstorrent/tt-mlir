@@ -6309,8 +6309,8 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
       Attributes:
       - `is_input_a_sparse` (Boolean, default=false): Whether `a` has block structure.
       - `is_input_b_sparse` (Boolean, default=true): Whether `b` has block structure.
-      - `nnz` (Optional Integer): Number of non-zero blocks per row. If 0 or absent,
-        inferred at runtime.
+      - `nnz` (Optional Integer): Number of non-zero blocks per row. If absent, it is
+         inferred at runtime.
 
       Supported Modes:
       - is_input_a_sparse=false, is_input_b_sparse=true (column-parallel):
