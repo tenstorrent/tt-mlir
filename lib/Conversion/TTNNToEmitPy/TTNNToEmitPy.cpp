@@ -3745,8 +3745,8 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getTopkTensor(), "topk_tensor"),
-        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
-        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
+        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata_tensor"),
         emitter.emit(srcOp.getReductionSize(), "reduction_size"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };

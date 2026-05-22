@@ -1698,14 +1698,26 @@ def ttir_moe_expert_token_remap_golden(
     reduction_size=32,
 ) -> GoldenMapTensor:
     """Golden for remap. Returns (mapping, reduced) with matching shapes."""
-    # mapping: same shape as topk but last dim = E_local
-    E_local = expert_mapping.shape[3]  # [1, 1, E, D] -> D = E_local
+    # topk_tensor: [1, BD, S, E], expert_mapping: [1, 1, E, num_devices]
+    E = topk_tensor.shape[3]
+    num_devices = expert_mapping.shape[3]
+    E_local = E // num_devices
     BD = topk_tensor.shape[1]
     S = topk_tensor.shape[2]
-    mapping = torch.zeros(1, BD, S, E_local, dtype=topk_tensor.dtype)
+    mesh_shape = topk_tensor.mesh_shape
+    num_shards = mesh_shape[0] * mesh_shape[1]
+    mapping_tensor = torch.zeros(1, BD, S, E_local, dtype=topk_tensor.dtype)
+    mapping = GoldenMapTensor(
+        {i: mapping_tensor.clone() for i in range(num_shards)},
+        mesh_shape=mesh_shape,
+    )
     M = reduction_size
     reduced_seq = (BD * S + M - 1) // M
-    reduced = torch.zeros(1, 1, reduced_seq, E_local, dtype=topk_tensor.dtype)
+    reduced_tensor = torch.zeros(1, 1, reduced_seq, E_local, dtype=topk_tensor.dtype)
+    reduced = GoldenMapTensor(
+        {i: reduced_tensor.clone() for i in range(num_shards)},
+        mesh_shape=mesh_shape,
+    )
     return mapping, reduced
 
 
@@ -7977,6 +7989,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.SamplingOp: ttnn_sampling_golden,
     ttnn.AllReduceAsyncOp: ttnn_all_reduce_async_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
+    ttnn.MoeExpertTokenRemapOp: ttir_moe_expert_token_remap_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
