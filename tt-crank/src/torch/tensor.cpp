@@ -57,6 +57,11 @@ at::Tensor make_tt_tensor(TensorStorage *storage, at::IntArrayRef sizes, c10::Sc
     return at::Tensor(std::move(tensor_impl));
 }
 
+at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype) {
+    auto *storage = new TensorStorage(std::move(runtime_tensor));
+    return make_tt_tensor(storage, sizes, dtype);
+}
+
 ::tt::runtime::TensorDesc make_contiguous_desc(at::IntArrayRef sizes, c10::ScalarType dtype) {
     std::vector<std::uint32_t> shape;
     shape.reserve(sizes.size());
@@ -65,6 +70,16 @@ at::Tensor make_tt_tensor(TensorStorage *storage, at::IntArrayRef sizes, c10::Sc
     }
     // Let the desc compute stride and physicalVolume for the row-major case.
     return {shape, to_runtime_dtype(dtype)};
+}
+
+bool is_tt(const at::Tensor &t) {
+    return t.device().type() == c10::DeviceType::PrivateUse1;
+}
+
+at::Tensor to_tt(const at::Tensor &t, at::Device device) {
+    TORCH_CHECK(device.type() == c10::DeviceType::PrivateUse1, "tt-kurbla to_tt: target device must be tt, got ",
+                device);
+    return t.device() == device ? t : t.to(device);
 }
 
 } // namespace tt::kurbla::torch_backend

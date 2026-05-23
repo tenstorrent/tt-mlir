@@ -16,6 +16,7 @@ import pytest  # noqa: E402
 import torch  # noqa: E402
 
 import tt_kurbla.torch  # noqa: E402, F401  - registers the backend
+from tt_kurbla.torch.testing import DeviceType  # noqa: E402
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -37,3 +38,13 @@ def pytest_configure(config: pytest.Config) -> None:
 @pytest.fixture(scope="session")
 def tt_device() -> torch.device:
     return torch.device("tt:0")
+
+
+@pytest.fixture(scope="session")
+def device_type() -> DeviceType:
+    """``DeviceType.SIM`` when the runtime is routed through ttsim,
+    ``DeviceType.REAL`` on silicon. Tests that need to branch per-platform
+    (skip cases that hit ttsim quirks, loosen tolerances, etc.) take this
+    fixture and inspect it.
+    """
+    return DeviceType.SIM if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1" else DeviceType.REAL

@@ -1,6 +1,11 @@
 #pragma once
 
+#include <optional>
+#include <tuple>
+#include <type_traits>
+
 #include <ATen/core/Tensor.h>
+#include <c10/util/Exception.h>
 #include <tt/runtime/types.h>
 
 namespace tt::kurbla::torch_backend {
@@ -31,8 +36,56 @@ TensorStorage &storage_of(const at::Tensor &t);
 // transfers to the returned tensor's DataPtr; do not delete it yourself.
 at::Tensor make_tt_tensor(TensorStorage *storage, at::IntArrayRef sizes, c10::ScalarType dtype);
 
+// Wrap a runtime tensor (e.g. an output from compile_and_run) as an at::Tensor
+// labeled with `sizes` / `dtype`. The caller decides the user-facing dtype —
+// useful when the runtime descriptor reports a post-demotion physical type
+// (f32) but the user expects the pre-demotion logical type (f64).
+at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype);
+
 // Constructs a row-major TensorDesc for the given torch shape+dtype. Used by
 // the empty/copy paths to wrap host buffers as tt::runtime::Tensors.
 ::tt::runtime::TensorDesc make_contiguous_desc(at::IntArrayRef sizes, c10::ScalarType dtype);
+
+// True iff `t` is on a tt (PrivateUse1) device.
+bool is_tt(const at::Tensor &t);
+
+// Returns `t` unchanged if already on `device`, otherwise uploads to it.
+// Native kernels call this to absorb CPU operands the dispatcher may hand
+// them (e.g. the wrapped scalar from `add.Scalar`'s composite default).
+at::Tensor to_tt(const at::Tensor &t, at::Device device);
+
+// Returns the common tt device shared by every tt-resident operand. Throws if
+// no operand is on tt (misrouted dispatch) or if two tt operands disagree on
+// device (multi-device op called without explicit placement — bug or future
+// feature). CPU operands are ignored; callers typically pair this with
+// `to_tt` to upload them.
+template <typename... Tensors> at::Device tt_device_of(const Tensors &...tensors) {
+    static_assert((std::is_same_v<std::remove_cvref_t<Tensors>, at::Tensor> && ...),
+                  "tt_device_of: all arguments must be at::Tensor");
+    std::optional<at::Device> device;
+    auto check = [&](const at::Tensor &t) {
+        if (!is_tt(t)) {
+            return;
+        }
+        if (!device.has_value()) {
+            device = t.device();
+            return;
+        }
+        TORCH_CHECK(*device == t.device(), "tt-kurbla tt_device_of: tt operands must share a device, got ", *device,
+                    " and ", t.device());
+    };
+    (check(tensors), ...);
+    TORCH_CHECK(device.has_value(), "tt-kurbla tt_device_of: no tt-backed operand to take device from");
+    return *device;
+}
+
+// Pick the shared tt device from the operands, upload any CPU stragglers,
+// and return the migrated tensors as a tuple — `auto [a, b] = align_on_tt(a, b)`.
+template <typename... Tensors> auto align_on_tt(const Tensors &...tensors) {
+    static_assert((std::is_same_v<std::remove_cvref_t<Tensors>, at::Tensor> && ...),
+                  "align_on_tt: all arguments must be at::Tensor");
+    const auto device = tt_device_of(tensors...);
+    return std::make_tuple(to_tt(tensors, device)...);
+}
 
 } // namespace tt::kurbla::torch_backend

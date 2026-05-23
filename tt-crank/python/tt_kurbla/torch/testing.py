@@ -2,6 +2,7 @@
 Test-time helpers for the tt-kurbla torch backend.
 """
 
+import enum
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -10,6 +11,15 @@ from typing import Any
 import torch
 
 from . import _native
+
+
+class DeviceType(enum.Enum):
+    """Where tt-backend kernels actually run for this process. `SIM` routes
+    through ttsim (TT_KURBLA_USE_SIMULATOR=1), `REAL` is silicon.
+    """
+
+    SIM = "sim"
+    REAL = "real"
 
 
 @contextmanager
@@ -74,7 +84,6 @@ def get_supported_dtypes() -> list[torch.dtype]:
         undefined). Same caveat documented in
         ``tests/engine_execution_payload_test.cpp``.
     """
-    on_sim = os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1"
-    if on_sim:
+    if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1":
         return [torch.bfloat16]
     return [torch.bfloat16, torch.float32]

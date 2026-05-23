@@ -8,17 +8,21 @@
 #include <llvm/ADT/ArrayRef.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/OwningOpRef.h>
+#include <tt/runtime/types.h>
 #include <ttmlir/Target/Common/types_generated.h>
 
 namespace tt::kurbla::torch_backend {
 
 // Compile a finalized TTIR module through the engine pipeline, execute it with
-// `inputs`, and return device-resident result tensors. Callers stay on the tt
-// backend — readback to CPU happens only when `.cpu()` (→ _copy_from) is called.
+// `inputs`, and return the raw runtime output tensors. Callers wrap the result
+// into at::Tensor via `wrap_tt_tensor` — they know the user-facing shape/dtype
+// (e.g. the pre-demotion logical type that the runtime descriptor doesn't
+// preserve), no parameter plumbing needed here.
 //
 // On a cache miss (currently: every call) this is O(compile). Each ATen kernel
 // finalizes its own module and calls this once.
-std::vector<at::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op, llvm::ArrayRef<at::Tensor> inputs);
+std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op,
+                                                   llvm::ArrayRef<at::Tensor> inputs);
 
 // Installs the PrivateUse1 allocator with c10. Idempotent; safe to call from
 // the nanobind module init. Most allocations come through aten::empty

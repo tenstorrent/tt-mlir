@@ -2,6 +2,7 @@
 #include <utility>
 
 #include <ATen/ATen.h>
+#include <ATen/ExpandUtils.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Support/LLVM.h>
 #include <torch/library.h>
@@ -9,15 +10,12 @@
 
 #include "cast.hpp"
 #include "torch/backend.hpp"
+#include "torch/tensor.hpp"
 #include "torch/ttir_module_builder.hpp"
 
 namespace tt::kurbla::torch_backend {
 
 namespace {
-
-TensorTypeSpec spec_for(const at::Tensor &t) {
-    return TensorTypeSpec{{t.sizes().begin(), t.sizes().end()}, to_runtime_dtype(t.scalar_type())};
-}
 
 // Build `value * tensor` as a TTIR subgraph: a ttir.full of `value` matching
 // `tensor`'s shape/dtype, then a ttir.multiply. ttir.full's fill_value attr
@@ -38,25 +36,30 @@ mlir::Value scale_tensor(ModuleBuilder &mb, mlir::Value tensor, const at::Scalar
     return mul.getResult();
 }
 
-at::Tensor tt_add(const at::Tensor &a, const at::Tensor &b, const at::Scalar &alpha) {
-    TORCH_CHECK(a.sizes() == b.sizes(), "tt-kurbla aten::add: broadcasting is not yet supported");
-    TORCH_CHECK(a.scalar_type() == b.scalar_type(), "tt-kurbla aten::add: mixed dtype is not yet supported");
+at::Tensor tt_add(const at::Tensor &a_in, const at::Tensor &b_in, const at::Scalar &alpha) {
+    const auto [a, b] = align_on_tt(a_in, b_in);
 
+    // `promoted` is the user-facing dtype we'll stamp on the result; physical
+    // storage will be the rewriter's hardware-backed alias (e.g. f32 when
+    // promoted is f64).
     auto mb = ModuleBuilder::init({spec_for(a), spec_for(b)});
-    mlir::Value lhs = mb.args()[0];
-    mlir::Value rhs = mb.args()[1];
+    auto [promoted, lhs, rhs] = promote_inputs(mb, a, b);
+    const auto promoted_mlir = mlir_element_type_for(promoted);
 
-    // aten::add semantics: lhs + alpha * rhs. When alpha is exactly 1 we elide
-    // the scale so the trivial path stays a single-op module.
+    // aten::add: lhs + alpha * rhs. Elide the scale when alpha == 1.
     if (alpha.toDouble() != 1.0) {
         rhs = scale_tensor(mb, rhs, alpha);
     }
 
-    auto add = mb.create<mlir::tt::ttir::AddOp>(lhs.getType(), lhs, rhs);
+    // ttir.add broadcasts internally; just give it the broadcasted output shape.
+    auto out_shape = at::infer_size(a.sizes(), b.sizes());
+    auto result_type = mlir::RankedTensorType::get(out_shape, promoted_mlir);
+
+    auto add = mb.create<mlir::tt::ttir::AddOp>(result_type, lhs, rhs);
     auto module_op = std::move(mb).finalize({add.getResult()});
 
     auto outputs = compile_and_run(std::move(module_op), {a, b});
-    return outputs[0];
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
 }
 
 } // namespace
