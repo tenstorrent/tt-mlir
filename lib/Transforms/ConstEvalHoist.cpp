@@ -561,8 +561,10 @@ public:
       OpBuilder builder(&getContext());
       auto u64 = mlir::IntegerType::get(&getContext(), 64,
                                         mlir::IntegerType::Unsigned);
+      constexpr uint64_t kCushion = 1024;
+      uint64_t alignedUsage = llvm::alignTo(*usage + kCushion, kCushion);
       module->setAttr(ttnn::utils::g_L1ConstEvalUsageAttrName,
-                      builder.getIntegerAttr(u64, *usage));
+                      builder.getIntegerAttr(u64, alignedUsage));
     }
   }
 
