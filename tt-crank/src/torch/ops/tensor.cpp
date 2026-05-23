@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <ATen/ATen.h>
+#include <ATen/InferSize.h>
 #include <c10/core/MemoryFormat.h>
 #include <c10/core/Scalar.h>
 #include <c10/core/Storage.h>
@@ -167,11 +168,12 @@ at::Tensor &set_source_Tensor(at::Tensor &self, const at::Tensor &source) {
 // will NOT update x[...]. Pinned by an XFAIL in tests/python/op_tests/test_view.py.
 at::Tensor view(const at::Tensor &self, at::IntArrayRef size) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::view: tensor is not on the tt backend");
-    const std::int64_t new_numel = c10::multiply_integers(size);
-    TORCH_CHECK(new_numel == self.numel(), "tt-kurbla aten::view: numel mismatch (", new_numel, " vs ", self.numel(),
-                ")");
+    // `at::infer_size` resolves the at-most-one `-1` against numel and runs the
+    // same shape/divisibility checks CPU/CUDA do — the dispatcher doesn't
+    // unfold `-1` for non-native backends, so we have to do it here.
+    auto resolved = at::infer_size(size, self.numel());
     auto buffer = read_to_host(self, "aten::view");
-    return make_tt_tensor_from_host(buffer.data(), size, self.scalar_type());
+    return make_tt_tensor_from_host(buffer.data(), resolved, self.scalar_type());
 }
 
 at::Tensor as_strided(const at::Tensor &self, at::IntArrayRef size, at::IntArrayRef stride,
@@ -235,6 +237,12 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("_copy_from_and_resize", TORCH_FN(copy_from_and_resize));
     m.impl("set_.source_Tensor", TORCH_FN(set_source_Tensor));
     m.impl("view", TORCH_FN(view));
+    // `_unsafe_view` / `_reshape_alias` default to aliasing the storage with
+    // new sizes — that drifts torch sizes from the runtime tensor's shape and
+    // later fails `bind_tensor`. Route both through our materializing view.
+    m.impl("_unsafe_view", TORCH_FN(view));
+    m.impl("_reshape_alias",
+           [](const at::Tensor &self, at::IntArrayRef size, at::IntArrayRef /*stride*/) { return view(self, size); });
     m.impl("as_strided", TORCH_FN(as_strided));
     m.impl("_local_scalar_dense", TORCH_FN(local_scalar_dense));
 }

@@ -31,16 +31,6 @@ _DTYPE = torch.bfloat16
 _PROMPT_LEN = 128
 
 
-_SKIP_REASON = (
-    "Llama on tt is blocked by gaps in the torch backend: torch.long isn't a "
-    "supported dtype yet (needed for input_ids, position_ids, the causal "
-    "mask), and several ops HF Llama exercises (broadcasting add, cross-"
-    "dtype _copy_from, factory ops via cpu_fallback) need either native "
-    "kernels or a more permissive fallback. Remove this skip once those "
-    "land - the benchmark scaffold (prefill + decode + accuracy) is ready."
-)
-
-
 def _load_model(model_id: str) -> torch.nn.Module:
     try:
         return AutoModelForCausalLM.from_pretrained(
@@ -61,7 +51,7 @@ def _build_inputs(
 
 
 @pytest.mark.benchmark
-def test_llama_small(
+def test_llama_3_2_1b(
     mode: str,
     warmup: int,
     iters: int,
@@ -71,7 +61,6 @@ def test_llama_small(
     record_bench,
     tt_device: torch.device,
 ) -> None:
-    pytest.skip(_SKIP_REASON)
     model, input_ids = _build_inputs(llama_model_id, tt_device)
     model = prepare_model(model, mode)
 

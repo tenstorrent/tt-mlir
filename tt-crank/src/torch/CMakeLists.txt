@@ -22,6 +22,7 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(_tt_kurbla_torch_native NB_STATIC
     _native.cpp
     backend.cpp
+    ops/conv.cpp
     ops/elementwise.cpp
     ops/fallback.cpp
     ops/tensor.cpp
