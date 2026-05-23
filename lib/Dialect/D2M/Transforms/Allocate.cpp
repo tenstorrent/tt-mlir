@@ -650,6 +650,50 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         }
 
         if (numBuffers.has_value()) {
+          AllocSizeT allocSize = ttmlir::utils::alignUp(
+              numBuffers.value() * getMemrefSizeBytes(allocOp.getType(), device),
+              L1memInfo.alignment);
+
+          // Fused intermediates can carry a blocking map that describes how
+          // their shard shape follows the parent generic's iteration space.
+          // Size them using allocator-selected reblocking, not the original
+          // memref type that was materialized before reblocking.
+          if (auto blockingMapAttr =
+                  allocOp->getAttrOfType<mlir::AffineMapAttr>(
+                      "d2m.blocking_map")) {
+            GenericOpContext &genericCtx = analysis.generics[genericOp];
+            if (!genericCtx.isExplicitDatamovement &&
+                !genericCtx.reblockedFactors.empty()) {
+              auto [gridExtents, shardExtents] =
+                  getGridAndShardExtents(genericOp);
+              SmallVector<int64_t> originalBlockFactors =
+                  genericOp.getBlockFactorsValue();
+
+              for (auto [dim, blockFactor] :
+                   llvm::enumerate(genericCtx.reblockedFactors)) {
+                TT_assert(blockFactor % originalBlockFactors[dim] == 0);
+                const int64_t rescaling =
+                    blockFactor / originalBlockFactors[dim];
+                gridExtents[dim] *= rescaling;
+                TT_assert(shardExtents[dim] % rescaling == 0);
+                shardExtents[dim] /= rescaling;
+              }
+
+              const AffineMap canonicalMap =
+                  canonicalizeBroadcasts(blockingMapAttr.getValue());
+              SmallVector<int64_t> intermediateGridShape =
+                  canonicalMap.compose(gridExtents);
+              SmallVector<int64_t> intermediateShardShape =
+                  canonicalMap.compose(shardExtents);
+              MemRefType bufferType = getCBBufferType(
+                  intermediateGridShape, intermediateShardShape,
+                  allocOp.getType().getElementType(), L1Attr,
+                  numBuffers.value());
+              allocSize = ttmlir::utils::alignUp(
+                  getCBBufferSizeBytes(bufferType, device), L1memInfo.alignment);
+            }
+          }
+
           MemrefValueContext &ctx =
               addMemrefValueContext(rewriter, analysis, allocOp.getResult(),
                                     allocOp.getType(), device);
@@ -665,10 +709,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                          ttcore::MemorySpace::DeviceL1,
                      "generic allocs must be allocated in L1");
           ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))] =
-              ttmlir::utils::alignUp(
-                  numBuffers.value() *
-                      getMemrefSizeBytes(allocOp.getType(), device),
-                  L1memInfo.alignment);
+              allocSize;
         }
 
         return WalkResult::advance();
