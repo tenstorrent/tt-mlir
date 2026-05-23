@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -57,10 +58,10 @@ uint64_t getUsableL1PerCore(Operation *op) {
   ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(op);
   const uint64_t capped =
       static_cast<uint64_t>(cap * chipDesc.getUsableL1Size());
-
   const uint64_t reserved = getReservedL1Usage(op);
+  TT_assertv(reserved <= capped, "Reserved L1 usage exceeds capped value");
 
-  return reserved >= capped ? 0 : capped - reserved;
+  return capped - reserved;
 }
 
 bool isTensorOnDevice(::mlir::RankedTensorType tensorType) {

@@ -8,13 +8,14 @@
 //       the module attribute `ttnn.l1_const_eval_usage`.
 //
 // Sharded layout footprint per core = getShardSizeInBytes() =
-//   shard_shape (1x1 tiles) * tile (32x32 bf16) = 32*32*2 bytes = 2048 bytes.
+//   shard_shape (1x1 tiles) * tile (32x32 bf16) = 32*32*2 bytes = 2048 bytes;
+//   aligned with cushion = 2048 + 1024 = 3072 bytes.
 
 #l1 = #ttnn.buffer_type<l1>
 
 #l1_sharded = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
 
-// CHECK: module attributes {{.*}}ttnn.l1_const_eval_usage = 2048 : ui64
+// CHECK: module attributes {{.*}}ttnn.l1_const_eval_usage = 3072 : ui64
 module {
   // CHECK-LABEL: func.func private @tagged_l1_const_eval_0
   // CHECK: "ttnn.add"
