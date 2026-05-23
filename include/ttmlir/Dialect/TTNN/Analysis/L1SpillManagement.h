@@ -228,6 +228,13 @@ private:
   /// selected as eviction victims.
   llvm::DenseMap<Value, size_t> allocEventIndex;
 
+  /// Results of reshards inserted by insertReshardIntoSchedule (future
+  /// consumers). These must never be selected as eviction victims — evicting
+  /// them defeats the purpose of the reshard. A DenseSet rather than checking
+  /// isa<ToMemoryConfigOp> avoids falsely blocking regular to_memory_config
+  /// ops from MemoryLayoutPropagation, which ARE valid eviction candidates.
+  llvm::DenseSet<Value> insertedReshardValues;
+
   /// Mark victim's alloc/dealloc events as skipped, restore the snapshot
   /// taken before victim's alloc, then replay all subsequent non-skipped
   /// events to rebuild a consistent address-simulation state. Reshard

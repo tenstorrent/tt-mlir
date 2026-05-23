@@ -338,19 +338,11 @@ Value L1SpillManagement<MemoryTracker>::evictFarthestUse() {
       continue;
     }
 
-    // Skip inserted reshards (ToMemoryConfigOp with L1 output): they reload
-    // spilled tensors and must stay live until their immediate consumer runs.
-    // Belady naturally deprioritizes them (lastUse = immediate consumer, so
-    // they sit at the bottom of the max-heap), but the exclusion guards against
-    // the pathological case where they are the only remaining live values.
-    if (auto *defOp = candidateVal.getDefiningOp()) {
-      if (isa<ToMemoryConfigOp>(defOp)) {
-        auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-            mlir::cast<RankedTensorType>(candidateVal.getType()).getEncoding());
-        if (lo && lo.hasL1BufferType()) {
-          continue;
-        }
-      }
+    // Skip reshards we inserted for future consumers — evicting them defeats
+    // their purpose. Regular ToMemoryConfigOp outputs from MemoryLayoutPropagation
+    // are NOT in this set and remain valid eviction candidates.
+    if (insertedReshardValues.count(candidateVal)) {
+      continue;
     }
 
     liveValues.erase(candidateVal);
@@ -919,6 +911,10 @@ template <typename MemoryTracker>
 void L1SpillManagement<MemoryTracker>::insertReshardIntoSchedule(
     Operation *reshardOp, Value reshardResult, uint64_t reshardSizePerCore,
     int64_t consumerPos, ScheduleData &data) {
+  // Register so evictFarthestUse and sibling eviction guards know not to
+  // evict this value — it exists specifically to feed its consumer.
+  insertedReshardValues.insert(reshardResult);
+
   // Annotate the reshard so run()'s main loop knows its L1 output size.
   // MemoryLayoutPropagation didn't have inserted ops, so we must set this
   // manually.
@@ -964,18 +960,12 @@ void L1SpillManagement<MemoryTracker>::insertReshardIntoSchedule(
 template <typename MemoryTracker>
 bool L1SpillManagement<MemoryTracker>::evictUntil(
     int64_t pos, ScheduleData &data, std::function<bool()> shouldStop) {
-  // Helper: true if every remaining live value is a non-evictable reshard.
-  // Avoids exhausting the liveSet heap through stale entries when no
-  // evictable candidates exist.
+  // Helper: true if every remaining live value is a non-evictable inserted
+  // reshard. Avoids exhausting the liveSet heap through stale entries when
+  // no evictable candidates exist.
   auto onlyReshardsRemain = [&]() {
-    return llvm::all_of(liveValues, [](Value v) {
-      auto *defOp = v.getDefiningOp();
-      if (!defOp || !isa<ToMemoryConfigOp>(defOp)) {
-        return false;
-      }
-      auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-          mlir::cast<RankedTensorType>(v.getType()).getEncoding());
-      return lo && lo.hasL1BufferType();
+    return llvm::all_of(liveValues, [&](Value v) {
+      return insertedReshardValues.count(v) > 0;
     });
   };
 
@@ -1119,16 +1109,10 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
       if (!liveValues.count(operand)) {
         continue;
       }
-      // Never evict an inserted reshard (ToMemoryConfigOp with L1 output) —
-      // it was placed here specifically to feed this op.
-      if (auto *defOp = operand.getDefiningOp()) {
-        if (isa<ToMemoryConfigOp>(defOp)) {
-          auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-              mlir::cast<RankedTensorType>(operand.getType()).getEncoding());
-          if (lo && lo.hasL1BufferType()) {
-            continue;
-          }
-        }
+      // Never evict an inserted reshard — it was placed here specifically
+      // to feed this op. Regular to_memory_config ops are NOT protected.
+      if (insertedReshardValues.count(operand)) {
+        continue;
       }
       toEvict.push_back(operand);
     }
