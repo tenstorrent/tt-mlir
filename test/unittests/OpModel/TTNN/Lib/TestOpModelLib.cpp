@@ -5602,6 +5602,47 @@ TEST_F(OpModelTest, PagedUpdateCacheOpWithoutPageTable) {
   }
 }
 
+// Tripwire for tt-metal grid validation on PagedUpdateCacheOp operand 1.
+// The kernel requires input1 ("fill value") to be L1 height-sharded on a
+// {numUsers, 1} virtual grid, where numUsers = input1.shape[1]. Any other
+// grid silently produced PCC=0 for the upper users.
+//
+// tt-mlir's PagedUpdateCacheRuleBook still pins to {numUsers, 1} because
+// tt-metal does not reject other grids
+// (https://github.com/tenstorrent/tt-metal/issues/44923).  This test
+// constructs a non-{numUsers, 1} grid and asserts that OpModel currently
+// accepts it.  When tt-metal adds the assert, this EXPECT will start
+// failing, which is the signal to flip it to EXPECT_FALSE and relax the
+// rule.
+TEST_F(OpModelTest, PagedUpdateCacheOpWrongGridTripwire) {
+  const llvm::SmallVector<int64_t> cacheShape = {8, 4, 32, 256};
+  const llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
+  const llvm::SmallVector<int64_t> updateIndexShape = {8};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  // numUsers = inputShape[1] = 8.  Correct virtual grid is {8, 1}; we use
+  // {4, 1} (evenly divides numUsers, but not equal to it).
+  const llvm::SmallVector<int64_t> wrongVirtualGrid = {4, 1};
+
+  const TTNNLayoutAttr cacheLayout = CreateTiledLayout(
+      cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutWrongGrid =
+      CreateTiledLayout(inputShape, BufferType::L1,
+                        TensorMemoryLayout::HeightSharded, wrongVirtualGrid);
+  const TTNNLayoutAttr updateIndexLayout = CreateRowMajorLayoutInt32(
+      updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<PagedUpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayout, inputShape, inputLayoutWrongGrid,
+      updateIndexShape, updateIndexLayout, std::nullopt, std::nullopt, false,
+      cacheLayout);
+  const bool ok = static_cast<bool>(constraintsExp);
+  if (!ok) {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+  EXPECT_TRUE(ok);
+}
+
 TEST_F(OpModelTest, PagedFillCacheOp) {
   // Test basic PagedUpdateCacheOp with DRAM cache, input, update_index, and
   // page_table tensors
