@@ -61,8 +61,7 @@ static Value generateCausalMask(PatternRewriter &rewriter, Location loc,
         LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
   }
   return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr,
-                                     dtypeAttr, tensorLayoutAttr,
-                                     /*memory_config=*/MemoryConfigAttr());
+                                     dtypeAttr, tensorLayoutAttr);
 }
 
 /// Generate a sliding window mask [1, 1, Sq, Skv] as a compile-time constant.
@@ -103,8 +102,7 @@ static Value generateSlidingWindowMask(PatternRewriter &rewriter, Location loc,
         LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
   }
   return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr,
-                                     dtypeAttr, tensorLayoutAttr,
-                                     /*memory_config=*/MemoryConfigAttr());
+                                     dtypeAttr, tensorLayoutAttr);
 }
 
 LogicalResult SDPADecompositionPattern::matchAndRewrite(
@@ -169,16 +167,14 @@ LogicalResult SDPADecompositionPattern::matchAndRewrite(
     key = rewriter
               .create<RepeatInterleaveOp>(
                   loc, expandedKType, key, rewriter.getUI32IntegerAttr(repeats),
-                  rewriter.getSI32IntegerAttr(kNumHeadsDim),
-                  /*memory_config=*/MemoryConfigAttr())
+                  rewriter.getSI32IntegerAttr(kNumHeadsDim))
               .getResult();
 
     value =
         rewriter
             .create<RepeatInterleaveOp>(
                 loc, expandedVType, value, rewriter.getUI32IntegerAttr(repeats),
-                rewriter.getSI32IntegerAttr(kNumHeadsDim),
-                /*memory_config=*/MemoryConfigAttr())
+                rewriter.getSI32IntegerAttr(kNumHeadsDim))
             .getResult();
   }
 
@@ -247,8 +243,7 @@ LogicalResult SDPADecompositionPattern::matchAndRewrite(
       mask = rewriter
                  .create<RepeatOp>(
                      loc, broadcastType, mask,
-                     ShapeAttr::get(rewriter.getContext(), repeatDims),
-                     /*memory_config=*/MemoryConfigAttr())
+                     ShapeAttr::get(rewriter.getContext(), repeatDims))
                  .getResult();
     }
 
@@ -287,8 +282,7 @@ LogicalResult SDPADecompositionPattern::matchAndRewrite(
     SmallVector<Value> concatInputs = {scores, attentionSink};
     scores = rewriter
                  .create<ConcatOp>(loc, concatType, concatInputs,
-                                   static_cast<int32_t>(-1),
-                                   /*memory_config=*/MemoryConfigAttr())
+                                   static_cast<int32_t>(-1))
                  .getResult();
 
     // Update seqLenKV to reflect concatenated dimension.
