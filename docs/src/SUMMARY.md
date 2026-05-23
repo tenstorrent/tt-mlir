@@ -29,6 +29,7 @@
 - [Optimizer](./optimizer.md)
 - [PyKernel](./pykernel.md)
 - [ttnn-jit](./ttnn-jit.md)
+- [d2m-jit](./d2m-jit.md)
 - [Creating bug repros for TTNN](./ttnn-bug-repros.md)
 - [Python Bindings](./python-bindings.md)
 - [Flatbuffers](./flatbuffers.md)

@@ -132,8 +132,9 @@ _PIPELINE = ",".join(
     ]
 )
 
-_REDUCE_SCALER_ARG = "__d2m_reduce_scaler"
-_FLOAT_REDUCTION_NAMES = {"reduce_sum", "reduce_max"}
+_REDUCE_UNIT_SCALER_ARG = "__d2m_reduce_unit_scaler"
+_REDUCE_MEAN_SCALER_ARG = "__d2m_reduce_mean_scaler"
+_FLOAT_REDUCTION_NAMES = {"reduce_sum", "reduce_max", "reduce_mean"}
 
 
 class _Builder:
@@ -711,22 +712,26 @@ def _affine_map_from_lambda(fn):
     return AffineMap.get(len(dims), 0, exprs), spec
 
 
-def _kernel_uses_float_reductions(kernel_ast):
+def _kernel_float_reductions(kernel_ast):
     class _ReductionUseVisitor(_ast.NodeVisitor):
         def __init__(self):
-            self.found = False
+            self.names = set()
 
         def visit_Call(self, node):
             if isinstance(node.func, _ast.Name):
-                self.found = node.func.id in _FLOAT_REDUCTION_NAMES
+                name = node.func.id
             elif isinstance(node.func, _ast.Attribute):
-                self.found = node.func.attr in _FLOAT_REDUCTION_NAMES
-            if not self.found:
-                self.generic_visit(node)
+                name = node.func.attr
+            else:
+                name = None
+
+            if name in _FLOAT_REDUCTION_NAMES:
+                self.names.add(name)
+            self.generic_visit(node)
 
     visitor = _ReductionUseVisitor()
     visitor.visit(kernel_ast)
-    return visitor.found
+    return visitor.names
 
 
 def _emit_kernel_generic(
@@ -801,24 +806,32 @@ def _emit_kernel_generic(
 
     synthetic_lts = []
     synthetic_args = []
-    if _kernel_uses_float_reductions(kernel._ast):
+    reduction_names = _kernel_float_reductions(kernel._ast)
+    if reduction_names:
         if not input_lts:
             raise _call_error(
                 "float reductions require at least one input tensor argument",
                 cause=ValueError(),
             )
         first_input_layout = input_lts[0].layout
-        scaler_layout = Layout(
-            shape=(32, 32),
-            dtype=first_input_layout.dtype,
-            block_shape=[1, 1],
-            grid_shape=[1, 1],
-            tiled=True,
-            collapse=first_input_layout.collapse,
-            mem_space=first_input_layout.mem_space,
-        )
-        synthetic_lts.append(full(scaler_layout, 1.0)._resolve())
-        synthetic_args.append((_REDUCE_SCALER_ARG, scaler_layout))
+
+        def add_scaler(name, value):
+            scaler_layout = Layout(
+                shape=(32, 32),
+                dtype=first_input_layout.dtype,
+                block_shape=[1, 1],
+                grid_shape=[1, 1],
+                tiled=True,
+                collapse=first_input_layout.collapse,
+                mem_space=first_input_layout.mem_space,
+            )
+            synthetic_lts.append(full(scaler_layout, value)._resolve())
+            synthetic_args.append((name, scaler_layout))
+
+        if reduction_names & {"reduce_sum", "reduce_max"}:
+            add_scaler(_REDUCE_UNIT_SCALER_ARG, 1.0)
+        if "reduce_mean" in reduction_names:
+            add_scaler(_REDUCE_MEAN_SCALER_ARG, 1.0 / 32.0)
 
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.

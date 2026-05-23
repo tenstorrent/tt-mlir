@@ -133,6 +133,8 @@ on single tile scalars, so elementwise ops in the DSL are wrapped in
 `linalg.generic` over the tensor of tiles (`_eltwise_block` in `api.py`).
 Matmul follows the same pattern but with parallel/parallel/reduction iterators
 over (M, N, K) and `d2m.tile_matmul` in the body (`_matmul_block`).
+Float reductions use `d2m.tile_reduce_*` with an automatically generated
+unit-scaler tensor input (`_reduce_block`).
 
 ### Views
 
@@ -237,6 +239,29 @@ Ternary:
 | Symbol | What |
 | --- | --- |
 | `d2m.where(cond, t, f)` | Elementwise select: `cond ? t : f`. All three blocks must have the same type. `cond` is interpreted elementwise (non-zero ⇒ `t`, zero ⇒ `f`). Also available as `cond.where(t, f)`. |
+
+### Float reduction block-level ops
+
+`reduce_sum`, `reduce_max`, and `reduce_mean` are registered as free functions
+and `TensorBlock` methods:
+
+```python
+row_sum = d2m.reduce_sum(x, 1)  # or x.reduce_sum(1)
+col_max = x.reduce_max(0)
+row_avg = x.reduce_mean(-1)
+```
+
+`dim` follows torch/numpy axis numbering for a 2D tile block:
+
+| `dim` | D2M reduce dim | Result lane checked by tests |
+| --- | --- | --- |
+| `0` / `-2` | `#d2m<reduce_dim C>` | `result[0, :]` |
+| `1` / `-1` | `#d2m<reduce_dim R>` | `result[:, 0]` |
+
+The output block has the same tensor-of-tiles shape as the input. These ops are
+float-only (`f32`, `f16`, `bf16`) and use synthetic 1x1 scaler tensors,
+matching the D2M float tile-reduce signature `reduce(a * b, c)`. Sum/max use
+a unit scaler; mean uses a `1/32` scaler for one tile axis.
 
 ### Python operators on `TensorBlock`
 
@@ -352,6 +377,9 @@ have been dropped — the DSL emits the post-legalisation form directly.
   generation that was not passed to `to_host` raises on re-use. If you need
   multiple values out, pass them all to a single `to_host`.
 - **Matmul accumulator is currently undefined.** See the matmul note above.
+- **Float reductions are per tile.** They reduce rows/columns within each
+  loaded tile and do not yet collapse a logical tensor dimension across tiles.
+  Use multiple kernel passes for cross-tile reductions.
 - **Argument order in a `@kernel` call.** All `LazyTensor` arguments first,
   then any `int` scalar arguments. Mixing raises a `TypeError`. The last
   `num_outs` `LazyTensor`s (default 1) are treated as outputs.
@@ -369,5 +397,5 @@ have been dropped — the DSL emits the post-legalisation form directly.
 ## Known issues / TODO
 
 See [TODO.md](TODO.md) for active pipeline gaps (matmul accumulator init,
-host-scope `linalg.generic`), missing API surface (reductions, broadcast,
-in-kernel typecast, DMA primitives, ...), and other follow-ups.
+host-scope `linalg.generic`), missing API surface (broadcast, in-kernel
+typecast, DMA primitives, ...), and other follow-ups.

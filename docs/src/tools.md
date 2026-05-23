@@ -8,3 +8,4 @@ The `ttmlir` project currently exposes the following tools:
 - [`ttir-builder`](./ttir-builder/ttir-builder.md): This tool is for creating ttir operations. It provides support for those ops to be compiled into modules or directly to flatbuffer files.
 - [`tt-explorer`](./tt-explorer/tt-explorer.md): Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provide a platform for human-driven overrides to _gamify_ model tuning.
 - [`ttnn-standalone`](./ttnn-standalone.md): This tool is used to run C++ TTNN code outside of the compiler environment.
+- [`d2m-jit`](./d2m-jit.md): Python DSL testbed for authoring block-level D2M kernels and exercising the D2M to TTMetal pipeline.

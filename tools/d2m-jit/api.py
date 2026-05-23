@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import ast as _ast
+
 from ttmlir.ir import *
 from ttmlir.dialects import d2m, arith, linalg, ttcore
 
@@ -26,7 +28,8 @@ from ._src.builder import (
     view,
     permute,
     to_host,
-    _REDUCE_SCALER_ARG,
+    _REDUCE_MEAN_SCALER_ARG,
+    _REDUCE_UNIT_SCALER_ARG,
 )
 
 
@@ -435,7 +438,22 @@ def matmul(lhs, rhs):
     return _matmul_block(lhs, rhs)
 
 
-@syntax("reduce_sum")
+def _int_attr_from_ast(node):
+    if isinstance(node, _ast.Constant) and isinstance(node.value, int):
+        value = node.value
+    elif (
+        isinstance(node, _ast.UnaryOp)
+        and isinstance(node.op, _ast.USub)
+        and isinstance(node.operand, _ast.Constant)
+        and isinstance(node.operand.value, int)
+    ):
+        value = -node.operand.value
+    else:
+        raise TypeError("expected integer literal")
+    return IntegerAttr.get(IntegerType.get_signless(64), value)
+
+
+@syntax("reduce_sum", args_as_attr=[False, _int_attr_from_ast])
 def reduce_sum(input, dim):
     """Block-level float sum reduction over one tile axis.
 
@@ -446,11 +464,12 @@ def reduce_sum(input, dim):
         lambda a, b, c, reduce_dim: d2m.tile_reduce_sum(a.type, a, b, c, reduce_dim),
         input,
         dim,
+        _REDUCE_UNIT_SCALER_ARG,
         0.0,
     )
 
 
-@syntax("reduce_max")
+@syntax("reduce_max", args_as_attr=[False, _int_attr_from_ast])
 def reduce_max(input, dim):
     """Block-level float max reduction over one tile axis.
 
@@ -461,7 +480,24 @@ def reduce_max(input, dim):
         lambda a, b, c, reduce_dim: d2m.tile_reduce_max(a.type, a, b, c, reduce_dim),
         input,
         dim,
+        _REDUCE_UNIT_SCALER_ARG,
         float("-inf"),
+    )
+
+
+@syntax("reduce_mean", args_as_attr=[False, _int_attr_from_ast])
+def reduce_mean(input, dim):
+    """Block-level float mean reduction over one tile axis.
+
+    `dim` follows torch/numpy axis numbering for a 2D tile block:
+    `0` reduces rows and `1` reduces columns.
+    """
+    return _reduce_block(
+        lambda a, b, c, reduce_dim: d2m.tile_reduce_mean(a.type, a, b, c, reduce_dim),
+        input,
+        dim,
+        _REDUCE_MEAN_SCALER_ARG,
+        0.0,
     )
 
 
@@ -737,6 +773,10 @@ class TensorBlock:
         """Same as `d2m.reduce_max(self, dim)`."""
         return reduce_max(ast_self, dim)
 
+    def reduce_mean(ast_self: TensorBlock, dim) -> TensorBlock:
+        """Same as `d2m.reduce_mean(self, dim)`."""
+        return reduce_mean(ast_self, dim)
+
     def store(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         return d2m.store(ast_self, rhs)
 
@@ -857,17 +897,23 @@ def _tile_fill_float(tile_type, value):
     return d2m.tile_fill(tile_type, scalar)
 
 
-def _get_reduce_scaler_block(input_block):
+def _get_reduce_scaler_block(input_block, scaler_arg_name):
     compiler = D2MCompiler.current()
     if compiler is None:
-        raise RuntimeError("reduce_sum/reduce_max can only be used inside @kernel")
+        raise RuntimeError(
+            "reduce_sum/reduce_max/reduce_mean can only be used inside @kernel"
+        )
 
-    key = (str(input_block.type.element_type), id(InsertionPoint.current.block))
+    key = (
+        scaler_arg_name,
+        str(input_block.type.element_type),
+        id(InsertionPoint.current.block),
+    )
     cached = compiler.reduce_scaler_cache.get(key)
     if cached is not None:
         return cached
 
-    scaler = compiler.get_synthetic_arg(_REDUCE_SCALER_ARG)
+    scaler = compiler.get_synthetic_arg(scaler_arg_name)
     if scaler is None:
         raise RuntimeError("internal error: missing synthetic reduction scaler")
 
@@ -882,7 +928,7 @@ def _get_reduce_scaler_block(input_block):
     return scaler_block
 
 
-def _reduce_block(tile_op_fn, input, dim, identity_value):
+def _reduce_block(tile_op_fn, input, dim, scaler_arg_name, identity_value):
     """Wrap a float d2m.tile_reduce_* op in a per-block linalg.generic.
 
     The generated result has the same block shape as `input`. The reduction is
@@ -896,7 +942,7 @@ def _reduce_block(tile_op_fn, input, dim, identity_value):
     rank = block_ty.rank
     elem_ty = block_ty.element_type
     reduce_dim = _dim_to_reduce_dim_attr(dim)
-    scaler = _get_reduce_scaler_block(input)
+    scaler = _get_reduce_scaler_block(input, scaler_arg_name)
 
     output = d2m.empty(block_ty)
     identity = AffineMap.get_identity(rank)

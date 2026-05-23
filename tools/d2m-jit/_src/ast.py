@@ -590,6 +590,18 @@ class D2MCompiler(ast.NodeVisitor):
                 )
 
     def visit_UnaryOp(self, node):
+        as_attr = getattr(node, "_ttkernel_as_attr", False)
+        if callable(as_attr):
+            return as_attr(node)
+
+        if (
+            isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Constant)
+            and isinstance(node.operand.value, int)
+            and not isinstance(node.operand.value, bool)
+        ):
+            return arith.ConstantOp(IndexType.get(self.ctx), -node.operand.value)
+
         operand = self.visit(node.operand)
         if not operand:
             raise ValueError("Unary operand not found")
