@@ -3569,10 +3569,11 @@ def TTKernel_RemoteSramWriteU32Op : TTKernel_Op<"remote_sram_write_u32"> {
     let description = [{
       Initiates a 4-byte remote SRAM write of the u32 value stored at a local
       SRAM address on the Tensix core executing this function call. The source
-      SRAM word is usually used as a semaphore or mailbox value.
+      SRAM word may be referenced by a typed SRAM address, a computed i32 SRAM
+      address, or a local semaphore handle.
     }];
 
-    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_sram_addr,
+    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_sram_addr,
                          TTKernel_NocAddr:$dst_remote_addr,
                          Optional<I8>:$noc_id);
 

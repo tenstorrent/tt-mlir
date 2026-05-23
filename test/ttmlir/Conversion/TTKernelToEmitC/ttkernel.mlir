@@ -2020,6 +2020,47 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @sram_address_table_ops
+    func.func @sram_address_table_ops() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %staging_arg = arith.constant 0 : index
+      %table_arg = arith.constant 1 : index
+      // CHECK: %[[STAGING_BASE:.*]] = emitc.call_opaque "get_common_arg_val"(%{{.*}}) {template_args = [#emitc.opaque<"uint32_t">]} : (!emitc.size_t) -> i32
+      %staging_base = "ttkernel.get_common_arg_val"(%staging_arg) : (index) -> i32
+      // CHECK: %[[TABLE_BASE:.*]] = emitc.call_opaque "get_common_arg_val"(%{{.*}}) {template_args = [#emitc.opaque<"uint32_t">]} : (!emitc.size_t) -> i32
+      %table_base = "ttkernel.get_common_arg_val"(%table_arg) : (index) -> i32
+      %staging_offset = arith.constant 16 : i32
+      // CHECK: %[[STAGING_BASE_U32:.*]] = emitc.cast %[[STAGING_BASE]] : i32 to ui32
+      // CHECK: %[[STAGING_OFFSET_U32:.*]] = emitc.cast %{{.*}} : i32 to ui32
+      // CHECK: %[[STAGING_ADDR_U32:.*]] = emitc.add %[[STAGING_BASE_U32]], %[[STAGING_OFFSET_U32]] : (ui32, ui32) -> ui32
+      // CHECK: %[[STAGING_ADDR:.*]] = emitc.cast %[[STAGING_ADDR_U32]] : ui32 to i32
+      %staging_addr = arith.addi %staging_base, %staging_offset : i32
+      // CHECK: %[[STAGING_PTR:.*]] = emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint32_t*>"(%[[STAGING_BASE]]) : (i32) -> !emitc.ptr<!emitc.opaque<"tt_l1_ptr uint32_t">>
+      %staging_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%staging_base) : (i32) -> !ttkernel.l1_addr_ptr
+      %value = arith.constant 262400 : i32
+      %word_offset = arith.constant 4 : i32
+      // CHECK: %[[STAGING_SLOT:.*]] = emitc.subscript %[[STAGING_PTR]][%{{.*}}]
+      // CHECK: emitc.assign %{{.*}} : !emitc.opaque<"tt_l1_ptr uint32_t"> to %[[STAGING_SLOT]]
+      ttkernel.store_to_l1(%value, %staging_ptr, %word_offset) : (i32, !ttkernel.l1_addr_ptr, i32) -> ()
+      // CHECK: %[[LOAD_SLOT:.*]] = emitc.subscript %[[STAGING_PTR]][%{{.*}}]
+      // CHECK: %[[LOADED:.*]] = emitc.load %[[LOAD_SLOT]]
+      // CHECK: emitc.cast %[[LOADED]]
+      %loaded = ttkernel.load_from_l1(%staging_ptr, %word_offset) : (!ttkernel.l1_addr_ptr, i32) -> i32
+      %table_offset = arith.constant 64 : i32
+      // CHECK: %[[TABLE_BASE_U32:.*]] = emitc.cast %[[TABLE_BASE]] : i32 to ui32
+      // CHECK: %[[TABLE_OFFSET_U32:.*]] = emitc.cast %{{.*}} : i32 to ui32
+      // CHECK: %[[REMOTE_TABLE_ADDR_U32:.*]] = emitc.add %[[TABLE_BASE_U32]], %[[TABLE_OFFSET_U32]] : (ui32, ui32) -> ui32
+      // CHECK: %[[REMOTE_TABLE_ADDR:.*]] = emitc.cast %[[REMOTE_TABLE_ADDR_U32]] : ui32 to i32
+      %remote_table_addr = arith.addi %table_base, %table_offset : i32
+      %noc_x = arith.constant 1 : index
+      %noc_y = arith.constant 2 : index
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"(%{{.*}}, %{{.*}}, %[[REMOTE_TABLE_ADDR]])
+      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %remote_table_addr) : (index, index, i32) -> !ttkernel.noc_addr
+      // CHECK: emitc.call_opaque "noc_semaphore_set_remote"(%[[STAGING_ADDR]], %[[DST_NOC_ADDR]])
+      "ttkernel.remote_sram_write_u32"(%staging_addr, %dst_noc_addr) : (i32, !ttkernel.noc_addr) -> ()
+      %sink = arith.addi %loaded, %word_offset : i32
+      return
+    }
+
     // CHECK-LABEL: func @remote_sram_write_u32_local_semaphore_with_noc_id
     func.func @remote_sram_write_u32_local_semaphore_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
