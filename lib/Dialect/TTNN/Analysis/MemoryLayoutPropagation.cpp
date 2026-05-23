@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
@@ -86,6 +87,26 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// Delegates to per-op rule files via OpRuleBook.
 static LayoutFilterFn getInputLayoutFilter(Operation *op, unsigned operandIdx) {
   return getRuleBook(op).getInputLayoutFilter(operandIdx);
+}
+
+/// Returns true if the operand is already "constant" from the optimizer's
+/// perspective: it is either the result of a ttcore.load_cached (already
+/// const-evaled by a prior ConstEvalHoist pass) or a func block argument
+/// whose ArgumentType is anything other than Input.
+static bool isConstantDerivedOperand(Value operand) {
+  if (Operation *def = operand.getDefiningOp()) {
+    return mlir::isa<ttcore::LoadCachedOp>(def);
+  }
+  auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand);
+  if (!blockArg) {
+    return false;
+  }
+  auto funcOp = mlir::dyn_cast_or_null<mlir::func::FuncOp>(
+      blockArg.getOwner()->getParentOp());
+  if (!funcOp) {
+    return false;
+  }
+  return !ttcore::isInputArgumentType(funcOp, blockArg.getArgNumber());
 }
 
 /// Check if a layout is sharded.
@@ -328,10 +349,9 @@ void MemoryLayoutPropagation::run() {
     // These ops (e.g., BFP8 typecast on weights) will be re-hoisted into
     // const_eval functions. Promoting their output to L1 would cause the
     // const_eval to return L1 tensors that starve other ops of L1 budget.
-    bool allFromConstEval = op->getNumOperands() > 0 &&
-                            llvm::all_of(op->getOperands(), [](Value operand) {
-                              return ttcore::valueTracesToConstantArgs(operand);
-                            });
+    bool allFromConstEval =
+        op->getNumOperands() > 0 &&
+        llvm::all_of(op->getOperands(), isConstantDerivedOperand);
     if (allFromConstEval) {
       TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                    "[op {0}] Skipping {1} @{2}: all operands from const_eval",
@@ -724,9 +744,8 @@ void MemoryLayoutPropagation::addReshardCandidates(
     Value operand, TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
     const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
     Operation *producerOp, size_t resultIdx, size_t maxCandidates) {
-  // Skip reshards for operands derived from constant/parameter arguments.
-  // These will be re-hoisted into const_eval.
-  if (ttcore::valueTracesToConstantArgs(operand)) {
+
+  if (isConstantDerivedOperand(operand)) {
     return;
   }
   if (!shouldExploreReshards(op)) {
