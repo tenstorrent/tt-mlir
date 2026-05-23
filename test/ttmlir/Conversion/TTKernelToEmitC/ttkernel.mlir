@@ -2061,6 +2061,27 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @noc_inline_dw_write
+    func.func @noc_inline_dw_write() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK-DAG: %[[NOC_X:.*]] = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
+      // CHECK-DAG: %[[NOC_Y:.*]] = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
+      // CHECK-DAG: %[[DST_ADDR:.*]] = "emitc.constant"() <{value = 262400 : i32}> : () -> i32
+      %noc_x = arith.constant 1 : index
+      %noc_y = arith.constant 1 : index
+      %dst_addr = arith.constant 262400 : i32
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"(%[[NOC_X]], %[[NOC_Y]], %[[DST_ADDR]])
+      %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %dst_addr) : (index, index, i32) -> !ttkernel.noc_addr
+      // CHECK-DAG: %[[VAL:.*]] = "emitc.constant"() <{value = 7 : i32}> : () -> i32
+      // CHECK-DAG: %[[BE:.*]] = "emitc.constant"() <{value = 15 : i8}> : () -> i8
+      // CHECK-DAG: %[[NOC:.*]] = "emitc.constant"() <{value = 1 : i8}> : () -> i8
+      %val = arith.constant 7 : i32
+      %be = arith.constant 15 : i8
+      %noc = arith.constant 1 : i8
+      // CHECK: emitc.call_opaque "noc_inline_dw_write"(%[[DST_NOC_ADDR]], %[[VAL]], %[[BE]], %[[NOC]]) {template_args = [#emitc.opaque<"InlineWriteDst::L1">]}
+      ttkernel.noc_inline_dw_write(%dst_noc_addr, %val, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @remote_sram_write_u32_local_semaphore_with_noc_id
     func.func @remote_sram_write_u32_local_semaphore_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
