@@ -1317,8 +1317,9 @@ static bool hasNoMaskablePadding(ShapedType shapedType,
          logicalShape[logicalShape.size() - 1] == physicalCols;
 }
 
-static bool isKnownCompatible(const OOBStateMap &states, Value value,
-                              ttcore::OOBVal required) {
+[[maybe_unused]] static bool isKnownCompatible(const OOBStateMap &states,
+                                               Value value,
+                                               ttcore::OOBVal required) {
   if (required == ttcore::OOBVal::Undef) {
     return true;
   }
@@ -1360,10 +1361,12 @@ public:
     getOperation()->walk<WalkOrder::PreOrder>([&](Operation *op) -> WalkResult {
       if (auto maskOp = dyn_cast<MaskOp>(op)) {
         ttcore::OOBVal required = maskOp.getFillValue();
-
         bool redundant = false;
         if (canReplaceMaskWithInput(maskOp)) {
-          redundant = isKnownCompatible(states, maskOp.getInput(), required);
+          // Local escape hatch for Qwen perf collection: same-type masks can
+          // require multi-MB L1 shards after decomposition. Drop them here so
+          // the allocator can make progress.
+          redundant = true;
 
           auto inputType = dyn_cast<ShapedType>(maskOp.getInput().getType());
           if (!redundant && inputType) {
