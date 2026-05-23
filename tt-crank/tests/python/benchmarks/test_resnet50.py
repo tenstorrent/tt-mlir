@@ -11,14 +11,6 @@ from torchvision.models import resnet50  # noqa: E402
 
 _DTYPE = torch.bfloat16
 
-_SKIP_REASON = (
-    "ResNet50 on tt is blocked by a gap in the torch backend: torch.long "
-    "isn't a supported dtype yet, and BatchNorm registers num_batches_tracked "
-    "as an int64 buffer that .to(tt_device) tries to move. Remove this skip "
-    "once Long is supported (or once num_batches_tracked handling is taught "
-    "to stay on CPU) - the benchmark scaffold is ready."
-)
-
 
 def _build_inputs(device: torch.device | str) -> tuple[torch.nn.Module, tuple[torch.Tensor]]:
     torch.manual_seed(0)
@@ -37,7 +29,6 @@ def test_resnet50(
     record_bench,
     tt_device: torch.device,
 ) -> None:
-    pytest.skip(_SKIP_REASON)
     model, inputs = _build_inputs(tt_device)
     model = prepare_model(model, mode)
 
