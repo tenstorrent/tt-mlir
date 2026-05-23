@@ -8,6 +8,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-private-field"
 
+#include "tt/runtime/debug.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
