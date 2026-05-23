@@ -35,7 +35,6 @@ static Value createPermute(Value input, ArrayRef<int64_t> permutation,
 
   return rewriter.create<PermuteOp>(loc, outputType, input,
                                     rewriter.getDenseI64ArrayAttr(permutation),
-                                    /*memory_config=*/nullptr,
                                     /*pad_value=*/mlir::FloatAttr());
 }
 
