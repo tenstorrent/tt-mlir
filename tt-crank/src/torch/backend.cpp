@@ -26,16 +26,6 @@ namespace tt::kurbla::torch_backend {
 
 namespace {
 
-at::Tensor wrap_output(::tt::runtime::Tensor runtime_tensor, const ::tt::runtime::TensorDesc &desc) {
-    std::vector<std::int64_t> sizes;
-    sizes.reserve(desc.shape.size());
-    for (auto s : desc.shape) {
-        sizes.push_back(as<std::int64_t>(s));
-    }
-    auto *storage = new TensorStorage(std::move(runtime_tensor));
-    return make_tt_tensor(storage, sizes, to_torch_dtype(desc.dataType));
-}
-
 void raw_delete(void *p) {
     std::free(p); // NOLINT(cppcoreguidelines-no-malloc)
 }
@@ -86,8 +76,8 @@ C10_REGISTER_GUARD_IMPL(PrivateUse1, DeviceGuard);
 
 } // namespace
 
-std::vector<at::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op,
-                                        llvm::ArrayRef<at::Tensor> inputs) {
+std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op,
+                                                   llvm::ArrayRef<at::Tensor> inputs) {
     ::tt::kurbla::CompileOptions opts;
     opts.system_desc = ::tt::kurbla::runtime_system_desc();
     auto program = std::make_shared<::tt::kurbla::CompiledProgram>(
@@ -98,18 +88,7 @@ std::vector<at::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module
         payload.bind_tensor(storage_of(inputs[i]).tensor(), i);
     }
 
-    std::vector<::tt::runtime::Tensor> raw_outputs = payload.run();
-    const std::uint32_t program_index = payload.program_index();
-    auto output_descs = program->output_descs(program_index);
-    TORCH_INTERNAL_ASSERT(raw_outputs.size() == output_descs.size(),
-                          "compile_and_run: output count mismatch between runtime and program metadata");
-
-    std::vector<at::Tensor> outputs;
-    outputs.reserve(raw_outputs.size());
-    for (std::size_t i = 0; i < raw_outputs.size(); ++i) {
-        outputs.push_back(wrap_output(std::move(raw_outputs[i]), output_descs[i]));
-    }
-    return outputs;
+    return payload.run();
 }
 
 void register_allocator() {
@@ -124,6 +103,16 @@ void register_allocator() {
             return ::tt::target::DataType::Float32;
         case c10::ScalarType::Int:
             return ::tt::target::DataType::Int32;
+        case c10::ScalarType::Long:
+            return ::tt::target::DataType::Int64;
+        case c10::ScalarType::Bool:
+            return ::tt::target::DataType::Bool;
+        case c10::ScalarType::Byte:
+            return ::tt::target::DataType::UInt8;
+        case c10::ScalarType::Double:
+            return ::tt::target::DataType::Float64;
+        case c10::ScalarType::Half:
+            return ::tt::target::DataType::Float16;
         default:
             break;
     }
@@ -138,6 +127,16 @@ c10::ScalarType to_torch_dtype(::tt::target::DataType runtime_dtype) {
             return c10::ScalarType::Float;
         case ::tt::target::DataType::Int32:
             return c10::ScalarType::Int;
+        case ::tt::target::DataType::Int64:
+            return c10::ScalarType::Long;
+        case ::tt::target::DataType::Bool:
+            return c10::ScalarType::Bool;
+        case ::tt::target::DataType::UInt8:
+            return c10::ScalarType::Byte;
+        case ::tt::target::DataType::Float64:
+            return c10::ScalarType::Double;
+        case ::tt::target::DataType::Float16:
+            return c10::ScalarType::Half;
         default:
             break;
     }

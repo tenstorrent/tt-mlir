@@ -38,9 +38,11 @@ def test_empty_default_dtype_is_float() -> None:
 
 
 def test_empty_unsupported_dtype_rejected() -> None:
-    # to_runtime_dtype maps only bf16/f32/i32; f64 hits its default TORCH_CHECK.
+    # to_runtime_dtype covers the common scalar dtypes (bf16/f16/f32/f64,
+    # i32/i64, bool, u8); complex64 has no runtime mapping and hits the
+    # default TORCH_CHECK.
     with pytest.raises(RuntimeError, match="unsupported torch dtype"):
-        torch.empty((32, 32), device="tt", dtype=torch.float64)
+        torch.empty((32, 32), device="tt", dtype=torch.complex64)
 
 
 # -----------------------------------------------------------------------------

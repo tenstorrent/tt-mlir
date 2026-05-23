@@ -6,9 +6,11 @@
 
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/MLIRContext.h>
+#include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
 
 #include "cast.hpp"
 #include "engine/compile.hpp"
+#include "torch/backend.hpp"
 
 namespace tt::kurbla::torch_backend {
 
@@ -21,8 +23,12 @@ mlir::Type to_mlir_element_type(mlir::MLIRContext &ctx, ::tt::target::DataType d
             return b.getBF16Type();
         case ::tt::target::DataType::Float32:
             return b.getF32Type();
+        case ::tt::target::DataType::Float64:
+            return b.getF64Type();
         case ::tt::target::DataType::Int32:
             return b.getI32Type();
+        case ::tt::target::DataType::Int64:
+            return b.getI64Type();
         default:
             break;
     }
@@ -76,6 +82,23 @@ mlir::OwningOpRef<mlir::ModuleOp> ModuleBuilder::finalize(llvm::ArrayRef<mlir::V
     func_.setFunctionType(mlir::FunctionType::get(builder_.getContext(), input_types, result_types));
 
     return std::move(module_op_);
+}
+
+mlir::Value ModuleBuilder::insert_typecast(mlir::Value value, mlir::Type target) {
+    auto src_type = mlir::cast<mlir::RankedTensorType>(value.getType());
+    if (src_type.getElementType() == target) {
+        return value;
+    }
+    auto dst_type = mlir::RankedTensorType::get(src_type.getShape(), target);
+    return create<mlir::tt::ttir::TypecastOp>(dst_type, value).getResult();
+}
+
+TensorTypeSpec spec_for(const at::Tensor &t) {
+    return TensorTypeSpec{{t.sizes().begin(), t.sizes().end()}, to_runtime_dtype(t.scalar_type())};
+}
+
+mlir::Type mlir_element_type_for(c10::ScalarType torch_dtype) {
+    return to_mlir_element_type(::tt::kurbla::mlir_context(), to_runtime_dtype(torch_dtype));
 }
 
 } // namespace tt::kurbla::torch_backend

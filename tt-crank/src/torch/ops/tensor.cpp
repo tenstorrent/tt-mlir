@@ -29,10 +29,6 @@ namespace tt::kurbla::torch_backend {
 
 namespace {
 
-bool is_tt(const at::Tensor &t) {
-    return t.device().type() == c10::DeviceType::PrivateUse1;
-}
-
 // Build a fresh tt tensor of `sizes` and `dtype` backed by an owned host
 // buffer. If `data` is non-null, its bytes are copied into the buffer at
 // construction; if null, the runtime returns a zero-initialized buffer of
@@ -45,12 +41,14 @@ at::Tensor make_tt_tensor_from_host(void *data, at::IntArrayRef sizes, c10::Scal
 }
 
 // Read the full contents of a tt tensor into a freshly-allocated host buffer.
+// The torch dtype is passed through so unsupported dtypes (Long, Float64, ...)
+// get cast back to the wider dtype on the way out.
 std::vector<std::byte> read_to_host(const at::Tensor &self, const char *who) {
     auto host_shards = ::tt::runtime::toHost(storage_of(self).tensor(), /*untilize=*/true);
     TORCH_CHECK(host_shards.size() == 1, "tt-kurbla ", who, ": multi-shard tensors not supported");
     const std::size_t nbytes = as<std::size_t>(self.numel()) * self.dtype().itemsize();
     std::vector<std::byte> buffer(nbytes);
-    ::tt::runtime::memcpy(buffer.data(), host_shards[0]);
+    ::tt::runtime::memcpy(buffer.data(), host_shards[0], to_runtime_dtype(self.scalar_type()));
     return buffer;
 }
 
@@ -68,7 +66,13 @@ at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::opti
 
 at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_blocking*/) {
     TORCH_CHECK(self.sizes() == dst.sizes(), "tt-kurbla _copy_from: shape mismatch");
-    TORCH_CHECK(self.scalar_type() == dst.scalar_type(), "tt-kurbla _copy_from: dtype mismatch");
+
+    // `tensor.to(other_dtype)` reaches us as a `_copy_from` with mismatched
+    // dtypes. Do the dtype conversion on CPU (slow but correct) then recurse;
+    // the second call hits a same-dtype device-pair branch below.
+    if (self.scalar_type() != dst.scalar_type()) {
+        return copy_from(self.cpu().to(dst.scalar_type()), dst, /*non_blocking=*/false);
+    }
 
     if (self.is_cpu() && is_tt(dst)) {
         TORCH_CHECK(self.is_contiguous(), "tt-kurbla _copy_from(cpu→tt): source must be contiguous");
@@ -85,7 +89,7 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
         TORCH_CHECK(dst.is_contiguous(), "tt-kurbla _copy_from(tt→cpu): destination must be contiguous");
         auto host_shards = ::tt::runtime::toHost(storage_of(self).tensor(), /*untilize=*/true);
         TORCH_CHECK(host_shards.size() == 1, "tt-kurbla _copy_from(tt→cpu): multi-shard tensors not supported");
-        ::tt::runtime::memcpy(dst.data_ptr(), host_shards[0]);
+        ::tt::runtime::memcpy(dst.data_ptr(), host_shards[0], to_runtime_dtype(dst.scalar_type()));
         return dst;
     }
 
@@ -210,6 +214,11 @@ at::Scalar local_scalar_dense(const at::Tensor &self) {
         }
         case c10::ScalarType::Int: {
             std::int32_t v;
+            std::memcpy(&v, buffer.data(), sizeof(v));
+            return at::Scalar(v);
+        }
+        case c10::ScalarType::Long: {
+            std::int64_t v;
             std::memcpy(&v, buffer.data(), sizeof(v));
             return at::Scalar(v);
         }
