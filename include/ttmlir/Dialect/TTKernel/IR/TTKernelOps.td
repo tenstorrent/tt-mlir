@@ -3582,6 +3582,24 @@ def TTKernel_RemoteSramWriteU32Op : TTKernel_Op<"remote_sram_write_u32"> {
     }];
 }
 
+def TTKernel_NocInlineDwWriteOp : TTKernel_Op<"noc_inline_dw_write"> {
+    let summary = "NocInlineDwWrite";
+    let description = [{
+      Initiates an inline 32-bit NOC write to a remote L1 address. The value is
+      provided as an SSA value, so the operation does not require a local SRAM
+      staging word.
+    }];
+
+    let arguments = (ins TTKernel_NocAddr:$dst_noc_addr,
+                         I32:$val,
+                         I8:$byte_enable,
+                         I8:$noc_id);
+
+    let assemblyFormat = [{
+      `(` $dst_noc_addr `,` $val `,` $byte_enable `,` $noc_id `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
     let summary = "SemaphoreWait";
     let description = [{
