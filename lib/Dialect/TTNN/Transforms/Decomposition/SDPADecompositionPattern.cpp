@@ -19,13 +19,9 @@ static constexpr int64_t kNumHeadsDim = 1;
 static constexpr int64_t kSeqLenDim = 2;
 static constexpr int64_t kHeadDim = 3;
 
-// Create a RankedTensorType preserving TTNN layout encoding when present.
 static RankedTensorType createResultType(RankedTensorType sourceType,
                                          ArrayRef<int64_t> newShape) {
-  if (sourceType.getEncoding()) {
-    return ttnn::utils::RankedTensorTypeFactory::create(sourceType, newShape);
-  }
-  return RankedTensorType::get(newShape, sourceType.getElementType());
+  return ttnn::utils::RankedTensorTypeFactory::create(sourceType, newShape);
 }
 
 /// Generate a causal mask [1, 1, Sq, Skv] as a compile-time constant.

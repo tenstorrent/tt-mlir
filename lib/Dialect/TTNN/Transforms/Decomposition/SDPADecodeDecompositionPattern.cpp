@@ -17,21 +17,13 @@ static constexpr std::array<int64_t, 4> kToSDPAPermutation = {1, 2, 0, 3};
 // Inverse: [2, 0, 1, 3] maps [B, H, 1, D] -> [1, B, H, D]
 static constexpr std::array<int64_t, 4> kFromSDPAPermutation = {2, 0, 1, 3};
 
-// Create a permute op. Uses RankedTensorTypeFactory when TTNN layout encoding
-// is present, falls back to plain RankedTensorType otherwise.
 static Value createPermute(Value input, ArrayRef<int64_t> permutation,
                            PatternRewriter &rewriter, Location loc) {
   auto inputType = mlir::cast<RankedTensorType>(input.getType());
   llvm::SmallVector<int64_t> outputShape =
       ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
-
-  RankedTensorType outputType;
-  if (inputType.getEncoding()) {
-    outputType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputType, outputShape);
-  } else {
-    outputType = RankedTensorType::get(outputShape, inputType.getElementType());
-  }
+  RankedTensorType outputType =
+      ttnn::utils::RankedTensorTypeFactory::create(inputType, outputShape);
 
   return rewriter.create<PermuteOp>(loc, outputType, input,
                                     rewriter.getDenseI64ArrayAttr(permutation),
