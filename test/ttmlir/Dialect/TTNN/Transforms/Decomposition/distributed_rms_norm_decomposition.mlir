@@ -7,6 +7,10 @@
 #ttnn_layout_supported = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1 + d1, d2 * 128 + d3), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout_supported_rank3 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout_unsupported_leading = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2 + d1, d2 * 128 + d3), <1x1>, memref<2x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+// last_dim = 896 → 28 width-tiles → 28-core shard on the default 8-wide
+// Wormhole grid (non-rectangular: 8*3 + 4). See tt-xla #4565.
+#ttnn_layout_nonrect = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1 + d1, d2 * 896 + d3), <1x1>, memref<1x28x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout_weight_896 = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x28x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
 // Test: Non-(1,1,32,M) shape decomposes into primitive ops.
 module @test_distributed_rms_norm_decomposition attributes {} {
@@ -81,6 +85,23 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
     %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>
     return %1 : tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>
+  }
+
+  func.func public @test_decompose_non_rectangular_shard(
+      %arg0: tensor<1x1x32x896xbf16, #ttnn_layout_nonrect>,
+      %arg1: tensor<896xbf16, #ttnn_layout_weight_896>) -> tensor<1x1x32x896xbf16, #ttnn_layout_nonrect> {
+    // CHECK-LABEL: func.func public @test_decompose_non_rectangular_shard
+    // (1,1,32,896) is canonical, but the width shard would land on 28 cores
+    // which doesn't tile evenly into rows of 8 on the default Wormhole grid
+    // (non-rectangular: 8*3 + 4). The fused kernel deadlocks on this layout
+    // (tt-xla #4565), so the op must be decomposed here.
+    // CHECK: "ttnn.multiply"
+    // CHECK: "ttnn.mean"
+    // CHECK: "ttnn.all_gather"
+    // CHECK-NOT: "ttnn.distributed_rms_norm"
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x1x32x896xbf16, #ttnn_layout_nonrect>, tensor<896xbf16, #ttnn_layout_weight_896>, !ttnn.device) -> tensor<1x1x32x896xbf16, #ttnn_layout_nonrect>
+    return %1 : tensor<1x1x32x896xbf16, #ttnn_layout_nonrect>
   }
 
   func.func public @test_decompose_with_residual(
