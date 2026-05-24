@@ -16,9 +16,9 @@ module @Gather_ShardNonGatherDim attributes {mhlo.frontend_attributes = {xla.sdy
     // CHECK-LABEL: @main
     // CHECK-NOT: stablehlo.all_gather
     // CHECK-NOT: stablehlo.all_reduce
-    // CHECK: stablehlo.custom_call @tenstorrent.gather
+    // CHECK: stablehlo.custom_call @tenstorrent.gather_dim
     // CHECK-SAME: (tensor<2x8xf32>, tensor<2x5xi64>) -> tensor<2x5xf32>
-    %0 = stablehlo.custom_call @tenstorrent.gather(%arg0, %arg1) {
+    %0 = stablehlo.custom_call @tenstorrent.gather_dim(%arg0, %arg1) {
       api_version = 0 : i32,
       tt.composite_attributes = {dim = 1 : i64},
       tt.has_custom_sharding
@@ -41,9 +41,9 @@ module @Gather_ShardInputGatherDim attributes {mhlo.frontend_attributes = {xla.s
   ) -> tensor<3x4xf32> {
     // CHECK-LABEL: @main
     // CHECK: stablehlo.all_gather
-    // CHECK: stablehlo.custom_call @tenstorrent.gather
+    // CHECK: stablehlo.custom_call @tenstorrent.gather_dim
     // CHECK-SAME: (tensor<8x4xf32>, tensor<3x4xi64>) -> tensor<3x4xf32>
-    %0 = stablehlo.custom_call @tenstorrent.gather(%arg0, %arg1) {
+    %0 = stablehlo.custom_call @tenstorrent.gather_dim(%arg0, %arg1) {
       api_version = 0 : i32,
       tt.composite_attributes = {dim = 0 : i64},
       tt.has_custom_sharding
@@ -67,9 +67,9 @@ module @Gather_ShardIndexGatherDim attributes {mhlo.frontend_attributes = {xla.s
     // CHECK-LABEL: @main
     // CHECK-NOT: stablehlo.all_gather
     // CHECK-NOT: stablehlo.all_reduce
-    // CHECK: stablehlo.custom_call @tenstorrent.gather
+    // CHECK: stablehlo.custom_call @tenstorrent.gather_dim
     // CHECK-SAME: (tensor<8x4xf32>, tensor<8x2xi64>) -> tensor<8x2xf32>
-    %0 = stablehlo.custom_call @tenstorrent.gather(%arg0, %arg1) {
+    %0 = stablehlo.custom_call @tenstorrent.gather_dim(%arg0, %arg1) {
       api_version = 0 : i32,
       tt.composite_attributes = {dim = 1 : i64},
       tt.has_custom_sharding

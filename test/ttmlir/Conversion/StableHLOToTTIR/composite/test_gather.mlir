@@ -98,6 +98,23 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     return %0 : tensor<2x3xbf16>
   }
 
+  // Test: tenstorrent.gather_dim composite (alternate target name) lowers
+  // through the same pattern.
+  // CHECK-LABEL: func.func @gather_dim_composite
+  func.func @gather_dim_composite(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+    // CHECK: "ttir.typecast"(%arg1)
+    // CHECK-SAME: (tensor<2x3xi32>) -> tensor<2x3xui32>
+    // CHECK: "ttir.gather"
+    // CHECK-SAME: dim = 1 : i32
+    // CHECK-SAME: (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 1 : i64}, decomposition = @tenstorrent.gather_dim.impl} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    return %0 : tensor<2x3xf32>
+  }
+  func.func private @tenstorrent.gather_dim.impl(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+    %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
+    return %0 : tensor<2x3xf32>
+  }
+
   // Test: Gather with no composite_attributes — defaults to dim=0.
   // CHECK-LABEL: func.func @gather_default_attrs
   func.func @gather_default_attrs(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
