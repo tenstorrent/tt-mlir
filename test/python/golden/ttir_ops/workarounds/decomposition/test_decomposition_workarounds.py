@@ -1372,3 +1372,63 @@ def test_paged_sdpa_decode_l1_overflow_with_workaround(
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        # Reduce dim 4 with values whose product (2*2*19*29 = 2204) has no
+        # exact bf16 representation and rounds to 2208.
+        (1, 4),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["si32"])
+@pytest.mark.parametrize("dim_arg", [[1]])
+@pytest.mark.parametrize("keep_dim", [False])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="ttnn.prod computes internally in bf16; integer intermediates "
+    "without exact bf16 representation silently round (2204 -> 2208). "
+    "Without IntegerProdOpRewritePattern the integer reduction is not "
+    "decomposed into slice+multiply chain. "
+    "Metal issue: https://github.com/tenstorrent/tt-metal/issues/44942"
+)
+def test_prod_without_workaround(
+    shape: Shape,
+    dtype: torch.dtype,
+    dim_arg: List[int],
+    keep_dim: bool,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test integer prod with workarounds disabled.
+    Workaround: IntegerProdOpRewritePattern - decomposes single-dim
+    `ttnn.prod` on integer tensors into a `ttnn.slice_static` +
+    `ttnn.multiply` chain so the computation stays in integer arithmetic.
+    Trigger condition: integer element type, single static dim_arg,
+    reduce-dim size <= 16.
+    """
+    torch_input = torch.tensor([[2, 2, 19, 29]], dtype=torch.int32)
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def prod_no_workaround_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_goldens({in0: torch_input})
+            return builder.prod(
+                in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
