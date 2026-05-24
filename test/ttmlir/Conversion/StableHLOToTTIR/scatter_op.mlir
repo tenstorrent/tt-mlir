@@ -144,6 +144,27 @@ module @jit_scatter attributes {} {
         return %0 : tensor<2x4x3xbf16>
     }
 
+    func.func public @test_scatter_unaligned_index_vector_dim(%operand: tensor<3x394xi64>, %indices: tensor<394x1xi64>, %updates: tensor<3x394xi64>) -> tensor<3x394xi64> {
+        // CHECK-LABEL: func.func public @test_scatter_unaligned_index_vector_dim
+        // CHECK: [[RS:%[0-9]+]] = "ttir.reshape"(%arg1)
+        // CHECK-SAME: (tensor<394x1xi64>) -> tensor<1x394xi64>
+        // CHECK: [[RP:%[0-9]+]] = "ttir.repeat"([[RS]])
+        // CHECK-SAME: <{repeat_dimensions = array<i64: 3, 1>}> : (tensor<1x394xi64>) -> tensor<3x394xi64>
+        // CHECK: "ttir.scatter"(%arg0, [[RP]], %arg2)
+        // CHECK-SAME: <{dim = 1 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
+        %0 = "stablehlo.scatter"(%operand, %indices, %updates) <{
+          scatter_dimension_numbers = #stablehlo.scatter<
+            update_window_dims = [0],
+            inserted_window_dims = [1],
+            scatter_dims_to_operand_dims = [1],
+            index_vector_dim = 1>
+        }> ({
+        ^bb0(%a: tensor<i64>, %b: tensor<i64>):
+          stablehlo.return %b : tensor<i64>
+        }) : (tensor<3x394xi64>, tensor<394x1xi64>, tensor<3x394xi64>) -> tensor<3x394xi64>
+        return %0 : tensor<3x394xi64>
+    }
+
     func.func @test_multidim_scatter_with_window_extracted_from_model(%arg186: tensor<1x2xbf16>, %arg187: tensor<1xi64>, %arg188: tensor<1xi64>) -> (tensor<1x7x2xbf16>) {
         // CHECK: "ttir.scatter"
         // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
