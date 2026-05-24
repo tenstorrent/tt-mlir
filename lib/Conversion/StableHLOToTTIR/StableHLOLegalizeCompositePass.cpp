@@ -888,18 +888,20 @@ public:
   matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
                   mlir::stablehlo::CompositeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (srcOp.getName() != "tenstorrent.gather") {
+    if (srcOp.getName() != kTTGatherCustomCallTargetName &&
+        srcOp.getName() != kTTGatherDimCustomCallTargetName) {
       return failure();
     }
 
+    llvm::StringRef name = srcOp.getName();
     if (adaptor.getOperands().size() != 2) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather must have exactly 2 operands");
+          srcOp, name + " must have exactly 2 operands");
     }
 
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather must have exactly one result");
+          srcOp, name + " must have exactly one result");
     }
 
     auto outputType =
@@ -939,7 +941,7 @@ public:
   }
 };
 
-// Converts stablehlo.custom_call @tenstorrent.gather -> ttir.gather.
+// Converts stablehlo.custom_call @tenstorrent.gather_dim -> ttir.gather.
 // This handles custom_calls created by FlattenOrConvertCompositesPass from the
 // tenstorrent.gather composite (so Shardy can propagate shardings through it).
 class CustomCallGatherConversionPattern
@@ -953,17 +955,19 @@ public:
   matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (adaptor.getCallTargetNameAttr() != kTTGatherCustomCallTargetName ||
+    if ((adaptor.getCallTargetNameAttr() != kTTGatherCustomCallTargetName &&
+         adaptor.getCallTargetNameAttr() != kTTGatherDimCustomCallTargetName) ||
         !srcOp->hasAttr(kHasCustomShardingAttr)) {
       return failure();
     }
+    llvm::StringRef targetName = adaptor.getCallTargetNameAttr().getValue();
     if (adaptor.getOperands().size() != 2) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather must have exactly 2 operands");
+          srcOp, targetName + " must have exactly 2 operands");
     }
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather must have exactly one result");
+          srcOp, targetName + " must have exactly one result");
     }
 
     auto outputType =
@@ -978,7 +982,7 @@ public:
     auto dimIntAttr = compositeAttrs.getAs<IntegerAttr>("dim");
     if (!dimIntAttr) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather requires integer 'dim' attribute");
+          srcOp, targetName + " requires integer 'dim' attribute");
     }
     auto dimAttr =
         rewriter.getI32IntegerAttr(static_cast<int32_t>(dimIntAttr.getInt()));
