@@ -1114,8 +1114,7 @@ getGatherDimShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
   auto indexType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
-  auto resultType =
-      llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
   if (!inputType || !indexType || !resultType) {
     op.getOperation()->emitWarning()
         << "gather sharding rule requires ranked tensor types";
