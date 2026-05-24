@@ -17,6 +17,10 @@ module {
       %sin_half: tensor<1x1x4x64xbf16, #half>)
       -> tensor<1x1x4x128xbf16, #full> {
     // CHECK-LABEL: func.func @rope_decomp_complex_rotation_from_self_concat
+    // No rope op, no neg, and no `ttnn.concat` *before* the half->full
+    // reassembly — proves the two input self-concat duplications were
+    // dead-code-eliminated when the rope op got replaced.
+    // CHECK-NOT: "ttnn.concat"
     // CHECK-NOT: "ttnn.rotary_embedding"
     // CHECK-NOT: "ttnn.neg"
     // CHECK: "ttnn.slice_static"
@@ -29,6 +33,8 @@ module {
     // CHECK: "ttnn.add"
     // CHECK: "ttnn.concat"
     // CHECK-SAME: dim = 3
+    // No further concat after the reassembly — exactly one concat total.
+    // CHECK-NOT: "ttnn.concat"
     // CHECK-NOT: "ttnn.neg"
     %cos = "ttnn.concat"(%cos_half, %cos_half) <{dim = 3 : si32}> :
       (tensor<1x1x4x64xbf16, #half>, tensor<1x1x4x64xbf16, #half>) ->

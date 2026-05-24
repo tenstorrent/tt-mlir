@@ -22,7 +22,13 @@ static std::optional<Value> matchSelfConcatLastDim(Value value) {
     return std::nullopt;
   }
   auto resultType = mlir::cast<RankedTensorType>(concatOp.getType());
-  if (concatOp.getDim() != resultType.getRank() - 1) {
+  // ttnn.concat verifier accepts negative dims (e.g. -1) and normalizes them
+  // (concat verifier: `if (dim < 0) dim += rank`). Match the normalized form
+  // so equivalent IR with dim=-1 still triggers the pattern.
+  int32_t rawDim = concatOp.getDim();
+  int64_t lastDim = resultType.getRank() - 1;
+  int64_t normalizedDim = rawDim < 0 ? rawDim + resultType.getRank() : rawDim;
+  if (normalizedDim != lastDim) {
     return std::nullopt;
   }
   return concatOp.getOperand(0);
@@ -88,6 +94,13 @@ LogicalResult RotaryEmbeddingDecompositionRewritePattern::matchAndRewrite(
   // This is algebraically identical to the rotate_half form below, but uses
   // only half-D ops and a single concat — strictly fewer ops, no full-D
   // multiplies, no concat(x, x) ops left behind.
+  //
+  // Broadcast safety: the matcher guarantees `cosHalf.shape[-1] == halfDim`
+  // (concat-of-two halves on the last dim doubles it), and `cosHalf`'s
+  // non-last dims equal `cosCache`'s non-last dims. So `multiply(xLo,
+  // cosHalf)` broadcasts iff `multiply(input, cosCache)` did — i.e. this
+  // branch is no less safe than the rotate_half fallback below, which makes
+  // the same broadcast assumption.
   if (auto cosHalf = matchSelfConcatLastDim(ropeOp.getCosCache())) {
     if (auto sinHalf = matchSelfConcatLastDim(ropeOp.getSinCache())) {
       auto loCos = rewriter.create<ttnn::MultiplyOp>(loc, halfType,
