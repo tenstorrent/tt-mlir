@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -39,6 +40,28 @@ bool isEligibleForFusedKernel(ttnn::DistributedRMSNormOp op) {
       return false;
     }
   }
+
+  // fused_rms_minimal deadlocks when the width-shard would land on a
+  // non-rectangular core grid. Mirror the numCores choice from
+  // DistributedRMSNormWidthShardInputRewritePattern and bail out so
+  // the explicit decomposition runs instead.
+  // tt-metal issue : https://github.com/tenstorrent/tt-metal/issues/45139
+  int64_t numWidthTiles = (shape.back() + TILE_WIDTH - 1) / TILE_WIDTH;
+  auto physicalGrid =
+      ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
+  int64_t gridWidth = physicalGrid[0];
+  int64_t maxCores = physicalGrid[0] * physicalGrid[1];
+  int64_t numCores = 1;
+  for (int64_t c = std::min(maxCores, numWidthTiles); c >= 1; --c) {
+    if (numWidthTiles % c == 0) {
+      numCores = c;
+      break;
+    }
+  }
+  if (numCores > gridWidth && numCores % gridWidth != 0) {
+    return false;
+  }
+
   return true;
 }
 
