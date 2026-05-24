@@ -63,3 +63,19 @@ module attributes {} {
     return %0 : tensor<2x3xbf16>
   }
 }
+
+// -----
+
+// Test: rank-1 ttir.gather lowers to a rank-1 ttnn.gather. Execution of the
+// rank-1 case is handled by a reshape-based workaround in the TTNN runtime
+// (runtime/lib/ttnn/operations/data_movement/gather.cpp); this lit test only
+// guards the compile path that feeds that workaround.
+// CHECK-LABEL: func.func @gather_1d
+// CHECK: "ttnn.gather"(%arg0, %arg1)
+// CHECK-SAME: dim = 0 : i32
+module attributes {} {
+  func.func @gather_1d(%arg0: tensor<8xf32>, %arg1: tensor<3xui32>) -> tensor<3xf32> {
+    %0 = "ttir.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<8xf32>, tensor<3xui32>) -> tensor<3xf32>
+    return %0 : tensor<3xf32>
+  }
+}
