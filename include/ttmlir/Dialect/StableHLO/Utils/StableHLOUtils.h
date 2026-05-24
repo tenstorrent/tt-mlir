@@ -45,9 +45,12 @@ inline constexpr llvm::StringLiteral
 inline constexpr llvm::StringLiteral
     kTTRMSNormCustomCallTargetName("tenstorrent.rms_norm");
 
-// Target name for the Gather custom_call op (source of this is a composite op generated from torch.gather)
-inline constexpr llvm::StringLiteral kTTGatherDimCustomCallTargetName("tenstorrent.gather_dim");
-inline constexpr llvm::StringLiteral kTTGatherCustomCallTargetName("tenstorrent.gather");
+// Target name for the Gather custom_call op (source of this is a composite op
+// generated from torch.gather)
+inline constexpr llvm::StringLiteral
+    kTTGatherDimCustomCallTargetName("tenstorrent.gather_dim");
+inline constexpr llvm::StringLiteral
+    kTTGatherCustomCallTargetName("tenstorrent.gather");
 
 // Composite names that have custom sharding rules. These composites are
 // converted to stablehlo.custom_call ops so that Shardy can propagate shardings
@@ -56,10 +59,8 @@ inline constexpr llvm::StringLiteral kTTGatherCustomCallTargetName("tenstorrent.
 // with ops and sharding (currently these passes are
 // FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass).
 inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
-    kTTRMSNormCustomCallTargetName,
-    kTTGatherCustomCallTargetName,
-    kTTGatherDimCustomCallTargetName
-};
+    kTTRMSNormCustomCallTargetName, kTTGatherCustomCallTargetName,
+    kTTGatherDimCustomCallTargetName};
 
 // Target name for the distributed RMS norm custom_call op.
 inline constexpr llvm::StringLiteral
