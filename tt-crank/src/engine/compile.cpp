@@ -6,6 +6,8 @@
 #include <utility>
 
 #include "assert.hpp"
+#include "config.hpp"
+#include "misc.hpp"
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Diagnostics.h>
@@ -15,6 +17,7 @@
 #include <mlir/Parser/Parser.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Support/LogicalResult.h>
+#include <ttmlir/Support/IRHasher.h>
 
 #include <tracy/Tracy.hpp>
 
@@ -79,6 +82,40 @@ std::string make_error_message(std::string_view fallback, const std::string &cap
     return captured;
 }
 
+// Hash module by hashing all functions in it.
+std::string hash_module(mlir::ModuleOp module_op) {
+    llvm::SHA256 sha;
+    module_op->walk([&](mlir::func::FuncOp func) { sha.update(llvm::StringRef(mlir::tt::hashFuncOp(func))); });
+    return llvm::toHex(sha.final());
+}
+
+// Compiler cache.
+class CompilerCache {
+public:
+    CompiledProgram *operator[](const std::string &key) {
+        if (!comp_cache_enabled()) {
+            return nullptr;
+        }
+
+        if (monitor<mc_comp_cache>(m_cache.contains(key))) {
+            return &m_cache.at(key);
+        }
+
+        return nullptr;
+    }
+
+    void insert(const std::string &key, CompiledProgram cp) {
+        if (comp_cache_enabled()) {
+            m_cache.emplace(key, std::move(cp));
+        }
+    }
+
+private:
+    std::unordered_map<std::string, CompiledProgram> m_cache;
+};
+
+CompilerCache cache; // NOLINT
+
 // Runs the TTIR-to-TTNN runtime pipeline on `module` and emits a flatbuffer.
 // Assumes the caller has already installed a ScopedDiagnosticHandler that
 // writes captured diagnostics into `diag_buffer`. The module is mutated in
@@ -89,6 +126,12 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
     // engine_state() isn't called there (the module brings its own context),
     // so the thread check would otherwise be skipped on that path.
     assert_single_threaded_mlir_access();
+
+    // Hash before any IR mutations so the key reflects the original TTIR.
+    std::string key = hash_module(module_op);
+    if (auto *entry = cache[key]) {
+        return *entry;
+    }
 
     // Pre-attach lets TTCoreRegisterDevicePass take the mockArch branch and
     // keep our attr; the path overload would overwrite it.
@@ -132,7 +175,10 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
         TT_FATAL(fb != nullptr, "{}", make_error_message("ttnnToFlatbuffer returned null", diag_buffer));
     }
 
-    return CompiledProgram{tt::runtime::Binary(std::move(fb))};
+    CompiledProgram prog{std::move(fb)};
+    cache.insert(key, prog);
+
+    return prog;
 }
 
 } // namespace
