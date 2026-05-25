@@ -8276,8 +8276,7 @@ public:
     }
 
     auto kAttrStr = frontendAttrs.getAs<mlir::StringAttr>("k");
-    auto numShardsAttrStr =
-        frontendAttrs.getAs<mlir::StringAttr>("num_shards");
+    auto numShardsAttrStr = frontendAttrs.getAs<mlir::StringAttr>("num_shards");
     if (!kAttrStr || !numShardsAttrStr) {
       return rewriter.notifyMatchFailure(
           srcOp, "Missing k or num_shards in frontend_attributes.");
@@ -8299,8 +8298,7 @@ public:
 
     // Step 1: local topk on this device's vocab shard.
     auto topkValType = RankedTensorType::get({batch, k}, elemType);
-    auto topkIndType =
-        RankedTensorType::get({batch, k}, rewriter.getI32Type());
+    auto topkIndType = RankedTensorType::get({batch, k}, rewriter.getI32Type());
     auto topkOp = rewriter.create<ttir::TopKOp>(
         loc, TypeRange{topkValType, topkIndType}, logits,
         rewriter.getI32IntegerAttr(k),
@@ -8339,18 +8337,19 @@ public:
         }
       }
     }
-    auto offsetType = RankedTensorType::get({batch, totalCandidates},
-                                            rewriter.getI32Type());
+    auto offsetType =
+        RankedTensorType::get({batch, totalCandidates}, rewriter.getI32Type());
     auto offsetAttr = DenseElementsAttr::get(
         offsetType, llvm::ArrayRef<int32_t>(offsetValues));
     auto offsetConst =
         rewriter.create<ttir::ConstantOp>(loc, offsetType, offsetAttr);
 
-    auto globalInds = rewriter.create<ttir::AddOp>(
-        loc, gatheredIndType, gatheredInds.getResult(),
-        offsetConst.getResult());
+    auto globalInds = rewriter.create<ttir::AddOp>(loc, gatheredIndType,
+                                                   gatheredInds.getResult(),
+                                                   offsetConst.getResult());
 
-    rewriter.replaceOp(srcOp, {gatheredVals.getResult(), globalInds.getResult()});
+    rewriter.replaceOp(srcOp,
+                       {gatheredVals.getResult(), globalInds.getResult()});
     return success();
   }
 };
