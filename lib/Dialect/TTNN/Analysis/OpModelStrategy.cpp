@@ -30,27 +30,36 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
     return isSharded;
   }
 
-  // 3. Less DRAM input transfer > more DRAM input transfer.
+  // 3. Pre-validated rulebook hint wins when both are L1+sharded.
+  // The rulebook has already determined it's architecturally superior
+  // (e.g. DRAM-sharded matmul beats high-core-count 1D mcast despite
+  // fewer output storage cores; see unified_ds_analysis.md §4e).
+  if (isPrevalidated != other.isPrevalidated) {
+    return isPrevalidated;
+  }
+
+  // 4. Less DRAM input transfer > more DRAM input transfer.
   if (inputDramBytes != other.inputDramBytes) {
     return inputDramBytes < other.inputDramBytes;
   }
 
-  // 4. No reshard > reshard.
+  // 5. No reshard > reshard.
   if (requiresReshard != other.requiresReshard) {
     return !requiresReshard;
   }
 
-  // 5. More cores > fewer cores.
+  // 6. More cores > fewer cores.
   if (coreCount != other.coreCount) {
     return coreCount > other.coreCount;
   }
 
-  // 6. Lower L1 usage is better (leaves more room for other tensors).
+  // 7. Lower L1 usage is better (leaves more room for other tensors).
   return outputL1Usage < other.outputL1Usage;
 }
 
 bool LayoutScore::operator==(const LayoutScore &other) const {
   return isL1 == other.isL1 && isSharded == other.isSharded &&
+         isPrevalidated == other.isPrevalidated &&
          inputDramBytes == other.inputDramBytes &&
          requiresReshard == other.requiresReshard &&
          coreCount == other.coreCount && outputL1Usage == other.outputL1Usage;

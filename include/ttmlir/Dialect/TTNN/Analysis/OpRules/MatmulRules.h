@@ -9,6 +9,8 @@
 
 namespace mlir::tt::ttnn {
 
+class MatmulOp;
+
 //===----------------------------------------------------------------------===//
 // Matmul/Linear rules:
 //
@@ -24,17 +26,33 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 struct MatmulRuleBook : OpRuleBook {
-  /// Output hints: partial configs without L1-interleaved.
+  /// Output hints: for DRAM-eligible matmuls, a pre-validated DRAM-sharded
+  /// hint (L1 WIDTH_SHARDED) as primary; existing partial configs as fallback.
+  /// For others: existing behavior (partial configs, no L1-interleaved).
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 
-  /// Reject all sharded RHS inputs (operand 1). LHS and bias are unrestricted.
+  /// Operand 1 (weight): reject L1-sharded. DRAM-sharded is allowed for the
+  /// DRAM-sharded matmul path (injected by applyOpSpecificAttrs).
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
   /// Apply MatmulProgramConfig + fused activation dedup.
+  /// For DRAM-sharded candidates: also inserts weight/in0 reshards and
+  /// strips the activation attr (inserting a separate activation op after).
   void applyOpSpecificAttrs(Operation *op,
                             const BeamCandidate &candidate) const override;
+
+private:
+  /// Build a pre-validated DRAM-sharded OpConfig for eligible matmuls.
+  /// Returns nullopt if the matmul is not eligible or params don't fit L1.
+  std::optional<OpConfig> buildDRAMShardingHint(Operation *op) const;
+
+  /// Apply the full DRAM sharding IR transformation to an eligible MatmulOp.
+  /// Called from applyOpSpecificAttrs when the chosen candidate carries a
+  /// MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr.
+  void applyDRAMShardedTransformation(MatmulOp matmulOp,
+                                      const MatmulAttrs &matmulAttrs) const;
 };
 
 } // namespace mlir::tt::ttnn

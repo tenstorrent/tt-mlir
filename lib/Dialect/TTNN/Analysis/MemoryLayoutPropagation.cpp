@@ -162,6 +162,42 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
     const std::vector<TTNNLayoutAttr> &inputLayouts, bool anyReshard,
     const llvm::SmallVector<size_t> &producerCandidateIndices,
     const llvm::DenseMap<size_t, TTNNLayoutAttr> &reshardLayouts) {
+  // Pre-validated hints (e.g. DRAM-sharded matmul) bypass backend validation:
+  // the rulebook has already verified the params and will apply the full IR
+  // transformation (input reshards, program/compute config) in applyOpSpecificAttrs.
+  if (hint.prevalidated) {
+    assert(hint.outputLayout && "prevalidated hint must have a concrete output layout");
+    BeamCandidate candidate;
+    candidate.configHint = OpConfig(hint.outputLayout, hint.opSpecificAttrs);
+    candidate.validationResult =
+        op_constraint_validation::ValidationResult::success(0, hint.outputLayout);
+    candidate.score = scoreCandidate(op, hint, candidate.validationResult, anyReshard);
+    candidate.score.inputDramBytes = computeInputDramBytes(inputLayouts);
+    candidate.score.isPrevalidated = true;
+    llvm::errs() << "[DS] evaluateHint prevalidated: op=" << op->getName()
+                 << " isPrevalidated=" << candidate.score.isPrevalidated
+                 << " isL1=" << candidate.score.isL1
+                 << " isSharded=" << candidate.score.isSharded << "\n";
+    candidate.inputLayouts = inputLayouts;
+    candidate.producerCandidateIndices = producerCandidateIndices;
+    // Prevalidated hints (e.g. DS matmul) manage their own input reshards in
+    // applyOpSpecificAttrs. Don't carry generic reshardLayouts or the second
+    // pass in applyToIR will clobber the DS-inserted reshard.
+    candidate.outputLayouts = {hint.outputLayout};
+
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "    PREVALIDATED candidate for {0}: hint[{1}]={2} "
+                 "score(L1={3},sharded={4},dramIn={5},reshard={6},cores={7})",
+                 op->getName(), hintIdx, candidate.configHint.toCompactString(),
+                 candidate.score.isL1, candidate.score.isSharded,
+                 candidate.score.inputDramBytes, candidate.score.requiresReshard,
+                 candidate.score.coreCount);
+
+    observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
+                           &candidate, /*failureReason=*/"");
+    return candidate;
+  }
+
   auto result =
       op_constraint_validation::validateOperation(op, inputLayouts, hint);
   if (result.isSuccess()) {
@@ -523,8 +559,15 @@ MemoryLayoutPropagation::processOp(Operation *op) {
     // Try primary output hints with this input combination.
     bool gotSharded = false;
     for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
-      if (!ruleBook.isValidOutputHintForInputs(outputHints.hints[hi],
-                                               inputLayouts)) {
+      bool valid = ruleBook.isValidOutputHintForInputs(outputHints.hints[hi],
+                                                      inputLayouts);
+      if (outputHints.hints[hi].prevalidated) {
+        llvm::errs() << "[DS] processOp loop: op=" << op->getName()
+                     << " prevalidated hint hi=" << hi
+                     << " validForInputs=" << valid
+                     << " numInputs=" << inputLayouts.size() << "\n";
+      }
+      if (!valid) {
         continue;
       }
       if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
@@ -1351,6 +1394,13 @@ void MemoryLayoutPropagation::applyToIR() {
   func->walk([&](Operation *op) {
     const BeamCandidate *chosen = getChosenCandidate(op);
     if (!chosen) {
+      return;
+    }
+    // Prevalidated candidates (e.g. DS matmul) manage all their own input
+    // reshards in applyOpSpecificAttrs. consolidateBeam may have patched
+    // reshardLayouts for fork-point consumers after evaluateHint cleared them,
+    // so we must guard here rather than relying on reshardLayouts being empty.
+    if (chosen->score.isPrevalidated) {
       return;
     }
     for (const auto &[operandIdx, reshardLayout] : chosen->reshardLayouts) {

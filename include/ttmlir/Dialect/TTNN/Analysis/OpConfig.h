@@ -26,6 +26,12 @@ struct OpConfig {
       std::variant<UninitializedAttrs, Conv2dAttrs, MatmulAttrs>;
   OpSpecificAttrs opSpecificAttrs;
 
+  // When true, evaluateHint skips backend validation and accepts this config
+  // directly. Used for DRAM-sharded matmul hints whose params are pre-computed
+  // by MatmulRuleBook (the backend model rejects the hint because it sees
+  // DRAM-interleaved weight, which only gets resharded in applyOpSpecificAttrs).
+  bool prevalidated = false;
+
   // Default Config Constructors.
   OpConfig() = default;
   OpConfig(TTNNLayoutAttr outputLayout)
