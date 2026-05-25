@@ -164,8 +164,8 @@ static LogicalResult materialize(scf::ForallOp forall) {
   }
   rebuiltThreads[regionIdx] =
       ThreadAttr::get(generic.getContext(), origThread.getThreadType(),
-                      origThread.getKernelSymbol(), origThread.getNocIndex(),
-                      numComputeThreads);
+                      origThread.getKernelSymbol(),
+                      origThread.getProcessorIndex(), numComputeThreads);
   generic.setThreadsAttr(ArrayAttr::get(generic.getContext(), rebuiltThreads));
 
   OpBuilder builder(forall);

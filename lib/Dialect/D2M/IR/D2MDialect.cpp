@@ -112,10 +112,7 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
   if (getProcessorIndex() != -1) {
     printer << ", processor = " << getProcessorIndex();
   }
-  if (getNumThreadsPerCluster() != 1) {
-    printer << ", num_threads_per_cluster = " << getNumThreadsPerCluster();
-  }
-    if (getNumComputeThreads() != 1) {
+  if (getNumComputeThreads() != 1) {
     printer << ", num_compute_threads = " << getNumComputeThreads();
   }
   printer << ">";

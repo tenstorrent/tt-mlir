@@ -129,8 +129,7 @@ public:
             stringifyEnum(threadType).str() + "_kernel" + Twine(unique++).str();
         auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
             threadType, builder.getAttr<SymbolRefAttr>(symbolName),
-            processorIndex,
-            numComputeThreads);
+            processorIndex, numComputeThreads);
         auto threadAttrWithoutSym = builder.getAttr<ThreadAttr>(
             threadType, nullptr, processorIndex, numComputeThreads);
         Location loc = region.getNumArguments() > 0

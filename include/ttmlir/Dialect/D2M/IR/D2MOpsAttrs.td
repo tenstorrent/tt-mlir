@@ -28,7 +28,7 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
 
     Compute thread regions also carry
     numComputeThreads, the number of compute threads used in a Neo L1 region.
-    
+
     A value of -1 means unassigned.
   }];
   let parameters = (ins
@@ -68,7 +68,7 @@ def D2M_ComputeThreadMappingAttr : AttrDef<D2M_Dialect, "ComputeThreadMapping",
   let summary = "scf.forall mapping attribute for Quasar Tensix threads.";
   let description = [{
     Marks an scf.forall as describing parallelism across N Tensix threads
-    in one Neo. D2MMaterializeComputeThreadForall recognizes this attribute 
+    in one Neo. D2MMaterializeComputeThreadForall recognizes this attribute
     and lowers the enclosing scf.forall to single-program SPMD form in D2M IR.
   }];
   let parameters = (ins "int64_t":$num);
