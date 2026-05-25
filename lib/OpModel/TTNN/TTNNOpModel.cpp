@@ -5365,8 +5365,72 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         /*return_weights_and_bias=*/false);
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     conv2dOpQuery);
+  llvm::Expected<OpConstraints> queryConstraints =
+      operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                  conv2dOpQuery);
+
+  if (queryConstraints) {
+    return queryConstraints;
+  }
+
+  // Analytical fallback for HEIGHT_SHARDED ROW_MAJOR input when the graph-trace
+  // query fails.  The program factory called during the dry-run accesses
+  // input_tensor.buffer() (e.g. untilize_with_halo_program_factory.cpp) which
+  // is nullptr for HEIGHT_SHARDED tensors constructed from TensorSpec in the
+  // op-model singleton context (no device buffer allocation).  Same root cause
+  // as the bypasses in ReshapeOp::getOpConstraints and
+  // SliceStaticOp::getOpConstraints.
+  //
+  // We only apply this fallback for HS RM inputs; for other input types the
+  // query error is returned as-is.
+  //
+  // L1 estimates (conservative, bf16):
+  //   inputShardBytes  = ceil(total_input_elems * 2 / numCores)
+  //   outputShardBytes = tile-aligned (rowsPerCore, out_channels) shard
+  //   cbPeak           = 2 * (inputShard + outputShard)  [double-buffered CB]
+  bool isHSRM =
+      inputLayout && inputLayout.getMemLayout() &&
+      inputLayout.getMemLayout().getValue() ==
+          TensorMemoryLayout::HeightSharded &&
+      inputLayout.getLayout() == Layout::RowMajor;
+  if (!isHSRM) {
+    return queryConstraints;
+  }
+
+  llvm::consumeError(queryConstraints.takeError());
+
+  auto gridShape = inputLayout.getGridShape();
+  int64_t numCores = 1;
+  for (auto d : gridShape)
+    numCores *= static_cast<int64_t>(d);
+
+  int64_t inputElems = 1;
+  for (auto d : inputShape)
+    inputElems *= d;
+  constexpr int64_t kElemBytes = 2; // bf16
+  size_t inputShardBytes =
+      static_cast<size_t>((inputElems * kElemBytes + numCores - 1) / numCores);
+
+  int64_t rowsPerCore =
+      (static_cast<int64_t>(batch_size) * input_height * input_width +
+       numCores - 1) /
+      numCores;
+  int64_t tiledRowsPerCore = ((rowsPerCore + 31) / 32) * 32;
+  int64_t tiledCols = (static_cast<int64_t>(out_channels) + 31) / 32 * 32;
+  size_t outputShardBytes =
+      static_cast<size_t>(tiledRowsPerCore * tiledCols * kElemBytes);
+
+  size_t cbPeak = 2 * (inputShardBytes + outputShardBytes);
+  size_t outputBuffer =
+      (outputLayout && outputLayout.getBufferType() == BufferType::L1)
+          ? outputShardBytes
+          : 0;
+
+  llvm::SmallVector<TTNNLayoutAttr> outLayouts;
+  if (outputLayout) {
+    outLayouts.push_back(outputLayout);
+  }
+  return OpConstraints(cbPeak, 0, cbPeak, outputBuffer, outLayouts);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL

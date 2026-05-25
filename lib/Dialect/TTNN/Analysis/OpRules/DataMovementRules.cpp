@@ -318,8 +318,33 @@ OutputHints ReshapeRuleBook::getOutputHints(
     // upgrading DRAM→L1 and breaking the zero-cost view path.
     return layout_filter_utils::nullHintOnly();
   }
+
   // Non-view reshape: sharded output not beneficial, use non-sharded configs.
-  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+  OutputHints result = layout_filter_utils::nonShardedOutputHints(legalConfigs);
+
+  // Also include the NULL hint when the last dimension is unchanged (condition 1
+  // of canReshapeBeView).  canReshapeBeView returned false only because the
+  // tiled tile-alignment check (condition 2) failed — the reshape is NOT a tiled
+  // view — but it IS a Row-Major view.  When an upstream op (e.g. upsample)
+  // produces HEIGHT_SHARDED ROW_MAJOR output, the NULL hint causes
+  // ReshapeOp::getOpConstraints to propagate the HS RM layout through the
+  // reshape as a zero-cost view (analytical bypass).  For non-RM inputs the real
+  // QUERY_OP_CONSTRAINTS is invoked, which either succeeds harmlessly or fails
+  // and the optimizer falls back to the nonShardedOutputHints above.
+  //
+  // Note: `canReshapeBeView` uses the original pre-optimizer IR type for its
+  // isTiled() check, so it cannot see the HS RM layout that the optimizer may
+  // have assigned to the upstream op.  This extra NULL hint closes that gap.
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (inputType && outputType && !inputType.getShape().empty() &&
+      !outputType.getShape().empty() &&
+      inputType.getShape().back() == outputType.getShape().back()) {
+    result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+  }
+  return result;
 }
 
 //===----------------------------------------------------------------------===//
