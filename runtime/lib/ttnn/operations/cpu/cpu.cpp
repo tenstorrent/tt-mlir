@@ -201,6 +201,9 @@ std::vector<::ttnn::Tensor> dispatchCPUHoistedOp(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbOutputs,
     ::ttnn::MeshDevice &meshDevice) {
+  LOG_ASSERT(inputs.size() == fbInputs->size(),
+             "dispatchCPUHoistedOp: input count mismatch: got ", inputs.size(),
+             ", CpuOp expects ", fbInputs->size());
   if (meshDevice.num_devices() > 1) {
     return runMultiChip(fn, inputs, fbInputs, fbOutputs, meshDevice);
   }
@@ -253,6 +256,19 @@ invokeCpuOp(ProgramContext &context, const ::tt::target::ttnn::CpuOp *op,
         ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(inputs[i]);
     LOG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(ttnnTensor.storage_type()),
                "invokeCpuOp: input ", i, " must be a host tensor");
+
+    const ::tt::target::ttnn::TensorRef *expectedRef = op->ins()->Get(i);
+    ::ttnn::DataType expectedDataType =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(
+            expectedRef->desc()->layout()->memory_desc()->data_type());
+    LOG_ASSERT(ttnnTensor.dtype() == expectedDataType, "invokeCpuOp: input ", i,
+               " dtype mismatch");
+
+    ::ttnn::Shape expectedShape =
+        utils::toTTNNShape(*expectedRef->desc()->shape());
+    LOG_ASSERT(ttnnTensor.logical_shape() == expectedShape,
+               "invokeCpuOp: input ", i, " shape mismatch");
+
     ttnnInputs.push_back(ttnnTensor);
   }
 
