@@ -4,6 +4,7 @@
 
 // Monitor condition slots.
 constexpr size_t mc_dbg = 0;
+constexpr size_t mc_comp_cache = 1;
 
 bool monitor(size_t slot, bool cond);
 void print_monitor(size_t slot);

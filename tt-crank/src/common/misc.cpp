@@ -11,6 +11,8 @@ std::string slot_str(size_t slot) {
     switch (slot) {
         case mc_dbg:
             return "dbg";
+        case mc_comp_cache:
+            return "compiler cache";
         default:
             return std::format("slot {}", slot);
     }

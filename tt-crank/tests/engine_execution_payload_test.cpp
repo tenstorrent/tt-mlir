@@ -96,6 +96,31 @@ TEST(EngineExecutionPayloadTest, RunsTrivialAdd) {
     }
 }
 
+TEST(EngineExecutionPayloadTest, RunsMultipleAdds) {
+    if (!device_available()) {
+        GTEST_SKIP() << "no Tenstorrent device available.";
+    }
+
+    for (size_t i = 0; i < 16; ++i) {
+        auto program = compile_for_current_device();
+        tt::kurbla::ExecutionPayload payload(program);
+
+        const auto input_descs = program->input_descs(0);
+        ASSERT_EQ(input_descs.size(), 2U);
+
+        payload.bind_tensor(make_filled_host_tensor(input_descs[0], 2.0F), 0);
+        payload.bind_tensor(make_filled_host_tensor(input_descs[1], 2.0F), 1);
+
+        std::vector<tt::runtime::Tensor> outputs = payload.run();
+        ASSERT_EQ(outputs.size(), 1U);
+
+        std::vector<float> values = readback_floats(outputs[0]);
+        for (float v : values) {
+            EXPECT_EQ(v, 4.0F);
+        }
+    }
+}
+
 TEST(EngineExecutionPayloadTest, ReuseAcrossRuns) {
     if (!device_available()) {
         GTEST_SKIP() << "no Tenstorrent device available.";
