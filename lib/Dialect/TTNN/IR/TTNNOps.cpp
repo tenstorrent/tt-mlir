@@ -3719,7 +3719,7 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
   // to model the full ReduceType list but only the 'Sum' reduce type can be
   // lowered into TTNN.
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
-    return emitOpError("Invalid reduction op for reduce scatter op.");
+    return emitOpError("Invalid reduction type for reduce scatter op.");
   }
 
   return success();
@@ -3829,7 +3829,7 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 
   // Currently TTNN only supports the sum reduce types.
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
-    return emitOpError("Invalid reduction op for all reduce op.");
+    return emitOpError("Invalid reduction type for all reduce op.");
   }
 
   return success();
@@ -3856,7 +3856,7 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 
   // Currently TTNN only supports the sum reduce types.
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
-    return emitOpError("Invalid reduction op for all reduce async op.");
+    return emitOpError("Invalid reduction type for all reduce async op.");
   }
 
   return success();

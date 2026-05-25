@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpRewritePattern.h"
@@ -640,6 +641,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<
           GatherSi32Workaround, TTNNAllReduceWorkarounds,
+          workarounds::decomposition::TTNNAllReduceReshapeWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
