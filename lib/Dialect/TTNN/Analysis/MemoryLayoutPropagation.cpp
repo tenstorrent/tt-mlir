@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
+
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
@@ -19,13 +19,11 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
-#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "llvm/ADT/DenseSet.h"
 
 #include <algorithm>
 #include <map>
@@ -521,8 +519,9 @@ MemoryLayoutPropagation::processOp(Operation *op) {
     // Try primary output hints with this input combination.
     bool gotSharded = false;
     for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
-      if (!ruleBook.isValidOutputHintForInputs(outputHints.hints[hi],
-                                               inputLayouts)) {
+      bool valid = ruleBook.isValidOutputHintForInputs(outputHints.hints[hi],
+                                                      inputLayouts);
+      if (!valid) {
         continue;
       }
       if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
@@ -943,6 +942,31 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
       addL1InterleavedFallbacks(candidatesForOperand, op, producerBeam,
                                 currentLayout, tensorType, resultIdx,
                                 maxInputCandidatesPerOperand);
+    }
+
+    // Inject op-specific extra reshard candidates (e.g. DRAM width-sharded
+    // weight and L1 1x8 activation for DS matmul) before standard reshards so
+    // they are not displaced when the candidate list reaches the cap.
+    for (TTNNLayoutAttr extraLayout :
+         getRuleBook(op).getExtraInputReshardCandidates(op, operandIdx)) {
+      bool alreadyPresent =
+          llvm::any_of(candidatesForOperand, [&](const InputCandidate &ic) {
+            return ic.layout == extraLayout;
+          });
+      if (alreadyPresent) {
+        continue;
+      }
+      size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
+      for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
+        if (candidatesForOperand.size() >= maxInputCandidatesPerOperand) {
+          break;
+        }
+        InputCandidate ic;
+        ic.layout = extraLayout;
+        ic.producerCandidateIndex = pIdx;
+        ic.isReshard = true;
+        candidatesForOperand.push_back(ic);
+      }
     }
 
     addReshardCandidates(candidatesForOperand, op, operandIdx, operand,
@@ -1445,18 +1469,16 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
     }
   }
 
-  // Build the output layout by taking the producer's current layout and
-  // applying the target buffer type, memory layout, and grid.
-  TTNNLayoutAttr producerLayout =
-      utils::getLayoutAttrFromTensor(producerTensorType);
-  TTNNLayoutAttr outputLayout =
-      TTNNLayoutAttr::Builder(producerLayout, producerTensorType.getShape())
-          .setBufferType(reshardLayout.getBufferType())
-          .setMemoryLayout(reshardLayout.getMemLayout())
-          .setGridShape(reshardLayout.getGridShape())
-          .buildWithCanonicalCorePlacement(deviceAttr);
+  // Use reshardLayout directly instead of rebuilding via Builder. For layouts
+  // from LegalTensorLayoutAnalysis the Builder reproduces the same shard dims.
+  // For DRAM width-sharded weight, buildDRAMShardedWeightLayout uses
+  // padToDRAMBanks to produce a tile-aligned shard width per bank
+  // (ceil(N / (numBanks * tileSize)) * tileSize). The Builder computes
+  // ceil(N / numBanks) in element space, which may not be tile-aligned. The
+  // kernel factory reads shard width as an integer tile count, so a
+  // non-tile-aligned shard silently truncates and produces wrong results.
   RankedTensorType newTensorType =
-      utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
+      utils::RankedTensorTypeFactory::create(producerTensorType, reshardLayout);
 
   OpBuilder builder(consumerOp);
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),

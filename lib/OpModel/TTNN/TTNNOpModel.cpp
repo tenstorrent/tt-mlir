@@ -4450,8 +4450,17 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
 
+  // For DS program config, activation is applied as a separate elementwise op
+  // after the matmul (see MatmulRules::applyDRAMShardedTransformation), so the
+  // DS kernel must not receive it — same logic as programCarriesFusedActivation
+  // for fused configs (e.g. gate_proj in SwiGLU carries activation='silu').
+  bool isDSConfig =
+      programConfigAttr &&
+      mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          *programConfigAttr);
   std::optional<std::string> activationStr;
-  if (activation && !detail::programCarriesFusedActivation(programConfig)) {
+  if (activation && !detail::programCarriesFusedActivation(programConfig) &&
+      !isDSConfig) {
     activationStr = activation->str();
   }
 
