@@ -146,23 +146,10 @@ struct PerfTargets {
   double topPerfSamplesPerSec = 0.0;
 };
 
-// Bytes per scalar element. For TileType elements, tile.getSizeBytes() is
-// the per-tile total — divide by tile element count to get per-scalar bytes
-// (~1.03 for BFP8, 2.0 for BF16). For non-tile element types, fall back to
-// the bit width.
+// Bytes per scalar element. Caller must ensure elementType is a plain
+// scalar (non-TileType); TTNN forward args reach this pass with scalar
+// element type and TTNNLayoutAttr encoding carrying the tile/dtype layout.
 inline double getBytesPerScalarElement(mlir::Type elementType) {
-  if (auto tile = mlir::dyn_cast<ttcore::TileType>(elementType)) {
-    auto shape = tile.getShape();
-    uint64_t tileElements = 1;
-    for (int64_t d : shape) {
-      tileElements *= static_cast<uint64_t>(d);
-    }
-    if (tileElements == 0) {
-      return 0.0;
-    }
-    return static_cast<double>(tile.getSizeBytes()) /
-           static_cast<double>(tileElements);
-  }
   return static_cast<double>(elementType.getIntOrFloatBitWidth()) / 8.0;
 }
 
@@ -308,6 +295,13 @@ private:
       if (!tensorType) {
         continue;
       }
+      // TTNN forward args carry a scalar element type with TTNNLayoutAttr
+      // encoding. A TileType element would mean the outer shape is in
+      // tile counts, breaking the scalarVol/byte math below.
+      assert(!mlir::isa<ttcore::TileType>(tensorType.getElementType()) &&
+             "TTNNCollectPerfMetrics: unexpected TileType element on "
+             "forward arg; expected scalar element + TTNNLayoutAttr "
+             "encoding.");
       uint64_t scalarVol =
           tensorType.hasStaticShape()
               ? static_cast<uint64_t>(tensorType.getNumElements())
@@ -494,11 +488,9 @@ public:
     PerfTargets perfTargets;
     bool perfTargetsComputed = false;
 
-    // Identify the outer forward function for perf-target collection. The
-    // outer entry point is the only public forward-device func; sub-funcs
-    // produced by later passes are private. If zero match we silently skip;
-    // more than one is a compile error since the perf-target ceiling is
-    // defined per-entry-point.
+    // Identify the outer forward function for perf-target collection. All
+    // inputs / wegiht tensors should be visible from the argument list of this
+    // function. Nothing else is needed for the DRAM bound roofline calculation.
     {
       llvm::SmallVector<func::FuncOp> outerFuncs;
       module->walk([&](func::FuncOp funcOp) {
