@@ -98,6 +98,25 @@ OutputHints ConcatRuleBook::getOutputHints(
   // sharded). Promote sharded configs to primary hints to avoid wasting backend
   // calls on the guaranteed-to-fail NULL path.
   OutputHints result;
+
+  // Prefer L1 interleaved output over DRAM when the optimizer has legal L1
+  // configs available. Both inputs being interleaved (DRAM or L1) satisfy
+  // isValidInputCombination (same TensorMemoryLayout::Interleaved), so an L1
+  // interleaved output is always valid for interleaved-input concat. Placing
+  // these hints before the NULL/DRAM hint lets L1SpillManagement decide whether
+  // L1 budget is available; it evicts to DRAM automatically when tight.
+  for (const auto &cfg : legalConfigs) {
+    if (!cfg.outputLayout)
+      continue;
+    auto ml = cfg.outputLayout.getMemLayout();
+    if (isL1BufferType(cfg.outputLayout.getBufferType()) && ml &&
+        !isShardedMemoryLayout(ml.getValue())) {
+      result.hints.push_back(cfg);
+    }
+  }
+
+  // NULL hint → DRAM_MEMORY_CONFIG (tt-metal default). Tried after L1
+  // interleaved configs so DRAM is the fallback, not the primary path.
   result.hints.push_back(OpConfig(TTNNLayoutAttr()));
 
   // Reject sharded output hints when the concat output tensor has non-tile-
@@ -120,9 +139,8 @@ OutputHints ConcatRuleBook::getOutputHints(
   }
 
   for (const auto &cfg : legalConfigs) {
-    if (!cfg.outputLayout) {
+    if (!cfg.outputLayout)
       continue;
-    }
     auto memLayout = cfg.outputLayout.getMemLayout();
     if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
       result.hints.push_back(cfg);

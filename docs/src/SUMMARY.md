@@ -28,6 +28,7 @@
   - [`EmitPy`](./emitpy.md)
 - [Optimizer](./optimizer.md)
   - [Fix: HS Upsample Spill Before Width-Trim Slice](./op-rules-hs-slice-spill-fix.md)
+  - [Analysis: FPN Non-Sharded Ops and Fix Roadmap](./op-rules-fpn-non-sharded-analysis.md)
 - [PyKernel](./pykernel.md)
 - [ttnn-jit](./ttnn-jit.md)
 - [Creating bug repros for TTNN](./ttnn-bug-repros.md)
