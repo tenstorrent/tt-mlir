@@ -2740,16 +2740,6 @@ public:
       return success();
     }
 
-    // Create a cloned tensor to skip P2P ops for self-mapped
-    // source_target_pairs.
-    mlir::Value resultTensor =
-        rewriter
-            .create<ttnn::AssignOp>(
-                op.getLoc(),
-                this->getTypeConverter()->convertType(op.getType()),
-                adaptor.getInput(), dTypeAttr)
-            .getResult();
-
     auto meshDevice = ttcore::lookupDevice(op);
     llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
     int64_t numDevices =
@@ -2758,12 +2748,30 @@ public:
     // Record visited and unvisited devices
     llvm::SmallBitVector unvisited(static_cast<unsigned>(numDevices), true);
 
-    // Iterate over each source-target pair and create ttnn::PointToPointOp.
+    bool hasSelfMappedPair = false;
     constexpr size_t PAIR_SIZE = 2;
     for (size_t i = 0; i < pairs.size(); i += PAIR_SIZE) {
       int64_t sourceDevice = pairs[i];
       int64_t targetDevice = pairs[i + 1];
       unvisited.reset(static_cast<unsigned>(targetDevice));
+      hasSelfMappedPair |= sourceDevice == targetDevice;
+    }
+
+    bool needsZeroInit = !hasSelfMappedPair && unvisited.any();
+    mlir::Value resultTensor =
+        needsZeroInit
+            ? createZerosTensor(op, adaptor.getInput(), rewriter)
+            : rewriter
+                  .create<ttnn::AssignOp>(
+                      op.getLoc(),
+                      this->getTypeConverter()->convertType(op.getType()),
+                      adaptor.getInput(), dTypeAttr)
+                  .getResult();
+
+    // Iterate over each source-target pair and create ttnn::PointToPointOp.
+    for (size_t i = 0; i < pairs.size(); i += PAIR_SIZE) {
+      int64_t sourceDevice = pairs[i];
+      int64_t targetDevice = pairs[i + 1];
       if (sourceDevice == targetDevice) {
         // We already cloned the tensor for this device, so we can skip it.
         continue;
@@ -2783,7 +2791,7 @@ public:
 
     // The collective permute operation should return zeros for devices that are
     // not in the source_target_pairs. Here we handle the unvisited devices.
-    if (unvisited.any()) {
+    if (hasSelfMappedPair && unvisited.any()) {
       mlir::Value zerosTensor =
           createZerosTensor(op, adaptor.getInput(), rewriter);
       // Choose a source device different from the target since PointToPointOp
