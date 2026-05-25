@@ -240,11 +240,8 @@ static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    // Stale entries can appear here: DM-thread synchronizable ops (e.g.
-    // gather_core) are cloned into the compute region by SplitUnifiedThread
-    // before the dead-op cleanup runs, so their operands surface in the
-    // compute-region cbUsageInfo without a matching compute-side pair.
-    // Skip such entries; the real DM-side handling happens elsewhere.
+    // Skip non-paired entries (e.g. DM-thread sync ops like gather_core
+    // cloned into the compute region before dead-op cleanup).
     if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
       continue;
     }
@@ -305,11 +302,8 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
               synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
                   localBuffer);
 
-          // get the associated producer for this operand
-          // Assumes only one producer for this local buffer. Skip if the
-          // cbUsageInfo entry isn't a clean producer-consumer pair (can
-          // happen when cloned DM-thread sync ops are still in the
-          // compute region during this analysis).
+          // Skip non-paired entries (e.g. cloned DM-thread sync ops still
+          // visible in the compute region during this analysis).
           if (cbUsageInfo[localBuffer].producers.size() != 1 ||
               cbUsageInfo[localBuffer].consumers.size() != 1) {
             continue;
@@ -345,9 +339,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
               synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
                   localBuffer);
 
-          // Get the associated consumer for this operand.
-          // Assumes only one consumer for this local buffer. Skip if the
-          // cbUsageInfo entry isn't a clean producer-consumer pair.
+          // Skip non-paired entries (see processSharedBufferPairs).
           if (cbUsageInfo[localBuffer].producers.size() != 1 ||
               cbUsageInfo[localBuffer].consumers.size() != 1) {
             continue;
@@ -389,8 +381,7 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    // Skip entries that aren't clean producer-consumer pairs (defensive
-    // against stale entries from cross-region cloning).
+    // Skip non-paired entries (see processSharedBufferPairs).
     if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
       continue;
     }
@@ -408,10 +399,9 @@ static LogicalResult eraseAliasedLoadStoreOps(
   return success();
 }
 
-// Returns true if `value` is a regular operand of `generic`. Unlike
-// `GenericOp::getOperandIndex`, this does not assert when the value is
-// absent. Used to gate buffer-to-CB conversion: only generic operands
-// (which have associated CB ports) can be converted via `getOrCreateCB`.
+// Returns true if `value` is a regular operand of `generic`. Used to gate
+// buffer-to-CB conversion (only generic operands carry CB ports);
+// `getOperandIndex` would assert if the value is not an operand.
 static bool isGenericOperand(GenericOp generic, Value value) {
   for (unsigned i = 0, e = generic.getNumOperands(); i < e; ++i) {
     if (generic.getOperand(i) == value) {
@@ -509,13 +499,10 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
     rewriter.eraseOp(copyOp);
   }
 
-  // Convert implicit-form gather_core ops to explicit CB form, per side.
-  // Each side is converted independently: if a side's implicit operand is
-  // a generic operand of the parent generic (and therefore has an
-  // associated CB port), it becomes a `!d2m.cb<memref<...>>`; otherwise it
-  // is left as-is (typically a scratch alloc inside the DM block, which
-  // does not have a CB association at this stage). All four resulting
-  // forms are accepted by the verifier and the downstream lowering.
+  // gather_core: per-side conversion to explicit CB form. A side becomes
+  // a `!d2m.cb<...>` only when its implicit operand is a generic operand
+  // (i.e. it carries a CB port). Scratch allocs inside the DM block stay
+  // as memrefs.
   for (GatherCoreOp gatherOp : gathers) {
     GenericOp parentGeneric = gatherOp->getParentOfType<GenericOp>();
     Value src = gatherOp.getSrc();
@@ -549,8 +536,7 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
         gatherOp.getLoc(), /*result=*/Type{}, newSrc, newDst, newSrcCb,
         newDstCb, gatherOp.getGroupStartIndex(), gatherOp.getGroupShape(),
         gatherOp.getCollectorIndex());
-    // Preserve preallocated semaphore indices set by
-    // D2MPreallocateMcastSemaphores (needed by LowerLoadStoreOpsToDMA).
+    // Preserve preallocated_semaphores so LowerLoadStoreOpsToDMA can find it.
     if (auto semAttr = gatherOp->getAttr("preallocated_semaphores")) {
       newGather->setAttr("preallocated_semaphores", semAttr);
     }
@@ -577,9 +563,8 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
       continue;
     }
 
-    // Datamovement-thread ops: shard-level DMA ops, the device-synchronize
-    // op, and gather_core (which is not a ShardDMAOpInterface op but lives
-    // exclusively in the DM thread).
+    // DM-thread-only ops: shard-level DMA, device-synchronize, and
+    // gather_core (lives in the DM thread but is not a ShardDMAOpInterface).
     bool isDMAOp =
         isa<ShardDMAOpInterface, DeviceSynchronizeOp, GatherCoreOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);

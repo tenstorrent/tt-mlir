@@ -992,9 +992,8 @@ SmallVector<Value> mapVirtualToPhysicalCoreIndex(OpBuilder &builder,
   TT_assertv(map.getNumDims() == virtualCoreIndex.size(),
              "Expected virtual-to-physical grid map input rank to match core "
              "index rank.");
-  // The map may either return purely core coordinates, or a leading device
-  // result followed by core coordinates. Skip the device result in the
-  // latter case.
+  // Maps that include a leading device result expose
+  // {device, coreY, coreX, ...}; skip the device result if present.
   unsigned firstCoreResult =
       map.getNumResults() == virtualCoreIndex.size() ? 0 : 1;
   TT_assertv(map.getNumResults() >= firstCoreResult + virtualCoreIndex.size(),

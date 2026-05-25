@@ -200,14 +200,11 @@ private:
   bool debugCoalescingInference;
 
 public:
-  // Cross-core local-L1 read: %src is a plain local memref and srcCore
-  // selects the remote core to read from. The source memref has no grid
-  // component, so the expansion is a single fully-indexed read of the
-  // whole shard at offset 0 (or N reads if the local layout is not
-  // contiguous, but for V1 the only legal source kinds — scratch-style
-  // allocations and CB underlying memrefs — are flat). srcCore is
-  // preserved verbatim on the resulting dma_read; the actual NoC address
-  // construction happens in D2MToTTKernel.
+  // Cross-core local-L1 read: src is a plain local memref selected via
+  // srcCore. The source has no grid component, so a shard-level read
+  // collapses to a single fully-indexed read at offset 0 covering the
+  // whole shard. srcCore is preserved verbatim; NoC address construction
+  // happens in D2MToTTKernel.
   static LogicalResult rewriteCrossCoreLocalRead(PatternRewriter &rewriter,
                                                  DMAReadOp op) {
     Location loc = op.getLoc();

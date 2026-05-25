@@ -29,24 +29,16 @@ static bool needsMcastSemaphores(RemoteLoadOp remoteLoad) {
          !remoteLoad.getMcastShape().empty();
 }
 
-// Returns true if this op needs a local semaphore pair preallocated by this
-// pass. Currently: multicast RemoteLoadOp and any GatherCoreOp.
+// Returns true for ops that need a fresh pair of local semaphores allocated
+// on the parent generic. Multicast RemoteLoadOp uses them as a sender/
+// receiver handshake; GatherCoreOp as a source/collector handshake.
 static bool needsLocalSemaphorePair(Operation *op) {
   if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
     return needsMcastSemaphores(remoteLoad);
   }
-  if (mlir::isa<GatherCoreOp>(op)) {
-    return true;
-  }
-  return false;
+  return mlir::isa<GatherCoreOp>(op);
 }
 
-// Recursively collect all ops that need a local semaphore pair. RemoteLoadOps
-// with mcast and GatherCoreOps are processed uniformly: each gets two local
-// semaphores appended to the parent generic's additionalArgs. The exact
-// meaning of those two semaphores is op-specific (sender/receiver handshake
-// for mcast loads, source/collector handshake for gathers), but the storage
-// and indexing scheme is identical.
 static void collectSemaphoreOps(Block *block,
                                 SmallVectorImpl<Operation *> &semaphoreOps) {
   for (Operation &op : block->getOperations()) {

@@ -190,11 +190,10 @@ getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
 int32_t getNocElementAlignmentL1(
     Operation *op, const std::variant<RankedTensorType, MemRefType> &type);
 
-// Maps virtual core indices to physical core indices using the grid's
-// virtToPhysicalMap. If the map is empty/identity, returns the input
-// values unchanged. Used by passes that emit cross-core ops (gather_core,
-// remote_load mcast, etc.) where the lowered runtime arguments are
-// physical NoC coordinates but the surface IR carries virtual ones.
+// Apply the grid's virt-to-physical map to a virtual core index. Returns
+// the input unchanged if the map is empty/identity. Used by passes that
+// emit cross-core ops (multicast remote_load, gather_core, etc.) whose
+// runtime arguments are physical NoC coordinates.
 SmallVector<Value> mapVirtualToPhysicalCoreIndex(OpBuilder &builder,
                                                  Location loc,
                                                  ttcore::GridAttr grid,

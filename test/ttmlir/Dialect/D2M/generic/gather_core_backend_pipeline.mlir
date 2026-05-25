@@ -1,24 +1,12 @@
 // RUN: ttmlir-opt --d2m-be-pipeline --convert-d2m-to-ttkernel %s | FileCheck %s
 
-// End-to-end backend test for d2m.gather_core: takes a post-LowerToExplicitForm
-// fixture in unified-thread form, runs the entire D2M backend pipeline
-// (HoistCBAllocs -> SplitUnifiedThread -> PreallocateMcastSemaphores ->
-//  ScheduleDMA -> LowerLoadStoreOpsToDMA -> OptimizeDMA ->
-//  ExpandDMAReadCompositeView -> LowerDMAToFullyIndexedForm ->
-//  NormalizeThreadArgs -> GenericRegionsToFuncs), and finally the
-// D2M -> TTKernel conversion. This pins the full lowering chain for
-// gather_core in V1 (option (c) for dst CB asymmetry).
+// End-to-end backend test for d2m.gather_core: post-LowerToExplicitForm
+// fixture runs through the entire D2M backend pipeline + D2M->TTKernel.
 //
 // Fixture: 4x4 worker grid, 1x4 gather group at (0,0), collector at (0,0).
-// Each source shard is 2x4 tiles. Src/dst CB scratch buffers are
-// pre-allocated (post-D2MAllocate shape).
-//
-// The 1x4 group is statically degenerate on the Y axis, so the collectorDone
-// fan-out lowers to a loop of unicast ttkernel.noc_semaphore_inc calls rather
-// than to a single experimental::get_noc_multicast_addr +
-// noc_semaphore_set_multicast. See `LowerLoadStoreOpsToDMA.cpp` for the
-// gather-local degenerate-axis dispatch. The non-degenerate mcast path is
-// pinned by `gather_core_backend_pipeline_mcast.mlir`.
+// The 1x4 group is statically degenerate on Y, so collectorDone lowers to
+// a loop of unicast noc_semaphore_inc calls. The non-degenerate path is
+// pinned by gather_core_backend_pipeline_mcast.mlir.
 
 #l1 = #ttcore.memory_space<l1>
 #map = affine_map<(d0, d1) -> (d0, d1)>
@@ -28,61 +16,39 @@
 module attributes {ttcore.system_desc = #system_desc} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
 
-  // The backend pipeline lifts the d2m.generic into per-thread func.funcs
-  // via D2MGenericRegionsToFuncs. We expect one DM-thread kernel followed
-  // by one (empty) compute kernel.
-
   // CHECK-LABEL: func.func private @datamovement_kernel0
   //
-  // Compile-time arg spec: two local semaphores (collectorDone, sourceReady)
-  // and two CB ports (src + dst). All four surfaced via
-  // get_compile_time_arg_val + get_semaphore / get_cb.
+  // Compile-time args: two local semaphores + two CB ports.
   // CHECK-SAME: ttkernel.arg_spec
   // CHECK-SAME: arg_type = local_semaphore
   // CHECK-SAME: arg_type = local_semaphore
   // CHECK-SAME: arg_type = cb_port
   // CHECK-SAME: arg_type = cb_port
-  //
-  // Both semaphores and both CB ports are materialized at the top of the
-  // kernel body. dst CB comes first (its operand index in the generic is
-  // higher); src CB second. We bind names to use them in later CHECKs.
+  // dst CB binds first (higher operand index in the generic).
   // CHECK: %[[SEM_DONE:.*]] = ttkernel.get_semaphore
   // CHECK: %[[SEM_READY:.*]] = ttkernel.get_semaphore
   // CHECK: %[[DST_CB:.*]] = ttkernel.get_compile_time_arg_val({{.*}}) : () -> !ttkernel.cb
   // CHECK: %[[SRC_CB:.*]] = ttkernel.get_compile_time_arg_val({{.*}}) : () -> !ttkernel.cb
   //
-  // wait_front on the src CB happens outside the collector branch (every
-  // core in the group consumes one src-CB element).
+  // src CB wait sits outside the gates (every group core consumes one).
   // CHECK: ttkernel.cb_wait_front(%[[SRC_CB]], %{{.*}})
   //
-  // Two nested scf.if gates:
-  //   - outer: isInGroup (this core's logical coord is within the gather
-  //     group's [groupStart, groupStart + groupShape) rectangle); cores
-  //     outside the group skip the gather protocol entirely.
-  //   - inner: isCollector (this core's logical coord matches collectorIdx).
-  // Both use my_logical_y/x for the per-core test. Canonicalize may fold
-  // trivially-true in-group axis comparisons when the generic's grid is
-  // contained in the gather group's range on that axis (e.g. the X axis
-  // is in [0, 4) on a 4x4 grid for a 1x4 group), so the exact set of
-  // arith.cmpi/andi ops here is not pinned.
+  // Outer scf.if = isInGroup, inner = isCollector. Both gates rely on
+  // my_logical_y/x; Canonicalize may fold trivially-true axis tests when
+  // the generic's grid coincides with the gather group on that axis.
   // CHECK: ttkernel.my_logical_y
   // CHECK: ttkernel.my_logical_x
   // CHECK: scf.if %{{.*}} {
   // CHECK-NEXT: scf.if %{{.*}} {
 
-  // ---- Collector branch (inside both gates) ----
-  // Reserve the dst CB (only the collector does this; option (c)).
+  // Collector: dst CB reserve, sourceReady wait, gather DMA loop, then
+  // collectorDone fan-out, dst CB push.
   // CHECK: ttkernel.cb_reserve_back(%[[DST_CB]], %{{.*}})
-  //
-  // Wait for the other (group_volume - 1) sources, then reset the counter.
   // CHECK: ttkernel.experimental::semaphore_wait
   // CHECK: ttkernel.noc_semaphore_set
   //
-  // Gather loop: each iteration issues a cross-core dma_read whose virtual
-  // source coords come from the loop induction variable (via
-  // convert_logical_x_to_translated(%[[SX]])), NOT from my_logical_x. This
-  // proves the srcCore operand was carried end-to-end through
-  // LowerDMAToFullyIndexedForm and the D2MToTTKernel cross-core path.
+  // DMA loop: source coord comes from the loop iv (proves srcCore is
+  // carried end-to-end), not from my_logical_x.
   // CHECK: scf.for %[[SX:.*]] = %{{.*}} to %{{.*}} step %{{.*}} {
   // CHECK:   ttkernel.experimental::convert_logical_y_to_translated
   // CHECK:   ttkernel.experimental::convert_logical_x_to_translated(%[[SX]])
@@ -91,10 +57,7 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK:   ttkernel.noc_async_read_barrier
   // CHECK: }
   //
-  // Fan-out the collectorDone signal to every group core. The 1x4 group is
-  // statically degenerate on the Y axis, so this lowers to a loop of unicast
-  // noc_semaphore_inc calls (one per group core), NOT to
-  // experimental::get_noc_multicast_addr + noc_semaphore_set_multicast.
+  // 1x4 (degenerate Y): collectorDone fans out as a loop of unicast incs.
   // CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
   // CHECK:   ttkernel.experimental::convert_logical_y_to_translated
   // CHECK:   ttkernel.experimental::convert_logical_x_to_translated
@@ -104,13 +67,10 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK-NOT: ttkernel.experimental::get_noc_multicast_addr
   // CHECK-NOT: ttkernel.noc_semaphore_set_multicast
   //
-  // Push the dst CB (only the collector).
   // CHECK: ttkernel.cb_push_back(%[[DST_CB]], %{{.*}})
   // CHECK: } else {
 
-  // ---- Source branch ----
-  // Producers signal the collector and wait for the per-core inc.
-  // No NoC reads, no dst-CB reserve/push (option (c)).
+  // Source: signal collector, wait for the per-core inc. No reads/CB ops.
   // CHECK: ttkernel.experimental::convert_logical_y_to_translated
   // CHECK: ttkernel.experimental::convert_logical_x_to_translated
   // CHECK: ttkernel.get_noc_addr
@@ -120,16 +80,13 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK-NOT: ttkernel.noc_async_read
   // CHECK-NOT: ttkernel.cb_reserve_back
   // CHECK-NOT: ttkernel.cb_push_back
-  // Close both the inner (isCollector) and outer (isInGroup) scf.if.
+  // Close isCollector and isInGroup.
   // CHECK: }
   // CHECK: }
   //
-  // pop_front on the src CB after the gates (every core pops, mirroring
-  // the wait_front before the gates).
   // CHECK: ttkernel.cb_pop_front(%[[SRC_CB]], %{{.*}})
 
-  // The compute kernel is empty: gather_core lives entirely on the DM
-  // thread, so SplitUnifiedThread emits a no-op compute kernel.
+  // Compute kernel is empty: gather_core is DM-only.
   // CHECK-LABEL: func.func private @compute_kernel1
   // CHECK-NEXT: return
 

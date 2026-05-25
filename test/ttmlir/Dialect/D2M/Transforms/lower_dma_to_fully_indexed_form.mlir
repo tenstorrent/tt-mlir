@@ -150,10 +150,8 @@ module attributes {} {
     return
   }
 
-  // Test: Cross-core local-L1 shard-level read collapses to a single fully-indexed read.
-  // Both src and dst are local memrefs (no device layout); the only "remote"
-  // component is the explicit srcCore, which must be preserved verbatim on
-  // the rewritten op. numElems becomes the full shard volume (2*4 = 8 tiles).
+  // Cross-core local-L1 shard-level read collapses to a single fully-indexed
+  // read; srcCore is preserved, numElems becomes the shard volume (8 tiles).
   // CHECK-LABEL: func.func @test_shard_level_read_cross_core
   // CHECK-NOT: d2m.dma_read {{.*}}, <0>
   func.func @test_shard_level_read_cross_core(

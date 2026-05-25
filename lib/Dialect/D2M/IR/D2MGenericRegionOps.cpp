@@ -139,9 +139,8 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMARead must have the same element type");
   }
-  // Cross-core local-L1 read form: srcCore is mutually exclusive with a
-  // device-laid-out src (it only makes sense when %src is a local memref
-  // whose L1 offset is uniform across the grid).
+  // Cross-core local-L1 read form: srcCore requires a non-device-laid-out
+  // src and is a 2D core coordinate.
   if (hasSrcCore()) {
     if (isSrcRemote()) {
       return emitOpError(
@@ -1653,28 +1652,12 @@ bool RemoteStoreOp::hasTensorSemantics() {
 }
 
 //===----------------------------------------------------------------------===//
-// GatherCoreOp Verifier
-//===----------------------------------------------------------------------===//
-
-//===----------------------------------------------------------------------===//
-// GatherCoreOp Custom Parser / Printer
+// GatherCoreOp Parser / Printer / Verifier
 //===----------------------------------------------------------------------===//
 //
-// Four surface forms (each side independent, mirroring LocalCopy's CB story
-// but allowing per-side asymmetry):
-//   Pure implicit (both memref/tensor):
-//     d2m.gather_core %src into %dst ... : T, T  (-> T)?
-//   src-CB only:
-//     d2m.gather_core from %srcCb into %dst ... : !d2m.cb<...>, T
-//   dst-CB only:
-//     d2m.gather_core %src into %dstCb ... : T, !d2m.cb<...>
-//   Both CB:
-//     d2m.gather_core from %srcCb into %dstCb ... : !d2m.cb<...>, !d2m.cb<...>
-//
-// The `from` keyword toggles src vs srcCb on the input side; the type of
-// the dst-side operand toggles dst vs dstCb. Tensor form is only valid in
-// the pure implicit shape (CBs and tensors don't mix; enforced by the
-// verifier).
+// Surface form per side: an optional leading `from` toggles src vs srcCb;
+// the dst-side type toggles dst vs dstCb (`into` is mandatory). Tensor
+// form is only valid with both sides implicit (enforced by verify()).
 
 ParseResult GatherCoreOp::parse(OpAsmParser &parser, OperationState &result) {
   bool srcIsCb = succeeded(parser.parseOptionalKeyword("from"));
@@ -1722,15 +1705,11 @@ ParseResult GatherCoreOp::parse(OpAsmParser &parser, OperationState &result) {
     result.addTypes(resultType);
   }
 
-  // The dst side's form is decided by the type: CBType -> dstCb, otherwise
-  // implicit (memref or tensor). The src side's form is decided by the
-  // `from` keyword presence (the type must then agree, and the verifier
-  // catches mismatches).
+  // Dst form is determined by its type; src form by the `from` keyword.
   bool dstIsCb = mlir::isa<CBType>(secondType);
 
-  // Resolve operands into the canonical segment order:
-  //   [src, dst, srcCb, dstCb,
-  //    groupStartIndex, groupShape, collectorIndex]
+  // Resolve operands in canonical segment order:
+  // [src, dst, srcCb, dstCb, groupStartIndex, groupShape, collectorIndex].
   int32_t srcSeg = 0, dstSeg = 0, srcCbSeg = 0, dstCbSeg = 0;
   if (!srcIsCb) {
     if (parser.resolveOperand(firstOp, firstType, result.operands)) {
@@ -1779,7 +1758,6 @@ ParseResult GatherCoreOp::parse(OpAsmParser &parser, OperationState &result) {
 }
 
 void GatherCoreOp::print(OpAsmPrinter &p) {
-  // Src side: `from %srcCb` or just `%src`.
   if (Value srcCb = getSrcCb()) {
     p << " from ";
     p.printOperand(srcCb);
@@ -1787,13 +1765,8 @@ void GatherCoreOp::print(OpAsmPrinter &p) {
     p << " ";
     p.printOperand(getSrc());
   }
-  // Dst side: always preceded by `into`.
   p << " into ";
-  if (Value dstCb = getDstCb()) {
-    p.printOperand(dstCb);
-  } else {
-    p.printOperand(getDst());
-  }
+  p.printOperand(getDstCb() ? getDstCb() : getDst());
 
   auto printIdxList = [&](StringRef keyword, OperandRange indices) {
     p << " " << keyword << "[";
@@ -1807,19 +1780,10 @@ void GatherCoreOp::print(OpAsmPrinter &p) {
   llvm::StringRef elidedAttrs[] = {"operandSegmentSizes"};
   p.printOptionalAttrDict((*this)->getAttrs(), elidedAttrs);
 
-  // Types: one for src side, one for dst side.
   p << " : ";
-  if (Value srcCb = getSrcCb()) {
-    p.printType(srcCb.getType());
-  } else {
-    p.printType(getSrc().getType());
-  }
+  p.printType(getSrcCb() ? getSrcCb().getType() : getSrc().getType());
   p << ", ";
-  if (Value dstCb = getDstCb()) {
-    p.printType(dstCb.getType());
-  } else {
-    p.printType(getDst().getType());
-  }
+  p.printType(getDstCb() ? getDstCb().getType() : getDst().getType());
   if (Value result = getResult()) {
     p << " -> ";
     p.printType(result.getType());
@@ -1831,65 +1795,42 @@ void GatherCoreOp::print(OpAsmPrinter &p) {
   Value dst = getDst();
   Value srcCb = getSrcCb();
   Value dstCb = getDstCb();
-
-  // Form check: exactly one of (src, srcCb) must be present and exactly one
-  // of (dst, dstCb) must be present, but the two sides are *independent*.
-  // Allowed combos:
-  //   (src,  dst)    -- pure implicit memref/tensor form
-  //   (srcCb,dst)    -- src is CB-backed, dst is a plain memref
-  //   (src,  dstCb)  -- dst is CB-backed, src is a plain memref
-  //   (srcCb,dstCb)  -- both CB-backed (post-`SplitUnifiedThread`)
-  // The mixed forms model the realistic reduction-app shape where one
-  // buffer is a scratch alloc (uniform L1 address invariant) and the other
-  // crosses the DM-compute thread boundary as a generic-operand CB.
   bool hasSrc = static_cast<bool>(src);
   bool hasSrcCb = static_cast<bool>(srcCb);
   bool hasDst = static_cast<bool>(dst);
   bool hasDstCb = static_cast<bool>(dstCb);
+
+  // Each side is an XOR: exactly one of (implicit, CB) per side.
   if (hasSrc == hasSrcCb) {
-    return emitOpError(
-        "exactly one of src and srcCb must be present (implicit XOR "
-        "explicit-CB form)");
+    return emitOpError("exactly one of src and srcCb must be present");
   }
   if (hasDst == hasDstCb) {
-    return emitOpError(
-        "exactly one of dst and dstCb must be present (implicit XOR "
-        "explicit-CB form)");
+    return emitOpError("exactly one of dst and dstCb must be present");
   }
 
-  // Tensor form is only meaningful for the pure implicit form (both sides
-  // implicit and both tensors). CBs and tensors do not mix.
+  // Tensor form requires both sides implicit and tensor-typed.
   bool srcIsTensor = hasSrc && mlir::isa<RankedTensorType>(src.getType());
   bool dstIsTensor = hasDst && mlir::isa<RankedTensorType>(dst.getType());
   if (srcIsTensor != dstIsTensor) {
     return emitOpError("src and dst must both be tensors or both be memrefs");
   }
   if ((srcIsTensor || dstIsTensor) && (hasSrcCb || hasDstCb)) {
-    return emitOpError(
-        "tensor form is only valid with both sides in implicit form (CBs "
-        "and tensors do not mix)");
+    return emitOpError("tensor form requires both sides to be implicit");
   }
 
-  // Result presence is tied to the type domain (DPS in tensor form, in-place
-  // otherwise).
+  // DPS: tensor form has a result aliasing dst; memref/CB form has none.
   bool hasResult = static_cast<bool>(getResult());
   if (srcIsTensor && !hasResult) {
-    return emitOpError(
-        "tensor form must have a result (DPS); use the memref form for "
-        "in-place semantics");
+    return emitOpError("tensor form must have a result");
   }
   if (!srcIsTensor && hasResult) {
-    return emitOpError(
-        "non-tensor form must not have a result; the dst operand is the "
-        "destination (DPS)");
+    return emitOpError("non-tensor form must not have a result");
   }
   if (hasResult && getResult().getType() != dst.getType()) {
     return emitOpError("result type must match dst type");
   }
 
-  // No device layout on the implicit-side operands. CBs are inherently
-  // L1-local and don't carry device layouts, so they are exempt from this
-  // check.
+  // Implicit operands must not carry a device layout. (CBs are L1-local.)
   if (hasSrc && ttcore::hasDeviceLayout(src)) {
     return emitOpError("src must not have a device layout");
   }
@@ -1897,8 +1838,6 @@ void GatherCoreOp::print(OpAsmPrinter &p) {
     return emitOpError("dst must not have a device layout");
   }
 
-  // Shape / element-type checks operate on the underlying shaped type
-  // regardless of form.
   ShapedType srcShaped = getSrcShapedType();
   ShapedType dstShaped = getDstShapedType();
   if (srcShaped.getElementType() != dstShaped.getElementType()) {
@@ -1908,14 +1847,7 @@ void GatherCoreOp::print(OpAsmPrinter &p) {
     return emitOpError("src and dst shapes must match");
   }
 
-  // No memory-space check on the memref form: bufferization-produced memrefs
-  // start out with no memory space and pick one up later in the pipeline,
-  // and the L1 invariant for the lowering is enforced structurally by the
-  // allocator (uniform L1 placement for sharded L1 allocs / CB-backed
-  // buffers). This mirrors `remote_load`, which similarly does not gate on
-  // memory space.
-
-  // V1 is single-device, 2D grid: group and collector are 2-vectors.
+  // V1: 2D core grid, single device.
   if (getGroupStartIndex().size() != 2) {
     return emitOpError("groupStartIndex must have exactly 2 indices");
   }
@@ -1948,9 +1880,8 @@ bool GatherCoreOp::bufferizesToMemoryWrite(
 mlir::bufferization::AliasingValueList
 GatherCoreOp::getAliasingValues(mlir::OpOperand &operand,
                                 const mlir::bufferization::AnalysisState &) {
+  // DPS aliasing only matters in tensor form (result <-> dst).
   mlir::bufferization::AliasingValueList aliasList;
-  // In tensor form the result aliases dst (DPS). In memref/CB form there is
-  // no result and nothing aliases.
   Value result = getResult();
   Value dst = getDst();
   if (result && dst && operand.get() == dst) {
@@ -1978,12 +1909,12 @@ mlir::LogicalResult GatherCoreOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
+  // Only the tensor form needs bufferization; memref/CB forms are
+  // already lowered.
   Value result = getResult();
   Value src = getSrc();
   Value dst = getDst();
   if (!result || !src || !dst) {
-    // Already in memref or explicit-CB form (no result, or no implicit
-    // operands); nothing to bufferize.
     return mlir::failure();
   }
 
@@ -1998,13 +1929,9 @@ mlir::LogicalResult GatherCoreOp::bufferize(
     return dstBuffer;
   }
 
-  // Use the explicit implicit-memref-form convenience builder.
   rewriter.create<GatherCoreOp>(getLoc(), *srcBuffer, *dstBuffer,
                                 getGroupStartIndex(), getGroupShape(),
                                 getCollectorIndex());
-
-  // Wrap the dst buffer in a ToTensorOp so downstream tensor-form consumers
-  // can still resolve to the underlying memref via getBuffer().
   auto toTensor = rewriter.create<bufferization::ToTensorOp>(
       getLoc(), result.getType(), *dstBuffer);
   rewriter.replaceAllUsesWith(result, toTensor.getResult());

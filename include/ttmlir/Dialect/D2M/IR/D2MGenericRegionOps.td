@@ -1392,11 +1392,9 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
            memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
       ```
 
-      Cross-core local-L1 read form (srcCore is non-empty): %src is a local
-      L1 memref whose L1 offset is uniform across the grid (e.g. a scratch
-      allocation), and `srcCore` selects the source core whose copy of %src
-      to read. The current core issues a NoC read against the source core's
-      L1; the source core is not required to equal the current core.
+      Cross-core local-L1 read form: when `srcCore` is non-empty, `%src` is
+      a local memref with a uniform L1 offset across the grid, and `srcCore`
+      selects the source core to read from (no `my_logical_*` is implied).
 
       ```mlir
       %tx = d2m.dma_read %src[%offset] core[%srcY, %srcX], %dst[%offset], <8>
@@ -1409,7 +1407,7 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       Constraints:
       - dst MUST be a LOCAL memref!
       - src and dst must have the same element type.
-      - `srcCore` is mutually exclusive with a device-laid-out src.
+      - `srcCore`, if present, is mutually exclusive with a device-laid-out src.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
@@ -1429,12 +1427,12 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       [{
         build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems, /*srcCore=*/ValueRange());
       }]>,
-      // Cross-core local-L1 read, fully indexed (srcCore selects source core)
+      // Cross-core local-L1 read, fully indexed form.
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems, "ValueRange": $srcCore),
       [{
         build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems, srcCore);
       }]>,
-      // Cross-core local-L1 read, shard-level (no indices on dst, numElems = 0)
+      // Cross-core local-L1 read, shard-level form.
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $srcCore),
       [{
         build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0), srcCore);
@@ -1452,8 +1450,7 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
       bool isShardLevel() { return getNumElems() == 0; }
       bool isFullyIndexed() { return getNumElems() > 0; }
-      /// True if this op selects an explicit remote source core (cross-core
-      /// local-L1 read form). Mutually exclusive with a device-laid-out src.
+      // True for the cross-core local-L1 read form.
       bool hasSrcCore() { return !getSrcCore().empty(); }
       size_t getSizeBytes() {
         assert(isFullyIndexed() && "getSizeBytes() requires fully indexed form");
@@ -2327,20 +2324,16 @@ def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
       into its local `%dst`. Non-collector cores publish their `%src` (via
       prior writes) and then synchronize; they do not touch `%dst`.
 
-      The op relies on the invariant that `%src` has the *same L1 offset*
-      on every core in the group (i.e. it is a scratch-style allocation, or
-      the underlying memref of a CB-backed buffer). The verifier does not
-      currently prove this structurally; the lowering passes assume it.
+      The op relies on the invariant that `%src` has the same L1 offset
+      on every core in the group. The lowering passes assume this.
 
       Each side (src and dst) independently chooses between an implicit
-      memref/tensor operand and an explicit CB operand. This produces four
-      possible surface forms; the lowering handles each combination on
-      its own merits. The mixed forms model the realistic shape where one
-      buffer is a per-core scratch alloc (uniform L1 address invariant)
-      and the other crosses the DM-compute thread boundary as a
-      generic-operand CB.
+      memref/tensor operand and an explicit CB operand, for four possible
+      surface forms. Mixed forms support cases where one buffer is a
+      scratch alloc and the other crosses the DM/compute thread boundary
+      as a CB.
 
-      Tensor form (pre-bufferization), DPS-style — both sides implicit:
+      Tensor form (pre-bufferization, DPS — both sides implicit):
       ```mlir
       %result = d2m.gather_core %src into %dst
         group [%groupY, %groupX] shape [%groupSizeY, %groupSizeX]
@@ -2360,12 +2353,9 @@ def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
       ```
 
       Explicit CB form (post-`SplitUnifiedThread`): one or both of
-      `%srcCb` / `%dstCb` are `!d2m.cb<memref<...>>` values produced by
-      `d2m.get_cb`. The lowering emits `wait`/`pop` on `%srcCb` on every
-      core in the group (when present) and `reserve`/`push` on `%dstCb`
-      only on the collector (option (c) of the dst-asymmetry plan:
-      `%dstCb` is allocated on every core but only the collector
-      executes the relevant CB ops).
+      `%srcCb` / `%dstCb` are `!d2m.cb<memref<...>>` values. `%dstCb` is
+      allocated on every group core but only the collector executes its
+      CB ops.
       ```mlir
       d2m.gather_core from %srcCb into %dstCb
         group [%groupY, %groupX] shape [%groupSizeY, %groupSizeX]
@@ -2374,25 +2364,19 @@ def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
           !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       ```
 
-      V1 constraints:
+      Constraints (V1):
       - Exactly one of (`$src`, `$srcCb`) and one of (`$dst`, `$dstCb`)
         is present; the two sides are independent.
-      - Tensor form is only valid with both sides in implicit form
-        (CBs and tensors do not mix).
+      - Tensor form is only valid with both sides implicit (CBs and
+        tensors do not mix).
       - `groupStartIndex`, `groupShape`, and `collectorIndex` each have
-        exactly 2 entries (single-device, 2D core grid).
-      - Source and destination element types must match.
-      - Source and destination shapes must match (CB underlying shape in
-        CB form).
+        exactly 2 entries (2D core grid).
+      - Source and destination element types and shapes must match.
       - In implicit form, neither operand has a device layout.
-      - No memory-space check on memref form (`remote_load`-style):
-        the L1 invariant is enforced structurally by the allocator.
-      - Synchronization between sources and the collector is implemented
-        by two local semaphores allocated by `D2MPreallocateMcastSemaphores`
-        (extended to recognize `gather_core`); the lowering in
-        `D2MLowerLoadStoreOpsToDMA` materializes the
-        `semaphore_inc/set/wait` machinery and (in CB form) the
-        `wait/pop` / `reserve/push` CB ops.
+
+      Synchronization uses two local semaphores preallocated by
+      `D2MPreallocateMcastSemaphores`; the protocol body is materialized
+      by `D2MLowerLoadStoreOpsToDMA`.
     }];
 
     let arguments = (ins
@@ -2407,15 +2391,8 @@ def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
     let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let builders = [
-      // Implicit form (memref or tensor) builder. The tensor form is
-      // reachable via the auto-generated builder that takes an
-      // `Optional<Type>` for the result.
-      //
-      // The explicit-CB form has the same signature shape as this builder
-      // (two `Value`s + three `ValueRange`s); to avoid an "Unexpected
-      // overlap" tablegen collision, callers building in CB form should use
-      // the auto-generated builder by passing nulls for the implicit
-      // src/dst operands (e.g. via SplitUnifiedThread).
+      // Implicit memref form. Tensor and CB forms use the auto-generated
+      // builders by passing nullptrs for the other side's operand.
       OpBuilder<(ins "Value":$src, "Value":$dst,
                      "ValueRange":$groupStartIndex, "ValueRange":$groupShape,
                      "ValueRange":$collectorIndex),
@@ -2431,28 +2408,21 @@ def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
-      // Required by DestinationStyleOpInterface. The dst operand is the
-      // DPS init in implicit form; in explicit CB form there is no DPS
-      // init (CB form is post-bufferization and not a tensor op).
+      // DestinationStyleOpInterface: dst is the DPS init in implicit form;
+      // empty otherwise.
       MutableOperandRange getDpsInitsMutable() {
         return getDstMutable();
       }
 
-      /// Returns true if the op is in explicit CB form.
       bool isExplicitCBForm() {
         return static_cast<bool>(getSrcCb()) || static_cast<bool>(getDstCb());
       }
-
-      /// Returns true if the op is in implicit form (memref or tensor).
       bool isImplicitForm() {
         return static_cast<bool>(getSrc()) || static_cast<bool>(getDst());
       }
-
-      /// Returns true if the result is present (tensor form).
       bool hasResultForm() { return static_cast<bool>(getResult()); }
 
-      /// Returns the shaped type (memref or tensor, or CB underlying) of
-      /// the src operand. Asserts that exactly one of src/srcCb is set.
+      // Underlying shaped type of each side, regardless of form.
       ShapedType getSrcShapedType() {
         if (getSrc())
           return cast<ShapedType>(getSrc().getType());
@@ -2460,9 +2430,6 @@ def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
           return cast<CBType>(getSrcCb().getType()).getUnderlyingAs<ShapedType>();
         llvm_unreachable("GatherCoreOp has neither src nor srcCb");
       }
-
-      /// Returns the shaped type (memref or tensor, or CB underlying) of
-      /// the dst operand. Asserts that exactly one of dst/dstCb is set.
       ShapedType getDstShapedType() {
         if (getDst())
           return cast<ShapedType>(getDst().getType());
@@ -2471,28 +2438,23 @@ def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
         llvm_unreachable("GatherCoreOp has neither dst nor dstCb");
       }
 
-      /// Returns the source CB type, or null if not in explicit CB form.
+      // CB type accessors; null if the corresponding side is implicit.
       CBType getSrcCbType() {
         Value cb = getSrcCb();
-        if (!cb) return CBType();
-        return cast<CBType>(cb.getType());
+        return cb ? cast<CBType>(cb.getType()) : CBType();
       }
-
-      /// Returns the destination CB type, or null if not in explicit CB form.
       CBType getDstCbType() {
         Value cb = getDstCb();
-        if (!cb) return CBType();
-        return cast<CBType>(cb.getType());
+        return cb ? cast<CBType>(cb.getType()) : CBType();
       }
 
-      // SynchronizableOpInterface: both the implicit and the CB operand on
-      // each side play the producer/consumer role, so the CB-usage analysis
-      // sees the right values pre- and post-`SplitUnifiedThread`.
+      // SynchronizableOpInterface: cover both implicit and CB operand on
+      // each side so the CB-usage analysis sees the right value pre- and
+      // post-SplitUnifiedThread.
       bool isProducer(mlir::OpOperand &operand) {
         return (getDst() && operand.get() == getDst()) ||
                (getDstCb() && operand.get() == getDstCb());
       }
-
       bool isConsumer(mlir::OpOperand &operand) {
         return (getSrc() && operand.get() == getSrc()) ||
                (getSrcCb() && operand.get() == getSrcCb());

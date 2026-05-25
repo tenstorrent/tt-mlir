@@ -2386,10 +2386,8 @@ public:
     if (op.isSrcLocal()) {
       Value srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, loc, adaptor.getSrc(), op.getSrcIndices());
-      // Cross-core local-L1 read: use the explicit source-core coords. Plain
-      // local read (current core): use myY/myX. In both cases the source
-      // memref's L1 offset is uniform across cores, so the only difference is
-      // which logical worker we ask the NoC to read from.
+      // Source logical coords: srcCore (cross-core form) or my_logical_y/x
+      // (plain local read).
       Value srcLogicalY, srcLogicalX;
       if (op.hasSrcCore()) {
         srcLogicalY = op.getSrcCore()[0];

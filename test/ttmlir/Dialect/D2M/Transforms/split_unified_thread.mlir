@@ -589,10 +589,8 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
-  // Test 14a: gather_core in a unified thread.
-  // Verifies: gather_core is moved to the DM thread and rewritten in explicit
-  // CB form; the compute thread is empty (gather_core is a pure DM op even
-  // though it implements D2M_SynchronizableOpInterface).
+  // Test 14a: unified gather_core is moved to the DM thread and rewritten
+  // in explicit CB form; the compute thread is empty.
   // CHECK-LABEL: func.func @test_gather_core_unified
   func.func @test_gather_core_unified(
       %arg0: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
@@ -602,13 +600,9 @@ module attributes {ttcore.system_desc = #system_desc} {
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    // DM thread: gather_core appears once, in explicit CB form, with both
-    // src and dst replaced by d2m.get_cb results. The pass emits the dst CB
-    // first (its operand index in the generic is higher), then the src CB.
     // CHECK: %[[DST_CB:.*]] = d2m.get_cb(3)
     // CHECK: %[[SRC_CB:.*]] = d2m.get_cb(2)
     // CHECK: d2m.gather_core from %[[SRC_CB]] into %[[DST_CB]] group[%{{.*}}, %{{.*}}] shape[%{{.*}}, %{{.*}}] collector[%{{.*}}, %{{.*}}] : !d2m.cb<{{.*}}>, !d2m.cb<{{.*}}>
-    // Compute thread: empty (gather_core is DM-only).
     // CHECK: }, {
     // CHECK-NEXT: }
     // CHECK-NOT: d2m.gather_core
