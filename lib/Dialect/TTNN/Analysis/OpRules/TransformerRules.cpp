@@ -103,10 +103,22 @@ OutputHints SplitQKVRuleBook::getOutputHints(
 LayoutFilterFn
 PagedUpdateCacheRuleBook::getInputLayoutFilter(RankedTensorType inputType,
                                                unsigned operandIdx) const {
-  // Operand 1 (fill value) must be L1 height-sharded on a {numUsers, 1}
-  // virtual grid.  Any other grid causes PCC degradation;
-  // https://github.com/tenstorrent/tt-metal/issues/44923 relax when tt-metal
-  // enforces this and raises an error for PCC-degrading layouts.
+  // Operand 1 (fill value) must be L1 height-sharded with num_cores ==
+  // numUsers (= input1.shape[1]); other grids silently produced PCC=0 for
+  // upper users (https://github.com/tenstorrent/tt-metal/issues/44923).
+  //
+  // tt-metal PR #45016 enforces this with a TT_FATAL
+  // (`grid.num_cores() == padded_shape()[1]`).  The kernel flattens the
+  // grid via corerange_to_cores(row_major) and assigns cores[i] to user
+  // i, so any single-axis grid of the right size is valid -- the
+  // canonical shape is {numUsers, 1}, but {1, numUsers} (and any other 2D
+  // shape whose product equals numUsers) is assumed to work with correct
+  // PCC.  We mirror that invariant here: gridShape[0] * gridShape[1] ==
+  // numUsers.
+  //
+  // TODO(bmalesevic): Once PR #45016 is uplifted, tripwire will fail if the
+  // filter is violated, so we can remove these rules.
+  // test/unittests/OpModel/TTNN/Lib/TestOpModelLibTripwires.cpp.
   if (operandIdx == 1) {
     int64_t numUsers = inputType.getShape()[1];
     return [numUsers](TTNNLayoutAttr layout) -> bool {
@@ -116,7 +128,7 @@ PagedUpdateCacheRuleBook::getInputLayoutFilter(RankedTensorType inputType,
       assert(gridShape.size() == 2 && "expected 2D grid shape");
       return layout.hasL1BufferType() &&
              ml.getValue() == TensorMemoryLayout::HeightSharded &&
-             gridShape[0] == numUsers && gridShape[1] == 1;
+             gridShape[0] * gridShape[1] == numUsers;
     };
   }
   return nullptr;
