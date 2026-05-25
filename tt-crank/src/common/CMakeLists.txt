@@ -3,6 +3,7 @@
 add_library(tt_kurbla_common SHARED
     assert.cpp
     config.cpp
+    misc.cpp
 )
 add_library(tt_kurbla::common ALIAS tt_kurbla_common)
 
