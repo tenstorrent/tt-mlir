@@ -242,20 +242,26 @@ result.hints.push_back(OpConfig(TTNNLayoutAttr()));  // DRAM — fallback
 // ... sharded configs as before
 ```
 
-### Expected Impact
+### Verified Impact ✓
 
-If L1SpillManagement allows all 5 concats in L1:
-
-| Metric | Before P1 | After P1 (expected) |
+| Metric | Before P1 | After P1 (actual) |
 |--------|-----------|-------------------|
-| `effectively_sharded_ops` | 18 (31.6%) | 18 (unchanged) |
-| `dram_spilled_ops` | 11 | ~1 (large concat only) |
-| Concat ops in L1 | 0 | 4–5 |
-| `to_layout` backbone in L1 | 0 | 4–5 |
+| `effectively_sharded_ops` | 18 (31.6%) | **18 (unchanged)** ✓ |
+| `sharded_and_spilled_ops` | 0 | **0** ✓ |
+| `dram_spilled_ops` | 11 | **6** |
+| Concat ops in L1 | 0 | **5 (all)** ✓ |
+| `to_layout` backbone in L1 | 0 | **0** (stayed DRAM) |
 
-The sharding percentage doesn't increase (concat and to_layout are interleaved,
-not sharded), but **10 ops move from DRAM to L1 interleaved**, significantly
-reducing DRAM traffic for the concat merge steps.
+All 5 concat outputs moved from DRAM to L1 interleaved. The backbone
+`to_layout` ops did not cascade to L1 — `ToLayoutRuleBook::getOutputHints`
+still emits non-sharded configs first and the optimizer finds DRAM tile
+cheaper when the backbone arg is a function parameter in DRAM. As a result
+`dram_spilled_ops` dropped from 11 to 6 (5 concats removed; 6 backbone
+`to_layout` ops remain DRAM).
+
+The sharding percentage is unchanged (concat and to_layout are interleaved,
+not sharded), but **5 ops moved from DRAM to L1 interleaved**, reducing
+DRAM traffic for the concat merge steps at all 5 FPN scales.
 
 ---
 
@@ -294,7 +300,7 @@ Requires Forge frontend changes.
 
 | Priority | Change | Location | Impact | Difficulty |
 |----------|--------|----------|--------|-----------|
-| **P1** ✓ | L1 interleaved concat output | `DataMovementRules.cpp` | +10 ops in L1 | Low |
+| **P1** ✓ | L1 interleaved concat output | `DataMovementRules.cpp` | +5 ops in L1 (`dram_spilled`: 11→6) | Low |
 | **P2** | HS RM conv2d input for ≥32 rows/core | tt-metal conv2d | +2 HS sharded | Medium |
 | **P3** | HS RM through conv2d→reshape chain | `RowMajorLayoutPropagation.cpp` | +8 HS sharded | Hard |
 | **P4** | NHWC concat (no permute) | Forge frontend | +5 ops eliminated | Hard |
