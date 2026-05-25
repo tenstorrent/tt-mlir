@@ -21,14 +21,8 @@ void run(const ::tt::target::ttnn::GatherOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
-  // TODO(tt-metal): Rank-1 inputs trip a TT_FATAL in
-  // ttnn::squeeze_from_4D -> Shape::to_rank because the 4D padded shape has
-  // tile padding on dim index 2, which must be dropped when squeezing back to
-  // rank 1. Unsqueeze to rank 2 here so the squeeze-back only drops leading
-  // ones. Remove this workaround once the upstream fix lands in tt-metal's
-  // ttnn::gather (ttnn/cpp/ttnn/operations/data_movement/gather/gather.cpp's
-  // post_gather_transform_tensor should recompute the padded shape from the
-  // target rank instead of reusing the 4D padded shape).
+  // Workaround to support Rank-1 input tensors.
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/45155
   const auto inputRank = input.logical_shape().rank();
   const auto indexRank = index.logical_shape().rank();
   if (inputRank < 2 || indexRank < 2) {
