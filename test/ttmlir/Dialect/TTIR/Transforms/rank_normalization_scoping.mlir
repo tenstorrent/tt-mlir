@@ -16,13 +16,13 @@
 //      a complete no-op (regression for the bug where external CPU-hoisted
 //      decls were promoted even without a TTIR caller).
 //   3. d2m_subgraph callee with rank-1 arg + pre-existing reshape (Kimi K2
-//      d2m_subgraph_4 reproducer): callee signature stays byte-identical via
-//      Plan B; a `ttir.reshape` is materialized at the entry-block boundary.
+//      d2m_subgraph_4 reproducer): callee signature is promoted to rank-2;
+//      a ttnn.reshape is inserted before the call site in @main.
 //   4. d2m_subgraph callee with a rank-1 arg flowing DIRECTLY into a TTIR op
-//      (no pre-existing reshape): exercises both source and target
-//      materializer hooks (entry-block bridge + pre-return bridge).
+//      (no pre-existing reshape): exercises the call-site walk for inputs,
+//      outputs (DPS buffer), and result.
 //
-// No `unrealized_conversion_cast` ops should be inserted anywhere across any
+// No unrealized_conversion_cast ops should be inserted anywhere across any
 // section.
 // NOCAST: module
 // NOCAST-NOT: unrealized_conversion_cast
@@ -227,47 +227,27 @@ func.func @main(%arg0: tensor<64xf32, #layout_rank1>) -> tensor<64xf32, #layout_
 // Background:
 //   In the production pipeline (Kimi K2, OSS-20B, etc.) the order is roughly:
 //     ConvertTTNNToTTIR  -> body of @d2m_subgraph_* now contains TTIR ops.
-//     TTIRExplicateTMs   -> inserts an explicit `ttir.reshape` on the rank-1
+//     TTIRExplicateTMs   -> inserts an explicit ttir.reshape on the rank-1
 //                           operand (%arg3 in @d2m_subgraph_4).
 //     TTIRRankNormalization
 //
-// What today's pass does (the bug):
+// Pre-fix bug:
 //   The callee @d2m_subgraph_4 contains TTIR ops, so the pass treats it as a
 //   participating function and rewrites its signature, promoting %arg3 from
-//   `tensor<896xbf16>` to `tensor<1x896xbf16>`. The `ttnn.d2m_subgraph` op in
-//   @main lives in the legal `ttnn` dialect, so the pass leaves the call site
+//   tensor<896xbf16> to tensor<1x896xbf16>. The ttnn.d2m_subgraph op in
+//   @main lives in the legal ttnn dialect, so the pass leaves the call site
 //   alone. The result is an operand-type mismatch caught by
-//   D2MSubgraphOp::verify():
+//   D2MSubgraphOp::verify().
 //
-//     error: 'ttnn.d2m_subgraph' op D2M function argument type 3 mismatch:
-//       expected 'tensor<896xbf16, ...>',
-//       got      'tensor<1x896xbf16, ...>'
-//
-// What Plan B does:
-//   Pin the callee `func.func` signature and `func.return` so the matching
-//   `ttnn.d2m_subgraph` call site stays well-typed. Promote the body interior
-//   to rank-2. The dialect-conversion framework auto-inserts a `ttir.reshape`
-//   at the entry-block boundary (via the type converter's source/target
-//   materializer customized to emit `ttir.reshape` for rank-only conversions).
-//
-// For Kimi K2 d2m_subgraph_4, the body's pre-existing `ttir.reshape` on
-// %arg3 (`tensor<896xbf16>` -> `tensor<1x1x896xbf16>`) gets matched by the
-// rank-norm pattern (its rank-1 operand makes it illegal). The framework
-// promotes its operand from rank-1 to rank-2 via the materializer:
-//
-//   %0 = "ttir.reshape"(%arg3)                   <- NEW: rank-1 -> rank-2 bridge
-//        : (tensor<896xbf16>) -> tensor<1x896xbf16>
-//   ...
-//   %5 = "ttir.reshape"(%0)                      <- existing reshape, input bumped
-//        : (tensor<1x896xbf16>) -> tensor<1x1x896xbf16>
-//
-// The two reshapes compose to the original `(rank-1) -> (rank-3)` reshape,
-// and a later canonicalization pass folds them. Crucially:
-//   - `@d2m_subgraph_4`'s function signature stays byte-identical (%arg3 is
-//      still `tensor<896xbf16>`).
-//   - `@main` is byte-identical (no TTIR ops -> non-participating).
-//   - The `ttnn.d2m_subgraph` op's operand types are byte-identical -> the
-//      `D2MSubgraphOp` verifier mismatch is gone.
+// Plan C fix:
+//   - The callee signature is promoted: %arg3 becomes tensor<1x896xbf16> with
+//     a layout rebuilt by ttnn::utils::RankedTensorTypeFactory.
+//   - The body's pre-existing ttir.reshape gets its rank-1 input replaced by
+//     the rank-2 promoted %arg3 (the conversion pattern fires because the
+//     reshape's operand was rank-1).
+//   - At the call site in @main, a post-conversion walk inserts a
+//     ttnn.reshape on %arg3 (rank-1 -> rank-2) so the ttnn.d2m_subgraph op
+//     re-satisfies D2MSubgraphOp::verify().
 // =============================================================================
 
 #dram = #ttnn.buffer_type<dram>
@@ -290,18 +270,16 @@ func.func @main(%arg0: tensor<64xf32, #layout_rank1>) -> tensor<64xf32, #layout_
                                             <interleaved>>
 
 // d2m_subgraph callee. Body contains TTIR ops (post-ConvertTTNNToTTIR) and an
-// explicit `ttir.reshape` on the rank-1 arg %arg3 (post-TTIRExplicateTMs).
+// explicit ttir.reshape on the rank-1 arg %arg3 (post-TTIRExplicateTMs).
 // Modeled on Kimi K2 @d2m_subgraph_4.
 //
-// Post-fix expectation: signature unchanged. In particular %arg3 stays at
-// `tensor<896xbf16>`. A new `ttir.reshape : (rank-1) -> (rank-2)` bridges %arg3
-// into the body, and the existing reshape's input is bumped to rank-2.
+// Post-fix expectation (Plan C): signature is promoted, %arg3 becomes rank-2
+// (tensor<1x896xbf16>) with a rebuilt layout. The pre-existing ttir.reshape's
+// input now feeds directly from the rank-2 %arg3.
 // CHECK-LABEL: func.func private @d2m_subgraph_4
-// CHECK-SAME: %arg3: tensor<896xbf16
-// CHECK: %[[BRIDGE:.*]] = "ttir.reshape"(%arg3)
-// CHECK-SAME: -> tensor<1x896xbf16
-// CHECK: "ttir.reshape"(%[[BRIDGE]])
-// CHECK-SAME: -> tensor<1x1x896xbf16
+// CHECK-SAME: %arg3: tensor<1x896xbf16
+// CHECK: %[[RESHAPE:.*]] = "ttir.reshape"(%arg3)
+// CHECK-SAME: (tensor<1x896xbf16{{.*}}) -> tensor<1x1x896xbf16
 // CHECK: return %{{.*}} : tensor<16x16x896xbf16
 func.func private @d2m_subgraph_4(
     %arg0: tensor<16x16x1xbf16, #layout_rank3_16x16x1>,
@@ -328,13 +306,17 @@ func.func private @d2m_subgraph_4(
   return %6 : tensor<16x16x896xbf16, #layout_rank3_16x16x896>
 }
 
-// @main: dispatches @d2m_subgraph_4 via ttnn.d2m_subgraph. No TTIR ops here -
-// @main is a non-participating function and must stay byte-identical, in
-// particular the rank-1 4th operand (%arg3) must still be `tensor<896xbf16>`.
+// @main: dispatches @d2m_subgraph_4 via ttnn.d2m_subgraph. @main has no TTIR
+// ops (non-participating) and its signature stays untouched, but the
+// post-conversion call-site walk inserts a ttnn.reshape on %arg3 (rank-1 ->
+// rank-2) so the ttnn.d2m_subgraph operand types align with the (now
+// rank-2-promoted) callee signature.
 // CHECK-LABEL: func.func @main
+// CHECK-SAME: %arg3: tensor<896xbf16
+// CHECK: %[[BIAS:.*]] = "ttnn.reshape"(%arg3)
+// CHECK-SAME: (tensor<896xbf16{{.*}}) -> tensor<1x896xbf16
 // CHECK: ttnn.d2m_subgraph @d2m_subgraph_4
-// CHECK-NEXT: ins(%arg0, %arg1, %arg2, %arg3
-// CHECK-NOT: ttir.reshape
+// CHECK-NEXT: ins(%arg0, %arg1, %arg2, %[[BIAS]]
 // CHECK: return
 func.func @main(
     %arg0: tensor<16x16x1xbf16, #layout_rank3_16x16x1>,
@@ -359,50 +341,50 @@ func.func @main(
 // SECTION 4: d2m_subgraph callee with rank-1 arg flowing DIRECTLY into a TTIR
 // op (no pre-existing reshape from TTIRExplicateTMs).
 //
-// Synthetic reproducer for the case Plan B's materializer hooks must handle:
-// the callee signature and `func.return` stay byte-identical, the body gets
-// promoted to rank-2 internally, and `ttir.reshape` ops are inserted at the
-// entry block (rank-1 -> rank-2) and before the return (rank-2 -> rank-1).
+// Synthetic minimal reproducer that exercises every leg of the Plan C call-
+// site walk: input bridge, output (DPS buffer) bridge, and result bridge.
 //
-// Today (pre-fix) the pass promotes the callee signature, the
-// `ttnn.d2m_subgraph` operand stays rank-1, and `D2MSubgraphOp::verify()`
-// rejects the mismatch:
+// Pre-fix bug:
+//   The pass promotes the callee signature, the ttnn.d2m_subgraph operand
+//   stays rank-1, and D2MSubgraphOp::verify() rejects the mismatch:
+//     error: 'ttnn.d2m_subgraph' op D2M function argument type 0 mismatch:
+//       expected 'tensor<1x32xf32>', got 'tensor<32xf32>'
 //
-//   error: 'ttnn.d2m_subgraph' op D2M function argument type 0 mismatch:
-//     expected 'tensor<32xf32>', got 'tensor<1x32xf32>'
-//
-// Post-fix expectations:
-//   - `@sub` signature unchanged: (tensor<32xf32>) -> tensor<32xf32>.
-//   - Entry block first op is `ttir.reshape : tensor<32xf32> -> tensor<1x32xf32>`.
-//   - `ttir.add` operates at rank-2.
-//   - `ttir.reshape : tensor<1x32xf32> -> tensor<32xf32>` immediately before
-//     `func.return`.
-//   - `@main` and the `ttnn.d2m_subgraph` op byte-identical to the input.
+// Plan C fix:
+//   - @sub signature is promoted: (tensor<1x32xf32>) -> tensor<1x32xf32>.
+//   - Body operates entirely at rank-2 (no internal reshape).
+//   - In @main, the post-conversion walk inserts ttnn.reshape ops on each
+//     leg: input %arg0 (rank-1 -> rank-2), DPS output %arg1 (rank-1 ->
+//     rank-2), and the d2m_subgraph result (rank-2 -> rank-1) so downstream
+//     uses see the original-rank type.
 // =============================================================================
 
 // d2m_subgraph callee: rank-1 arg flows directly into ttir.add (no reshape).
+// Plan C promotes the entire signature and body to rank-2.
 // CHECK-LABEL: func.func private @sub
-// CHECK-SAME: (%arg0: tensor<32xf32>) -> tensor<32xf32>
-// CHECK: %[[R0:.*]] = "ttir.reshape"(%arg0)
-// CHECK-SAME: (tensor<32xf32>) -> tensor<1x32xf32>
-// CHECK: %[[ADD:.*]] = "ttir.add"(%[[R0]], %[[R0]])
-// CHECK-SAME: (tensor<1x32xf32>, tensor<1x32xf32>) -> tensor<1x32xf32>
-// CHECK: %[[R1:.*]] = "ttir.reshape"(%[[ADD]])
-// CHECK-SAME: (tensor<1x32xf32>) -> tensor<32xf32>
-// CHECK: return %[[R1]] : tensor<32xf32>
+// CHECK-SAME: (%arg0: tensor<1x32xf32>) -> tensor<1x32xf32>
+// CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %arg0) : (tensor<1x32xf32>, tensor<1x32xf32>) -> tensor<1x32xf32>
+// CHECK: return %[[ADD]] : tensor<1x32xf32>
 func.func private @sub(%arg0: tensor<32xf32>) -> tensor<32xf32> {
   %0 = "ttir.add"(%arg0, %arg0) : (tensor<32xf32>, tensor<32xf32>) -> tensor<32xf32>
   return %0 : tensor<32xf32>
 }
 
-// @main caller: byte-identical to input. The rank-1 operand stays rank-1.
+// @main caller: signature stays rank-1, but the call-site walk inserts
+// ttnn.reshape ops to bridge the rank-1 operands/result against the rank-2
+// callee signature.
 // CHECK-LABEL: func.func @main
 // CHECK-SAME: (%arg0: tensor<32xf32>, %arg1: tensor<32xf32>) -> tensor<32xf32>
-// CHECK: %[[OUT:.*]] = ttnn.d2m_subgraph @sub
-// CHECK-NEXT: ins(%arg0 : tensor<32xf32>)
-// CHECK-NEXT: outs(%arg1 : tensor<32xf32>) : tensor<32xf32>
-// CHECK-NOT: tensor<1x32xf32
-// CHECK: return %[[OUT]] : tensor<32xf32>
+// CHECK: %[[IN:.*]] = "ttnn.reshape"(%arg0)
+// CHECK-SAME: (tensor<32xf32>) -> tensor<1x32xf32>
+// CHECK: %[[BUF:.*]] = "ttnn.reshape"(%arg1)
+// CHECK-SAME: (tensor<32xf32>) -> tensor<1x32xf32>
+// CHECK: %[[CALL:.*]] = ttnn.d2m_subgraph @sub
+// CHECK-NEXT: ins(%[[IN]] : tensor<1x32xf32>)
+// CHECK-NEXT: outs(%[[BUF]] : tensor<1x32xf32>) : tensor<1x32xf32>
+// CHECK: %[[FINAL:.*]] = "ttnn.reshape"(%[[CALL]])
+// CHECK-SAME: (tensor<1x32xf32>) -> tensor<32xf32>
+// CHECK: return %[[FINAL]] : tensor<32xf32>
 func.func @main(%arg0: tensor<32xf32>, %arg1: tensor<32xf32>) -> tensor<32xf32> {
   %0 = ttnn.d2m_subgraph @sub
        ins(%arg0 : tensor<32xf32>)
