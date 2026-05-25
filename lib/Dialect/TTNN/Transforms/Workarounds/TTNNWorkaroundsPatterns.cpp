@@ -751,5 +751,10 @@ const std::set<mlir::StringRef>
         ttnn::TopKOp::getOperationName(),
         // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
         // layout. See #8411.
-        ttnn::PrepareConv3dWeightsOp::getOperationName()};
+        ttnn::PrepareConv3dWeightsOp::getOperationName(),
+        // MeshPartition's operands and result workaround forces RowMajor inputs
+        // and outputs; without it, opt_level>=1 layout propagation picks Tiled.
+        // See #8558.
+        ttnn::MeshPartitionOp::getOperationName()};
+
 } // namespace mlir::tt::ttnn
