@@ -7712,16 +7712,30 @@ def ttir_sdpa_golden(
     is_causal_attr: BoolAttr,
     scale_attr: Optional[FloatAttr],
     output_type_mlir: Type,
+    sliding_window_size_attr: Optional[IntegerAttr] = None,
+    attention_sink: Optional[GoldenMapTensor] = None,
 ) -> GoldenMapTensor:
     """
     Matches tt-metal's SDPA implementation, which follows PyTorch semantics:
     softmax(QK * scale + mask). The kernel folds scale into exp, but the host
     wrapper pre-multiplies any user attn_mask by 1/scale to compensate.
     Supports standard attention and Grouped-Query Attention (GQA).
+
+    sliding_window_size: kernel-derived {0, -inf} mask added after scaling.
+      causal:     window covers last W tokens [i-W+1, i]
+      non-causal: window covers [i-W/2, i+W/2] (inclusive, W+1 tokens)
+    attention_sink: per-head logit treated as a virtual K column. Kernel
+      applies scale to it just like raw QK, so the golden pre-scales it
+      before concat-softmax-slice.
     """
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     is_causal = unpack_mlir_attr(is_causal_attr)
     scale = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
+    sliding_window_size = (
+        unpack_mlir_attr(sliding_window_size_attr)
+        if sliding_window_size_attr is not None
+        else None
+    )
 
     q_heads = query.shape[1]
     kv_heads = key.shape[1]
@@ -7738,7 +7752,24 @@ def ttir_sdpa_golden(
     qk = torch.matmul(query.float(), key.float().transpose(-2, -1))
     qk = torch.mul(qk, scale)
 
-    if is_causal and attention_mask is None:
+    # When sliding_window_size is set, the kernel uses only the window mask
+    # (which already encodes the causal constraint via its topology). The
+    # separate causal mask path is skipped, matching the decomposition's
+    # if/else-if structure.
+    if sliding_window_size is not None:
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        i_idx = torch.arange(seq_len_q).unsqueeze(1)
+        j_idx = torch.arange(seq_len_k).unsqueeze(0)
+        diff = i_idx - j_idx
+        if is_causal:
+            in_window = (diff >= 0) & (diff < sliding_window_size)
+        else:
+            half = sliding_window_size // 2
+            in_window = (diff >= -half) & (diff <= half)
+        window_mask = torch.where(in_window, 0.0, float("-inf"))
+        qk = torch.add(qk, window_mask)
+    elif is_causal and attention_mask is None:
         seq_len_q = qk.shape[-2]
         seq_len_k = qk.shape[-1]
         causal_mask = torch.triu(
@@ -7749,7 +7780,22 @@ def ttir_sdpa_golden(
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float())
 
-    attn_weights = torch.softmax(qk, dim=-1)
+    if attention_sink is not None:
+        # Sink shape: [1, Hq, 1, 1]; broadcast to [B, Hq, Sq, 1] and scale.
+        # GoldenMapTensor routes torch ops through __torch_function__ but
+        # doesn't override Python `*` or mutating methods like .expand — use
+        # torch.* free functions instead.
+        sink = torch.mul(attention_sink.float(), scale)
+        sink = torch.broadcast_to(
+            sink, (qk.shape[0], qk.shape[1], qk.shape[2], sink.shape[-1])
+        )
+        sink_cols = sink.shape[-1]
+        extended = torch.cat([qk, sink], dim=-1)
+        attn_weights = torch.softmax(extended, dim=-1)
+        attn_weights = attn_weights[..., :-sink_cols]
+    else:
+        attn_weights = torch.softmax(qk, dim=-1)
+
     output = torch.matmul(attn_weights, value.float())
 
     return output.to(output_dtype)
