@@ -26,6 +26,7 @@ struct OpConfig {
       std::variant<UninitializedAttrs, Conv2dAttrs, Conv3dAttrs, MatmulAttrs>;
   OpSpecificAttrs opSpecificAttrs;
 
+
   // Default Config Constructors.
   OpConfig() = default;
   OpConfig(TTNNLayoutAttr outputLayout)
