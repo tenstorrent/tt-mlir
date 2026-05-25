@@ -35,7 +35,7 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
     "ThreadType":$threadType,
     OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
     DefaultValuedParameter<"int32_t", "-1">:$processorIndex,
-    DefaultValuedParameter<"int64_t", "1">:$numComputeThreads
+    DefaultValuedParameter<"int32_t", "-1">:$numComputeThreads
   );
 
   // Format: `<` threadType (`,` kernelSymbol)?
@@ -47,15 +47,15 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
 
   let extraClassDeclaration = [{
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {
-        return get(context, threadType, nullptr, -1, 1);
+        return get(context, threadType, nullptr, -1, -1);
       }
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
                             SymbolRefAttr kernelSymbol) {
-        return get(context, threadType, kernelSymbol, -1, 1);
+        return get(context, threadType, kernelSymbol, -1, -1);
       }
       static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
-                            SymbolRefAttr kernelSymbol, int32_t nocIndex) {
-        return get(context, threadType, kernelSymbol, nocIndex, 1);
+                            SymbolRefAttr kernelSymbol, int32_t processorIndex) {
+        return get(context, threadType, kernelSymbol, processorIndex, -1);
       }
   }];
 }

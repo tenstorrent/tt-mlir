@@ -154,7 +154,7 @@ static LogicalResult materialize(scf::ForallOp forall) {
                                "thread region (got threadType ")
            << stringifyEnum(origThread.getThreadType()) << ")";
   }
-  if (origThread.getNumComputeThreads() != 1 &&
+  if (origThread.getNumComputeThreads() != -1 &&
       origThread.getNumComputeThreads() != numComputeThreads) {
     return forall->emitOpError("compute thread region already carries "
                                "num_compute_threads = ")

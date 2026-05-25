@@ -51,7 +51,7 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
 
   SymbolRefAttr kernelSymbol;
   int32_t processorIndex = -1;
-  int64_t numComputeThreads = 1;
+  int32_t numComputeThreads = -1;
   bool parsedKernelSymbol = false;
   bool parsedProcessorIndex = false;
   bool parsedNumComputeThreads = false;
@@ -112,7 +112,7 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
   if (getProcessorIndex() != -1) {
     printer << ", processor = " << getProcessorIndex();
   }
-  if (getNumComputeThreads() != 1) {
+  if (getNumComputeThreads() != -1) {
     printer << ", num_compute_threads = " << getNumComputeThreads();
   }
   printer << ">";
