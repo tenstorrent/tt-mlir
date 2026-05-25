@@ -242,6 +242,12 @@ void createTTNNPipelineWorkaroundPass(
   workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
+
+  // Bind distributed-op scratch buffers before the optimizer so they
+  // contribute to L1 budgeting; the canonicalize + CSE below dedupe matching
+  // EmptyOps across multiple distributed ops.
+  pm.addPass(createTTNNAllocateDistributedOpBuffers());
+
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
 }
@@ -432,6 +438,11 @@ void createTTIRToTTNNCommonPipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
+
+    // Bind distributed-op semaphores after the optimizer (core range derives
+    // from the finalized input shard spec) and before trace hoisting (SSA
+    // values must be visible at the trace boundary).
+    devicePm.addPass(createTTNNAllocateDistributedOpSemaphores());
 
     // Trace hoisting must run before layout decomposition because it adjusts
     // layouts of function arguments (e.g. moving inputs to system_memory). It

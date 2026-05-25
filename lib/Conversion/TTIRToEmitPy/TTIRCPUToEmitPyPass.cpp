@@ -116,6 +116,14 @@ static SmallVector<int32_t, 4> getI32Quad(Attribute attr) {
 }
 
 static std::string formatAPFloat(llvm::APFloat value) {
+  // APFloat::toString prints non-finite values as "Inf"/"-Inf"/"NaN", which
+  // are not valid Python literals. Emit float('...') for those cases.
+  if (value.isInfinity()) {
+    return value.isNegative() ? "float('-inf')" : "float('inf')";
+  }
+  if (value.isNaN()) {
+    return "float('nan')";
+  }
   // Default precision (0) prints enough decimal digits that parsing the
   // string back yields the exact same float bits.
   llvm::SmallString<32> buf;

@@ -109,6 +109,7 @@ union OpType {
   Pool2dOp,
   PrepareConv2dBiasOp,
   PrepareConv2dWeightsOp,
+  PrepareConv3dWeightsOp,
   PrepareConvTranspose2dBiasOp,
   PrepareConvTranspose2dWeightsOp,
   RandOp,
@@ -168,4 +169,5 @@ table Program {
   // Flag to indicate if this program is intended to be called or only for internal use (e.g. hoisted const-eval func).
   private: bool;
   mesh_shape: Dim2d;
+  semaphore_inputs: [GlobalSemaphoreRef];
 }
