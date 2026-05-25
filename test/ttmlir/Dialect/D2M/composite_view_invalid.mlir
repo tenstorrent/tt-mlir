@@ -140,7 +140,7 @@ func.func @composite_view_mixed_view_and_nonview() -> memref<1x2x1x1x!ttcore.til
   %alloc_0 = memref.alloc() {alignment = 16 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_mix>
   %alloc_1 = memref.alloc() {alignment = 16 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_mix>
   %view_0 = d2m.view_layout %alloc_0 remapping = #map_mix : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_mix> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_mix>
-  // expected-error @+1 {{inputs must be uniformly views (ViewOpInterface) or uniformly non-views; mixing is not supported}}
+  // expected-error @+1 {{inputs must be uniformly views (ViewOpInterface) or uniformly non-views; input 1 disagrees with input 0}}
   %0 = "d2m.composite_view"(%view_0, %alloc_1) <{dim = 1 : si32}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_mix>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_mix>) -> memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_mix>
   return %0 : memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_mix>
 }

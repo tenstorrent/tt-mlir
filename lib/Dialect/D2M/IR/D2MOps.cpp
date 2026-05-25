@@ -1454,8 +1454,8 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
   }
 
   // RM width-concat: each input becomes one NoC L1 DMA, so its byte size
-  // must satisfy NoC L1 alignment (>= 16 and a multiple of 16).
-  constexpr int64_t kNocL1AlignBytes = 16;
+  // must satisfy NoC L1 alignment from the system descriptor (skipped when no
+  // system desc / device is registered, e.g. early standalone parses).
   const bool isWidthConcat = (compositeDim == rank - 1);
   if (isWidthConcat) {
     Type elemType;
@@ -1464,8 +1464,16 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
     } else {
       elemType = mlir::cast<MemRefType>(outType).getElementType();
     }
-    if (!mlir::isa<ttcore::TileType>(elemType) && elemType.isIntOrFloat()) {
+    auto moduleOp = (*this)->getParentOfType<ModuleOp>();
+    const bool hasSystemDesc =
+        moduleOp && moduleOp->hasAttr(ttcore::SystemDescAttr::name) &&
+        ttcore::lookupDeviceOp(*this) != nullptr;
+    if (hasSystemDesc && !mlir::isa<ttcore::TileType>(elemType) &&
+        elemType.isIntOrFloat()) {
       const int64_t elemBytes = elemType.getIntOrFloatBitWidth() / 8;
+      const int64_t nocL1AlignBytes =
+          mlir::tt::d2m::utils::getNocAddressAlignmentBytes(
+              *this, ttcore::MemorySpace::DeviceL1);
 
       SmallVector<int64_t> sizes;
       if (isTensorType) {
@@ -1481,12 +1489,11 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
 
       for (int64_t n : sizes) {
         const int64_t chunkBytes = n * elemBytes;
-        if (chunkBytes < kNocL1AlignBytes ||
-            chunkBytes % kNocL1AlignBytes != 0) {
+        if (chunkBytes < nocL1AlignBytes || chunkBytes % nocL1AlignBytes != 0) {
           return emitOpError()
                  << "row-major width-concat requires each input's per-DMA "
                     "byte count (logicalSizes[i] * sizeof(elem)) to be >= "
-                 << kNocL1AlignBytes
+                 << nocL1AlignBytes
                  << " and a multiple of it (NoC L1 alignment); got " << n
                  << " elems * " << elemBytes << " bytes = " << chunkBytes
                  << " bytes";
@@ -1496,44 +1503,29 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
   }
 
   // VGM propagation (Utils.cpp) walks the first input's view chain, so
-  // mixing view and non-view inputs would yield inconsistent results.
-  bool firstIsView = false;
-  {
-    bool isFirst = true;
-    for (Value input : this->getInputs()) {
-      mlir::Operation *defOp = input.getDefiningOp();
-      const bool isView =
-          defOp != nullptr && mlir::isa<d2m::ViewOpInterface>(defOp);
-      if (isFirst) {
-        firstIsView = isView;
-        isFirst = false;
-        continue;
-      }
-      if (isView != firstIsView) {
-        return emitOpError(
-            "inputs must be uniformly views (ViewOpInterface) or uniformly "
-            "non-views; mixing is not supported");
-      }
+  // mixing view and non-view inputs would yield inconsistent results, and
+  // divergent VGM maps across inputs would silently mis-address per-core data.
+  auto isViewInput = [](Value v) {
+    return mlir::isa_and_nonnull<d2m::ViewOpInterface>(v.getDefiningOp());
+  };
+  auto inputs = this->getInputs();
+  const bool firstIsView = isViewInput(inputs.front());
+  const auto firstFwd =
+      firstIsView
+          ? mlir::tt::d2m::utils::getVirtualGridForwardMapping(inputs.front())
+          : std::nullopt;
+  for (auto [i, input] : llvm::enumerate(llvm::drop_begin(inputs))) {
+    if (isViewInput(input) != firstIsView) {
+      return emitOpError() << "inputs must be uniformly views "
+                              "(ViewOpInterface) or uniformly non-views; "
+                              "input "
+                           << (i + 1) << " disagrees with input 0";
     }
-  }
-
-  // VGM propagation returns the first input's map; divergent maps across
-  // inputs would silently mis-address per-core data.
-  if (firstIsView) {
-    std::optional<mlir::AffineMap> sharedFwd;
-    bool isFirst = true;
-    for (Value input : this->getInputs()) {
-      auto fwd = mlir::tt::d2m::utils::getVirtualGridForwardMapping(input);
-      if (isFirst) {
-        sharedFwd = fwd;
-        isFirst = false;
-        continue;
-      }
-      if (fwd != sharedFwd) {
-        return emitOpError(
-            "all view inputs must share the same virtualGridForwardMapping "
-            "(divergent VGM maps across composite inputs not supported)");
-      }
+    if (firstIsView &&
+        mlir::tt::d2m::utils::getVirtualGridForwardMapping(input) != firstFwd) {
+      return emitOpError() << "all view inputs must share the same "
+                              "virtualGridForwardMapping; input "
+                           << (i + 1) << " has a divergent map from input 0";
     }
   }
 

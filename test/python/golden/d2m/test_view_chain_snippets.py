@@ -47,29 +47,6 @@ def _compile_and_run_snippet(mlir_text, golden_input_output, request, device):
         system_desc_path=request.config.getoption("--sys-desc"),
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
     )
-    #
-    # _prev = torch._tensor_str.PRINT_OPTS
-    # torch.set_printoptions(
-    #     threshold=10_000_000, linewidth=400, precision=1, sci_mode=False
-    # )
-    # try:
-    #     for name, g in golden_input_output.items():
-    #         tensor = next(iter(g.shard_map.values()))
-    #         print(f"\n[{name}] shape={tuple(tensor.shape)} dtype={tensor.dtype}")
-    #         if name.startswith("output_"):
-    #             print(tensor)
-    #         else:
-    #             print(f"  first row: {tensor[0].tolist()}")
-    #             print(f"  last row : {tensor[-1].tolist()}")
-    # finally:
-    #     torch.set_printoptions(
-    #         precision=_prev.precision,
-    #         threshold=_prev.threshold,
-    #         edgeitems=_prev.edgeitems,
-    #         linewidth=_prev.linewidth,
-    #         sci_mode=_prev.sci_mode,
-    #     )
-
     _golden_report, output_tensors = execute_fb(
         ttmetal_to_flatbuffer_bin(module),
         input_output_goldens={0: golden_input_output},
@@ -80,18 +57,6 @@ def _compile_and_run_snippet(mlir_text, golden_input_output, request, device):
         check_atol=True,
         check_rtol=True,
     )
-    # torch.set_printoptions(
-    #     threshold=10_000_000, linewidth=400, precision=1, sci_mode=False
-    # )
-    # for prog_key, program in output_tensors.items():
-    #     for key, shards in program.items():
-    #         if not key.startswith("device_output_"):
-    #             continue
-    #         for shard_id, tensor in shards.items():
-    #             print(
-    #                 f"\n[{prog_key}/{key} shard={shard_id}] shape={tuple(tensor.shape)}"
-    #             )
-    #             print(tensor)
 
 
 def _im2col_nhwc_flat(t: torch.Tensor, K: int = 2) -> torch.Tensor:
