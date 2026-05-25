@@ -1,20 +1,16 @@
 // RUN: ttmlir-opt --split-input-file \
 // RUN:   --d2m-distribute-compute-threads \
-// RUN:   --d2m-materialize-compute-thread-forall %s | FileCheck %s
+// RUN:   --d2m-lower-compute-thread-tiling %s | FileCheck %s
 
 // Smoke test: distribute followed by materialize composes correctly when
 // the enclosing d2m.generic is already in post-split Compute form.
-// (In the full pipeline D2MSplitUnifiedThread runs between these two; that
-// path is exercised by the higher-level integration tests. This smoke
-// test verifies the two-pass composition directly.)
 //
 // After both passes:
 //   - no scf.forall remains
 //   - one d2m.my_thread_id appears inside the d2m.generic compute region
 //   - the inner linalg.generic operates on memref.subview ops indexed by
 //     the my_thread_id result
-//   - the Compute ThreadAttr carries num_compute_threads = 4 (the
-//     hardcoded number of available compute threads).
+//   - the Compute ThreadAttr carries num_compute_threads = 4
 
 // -----
 

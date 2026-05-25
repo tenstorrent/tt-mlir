@@ -1759,8 +1759,8 @@ void MyThreadIdOp::getAsmResultNames(
 void MyThreadIdOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
-  constexpr uint64_t kNumComputeThreadsV1 = 4;
-  setResultRange(getResult(), getIndexRange(0, kNumComputeThreadsV1 - 1));
+  constexpr uint64_t kNumComputeThreadsPerNeo = 4;
+  setResultRange(getResult(), getIndexRange(0, kNumComputeThreadsPerNeo - 1));
 }
 
 // TileMatmulBlockOp verification

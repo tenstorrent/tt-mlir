@@ -22,6 +22,10 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+constexpr int64_t kNumComputeThreadsPerNeo = 4;
+constexpr unsigned kSplitDimSetInlineCapacity =
+    static_cast<unsigned>(kNumComputeThreadsPerNeo);
+
 struct SplitCandidate {
   unsigned loopDim;
   int64_t tripCount;
@@ -99,7 +103,7 @@ static SmallVector<SplitCandidate, 2>
 getOrderedCandidates(linalg::GenericOp op, ArrayRef<int64_t> splitDims,
                      ArrayRef<int64_t> interchange) {
   SmallVector<SplitCandidate, 2> candidates;
-  llvm::SmallDenseSet<unsigned, 4> seen;
+  llvm::SmallDenseSet<unsigned, kSplitDimSetInlineCapacity> seen;
 
   if (!splitDims.empty()) {
     for (int64_t splitDim : getCurrentDims(splitDims, interchange)) {
@@ -127,8 +131,9 @@ getOrderedCandidates(linalg::GenericOp op, ArrayRef<int64_t> splitDims,
 static std::optional<SplitPlan>
 chooseSplitPlan(ArrayRef<SplitCandidate> candidates) {
   for (const SplitCandidate &candidate : candidates) {
-    if (isEligibleForFactor(candidate, 4)) {
-      return SplitPlan{{SplitDim{candidate.loopDim, 4}}, 4};
+    if (isEligibleForFactor(candidate, kNumComputeThreadsPerNeo)) {
+      return SplitPlan{{SplitDim{candidate.loopDim, kNumComputeThreadsPerNeo}},
+                       kNumComputeThreadsPerNeo};
     }
   }
 
@@ -140,7 +145,7 @@ chooseSplitPlan(ArrayRef<SplitCandidate> candidates) {
       if (isEligibleForFactor(candidates[j], 2)) {
         return SplitPlan{{SplitDim{candidates[i].loopDim, 2},
                           SplitDim{candidates[j].loopDim, 2}},
-                         4};
+                         kNumComputeThreadsPerNeo};
       }
     }
   }

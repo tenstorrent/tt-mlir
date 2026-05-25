@@ -270,7 +270,7 @@ void createD2MBackendPipeline(OpPassManager &pm,
   createOptimizationPasses(pm, options);
 
   if (options.enableComputeThreadTiling) {
-    pm.addPass(d2m::createD2MMaterializeComputeThreadForall());
+    pm.addPass(d2m::createD2MLowerComputeThreadTiling());
   }
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());

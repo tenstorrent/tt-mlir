@@ -1,13 +1,12 @@
 // RUN: ttmlir-opt --split-input-file --allow-unregistered-dialect \
-// RUN:   --d2m-materialize-compute-thread-forall %s | FileCheck %s
+// RUN:   --d2m-lower-compute-thread-tiling %s | FileCheck %s
 
 // -----
 
 // Basic case: scf.forall with #d2m.compute_thread mapping inside a
-// d2m.generic Compute thread region is replaced by %tid = d2m.my_thread_id ;
-// <inlined body using %tid>. The body ops appear at the parent-block level
-// in their original order with the IV-use rewired through the my_thread_id
-// result. The affine map and subview shape/strides are propagated unchanged.
+// d2m.generic Compute thread region is inlined using %tid = d2m.my_thread_id.
+// The body ops appear at the parent-block level in their original order with 
+// the induction variables rewired through the my_thread_id result.
 // The enclosing d2m.generic's Compute ThreadAttr is rewritten to carry
 // num_compute_threads = 4 (extracted from #d2m.compute_thread<num=4>).
 
@@ -166,7 +165,7 @@ func.func @materialize_factor3(%A: memref<3x8xf32>) {
 // -----
 
 // scf.forall WITHOUT a #d2m.compute_thread mapping is left completely
-// untouched: same body, same IV use, no my_thread_id inserted anywhere.
+// untouched: same body, same induction variable use, no my_thread_id inserted.
 // The unrelated forall is allowed to live outside any d2m.generic — the
 // pass only inspects foralls that carry a #d2m.compute_thread mapping.
 

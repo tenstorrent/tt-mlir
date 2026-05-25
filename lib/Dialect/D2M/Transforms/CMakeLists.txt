@@ -17,10 +17,10 @@ add_mlir_dialect_library(MLIRD2MTransforms
         InsertDstRegisterAccess/Scheduled.cpp
         InsertTileMatmulBlock.cpp
         LinalgToAffine.cpp
+        LowerComputeThreadTiling.cpp
         LowerScratchAllocate.cpp
         LowerToLayout/LowerToLayout.cpp
         LowerToLayout/Plan.cpp
-        MaterializeComputeThreadForall.cpp
         MaterializeViewReturns.cpp
         OptimizeMasks.cpp
         OpScheduler.cpp

@@ -121,8 +121,9 @@ def D2MDistributeComputeThreads : Pass<"d2m-distribute-compute-threads", "::mlir
   let description = [{
     Tiles eligible linalg.generic compute ops across one or two trivially
     parallel output dimensions, producing scf.forall ops marked with
-    #d2m.compute_thread. This pass only targets compute work; datamovement
-    regions and datamovement-affinity ops are never tiled.
+    #d2m.compute_thread. Does not operate on datamovement threads.
+
+    The number of available compute threads is fixed by the pass implementation.
   }];
 
   list<Option> options = [
@@ -141,7 +142,7 @@ def D2MDistributeComputeThreads : Pass<"d2m-distribute-compute-threads", "::mlir
   ];
 }
 
-def D2MMaterializeComputeThreadForall : Pass<"d2m-materialize-compute-thread-forall", "::mlir::ModuleOp"> {
+def D2MLowerComputeThreadTiling : Pass<"d2m-lower-compute-thread-tiling", "::mlir::ModuleOp"> {
   let summary = "Materialize compute-thread scf.forall ops to d2m.my_thread_id.";
   let description = [{
     Lowers scf.forall ops marked with #d2m.compute_thread to D2M SPMD IR by
