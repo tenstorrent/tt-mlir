@@ -68,15 +68,20 @@ static Value generateSlidingWindowMask(PatternRewriter &rewriter, Location loc,
                                        uint32_t windowSize, bool isCausal,
                                        RankedTensorType referenceType,
                                        Value device) {
+  // Window topology must match the tt-metal kernel:
+  //   causal:     j in [i - W + 1, i]                  (last W tokens)
+  //   non-causal: j in [i - W/2,   i + W/2] inclusive  (W+1 tokens centered)
+  int64_t halfWindow = static_cast<int64_t>(windowSize) / 2;
   llvm::SmallVector<float> maskData;
   maskData.reserve(seqLenQ * seqLenKV);
   for (int64_t i = 0; i < seqLenQ; i++) {
     for (int64_t j = 0; j < seqLenKV; j++) {
       int64_t diff = i - j;
-      bool inWindow = diff >= 0 && diff < static_cast<int64_t>(windowSize);
-      if (!isCausal) {
-        // Bidirectional: window centered on position
-        inWindow = std::abs(diff) < static_cast<int64_t>(windowSize);
+      bool inWindow;
+      if (isCausal) {
+        inWindow = diff >= 0 && diff < static_cast<int64_t>(windowSize);
+      } else {
+        inWindow = diff >= -halfWindow && diff <= halfWindow;
       }
       maskData.push_back(inWindow ? 0.0f
                                   : -std::numeric_limits<float>::infinity());
@@ -264,18 +269,42 @@ LogicalResult SDPADecompositionPattern::matchAndRewrite(
   }
 
   // ---- Attention sink (concat) ----
-  // If attention_sink is present, concatenate it along the last dimension.
+  // Kernel computes softmax([scale*QK, scale*sink]) — the user-provided sink
+  // is in raw logit units (same coord frame as raw QK). Pre-scale the sink so
+  // it lives in the same units as the already-scaled scores before concat.
+  // The sink is broadcast across batch and Sq before concat since ttnn.concat
+  // requires matching non-concat dimensions (unlike the fused kernel which
+  // broadcasts implicitly).
   Value attentionSink = op.getAttentionSink();
   int64_t originalSeqLenKV = seqLenKV;
   if (attentionSink) {
     auto sinkType = mlir::cast<RankedTensorType>(attentionSink.getType());
     int64_t sinkCols = sinkType.getShape().back();
 
+    Value scaledSink =
+        rewriter
+            .create<MultiplyOp>(loc, sinkType, attentionSink, scaleTensor)
+            .getResult();
+
+    // Broadcast sink [1, Hq, 1, sinkCols] -> [B, Hq, Sq, sinkCols].
+    llvm::SmallVector<int64_t> broadcastSinkShape = {batch, numHeads, seqLenQ,
+                                                     sinkCols};
+    if (sinkType.getShape() != ArrayRef<int64_t>(broadcastSinkShape)) {
+      auto broadcastSinkType = createResultType(qType, broadcastSinkShape);
+      llvm::SmallVector<int64_t> sinkRepeatDims = {batch, 1, seqLenQ, 1};
+      scaledSink =
+          rewriter
+              .create<RepeatOp>(
+                  loc, broadcastSinkType, scaledSink,
+                  ShapeAttr::get(rewriter.getContext(), sinkRepeatDims))
+              .getResult();
+    }
+
     llvm::SmallVector<int64_t> concatShape = {batch, numHeads, seqLenQ,
                                               seqLenKV + sinkCols};
     auto concatType = createResultType(qType, concatShape);
 
-    SmallVector<Value> concatInputs = {scores, attentionSink};
+    SmallVector<Value> concatInputs = {scores, scaledSink};
     scores = rewriter
                  .create<ConcatOp>(loc, concatType, concatInputs,
                                    static_cast<int32_t>(-1))
@@ -286,10 +315,15 @@ LogicalResult SDPADecompositionPattern::matchAndRewrite(
   }
 
   // ---- Softmax ----
+  // numericStable=true subtracts rowwise max before exp, matching the fused
+  // kernel's online-softmax. Required because scale·QK can exceed bf16's exp
+  // range (e.g. head_dim=256 with non-standard scale produces scores ~100, and
+  // exp(100) overflows bf16) — without max subtraction softmax returns NaN.
   auto softmaxInputType = mlir::cast<RankedTensorType>(scores.getType());
   Value softmaxOut =
       rewriter
-          .create<SoftmaxOp>(loc, softmaxInputType, scores, /*dimension=*/-1)
+          .create<SoftmaxOp>(loc, softmaxInputType, scores, /*dimension=*/-1,
+                             /*numericStable=*/true)
           .getResult();
 
   // ---- Slice to remove sink columns ----
