@@ -289,7 +289,7 @@ struct TTIRToTTNNCommonPipelineOptions
   Option<bool> dramSpaceSavingOptimizationEnabled{
       *this, "enable-dram-space-saving-optimization-pass",
       llvm::cl::desc("Enable DRAM space saving optimization pass."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   Option<bool> eraseInverseOpsEnabled{
       *this, "enable-erase-inverse-ops-pass",
