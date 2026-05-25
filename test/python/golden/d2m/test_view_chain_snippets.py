@@ -52,7 +52,6 @@ def _compile_and_run_snippet(mlir_text, golden_input_output, request, device):
         input_output_goldens={0: golden_input_output},
         device=device,
         save_artifacts=True,
-        artifact_dir="builder-artifacts",
         check_pcc=True,
         check_atol=True,
         check_rtol=True,

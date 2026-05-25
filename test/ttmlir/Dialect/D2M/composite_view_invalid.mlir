@@ -155,7 +155,7 @@ func.func @composite_view_vgm_mismatch() -> memref<1x2x1x1x!ttcore.tile<32x32, f
   %alloc_1 = memref.alloc() {alignment = 16 : i64, d2m.virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_vgm>
   %view_0 = d2m.view_layout %alloc_0 remapping = #map_vgm : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_vgm> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_vgm>
   %view_1 = d2m.view_layout %alloc_1 remapping = #map_vgm : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_vgm> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_vgm>
-  // expected-error @+1 {{all view inputs must share the same virtualGridForwardMapping}}
+  // expected-error @+1 {{all composite_view inputs that carry a virtualGridForwardMapping must share the same map}}
   %0 = "d2m.composite_view"(%view_0, %view_1) <{dim = 1 : si32}> : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_vgm>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_vgm>) -> memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_vgm>
   return %0 : memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_vgm>
 }
