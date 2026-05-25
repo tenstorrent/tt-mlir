@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "assert.hpp"
+#include "config.hpp"
 
 #include <cstdlib>
 #include <cxxabi.h>
@@ -73,7 +74,7 @@ std::string backtrace_to_string(size_t size = 64, size_t skip = 2, const std::st
                                 std::string msg) {
     log_critical(tt::LogAlways, "{}: {}", assert_type, msg);
 
-    if (std::getenv("TT_KURBLA_ASSERT_ABORT")) {
+    if (assert_abort_enabled()) {
         abort();
     }
 
@@ -81,8 +82,7 @@ std::string backtrace_to_string(size_t size = 64, size_t skip = 2, const std::st
     trace_message_ss << assert_type << " @ " << file << ":" << line << ": " << condition_str << "\n";
     trace_message_ss << "info:\n" << msg << "\n";
 
-    static const bool disable_backtrace = std::getenv("TT_KURBLA_DISABLE_BACKTRACE") != nullptr;
-    if (!disable_backtrace) {
+    if (backtrace_enabled()) {
         trace_message_ss << "backtrace:\n";
         trace_message_ss << tt::assert::backtrace_to_string(100, 3, " --- ");
     }
