@@ -333,6 +333,10 @@ template <CommuteDirection commuteDirection>
 extern void
 populateSoftmaxCommutePatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                ConstevalForwardAnalysis *analysis = nullptr);
+template <CommuteDirection commuteDirection>
+extern void populateBatchNormCommutePatterns(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    ConstevalForwardAnalysis *analysis = nullptr);
 
 } // namespace mlir::tt::ttir
 

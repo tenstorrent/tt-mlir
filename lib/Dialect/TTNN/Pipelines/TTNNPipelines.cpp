@@ -48,6 +48,15 @@ void createTTNNPipelineTTIRPasses(
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,
       options.enablePermuteMatmulFusion};
+  // Erase inverse TM ops (incl. NHWC↔NCHW round-trip permutes from PyTorch
+  // frontends) before the first fusing pass so BN/relu-around-permute chains
+  // collapse into BN/relu-directly-after-conv, which is what
+  // BatchNormDecomposition and Conv2dWithActivation key on.
+  if (options.eraseInverseOpsEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRExplicateTMs());
+    pm.addPass(mlir::tt::ttir::createTTIREraseInverseOps());
+    pm.addPass(mlir::createCanonicalizerPass());
+  }
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }

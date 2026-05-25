@@ -162,6 +162,8 @@ private:
                                                      analysis);
     populateSoftmaxCommutePatterns<commuteDirection>(&getContext(), patterns,
                                                      analysis);
+    populateBatchNormCommutePatterns<commuteDirection>(&getContext(), patterns,
+                                                       analysis);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;
