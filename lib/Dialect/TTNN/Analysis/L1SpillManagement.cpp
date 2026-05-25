@@ -339,8 +339,9 @@ Value L1SpillManagement<MemoryTracker>::evictFarthestUse() {
     }
 
     // Skip reshards we inserted for future consumers — evicting them defeats
-    // their purpose. Regular ToMemoryConfigOp outputs from MemoryLayoutPropagation
-    // are NOT in this set and remain valid eviction candidates.
+    // their purpose. Regular ToMemoryConfigOp outputs from
+    // MemoryLayoutPropagation are NOT in this set and remain valid eviction
+    // candidates.
     if (insertedReshardValues.count(candidateVal)) {
       continue;
     }
