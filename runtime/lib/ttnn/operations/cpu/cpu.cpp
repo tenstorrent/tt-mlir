@@ -43,8 +43,9 @@ static const common::CreateTensorCallbackType<::ttnn::Tensor,
     createTensorFromWrapped = [](const tt::target::ttnn::TensorRef *ref,
                                  std::shared_ptr<void> dataPtr) {
       ::ttnn::Shape shape = utils::toTTNNShape(*ref->desc()->shape());
-      ::ttnn::DataType dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
-          ref->desc()->layout()->memory_desc()->data_type());
+      ::ttnn::DataType dtype =
+          ttnn_op_invoke::operations::utils::toTTNNDataType(
+              ref->desc()->layout()->memory_desc()->data_type());
       return createBorrowedTensorFromPtr(dataPtr, shape, dtype);
     };
 
@@ -259,7 +260,7 @@ invokeCpuOp(ProgramContext &context, const ::tt::target::ttnn::CpuOp *op,
 
     const ::tt::target::ttnn::TensorRef *expectedRef = op->ins()->Get(i);
     ::ttnn::DataType expectedDataType =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(
+        ttnn_op_invoke::operations::utils::toTTNNDataType(
             expectedRef->desc()->layout()->memory_desc()->data_type());
     LOG_ASSERT(ttnnTensor.dtype() == expectedDataType, "invokeCpuOp: input ", i,
                " dtype mismatch");

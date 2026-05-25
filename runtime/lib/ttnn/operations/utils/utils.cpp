@@ -40,8 +40,9 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
 }
 
 ::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRef *tensorRef) {
-  return ::tt::runtime::ttnn::utils::toTTNNDataType(
-      tensorRef->desc()->layout()->memory_desc()->data_type());
+  target::ttnn::TensorRefT tensorRefNative;
+  tensorRef->UnPackTo(&tensorRefNative);
+  return ttnn_op_invoke::operations::utils::getDataType(tensorRefNative);
 }
 
 ::ttnn::operations::unary::UnaryOpType
@@ -162,7 +163,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
         op->matmul_program_config_as_MatmulMultiCoreReuseProgramConfig();
     return ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig{
         .compute_with_storage_grid_size =
-            ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+            ttnn_op_invoke::operations::utils::toTTNNCoreCoord(
                 *config->compute_with_storage_grid_size()),
         .in0_block_w = config->in0_block_w(),
         .out_subblock_h = config->out_subblock_h(),
@@ -177,7 +178,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
     return ::ttnn::operations::matmul::
         MatmulMultiCoreReuseMultiCastProgramConfig{
             .compute_with_storage_grid_size =
-                ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+                ttnn_op_invoke::operations::utils::toTTNNCoreCoord(
                     *config->compute_with_storage_grid_size()),
             .in0_block_w = config->in0_block_w(),
             .out_subblock_h = config->out_subblock_h(),
@@ -201,7 +202,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
     return ::ttnn::operations::matmul::
         MatmulMultiCoreReuseMultiCast1DProgramConfig{
             .compute_with_storage_grid_size =
-                ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+                ttnn_op_invoke::operations::utils::toTTNNCoreCoord(
                     *config->compute_with_storage_grid_size()),
             .in0_block_w = config->in0_block_w(),
             .out_subblock_h = config->out_subblock_h(),
@@ -258,7 +259,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op) {
         op->matmul_program_config_as_MatmulMultiCoreReuseProgramConfig();
     return ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig{
         .compute_with_storage_grid_size =
-            ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+            ttnn_op_invoke::operations::utils::toTTNNCoreCoord(
                 *config->compute_with_storage_grid_size()),
         .in0_block_w = config->in0_block_w(),
         .out_subblock_h = config->out_subblock_h(),
@@ -273,7 +274,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op) {
     return ::ttnn::operations::matmul::
         MatmulMultiCoreReuseMultiCastProgramConfig{
             .compute_with_storage_grid_size =
-                ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+                ttnn_op_invoke::operations::utils::toTTNNCoreCoord(
                     *config->compute_with_storage_grid_size()),
             .in0_block_w = config->in0_block_w(),
             .out_subblock_h = config->out_subblock_h(),
@@ -297,7 +298,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op) {
     return ::ttnn::operations::matmul::
         MatmulMultiCoreReuseMultiCast1DProgramConfig{
             .compute_with_storage_grid_size =
-                ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+                ttnn_op_invoke::operations::utils::toTTNNCoreCoord(
                     *config->compute_with_storage_grid_size()),
             .in0_block_w = config->in0_block_w(),
             .out_subblock_h = config->out_subblock_h(),
@@ -346,7 +347,8 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
 
   if (config->weights_dtype()) {
     conv2dConfig.weights_dtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
+        ttnn_op_invoke::operations::utils::toTTNNDataType(
+            *config->weights_dtype());
   }
 
   if (config->activation()) {
@@ -381,7 +383,7 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
 
   if (config->shard_layout()) {
     conv2dConfig.shard_layout =
-        ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
+        ttnn_op_invoke::operations::utils::toTTNNTensorMemoryLayout(
             *config->shard_layout());
   }
 
@@ -396,7 +398,8 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
 
   if (config->output_layout()) {
     conv2dConfig.output_layout =
-        ::tt::runtime::ttnn::utils::toTTNNLayout(*config->output_layout());
+        ttnn_op_invoke::operations::utils::toTTNNLayout(
+            *config->output_layout());
   }
 
   if (config->enable_act_double_buffer()) {
@@ -444,31 +447,10 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
-  ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
-
-  if (config->math_fidelity()) {
-    computeKernelConfig.math_fidelity =
-        ::tt::runtime::ttnn::utils::toTTNNMathFidelity(
-            *config->math_fidelity());
-  }
-
-  if (config->math_approx_mode()) {
-    computeKernelConfig.math_approx_mode = *config->math_approx_mode();
-  }
-
-  if (config->fp32_dest_acc_en()) {
-    computeKernelConfig.fp32_dest_acc_en = *config->fp32_dest_acc_en();
-  }
-
-  if (config->packer_l1_acc()) {
-    computeKernelConfig.packer_l1_acc = *config->packer_l1_acc();
-  }
-
-  if (config->dst_full_sync_en()) {
-    computeKernelConfig.dst_full_sync_en = *config->dst_full_sync_en();
-  }
-
-  return computeKernelConfig;
+  ::tt::target::ttnn::DeviceComputeKernelConfigT configNative;
+  config->UnPackTo(&configNative);
+  return ttnn_op_invoke::operations::utils::createDeviceComputeKernelConfig(
+      configNative);
 }
 
 ::ttnn::operations::transformer::SDPAProgramConfig
@@ -476,7 +458,7 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config) {
   ::ttnn::operations::transformer::SDPAProgramConfig sdpaConfig;
 
   sdpaConfig.compute_with_storage_grid_size =
-      ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+      ttnn_op_invoke::operations::utils::toTTNNCoreCoord(
           *config->compute_with_storage_grid_size());
 
   if (config->sub_core_grids()) {
@@ -574,8 +556,9 @@ static ::ttnn::Tensor toTTNNTensorImpl(
 allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
                        ::ttnn::MeshDevice &meshDevice) {
   ::ttnn::Shape ttnnShape = toTTNNShape(*tensorRef->desc()->shape());
-  ::ttnn::DataType ttnnDataType = ::tt::runtime::ttnn::utils::toTTNNDataType(
-      tensorRef->desc()->layout()->memory_desc()->data_type());
+  ::ttnn::DataType ttnnDataType =
+      ttnn_op_invoke::operations::utils::toTTNNDataType(
+          tensorRef->desc()->layout()->memory_desc()->data_type());
   ::ttnn::Layout ttnnLayout =
       ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(tensorRef);
   std::optional<::ttnn::MemoryConfig> memoryConfig =
