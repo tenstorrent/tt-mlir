@@ -33,7 +33,7 @@ using namespace mlir::tt::d2m;
 //
 // Format:  `<` threadType (`,` kernelSymbol)?
 //               (`,` `processor` `=` processorIndex)?
-//               (`,` `num_threads_per_cluster` `=` numThreadsPerCluster)? `>`
+//               (`,` `num_compute_threads` `=` numComputeThreads)? `>`
 //
 // The optional groups all start with `,`, so the declarative tablegen format
 // cannot disambiguate them when the kernel symbol is absent. We peek for
@@ -51,10 +51,10 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
 
   SymbolRefAttr kernelSymbol;
   int32_t processorIndex = -1;
-  int64_t numThreadsPerCluster = 1;
+  int64_t numComputeThreads = 1;
   bool parsedKernelSymbol = false;
   bool parsedProcessorIndex = false;
-  bool parsedNumThreadsPerCluster = false;
+  bool parsedNumComputeThreads = false;
 
   while (parser.parseOptionalComma().succeeded()) {
     if (parser.parseOptionalKeyword("processor").succeeded()) {
@@ -70,16 +70,16 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
       continue;
     }
 
-    if (parser.parseOptionalKeyword("num_threads_per_cluster").succeeded()) {
-      if (parsedNumThreadsPerCluster) {
+    if (parser.parseOptionalKeyword("num_compute_threads").succeeded()) {
+      if (parsedNumComputeThreads) {
         parser.emitError(parser.getCurrentLocation(),
-                         "duplicate num_threads_per_cluster in D2M_ThreadAttr");
+                         "duplicate num_compute_threads in D2M_ThreadAttr");
         return {};
       }
-      if (parser.parseEqual() || parser.parseInteger(numThreadsPerCluster)) {
+      if (parser.parseEqual() || parser.parseInteger(numComputeThreads)) {
         return {};
       }
-      parsedNumThreadsPerCluster = true;
+      parsedNumComputeThreads = true;
       continue;
     }
 
@@ -99,7 +99,7 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   }
 
   return ThreadAttr::get(parser.getContext(), *threadType, kernelSymbol,
-                         processorIndex, numThreadsPerCluster);
+                         processorIndex, numComputeThreads);
 }
 
 void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
@@ -115,8 +115,8 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
   if (getNumThreadsPerCluster() != 1) {
     printer << ", num_threads_per_cluster = " << getNumThreadsPerCluster();
   }
-    if (getNumThreadsPerCluster() != 1) {
-    printer << ", num_threads_per_cluster = " << getNumThreadsPerCluster();
+    if (getNumComputeThreads() != 1) {
+    printer << ", num_compute_threads = " << getNumComputeThreads();
   }
   printer << ">";
 }

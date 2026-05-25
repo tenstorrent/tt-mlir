@@ -126,7 +126,7 @@ static LogicalResult materialize(scf::ForallOp forall) {
              << upperBound;
     }
   }
-  int64_t numThreadsPerCluster = 1;
+  int64_t numComputeThreads = 1;
   for (auto [mapping, upperBound] : llvm::zip(*mappings, *upperBounds)) {
     if (mapping.getNum() != upperBound) {
       return forall->emitOpError("compute_thread mapping factor ")
@@ -134,7 +134,7 @@ static LogicalResult materialize(scf::ForallOp forall) {
              << " does not match corresponding forall upper bound "
              << upperBound;
     }
-    numThreadsPerCluster *= mapping.getNum();
+    numComputeThreads *= mapping.getNum();
   }
 
   auto enclosing = findEnclosingGenericRegion(forall);
@@ -154,18 +154,18 @@ static LogicalResult materialize(scf::ForallOp forall) {
                                "thread region (got threadType ")
            << stringifyEnum(origThread.getThreadType()) << ")";
   }
-  if (origThread.getNumThreadsPerCluster() != 1 &&
-      origThread.getNumThreadsPerCluster() != numThreadsPerCluster) {
+  if (origThread.getNumComputeThreads() != 1 &&
+      origThread.getNumComputeThreads() != numComputeThreads) {
     return forall->emitOpError("compute thread region already carries "
-                               "num_threads_per_cluster = ")
-           << origThread.getNumThreadsPerCluster()
+                               "num_compute_threads = ")
+           << origThread.getNumComputeThreads()
            << " which conflicts with this forall's #d2m.compute_thread<num="
-           << numThreadsPerCluster << ">";
+           << numComputeThreads << ">";
   }
   rebuiltThreads[regionIdx] =
       ThreadAttr::get(generic.getContext(), origThread.getThreadType(),
                       origThread.getKernelSymbol(), origThread.getNocIndex(),
-                      numThreadsPerCluster);
+                      numComputeThreads);
   generic.setThreadsAttr(ArrayAttr::get(generic.getContext(), rebuiltThreads));
 
   OpBuilder builder(forall);

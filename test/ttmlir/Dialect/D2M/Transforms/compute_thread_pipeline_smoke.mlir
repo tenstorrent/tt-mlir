@@ -13,7 +13,7 @@
 //   - one d2m.my_thread_id appears inside the d2m.generic compute region
 //   - the inner linalg.generic operates on memref.subview ops indexed by
 //     the my_thread_id result
-//   - the Compute ThreadAttr carries num_threads_per_cluster = 4 (the
+//   - the Compute ThreadAttr carries num_compute_threads = 4 (the
 //     hardcoded number of available compute threads).
 
 // -----
@@ -24,7 +24,7 @@ func.func @smoke(
     %C: memref<8x8x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
   // CHECK-LABEL: func.func @smoke
   // CHECK: d2m.generic
-  // CHECK-SAME: threads = [#d2m.thread<compute, num_threads_per_cluster = 4>]
+  // CHECK-SAME: threads = [#d2m.thread<compute, num_compute_threads = 4>]
   // CHECK-NOT: scf.forall
   // CHECK: %[[TID:.*]] = d2m.my_thread_id : index
   // CHECK: affine.apply {{.*}}(%[[TID]])

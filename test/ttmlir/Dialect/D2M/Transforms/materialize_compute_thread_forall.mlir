@@ -9,13 +9,13 @@
 // in their original order with the IV-use rewired through the my_thread_id
 // result. The affine map and subview shape/strides are propagated unchanged.
 // The enclosing d2m.generic's Compute ThreadAttr is rewritten to carry
-// num_threads_per_cluster = 4 (extracted from #d2m.compute_thread<num=4>).
+// num_compute_threads = 4 (extracted from #d2m.compute_thread<num=4>).
 
 // CHECK: #[[$MAP:[^ ]+]] = affine_map<(d0) -> (d0 * 2)>
 // CHECK-LABEL: func.func @materialize_basic
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<8x8xf32>)
 // CHECK:         d2m.generic
-// CHECK-SAME:    threads = [#d2m.thread<compute, num_threads_per_cluster = 4>]
+// CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 4>]
 // CHECK:         %[[TID:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
 // CHECK-NEXT:    %[[OFF:[A-Za-z0-9_]+]] = affine.apply #[[$MAP]](%[[TID]])
 // CHECK-NEXT:    %[[SUB:[A-Za-z0-9_]+]] = memref.subview %[[A]][%[[OFF]], 0] [2, 8] [1, 1] : memref<8x8xf32> to memref<2x8xf32, strided<[8, 1], offset: ?>>
@@ -42,20 +42,20 @@ func.func @materialize_basic(%A: memref<8x8xf32>) {
 
 // Multiple compute-thread foralls in separate d2m.generics are both lowered.
 // Each forall gets its own my_thread_id (TID0, TID1) inside its own generic,
-// and each generic's Compute ThreadAttr picks up num_threads_per_cluster = 4
+// and each generic's Compute ThreadAttr picks up num_compute_threads = 4
 // independently.
 
 // CHECK: #[[$MAP:[^ ]+]] = affine_map<(d0) -> (d0 * 2)>
 // CHECK-LABEL: func.func @materialize_multiple
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<8x8xf32>, %[[B:[A-Za-z0-9_]+]]: memref<8x8xf32>)
 // CHECK:         d2m.generic
-// CHECK-SAME:    threads = [#d2m.thread<compute, num_threads_per_cluster = 4>]
+// CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 4>]
 // CHECK:         %[[TID0:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
 // CHECK-NEXT:    %[[OFF0:[A-Za-z0-9_]+]] = affine.apply #[[$MAP]](%[[TID0]])
 // CHECK-NEXT:    %[[S0:[A-Za-z0-9_]+]] = memref.subview %[[A]][%[[OFF0]], 0] [2, 8] [1, 1] : memref<8x8xf32> to memref<2x8xf32, strided<[8, 1], offset: ?>>
 // CHECK-NEXT:    "use_a"(%[[S0]]) : (memref<2x8xf32, strided<[8, 1], offset: ?>>) -> ()
 // CHECK:         d2m.generic
-// CHECK-SAME:    threads = [#d2m.thread<compute, num_threads_per_cluster = 4>]
+// CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 4>]
 // CHECK:         %[[TID1:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
 // CHECK-NEXT:    %[[OFF1:[A-Za-z0-9_]+]] = affine.apply #[[$MAP]](%[[TID1]])
 // CHECK-NEXT:    %[[S1:[A-Za-z0-9_]+]] = memref.subview %[[B]][%[[OFF1]], 0] [2, 8] [1, 1] : memref<8x8xf32> to memref<2x8xf32, strided<[8, 1], offset: ?>>
@@ -97,7 +97,7 @@ func.func @materialize_multiple(%A: memref<8x8xf32>, %B: memref<8x8xf32>) {
 // CHECK-LABEL: func.func @materialize_rank2
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<2x2xf32>)
 // CHECK:         d2m.generic
-// CHECK-SAME:    threads = [#d2m.thread<compute, num_threads_per_cluster = 4>]
+// CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 4>]
 // CHECK:         %[[TID:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
 // CHECK-NEXT:    %[[ROW:[A-Za-z0-9_]+]] = affine.apply {{.*}}(%[[TID]])
 // CHECK-NEXT:    %[[COL:[A-Za-z0-9_]+]] = affine.apply {{.*}}(%[[TID]])
@@ -123,7 +123,7 @@ func.func @materialize_rank2(%A: memref<2x2xf32>) {
 // CHECK-LABEL: func.func @materialize_factor2
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<2x8xf32>)
 // CHECK:         d2m.generic
-// CHECK-SAME:    threads = [#d2m.thread<compute, num_threads_per_cluster = 2>]
+// CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 2>]
 // CHECK:         %[[TID:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
 // CHECK-NEXT:    "use_factor2"(%[[TID]]) : (index) -> ()
 // CHECK-NOT: scf.forall
@@ -147,7 +147,7 @@ func.func @materialize_factor2(%A: memref<2x8xf32>) {
 // CHECK-LABEL: func.func @materialize_factor3
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<3x8xf32>)
 // CHECK:         d2m.generic
-// CHECK-SAME:    threads = [#d2m.thread<compute, num_threads_per_cluster = 3>]
+// CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 3>]
 // CHECK:         %[[TID:[A-Za-z0-9_]+]] = d2m.my_thread_id : index
 // CHECK-NEXT:    "use_factor3"(%[[TID]]) : (index) -> ()
 // CHECK-NOT: scf.forall

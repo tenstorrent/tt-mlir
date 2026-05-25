@@ -27,7 +27,7 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
     ProcessorIndex 1 is mapped to NoC0.
 
     Compute thread regions also carry
-    numThreadsPerCluster, the number of Tensix threads used in a Neo.
+    numComputeThreads, the number of compute threads used in a Neo L1 region.
     
     A value of -1 means unassigned.
   }];
@@ -35,7 +35,7 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
     "ThreadType":$threadType,
     OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
     DefaultValuedParameter<"int32_t", "-1">:$processorIndex,
-    DefaultValuedParameter<"int64_t", "1">:$numThreadsPerCluster
+    DefaultValuedParameter<"int64_t", "1">:$numComputeThreads
   );
 
   // Format: `<` threadType (`,` kernelSymbol)?
