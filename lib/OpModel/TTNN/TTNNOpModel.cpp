@@ -2017,7 +2017,12 @@ llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
       inputLayout.getMemLayout().getValue() ==
           TensorMemoryLayout::HeightSharded &&
       inputLayout.getLayout() == Layout::RowMajor;
-  if (isHSRM && !outputLayout) {
+  bool outputIsHS =
+      outputLayout && outputLayout.getMemLayout() &&
+      outputLayout.getMemLayout().getValue() ==
+          TensorMemoryLayout::HeightSharded &&
+      outputLayout.getLayout() == Layout::RowMajor;
+  if (isHSRM && (!outputLayout || outputIsHS)) {
     unsigned rank = inputShape.size();
     bool widthTrim = (rank > 0);
     for (unsigned i = 0; i + 1 < rank && widthTrim; ++i) {

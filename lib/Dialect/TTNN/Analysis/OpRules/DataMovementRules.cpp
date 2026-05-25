@@ -135,21 +135,91 @@ OutputHints ConcatRuleBook::getOutputHints(
 // SliceRuleBook
 //===----------------------------------------------------------------------===//
 
+// Returns true when op is a SliceStaticOp that only trims the last dimension:
+//   begins = [0, ..., 0], step = [1, ..., 1], ends[0..rank-2] == inputShape,
+//   ends[rank-1] < inputShape[rank-1].
+// These are the exact conditions for SliceRmShardedWidthTrimProgramFactory.
+static bool isWidthTrimSliceStatic(Operation *op) {
+  auto sliceOp = mlir::dyn_cast<SliceStaticOp>(op);
+  if (!sliceOp)
+    return false;
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(sliceOp.getInput().getType());
+  if (!inputType)
+    return false;
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  unsigned rank = inputShape.size();
+  if (rank == 0)
+    return false;
+  mlir::ArrayAttr begins = sliceOp.getBegins();
+  mlir::ArrayAttr ends = sliceOp.getEnds();
+  mlir::ArrayAttr step = sliceOp.getStep();
+  if (begins.size() != rank || ends.size() != rank || step.size() != rank)
+    return false;
+  for (unsigned i = 0; i < rank - 1; ++i) {
+    if (mlir::cast<mlir::IntegerAttr>(begins[i]).getInt() != 0)
+      return false;
+    if (mlir::cast<mlir::IntegerAttr>(step[i]).getInt() != 1)
+      return false;
+    if (mlir::cast<mlir::IntegerAttr>(ends[i]).getInt() != inputShape[i])
+      return false;
+  }
+  unsigned last = rank - 1;
+  return mlir::cast<mlir::IntegerAttr>(begins[last]).getInt() == 0 &&
+         mlir::cast<mlir::IntegerAttr>(step[last]).getInt() == 1 &&
+         mlir::cast<mlir::IntegerAttr>(ends[last]).getInt() < inputShape[last];
+}
+
 LayoutFilterFn
 SliceRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
-  // Slice: sharded inputs produce incorrect results in tt-metal.
+  // Allow HEIGHT_SHARDED ROW_MAJOR inputs — SliceRmShardedWidthTrimProgramFactory
+  // handles the width-trim case locally on each core without cross-core traffic.
+  // All other sharded layouts (block-sharded, width-sharded, HS-tiled) produce
+  // incorrect results in tt-metal.
   // https://github.com/tenstorrent/tt-metal/issues/39074
-  return layout_filter_utils::rejectAllSharded;
+  return [](TTNNLayoutAttr layout) -> bool {
+    auto ml = layout.getMemLayout();
+    if (!ml || !isShardedMemoryLayout(ml.getValue()))
+      return true; // interleaved — keep
+    return ml.getValue() == TensorMemoryLayout::HeightSharded &&
+           layout.getLayout() == Layout::RowMajor;
+  };
 }
 
 bool SliceRuleBook::shouldExploreReshards() const { return false; }
 
 OutputHints
-SliceRuleBook::getOutputHints(Operation * /*op*/,
+SliceRuleBook::getOutputHints(Operation *op,
                               const std::vector<OpConfig> &legalConfigs) const {
-  // SliceStaticOp, SliceDynamicOp: disabled due to
-  // https://github.com/tenstorrent/tt-metal/issues/38016
-  // TODO(rpavlovicTT): re-enable slice ops.
+  // For width-trim SliceStaticOp, promote HEIGHT_SHARDED ROW_MAJOR output
+  // configs from legalConfigs as primary hints. These come from the analytical
+  // bypass in TTNNOpModel (same grid as input, last dim trimmed).
+  // All other slices use non-sharded output only.
+  if (isWidthTrimSliceStatic(op)) {
+    OutputHints result;
+    for (const auto &cfg : legalConfigs) {
+      if (!cfg.outputLayout)
+        continue;
+      auto ml = cfg.outputLayout.getMemLayout();
+      if (ml && ml.getValue() == TensorMemoryLayout::HeightSharded &&
+          cfg.outputLayout.getLayout() == Layout::RowMajor) {
+        result.hints.push_back(cfg);
+      }
+    }
+    if (!result.hints.empty()) {
+      // HS RM is the primary path; non-sharded configs are fallbacks.
+      for (const auto &cfg : legalConfigs) {
+        if (!cfg.outputLayout) {
+          result.fallbackHints.push_back(cfg);
+          continue;
+        }
+        auto ml = cfg.outputLayout.getMemLayout();
+        if (!ml || !isShardedMemoryLayout(ml.getValue()))
+          result.fallbackHints.push_back(cfg);
+      }
+      return result;
+    }
+  }
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
 
