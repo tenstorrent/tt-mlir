@@ -283,6 +283,26 @@ addLeadingDimsToMatchShape(mlir::DenseElementsAttr input,
   return input.reshape(newType);
 }
 
+// Get the input coordinate of the element of the implicitly broadcastable
+// eltwise operator's input tensor corresponding to a specified output
+// coordinate.
+static llvm::SmallVector<int64_t>
+outputToOperandCoord(const llvm::SmallVector<int64_t> &outCoord,
+                     llvm::ArrayRef<int64_t> operandShape) {
+  size_t size = operandShape.size();
+  assert(outCoord.size() == size &&
+         "Operand rank must match output rank for implicit broadcasting");
+  llvm::SmallVector<int64_t> operandCoord(size);
+  for (size_t i = 0; i != size; ++i) {
+    if (operandShape[i] == 1) {
+      operandCoord[i] = 0;
+    } else {
+      operandCoord[i] = outCoord[i];
+    }
+  }
+  return operandCoord;
+}
+
 template <typename ElementType, typename Fun>
 static ::mlir::OpFoldResult
 foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
@@ -334,24 +354,16 @@ foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
   llvm::SmallVector<int64_t> resultStrides = mlir::computeStrides(resultShape);
   llvm::SmallVector<int64_t> lhsStrides = mlir::computeStrides(lhsShape);
   llvm::SmallVector<int64_t> rhsStrides = mlir::computeStrides(rhsShape);
-  auto mapCoord = [](const llvm::SmallVector<int64_t> &resultCoord,
-                     llvm::ArrayRef<int64_t> operandShape) {
-    llvm::SmallVector<int64_t> operandCoord(resultCoord.size());
-    for (size_t i = 0; i != operandShape.size(); ++i) {
-      operandCoord[i] = operandShape[i] == 1 ? 0 : resultCoord[i];
-    }
-    return operandCoord;
-  };
 
   // Iterate over the result elements and compute the positions of the input
   // elements to which the map function should be applied.
   for (int64_t i = 0; i != resultType.getNumElements(); ++i) {
     llvm::SmallVector<int64_t> resultCoord =
         mlir::delinearize(i, resultStrides);
-    int64_t lhsIndex =
-        mlir::linearize(mapCoord(resultCoord, lhsShape), lhsStrides);
-    int64_t rhsIndex =
-        mlir::linearize(mapCoord(resultCoord, rhsShape), rhsStrides);
+    int64_t lhsIndex = mlir::linearize(
+        outputToOperandCoord(resultCoord, lhsShape), lhsStrides);
+    int64_t rhsIndex = mlir::linearize(
+        outputToOperandCoord(resultCoord, rhsShape), rhsStrides);
     resultValues.push_back(mapFn(lhsValues[lhsIndex], rhsValues[rhsIndex]));
   }
   return mlir::DenseElementsAttr::get(resultType, resultValues);
@@ -1275,6 +1287,70 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
         op, outputType, op.getInput(), minTensor, maxTensor);
     return success();
   });
+}
+
+// ClampTensorOp folder
+::mlir::OpFoldResult mlir::tt::ttir::ClampTensorOp::fold(FoldAdaptor adaptor) {
+  auto input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getInput());
+  auto min =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getMin());
+  auto max =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getMax());
+  if (!input || !min || !max) {
+    return nullptr;
+  }
+  if (min.isSplat() && max.isSplat()) {
+    // Op will be canonicalized to ClampScalarOp, so no need to handle this
+    // case here.
+    return nullptr;
+  }
+  if (!shouldFold(*this)) {
+    return nullptr;
+  }
+
+  auto resultType = getResult().getType();
+  if (input.getType() != min.getType() || input.getType() != max.getType() ||
+      input.getType() != resultType) {
+    // Op does not have broadcastable trait, and we don't want to fold implicit
+    // typecasts since they are rare.
+    return nullptr;
+  }
+
+  if (input.getElementType().isFloat()) {
+    auto inputValues = input.getValues<llvm::APFloat>();
+    auto minValues = min.getValues<llvm::APFloat>();
+    auto maxValues = max.getValues<llvm::APFloat>();
+    llvm::SmallVector<llvm::APFloat> resultValues;
+    resultValues.reserve(inputValues.size());
+    for (size_t i = 0; i != inputValues.size(); ++i) {
+      resultValues.push_back(
+          // Matches torch.clamp semantics of first applying max then min and
+          // returning max when min > max.
+          std::min(std::max(inputValues[i], minValues[i]), maxValues[i]));
+    }
+    return mlir::DenseElementsAttr::get(resultType, resultValues);
+  }
+
+  if (input.getElementType().isInteger()) {
+    auto inputValues = input.getValues<llvm::APInt>();
+    auto minValues = min.getValues<llvm::APInt>();
+    auto maxValues = max.getValues<llvm::APInt>();
+    llvm::SmallVector<llvm::APInt> resultValues;
+    resultValues.reserve(inputValues.size());
+    for (size_t i = 0; i != inputValues.size(); ++i) {
+      if (input.getElementType().isUnsignedInteger()) {
+        resultValues.push_back(llvm::APIntOps::umin(
+            llvm::APIntOps::umax(inputValues[i], minValues[i]), maxValues[i]));
+      } else {
+        resultValues.push_back(llvm::APIntOps::smin(
+            llvm::APIntOps::smax(inputValues[i], minValues[i]), maxValues[i]));
+      }
+    }
+    return mlir::DenseElementsAttr::get(getResult().getType(), resultValues);
+  }
+
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -8384,6 +8460,137 @@ static bool anyZero(mlir::ElementsAttr elems) {
   auto subtract = std::minus<>();
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    subtract, subtract);
+}
+
+//===----------------------------------------------------------------------===//
+// WhereOp
+//===----------------------------------------------------------------------===//
+
+static ::mlir::OpFoldResult constantFoldSplatWhereOp(
+    mlir::tt::ttir::WhereOp op, mlir::DenseElementsAttr condition,
+    mlir::DenseElementsAttr ifTrue, mlir::DenseElementsAttr ifFalse) {
+  if (!condition.isSplat()) {
+    return nullptr;
+  }
+
+  auto resultType = op.getResult().getType();
+
+  if (isZeroAttr(condition.getSplatValue<mlir::Attribute>())) {
+    if (ifFalse.isSplat()) {
+      return ifFalse.resizeSplat(resultType);
+    }
+    if (ifFalse.getType().getShape() != resultType.getShape()) {
+      return nullptr;
+    }
+    return ifFalse;
+  }
+
+  if (ifTrue.isSplat()) {
+    return ifTrue.resizeSplat(resultType);
+  }
+  if (ifTrue.getType().getShape() != resultType.getShape()) {
+    return nullptr;
+  }
+  return ifTrue;
+}
+
+template <typename ElementType>
+static ::mlir::OpFoldResult constantFoldNonSplatWhereOp(
+    mlir::tt::ttir::WhereOp op, mlir::DenseElementsAttr condition,
+    mlir::DenseElementsAttr ifTrue, mlir::DenseElementsAttr ifFalse) {
+  RankedTensorType resultType = op.getResult().getType();
+  llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+
+  condition = addLeadingDimsToMatchShape(condition, resultShape);
+  ifTrue = addLeadingDimsToMatchShape(ifTrue, resultShape);
+  ifFalse = addLeadingDimsToMatchShape(ifFalse, resultShape);
+
+  auto condValues = condition.getValues<mlir::Attribute>();
+  auto trueValues = ifTrue.getValues<ElementType>();
+  auto falseValues = ifFalse.getValues<ElementType>();
+  llvm::SmallVector<ElementType> resultValues;
+  resultValues.reserve(resultType.getNumElements());
+
+  llvm::ArrayRef<int64_t> condShape = condition.getType().getShape();
+  llvm::ArrayRef<int64_t> trueShape = ifTrue.getType().getShape();
+  llvm::ArrayRef<int64_t> falseShape = ifFalse.getType().getShape();
+  llvm::SmallVector<int64_t> resultStrides = mlir::computeStrides(resultShape);
+  llvm::SmallVector<int64_t> trueStrides = mlir::computeStrides(trueShape);
+  llvm::SmallVector<int64_t> falseStrides = mlir::computeStrides(falseShape);
+  llvm::SmallVector<int64_t> condStrides = mlir::computeStrides(condShape);
+
+  // Iterate over the result elements and compute the positions of the input
+  // elements to which the map function should be applied.
+  for (int64_t i = 0; i != resultType.getNumElements(); ++i) {
+    llvm::SmallVector<int64_t> resultCoord =
+        mlir::delinearize(i, resultStrides);
+    int64_t condIndex = mlir::linearize(
+        outputToOperandCoord(resultCoord, condShape), condStrides);
+    if (isZeroAttr(condValues[condIndex])) {
+      int64_t falseIndex = mlir::linearize(
+          outputToOperandCoord(resultCoord, falseShape), falseStrides);
+      resultValues.push_back(falseValues[falseIndex]);
+    } else {
+      int64_t trueIndex = mlir::linearize(
+          outputToOperandCoord(resultCoord, trueShape), trueStrides);
+      resultValues.push_back(trueValues[trueIndex]);
+    }
+  }
+  return mlir::DenseElementsAttr::get(resultType, resultValues);
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::WhereOp::fold(FoldAdaptor adaptor) {
+  auto condition =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getFirst());
+  auto trueValue =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getSecond());
+  auto falseValue =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getThird());
+
+  if (!condition || !trueValue || !falseValue) {
+    return nullptr;
+  }
+
+  auto resultType = getResult().getType();
+  if (trueValue.getElementType() != resultType.getElementType() ||
+      falseValue.getElementType() != resultType.getElementType()) {
+    // Avoid implicit type conversion since it does not happen often.
+    return nullptr;
+  }
+
+  if (condition.isSplat() || trueValue.isSplat() || falseValue.isSplat()) {
+    // If any of the operands is a splat, we require every non-splat operand to
+    // have the same shape as the result. Otherwise we could materialize a large
+    // constant which could be represented as a smaller constant + broadcast.
+    if ((!condition.isSplat() &&
+         condition.getType().getShape() != resultType.getShape()) ||
+        (!trueValue.isSplat() &&
+         trueValue.getType().getShape() != resultType.getShape()) ||
+        (!falseValue.isSplat() &&
+         falseValue.getType().getShape() != resultType.getShape())) {
+      return nullptr;
+    }
+  }
+
+  if (auto foldResult =
+          constantFoldSplatWhereOp(*this, condition, trueValue, falseValue)) {
+    return foldResult;
+  }
+
+  if (!shouldFold(*this)) {
+    return nullptr;
+  }
+
+  if (trueValue.getElementType().isInteger()) {
+    return constantFoldNonSplatWhereOp<llvm::APInt>(*this, condition, trueValue,
+                                                    falseValue);
+  }
+  if (trueValue.getElementType().isFloat()) {
+    return constantFoldNonSplatWhereOp<llvm::APFloat>(*this, condition,
+                                                      trueValue, falseValue);
+  }
+
+  return nullptr;
 }
 
 } // namespace mlir::tt::ttir

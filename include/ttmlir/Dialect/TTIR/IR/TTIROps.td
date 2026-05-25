@@ -276,6 +276,8 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
       This operation is equivalent to the ternary conditional operator (`condition ? true_value : false_value`)
       in many programming languages, applied elementwise across tensors.
     }];
+
+    let hasFolder = 1;
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
@@ -4874,6 +4876,8 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
   let hasVerifier = 1;
 
   let hasCanonicalizer = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
