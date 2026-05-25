@@ -21,13 +21,13 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
              "Invalid tile shape");
 
   ::ttnn::Layout layout =
-      ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
+      ::ttnn_op_invoke::operations::utils::toTTNNLayout(op->layout());
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
   std::optional<::ttnn::DataType> dtype = std::nullopt;
 
   if (op->dtype()) {
-    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
+    dtype = ttnn_op_invoke::operations::utils::toTTNNDataType(*(op->dtype()));
   }
 
   ::ttnn::Tensor out =
