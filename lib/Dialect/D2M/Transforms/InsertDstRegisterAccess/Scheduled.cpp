@@ -28,83 +28,6 @@ namespace {
 using namespace detail;
 
 // ---------------------------------------------------------------------------
-// Scheduled-only: in-place data copy generation (no loop cloning)
-// ---------------------------------------------------------------------------
-
-template <typename LoadStoreOpTy>
-static void dataCopyGenerateScheduledInPlace(
-    PatternRewriter &rewriter, Operation *loopNestOrOp,
-    ArrayRef<LoadStoreRecord<LoadStoreOpTy>> loadStoreOps,
-    llvm::function_ref<void(PatternRewriter &, Location, Value, AffineMap,
-                            ValueRange, AffineMap, ValueRange)>
-        loadStoreDstAccessGenerator,
-    llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
-                            ValueRange)>
-        dstAccessReplacement,
-    bool disableL1Acc = true) {
-  if (loadStoreOps.empty()) {
-    return;
-  }
-
-  // NB: structured binding here is by copy because MLIR op accessors
-  // (.getLoc(), .getIndices(), ...) are not const-marked, so a const-ref
-  // binding to an ArrayRef element would fail to compile.  Each element is
-  // a small POD-ish LoadStoreRecord, so copying is cheap.
-  for (auto [loadStore, bcast, dstSliceIndex, guardIVs] : loadStoreOps) {
-    mlir::IRMapping emptyIRMapper;
-
-    auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
-        buildIndices(rewriter, loadStore.getLoc(), emptyIRMapper,
-                     loadStore.getIndices(), dstSliceIndex, loadStore.getMap(),
-                     loadStore.getMemRefType(), loopNestOrOp);
-
-    rewriter.setInsertionPoint(loadStore);
-
-    if (disableL1Acc) {
-      loadStoreDstAccessGenerator(
-          rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
-          l1AccessIndices, dstAccessMap, dstAccessIndices);
-    }
-
-    dstAccessReplacement(rewriter, loadStore, dstAccessMap, dstAccessIndices);
-  }
-}
-
-// Thin adapter so the existing scheduled callers (which were written
-// against `(loc, cb, ...)` for the copy callback and `(op, ...)` for the
-// rewriter) keep working on top of the shared `emitDstCopyNest`.
-//
-// The shared helper passes the full `LoadStoreRecord` to both callbacks;
-// here we re-derive `loc` / `cb` / `op` from `record.loadStore` for the
-// adapter callbacks the scheduled pass already had.
-template <typename LoadStoreOpTy>
-static void dataCopyGenerateWithClone(
-    PatternRewriter &rewriter, Operation *loopNestOrOp,
-    ArrayRef<LoadStoreRecord<LoadStoreOpTy>> loadStoreOps,
-    llvm::function_ref<void(PatternRewriter &, Location, Value, AffineMap,
-                            ValueRange, AffineMap, ValueRange)>
-        loadStoreDstAccessGenerator,
-    llvm::function_ref<void(PatternRewriter &, LoadStoreOpTy, AffineMap,
-                            ValueRange)>
-        dstAccessReplacement) {
-  emitDstCopyNest<LoadStoreOpTy>(
-      rewriter, loopNestOrOp, loadStoreOps,
-      [&](PatternRewriter &rw, LoadStoreRecord<LoadStoreOpTy> record,
-          AffineMap l1AccessMap, ValueRange l1AccessIndices,
-          AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-        loadStoreDstAccessGenerator(
-            rw, record.loadStore.getLoc(), record.loadStore.getMemRef(),
-            l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices);
-      },
-      [&](PatternRewriter &rw, LoadStoreRecord<LoadStoreOpTy> record,
-          AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-        dstAccessReplacement(rw, record.loadStore, dstAccessMap,
-                             dstAccessIndices);
-      },
-      /*disableL1Acc=*/true);
-}
-
-// ---------------------------------------------------------------------------
 // Scheduled-only: DST access collection (stack allocator)
 // ---------------------------------------------------------------------------
 
@@ -117,9 +40,10 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
   DstIntermediatesMap dstIntermediates;
   region.walk<WalkOrder::PreOrder>(
       [&](OperandLoadStoreRegisterOpInterface computeOp) {
-        auto notDstMemspace = [](auto op) {
-          return op && ttcore::getMemorySpace(op.getMemRef()) !=
-                           ttcore::MemorySpace::RegisterDst;
+        auto notDstMemspace = [](auto loadStoreOp) {
+          return loadStoreOp &&
+                 ttcore::getMemorySpace(loadStoreOp.getMemRef()) !=
+                     ttcore::MemorySpace::RegisterDst;
         };
 
         int numLoads = 0;
@@ -270,120 +194,13 @@ static void dataCopyGenerateScheduledAll(PatternRewriter &rewriter,
     auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
     rewriter.setInsertionPoint(loopNestOrOp);
-
-    // Process affine loads in-place.
-    dataCopyGenerateScheduledInPlace<affine::AffineLoadOp>(
-        rewriter, loopNestOrOp, copyInfo.loads,
-        [&](PatternRewriter &rewriter, Location loc, Value cb,
-            AffineMap l1AccessMap, ValueRange l1AccessIndices,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          auto l1Load = rewriter.create<affine::AffineLoadOp>(
-              loc, cb, l1AccessMap, l1AccessIndices);
-          rewriter.create<affine::AffineStoreOp>(
-              loc, l1Load.getResult(), dst, dstAccessMap, dstAccessIndices);
-        },
-        [&](PatternRewriter &rewriter, affine::AffineLoadOp op,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
-              op, dst, dstAccessMap, dstAccessIndices);
-        },
-        /*disableL1Acc=*/disableL1Acc);
-
-    // Process memref loads (scheduled path with scf.for loops).
-    for (auto [loadOp, bcast, dstSliceIndex, guardIVs] : copyInfo.memrefLoads) {
-      AffineMap dstAccessMap =
-          AffineMap::getConstantMap(dstSliceIndex, rewriter.getContext());
-
-      rewriter.setInsertionPoint(loadOp);
-
-      if (disableL1Acc) {
-        auto cbLoad = rewriter.create<memref::LoadOp>(
-            loadOp.getLoc(), loadOp.getMemRef(), loadOp.getIndices());
-        rewriter.create<affine::AffineStoreOp>(loadOp.getLoc(),
-                                               cbLoad.getResult(), dst,
-                                               dstAccessMap, ValueRange{});
-      }
-
-      auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-          loadOp.getLoc(), dst, dstAccessMap, ValueRange{});
-      rewriter.replaceOp(loadOp, dstLoad.getResult());
-    }
+    emitDstCopyNest(rewriter, loopNestOrOp, dst, copyInfo.loads,
+                    /*isLoadSide=*/true, /*cloneLoopNest=*/false, disableL1Acc);
 
     rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
-
-    // Process affine stores (clones loop skeleton for separate store nest).
-    dataCopyGenerateWithClone<affine::AffineStoreOp>(
-        rewriter, loopNestOrOp, copyInfo.stores,
-        [&](PatternRewriter &rewriter, Location loc, Value cb,
-            AffineMap l1AccessMap, ValueRange l1AccessIndices,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-              loc, dst, dstAccessMap, dstAccessIndices);
-          Value valueToStore = dstLoad.getResult();
-
-          auto cbType = mlir::cast<MemRefType>(cb.getType());
-          if (valueToStore.getType() != cbType.getElementType()) {
-            valueToStore = rewriter
-                               .create<d2m::DstReinterpretCastOp>(
-                                   loc, cbType.getElementType(), valueToStore)
-                               .getResult();
-          }
-
-          rewriter.create<affine::AffineStoreOp>(loc, valueToStore, cb,
-                                                 l1AccessMap, l1AccessIndices);
-        },
-        [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          Value valueToStore = op.getValue();
-          auto dstType = mlir::cast<MemRefType>(dst.getType());
-          if (valueToStore.getType() != dstType.getElementType()) {
-            valueToStore =
-                rewriter
-                    .create<d2m::DstReinterpretCastOp>(
-                        op.getLoc(), dstType.getElementType(), valueToStore)
-                    .getResult();
-          }
-
-          rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-              op, valueToStore, dst, dstAccessMap, dstAccessIndices);
-        });
-
-    // Process memref stores (scheduled path with scf.for loops).
-    for (auto [storeOp, bcast, dstSliceIndex, guardIVs] :
-         copyInfo.memrefStores) {
-      AffineMap dstAccessMap =
-          AffineMap::getConstantMap(dstSliceIndex, rewriter.getContext());
-
-      rewriter.setInsertionPoint(storeOp);
-
-      Value valueToStore = storeOp.getValue();
-      auto dstType = mlir::cast<MemRefType>(dst.getType());
-      if (valueToStore.getType() != dstType.getElementType()) {
-        valueToStore =
-            rewriter
-                .create<d2m::DstReinterpretCastOp>(
-                    storeOp.getLoc(), dstType.getElementType(), valueToStore)
-                .getResult();
-      }
-
-      rewriter.create<affine::AffineStoreOp>(storeOp.getLoc(), valueToStore,
-                                             dst, dstAccessMap, ValueRange{});
-
-      auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-          storeOp.getLoc(), dst, dstAccessMap, ValueRange{});
-      Value packValue = dstLoad.getResult();
-      auto cbType = mlir::cast<MemRefType>(storeOp.getMemRef().getType());
-      if (packValue.getType() != cbType.getElementType()) {
-        packValue =
-            rewriter
-                .create<d2m::DstReinterpretCastOp>(
-                    storeOp.getLoc(), cbType.getElementType(), packValue)
-                .getResult();
-      }
-
-      rewriter.replaceOpWithNewOp<memref::StoreOp>(
-          storeOp, packValue, storeOp.getMemRef(), storeOp.getIndices());
-    }
+    emitDstCopyNest(rewriter, loopNestOrOp, dst, copyInfo.stores,
+                    /*isLoadSide=*/false, /*cloneLoopNest=*/true,
+                    /*disableL1Acc=*/true);
   }
 }
 

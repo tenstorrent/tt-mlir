@@ -43,47 +43,70 @@ struct DstRegionOpClassification {
   bool hasMarkedAffineLoops = false;
 };
 
-template <typename LoadOrStoreTy>
-struct LoadStoreRecord {
-  LoadOrStoreTy loadStore = nullptr;
-  std::optional<d2m::TileBcastOp> bcast = std::nullopt;
+enum class DstAccessKind : uint8_t {
+  AffineLoad,
+  AffineStore,
+  MemrefLoad,
+  MemrefStore,
+};
+
+struct DstAccess {
+  Operation *op = nullptr;
+  DstAccessKind kind = DstAccessKind::AffineLoad;
   int dstSlice = -1;
+  std::optional<d2m::TileBcastOp> bcast = std::nullopt;
   SmallVector<Value> guardIVs = {};
 
-  LoadStoreRecord(LoadOrStoreTy loadStore,
-                  std::optional<d2m::TileBcastOp> bcast, int dstSlice,
-                  ArrayRef<Value> guardIVs)
-      : loadStore(loadStore), bcast(bcast), dstSlice(dstSlice),
-        guardIVs(guardIVs.begin(), guardIVs.end()) {}
+  DstAccess() = default;
+  DstAccess(Operation *opIn, DstAccessKind kindIn, int dstSliceIn,
+            std::optional<d2m::TileBcastOp> bcastIn, ArrayRef<Value> guardIVsIn)
+      : op(opIn), kind(kindIn), dstSlice(dstSliceIn), bcast(bcastIn),
+        guardIVs(guardIVsIn.begin(), guardIVsIn.end()) {}
+
+  bool isLoad() const {
+    return kind == DstAccessKind::AffineLoad ||
+           kind == DstAccessKind::MemrefLoad;
+  }
+  bool isStore() const {
+    return kind == DstAccessKind::AffineStore ||
+           kind == DstAccessKind::MemrefStore;
+  }
+  bool isAffine() const {
+    return kind == DstAccessKind::AffineLoad ||
+           kind == DstAccessKind::AffineStore;
+  }
+  bool isMemref() const {
+    return kind == DstAccessKind::MemrefLoad ||
+           kind == DstAccessKind::MemrefStore;
+  }
+
+  Location getLoc() const { return op->getLoc(); }
+  Value getMemRef() const;
+  MemRefType getMemRefType() const;
+
+  AffineMap getAffineMap() const;
+  ValueRange getAffineIndices() const;
+  ValueRange getMemrefIndices() const;
+
+  affine::AffineLoadOp getAsAffineLoad() const;
+  affine::AffineStoreOp getAsAffineStore() const;
+  memref::LoadOp getAsMemrefLoad() const;
+  memref::StoreOp getAsMemrefStore() const;
 };
 
 struct CopyInfo {
+  void record(DstAccess access);
+
   void record(affine::AffineLoadOp load, int dstSlice,
-              ArrayRef<Value> guardIVs) {
-    loads.emplace_back(load, std::nullopt, dstSlice, guardIVs);
-  }
-
+              ArrayRef<Value> guardIVs);
   void record(affine::AffineLoadOp load, d2m::TileBcastOp bcast, int dstSlice,
-              ArrayRef<Value> guardIVs) {
-    loads.emplace_back(load, bcast, dstSlice, guardIVs);
-  }
+              ArrayRef<Value> guardIVs);
+  void record(affine::AffineStoreOp store, int dstSlice, ArrayRef<Value>);
+  void record(memref::LoadOp load, int dstSlice, ArrayRef<Value> guardIVs);
+  void record(memref::StoreOp store, int dstSlice, ArrayRef<Value>);
 
-  void record(affine::AffineStoreOp store, int dstSlice, ArrayRef<Value>) {
-    stores.emplace_back(store, std::nullopt, dstSlice, ArrayRef<Value>{});
-  }
-
-  void record(memref::LoadOp load, int dstSlice, ArrayRef<Value> guardIVs) {
-    memrefLoads.emplace_back(load, std::nullopt, dstSlice, guardIVs);
-  }
-
-  void record(memref::StoreOp store, int dstSlice, ArrayRef<Value>) {
-    memrefStores.emplace_back(store, std::nullopt, dstSlice, ArrayRef<Value>{});
-  }
-
-  SmallVector<LoadStoreRecord<affine::AffineLoadOp>> loads;
-  SmallVector<LoadStoreRecord<affine::AffineStoreOp>> stores;
-  SmallVector<LoadStoreRecord<memref::LoadOp>> memrefLoads;
-  SmallVector<LoadStoreRecord<memref::StoreOp>> memrefStores;
+  SmallVector<DstAccess> loads;
+  SmallVector<DstAccess> stores;
 };
 
 // `MapVector` is used (instead of `DenseMap`) so that iteration order is
@@ -245,6 +268,23 @@ void collectDstLoadWithAccumAnalysis(memref::LoadOp loadOp, int64_t operandIdx,
                                      Operation *outermostInnerComputeLoop,
                                      bool noAccumGuard = false);
 
+void replaceLoadWithDst(PatternRewriter &rewriter, DstAccess &access, Value dst,
+                        AffineMap dstAccessMap, ValueRange dstAccessIndices);
+
+void replaceStoreWithDst(PatternRewriter &rewriter, DstAccess &access,
+                         Value dst, AffineMap dstAccessMap,
+                         ValueRange dstAccessIndices);
+
+void generateLoadSideCopy(PatternRewriter &rewriter, DstAccess &access,
+                          Value dst, AffineMap l1AccessMap,
+                          ValueRange l1AccessIndices, AffineMap dstAccessMap,
+                          ValueRange dstAccessIndices);
+
+void generateStoreSideCopy(PatternRewriter &rewriter, DstAccess &access,
+                           Value dst, AffineMap l1AccessMap,
+                           ValueRange l1AccessIndices, AffineMap dstAccessMap,
+                           ValueRange dstAccessIndices);
+
 scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
                               ValueRange guardIVs, bool isBcastGuard);
 
@@ -255,30 +295,14 @@ scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
 std::pair<Operation *, mlir::IRMapping>
 cloneAffineLoopSkeleton(PatternRewriter &rewriter, Operation *loopNestOrOp);
 
-// Shared "wrap a compute loop with a cloned CB<->DST copy nest" emitter
-// used by both the scheduled and unscheduled paths.
-//
-// For each record in `loadStoreRecords`, this:
-//   1. Emits a copy op via `copyGenerator` inside a clone of `loopNestOrOp`
-//      (the *shared* clone built once up front); records that carry a
-//      non-empty `guardIVs` get a fresh, per-record clone wrapped in an
-//      `scf.if` (accumulation / bcast init guard).
-//   2. Rewrites the original load/store via `accessReplacer` so it now
-//      goes through the DST register.
-//
-// `disableL1Acc=false` (i.e. L1 acc on) skips the upfront copy nest
-// entirely (the L1 acc guard preserves the running tile).
-template <typename LoadOrStoreTy>
-void emitDstCopyNest(
-    PatternRewriter &rewriter, Operation *loopNestOrOp,
-    ArrayRef<LoadStoreRecord<LoadOrStoreTy>> loadStoreRecords,
-    llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
-                            AffineMap, ValueRange, AffineMap, ValueRange)>
-        copyGenerator,
-    llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
-                            AffineMap, ValueRange)>
-        accessReplacer,
-    bool disableL1Acc = true);
+// Shared CB<->DST copy nest emitter used by both scheduled and unscheduled
+// paths.  When `cloneLoopNest` is true (unscheduled), affine accesses are
+// wrapped in a cloned affine.for skeleton; when false (scheduled in-place),
+// copy ops are emitted at each access site.  Memref accesses always use the
+// in-place path with a constant DST slice map.
+void emitDstCopyNest(PatternRewriter &rewriter, Operation *loopNestOrOp,
+                     Value dst, ArrayRef<DstAccess> accesses, bool isLoadSide,
+                     bool cloneLoopNest, bool disableL1Acc = true);
 
 std::pair<AffineMap, SmallVector<Value>>
 buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op, int dstSlice,
@@ -292,8 +316,7 @@ bool isDstScopeIV(Value iv, Operation *linalgRoot);
 
 std::tuple<AffineMap, SmallVector<Value>, AffineMap, SmallVector<Value>>
 buildIndices(PatternRewriter &rewriter, Location loc,
-             const mlir::IRMapping &irMapper, ValueRange currentIndices,
-             int dstSlice, AffineMap map, MemRefType cbType,
+             const mlir::IRMapping &irMapper, DstAccess &access,
              Operation *linalgRoot = nullptr);
 
 void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
