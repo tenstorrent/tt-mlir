@@ -613,6 +613,31 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
   return ::llvm::success();
 }
 
+std::optional<CoreRangeAttr> CoreRangeSetAttr::getBoundingBox() const {
+  llvm::ArrayRef<CoreRangeAttr> coreRanges = getCoreRanges();
+  if (coreRanges.empty()) {
+    return std::nullopt;
+  }
+
+  CoreCoordAttr firstStart = coreRanges.front().getStartCoord();
+  CoreCoordAttr firstEnd = coreRanges.front().getEndCoord();
+  uint64_t minStartX = firstStart.getX();
+  uint64_t minStartY = firstStart.getY();
+  uint64_t maxEndX = firstEnd.getX();
+  uint64_t maxEndY = firstEnd.getY();
+  for (CoreRangeAttr range : coreRanges.drop_front()) {
+    minStartX = std::min(minStartX, range.getStartCoord().getX());
+    minStartY = std::min(minStartY, range.getStartCoord().getY());
+    maxEndX = std::max(maxEndX, range.getEndCoord().getX());
+    maxEndY = std::max(maxEndY, range.getEndCoord().getY());
+  }
+
+  MLIRContext *context = getContext();
+  return CoreRangeAttr::get(context,
+                            CoreCoordAttr::get(context, minStartX, minStartY),
+                            CoreCoordAttr::get(context, maxEndX, maxEndY));
+}
+
 ::llvm::LogicalResult CoreRangeSetAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr> coreRanges) {

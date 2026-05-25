@@ -6,30 +6,36 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
+#include <optional>
+
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// Prepares DistributedRMSNormOp for the tt-metal fused_rms_minimal kernel.
+// Prepares DistributedRMSNormOp for the tt-metal fused_rms_minimal kernel
+// at the layout / sharding level. This pattern only handles operand layout
+// changes; it does not allocate scratch buffers or global semaphores. Those
+// are handled by the dedicated TTNNAllocateDistributedOpBuffers and
+// TTNNAllocateDistributedOpSemaphores passes (see DistributedOpInterface).
+// Weight 1D->2D ReshapeOps are emitted in
+// DistributedRMSNormDecompositionRewritePattern alongside the input reshape.
 //
-// The workaround addresses the following requirements:
+// What this pattern enforces:
 //
 //  1. Input and residual tensors must be width-sharded in L1 with a ROW_MAJOR
 //     shard spec (so the program factory can read the shard grid/shape).
-//  2. The weight tensor must be in ROW_MAJOR layout with width equal to
-//     tile_width (32). We reshape from 1D (N,) to 2D (N/32, 32) and convert.
+//  2. The weight tensor (assumed already 2D after decomposition) must be in
+//     ROW_MAJOR layout. We insert a ToLayoutOp if it is currently tiled.
 //  3. The output memory config must match the input shard spec
 //     (skip_write_back = true). The fused kernel only all-gathers stats,
 //     not data, so output shape == input shape.
 //  4. A compute_config must be set. If absent, a default HiFi4 config with
-//     fp32_dest_acc_en=true is created.
-//  5. A stats scratch tensor (1x1x32x32, width-sharded on core (0,0), L1) is
-//     created as an EmptyOp. Its dtype (Float32 or BFloat16) is derived from
-//     fp32_dest_acc_en in the compute_config.
-//  6. A LayerNormShardedMultiCoreProgramConfig is computed from the input's
+//     fp32_dest_acc_en=true is created. Downstream passes (in particular
+//     TTNNAllocateDistributedOpBuffers) read fp32_dest_acc_en to derive
+//     the stats scratch dtype.
+//  5. A LayerNormShardedMultiCoreProgramConfig is computed from the input's
 //     shard spec (grid size, block_h, block_w) and attached as an attribute.
 //
 // If the original output layout differs from the sharded config (e.g.
@@ -105,8 +111,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           rewriter.getContext(),
           ttcore::elementTypeToDataType(inputElementType)));
 
-  // The runtime requires the weight tensor in ROW_MAJOR layout with
-  // width = tile_width (32). Reshape from 1D (N,) to 2D (N/32, 32) first.
+  // The fused kernel requires the weight in ROW_MAJOR layout. The 1D->2D
+  // shape reshape is handled by the decomposition pattern; here we only
+  // convert from Tile to RowMajor if needed.
   mlir::Value weight = op.getWeight();
   if (weight) {
     RankedTensorType weightType =
@@ -120,25 +127,6 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       weightElementType = weightTileType.getElementType();
     }
 
-    // Reshape weight to 2D: (N,) -> (N/32, 32) so width matches tile width.
-    int64_t totalElements = 1;
-    for (int64_t dim : weightType.getShape()) {
-      totalElements *= dim;
-    }
-    SmallVector<int64_t> reshapedShape = {totalElements / tileWidth, tileWidth};
-    SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
-                                          reshapedShape.end());
-    RankedTensorType reshapedWeightType =
-        ttnn::utils::RankedTensorTypeFactory::create(weightType, reshapedShape);
-    auto reshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        op.getLoc(), reshapedWeightType, weight,
-        rewriter.getI32ArrayAttr(reshapedShapeI32));
-    weight = reshapeOp.getResult();
-
-    // Convert to ROW_MAJOR layout.
-    weightType = mlir::cast<RankedTensorType>(weight.getType());
-    weightLayout =
-        mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
     if (weightLayout && weightLayout.isTiled()) {
       ttnn::TTNNLayoutAttr rowMajorLayout =
           ttnn::TTNNLayoutAttr::Builder(weightLayout, weightType.getShape())
@@ -174,7 +162,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     }
   }
 
-  // Ensure compute_config is set (needed for stats dtype and by the kernel).
+  // Ensure compute_config is set. The buffer-allocation pass derives the
+  // stats scratch dtype from compute_config.fp32_dest_acc_en, so the
+  // attribute must be populated before that pass runs.
   auto computeConfigAttr = op.getComputeConfigAttr();
   if (!computeConfigAttr) {
     computeConfigAttr = DeviceComputeKernelConfigAttr::get(
@@ -184,55 +174,6 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
         /*fp32DestAccEn=*/BoolAttr::get(rewriter.getContext(), true),
         /*packerL1Acc=*/BoolAttr::get(rewriter.getContext(), true),
         /*dstFullSyncEn=*/nullptr);
-  }
-
-  // Derive stats tensor dtype from fp32_dest_acc_en in compute_config.
-  // The CB data format must match: Float32 when fp32_dest_acc_en, else
-  // BFloat16.
-  bool fp32DestAccEn = true;
-  if (auto fp32Attr = computeConfigAttr.getFp32DestAccEn()) {
-    fp32DestAccEn = fp32Attr.getValue();
-  }
-  auto statsElementType =
-      fp32DestAccEn
-          ? static_cast<Type>(Float32Type::get(rewriter.getContext()))
-          : static_cast<Type>(BFloat16Type::get(rewriter.getContext()));
-  auto statsDataType =
-      fp32DestAccEn ? ttcore::DataType::Float32 : ttcore::DataType::BFloat16;
-
-  // Create stats scratch tensor: one tile (32x32) per device, width-sharded
-  // on core (0,0) in L1. The fused kernel writes partial RMS statistics here
-  // and exchanges them across devices via the allgather.
-  SmallVector<int64_t> statsGridShape = {1, 1};
-  SmallVector<int64_t> statsShape = {1, 1, 32, 32};
-  ttnn::TTNNLayoutAttr statsLayout =
-      ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(), statsShape,
-                                    ttcore::TileType::get(statsElementType))
-          .setBufferType(ttnn::BufferType::L1)
-          .setMemoryLayout(ttnn::TensorMemoryLayout::WidthSharded)
-          .setGridShape(statsGridShape)
-          .buildWithCanonicalCorePlacement(deviceAttr);
-
-  auto statsShapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), statsShape);
-  auto statsDtypeAttr =
-      ttcore::DataTypeAttr::get(rewriter.getContext(), statsDataType);
-  auto statsLayoutAttr =
-      ttnn::LayoutAttr::get(rewriter.getContext(), ttnn::Layout::Tile);
-  RankedTensorType statsResultType =
-      RankedTensorType::get(statsShape, statsElementType, statsLayout);
-
-  auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-
-  // Insert the scratch EmptyOp right after GetDeviceOp so it sits with the
-  // block-prelude ops; leaving it inline would trip TTNNTraceHoistTransform
-  // ("Non-hoistable op in the middle of hoistable ops").
-  ttnn::EmptyOp statsEmptyOp;
-  {
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointAfter(device);
-    statsEmptyOp = rewriter.create<ttnn::EmptyOp>(
-        op.getLoc(), statsResultType, device, statsShapeAttr, statsDtypeAttr,
-        statsLayoutAttr);
   }
 
   // The fused kernel output shape == input shape (only stats are all-gathered,
@@ -247,17 +188,40 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   auto scalarShardShape = desiredInputLayout.getScalarShardShape();
   int64_t blockH = scalarShardShape[0] / tileWidth;
   int64_t blockW = scalarShardShape[1] / tileWidth;
-  int64_t gridW = std::min(numCores, physicalGrid[0]);
-  int64_t gridH = (numCores + physicalGrid[0] - 1) / physicalGrid[0];
+
+  // Derive the kernel's compute grid from the bounding box of the input's
+  // shard cores. The semaphore-allocation pass independently derives the
+  // semaphore core range from the same shard spec at a later pipeline
+  // stage (post-optimizer); see DistributedRMSNormOp::allocateSemaphores.
+  auto inputMemoryConfig = ttnn::MemoryConfigAttr::get(desiredInputLayout);
+  std::optional<ttnn::ShardSpecAttr> inputShardSpec =
+      inputMemoryConfig.getShardSpec();
+  assert(inputShardSpec.has_value() &&
+         "width-sharded input must have a shard spec");
+  std::optional<ttnn::CoreRangeAttr> inputBoundingBox =
+      inputShardSpec->getCoreRangeSet().getBoundingBox();
+  assert(inputBoundingBox.has_value() &&
+         "width-sharded input shard spec must have at least one core range");
+  ttnn::CoreCoordAttr boxStart = inputBoundingBox->getStartCoord();
+  ttnn::CoreCoordAttr boxEnd = inputBoundingBox->getEndCoord();
+
+  // Same as tt-metal GridParams: gs = bbox.end - bbox.start + 1 (inclusive
+  // bounding box of the input shard cores).
+  uint64_t gridW = boxEnd.getX() - boxStart.getX() + 1;
+  uint64_t gridH = boxEnd.getY() - boxStart.getY() + 1;
   auto programConfigAttr =
       ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
           rewriter.getContext(),
           ttnn::CoreCoordAttr::get(rewriter.getContext(), gridW, gridH),
           /*subblock_w=*/1, blockH, blockW, /*inplace=*/false);
 
+  // Rebuild the op with the converted operands and updated attributes.
+  // The stats and semaphore operands stay null here; they are populated by
+  // the TTNNAllocateDistributedOpBuffers / TTNNAllocateDistributedOpSemaphores
+  // passes (see DistributedOpInterface implementation in TTNNOps.cpp).
   auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
       op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(), weight,
-      residual, statsEmptyOp.getResult(), op.getDevice(),
+      residual, /*stats=*/nullptr, /*semaphore=*/nullptr, op.getDevice(),
       static_cast<uint32_t>(op.getClusterAxis()), op.getEpsilon(),
       op.getSubDeviceIdAttr(), op.getNumLinksAttr(), op.getTopologyAttr(),
       computeConfigAttr, programConfigAttr);

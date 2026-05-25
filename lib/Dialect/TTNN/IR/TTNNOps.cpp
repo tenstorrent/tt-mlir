@@ -3124,6 +3124,125 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   return success();
 }
 
+bool mlir::tt::ttnn::DistributedRMSNormOp::hasUnboundBuffers() {
+  return !getStats();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundBuffers()) {
+    return;
+  }
+
+  // The fused kernel CB data format must match compute_config.fp32_dest_acc_en
+  // (Float32 when set, BFloat16 otherwise). compute_config is set upstream by
+  // the workaround pattern or TTNNSetComputeKernelConfig; default to fp32.
+  bool fp32DestAccEn = true;
+  if (auto computeConfig = getComputeConfigAttr()) {
+    if (auto fp32Attr = computeConfig.getFp32DestAccEn()) {
+      fp32DestAccEn = fp32Attr.getValue();
+    }
+  }
+  Type statsElementType =
+      fp32DestAccEn
+          ? static_cast<Type>(Float32Type::get(rewriter.getContext()))
+          : static_cast<Type>(BFloat16Type::get(rewriter.getContext()));
+  ttcore::DataType statsDataType =
+      fp32DestAccEn ? ttcore::DataType::Float32 : ttcore::DataType::BFloat16;
+
+  // One tile (32x32) per device, width-sharded on core (0,0) in L1. The fused
+  // kernel hard-requires core (0,0), so spell the placement out explicitly
+  // rather than relying on canonical placement.
+  MLIRContext *ctx = rewriter.getContext();
+  SmallVector<int64_t> statsShape = {1, 1, 32, 32};
+  SmallVector<int64_t> statsGridShape = {1, 1};
+  CoreRangeSetAttr statsCoreRangeSet = CoreRangeSetAttr::get(
+      ctx, CoreRangeAttr::get(ctx, CoreCoordAttr::get(ctx, 0, 0),
+                              CoreCoordAttr::get(ctx, 0, 0)));
+  TTNNLayoutAttr statsLayout =
+      TTNNLayoutAttr::Builder(ctx, statsShape,
+                              ttcore::TileType::get(statsElementType))
+          .setBufferType(BufferType::L1)
+          .setMemoryLayout(TensorMemoryLayout::WidthSharded)
+          .setGridShape(statsGridShape)
+          .setCoreRangeSet(statsCoreRangeSet)
+          .build();
+
+  auto statsShapeAttr = ShapeAttr::get(ctx, statsShape);
+  auto statsDtypeAttr = ttcore::DataTypeAttr::get(ctx, statsDataType);
+  auto statsLayoutAttr = LayoutAttr::get(ctx, Layout::Tile);
+
+  RankedTensorType statsResultType =
+      RankedTensorType::get(statsShape, statsElementType, statsLayout);
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  // Inserted right after GetDeviceOp so the EmptyOp sits in the block prelude.
+  // TTNNTraceHoistTransform requires a contiguous block of hoistable ops, and
+  // EmptyOp (a host-side allocation) is forbidden inside the trace body.
+  ttnn::EmptyOp statsEmptyOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    statsEmptyOp = rewriter.create<ttnn::EmptyOp>(
+        getLoc(), statsResultType, device, statsShapeAttr, statsDtypeAttr,
+        statsLayoutAttr);
+  }
+
+  rewriter.modifyOpInPlace(
+      *this, [&]() { getStatsMutable().assign(statsEmptyOp.getResult()); });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool mlir::tt::ttnn::DistributedRMSNormOp::hasUnboundSemaphores() {
+  return !getSemaphore();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  // Derive the semaphore core range from the input's shard spec so it lives on
+  // cores that actually exist on the device. memory_config is populated by the
+  // workaround pattern and may be further refined by the optimizer before this
+  // runs.
+  MemoryConfigAttr memoryConfig = getMemoryConfigAttr();
+  assert(memoryConfig &&
+         "DistributedRMSNormOp must have a memory_config before semaphore "
+         "allocation; expected the workaround pattern to set it.");
+  std::optional<ShardSpecAttr> inputShardSpec = memoryConfig.getShardSpec();
+  assert(inputShardSpec.has_value() &&
+         "DistributedRMSNormOp memory_config must have a shard spec for "
+         "semaphore core range derivation.");
+  std::optional<CoreRangeAttr> semaphoreCoreRange =
+      inputShardSpec->getCoreRangeSet().getBoundingBox();
+  assert(semaphoreCoreRange.has_value() &&
+         "shard spec must have at least one core range");
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  // Same prelude placement as the scratch buffer above, for the same
+  // trace-hoisting reasons. Cross-replay semaphore reset is handled on-device
+  // by the kernel (rms_writer.cpp), so ttnn.reset_global_semaphore is
+  // intentionally not inserted here.
+  ttnn::CreateGlobalSemaphoreOp semaphoreOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
+        getLoc(), GlobalSemaphoreType::get(rewriter.getContext()),
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0), *semaphoreCoreRange);
+  }
+
+  rewriter.modifyOpInPlace(
+      *this, [&]() { getSemaphoreMutable().assign(semaphoreOp.getResult()); });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
 //===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp
 //===----------------------------------------------------------------------===//
@@ -4596,15 +4715,19 @@ void CaptureOrExecuteTraceOp::getEffects(
   }
 
   // Verify that the input arguments to this op match the capture_callee
-  // function's arguments
+  // function's arguments.
   auto captureInputTypes = captureFuncOp.getFunctionType().getInputs();
   auto opInputs = this->getInputs();
+  auto opSemaphoreInputs = this->getSemaphoreInputs();
+  size_t expectedCaptureInputs = opInputs.size() + opSemaphoreInputs.size();
 
-  if (captureInputTypes.size() != opInputs.size()) {
-    return emitOpError() << "Number of input arguments (" << opInputs.size()
-                         << ") does not match capture function '"
-                         << captureCalleeAttr.getValue() << "' input count ("
-                         << captureInputTypes.size() << ")";
+  if (captureInputTypes.size() != expectedCaptureInputs) {
+    return emitOpError()
+           << "Number of input arguments (inputs + semaphore_inputs = "
+           << opInputs.size() << " + " << opSemaphoreInputs.size() << " = "
+           << expectedCaptureInputs << ") does not match capture function '"
+           << captureCalleeAttr.getValue() << "' input count ("
+           << captureInputTypes.size() << ")";
   }
 
   for (size_t i = 0; i < opInputs.size(); ++i) {
@@ -4613,6 +4736,17 @@ void CaptureOrExecuteTraceOp::getEffects(
                            << "expected " << captureInputTypes[i]
                            << " from capture function, but got "
                            << opInputs[i].getType();
+    }
+  }
+
+  for (size_t i = 0; i < opSemaphoreInputs.size(); ++i) {
+    size_t captureIdx = opInputs.size() + i;
+    if (opSemaphoreInputs[i].getType() != captureInputTypes[captureIdx]) {
+      return emitOpError() << "Semaphore input argument " << i
+                           << " type mismatch: "
+                           << "expected " << captureInputTypes[captureIdx]
+                           << " from capture function, but got "
+                           << opSemaphoreInputs[i].getType();
     }
   }
 
@@ -4654,11 +4788,14 @@ void CaptureOrExecuteTraceOp::getEffects(
   }
 
   for (BlockArgument arg : traceFuncOp.getArguments()) {
-    if (!::mlir::isa<RankedTensorType>(arg.getType())) {
+    auto tensorType = ::mlir::dyn_cast<RankedTensorType>(arg.getType());
+    if (!tensorType) {
+      if (::mlir::isa<ttnn::GlobalSemaphoreType>(arg.getType())) {
+        continue;
+      }
       return emitOpError() << "All input arguments of trace function must be "
-                           << "ranked tensors";
+                           << "ranked tensors or global semaphores";
     }
-    auto tensorType = ::mlir::cast<RankedTensorType>(arg.getType());
     if (!utils::isTensorOnDevice(tensorType)) {
       return emitOpError()
              << "All input arguments of trace function must be on device."

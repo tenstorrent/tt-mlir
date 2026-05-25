@@ -3628,16 +3628,9 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
         emitter(srcOp, adaptor, rewriter);
 
-    mlir::Value globalSemaphore =
-        rewriter
-            .create<emitc::CallOpaqueOp>(
-                srcOp.getLoc(),
-                emitc::OpaqueType::get(rewriter.getContext(),
-                                       "::ttnn::GlobalSemaphore"),
-                ttnn_to_emitc::kCreateGlobalSemaphoreFunctionName,
-                /*args=*/nullptr,
-                /*template_args=*/nullptr, adaptor.getInput())
-            .getResult(0);
+    if (!srcOp.getSemaphore()) {
+      return rewriter.notifyMatchFailure(srcOp, "missing semaphore operand");
+    }
 
     // Emit SSA operands in ODS order to maintain correct index mapping, then
     // arrange the returned attributes in the C++ API call order.
@@ -3647,8 +3640,7 @@ public:
     auto statsIndexAttr = emitter.emit(srcOp.getStats());
     auto deviceIndexAttr =
         emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice());
-    auto semaphoreIndexAttr =
-        emitter.emit(globalSemaphore, srcOp->getNumOperands());
+    auto semaphoreIndexAttr = emitter.emit(srcOp.getSemaphore());
 
     llvm::SmallVector<mlir::Attribute> args{
         inputIndexAttr,
