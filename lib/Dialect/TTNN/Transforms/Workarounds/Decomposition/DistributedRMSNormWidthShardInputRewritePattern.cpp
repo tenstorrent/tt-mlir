@@ -247,8 +247,15 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   auto scalarShardShape = desiredInputLayout.getScalarShardShape();
   int64_t blockH = scalarShardShape[0] / tileWidth;
   int64_t blockW = scalarShardShape[1] / tileWidth;
-  int64_t gridW = std::min(numCores, physicalGrid[0]);
-  int64_t gridH = (numCores + physicalGrid[0] - 1) / physicalGrid[0];
+  // physicalGrid is [H, W]; canonical width-sharded placement (see
+  // deriveCanonicalL1CoreRangeSet) lays cores out row-major across the worker
+  // grid *width*, so grid_size must use [1] (W), not [0] (H). On square grids
+  // (Wormhole 8x8) both happen to be equal; on non-square grids (Blackhole
+  // p300c is 10x11 after harvesting) using [0] under-sizes grid_size.x and
+  // the strict `bbox.end - bbox.start < grid_size` assert in tt-metal's
+  // rms_allgather_device_operation.cpp:151 fires.
+  int64_t gridW = std::min(numCores, physicalGrid[1]);
+  int64_t gridH = (numCores + physicalGrid[1] - 1) / physicalGrid[1];
   auto programConfigAttr =
       ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
           rewriter.getContext(),
