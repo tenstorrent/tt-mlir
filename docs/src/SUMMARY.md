@@ -27,6 +27,7 @@
   - [`ttnn-standalone`](./ttnn-standalone.md)
   - [`EmitPy`](./emitpy.md)
 - [Optimizer](./optimizer.md)
+  - [Fix: HS Upsample Spill Before Width-Trim Slice](./op-rules-hs-slice-spill-fix.md)
 - [PyKernel](./pykernel.md)
 - [ttnn-jit](./ttnn-jit.md)
 - [Creating bug repros for TTNN](./ttnn-bug-repros.md)

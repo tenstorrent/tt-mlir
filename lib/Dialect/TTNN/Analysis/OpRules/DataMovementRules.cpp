@@ -191,12 +191,19 @@ bool SliceRuleBook::shouldExploreReshards() const { return false; }
 OutputHints
 SliceRuleBook::getOutputHints(Operation *op,
                               const std::vector<OpConfig> &legalConfigs) const {
-  // For width-trim SliceStaticOp, promote HEIGHT_SHARDED ROW_MAJOR output
-  // configs from legalConfigs as primary hints. These come from the analytical
-  // bypass in TTNNOpModel (same grid as input, last dim trimmed).
+  // For width-trim SliceStaticOp, promote HEIGHT_SHARDED ROW_MAJOR output as
+  // primary hints.  The NULL hint is always first so that
+  // SliceStaticOp::getOpConstraints can generate the HS RM output layout
+  // analytically from the input when row-major-enabled is false (and therefore
+  // no HS RM configs exist in legalConfigs).  Any HS RM configs already in
+  // legalConfigs are added after the NULL hint.  Non-sharded configs become
+  // fallbacks (tried only when the primary hints yield no sharded result).
   // All other slices use non-sharded output only.
   if (isWidthTrimSliceStatic(op)) {
     OutputHints result;
+    // NULL hint: SliceStaticOp::getOpConstraints analytical path triggers on
+    // (isHSRM && !outputLayout) and produces HS RM output from the input grid.
+    result.hints.push_back(OpConfig(TTNNLayoutAttr()));
     for (const auto &cfg : legalConfigs) {
       if (!cfg.outputLayout)
         continue;
@@ -206,19 +213,17 @@ SliceRuleBook::getOutputHints(Operation *op,
         result.hints.push_back(cfg);
       }
     }
-    if (!result.hints.empty()) {
-      // HS RM is the primary path; non-sharded configs are fallbacks.
-      for (const auto &cfg : legalConfigs) {
-        if (!cfg.outputLayout) {
-          result.fallbackHints.push_back(cfg);
-          continue;
-        }
-        auto ml = cfg.outputLayout.getMemLayout();
-        if (!ml || !isShardedMemoryLayout(ml.getValue()))
-          result.fallbackHints.push_back(cfg);
+    // Non-sharded configs are fallbacks.
+    for (const auto &cfg : legalConfigs) {
+      if (!cfg.outputLayout) {
+        result.fallbackHints.push_back(cfg);
+        continue;
       }
-      return result;
+      auto ml = cfg.outputLayout.getMemLayout();
+      if (!ml || !isShardedMemoryLayout(ml.getValue()))
+        result.fallbackHints.push_back(cfg);
     }
+    return result;
   }
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
