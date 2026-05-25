@@ -16,6 +16,9 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "d2m-materialize-view-returns"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MMATERIALIZEVIEWRETURNS
@@ -34,6 +37,7 @@ std::optional<std::pair<Value, AffineMap>> findUpstreamVgmSource(Value v) {
   if (!defOp) {
     return std::nullopt;
   }
+  unsigned idx = mlir::cast<OpResult>(v).getResultNumber();
   if (auto emptyOp = mlir::dyn_cast<EmptyOp>(defOp)) {
     if (auto fwd = emptyOp.getVirtualGridForwardMappingAttr()) {
       return std::make_pair(v, fwd.getValue());
@@ -47,20 +51,10 @@ std::optional<std::pair<Value, AffineMap>> findUpstreamVgmSource(Value v) {
     return findUpstreamVgmSource(toDeviceOp.getOutput());
   }
   if (auto genericOp = mlir::dyn_cast<GenericOp>(defOp)) {
-    for (auto [idx, result] : llvm::enumerate(genericOp.getResults())) {
-      if (result == v) {
-        return findUpstreamVgmSource(genericOp.getOutputs()[idx]);
-      }
-    }
-    return std::nullopt;
+    return findUpstreamVgmSource(genericOp.getOutputs()[idx]);
   }
   if (auto spatialOp = mlir::dyn_cast<SpatialOp>(defOp)) {
-    for (auto [idx, result] : llvm::enumerate(spatialOp.getResults())) {
-      if (result == v) {
-        return findUpstreamVgmSource(spatialOp.getOutputs()[idx]);
-      }
-    }
-    return std::nullopt;
+    return findUpstreamVgmSource(spatialOp.getOutputs()[idx]);
   }
   if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
     if (viewOp.isComposite()) {
@@ -129,7 +123,9 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
       builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
       layout.getCollapsedIntervals(), layout.getMemorySpace(),
       layout.getMemoryLayout());
-  // Pin phys grid to upstream's so writes stay local; else clean-factor.
+  // Reuse upstream's phys grid when volumes match (output writes land on same
+  // cores as upstream input). Otherwise pick a phys grid that exactly
+  // factorizes the virt vol.
   ttcore::GridAttr destGrid = getGridFromType(tensorType);
   TT_assert(destGrid != nullptr);
   AffineMapAttr fwdAttr;
@@ -149,10 +145,17 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                             std::multiplies<>());
         if (inheritedVolume == targetVolume) {
           physGrid = *inherited;
+        } else {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "materializeView: upstream physGrid vol "
+                     << inheritedVolume << " != virt grid vol " << targetVolume
+                     << "; falling back to volume-exact factorization\n");
         }
       }
       if (physGrid.empty()) {
-        // Clean-factor avoids mod-wrap on uneven worker grids (e.g. BH 10x11).
+        // Exact factorization (physH * physW == virt vol) avoids mod-wrap when
+        // the worker grid doesn't divide vol evenly (e.g. BH worker 10x11,
+        // virt vol 64 -> phys 8x8 instead of mod 11 over 10x11).
         physGrid =
             llvm::to_vector(ttmlir::d2m::utils::grids::getPhysicalGridExtent(
                 gridShape, targetGrid));
