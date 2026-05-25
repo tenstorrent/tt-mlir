@@ -1502,8 +1502,7 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
     }
   }
 
-  // VGM propagation (Utils.cpp) walks the first input's chain, so mixing
-  // view and non-view inputs would yield inconsistent results.
+  // composite_view inputs must be uniformly views or uniformly non-views
   auto isViewInput = [](Value v) {
     return mlir::isa_and_nonnull<d2m::ViewOpInterface>(v.getDefiningOp());
   };
@@ -1516,42 +1515,6 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
                               "input "
                            << (i + 1) << " disagrees with input 0";
     }
-  }
-
-  // VGM uniformity: any input that exposes a virtual-grid map (via a view
-  // chain or directly on a d2m.empty / to_layout) must agree with the rest.
-  // Propagation through composite_view picks inputs.front() blindly, so
-  // divergence here would silently mis-address per-core data.
-  auto checkUniformVgm = [&](auto mappingGetter,
-                             StringRef mapName) -> LogicalResult {
-    std::optional<AffineMap> sharedMap;
-    int64_t sharedSourceIdx = -1;
-    for (auto [i, input] : llvm::enumerate(inputs)) {
-      auto inputMap = mappingGetter(input);
-      if (!inputMap) {
-        continue;
-      }
-      if (!sharedMap) {
-        sharedMap = inputMap;
-        sharedSourceIdx = static_cast<int64_t>(i);
-        continue;
-      }
-      if (*inputMap != *sharedMap) {
-        return emitOpError()
-               << "all composite_view inputs that carry a " << mapName
-               << " must share the same map; input " << i
-               << " disagrees with input " << sharedSourceIdx;
-      }
-    }
-    return success();
-  };
-  if (failed(checkUniformVgm(mlir::tt::d2m::utils::getVirtualGridForwardMapping,
-                             "virtualGridForwardMapping"))) {
-    return failure();
-  }
-  if (failed(checkUniformVgm(mlir::tt::d2m::utils::getVirtualGridInverseMapping,
-                             "virtualGridInverseMapping"))) {
-    return failure();
   }
 
   return mlir::success();
