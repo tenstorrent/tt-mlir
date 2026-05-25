@@ -5,13 +5,13 @@
 
 // Basic case: scf.forall with #d2m.compute_thread mapping inside a
 // d2m.generic Compute thread region is inlined using %tid = d2m.my_thread_id.
-// The body ops appear at the parent-block level in their original order with 
+// The body ops appear at the parent-block level in their original order with
 // the induction variables rewired through the my_thread_id result.
 // The enclosing d2m.generic's Compute ThreadAttr is rewritten to carry
 // num_compute_threads = 4 (extracted from #d2m.compute_thread<num=4>).
 
 // CHECK: #[[$MAP:[^ ]+]] = affine_map<(d0) -> (d0 * 2)>
-// CHECK-LABEL: func.func @materialize_basic
+// CHECK-LABEL: func.func @lower_basic
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<8x8xf32>)
 // CHECK:         d2m.generic
 // CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 4>]
@@ -23,7 +23,7 @@
 // CHECK-NOT: scf.in_parallel
 // CHECK-NOT: #d2m.compute_thread
 
-func.func @materialize_basic(%A: memref<8x8xf32>) {
+func.func @lower_basic(%A: memref<8x8xf32>) {
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute>]}
       ins()
       outs(%A : memref<8x8xf32>) {
@@ -45,7 +45,7 @@ func.func @materialize_basic(%A: memref<8x8xf32>) {
 // independently.
 
 // CHECK: #[[$MAP:[^ ]+]] = affine_map<(d0) -> (d0 * 2)>
-// CHECK-LABEL: func.func @materialize_multiple
+// CHECK-LABEL: func.func @lower_multiple
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<8x8xf32>, %[[B:[A-Za-z0-9_]+]]: memref<8x8xf32>)
 // CHECK:         d2m.generic
 // CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 4>]
@@ -63,7 +63,7 @@ func.func @materialize_basic(%A: memref<8x8xf32>) {
 // CHECK-NOT: scf.in_parallel
 // CHECK-NOT: #d2m.compute_thread
 
-func.func @materialize_multiple(%A: memref<8x8xf32>, %B: memref<8x8xf32>) {
+func.func @lower_multiple(%A: memref<8x8xf32>, %B: memref<8x8xf32>) {
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute>]}
       ins()
       outs(%A : memref<8x8xf32>) {
@@ -93,7 +93,7 @@ func.func @materialize_multiple(%A: memref<8x8xf32>, %B: memref<8x8xf32>) {
 // derived coordinates. The flattened thread id is decoded as
 // row = tid floordiv 2, col = tid mod 2 for a 2x2 forall.
 
-// CHECK-LABEL: func.func @materialize_rank2
+// CHECK-LABEL: func.func @lower_rank2
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<2x2xf32>)
 // CHECK:         d2m.generic
 // CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 4>]
@@ -103,7 +103,7 @@ func.func @materialize_multiple(%A: memref<8x8xf32>, %B: memref<8x8xf32>) {
 // CHECK-NEXT:    "use_rank2"(%[[ROW]], %[[COL]]) : (index, index) -> ()
 // CHECK-NOT: scf.forall
 
-func.func @materialize_rank2(%A: memref<2x2xf32>) {
+func.func @lower_rank2(%A: memref<2x2xf32>) {
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute>]}
       ins()
       outs(%A : memref<2x2xf32>) {
@@ -116,10 +116,10 @@ func.func @materialize_rank2(%A: memref<2x2xf32>) {
 
 // -----
 
-// Rank-1 foralls with a 2-way fallback split still materialize and stamp the
+// Rank-1 foralls with a 2-way fallback split still lower and stamp the
 // exact thread count used by the mapping.
 
-// CHECK-LABEL: func.func @materialize_factor2
+// CHECK-LABEL: func.func @lower_factor2
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<2x8xf32>)
 // CHECK:         d2m.generic
 // CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 2>]
@@ -127,7 +127,7 @@ func.func @materialize_rank2(%A: memref<2x2xf32>) {
 // CHECK-NEXT:    "use_factor2"(%[[TID]]) : (index) -> ()
 // CHECK-NOT: scf.forall
 
-func.func @materialize_factor2(%A: memref<2x8xf32>) {
+func.func @lower_factor2(%A: memref<2x8xf32>) {
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute>]}
       ins()
       outs(%A : memref<2x8xf32>) {
@@ -140,10 +140,10 @@ func.func @materialize_factor2(%A: memref<2x8xf32>) {
 
 // -----
 
-// Rank-1 foralls with a 3-way fallback split still materialize and stamp the
+// Rank-1 foralls with a 3-way fallback split still lower and stamp the
 // exact thread count used by the mapping.
 
-// CHECK-LABEL: func.func @materialize_factor3
+// CHECK-LABEL: func.func @lower_factor3
 // CHECK-SAME:  (%[[A:[A-Za-z0-9_]+]]: memref<3x8xf32>)
 // CHECK:         d2m.generic
 // CHECK-SAME:    threads = [#d2m.thread<compute, num_compute_threads = 3>]
@@ -151,7 +151,7 @@ func.func @materialize_factor2(%A: memref<2x8xf32>) {
 // CHECK-NEXT:    "use_factor3"(%[[TID]]) : (index) -> ()
 // CHECK-NOT: scf.forall
 
-func.func @materialize_factor3(%A: memref<3x8xf32>) {
+func.func @lower_factor3(%A: memref<3x8xf32>) {
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute>]}
       ins()
       outs(%A : memref<3x8xf32>) {

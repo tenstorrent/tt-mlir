@@ -2,7 +2,7 @@
 // RUN:   --d2m-distribute-compute-threads \
 // RUN:   --d2m-lower-compute-thread-tiling %s | FileCheck %s
 
-// Smoke test: distribute followed by materialize composes correctly when
+// Smoke test: distribute followed by lower composes correctly when
 // the enclosing d2m.generic is already in post-split Compute form.
 //
 // After both passes:

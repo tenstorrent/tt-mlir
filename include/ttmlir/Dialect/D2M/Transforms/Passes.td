@@ -143,7 +143,7 @@ def D2MDistributeComputeThreads : Pass<"d2m-distribute-compute-threads", "::mlir
 }
 
 def D2MLowerComputeThreadTiling : Pass<"d2m-lower-compute-thread-tiling", "::mlir::ModuleOp"> {
-  let summary = "Materialize compute-thread scf.forall ops to d2m.my_thread_id.";
+  let summary = "Lower compute-thread scf.forall ops to d2m.my_thread_id.";
   let description = [{
     Lowers scf.forall ops marked with #d2m.compute_thread to D2M SPMD IR by
     creating d2m.my_thread_id, substituting compute-thread induction variables,

@@ -10,6 +10,16 @@ module {
     return
   }
 
+  // CHECK: func.func private @compute_num_threads() attributes {d2m.thread = #d2m.thread<compute, num_compute_threads = 4>}
+  func.func private @compute_num_threads() attributes {d2m.thread = #d2m.thread<compute, num_compute_threads = 4>} {
+    return
+  }
+
+  // CHECK: func.func private @compute_kernel_num_threads() attributes {d2m.thread = #d2m.thread<compute, @compute_sym, num_compute_threads = 4>}
+  func.func private @compute_kernel_num_threads() attributes {d2m.thread = #d2m.thread<compute, @compute_sym, num_compute_threads = 4>} {
+    return
+  }
+
   // CHECK: func.func private @kernel_only() attributes {d2m.thread = #d2m.thread<datamovement, @some_sym>}
   func.func private @kernel_only() attributes {d2m.thread = #d2m.thread<datamovement, @some_sym>} {
     return
@@ -22,6 +32,11 @@ module {
 
   // CHECK: func.func private @processor_only_1() attributes {d2m.thread = #d2m.thread<datamovement, processor = 1>}
   func.func private @processor_only_1() attributes {d2m.thread = #d2m.thread<datamovement, processor = 1>} {
+    return
+  }
+
+  // CHECK: func.func private @processor_only_2() attributes {d2m.thread = #d2m.thread<datamovement, processor = 2>}
+  func.func private @processor_only_2() attributes {d2m.thread = #d2m.thread<datamovement, processor = 2>} {
     return
   }
 

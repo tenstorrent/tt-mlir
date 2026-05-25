@@ -1760,6 +1760,8 @@ void MyThreadIdOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
   constexpr uint64_t kNumComputeThreadsPerNeo = 4;
+  // LowerComputeThreadTiling may lower 2-, 3-, or 4-way tiling, so the
+  // full Neo compute-thread range is a safe upper bound for every lowering.
   setResultRange(getResult(), getIndexRange(0, kNumComputeThreadsPerNeo - 1));
 }
 

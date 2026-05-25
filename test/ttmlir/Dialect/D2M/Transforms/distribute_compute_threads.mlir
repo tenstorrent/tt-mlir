@@ -1,8 +1,7 @@
 // RUN: ttmlir-opt --split-input-file \
 // RUN:   --d2m-distribute-compute-threads %s | FileCheck %s
 // RUN: ttmlir-opt --split-input-file \
-// RUN:   --d2m-distribute-compute-threads="split-dims=1" \
-// RUN:   %s | FileCheck %s --check-prefix=SPLITN
+// RUN:   --d2m-distribute-compute-threads="split-dims=1" %s | FileCheck %s --check-prefix=SPLITN
 // RUN: ttmlir-opt --split-input-file \
 // RUN:   --d2m-distribute-compute-threads="split-dims=0 matmul-interchange=2,0,1" \
 // RUN:   %s | FileCheck %s --check-prefix=INTERCHANGE
@@ -111,8 +110,6 @@ func.func @distribute_matmul_n(
   return
 }
 
-// -----
-
 // Elementwise linalg.generic ops are compute-thread tiled using the same
 // generic output-dim logic as matmul. This mirrors the binary op shape used by
 // the Python D2M golden tests.
@@ -124,13 +121,23 @@ func.func @distribute_elementwise_binary(
   // CHECK-LABEL: func.func @distribute_elementwise_binary
   // CHECK: d2m.generic
   // CHECK: scf.forall (%{{.*}}) in (4) {
+  // CHECK: memref.subview %{{.*}}[%{{.*}}, 0] [2, 8] [1, 1] : memref<8x8x!ttcore.tile<32x32, bf16>, #l1> to memref<2x8x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>
+  // CHECK: memref.subview %{{.*}}[%{{.*}}, 0] [2, 8] [1, 1] : memref<8x8x!ttcore.tile<32x32, bf16>, #l1> to memref<2x8x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>
+  // CHECK: memref.subview %{{.*}}[%{{.*}}, 0] [2, 8] [1, 1] : memref<8x8x!ttcore.tile<32x32, bf16>, #l1> to memref<2x8x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>
   // CHECK: linalg.generic
+  // CHECK-SAME: ins(%{{.+}}, %{{.+}} : memref<2x8x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>, memref<2x8x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>)
+  // CHECK-SAME: outs(%{{.+}} : memref<2x8x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>)
   // CHECK: d2m.tile_add
   // CHECK: } {mapping = [#d2m.compute_thread<num = 4>]}
   // SPLITN-LABEL: func.func @distribute_elementwise_binary
   // SPLITN: d2m.generic
   // SPLITN: scf.forall (%{{.*}}) in (4) {
+  // SPLITN: memref.subview %{{.*}}[0, %{{.*}}] [8, 2] [1, 1] : memref<8x8x!ttcore.tile<32x32, bf16>, #l1> to memref<8x2x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>
+  // SPLITN: memref.subview %{{.*}}[0, %{{.*}}] [8, 2] [1, 1] : memref<8x8x!ttcore.tile<32x32, bf16>, #l1> to memref<8x2x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>
+  // SPLITN: memref.subview %{{.*}}[0, %{{.*}}] [8, 2] [1, 1] : memref<8x8x!ttcore.tile<32x32, bf16>, #l1> to memref<8x2x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>
   // SPLITN: linalg.generic
+  // SPLITN-SAME: ins(%{{.+}}, %{{.+}} : memref<8x2x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>, memref<8x2x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>)
+  // SPLITN-SAME: outs(%{{.+}} : memref<8x2x!ttcore.tile<32x32, bf16>, strided<[8, 1], offset: ?>, #l1>)
   // SPLITN: d2m.tile_add
   // SPLITN: } {mapping = [#d2m.compute_thread<num = 4>]}
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
@@ -161,7 +168,12 @@ func.func @distribute_elementwise_binary(
 // CHECK-LABEL: func.func @distribute_matmul_2d
 // CHECK: d2m.generic
 // CHECK: scf.forall (%{{.*}}, %{{.*}}) in (2, 2) {
+// CHECK: memref.subview %{{.*}}[%{{.*}}, 0] [1, 1] [1, 1] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[1, 1], offset: ?>, #l1>
+// CHECK: memref.subview %{{.*}}[0, %{{.*}}] [1, 1] [1, 1] : memref<1x2x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[2, 1], offset: ?>, #l1>
+// CHECK: memref.subview %{{.*}}[%{{.*}}, %{{.*}}] [1, 1] [1, 1] : memref<2x2x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[2, 1], offset: ?>, #l1>
 // CHECK: linalg.generic
+// CHECK-SAME: ins(%{{.+}}, %{{.+}} : memref<1x1x!ttcore.tile<32x32, bf16>, strided<[1, 1], offset: ?>, #l1>, memref<1x1x!ttcore.tile<32x32, bf16>, strided<[2, 1], offset: ?>, #l1>)
+// CHECK-SAME: outs(%{{.+}} : memref<1x1x!ttcore.tile<32x32, bf16>, strided<[2, 1], offset: ?>, #l1>)
 // CHECK: d2m.tile_matmul
 // CHECK: } {mapping = [#d2m.compute_thread<num = 2>, #d2m.compute_thread<num = 2>]}
 
@@ -196,7 +208,12 @@ func.func @distribute_matmul_2d(
 // CHECK-LABEL: func.func @distribute_matmul_factor2
 // CHECK: d2m.generic
 // CHECK: scf.forall (%{{.*}}) in (2) {
+// CHECK: memref.subview %{{.*}}[0, 0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[1, 1]>, #l1>
+// CHECK: memref.subview %{{.*}}[0, %{{.*}}] [1, 1] [1, 1] : memref<1x2x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[2, 1], offset: ?>, #l1>
+// CHECK: memref.subview %{{.*}}[0, %{{.*}}] [1, 1] [1, 1] : memref<1x2x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[2, 1], offset: ?>, #l1>
 // CHECK: linalg.generic
+// CHECK-SAME: ins(%{{.+}}, %{{.+}} : memref<1x1x!ttcore.tile<32x32, bf16>, strided<[1, 1]>, #l1>, memref<1x1x!ttcore.tile<32x32, bf16>, strided<[2, 1], offset: ?>, #l1>)
+// CHECK-SAME: outs(%{{.+}} : memref<1x1x!ttcore.tile<32x32, bf16>, strided<[2, 1], offset: ?>, #l1>)
 // CHECK: d2m.tile_matmul
 // CHECK: } {mapping = [#d2m.compute_thread<num = 2>]}
 
@@ -233,17 +250,22 @@ func.func @distribute_matmul_factor2(
 // CHECK-LABEL: func.func @distribute_matmul_factor3
 // CHECK: d2m.generic
 // CHECK: scf.forall (%{{.*}}) in (3) {
+// CHECK: memref.subview %{{.*}}[0, 0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[1, 1]>, #l1>
+// CHECK: memref.subview %{{.*}}[0, %{{.*}}] [1, 1] [1, 1] : memref<1x3x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[3, 1], offset: ?>, #l1>
+// CHECK: memref.subview %{{.*}}[0, %{{.*}}] [1, 1] [1, 1] : memref<1x3x!ttcore.tile<32x32, bf16>, #l1> to memref<1x1x!ttcore.tile<32x32, bf16>, strided<[3, 1], offset: ?>, #l1>
 // CHECK: linalg.generic
+// CHECK-SAME: ins(%{{.+}}, %{{.+}} : memref<1x1x!ttcore.tile<32x32, bf16>, strided<[1, 1]>, #l1>, memref<1x1x!ttcore.tile<32x32, bf16>, strided<[3, 1], offset: ?>, #l1>)
+// CHECK-SAME: outs(%{{.+}} : memref<1x1x!ttcore.tile<32x32, bf16>, strided<[3, 1], offset: ?>, #l1>)
 // CHECK: d2m.tile_matmul
 // CHECK: } {mapping = [#d2m.compute_thread<num = 3>]}
 
 func.func @distribute_matmul_factor3(
-    %A: memref<3x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>,
-    %B: memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>,
-    %C: memref<3x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
+    %A: memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>,
+    %B: memref<1x3x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>,
+    %C: memref<1x3x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
   d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
-      ins(%A, %B : memref<3x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>)
-      outs(%C : memref<3x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
+      ins(%A, %B : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>, memref<1x3x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>)
+      outs(%C : memref<1x3x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
     linalg.generic {
       indexing_maps = [
         affine_map<(d0, d1, d2) -> (d0, d2)>,
@@ -251,8 +273,8 @@ func.func @distribute_matmul_factor3(
         affine_map<(d0, d1, d2) -> (d0, d1)>
       ],
       iterator_types = ["parallel", "parallel", "reduction"]
-    } ins(%A, %B : memref<3x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>)
-      outs(%C : memref<3x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
+    } ins(%A, %B : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>, memref<1x3x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>)
+      outs(%C : memref<1x3x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
     ^bb0(%a: !ttcore.tile<32x32, bf16>, %b: !ttcore.tile<32x32, bf16>, %c: !ttcore.tile<32x32, bf16>):
       %r = "d2m.tile_matmul"(%a, %b, %c) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
       linalg.yield %r : !ttcore.tile<32x32, bf16>

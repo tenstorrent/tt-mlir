@@ -47,32 +47,6 @@ static bool isEligibleForFactor(const SplitCandidate &candidate,
          candidate.tripCount >= factor;
 }
 
-static SmallVector<int64_t> getCurrentDims(ArrayRef<int64_t> splitDims,
-                                           ArrayRef<int64_t> interchange) {
-  if (interchange.empty()) {
-    return llvm::to_vector(splitDims);
-  }
-
-  SmallVector<int64_t> inverseInterchange(interchange.size(), -1);
-  for (auto [newDim, oldDim] : llvm::enumerate(interchange)) {
-    if (oldDim >= 0 && oldDim < static_cast<int64_t>(interchange.size())) {
-      inverseInterchange[oldDim] = static_cast<int64_t>(newDim);
-    }
-  }
-
-  SmallVector<int64_t> currentDims;
-  for (int64_t splitDim : splitDims) {
-    if (splitDim < 0 ||
-        splitDim >= static_cast<int64_t>(inverseInterchange.size()) ||
-        inverseInterchange[splitDim] < 0) {
-      currentDims.push_back(splitDim);
-      continue;
-    }
-    currentDims.push_back(inverseInterchange[splitDim]);
-  }
-  return currentDims;
-}
-
 static std::optional<SplitCandidate>
 getCandidateForLoopDim(linalg::GenericOp op, unsigned loopDim) {
   auto iterTypes = op.getIteratorTypesArray();
@@ -99,22 +73,131 @@ getCandidateForLoopDim(linalg::GenericOp op, unsigned loopDim) {
   return std::nullopt;
 }
 
-static SmallVector<SplitCandidate, 2>
+static FailureOr<SmallVector<int64_t>>
+getCurrentDimsForExplicitSplitDims(linalg::GenericOp op,
+                                   ArrayRef<int64_t> splitDims,
+                                   ArrayRef<int64_t> interchange) {
+  SmallVector<int64_t> currentDims;
+
+  if (interchange.empty()) {
+    for (int64_t splitDim : splitDims) {
+      if (splitDim < 0) {
+        op.emitOpError()
+            << "split-dims original dim index must be non-negative, got "
+            << splitDim;
+        return failure();
+      }
+      currentDims.push_back(splitDim);
+    }
+    return currentDims;
+  }
+
+  SmallVector<int64_t> inverseInterchange(interchange.size(), -1);
+  for (auto [newDim, oldDim] : llvm::enumerate(interchange)) {
+    if (oldDim >= 0 && oldDim < static_cast<int64_t>(interchange.size())) {
+      inverseInterchange[oldDim] = static_cast<int64_t>(newDim);
+    }
+  }
+
+  for (int64_t splitDim : splitDims) {
+    if (splitDim < 0) {
+      op.emitOpError()
+          << "split-dims original dim index must be non-negative, got "
+          << splitDim;
+      return failure();
+    }
+    if (splitDim >= static_cast<int64_t>(inverseInterchange.size()) ||
+        inverseInterchange[splitDim] < 0) {
+      op.emitOpError() << "split-dims original dim " << splitDim
+                       << " cannot be mapped through matmul-interchange";
+      return failure();
+    }
+    currentDims.push_back(inverseInterchange[splitDim]);
+  }
+  return currentDims;
+}
+
+static FailureOr<SplitCandidate>
+getExplicitCandidateForLoopDim(linalg::GenericOp op, int64_t currentDim) {
+  if (currentDim >= static_cast<int64_t>(op.getNumLoops())) {
+    op.emitOpError() << "split-dims current dim " << currentDim
+                     << " is outside linalg loop rank " << op.getNumLoops();
+    return failure();
+  }
+
+  unsigned loopDim = static_cast<unsigned>(currentDim);
+  auto iterTypes = op.getIteratorTypesArray();
+  if (iterTypes[loopDim] != mlir::utils::IteratorType::parallel) {
+    op.emitOpError() << "requested split dim " << loopDim
+                     << " is not a parallel iterator";
+    return failure();
+  }
+
+  auto outputType =
+      mlir::dyn_cast<ShapedType>(op.getDpsInitOperand(0)->get().getType());
+  if (!outputType) {
+    op.emitOpError() << "expected shaped output for explicit split-dims";
+    return failure();
+  }
+
+  AffineMap outMap = op.getMatchingIndexingMap(op.getDpsInitOperand(0));
+  std::optional<int64_t> outputExtent;
+  for (auto [resultIdx, expr] : llvm::enumerate(outMap.getResults())) {
+    auto dim = mlir::dyn_cast<AffineDimExpr>(expr);
+    if (!dim || dim.getPosition() != loopDim ||
+        resultIdx >= static_cast<size_t>(outputType.getRank())) {
+      continue;
+    }
+    outputExtent = outputType.getDimSize(resultIdx);
+    break;
+  }
+
+  if (!outputExtent) {
+    op.emitOpError() << "requested split dim " << loopDim
+                     << " is not a plain output affine dim";
+    return failure();
+  }
+
+  if (!ShapedType::isDynamic(*outputExtent) && *outputExtent < 2) {
+    op.emitOpError() << "requested split dim " << loopDim
+                     << " has static output extent " << *outputExtent
+                     << ", smaller than any supported split factor";
+    return failure();
+  }
+
+  return SplitCandidate{loopDim, *outputExtent};
+}
+
+static FailureOr<SmallVector<SplitCandidate, 2>>
 getOrderedCandidates(linalg::GenericOp op, ArrayRef<int64_t> splitDims,
                      ArrayRef<int64_t> interchange) {
   SmallVector<SplitCandidate, 2> candidates;
   llvm::SmallDenseSet<unsigned, kSplitDimSetInlineCapacity> seen;
 
   if (!splitDims.empty()) {
-    for (int64_t splitDim : getCurrentDims(splitDims, interchange)) {
-      if (splitDim < 0 || splitDim >= static_cast<int64_t>(op.getNumLoops()) ||
-          !seen.insert(static_cast<unsigned>(splitDim)).second) {
-        continue;
+    FailureOr<SmallVector<int64_t>> currentDims =
+        getCurrentDimsForExplicitSplitDims(op, splitDims, interchange);
+    if (failed(currentDims)) {
+      return failure();
+    }
+
+    for (int64_t currentDim : *currentDims) {
+      if (currentDim >= static_cast<int64_t>(op.getNumLoops())) {
+        op.emitOpError() << "split-dims current dim " << currentDim
+                         << " is outside linalg loop rank " << op.getNumLoops();
+        return failure();
       }
-      if (std::optional<SplitCandidate> candidate =
-              getCandidateForLoopDim(op, splitDim)) {
-        candidates.push_back(*candidate);
+      if (!seen.insert(static_cast<unsigned>(currentDim)).second) {
+        op.emitOpError() << "split-dims maps multiple requests to current dim "
+                         << currentDim;
+        return failure();
       }
+      FailureOr<SplitCandidate> candidate =
+          getExplicitCandidateForLoopDim(op, currentDim);
+      if (failed(candidate)) {
+        return failure();
+      }
+      candidates.push_back(*candidate);
     }
     return candidates;
   }
@@ -213,9 +296,13 @@ public:
 
 private:
   LogicalResult distribute(IRRewriter &rewriter, linalg::GenericOp linalgOp) {
-    SmallVector<SplitCandidate, 2> candidates =
+    FailureOr<SmallVector<SplitCandidate, 2>> candidates =
         getOrderedCandidates(linalgOp, splitDims, matmulInterchange);
-    std::optional<SplitPlan> plan = chooseSplitPlan(candidates);
+    if (failed(candidates)) {
+      return failure();
+    }
+
+    std::optional<SplitPlan> plan = chooseSplitPlan(*candidates);
     if (!plan) {
       return success();
     }

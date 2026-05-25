@@ -19,30 +19,41 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Returns the ComputeThreadMappingAttrs on a forall's mapping array, or
-// nullopt if the forall is not a compute-thread distribution.
-static std::optional<SmallVector<ComputeThreadMappingAttr>>
+// Returns the ComputeThreadMappingAttrs on a forall's mapping array, nullopt if
+// the forall is not a compute-thread distribution.
+static FailureOr<std::optional<SmallVector<ComputeThreadMappingAttr>>>
 getComputeThreadMappings(scf::ForallOp forall) {
   std::optional<ArrayAttr> mapping = forall.getMapping();
   if (!mapping) {
-    return std::nullopt;
+    return std::optional<SmallVector<ComputeThreadMappingAttr>>();
   }
   SmallVector<ComputeThreadMappingAttr> computeThreadMappings;
+  bool sawOtherMapping = false;
   for (Attribute attr : mapping->getValue()) {
     if (auto computeThread = mlir::dyn_cast<ComputeThreadMappingAttr>(attr)) {
       computeThreadMappings.push_back(computeThread);
       continue;
     }
-    return std::nullopt;
+    sawOtherMapping = true;
+  }
+  if (!computeThreadMappings.empty() && sawOtherMapping) {
+    return forall->emitOpError("compute_thread forall mapping must not mix "
+                               "#d2m.compute_thread with other mapping attrs");
   }
   if (computeThreadMappings.empty()) {
-    return std::nullopt;
+    return std::optional<SmallVector<ComputeThreadMappingAttr>>();
   }
-  return computeThreadMappings;
+  return std::optional<SmallVector<ComputeThreadMappingAttr>>(
+      std::move(computeThreadMappings));
 }
 
-static bool isComputeThreadForall(scf::ForallOp forall) {
-  return getComputeThreadMappings(forall).has_value();
+static FailureOr<bool> isComputeThreadForall(scf::ForallOp forall) {
+  FailureOr<std::optional<SmallVector<ComputeThreadMappingAttr>>> mappings =
+      getComputeThreadMappings(forall);
+  if (failed(mappings)) {
+    return failure();
+  }
+  return mappings->has_value();
 }
 
 // Find the d2m.generic enclosing this forall and the index of the region
@@ -108,13 +119,16 @@ static LogicalResult verifySupportedForall(scf::ForallOp forall) {
 
 static FailureOr<ComputeThreadShape>
 verifyComputeThreadShape(scf::ForallOp forall) {
-  std::optional<SmallVector<ComputeThreadMappingAttr>> mappings =
+  FailureOr<std::optional<SmallVector<ComputeThreadMappingAttr>>> mappings =
       getComputeThreadMappings(forall);
-  assert(mappings && "lower() invoked on a non-compute-thread forall");
-  if (mappings->size() != static_cast<size_t>(forall.getRank())) {
+  if (failed(mappings)) {
+    return failure();
+  }
+  assert(*mappings && "lower() invoked on a non-compute-thread forall");
+  if ((*mappings)->size() != static_cast<size_t>(forall.getRank())) {
     forall->emitOpError(
         "compute_thread forall mapping count must match rank, got ")
-        << mappings->size() << " mappings for rank " << forall.getRank();
+        << (*mappings)->size() << " mappings for rank " << forall.getRank();
     return failure();
   }
 
@@ -132,7 +146,7 @@ verifyComputeThreadShape(scf::ForallOp forall) {
     }
   }
   int64_t numComputeThreads = 1;
-  for (auto [mapping, upperBound] : llvm::zip(*mappings, *upperBounds)) {
+  for (auto [mapping, upperBound] : llvm::zip(**mappings, *upperBounds)) {
     if (mapping.getNum() != upperBound) {
       forall->emitOpError("compute_thread mapping factor ")
           << mapping.getNum()
@@ -239,11 +253,20 @@ public:
     ModuleOp moduleOp = getOperation();
 
     SmallVector<scf::ForallOp> targets;
-    moduleOp->walk([&](scf::ForallOp forall) {
-      if (isComputeThreadForall(forall)) {
+    auto collectResult = moduleOp->walk([&](scf::ForallOp forall) {
+      FailureOr<bool> isComputeThread = isComputeThreadForall(forall);
+      if (failed(isComputeThread)) {
+        return WalkResult::interrupt();
+      }
+      if (*isComputeThread) {
         targets.push_back(forall);
       }
+      return WalkResult::advance();
     });
+    if (collectResult.wasInterrupted()) {
+      signalPassFailure();
+      return;
+    }
 
     for (scf::ForallOp forall : targets) {
       if (failed(lower(forall))) {
@@ -254,8 +277,11 @@ public:
 
     // Verifier: no compute-thread forall should remain.
     auto remaining = moduleOp->walk([&](scf::ForallOp forall) {
-      return isComputeThreadForall(forall) ? WalkResult::interrupt()
-                                           : WalkResult::advance();
+      FailureOr<bool> isComputeThread = isComputeThreadForall(forall);
+      if (failed(isComputeThread) || *isComputeThread) {
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
     });
     if (remaining.wasInterrupted()) {
       moduleOp->emitError(
