@@ -3052,8 +3052,10 @@ public:
       patterns.add<HardsigmoidFusionPattern>(&getContext());
       patterns.add<MishFusingPattern>(&getContext());
       patterns.add<ReshapeBroadcastReshapeToRepeatPattern>(&getContext());
-      patterns.add<fusing::RoPERotateHalfFusingPattern>(&getContext());
-      patterns.add<fusing::RoPEComplexRotationFusingPattern>(&getContext());
+      // EXPERIMENT: RoPE fusing disabled to measure the perf impact of the
+      // fused ttnn.rotary_embedding kernel vs. the unfused elementwise form.
+      // patterns.add<fusing::RoPERotateHalfFusingPattern>(&getContext());
+      // patterns.add<fusing::RoPEComplexRotationFusingPattern>(&getContext());
       patterns.add<fusing::TopKFusingPattern>(&getContext());
 
       GreedyRewriteConfig config;
