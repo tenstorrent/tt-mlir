@@ -748,5 +748,9 @@ const std::set<mlir::StringRef>
         ttnn::ScatterOp::getOperationName(),
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
         // without it, opt_level>=1 dtype propagation picks f32. See #8141.
-        ttnn::TopKOp::getOperationName()};
+        ttnn::TopKOp::getOperationName(),
+        // MeshPartition's operands and result workaround forces RowMajor inputs
+        // and outputs; without it, opt_level>=1 layout propagation picks Tiled.
+        // See #8558.
+        ttnn::MeshPartitionOp::getOperationName()};
 } // namespace mlir::tt::ttnn
