@@ -14,7 +14,7 @@ namespace tt::runtime::ttnn::operations::creation {
 
 void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
   ::ttnn::DataType inputDtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(op->input_dtype());
+      ttnn_op_invoke::operations::utils::toTTNNDataType(op->input_dtype());
 
   ::ttnn::Shape shape =
       operations::utils::toTTNNShape(*op->out()->desc()->shape());
@@ -22,13 +22,13 @@ void run(const ::tt::target::ttnn::ConstantOp *op, ProgramContext &context) {
   ::ttnn::DataType dtype =
       ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
   if (op->dtype()) {
-    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
+    dtype = ttnn_op_invoke::operations::utils::toTTNNDataType(*(op->dtype()));
   }
 
   ::ttnn::Layout layout =
       ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
   if (op->layout()) {
-    layout = ::tt::runtime::ttnn::utils::toTTNNLayout(*(op->layout()));
+    layout = ::ttnn_op_invoke::operations::utils::toTTNNLayout(*(op->layout()));
   }
 
   ::ttnn::MeshDevice *meshDevice = nullptr;

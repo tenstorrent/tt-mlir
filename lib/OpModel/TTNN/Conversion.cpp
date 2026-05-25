@@ -4,6 +4,7 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/OpModel/TTNN/Conversion.h"
+#include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
@@ -260,6 +261,14 @@ getCoreRangeSet(MLIRContext *context,
   return CoreRangeSetAttr::get(context, ranges);
 }
 
+::tt::target::ttnn::CoreRangeSetT
+getCoreRangeSetT(const TTNNLayoutAttr &layout) {
+  CoreRangeSetAttr coreRangeSetAttr = layout.getCoreRangeSet();
+  assert(coreRangeSetAttr &&
+         "sharded TTNNLayoutAttr expected when building a metal CoreRangeSet");
+  return toNative(coreRangeSetAttr);
+}
+
 std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const TTNNLayoutAttr &layout) {
   if (layout.getIgnorePhysicalLayout()) {
@@ -276,6 +285,34 @@ getShardSpec(const TTNNLayoutAttr &layout) {
   return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout),
                                    getShardShape(layout),
                                    ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
+}
+
+std::optional<::tt::target::ttnn::ShardSpecT>
+getShardSpecT(const TTNNLayoutAttr &layout) {
+  if (layout.getIgnorePhysicalLayout()) {
+    return std::nullopt;
+  }
+
+  if (!isShardedMemoryLayout(
+          layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved))) {
+    return std::nullopt;
+  }
+
+  ::tt::target::ttnn::ShardSpecT shardSpecNative;
+
+  shardSpecNative.core_range_set =
+      std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+          getCoreRangeSetT(layout));
+
+  std::array<uint32_t, 2> shardShape = getShardShape(layout);
+  shardSpecNative.shape =
+      std::vector<int32_t>(shardShape.begin(), shardShape.end());
+
+  // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
+  // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
+  shardSpecNative.orientation = ::tt::target::ttnn::ShardOrientation::RowMajor;
+
+  return shardSpecNative;
 }
 
 ::tt::tt_metal::ShardOrientation
@@ -318,6 +355,11 @@ getShardOrientation(const ShardOrientationAttr &shardOrientationAttr) {
   return getBufferType(bufferType);
 }
 
+::tt::target::BufferType getBufferTypeT(const TTNNLayoutAttr &layout) {
+  auto bufferType = layout.getBufferType();
+  return toNative(bufferType);
+}
+
 BufferType getBufferType(const ::tt::tt_metal::BufferType bufferType) {
   switch (bufferType) {
   case ::tt::tt_metal::BufferType::DRAM:
@@ -348,6 +390,7 @@ getTensorMemoryLayout(const TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED;
   }
 }
+
 TensorMemoryLayout
 getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
   switch (memLayout) {
@@ -368,6 +411,25 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
 getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
   auto tensorMemoryLayout = memLayoutAttr.getValue();
   return getTensorMemoryLayout(tensorMemoryLayout);
+}
+
+::tt::target::ttnn::MemoryConfigT
+getMemoryConfigT(const TTNNLayoutAttr &layout) {
+  ::tt::target::ttnn::MemoryConfigT memoryConfigNative;
+
+  memoryConfigNative.tensor_memory_layout = toNative(
+      layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
+  memoryConfigNative.buffer_type = getBufferTypeT(layout);
+
+  auto shardSpec = getShardSpecT(layout);
+  if (shardSpec.has_value()) {
+    memoryConfigNative.shard_spec =
+        std::make_unique<::tt::target::ttnn::ShardSpecT>(shardSpec.value());
+  } else {
+    memoryConfigNative.shard_spec = nullptr;
+  }
+
+  return memoryConfigNative;
 }
 
 ::tt::tt_metal::MemoryConfig
@@ -459,10 +521,6 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
     return std::nullopt;
   }
 
-  // TODO(#2130): config.core_grid is hardcoded to nullopt until we add
-  // CoreRangeSet as an IR attribute.
-  assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
-
   ::ttnn::Conv2dConfig config;
 
   if (conv2dConfig->getWeightsDtype()) {
@@ -508,7 +566,9 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
     config.shard_layout = std::nullopt;
   }
 
-  config.core_grid = std::nullopt;
+  if (conv2dConfig->getCoreGrid()) {
+    config.core_grid = getCoreRangeSet(conv2dConfig->getCoreGrid());
+  }
 
   if (conv2dConfig->getTransposeShards()) {
     config.transpose_shards = conv2dConfig->getTransposeShards().getValue();

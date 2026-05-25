@@ -18,8 +18,8 @@ static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
 
   std::optional<::ttnn::DataType> outputDataType = std::nullopt;
   if (op->output_dtype()) {
-    outputDataType =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+    outputDataType = ttnn_op_invoke::operations::utils::toTTNNDataType(
+        *(op->output_dtype()));
   }
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
