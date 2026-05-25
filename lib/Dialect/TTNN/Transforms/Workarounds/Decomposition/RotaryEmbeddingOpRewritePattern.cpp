@@ -59,6 +59,34 @@ bool transitivelyFeedsPrefillCacheWrite(Value v) {
   return false;
 }
 
+// Right-pad `v`'s seq_len dim (rank-2 from the end) with zeros up to
+// `paddedSeqLen`. Returns the padded SSA value. If `v`'s seq_len is
+// already >= paddedSeqLen this is a no-op (returns `v` unchanged); the
+// kernel reads only the first paddedSeqLen rows in that case so the
+// implicit tile-pad rows above paddedSeqLen are not read.
+Value zeroPadSeqLen(Value v, int64_t paddedSeqLen, Location loc,
+                    StringRef locSuffix, PatternRewriter &rewriter) {
+  auto type = mlir::cast<RankedTensorType>(v.getType());
+  ArrayRef<int64_t> shape = type.getShape();
+  int64_t seqDim = static_cast<int64_t>(shape.size()) - 2;
+  if (shape[seqDim] >= paddedSeqLen) {
+    return v;
+  }
+
+  SmallVector<int64_t> paddedShape(shape);
+  paddedShape[seqDim] = paddedSeqLen;
+  auto paddedType = utils::RankedTensorTypeFactory::create(type, paddedShape);
+
+  SmallVector<int32_t> padding(2 * shape.size(), 0);
+  padding[2 * seqDim + 1] =
+      static_cast<int32_t>(paddedSeqLen - shape[seqDim]);
+
+  return rewriter.create<ttnn::PadOp>(
+      ttmlir::utils::appendLocationSuffix(loc, locSuffix), paddedType, v,
+      padding, /*pad_value=*/mlir::APFloat(0.0f),
+      /*use_multicore=*/true);
+}
+
 } // namespace
 
 std::optional<std::pair<RotaryEmbeddingOp, SliceStaticOp>>
@@ -90,10 +118,14 @@ getWorkaroundedOp(RotaryEmbeddingOp ropeOp, PatternRewriter &rewriter) {
   // NaNs into valid output lanes — the `lane % 4 == 3` PCC corruption seen
   // in Llama prefill.
   //
-  // To prevent this, replace the rotary's input with a PadOp that explicitly
-  // zero-fills rows [S_logical, S_padded) in the seq_len dim. The rotary then
-  // produces output rows [S_logical, S_padded) = cos*0 + sin*rotate(0) = 0,
-  // which flow through downstream slices into a zero-clean KV cache.
+  // To prevent this, explicitly zero-pad the rotary's three operands
+  // (input, cos, sin) along seq_len up to S_padded before invoking the
+  // rotary kernel. The kernel asserts cos_seq_len >= input_seq_len, so all
+  // three must be padded together (otherwise the cache cos/sin keep their
+  // original S_logical and the kernel rejects the larger input). For rows
+  // [S_logical, S_padded) the padded input/cos/sin are all 0, so the rotary
+  // produces clean zero output rows that flow through the downstream
+  // per-user slice chain into a zero-clean KV cache.
   //
   // Decode-side update_cache / paged_update_cache do read-modify-write on a
   // single row and don't need this scrub; the Q rotary path (no cache write)
@@ -103,32 +135,21 @@ getWorkaroundedOp(RotaryEmbeddingOp ropeOp, PatternRewriter &rewriter) {
   // fill_cache kernel (partial-tile write preserving rows
   // [S_logical, S_padded) of the cache), this scrub becomes unnecessary.
   Value rotaryInput = ropeOp.getInput();
+  Value cosCache = ropeOp.getCosCache();
+  Value sinCache = ropeOp.getSinCache();
+  int64_t paddedSeqLen = paddedResultShape[paddedResultShape.size() - 2];
   if (transitivelyFeedsPrefillCacheWrite(ropeOp.getResult())) {
-    auto inputType = mlir::cast<RankedTensorType>(rotaryInput.getType());
-    ArrayRef<int64_t> inputShape = inputType.getShape();
-    SmallVector<int64_t> paddedInputShape(inputShape);
-    int64_t seqDim = static_cast<int64_t>(inputShape.size()) - 2;
-    paddedInputShape[seqDim] = paddedResultShape[seqDim];
-
-    auto paddedInputType =
-        utils::RankedTensorTypeFactory::create(inputType, paddedInputShape);
-
-    SmallVector<int32_t> padding(2 * inputShape.size(), 0);
-    padding[2 * seqDim + 1] =
-        static_cast<int32_t>(paddedInputShape[seqDim] - inputShape[seqDim]);
-
-    rotaryInput = rewriter.create<ttnn::PadOp>(
-        ttmlir::utils::appendLocationSuffix(ropeOp.getLoc(),
-                                            "_scrub_implicit_pad"),
-        paddedInputType, rotaryInput, padding,
-        /*pad_value=*/mlir::APFloat(0.0f),
-        /*use_multicore=*/true);
+    rotaryInput = zeroPadSeqLen(rotaryInput, paddedSeqLen, ropeOp.getLoc(),
+                                "_scrub_input_pad", rewriter);
+    cosCache = zeroPadSeqLen(cosCache, paddedSeqLen, ropeOp.getLoc(),
+                             "_scrub_cos_pad", rewriter);
+    sinCache = zeroPadSeqLen(sinCache, paddedSeqLen, ropeOp.getLoc(),
+                             "_scrub_sin_pad", rewriter);
   }
 
   auto paddedOp = rewriter.create<RotaryEmbeddingOp>(
-      ropeOp.getLoc(), paddedType, rotaryInput, ropeOp.getCosCache(),
-      ropeOp.getSinCache(), ropeOp.getTokenIndexAttr(),
-      ropeOp.getComputeConfigAttr());
+      ropeOp.getLoc(), paddedType, rotaryInput, cosCache, sinCache,
+      ropeOp.getTokenIndexAttr(), ropeOp.getComputeConfigAttr());
 
   // Slice to original shape.
   SmallVector<int32_t> begins(resultShape.size(), 0);
