@@ -122,14 +122,12 @@ struct AggregatedMetrics {
 //     directly — no safety factor, no min(dram, compute) blend. The
 //     emitted number is a pure theoretical ceiling for consumers to
 //     compare measurements against.
-//   - Static shapes only. Dynamic-shape args contribute zero bytes;
-//     today's decode entry points are fully static.
 //   - One sample == one invocation. `samples_per_sec` assumes a single
 //     forward call yields a single sample (one token for decode, one
 //     image for vision); consumers must interpret accordingly.
 //===----------------------------------------------------------------------===//
 struct PerfTargets {
-  std::string arch;
+  ttcore::Arch arch = ttcore::Arch::WormholeB0;
   unsigned numChips = 0;
   uint64_t dramBandwidthBytesPerSec = 0;
 
@@ -149,17 +147,13 @@ struct PerfTargets {
 // Bytes per scalar element. Caller must ensure elementType is a plain
 // scalar (non-TileType); TTNN forward args reach this pass with scalar
 // element type and TTNNLayoutAttr encoding carrying the tile/dtype layout.
-inline double getBytesPerScalarElement(mlir::Type elementType) {
-  return static_cast<double>(elementType.getIntOrFloatBitWidth()) / 8.0;
+inline uint64_t getBytesPerScalarElement(mlir::Type elementType) {
+  return elementType.getIntOrFloatBitWidth() / 8;
 }
 
 inline uint64_t getTensorMemoryBytes(mlir::RankedTensorType tt) {
-  if (!tt.hasStaticShape()) {
-    return 0;
-  }
-  double bytes = static_cast<double>(tt.getNumElements()) *
-                 getBytesPerScalarElement(tt.getElementType());
-  return static_cast<uint64_t>(bytes + 0.5);
+  return static_cast<uint64_t>(tt.getNumElements()) *
+         getBytesPerScalarElement(tt.getElementType());
 }
 
 class TTNNCollectPerfMetrics
@@ -270,13 +264,12 @@ private:
   LogicalResult populateHardwareLimits(PerfTargets &t,
                                        ttcore::ChipDescAttr chipDesc,
                                        ModuleOp module) {
-    switch (chipDesc.getArch().getValue()) {
+    t.arch = chipDesc.getArch().getValue();
+    switch (t.arch) {
     case ttcore::Arch::WormholeB0:
-      t.arch = "wormhole_b0";
       t.dramBandwidthBytesPerSec = 288ULL * 1000ULL * 1000ULL * 1000ULL;
       return success();
     case ttcore::Arch::Blackhole:
-      t.arch = "blackhole";
       t.dramBandwidthBytesPerSec = 512ULL * 1000ULL * 1000ULL * 1000ULL;
       return success();
     case ttcore::Arch::Quasar:
@@ -302,10 +295,7 @@ private:
              "TTNNCollectPerfMetrics: unexpected TileType element on "
              "forward arg; expected scalar element + TTNNLayoutAttr "
              "encoding.");
-      uint64_t scalarVol =
-          tensorType.hasStaticShape()
-              ? static_cast<uint64_t>(tensorType.getNumElements())
-              : 0;
+      uint64_t scalarVol = static_cast<uint64_t>(tensorType.getNumElements());
       uint64_t bytes = getTensorMemoryBytes(tensorType);
       unsigned idx = arg.getArgNumber();
 
@@ -333,18 +323,18 @@ private:
     assert(systemDescAttr &&
            "system_desc presence must be checked by the caller");
     auto chipDescs = systemDescAttr.getChipDescs();
-    // Single-chip only. We *fail the calculation* (return without
-    // populating `perfTargets`, so addPerfTargetsToJson will not emit) on
-    // anything other than exactly one chip — multi-chip rooflines need
+    // Single-chip only. On anything other than exactly one chip we leave
+    // the rest of `perfTargets` unpopulated and return; the caller's
+    // `numChips == 1` gate suppresses emission. Multi-chip rooflines need
     // tensor-parallel-aware accounting we don't have yet, and silently
     // estimating against chip 0 would give a misleading number.
-    if (chipDescs.size() != 1) {
+    perfTargets.numChips = chipDescs.size();
+    if (perfTargets.numChips != 1) {
       llvm::errs() << "TTNNCollectPerfMetrics: perf target estimate requires "
                       "a single-chip system desc; got "
                    << chipDescs.size() << " chips. Skipping.\n";
       return perfTargets;
     }
-    perfTargets.numChips = 1;
     if (failed(populateHardwareLimits(perfTargets, chipDescs[0], module))) {
       return failure();
     }
@@ -367,12 +357,13 @@ private:
 
     uint64_t totalDramBytes =
         perfTargets.paramMemoryBytesBfp8 + perfTargets.kvCacheMemoryBytesBfp8;
-    if (perfTargets.dramBandwidthBytesPerSec > 0) {
-      double dramTimeSec =
-          static_cast<double>(totalDramBytes) /
-          static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
-      perfTargets.dramRooflineTimeMs = dramTimeSec * 1000.0;
-    }
+    assert(perfTargets.dramBandwidthBytesPerSec > 0 &&
+           "TTNNCollectPerfMetrics: DRAM bandwidth must be populated before "
+           "computing the roofline.");
+    double dramTimeSec =
+        static_cast<double>(totalDramBytes) /
+        static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
+    perfTargets.dramRooflineTimeMs = dramTimeSec * 1000.0;
     // Strict roofline: top_perf_time_ms = dram_time_ms (alpha = 1.0). The
     // emitted number is a theoretical ceiling consumers can compare against.
     perfTargets.topPerfTimeMs = perfTargets.dramRooflineTimeMs;
@@ -385,7 +376,7 @@ private:
   void addPerfTargetsToJson(llvm::json::Object &jsonOutput,
                             const PerfTargets &t) {
     llvm::json::Object pt;
-    pt["arch"] = t.arch;
+    pt["arch"] = ttcore::stringifyArch(t.arch).str();
     pt["num_chips"] = static_cast<int64_t>(t.numChips);
     pt["dram_bandwidth_bytes_per_sec"] =
         static_cast<int64_t>(t.dramBandwidthBytesPerSec);
@@ -486,7 +477,6 @@ public:
     llvm::DenseSet<Value> spilledValues;
     llvm::StringMap<int> operationTypeCounts;
     PerfTargets perfTargets;
-    bool perfTargetsComputed = false;
 
     // Identify the outer forward function for perf-target collection. All
     // inputs / wegiht tensors should be visible from the argument list of this
@@ -524,7 +514,6 @@ public:
         return;
       }
       perfTargets = std::move(*computed);
-      perfTargetsComputed = true;
     }
 
     module->walk([&](func::FuncOp funcOp) {
@@ -608,10 +597,10 @@ public:
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);
 
-    // Only emit perf_targets when we actually computed against a system
-    // desc; an empty `arch` means computePerfTargets early-returned and the
+    // Only emit perf_targets when computePerfTargets fully populated the
+    // struct; a soft-skip (e.g. multi-chip) leaves numChips at 0 and the
     // numbers would all be zero.
-    if (perfTargetsComputed && !perfTargets.arch.empty()) {
+    if (perfTargets.numChips == 1) {
       addPerfTargetsToJson(jsonOutput, perfTargets);
     }
 
