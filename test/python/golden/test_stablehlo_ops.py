@@ -1889,6 +1889,76 @@ def test_all_gather(target: str, request, device):
 
 
 @pytest.mark.parametrize(
+    "input_shape,indices_shape,updates_shape,update_mode",
+    [
+        ((8,), (3,), (3,), "replace"),
+        ((8,), (3,), (3,), "add"),
+        ((4, 8), (2, 1), (2, 8), "replace"),
+        ((32, 64), (4, 1), (4, 64), "replace"),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_scatter(
+    input_shape: Shape,
+    indices_shape: Shape,
+    updates_shape: Shape,
+    update_mode: str,
+    target: str,
+    request,
+    device,
+):
+    def module_scatter(builder: StableHLOBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def scatter_func(in0: Operand, builder: StableHLOBuilder):
+            indices = builder.constant(torch.zeros(indices_shape, dtype=torch.int32))
+            updates = builder.constant(torch.ones(updates_shape, dtype=torch.float32))
+
+            if update_mode == "replace":
+
+                def update_computation(current_val, update_val):
+                    return update_val
+
+            else:
+
+                def update_computation(current_val, update_val):
+                    return builder.add(current_val, update_val)
+
+            if len(input_shape) == 1:
+                return builder.scatter(
+                    inputs=[in0],
+                    scatter_indices=indices,
+                    updates=[updates],
+                    update_window_dims=[],
+                    inserted_window_dims=[0],
+                    scattered_dims_to_operand_dims=[0],
+                    index_vector_dim=1,
+                    update_computation=update_computation,
+                    indices_are_sorted=False,
+                    unique_indices=False,
+                )
+            else:
+                return builder.scatter(
+                    inputs=[in0],
+                    scatter_indices=indices,
+                    updates=[updates],
+                    update_window_dims=[1],
+                    inserted_window_dims=[0],
+                    scattered_dims_to_operand_dims=[0],
+                    index_vector_dim=1,
+                    update_computation=update_computation,
+                    indices_are_sorted=False,
+                    unique_indices=False,
+                )
+
+    compile_and_execute_shlo(
+        module_scatter,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
     "shapes,stride,padding,dilation,groups",
     [
         # ResNet initial 7x7 conv: stride=2, padding=3

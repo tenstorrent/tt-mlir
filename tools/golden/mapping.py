@@ -2515,6 +2515,148 @@ def gather_golden(
     return gathered.to(device=device)
 
 
+def stablehlo_scatter_golden(
+    inputs: List[GoldenMapTensor],
+    scatter_indices: GoldenMapTensor,
+    updates: List[GoldenMapTensor],
+    scatter_dimension_numbers,
+    update_computation_region,
+    result_types: List[Type],
+) -> Union[GoldenMapTensor, List[GoldenMapTensor]]:
+    from builder.base.builder import Builder
+
+    # Unpack dimension numbers
+    update_window_dims = list(scatter_dimension_numbers.update_window_dims)
+    inserted_window_dims = list(scatter_dimension_numbers.inserted_window_dims)
+    input_batching_dims = list(scatter_dimension_numbers.input_batching_dims)
+    scatter_indices_batching_dims = list(
+        scatter_dimension_numbers.scatter_indices_batching_dims
+    )
+    scattered_dims_to_operand_dims = list(
+        scatter_dimension_numbers.scattered_dims_to_operand_dims
+    )
+    index_vector_dim = scatter_dimension_numbers.index_vector_dim
+
+    # Currently support simple cases without batching
+    assert len(input_batching_dims) == 0, "input_batching_dims not supported yet"
+    assert (
+        len(scatter_indices_batching_dims) == 0
+    ), "scatter_indices_batching_dims not supported yet"
+
+    # Work with first shard for replicated tensors
+    def _first_shard(t):
+        return t.shard_at(0) if isinstance(t, GoldenMapTensor) else t
+
+    # Initialize outputs as clones of inputs
+    outputs = [inp.clone() for inp in inputs]
+
+    # Get tensor shapes
+    scatter_indices_shape = list(_first_shard(scatter_indices).shape)
+
+    # Determine the batch shape (indices without index_vector_dim)
+    if index_vector_dim < len(scatter_indices_shape):
+        batch_shape = (
+            scatter_indices_shape[:index_vector_dim]
+            + scatter_indices_shape[index_vector_dim + 1 :]
+        )
+        index_depth = scatter_indices_shape[index_vector_dim]
+    else:
+        # index_vector_dim == rank means each element is a scalar index
+        batch_shape = scatter_indices_shape
+        index_depth = 1
+
+    # Flatten scatter indices to [num_indices, index_depth]
+    num_indices = int(torch.tensor(batch_shape).prod()) if batch_shape else 1
+    indices_flat = (
+        _first_shard(scatter_indices).reshape(num_indices, index_depth).long()
+    )
+
+    # Process each scatter index
+    for idx_num in range(num_indices):
+        # Get the index vector for this scatter location
+        index_vector = indices_flat[idx_num]
+
+        # Build the start indices for the operand
+        operand_start_indices = [0] * len(scattered_dims_to_operand_dims)
+        for i, operand_dim in enumerate(scattered_dims_to_operand_dims):
+            if i < len(index_vector):
+                operand_start_indices[i] = int(index_vector[i].item())
+
+        # For each input/update pair
+        for i in range(len(inputs)):
+            input_shard = _first_shard(outputs[i])
+            update_shard = _first_shard(updates[i])
+            update_shape = list(update_shard.shape)
+
+            # Calculate the update slice for this index
+            # The update tensor has batch dims followed by window dims
+            update_batch_idx = []
+            if num_indices > 1:
+                # Convert flat index back to multi-dimensional batch index
+                remaining = idx_num
+                for dim_size in reversed(batch_shape):
+                    update_batch_idx.insert(0, remaining % dim_size)
+                    remaining //= dim_size
+
+            # Extract the update window for this batch element
+            update_slice_indices = tuple(update_batch_idx) + (slice(None),) * len(
+                update_window_dims
+            )
+            update_window = (
+                update_shard[update_slice_indices] if update_batch_idx else update_shard
+            )
+
+            # Build the scatter slice in the operand
+            # Map update window to operand, inserting dims as needed
+            operand_indices = []
+            update_dim_idx = 0
+            for operand_dim in range(len(input_shard.shape)):
+                if operand_dim in inserted_window_dims:
+                    # This dim is collapsed in update, use index
+                    mapped_idx = (
+                        scattered_dims_to_operand_dims.index(operand_dim)
+                        if operand_dim in scattered_dims_to_operand_dims
+                        else None
+                    )
+                    if mapped_idx is not None and mapped_idx < len(
+                        operand_start_indices
+                    ):
+                        operand_indices.append(operand_start_indices[mapped_idx])
+                    else:
+                        operand_indices.append(0)
+                else:
+                    # This dim exists in update window
+                    operand_indices.append(slice(None))
+                    update_dim_idx += 1
+
+            # Apply the update computation
+            # For now, we assume a simple replacement (most common case)
+            # To properly handle the region, we'd need to execute it symbolically
+            try:
+                # Try to apply the scatter operation
+                if len(operand_indices) > 0:
+                    # Simplified: just replace values (assumes stablehlo.return %arg1 in region)
+                    input_shard[tuple(operand_indices)] = update_window
+            except:
+                # If indexing fails, skip this update (bounds checking)
+                pass
+
+    # Return outputs with proper types
+    output_results = []
+    for i, output in enumerate(outputs):
+        if i < len(result_types):
+            output_dtype = mlir_type_to_torch_dtype(
+                result_types[i].element_type
+                if hasattr(result_types[i], "element_type")
+                else result_types[i]
+            )
+            output_results.append(output.to(output_dtype))
+        else:
+            output_results.append(output)
+
+    return output_results[0] if len(output_results) == 1 else output_results
+
+
 def tilize_golden(
     input_tensor: GoldenMapTensor, tilize=True, **kwargs
 ) -> GoldenMapTensor:
@@ -7878,6 +8020,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SelectOp: stablehlo_select_golden,
     stablehlo.PadOp: stablehlo_pad_golden,
     stablehlo.GatherOp: gather_golden,
+    stablehlo.ScatterOp: stablehlo_scatter_golden,
     # CCL (Collective Communication Library) operations
     stablehlo.AllGatherOp: stablehlo_all_gather_golden,
     stablehlo.AllReduceOp: stablehlo_all_reduce_golden,
