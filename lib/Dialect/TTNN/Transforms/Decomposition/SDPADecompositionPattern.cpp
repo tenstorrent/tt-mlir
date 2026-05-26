@@ -106,8 +106,9 @@ static Value generateSlidingWindowMask(PatternRewriter &rewriter, Location loc,
                                      dtypeAttr, tensorLayoutAttr);
 }
 
-LogicalResult SDPADecompositionPattern::matchAndRewrite(
-    ttnn::ScaledDotProductAttentionOp op, PatternRewriter &rewriter) const {
+LogicalResult
+SDPADecompositionPattern::matchAndRewrite(ttnn::ScaledDotProductAttentionOp op,
+                                          PatternRewriter &rewriter) const {
 
   auto qType = mlir::cast<RankedTensorType>(op.getQuery().getType());
 
@@ -248,8 +249,7 @@ LogicalResult SDPADecompositionPattern::matchAndRewrite(
                  .getResult();
     }
 
-    scores =
-        rewriter.create<AddOp>(loc, scoresType, scores, mask).getResult();
+    scores = rewriter.create<AddOp>(loc, scoresType, scores, mask).getResult();
   }
 
   // Generate positional mask (sliding window and/or causal).
@@ -282,8 +282,7 @@ LogicalResult SDPADecompositionPattern::matchAndRewrite(
     int64_t sinkCols = sinkType.getShape().back();
 
     Value scaledSink =
-        rewriter
-            .create<MultiplyOp>(loc, sinkType, attentionSink, scaleTensor)
+        rewriter.create<MultiplyOp>(loc, sinkType, attentionSink, scaleTensor)
             .getResult();
 
     // Broadcast sink [1, Hq, 1, sinkCols] -> [B, Hq, Sq, sinkCols].
@@ -292,12 +291,11 @@ LogicalResult SDPADecompositionPattern::matchAndRewrite(
     if (sinkType.getShape() != ArrayRef<int64_t>(broadcastSinkShape)) {
       auto broadcastSinkType = createResultType(qType, broadcastSinkShape);
       llvm::SmallVector<int64_t> sinkRepeatDims = {batch, 1, seqLenQ, 1};
-      scaledSink =
-          rewriter
-              .create<RepeatOp>(
-                  loc, broadcastSinkType, scaledSink,
-                  ShapeAttr::get(rewriter.getContext(), sinkRepeatDims))
-              .getResult();
+      scaledSink = rewriter
+                       .create<RepeatOp>(loc, broadcastSinkType, scaledSink,
+                                         ShapeAttr::get(rewriter.getContext(),
+                                                        sinkRepeatDims))
+                       .getResult();
     }
 
     llvm::SmallVector<int64_t> concatShape = {batch, numHeads, seqLenQ,
