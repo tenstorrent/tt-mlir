@@ -152,7 +152,8 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
         // Reserve any per-op DST scratch slices.
         for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n;
              ++i) {
-          setDstScratchIndex(computeOp, dstAllocator.allocateScratch());
+          setDstScratchIndex(computeOp, dstAllocator.allocateScratch(),
+                             outermostInnerComputeLoop);
         }
       });
 

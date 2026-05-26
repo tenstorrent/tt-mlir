@@ -24,6 +24,9 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
 
+#include <algorithm>
+#include <type_traits>
+
 #define DEBUG_TYPE "D2MInsertDstRegisterAccess"
 
 namespace mlir::tt::d2m {
@@ -415,14 +418,51 @@ Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
   return nullptr;
 }
 
+static SmallVector<affine::AffineForOp>
+collectEnclosingAffineLoopsForDstAccess(Operation *op, Operation *linalgRoot) {
+  SmallVector<affine::AffineForOp> enclosingLoops;
+  Operation *current = op->getParentOp();
+  while (current) {
+    if (auto affineFor = dyn_cast<affine::AffineForOp>(current)) {
+      enclosingLoops.push_back(affineFor);
+      if (linalgRoot && current == linalgRoot) {
+        break;
+      }
+    }
+    current = current->getParentOp();
+  }
+  std::reverse(enclosingLoops.begin(), enclosingLoops.end());
+  return enclosingLoops;
+}
+
+static int64_t
+computeDstLinearizationFootprint(ArrayRef<affine::AffineForOp> enclosingLoops) {
+  int64_t footprint = 1;
+  for (auto loop : enclosingLoops) {
+    if (loop.hasConstantUpperBound()) {
+      footprint *= loop.getConstantUpperBound();
+    }
+  }
+  return footprint;
+}
+
+static int64_t computeLinearizedDstSliceBaseIndex(Operation *op, int dstSlice,
+                                                  Operation *linalgRoot) {
+  return static_cast<int64_t>(dstSlice) *
+         computeDstLinearizationFootprint(
+             collectEnclosingAffineLoopsForDstAccess(op, linalgRoot));
+}
+
 void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
-                        int scratchSlice) {
+                        int scratchSlice, Operation *linalgRoot) {
   TT_assertv(computeOp.getNumDstScratchSlices() == 1,
              "setDstScratchIndex supports exactly one scratch slice");
   Operation *op = computeOp.getOperation();
+  int64_t dstIndex =
+      computeLinearizedDstSliceBaseIndex(op, scratchSlice, linalgRoot);
   op->setAttr("dst_scratch_index",
               mlir::IntegerAttr::get(
-                  mlir::IntegerType::get(op->getContext(), 64), scratchSlice));
+                  mlir::IntegerType::get(op->getContext(), 64), dstIndex));
 }
 
 static Value getFirstIterationValue(PatternRewriter &rewriter, Location loc,
@@ -1272,23 +1312,12 @@ scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
 std::pair<AffineMap, SmallVector<Value>>
 buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op, int dstSlice,
                          Operation *linalgRoot) {
-  SmallVector<affine::AffineForOp> enclosingLoops;
-  Operation *current = op->getParentOp();
-  while (current) {
-    if (auto affineFor = dyn_cast<affine::AffineForOp>(current)) {
-      enclosingLoops.push_back(affineFor);
-      if (linalgRoot && current == linalgRoot) {
-        break;
-      }
-    }
-    current = current->getParentOp();
-  }
+  SmallVector<affine::AffineForOp> enclosingLoops =
+      collectEnclosingAffineLoopsForDstAccess(op, linalgRoot);
 
   if (enclosingLoops.empty()) {
     return {AffineMap::getConstantMap(dstSlice, rewriter.getContext()), {}};
   }
-
-  std::reverse(enclosingLoops.begin(), enclosingLoops.end());
 
   unsigned numDims = enclosingLoops.size();
   SmallVector<int64_t> strides(numDims, 1);
