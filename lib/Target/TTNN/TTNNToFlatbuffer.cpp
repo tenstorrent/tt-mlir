@@ -342,8 +342,7 @@ createOp(FlatbufferObjectCache &cache, CreateGlobalSemaphoreOp op) {
   auto output =
       cache.getOrCreate(op.getResult(), globalSemaphoreValueToFlatbuffer);
   auto coreRangeSet = ::tt::target::ttnn::CreateCoreRangeSet(
-      *cache.fbb, toFlatbuffer(cache, llvm::ArrayRef<ttnn::CoreRangeAttr>{
-                                          op.getCoreRange()}));
+      *cache.fbb, toFlatbuffer(cache, op.getCoreRangeSet().getCoreRanges()));
   return ::tt::target::ttnn::CreateCreateGlobalSemaphoreOp(
       *cache.fbb, coreRangeSet, op.getInitialValue(), output);
 }

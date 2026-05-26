@@ -2033,26 +2033,9 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::CreateGlobalSemaphoreOp>
         emitter(srcOp, adaptor, rewriter);
 
-    // Find the device value from a preceding GetDeviceOp in the parent
-    // function and get its converted (adapted) value.
-    mlir::Value deviceValue;
-    srcOp->getParentOfType<func::FuncOp>().walk(
-        [&](mlir::tt::ttnn::GetDeviceOp getDeviceOp) {
-          deviceValue = getDeviceOp.getResult();
-        });
-    if (!deviceValue) {
-      return srcOp.emitOpError(
-          "could not find a ttnn.get_device op in the parent function");
-    }
-    mlir::Value convertedDevice = rewriter.getRemappedValue(deviceValue);
-    if (!convertedDevice) {
-      convertedDevice = deviceValue;
-    }
-
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(convertedDevice,
-                     static_cast<uint32_t>(srcOp->getNumOperands())),
-        emitter.emit(srcOp.getCoreRange()),
+        emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice()),
+        emitter.emit(srcOp.getCoreRangeSet()),
         emitter.emit(srcOp.getInitialValue()),
     };
 
