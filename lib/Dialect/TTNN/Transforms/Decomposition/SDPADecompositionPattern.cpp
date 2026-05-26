@@ -307,9 +307,6 @@ SDPADecompositionPattern::matchAndRewrite(ttnn::ScaledDotProductAttentionOp op,
                  .create<ConcatOp>(loc, concatType, concatInputs,
                                    static_cast<int32_t>(-1))
                  .getResult();
-
-    // Update seqLenKV to reflect concatenated dimension.
-    seqLenKV += sinkCols;
   }
 
   // ---- Softmax ----
