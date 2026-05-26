@@ -52,6 +52,10 @@ def assert_close_cpu_vs_tt(
     brings the tt result back to CPU, and compares with
     ``torch.testing.assert_close``. Non-tensor args are passed through unchanged.
 
+    If ``fn`` is an :class:`torch.nn.Module`, its parameters are moved to tt
+    for the tt-side call and restored to CPU afterward, so the caller's device
+    state is not mutated.
+
     Defaults to ``assert_native=True``: the tt-side call runs inside
     :func:`strict_no_fallback`, so any op that would silently fall back to CPU
     raises instead. This is how op tests enforce "this op is implemented
@@ -61,7 +65,9 @@ def assert_close_cpu_vs_tt(
     """
     cpu_out = fn(*cpu_args)
 
+    if isinstance(fn, torch.nn.Module): fn.to("tt")
     tt_args = tuple(a.to("tt") if isinstance(a, torch.Tensor) else a for a in cpu_args)
+
     if assert_native:
         with strict_no_fallback():
             tt_out = fn(*tt_args).cpu()

@@ -16,12 +16,10 @@ from _models import MNISTLinear
     ],
     ids=["tile_aligned", "real_mnist_batch64", "real_mnist_batch1"],
 )
-def test_mnist_forward_raises_under_strict(
+def test_mnist_forward(
     batch: int, feat: int, hidden: int, classes: int, dtype: torch.dtype
 ) -> None:
     torch.manual_seed(0)
-    model_tt = MNISTLinear(feat, hidden, classes).to(dtype).to("tt")
-    x_tt = torch.randn(batch, feat, dtype=dtype).to("tt")
-
-    with pytest.raises(RuntimeError, match="strict-fallback"):
-        assert_close_cpu_vs_tt(model_tt, x_tt)
+    model = MNISTLinear(feat, hidden, classes).to(dtype)
+    x = torch.randn(batch, feat, dtype=dtype)
+    assert_close_cpu_vs_tt(model, x, atol=0.02, rtol=0.1)
