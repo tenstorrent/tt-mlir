@@ -65,7 +65,11 @@ class _Payload(BaseModel):
 
 
 class NumericsPayload(_Payload):
-    """Shared by OK and NUMERICS_FAIL; status set by check_numerics."""
+    """Shared by OK and NUMERICS_FAIL; status set by check_numerics.
+
+    `role` is set when the comparison is against an in-place mutated operand
+    (e.g. `cache`, `running_mean`). Unset for normal SSA-output comparisons.
+    """
 
     status: Literal[RecordStatus.OK, RecordStatus.NUMERICS_FAIL]
     mode: NumericsMode
@@ -73,6 +77,7 @@ class NumericsPayload(_Payload):
     atol: float
     rtol: float
     device_id: Optional[int] = None
+    role: Optional[str] = None
 
 
 class ShapeMismatchPayload(_Payload):
@@ -94,6 +99,7 @@ class ErrorPayload(_Payload):
 class SkippedNumericsPayload(_Payload):
     status: Literal[RecordStatus.SKIPPED_NUMERICS] = RecordStatus.SKIPPED_NUMERICS
     mode: NumericsMode
+    role: Optional[str] = None
 
 
 class NoGoldenPayload(_Payload):

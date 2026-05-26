@@ -441,3 +441,158 @@ def test_chisel_records_matmul_tensor_parallel_multichip(
         records = report.records
 
     _assert_matmul_pcc(records, mesh=_MULTICHIP_MESH)
+
+
+def test_chisel_records_update_cache_inplace(request, device, tmp_path):
+    # ttnn.update_cache mutates its `cache` operand in place, has no SSA
+    # result, and has a chisel golden registered. The new in-place flow
+    # should: PRE pull all inputs, POST re-pull the mutated cache from
+    # device, and emit a `numerics` record with role=`cache`.
+    cache_shape = (1, 32, 64, 512)
+    update_shape = (1, 32, 1, 512)
+    index_shape = (1,)
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [cache_shape, update_shape, index_shape],
+            [torch.float32, torch.float32, torch.int32],
+        )
+        def update_cache(
+            in0: Operand,  # cache
+            in1: Operand,  # update values
+            in2: Operand,  # update index
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            update_index = torch.randint(
+                0, cache_shape[2], index_shape, dtype=torch.int32
+            )
+            builder.set_goldens(inputs={in2: update_index})
+            return builder.update_cache(in0, in1, in2)
+
+    with chisel.session(
+        results_path=str(tmp_path / "chisel_result.jsonl"),
+        checks_config=chisel.ChiselChecksConfig(isolation=True, accumulation=True),
+    ) as report:
+        compile_and_execute_ttir(
+            module,
+            test_base=request.node.name,
+            output_root=str(tmp_path),
+            target="ttnn",
+            device=device,
+        )
+        records = report.records
+
+    assert records, "chisel report is empty"
+
+    # The numerics records for the in-place mutation should be labeled
+    # role='cache' and pass at both isolation and accumulation.
+    cache_numerics = [
+        r
+        for r in records
+        if r.op == "ttnn.update_cache"
+        and r.check == "numerics"
+        and r.payload.role == "cache"
+    ]
+    assert cache_numerics, (
+        "no role='cache' numerics records produced for ttnn.update_cache; "
+        f"saw: {[(r.op, r.check, getattr(r.payload, 'role', None)) for r in records]}"
+    )
+
+    PCC_THRESHOLD = 0.99
+    for mode in (chisel.NumericsMode.ISOLATED, chisel.NumericsMode.ACCUMULATED):
+        for_mode = [r for r in cache_numerics if r.payload.mode == mode]
+        assert for_mode, f"no role='cache' record for mode={mode}"
+        for r in for_mode:
+            assert (
+                r.status == chisel.RecordStatus.OK
+            ), f"role='cache' {mode} fail: payload={r.payload}"
+            assert (
+                r.payload.pcc >= PCC_THRESHOLD
+            ), f"role='cache' {mode} PCC {r.payload.pcc} below {PCC_THRESHOLD}"
+
+    # No golden_evicted records for the cache SSA - the in-place flow with
+    # a golden refreshes the pool, it does not evict.
+    evictions = [
+        r
+        for r in records
+        if r.check == "golden_evicted" and r.op == "ttnn.update_cache"
+    ]
+    assert not evictions, (
+        f"unexpected golden_evicted records on ttnn.update_cache: "
+        f"{[r.ssa for r in evictions]}"
+    )
+
+
+def test_chisel_evicts_on_inplace_batch_norm_training(request, device, tmp_path):
+    # ttnn.batch_norm_training mutates `running_mean` and `running_var` but
+    # has no registered chisel golden. The IR-driven no-golden branch in
+    # _default_post_op should emit one golden_evicted record per mutated
+    # operand, and drop those SSAs from both pools.
+    n, c, h, w = 1, 4, 8, 8
+    input_shape = (n, c, h, w)
+    param_shape = (c,)
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [input_shape, param_shape, param_shape, param_shape, param_shape],
+            [torch.float32] * 5,
+        )
+        def batch_norm_training(
+            in0: Operand,
+            scale: Operand,
+            offset: Operand,
+            running_mean: Operand,
+            running_variance: Operand,
+            builder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.batch_norm_training(
+                in0,
+                scale,
+                offset,
+                running_mean,
+                running_variance,
+                epsilon=1e-5,
+                dimension=1,
+                momentum=0.1,
+            )
+
+    with chisel.session(
+        results_path=str(tmp_path / "chisel_result.jsonl"),
+    ) as report:
+        compile_and_execute_ttir(
+            module,
+            test_base=request.node.name,
+            output_root=str(tmp_path),
+            target="ttnn",
+            device=device,
+        )
+        records = report.records
+
+    assert records, "chisel report is empty"
+
+    evictions = [
+        r
+        for r in records
+        if r.op == "ttnn.batch_norm_training" and r.check == "golden_evicted"
+    ]
+    # batch_norm_training writes to running_mean + running_variance, but the
+    # generated TTNN module may not pass both as block args (one could be a
+    # constant). We just require at least one eviction record, which is what
+    # the IR-driven no-golden path is designed to produce.
+    assert evictions, (
+        "expected at least one golden_evicted record on ttnn.batch_norm_training; "
+        f"saw: {[(r.op, r.check) for r in records]}"
+    )
+
+    # No PCC numerics records on this op - it has no golden.
+    bnt_numerics = [
+        r
+        for r in records
+        if r.op == "ttnn.batch_norm_training" and r.check == "numerics"
+    ]
+    assert not bnt_numerics, (
+        "did not expect numerics records on ttnn.batch_norm_training "
+        f"(no golden); got: {bnt_numerics}"
+    )

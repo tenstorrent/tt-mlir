@@ -137,6 +137,19 @@ class ChiselContext:
         return program._golden_tensor_pool
 
     @property
+    def device_tensor_pool(self) -> Dict[SSAName, GoldenMapTensor]:
+        """Program-scoped SSA -> host copy of the device tensor.
+
+        Mirrors the device's view of each SSA - distinct from the golden
+        pool. Populated on first PRE pull and on POST validation; reused to
+        avoid pulling the same device tensor to host multiple times.
+        """
+        program = self._current_callback_program
+        if program is None:
+            raise UnexpectedStateError("device_tensor_pool")
+        return program._device_tensor_pool
+
+    @property
     def rt_program_context(self) -> Optional[CallbackContext]:
         program = self._current_callback_program
         return program._rt_program_context if program is not None else None
@@ -294,6 +307,9 @@ class ProgramState:
         self._pre_failed: bool = False
         # Persists across ops within a program; not reset per op.
         self._golden_tensor_pool: Dict[SSAName, GoldenMapTensor] = {}
+        # Program-scoped host-side cache of device tensors keyed by SSA name.
+        # See ChiselContext.device_tensor_pool.
+        self._device_tensor_pool: Dict[SSAName, GoldenMapTensor] = {}
 
     def begin_op(self) -> None:
         self._current_op = next(self._op_iter).opview

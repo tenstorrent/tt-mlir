@@ -116,10 +116,17 @@ def execute_golden_with_ssa_inputs(
 def execute_golden_from_pool(
     op: Operation, pool: Dict[SSAName, GoldenMapTensor], asm_state
 ) -> List[GoldenMapTensor]:
-    """Read inputs from `pool`, run golden, store outputs back into `pool`."""
+    """Read inputs from `pool`, run golden, store SSA outputs back into `pool`.
+
+    The result has `ssa_count + n_inplace` entries (executor contract); only
+    SSA outputs are written here. Mutated-operand entries are returned to the
+    caller so it can refresh the pool entry for the mutated SSA after the
+    device tensor has been re-pulled (see callbacks._default_post_op).
+    """
     names = (inp.get_name(asm_state) for inp in get_op_inputs(op))
     ssa_inputs: Dict[SSAName, GoldenMapTensor] = {name: pool[name] for name in names}
     result = execute_golden_with_ssa_inputs(op, ssa_inputs, asm_state)
-    for out_val, tensor in zip(get_op_outputs(op), result, strict=True):
+    ssa_outputs = get_op_outputs(op)
+    for out_val, tensor in zip(ssa_outputs, result[: len(ssa_outputs)], strict=True):
         pool[out_val.get_name(asm_state)] = tensor
     return result
