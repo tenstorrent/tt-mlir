@@ -534,8 +534,20 @@ public:
   LogicalResult
   matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    Value sourceInput = adaptor.getInput();
+
+    // When d2m.spatial consumes the view result, pre-update that use to the
+    // view input so the spatial operand type tracks the underlying memref type.
+    for (OpOperand &use :
+         llvm::make_early_inc_range(op.getResult().getUses())) {
+      if (mlir::isa<d2m::SpatialOp>(use.getOwner())) {
+        use.set(sourceInput);
+        continue;
+      }
+    }
+
     // Erase views.
-    rewriter.replaceOp(op, adaptor.getInput());
+    rewriter.replaceOp(op, sourceInput);
     return success();
   }
 };
