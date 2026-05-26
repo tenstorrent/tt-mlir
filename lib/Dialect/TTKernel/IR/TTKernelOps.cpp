@@ -529,7 +529,8 @@ void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
       if (mlir::isa<NocAsyncWriteOp, NocAsyncWriteTileOp,
                     NocAsyncWriteSetTridOp, NocAsyncWriteOnePacketWithTridOp,
                     NocAsyncWriteMulticastOp, NocAsyncWriteMulticastOnePacketOp,
-                    NocAsyncWriteMulticastLoopbackSrcOp>(it) ||
+                    NocAsyncWriteMulticastLoopbackSrcOp, NocInlineDwWriteOp>(
+              it) ||
           it->getNumRegions() > 0) {
         break;
       }
