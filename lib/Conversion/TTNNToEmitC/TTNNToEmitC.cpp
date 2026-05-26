@@ -2034,7 +2034,7 @@ public:
         emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice()),
+        emitter.emit<::ttnn::distributed::MeshDevice *>(srcOp.getDevice()),
         emitter.emit(srcOp.getCoreRangeSet()),
         emitter.emit(srcOp.getInitialValue()),
     };
