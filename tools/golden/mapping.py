@@ -3066,7 +3066,7 @@ def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     GoldenMapTensor
         Softmax output
     """
-    dimension = kwargs.get("dimension",  1)
+    dimension = kwargs.get("dimension", 1)
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
 
 
