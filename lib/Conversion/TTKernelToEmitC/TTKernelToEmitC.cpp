@@ -487,6 +487,12 @@ public:
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "true"));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::NocInlineDwWriteOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "InlineWriteDst::L1"));
+      return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceInitOp>) {
       // sfpu_reduce_init<PoolType, DataFormat>()
       SmallVector<Attribute, 2> template_args;
@@ -1881,6 +1887,8 @@ public:
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteSramWriteU32Op>>(
         typeConverter, funcOp.getContext(), "noc_semaphore_set_remote");
+    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::NocInlineDwWriteOp>>(
+        typeConverter, funcOp.getContext());
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
         typeConverter, funcOp.getContext(), "get_noc_addr");
