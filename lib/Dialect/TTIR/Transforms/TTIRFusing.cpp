@@ -2992,6 +2992,77 @@ public:
   }
 };
 
+// Fuse a `ttir.pad` followed by `ttir.conv3d` into a single conv3d that
+// absorbs the pad into its `padding` attribute.
+//
+// Conv3d only supports symmetric, zero-valued padding (mode "zeros"), so the
+// fusion only fires when the producing pad is symmetric, has value 0.0, and
+// pads only the spatial (depth/height/width) dimensions.
+class PadConv3dFusionPattern : public mlir::OpRewritePattern<Conv3dOp> {
+  using mlir::OpRewritePattern<Conv3dOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(Conv3dOp convOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto padOp = convOp.getInput().getDefiningOp<PadOp>();
+    if (!padOp || !padOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    if (convOp.getPaddingMode() != "zeros") {
+      return mlir::failure();
+    }
+
+    if (!padOp.getValue().isZero()) {
+      return mlir::failure();
+    }
+
+    auto inputRank = padOp.getInput().getType().getRank();
+    llvm::ArrayRef<int32_t> padArr = padOp.getPadding();
+    assert(padArr.size() == 2ul * inputRank && "Invalid padding array size");
+
+    int64_t batchDim = convOp.getBatchDim();
+    int64_t channelDim = convOp.getChannelDim();
+    int64_t depthDim = convOp.getDepthDim();
+    int64_t heightDim = convOp.getHeightDim();
+    int64_t widthDim = convOp.getWidthDim();
+
+    // Conv3dOp only supports symmetric padding for spatial dimensions.
+    for (int64_t dim = 0; dim < inputRank; ++dim) {
+      int32_t low = padArr[2 * dim];
+      int32_t high = padArr[2 * dim + 1];
+      // Padding must be symmetric.
+      if (low != high) {
+        return mlir::failure();
+      }
+      // Padding must be zero for batch and channel dimensions.
+      if ((dim == batchDim || dim == channelDim) && low != 0) {
+        return mlir::failure();
+      }
+    }
+
+    auto existing =
+        ttmlir::utils::getTripleOfInteger<int32_t>(convOp.getPaddingAttr());
+    if (auto err = existing.takeError()) {
+      llvm::consumeError(std::move(err));
+      return mlir::failure();
+    }
+    auto [curD, curH, curW] = *existing;
+
+    auto newPaddingAttr = rewriter.getDenseI32ArrayAttr(
+        {curD + padArr[2 * depthDim], curH + padArr[2 * heightDim],
+         curW + padArr[2 * widthDim]});
+
+    rewriter.modifyOpInPlace(convOp, [&]() {
+      convOp.getInputMutable().assign(padOp.getInput());
+      convOp.setPaddingAttr(newPaddingAttr);
+    });
+
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
@@ -3013,6 +3084,7 @@ public:
       patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
       patterns.add<ConvAddBias<ConvTranspose2dOp>>(&getContext());
       patterns.add<ConvAddBias<Conv3dOp>>(&getContext());
+      patterns.add<PadConv3dFusionPattern>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
