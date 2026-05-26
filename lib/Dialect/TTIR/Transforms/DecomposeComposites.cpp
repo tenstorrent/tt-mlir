@@ -495,11 +495,11 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
     auto inputType = cast<RankedTensorType>(input.getType());
     int64_t originalDimSize = inputType.getShape()[dim];
 
-    // Find the highest set bit to know when to stop building chunks
+    // Find the highest set bit to know when to stop building chunks.
     int64_t highestBit = 63 - __builtin_clzll(repeatCount);
 
-    // Build power-of-two chunks and collect those needed based on set bits
-    // Reserve capacity based on the number of set bits (popcount)
+    // Build power-of-two chunks and collect those needed based on set bits.
+    // Reserve capacity based on the number of set bits (popcount).
     SmallVector<Value> partsToConcat;
     partsToConcat.reserve(__builtin_popcountll(repeatCount));
 
@@ -507,12 +507,13 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
     auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
 
     for (int64_t bit = 0; bit <= highestBit; ++bit) {
-      // If this bit is set in repeatCount, we need this chunk
+      // If this bit is set in repeatCount, we need this chunk.
       if (repeatCount & (1LL << bit)) {
         partsToConcat.push_back(currentChunk);
       }
 
-      // Double the chunk for the next power of 2 (unless we're at the last bit)
+      // Double the chunk for the next power of 2 (unless we're at the last
+      // bit).
       if (bit < highestBit) {
         SmallVector<Value> inputs = {currentChunk, currentChunk};
 
@@ -527,7 +528,7 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
       }
     }
 
-    // Concatenate all the collected parts into the final result
+    // Concatenate all the collected parts into the final result.
     if (partsToConcat.size() == 1) {
       return partsToConcat[0];
     }
@@ -546,18 +547,18 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
     Location loc = op.getLoc();
     auto repeatDimensions = op.getRepeatDimensions();
 
-    // Start with the input tensor
+    // Start with the input tensor.
     Value current = op.getInput();
     auto inputType = cast<RankedTensorType>(current.getType());
     int64_t rank = inputType.getRank();
 
-    // Process each dimension, using hierarchical concat
+    // Process each dimension, using hierarchical concat.
     for (int64_t dim = 0; dim < rank; ++dim) {
       int64_t repeatCount = repeatDimensions[dim];
       current = repeatAlongDim(loc, current, dim, repeatCount, rewriter);
     }
 
-    // Replace the original repeat op with the final result
+    // Replace the original repeat op with the final result.
     rewriter.replaceOp(op, current);
     return success();
   }
