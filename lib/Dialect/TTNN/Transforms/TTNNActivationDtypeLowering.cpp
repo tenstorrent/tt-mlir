@@ -5,10 +5,12 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/PatternMatch.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -83,6 +85,30 @@ static void downcastChain(MatmulOp matmul,
   for (Operation *op : flowOps) {
     rewriteResultDtype(op, ttcore::DataType::BFP_BFloat8);
   }
+}
+
+// Insert a ttnn.to_layout(RowMajor, bf16) on `useOp`'s `operandIdx`. The
+// producer's result is expected to be (Tile, bfp_bf8); the to_layout op
+// implicitly upcasts to bf16 as part of de-tiling, which is the "untilize"
+// fast-path on hardware (see tt-metal's
+// `untilize_device_operation.cpp:268`, where BFLOAT8_B input always produces
+// BFLOAT16 output). The combined to_layout is preserved through
+// TTNNDecomposeLayouts via the bfp_bf8 -> bf16 special-case, lowering to a
+// single tt-metal untilize kernel. Mirrors the tt-metal llama3_70b_galaxy
+// lm_head -> untilize -> argmax chain.
+static void insertToLayoutRowMajorBF16(IRRewriter &rewriter, Operation *useOp,
+                                       unsigned operandIdx) {
+  Value operand = useOp->getOperand(operandIdx);
+  auto operandType = mlir::cast<RankedTensorType>(operand.getType());
+  auto resultType = ttnn::utils::RankedTensorTypeFactory::create(
+      operandType, ttcore::DataType::BFloat16);
+  resultType =
+      ttnn::utils::RankedTensorTypeFactory::create(resultType, Layout::RowMajor);
+  rewriter.setInsertionPoint(useOp);
+  auto toLayout = rewriter.create<ToLayoutOp>(
+      useOp->getLoc(), resultType, operand,
+      LayoutAttr::get(rewriter.getContext(), Layout::RowMajor));
+  useOp->setOperand(operandIdx, toLayout.getResult());
 }
 
 // Projection-residual shape (read-only check):
@@ -223,6 +249,61 @@ static bool tryMLPUpGateMatcher(MatmulOp matmul) {
   return true;
 }
 
+// LM-head matmul -> [view / CCL / sum]* -> argmax, walked as a single-use
+// linear chain.
+//
+// Lowers the matmul output to bfp_bf8 and propagates it through every
+// flow-through op (slice, reshape, sum, CCL); inserts a single
+// ttnn.to_layout(RowMajor, bf16) at the argmax operand. That to_layout
+// lowers (via TTNNDecomposeLayouts' bfp_bf8 -> bf16 fast path + the
+// tt-metal to_layout_op assert relax) to a single tt-metal `untilize`
+// kernel that does the bfp_bf8 -> bf16 upcast inline as part of de-tiling
+// — avoiding the separate device typecast pass that would otherwise erase
+// the CCL savings.
+//
+// The view-op invariant guard in MemoryLayoutPropagation /
+// OperationValidationAndFallback (narrowed to SliceStaticOp) keeps
+// intermediate slices consistent; the return-cast logic in
+// updateFunctionReturnTypes keeps the function signature stable for integer
+// mismatches like the argmax ui32 -> si32 case.
+static bool tryLMHeadArgmaxMatcher(MatmulOp matmul) {
+  if (!isLowerableFloat(getValueDtype(matmul.getResult()))) {
+    return false;
+  }
+
+  llvm::SmallVector<Operation *> flowOps;
+  bool sawCCL = false;
+  Value cur = matmul.getResult();
+  while (true) {
+    // A clean chain is single-use; a branch means this isn't the shape we
+    // model, so don't match (under-trigger by design).
+    if (!cur.hasOneUse()) {
+      return false;
+    }
+    OpOperand &use = *cur.getUses().begin();
+    Operation *user = use.getOwner();
+
+    if (isViewLikeOp(user) || isCCLOp(user) || mlir::isa<SumOp>(user)) {
+      if (user->getNumResults() != 1) {
+        return false;
+      }
+      sawCCL |= isCCLOp(user);
+      flowOps.push_back(user);
+      cur = user->getResult(0);
+      continue;
+    }
+
+    // Exit: must be the argmax, after at least one CCL.
+    if (!sawCCL || !mlir::isa<ArgMaxOp>(user)) {
+      return false;
+    }
+    downcastChain(matmul, flowOps);
+    IRRewriter rewriter(matmul.getContext());
+    insertToLayoutRowMajorBF16(rewriter, user, use.getOperandNumber());
+    return true;
+  }
+}
+
 class TTNNCCLActivationDtypeLoweringPass
     : public impl::TTNNCCLActivationDtypeLoweringBase<
           TTNNCCLActivationDtypeLoweringPass> {
@@ -246,6 +327,9 @@ public:
         continue;
       }
       if (tryMLPUpGateMatcher(matmul)) {
+        continue;
+      }
+      if (tryLMHeadArgmaxMatcher(matmul)) {
         continue;
       }
     }

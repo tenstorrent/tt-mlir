@@ -494,8 +494,8 @@ def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "
     implicit casting back to bf16 (e.g. residual add). Currently we added only patterns
     that don't require explicit casts on both sides.
 
-    The pass implements two strict per-pattern matchers, each modeled after a
-    Llama-style sub-graph:
+    The pass implements three strict per-pattern matchers, each modeled
+    after a Llama-style sub-graph:
       - Projection matmul (attention output / MLP down) -> [view / CCL]* ->
         residual add. The residual add's result encoding stays bf16 (it was
         constructed from the bf16 residual operand), so TTNN restores bf16
@@ -506,6 +506,12 @@ def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "
         FF2 matmul receives bfp_bf8 input; the FF2 residual add then
         restores bf16 via the projection-residual matcher when FF2 itself is
         lowered.
+      - LM-head matmul -> [view / CCL / sum]* -> argmax. The matcher inserts
+        a single ttnn.to_layout(RowMajor, bf16) at the argmax operand
+        instead of a slow ttnn.typecast; that to_layout lowers (via the
+        TTNNDecomposeLayouts bfp_bf8 -> bf16 fast path + the tt-metal
+        to_layout_op assert relax) to a single tt-metal untilize kernel
+        that does the bfp_bf8 -> bf16 upcast inline as part of de-tiling.
 
     A matmul only matches a pattern when the entire downstream chain shape
     matches the template, so the pass under-triggers by design. The idea is
