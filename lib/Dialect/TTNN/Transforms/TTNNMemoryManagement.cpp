@@ -973,16 +973,13 @@ public:
       return failure();
     }
 
-    RankedTensorType rowMajorReshapeResultType;
-    if (!repeatUser) {
-      auto rowMajorReshapeLayout =
-          TTNNLayoutAttr::Builder(reshapeResultLayout,
-                                  reshapeResultType.getShape())
-              .setLayout(ttnn::Layout::RowMajor)
-              .build();
-      rowMajorReshapeResultType =
-          reshapeResultType.cloneWithEncoding(rowMajorReshapeLayout);
-    }
+    auto rowMajorReshapeLayout =
+        TTNNLayoutAttr::Builder(reshapeResultLayout,
+                                reshapeResultType.getShape())
+            .setLayout(ttnn::Layout::RowMajor)
+            .build();
+    RankedTensorType rowMajorReshapeResultType =
+        reshapeResultType.cloneWithEncoding(rowMajorReshapeLayout);
 
     Value permuteInput = op.getInput();
     if (!permuteInput.getDefiningOp<ttnn::ToLayoutOp>()) {
@@ -1004,40 +1001,30 @@ public:
         op.getLoc(), rowMajorResultType, permuteInput, op.getPermutation(),
         op.getPadValue());
 
+    Value reshapeInput = newPermuteOp.getResult();
     if (repeatUser) {
       auto newRepeatOp = rewriter.create<ttnn::RepeatOp>(
           repeatUser.getLoc(), rowMajorRepeatResultType,
           newPermuteOp.getResult(), repeatUser.getRepeatDims());
-
-      auto restoredRepeatLayout = utils::createToLayoutOp(
-          repeatUser,
-          mlir::cast<mlir::TypedValue<RankedTensorType>>(
-              newRepeatOp.getResult()),
-          rewriter, repeatResultLayout.getLayout(),
-          repeatResultLayout.getBufferType(), repeatResultLayout.getMemLayout(),
-          repeatResultLayout.getDataType(), "_restore_repeat_layout");
-
-      auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-          reshapeUser.getLoc(), reshapeResultType,
-          restoredRepeatLayout.getResult(), reshapeUser.getShapeAttr());
-      rewriter.replaceOp(reshapeUser, newReshapeOp.getResult());
-      rewriter.eraseOp(repeatUser);
-    } else {
-      auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-          reshapeUser.getLoc(), rowMajorReshapeResultType,
-          newPermuteOp.getResult(), reshapeUser.getShapeAttr());
-
-      auto restoredLayout = utils::createToLayoutOp(
-          reshapeUser,
-          mlir::cast<mlir::TypedValue<RankedTensorType>>(
-              newReshapeOp.getResult()),
-          rewriter, reshapeResultLayout.getLayout(),
-          reshapeResultLayout.getBufferType(),
-          reshapeResultLayout.getMemLayout(), reshapeResultLayout.getDataType(),
-          "_restore_layout");
-      rewriter.replaceOp(reshapeUser, restoredLayout.getResult());
+      reshapeInput = newRepeatOp.getResult();
     }
 
+    auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        reshapeUser.getLoc(), rowMajorReshapeResultType, reshapeInput,
+        reshapeUser.getShapeAttr());
+
+    auto restoredLayout = utils::createToLayoutOp(
+        reshapeUser,
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(
+            newReshapeOp.getResult()),
+        rewriter, reshapeResultLayout.getLayout(),
+        reshapeResultLayout.getBufferType(), reshapeResultLayout.getMemLayout(),
+        reshapeResultLayout.getDataType(), "_restore_layout");
+
+    rewriter.replaceOp(reshapeUser, restoredLayout.getResult());
+    if (repeatUser) {
+      rewriter.eraseOp(repeatUser);
+    }
     rewriter.eraseOp(op);
 
     return success();
