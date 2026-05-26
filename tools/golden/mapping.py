@@ -2523,8 +2523,6 @@ def stablehlo_scatter_golden(
     update_computation_region,
     result_types: List[Type],
 ) -> Union[GoldenMapTensor, List[GoldenMapTensor]]:
-    from builder.base.builder import Builder
-
     # Unpack dimension numbers
     update_window_dims = list(scatter_dimension_numbers.update_window_dims)
     inserted_window_dims = list(scatter_dimension_numbers.inserted_window_dims)
@@ -2584,8 +2582,29 @@ def stablehlo_scatter_golden(
 
         # For each input/update pair
         for i in range(len(inputs)):
-            input_shard = _first_shard(outputs[i])
-            update_shard = _first_shard(updates[i])
+            output_tensor = outputs[i]
+            if len(output_tensor.shard_map) > 1:
+                first_output_shard = _first_shard(output_tensor)
+                for device, shard in output_tensor.shard_map.items():
+                    if not torch.equal(shard, first_output_shard):
+                        raise AssertionError(
+                            "stablehlo_scatter_golden expects replicated output shards when "
+                            "applying scatter via _first_shard(outputs[i])"
+                        )
+                for device in output_tensor.shard_map:
+                    output_tensor.shard_map[device] = first_output_shard
+            input_shard = _first_shard(output_tensor)
+
+            update_tensor = updates[i]
+            if len(update_tensor.shard_map) > 1:
+                first_update_shard = _first_shard(update_tensor)
+                for device, shard in update_tensor.shard_map.items():
+                    if not torch.equal(shard, first_update_shard):
+                        raise AssertionError(
+                            "stablehlo_scatter_golden expects replicated update shards when "
+                            "reading updates via _first_shard(updates[i])"
+                        )
+            update_shard = _first_shard(update_tensor)
             update_shape = list(update_shard.shape)
 
             # Calculate the update slice for this index

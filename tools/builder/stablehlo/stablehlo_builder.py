@@ -9321,13 +9321,8 @@ class StableHLOBuilder(Builder):
         self,
         old_op: stablehlo.ScatterOp,
     ) -> Tuple[Module, StableHLOBuilder]:
-        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.scatter_split)
-
         old_ctx = old_op.context
         old_location = Location.unknown(old_ctx)
-        scatter_dimension_numbers = stablehlo.ScatterDimensionNumbers(
-            old_op.scatter_dimension_numbers
-        )
 
         with old_ctx, old_location:
             scatter_module = Module.create()
