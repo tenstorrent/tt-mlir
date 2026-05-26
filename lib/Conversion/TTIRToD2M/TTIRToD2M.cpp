@@ -3771,55 +3771,51 @@ struct TensorManipulationInfo {
 };
 
 namespace {
-class D2MScalarReshapeOpRewriter : public OpConversionPattern<ttir::ReshapeOp> {
-public:
-  D2MScalarReshapeOpRewriter(const TypeConverter &typeConverter,
-                             mlir::MLIRContext *ctx)
-      : OpConversionPattern<ttir::ReshapeOp>(typeConverter, ctx,
-                                             /*benefit=*/20) {}
+static bool isScalarUnitVolumeReshape(RankedTensorType inputType,
+                                      RankedTensorType outputType) {
+  if (inputType.getRank() != 0 && outputType.getRank() != 0) {
+    return false;
+  }
 
-  LogicalResult
-  matchAndRewrite(ttir::ReshapeOp op, ttir::ReshapeOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
-    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
-    if (inputType.getRank() != 0 && outputType.getRank() != 0) {
-      return rewriter.notifyMatchFailure(op, "requires scalar input or output");
-    }
+  return inputType.hasStaticShape() && outputType.hasStaticShape() &&
+         ttmlir::utils::volume<int64_t>(inputType.getShape()) == 1 &&
+         ttmlir::utils::volume<int64_t>(outputType.getShape()) == 1;
+}
 
-    if (!inputType.hasStaticShape() || !outputType.hasStaticShape() ||
-        ttmlir::utils::volume<int64_t>(inputType.getShape()) != 1 ||
-        ttmlir::utils::volume<int64_t>(outputType.getShape()) != 1) {
-      return rewriter.notifyMatchFailure(op, "requires static unit volume");
-    }
+static LogicalResult rewriteScalarReshape(ttir::ReshapeOp op,
+                                          ttir::ReshapeOp::Adaptor adaptor,
+                                          ConversionPatternRewriter &rewriter) {
+  auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+  auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+  if (!isScalarUnitVolumeReshape(inputType, outputType)) {
+    return rewriter.notifyMatchFailure(
+        op, "requires scalar input or output with static unit volume");
+  }
 
-    Location loc = op.getLoc();
-    SmallVector<Value> inputIndices;
-    inputIndices.reserve(inputType.getRank());
-    for (int64_t i = 0; i < inputType.getRank(); ++i) {
-      inputIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
-    }
-    Value scalar = rewriter.create<tensor::ExtractOp>(loc, adaptor.getInput(),
-                                                      inputIndices);
+  Location loc = op.getLoc();
+  SmallVector<Value> inputIndices;
+  inputIndices.reserve(inputType.getRank());
+  for (int64_t i = 0; i < inputType.getRank(); ++i) {
+    inputIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+  }
+  Value scalar =
+      rewriter.create<tensor::ExtractOp>(loc, adaptor.getInput(), inputIndices);
 
-    if (outputType.getRank() == 0) {
-      rewriter.replaceOpWithNewOp<tensor::FromElementsOp>(op, outputType,
-                                                          scalar);
-      return success();
-    }
-
-    auto empty =
-        rewriter.create<tensor::EmptyOp>(loc, outputType, ValueRange{});
-    SmallVector<Value> outputIndices;
-    outputIndices.reserve(outputType.getRank());
-    for (int64_t i = 0; i < outputType.getRank(); ++i) {
-      outputIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
-    }
-    rewriter.replaceOpWithNewOp<tensor::InsertOp>(op, scalar, empty,
-                                                  outputIndices);
+  if (outputType.getRank() == 0) {
+    rewriter.replaceOpWithNewOp<tensor::FromElementsOp>(op, outputType, scalar);
     return success();
   }
-};
+
+  auto empty = rewriter.create<tensor::EmptyOp>(loc, outputType, ValueRange{});
+  SmallVector<Value> outputIndices;
+  outputIndices.reserve(outputType.getRank());
+  for (int64_t i = 0; i < outputType.getRank(); ++i) {
+    outputIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+  }
+  rewriter.replaceOpWithNewOp<tensor::InsertOp>(op, scalar, empty,
+                                                outputIndices);
+  return success();
+}
 
 template <typename TensorManipulationOp,
           TensorManipulationInfo (*LogicalInfoFn)(TensorManipulationOp)>
@@ -4078,6 +4074,28 @@ static TensorManipulationInfo reshapeLogicalInfo(ttir::ReshapeOp op) {
   AffineMap map = AffineMap::get(outputLogicalRank, 0, reshapeExprs, ctx);
   return {map, canBeTilized};
 }
+
+class D2MReshapeOpRewriter
+    : public D2MTensorManipulationOpRewriter<ttir::ReshapeOp,
+                                             reshapeLogicalInfo> {
+  using Base =
+      D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalInfo>;
+
+public:
+  using Base::Base;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReshapeOp op, ttir::ReshapeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    if (isScalarUnitVolumeReshape(inputType, outputType)) {
+      return rewriteScalarReshape(op, adaptor, rewriter);
+    }
+
+    return Base::matchAndRewrite(op, adaptor, rewriter);
+  }
+};
 
 // Compute logical map for ConcatenateHeadsOp:
 // Input: [batch, num_heads, seq_len, head_dim]
@@ -4367,7 +4385,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Tensor manipulation/View ops.
     D2MConcatRewriter,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,        rearrangeLogicalInfo>,
-    D2MTensorManipulationOpRewriter<ttir::ReshapeOp,          reshapeLogicalInfo>,
+    D2MReshapeOpRewriter,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp,      sliceLogicalInfo>,
     D2MTensorManipulationOpRewriter<ttir::ConcatenateHeadsOp, concatenateHeadsLogicalInfo>,
     // Permute (handles transpose ops, since they're canonicalized into permutes).
@@ -4384,8 +4402,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // High-priority rewrites that introduce helper TTIR/tensor ops before
   // generic tensor-manipulation conversion.
-  patterns.add<D2MScalarReshapeOpRewriter,
-               D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
+  patterns.add<D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
 
   // Decompose inner-dim min reductions to neg(max(neg)); runs during
   // TTIRToD2M instead of as a separate pre-pass.
