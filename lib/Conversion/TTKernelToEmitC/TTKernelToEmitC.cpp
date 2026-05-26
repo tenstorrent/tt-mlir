@@ -1543,6 +1543,42 @@ public:
     return success();
   }
 };
+
+// Arith MaxSIOp / MinSIOp don't have an emitc lowering. Lower to
+// std::max<int32_t> / std::min<int32_t>, mirroring the unsigned versions.
+class ArithMaxSIRewriter : public OpConversionPattern<arith::MaxSIOp> {
+public:
+  using OpConversionPattern<arith::MaxSIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MaxSIOp op, arith::MaxSIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::max<int32_t>", adaptor.getOperands());
+    return success();
+  }
+};
+
+class ArithMinSIRewriter : public OpConversionPattern<arith::MinSIOp> {
+public:
+  using OpConversionPattern<arith::MinSIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MinSIOp op, arith::MinSIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::min<int32_t>", adaptor.getOperands());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1934,9 +1970,10 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
-                 ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
-                                                         funcOp.getContext());
+    patterns
+        .add<ArithFloorDivRewriter, ArithBitcastRewriter, ArithMaxUIRewriter,
+             ArithMinUIRewriter, ArithMaxSIRewriter, ArithMinSIRewriter>(
+            typeConverter, funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }
