@@ -1060,8 +1060,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getDevice(), "mesh_device"),
-        emitter.emit<::ttnn::CoreRangeSet>(srcOp.getCoreRangeSet(),
-                                           "core_range_set"),
+        emitter.emit<::ttnn::CoreRangeSet>(srcOp.getCoreRangeSet(), "cores"),
         emitter.emit(srcOp.getInitialValue(), "initial_value"),
     };
 
