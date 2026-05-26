@@ -251,9 +251,11 @@ def TTIRDecomposeComposites: Pass<"ttir-decompose-composites", "::mlir::ModuleOp
     ops that the D2M/TTMetal backend can lower individually:
 
     - `ttir.rms_norm` -> multiply, mean, add, rsqrt, reshape (weight/bias)
+    - `ttir.layer_norm` -> mean, subtract, multiply, add, rsqrt, reshape (weight/bias)
     - `ttir.scaled_dot_product_attention` -> permute, matmul, full, multiply,
       add, softmax, reshape (with GQA head expansion when needed)
     - `ttir.softmax` -> max, subtract, exp, sum, div
+    - `ttir.repeat` -> nested concat ops (using hierarchical binary decomposition)
 
     Used by the TTMetal pipeline before `ttir-rank-normalization` so the
     expanded ops participate in rank normalization like other TTIR ops.
