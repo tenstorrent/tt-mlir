@@ -491,8 +491,8 @@ def TTNNActivationDtypeLowering: Pass<"ttnn-activation-dtype-lowering", "::mlir:
     to match) so that the tt-metal matmul packer emits the lower precision
     directly — no explicit ttnn.typecast is required at the producer side.
 
-    The pass implements three strict per-pattern matchers, each modeled after
-    a Llama-70B sub-graph:
+    The pass implements four strict per-pattern matchers, each modeled after a
+    Llama-70B sub-graph:
       1. QKV matmul -> reduce_scatter -> all_gather -> slice -> rotary_embedding
          or update_cache/fill_cache. A ttnn.typecast back to bf16 is inserted
          before each consumer that requires bf16 (RoPE, KV-cache write).
@@ -502,6 +502,10 @@ def TTNNActivationDtypeLowering: Pass<"ttnn-activation-dtype-lowering", "::mlir:
       3. MLP FF1/FF2/FF3 matmuls -> reduce_scatter -> all_gather, then silu /
          multiply intermediates remain bfp8, with the final residual add
          restoring bf16 via its `dtype` attribute.
+      4. LM-head matmul -> all_gather -> sum -> all_gather -> argmax. A
+         ttnn.to_layout(RowMajor, bf16) is inserted before argmax; this
+         lowers to a single tt-metal untilize kernel that does the
+         bfp8 -> bf16 upcast inline as part of de-tiling.
 
     A matmul only matches a pattern when the entire downstream chain shape
     matches the template, so the pass under-triggers by design.

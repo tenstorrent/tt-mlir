@@ -764,13 +764,40 @@ void applyOutputLayoutChange(
     return;
   }
 
-  // Step 1: Update operation's result type to what backend actually produced
+  // Step 1: Update operation's result type to what backend actually produced.
   auto oldResultType = mlir::dyn_cast<RankedTensorType>(
       operation->getResult(resultIndex).getType());
   assert(oldResultType && "Operation result type must be RankedTensorType");
+
+  // View-op invariant: slice_static / reshape / to_memory_config require the
+  // result element type to match the operand's. If the backend reports an
+  // actual output layout whose element type differs from the operand's, we
+  // cannot blindly stamp it onto the result — that would produce a
+  // verifier-failing slice with mismatched in/out element types. Skip the
+  // result-type update in that case (the revert ToLayoutOp inserted below
+  // still handles the layout mismatch for downstream consumers).
+  // Only `ttnn.slice_static`'s verifier enforces in/out element type
+  // equality; reshape and to_memory_config permit dtype changes (and rely
+  // on them to absorb downstream conversions like ui32→si32).
+  bool isViewLikeOp = mlir::isa<ttnn::SliceStaticOp>(operation);
+  Type backendElementType =
+      result.actualOutputLayouts[resultIndex].getScalarElementType();
+  if (isViewLikeOp && operation->getNumOperands() > 0) {
+    auto operandTensorType = mlir::dyn_cast<RankedTensorType>(
+        operation->getOperand(0).getType());
+    if (operandTensorType &&
+        operandTensorType.getElementType() != backendElementType) {
+      // Don't mutate the view op's result; let the revert to_layout handle
+      // the consumer side.
+      applyOutputLayoutRevert(operation, resultIndex,
+                              result.actualOutputLayouts[resultIndex],
+                              config.outputLayout);
+      return;
+    }
+  }
+
   auto newResultType = RankedTensorType::get(
-      oldResultType.getShape(),
-      result.actualOutputLayouts[resultIndex].getScalarElementType(),
+      oldResultType.getShape(), backendElementType,
       result.actualOutputLayouts[resultIndex]);
   operation->getResult(resultIndex).setType(newResultType);
 

@@ -5,11 +5,14 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/PatternMatch.h"
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -77,6 +80,29 @@ static bool rewriteResultDtype(Operation *op, ttcore::DataType targetDtype) {
 static void setOpDtype(Operation *op, ttcore::DataType dtype) {
   op->setAttr("dtype", ttcore::DataTypeAttr::get(op->getContext(), dtype));
   rewriteResultDtype(op, dtype);
+}
+
+// Insert a ttnn.to_layout(RowMajor, bf16) on `useOp`'s `operandIdx`. The
+// producer's result is expected to be (Tile, bfp_bf8); the to_layout op
+// implicitly upcasts to bf16 as part of de-tiling, which is the "untilize"
+// fast-path on hardware (see tt-metal's
+// `untilize_device_operation.cpp:268`, where BFLOAT8_B input always produces
+// BFLOAT16 output). The combined to_layout is preserved through
+// TTNNDecomposeLayouts via the bfp_bf8 -> bf16 special-case, lowering to a
+// single tt-metal untilize kernel. Mirrors the tt-metal llama3_70b_galaxy
+// lm_head -> untilize -> argmax chain.
+static void insertToLayoutRowMajorBF16(IRRewriter &rewriter, Operation *useOp,
+                                       unsigned operandIdx) {
+  Value operand = useOp->getOperand(operandIdx);
+  auto operandTV = mlir::cast<mlir::TypedValue<RankedTensorType>>(operand);
+  TTNNLayoutAttr inputLayoutAttr =
+      ttnn::utils::getLayoutAttrFromTensor(operandTV.getType());
+  rewriter.setInsertionPoint(useOp);
+  auto toLayout = ttnn::utils::createToLayoutOp(
+      useOp, operandTV, rewriter, Layout::RowMajor,
+      inputLayoutAttr.getBufferType(), inputLayoutAttr.getMemLayout(),
+      ttcore::DataType::BFloat16, "_to_layout_pre_argmax");
+  useOp->setOperand(operandIdx, toLayout.getResult());
 }
 
 // Insert a ttnn.typecast on `useOp`'s `operandIdx` so that the value
@@ -311,6 +337,60 @@ static bool tryMLPUpGateMatcher(MatmulOp matmul) {
   return true;
 }
 
+// Pattern D — LM-head matmul -> [view / CCL / sum]* -> argmax.
+//
+// Action: set matmul.dtype = bfp_bf8, propagate bfp_bf8 through every
+// flow-through op (slice, reshape, sum, CCL), then insert a single
+// ttnn.to_layout(RowMajor, bf16) at the argmax operand. That to_layout lowers
+// (via TTNNDecomposeLayouts' bfp_bf8 -> bf16 fast-path + tt-metal's
+// to_layout_op assert relax) to a single tt-metal `untilize` kernel that
+// does the bfp8 -> bf16 upcast inline as part of de-tiling, avoiding the
+// separate device typecast pass that would otherwise erase the CCL savings.
+//
+// The view-op invariant guard in MemoryLayoutPropagation /
+// OperationValidationAndFallback (narrowed to SliceStaticOp) keeps
+// intermediate slices consistent; the return-cast logic in
+// updateFunctionReturnTypes keeps the function signature stable for integer
+// mismatches like the argmax ui32 -> si32 case.
+static bool tryLMHeadArgmaxMatcher(MatmulOp matmul, OpBuilder &builder) {
+  auto isFlow = [](Operation *op) {
+    return isViewLikeOp(op) || isCCLOp(op) || mlir::isa<SumOp>(op);
+  };
+
+  llvm::SmallVector<Operation *> flowThroughOps;
+  llvm::SmallVector<std::pair<Operation *, unsigned>> exits;
+  collectChain(matmul.getResult(), isFlow, flowThroughOps, exits);
+
+  if (exits.empty()) {
+    return false;
+  }
+  if (!llvm::any_of(flowThroughOps, isCCLOp)) {
+    return false;
+  }
+
+  for (auto [exitOp, _] : exits) {
+    if (!mlir::isa<ArgMaxOp>(exitOp)) {
+      return false;
+    }
+  }
+
+  auto matmulDtype = getResultDtype(matmul.getResult());
+  if (!matmulDtype || (*matmulDtype != ttcore::DataType::BFloat16 &&
+                       *matmulDtype != ttcore::DataType::Float32)) {
+    return false;
+  }
+
+  setOpDtype(matmul, ttcore::DataType::BFP_BFloat8);
+  for (Operation *flow : flowThroughOps) {
+    rewriteResultDtype(flow, ttcore::DataType::BFP_BFloat8);
+  }
+  IRRewriter rewriter(builder.getContext());
+  for (auto [exitOp, operandIdx] : exits) {
+    insertToLayoutRowMajorBF16(rewriter, exitOp, operandIdx);
+  }
+  return true;
+}
+
 //===----------------------------------------------------------------------===//
 // Pass driver
 //===----------------------------------------------------------------------===//
@@ -355,6 +435,9 @@ public:
         continue;
       }
       if (tryMLPUpGateMatcher(matmul)) {
+        continue;
+      }
+      if (tryLMHeadArgmaxMatcher(matmul, builder)) {
         continue;
       }
     }
