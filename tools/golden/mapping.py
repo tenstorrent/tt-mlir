@@ -2630,14 +2630,72 @@ def stablehlo_scatter_golden(
                     update_dim_idx += 1
 
             # Apply the update computation
-            # For now, we assume a simple replacement (most common case)
-            # To properly handle the region, we'd need to execute it symbolically
             try:
                 # Try to apply the scatter operation
                 if len(operand_indices) > 0:
-                    # Simplified: just replace values (assumes stablehlo.return %arg1 in region)
-                    input_shard[tuple(operand_indices)] = update_window
-            except:
+                    current_value = input_shard[tuple(operand_indices)]
+                    # Check if the update computation is a simple replacement or an actual computation
+                    # by looking at the region operations
+                    is_simple_replacement = True
+                    applied_op = False
+                    if update_computation_region is not None:
+                        for block in update_computation_region.blocks:
+                            for op in block.operations:
+                                # Check if there's any computation beyond just returning the update value
+                                op_type = type(op).__name__
+                                if hasattr(op, "OPERATION_NAME"):
+                                    op_name = op.OPERATION_NAME
+                                else:
+                                    op_name = op_type
+
+                                # Skip return operations
+                                if "return" in str(op_name).lower():
+                                    continue
+
+                                is_simple_replacement = False
+                                # Try to determine the operation type
+                                if "AddOp" in op_type or "add" in str(op_name).lower():
+                                    input_shard[tuple(operand_indices)] = (
+                                        current_value + update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MulOp" in op_type
+                                    or "mul" in str(op_name).lower()
+                                    or "multiply" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = (
+                                        current_value * update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MaxOp" in op_type or "max" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = torch.maximum(
+                                        current_value, update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MinOp" in op_type or "min" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = torch.minimum(
+                                        current_value, update_window
+                                    )
+                                    applied_op = True
+                                else:
+                                    # Default to replacement if we don't recognize the op
+                                    input_shard[tuple(operand_indices)] = update_window
+                                    applied_op = True
+
+                                if applied_op:
+                                    break
+                            if applied_op:
+                                break
+
+                    if is_simple_replacement and not applied_op:
+                        # Simple replacement (assumes stablehlo.return %arg1 in region)
+                        input_shard[tuple(operand_indices)] = update_window
+            except Exception as e:
                 # If indexing fails, skip this update (bounds checking)
                 pass
 
