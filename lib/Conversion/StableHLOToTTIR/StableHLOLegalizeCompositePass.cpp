@@ -896,12 +896,12 @@ public:
     llvm::StringRef name = srcOp.getName();
     if (adaptor.getOperands().size() != 2) {
       return rewriter.notifyMatchFailure(
-          srcOp, name + " must have exactly 2 operands");
+          srcOp, llvm::Twine(name) + " must have exactly 2 operands");
     }
 
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, name + " must have exactly one result");
+          srcOp, llvm::Twine(name) + " must have exactly one result");
     }
 
     auto outputType =
@@ -963,11 +963,11 @@ public:
     llvm::StringRef targetName = adaptor.getCallTargetNameAttr().getValue();
     if (adaptor.getOperands().size() != 2) {
       return rewriter.notifyMatchFailure(
-          srcOp, targetName + " must have exactly 2 operands");
+          srcOp, llvm::Twine(targetName) + " must have exactly 2 operands");
     }
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, targetName + " must have exactly one result");
+          srcOp, llvm::Twine(targetName) + " must have exactly one result");
     }
 
     auto outputType =
@@ -982,7 +982,7 @@ public:
     auto dimIntAttr = compositeAttrs.getAs<IntegerAttr>("dim");
     if (!dimIntAttr) {
       return rewriter.notifyMatchFailure(
-          srcOp, targetName + " requires integer 'dim' attribute");
+          srcOp, llvm::Twine(targetName) + " requires integer 'dim' attribute");
     }
     auto dimAttr =
         rewriter.getI32IntegerAttr(static_cast<int32_t>(dimIntAttr.getInt()));
