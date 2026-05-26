@@ -439,6 +439,8 @@ static Value rewriteSingleUseCompositeInputProducer(
     const EffectiveTargetGridRange &effectiveTargetGridRange,
     OpBuilder &builder) {
   auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
+  // Only rewrite single-use producers. Shared to_layout results may feed users
+  // that still require the original layout, so multi-use inputs need a view.
   if (!toLayoutOp || !input.hasOneUse()) {
     return {};
   }

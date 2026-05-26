@@ -44,14 +44,6 @@ static int64_t findLargestCommonFactor(int64_t maxFactor,
   return 1;
 }
 
-static int64_t getVolume(ArrayRef<int64_t> shape) {
-  int64_t volume = 1;
-  for (int64_t dim : shape) {
-    volume *= dim;
-  }
-  return volume;
-}
-
 // Locate the collapsed interval that owns a given logical-shape dim. Exactly
 // one interval covers it for a valid layout; returns -1 otherwise.
 static int64_t findIntervalIdxForDim(ttcore::MetalLayoutAttr layout,
@@ -86,7 +78,8 @@ static int64_t computeScalarConcatGridDim(int64_t compositeConcatGridDim,
       continue;
     }
     trial[concatIntervalIdx] = v;
-    if (!utils::findLegalPhysicalGridForVolume(getVolume(trial), targetGrid)
+    if (!utils::findLegalPhysicalGridForVolume(ttmlir::utils::volume(trial),
+                                               targetGrid)
              .empty()) {
       return v;
     }
