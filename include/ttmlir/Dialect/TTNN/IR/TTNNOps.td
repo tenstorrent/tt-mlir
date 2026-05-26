@@ -53,6 +53,7 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {

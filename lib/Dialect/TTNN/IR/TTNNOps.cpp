@@ -2002,6 +2002,61 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 }
 
 //===----------------------------------------------------------------------===//
+// ToMemoryConfigOp canonicalization
+//===----------------------------------------------------------------------===//
+
+void mlir::tt::ttnn::ToMemoryConfigOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Fold chained to_memory_config ops:
+  //   %1 = to_memory_config(%0): A -> B
+  //   %2 = to_memory_config(%1): B -> C
+  //     deallocate(%1)          (optional, tolerated)
+  // =>
+  //   %2 = to_memory_config(%0): A -> C
+  //
+  // The intermediate tensor B is often a transient resharding step that
+  // immediately feeds into a second conversion — e.g. DRAM interleaved ->
+  // L1 block_sharded -> L1 interleaved, where the block_sharded hop is
+  // unnecessary because DRAM interleaved -> L1 interleaved is a supported
+  // to_memory_config path in tt-metal.
+  patterns.add(+[](mlir::tt::ttnn::ToMemoryConfigOp outerOp,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    auto innerOp =
+        outerOp.getInput().getDefiningOp<mlir::tt::ttnn::ToMemoryConfigOp>();
+    if (!innerOp) {
+      return failure();
+    }
+
+    // Accept intermediate users that are: this outerOp, or DeallocateOps.
+    // Any other user means the intermediate has real downstream consumers and
+    // cannot be folded away.
+    llvm::SmallVector<Operation *> deallocsToErase;
+    for (Operation *user : innerOp.getResult().getUsers()) {
+      if (user == outerOp.getOperation()) {
+        continue;
+      }
+      if (isa<mlir::tt::ttnn::DeallocateOp>(user)) {
+        deallocsToErase.push_back(user);
+        continue;
+      }
+      return failure();
+    }
+
+    // Replace outerOp with a direct conversion from innerOp's input.
+    rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ToMemoryConfigOp>(
+        outerOp, outerOp.getType(), innerOp.getInput());
+
+    // Erase deallocates of the now-dead intermediate, then the inner op.
+    for (Operation *dealloc : deallocsToErase) {
+      rewriter.eraseOp(dealloc);
+    }
+    rewriter.eraseOp(innerOp);
+
+    return success();
+  });
+}
+
+//===----------------------------------------------------------------------===//
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
