@@ -390,8 +390,7 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
 }
 
 mlir::RankedTensorType
-tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
-                      ArrayRef<int64_t> targetGrid, bool ttnnMode,
+tensorWithOptimalGrid(mlir::RankedTensorType oldTensor, bool ttnnMode,
                       ArrayRef<int64_t> optimalGrid,
                       ArrayRef<int64_t> paddingTileShape) {
   auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());

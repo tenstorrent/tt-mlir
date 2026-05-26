@@ -364,7 +364,7 @@ computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
       getEffectiveCompositePaddingTileShape(isTiled, paddingTileShape,
                                             scalarPaddingStorage);
   RankedTensorType materializedOutType = utils::tensorWithOptimalGrid(
-      outType, targetGrid, ttnnMode, selectedGrid, effectivePaddingShape);
+      outType, ttnnMode, selectedGrid, effectivePaddingShape);
 
   llvm::SmallVector<CompositeInputGridInfo> inputInfos;
   inputInfos.reserve(compositeView.getInputs().size());
