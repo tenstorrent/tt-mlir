@@ -7927,7 +7927,7 @@ public:
 
     // Step 2: all-gather the tiny topk results across devices.
     // Vocab is sharded on cluster_axis=0 (the "batch" mesh axis).
-    int64_t totalCandidates = (int64_t)numShards * k;
+    int64_t totalCandidates = static_cast<int64_t>(numShards) * k;
     auto gatheredValType =
         RankedTensorType::get({batch, totalCandidates}, elemType);
     auto gatheredIndType =
@@ -7935,9 +7935,9 @@ public:
 
     // all_gather_dim=1 (vocab/last dim), cluster_axis=0 ("batch" mesh axis).
     auto gatheredVals = rewriter.create<ttir::AllGatherOp>(
-        loc, gatheredValType, localVals, (int32_t)1, (uint32_t)0);
+        loc, gatheredValType, localVals, static_cast<int32_t>(1), static_cast<uint32_t>(0));
     auto gatheredInds = rewriter.create<ttir::AllGatherOp>(
-        loc, gatheredIndType, localInds, (int32_t)1, (uint32_t)0);
+        loc, gatheredIndType, localInds, static_cast<int32_t>(1), static_cast<uint32_t>(0));
 
     // Step 3: fix up indices — after all-gather, each device's k indices are
     // local (0..vocabPerShard-1). Add compile-time offset so that device i's
