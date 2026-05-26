@@ -258,6 +258,13 @@ def test_sdpa_decode_decomposition_causal_no_mask(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            # Use a non-terminal cur_pos so the synthesized causal mask in the
+            # decomposition actually masks future positions. cur_pos = kv_seq-1
+            # would make the mask all-zeros and hide bugs in cur_pos handling.
+            # NOTE: set_goldens must precede the SDPA call so the golden uses
+            # the override (the SDPA's golden is computed at builder time).
+            cur_pos_data = torch.full((batch,), kv_seq // 2, dtype=torch.int32)
+            builder.set_goldens({cur_pos_tensor: cur_pos_data})
             result = builder.scaled_dot_product_attention_decode(
                 query,
                 key,
@@ -267,8 +274,6 @@ def test_sdpa_decode_decomposition_causal_no_mask(
                 scale=scale,
                 unit_attrs=unit_attrs,
             )
-            cur_pos_data = torch.full((batch,), kv_seq - 1, dtype=torch.int32)
-            builder.set_goldens({cur_pos_tensor: cur_pos_data})
             return result
 
     mlir_path = compile_decomposed(module, target, request)
@@ -278,11 +283,6 @@ def test_sdpa_decode_decomposition_causal_no_mask(
 # ---------------------------------------------------------------------------
 # Attention sink and sliding window (prefill only)
 # ---------------------------------------------------------------------------
-#
-# Decode + attention_sink is NOT covered here yet: the decode op accepts sink
-# as [Hq, 32] but the decode->prefill decomposition forwards it to the prefill
-# op which expects [1, Hq, 1, 1]. A shape conversion in the decomposition is
-# needed before this path can be tested via the builder.
 
 
 @pytest.mark.parametrize(

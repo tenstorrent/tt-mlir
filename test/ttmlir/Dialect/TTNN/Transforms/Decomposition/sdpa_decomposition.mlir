@@ -67,7 +67,7 @@ module {
     %key: tensor<1x8x64x64xbf16>,
     %value: tensor<1x8x64x64xbf16>,
     %mask: tensor<1x1x64x64xbf16>,
-    %sink: tensor<1x8x64x1xbf16>
+    %sink: tensor<1x8x1x1xbf16>
   ) -> tensor<1x8x64x64xbf16> {
     // CHECK-LABEL: func.func @sdpa_with_attention_sink
     // CHECK: "ttnn.transpose"
@@ -84,7 +84,7 @@ module {
       scale = 0.125 : f32
     }> : (tensor<1x8x64x64xbf16>, tensor<1x8x64x64xbf16>,
          tensor<1x8x64x64xbf16>, tensor<1x1x64x64xbf16>,
-         tensor<1x8x64x1xbf16>)
+         tensor<1x8x1x1xbf16>)
       -> tensor<1x8x64x64xbf16>
     return %result : tensor<1x8x64x64xbf16>
   }
