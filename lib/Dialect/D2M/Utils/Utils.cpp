@@ -15,6 +15,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineExpr.h"
 
 #include <cassert>
@@ -245,6 +246,61 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
 
   TT_assert(indices.size() == indexingMap.getNumResults());
   return indices;
+}
+
+GenericOp materializeToHostInputView(RewriterBase &rewriter, ViewLayoutOp view,
+                                     ToHostOp toHostOp) {
+  TT_assert(view.getResult() == toHostOp.getInput());
+  TT_assert(!view.getRemapping().isIdentity());
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(toHostOp);
+  Location loc = toHostOp.getLoc();
+  Value source = toHostOp.getInput();
+  auto sourceType = mlir::cast<MemRefType>(source.getType());
+  Value materialized =
+      rewriter.create<memref::AllocOp>(loc, sourceType).getResult();
+
+  SmallVector<int64_t> gridShape =
+      llvm::to_vector(ttcore::getGridShape(materialized));
+  auto gridAttr = rewriter.getAttr<ttcore::GridAttr>(gridShape);
+  ArrayAttr emptyArray = rewriter.getArrayAttr({});
+  ArrayAttr threads =
+      rewriter.getArrayAttr(rewriter.getAttr<ThreadAttr>(ThreadType::Unified));
+
+  auto genericOp = rewriter.create<GenericOp>(
+      loc, TypeRange{}, ValueRange{source}, ValueRange{materialized},
+      ValueRange{}, gridAttr, emptyArray, emptyArray, emptyArray, threads,
+      /*fabricConnectionConfig=*/nullptr, /*regionsCount=*/1);
+
+  Region &region = genericOp.getRegion(0);
+  rewriter.createBlock(&region);
+  rewriter.setInsertionPointToStart(&region.front());
+
+  SmallVector<int64_t> shardShape =
+      llvm::to_vector(ttcore::getShardShape(materialized));
+  auto localType =
+      MemRefType::get(shardShape, sourceType.getElementType(),
+                      MemRefLayoutAttrInterface{}, sourceType.getMemorySpace());
+  Value localBuffer =
+      rewriter.create<memref::AllocOp>(loc, localType).getResult();
+
+  SmallVector<Value> remoteIndices;
+  remoteIndices.reserve(gridShape.size());
+  for (size_t dim = 0; dim < gridShape.size(); ++dim) {
+    remoteIndices.push_back(
+        rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(dim)));
+  }
+
+  rewriter.create<RemoteLoadOp>(loc, localBuffer, source, remoteIndices);
+  rewriter.create<RemoteStoreOp>(
+      loc, /*resultTypes=*/TypeRange{}, materialized, remoteIndices,
+      localBuffer, /*cb=*/Value{}, /*startDevice=*/ValueRange{},
+      /*deviceMcastShape=*/ValueRange{}, /*semaphore=*/Value{},
+      /*semaphoreIndices=*/ValueRange{});
+
+  toHostOp.getInputMutable().assign(materialized);
+  return genericOp;
 }
 
 static llvm::SmallVector<int64_t>

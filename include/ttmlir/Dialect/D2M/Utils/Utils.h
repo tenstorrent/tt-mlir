@@ -11,6 +11,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
 
 #include <utility>
 #include <variant>
@@ -18,6 +19,12 @@
 namespace mlir::tt::ttcore {
 class DeviceAttr;
 } // namespace mlir::tt::ttcore
+
+namespace mlir::tt::d2m {
+class GenericOp;
+class ToHostOp;
+class ViewLayoutOp;
+} // namespace mlir::tt::d2m
 
 namespace mlir::tt::d2m::utils {
 
@@ -77,6 +84,12 @@ SmallVector<int64_t> deriveBlockFactorsFromOperandGrids(
 // expressions including binary operations (add, mul, floordiv, ceildiv, mod).
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                     AffineMap indexingMap);
+
+// Materialize a non-identity device view before a device-to-host transfer. The
+// returned generic copies through the view into a fresh device allocation and
+// rewrites `toHostOp` to read from that allocation.
+GenericOp materializeToHostInputView(RewriterBase &rewriter, ViewLayoutOp view,
+                                     ToHostOp toHostOp);
 
 // Gets the underlying physical grid shape corresponding to the tensor or
 // memref. For views/streams, this 'physical' grid corresponds to the compute

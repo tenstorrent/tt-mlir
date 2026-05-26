@@ -1282,6 +1282,17 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
     return nullptr;
   }
 
+  // Shape-only reblock composition cannot represent a non-identity round trip
+  // through an intermediate view when the outer types match. Do not fold.
+  if (consecutiveView.getInput().getType() == getType()) {
+    mlir::AffineMap composed =
+        getRemapping().compose(consecutiveView.getRemapping());
+    composed = mlir::simplifyAffineMap(composed);
+    if (!composed.isIdentity()) {
+      return nullptr;
+    }
+  }
+
   // Replace the input through the consecutive view.
   setOperand(consecutiveView.getInput());
 

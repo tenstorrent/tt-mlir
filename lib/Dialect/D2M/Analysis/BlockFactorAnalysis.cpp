@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
 
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -26,7 +27,11 @@ namespace {
 
 // Shape classes used by the allocator's Automatic reblocking policy, as
 // distinct from the explicit MIN and MAX policies.
-enum class AutoShapeClass { SingleReduction, AllParallelEltwise };
+enum class AutoShapeClass {
+  SingleReduction,
+  AllParallelEltwise,
+  AllParallelLayoutConversion
+};
 
 struct AutoSearchConfig {
   AutoShapeClass shapeClass;
@@ -114,6 +119,35 @@ static SmallVector<std::size_t> getSingleReductionCandidateDims(
   return candidateDims;
 }
 
+static bool hasTileElementType(Value operand) {
+  auto shapedTy = mlir::cast<ShapedType>(operand.getType());
+  return mlir::isa<ttcore::TileType>(shapedTy.getElementType());
+}
+
+static bool isScalarTileLayoutConversion(GenericOp genericOp) {
+  if (genericOp.getInputs().size() != 1 || genericOp.getOutputs().size() != 1) {
+    return false;
+  }
+
+  const bool inputTiled = hasTileElementType(genericOp.getInputs().front());
+  const bool outputTiled = hasTileElementType(genericOp.getOutputs().front());
+  if (inputTiled == outputTiled) {
+    return false;
+  }
+
+  bool hasExpectedRegionOp = false;
+  genericOp->walk([&](Operation *op) {
+    if ((inputTiled && mlir::isa<TileUntilizeBlockOp>(op)) ||
+        (!inputTiled && mlir::isa<TileTilizeBlockOp>(op))) {
+      hasExpectedRegionOp = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
+  return hasExpectedRegionOp;
+}
+
 /// Classify a generic op's iteration shape for auto-policy search.
 /// @return the search config or nullopt if auto-blocking is not applicable.
 static std::optional<AutoSearchConfig>
@@ -125,36 +159,40 @@ classifyAutoSearch(GenericOp genericOp,
     return std::nullopt;
   }
 
-  // Reject generics with mixed element type kinds (e.g. tilize/untilize which
-  // have one scalar operand and one tile operand).  These are layout-conversion
-  // ops, not true eltwise compute.
-  {
-    bool hasTile = false, hasNonTile = false;
-    for (Value operand : genericOp.getInputsAndOutputs()) {
-      auto shapedTy = mlir::cast<ShapedType>(operand.getType());
-      if (mlir::isa<ttcore::TileType>(shapedTy.getElementType())) {
-        hasTile = true;
-      } else {
-        hasNonTile = true;
-      }
-    }
-    if (hasTile && hasNonTile) {
-      return std::nullopt;
+  bool hasTile = false;
+  bool hasNonTile = false;
+  for (Value operand : genericOp.getInputsAndOutputs()) {
+    if (hasTileElementType(operand)) {
+      hasTile = true;
+    } else {
+      hasNonTile = true;
     }
   }
+  const bool hasMixedElementTypeKinds = hasTile && hasNonTile;
 
   SmallVector<std::size_t> reductionDims = getReductionDims(iteratorTypes);
   if (reductionDims.empty()) {
+    AutoShapeClass shapeClass = AutoShapeClass::AllParallelEltwise;
+    if (hasMixedElementTypeKinds) {
+      if (!isScalarTileLayoutConversion(genericOp)) {
+        return std::nullopt;
+      }
+      shapeClass = AutoShapeClass::AllParallelLayoutConversion;
+    }
+
     SmallVector<std::size_t> candidateDims =
         getAllParallelCandidateDims(genericOp, shardFactors);
     if (candidateDims.empty()) {
       return std::nullopt;
     }
-    return AutoSearchConfig{AutoShapeClass::AllParallelEltwise,
-                            std::move(candidateDims)};
+    return AutoSearchConfig{shapeClass, std::move(candidateDims)};
   }
 
   if (reductionDims.size() != 1) {
+    return std::nullopt;
+  }
+
+  if (hasMixedElementTypeKinds) {
     return std::nullopt;
   }
 
@@ -217,6 +255,11 @@ static SmallVector<int64_t> buildEltwiseScaleSearchOrder(int64_t shardFactor) {
   return limited;
 }
 
+static bool usesAllParallelScaleSearch(AutoShapeClass shapeClass) {
+  return shapeClass == AutoShapeClass::AllParallelEltwise ||
+         shapeClass == AutoShapeClass::AllParallelLayoutConversion;
+}
+
 static bool isBetterPartialCandidate(const PartialCandidate &lhs,
                                      const PartialCandidate &rhs) {
   if (lhs.moderationPenalty != rhs.moderationPenalty) {
@@ -254,6 +297,9 @@ static bool isBetterCandidate(AutoShapeClass shapeClass,
   // controls parallelism gain, so prefer higher blocking volume. CB cost is
   // secondary tiebreaker since eltwise operands tend to have uniform and
   // predictable buffer sizes.
+  //
+  // Layout conversion follows the same ordering: maximize reblocking of
+  // participating movement dims while using CB bytes as a tiebreaker.
 
   // Final tiebreaker: prefer lexicographically larger dim scales.
   case AutoShapeClass::SingleReduction:
@@ -265,6 +311,7 @@ static bool isBetterCandidate(AutoShapeClass shapeClass,
     }
     return isLexicographicallyLarger(lhs.dimScales, rhs.dimScales);
   case AutoShapeClass::AllParallelEltwise:
+  case AutoShapeClass::AllParallelLayoutConversion:
     if (lhs.blockingVolume != rhs.blockingVolume) {
       return lhs.blockingVolume > rhs.blockingVolume;
     }
@@ -443,7 +490,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
   uint64_t boundedSearchSpace = 1;
   for (std::size_t dim : config->candidateDims) {
     SmallVector<int64_t> dimScales =
-        config->shapeClass == AutoShapeClass::AllParallelEltwise
+        usesAllParallelScaleSearch(config->shapeClass)
             ? buildEltwiseScaleSearchOrder(shardFactors[dim])
             : ttmlir::utils::getFactors(shardFactors[dim]);
     boundedSearchSpace *= dimScales.size();
@@ -465,7 +512,7 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
   // Restrict the large eltwise search space to the top kEltwiseBeamWidth
   // candidates unless the caller explicitly requests exhaustive search.
   if (useBoundedEltwiseSearch &&
-      config->shapeClass == AutoShapeClass::AllParallelEltwise &&
+      usesAllParallelScaleSearch(config->shapeClass) &&
       boundedSearchSpace > kEltwiseBeamWidth) {
     SmallVector<PartialCandidate> beam;
     beam.push_back(

@@ -9,6 +9,8 @@
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 #include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
@@ -1153,6 +1155,67 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
+  SequenceT insertSequenceOperationBefore(FuncAnalysisData &analysis,
+                                          Operation *newOp,
+                                          Operation *beforeOp) {
+    SequenceT insertPos = analysis.sequencing[beforeOp];
+
+    analysis.sequencing.positionMap.insert(
+        analysis.sequencing.positionMap.begin() + insertPos, newOp);
+
+    for (auto &entry : analysis.sequencing.operationMap) {
+      if (entry.second >= insertPos) {
+        ++entry.second;
+      }
+    }
+    analysis.sequencing.operationMap[newOp] = insertPos;
+
+    for (auto &[_, memrefCtx] : analysis.memrefs) {
+      if (memrefCtx.live.first >= insertPos) {
+        ++memrefCtx.live.first;
+      }
+      if (memrefCtx.live.last >= insertPos) {
+        ++memrefCtx.live.last;
+      }
+    }
+
+    return insertPos;
+  }
+
+  GenericOpContext
+  createMaterializedToHostCopyContext(FuncAnalysisData &analysis,
+                                      GenericOp copyGeneric, ToHostOp toHostOp,
+                                      SequenceT copySeqPos) {
+    GenericOpContext copyCtx;
+    copyCtx.isExplicitDatamovement = copyGeneric.isExplicitDatamovementForm();
+    createOperandContexts(analysis, copyGeneric, copyCtx,
+                          /*blockFactorAnalysis=*/nullptr);
+
+    SequenceT toHostSeqPos = analysis.sequencing[toHostOp];
+    for (OperandContext &operandCtx : copyCtx.operands) {
+      for (const ChainRoot &chainRoot : operandCtx.chainRoots) {
+        MemrefValueContext &memrefCtx = analysis.memrefs[chainRoot.root];
+        if (memrefCtx.live.first < 0) {
+          memrefCtx.live.first = copySeqPos;
+        }
+        memrefCtx.live.last = std::max(memrefCtx.live.last, toHostSeqPos);
+      }
+    }
+
+    return copyCtx;
+  }
+
+  SmallVector<ToHostOp> getToHostUsers(Value value) {
+    SmallVector<ToHostOp> toHostUsers;
+    for (OpOperand &use : value.getUses()) {
+      auto toHostOp = dyn_cast<ToHostOp>(use.getOwner());
+      if (toHostOp && use.getOperandNumber() == 0) {
+        toHostUsers.push_back(toHostOp);
+      }
+    }
+    return toHostUsers;
+  }
+
   /// Rebuild generic ops using the planned block factors.
   LogicalResult reblockGenerics(func::FuncOp funcOp,
                                 FuncAnalysisData &analysis) {
@@ -1218,6 +1281,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             });
       }
 
+      SmallVector<std::pair<GenericOp, GenericOpContext>, 1> materializedCopies;
+      if (!reblocked->returnView.getRemapping().isIdentity()) {
+        for (ToHostOp toHostOp : getToHostUsers(newOutput)) {
+          GenericOp copyGeneric = d2m::utils::materializeToHostInputView(
+              rewriter, reblocked->returnView, toHostOp);
+          SequenceT copySeqPos = insertSequenceOperationBefore(
+              analysis, copyGeneric.getOperation(), toHostOp.getOperation());
+          GenericOpContext copyCtx = createMaterializedToHostCopyContext(
+              analysis, copyGeneric, toHostOp, copySeqPos);
+          materializedCopies.emplace_back(copyGeneric, std::move(copyCtx));
+        }
+      }
+
       // Recompute operand def-chains against the rebuilt generic operands.
       OperandContextList oldOperandContexts = genericCtx.operands;
       GenericOpContext updatedCtx = std::move(genericCtx);
@@ -1242,6 +1318,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       // Replace the old generic entry in analysis with the rebuilt one.
       updatedGenerics.insert({reblocked->genericOp, std::move(updatedCtx)});
+      for (auto &[copyGeneric, copyCtx] : materializedCopies) {
+        updatedGenerics.insert({copyGeneric, std::move(copyCtx)});
+      }
       rewriter.eraseOp(oldGenericOp);
     }
 
@@ -1324,6 +1403,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   LogicalResult materializeAliasedLoadStore(func::FuncOp funcOp,
                                             FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
+    auto markStreamBufferIfNeeded = [&](Value localBuffer) {
+      auto allocOp = localBuffer.getDefiningOp<memref::AllocOp>();
+      if (!allocOp || allocOp->getAttr("d2m.scratch_buffer") ||
+          allocOp->getAttr("d2m.synchronized_buffer")) {
+        return;
+      }
+      allocOp->setAttr("d2m.synchronized_buffer",
+                       rewriter.getI32IntegerAttr(numStreamBuffers));
+    };
+
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       const auto &genericOpRef = genericOp;
       for (const OperandContext &operandCtx : genericCtx.operands) {
@@ -1377,6 +1466,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           return WalkResult::advance();
         });
       }
+    }
+
+    // Any remaining remote load/store local buffers could not be aliased (for
+    // example, after reblocking introduced operand views), so they are real
+    // stream buffers that must be visible to the allocator.
+    for (const auto &[genericOp, _] : analysis.generics) {
+      genericOp->walk([&](RemoteLoadOp remoteLoadOp) {
+        markStreamBufferIfNeeded(remoteLoadOp.getLocalBuffer());
+      });
+      genericOp->walk([&](RemoteStoreOp remoteStoreOp) {
+        markStreamBufferIfNeeded(remoteStoreOp.getLocalBuffer());
+      });
     }
 
     // Remove in-generic allocs that are not used
