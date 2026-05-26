@@ -273,11 +273,56 @@ static bool accessDependsOnIV(const DstAccess &access, Value iv) {
   return accessDependsOnIV(access.op, access.kind, iv);
 }
 
+static Operation *getLoopOpForIV(Value iv) {
+  auto blockArg = mlir::dyn_cast<BlockArgument>(iv);
+  if (!blockArg) {
+    return nullptr;
+  }
+  return blockArg.getOwner()->getParentOp();
+}
+
+static std::optional<bool> isReductionBlockingLoop(Operation *loopOp) {
+  auto blockingLoopAttr =
+      loopOp->getAttrOfType<IntegerAttr>("d2m.blocking_loop");
+  if (!blockingLoopAttr) {
+    return std::nullopt;
+  }
+
+  if (loopOp->hasAttr("d2m.reduction_loop")) {
+    return true;
+  }
+
+  auto genericOp = loopOp->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return false;
+  }
+
+  int64_t dim = blockingLoopAttr.getInt();
+  auto iteratorTypes = genericOp.getIteratorTypes();
+  if (iteratorTypes.empty() || dim < 0 ||
+      static_cast<size_t>(dim) >= iteratorTypes.size()) {
+    return false;
+  }
+
+  auto iteratorType =
+      mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dim]).getValue();
+  return iteratorType == ttcore::IteratorType::Reduction;
+}
+
 static SmallVector<Value> getGuardLoopIVs(Operation *loadOrStore,
                                           DstAccessKind kind,
                                           Operation *contextOp) {
   SmallVector<Value> guardIVs;
   for (Value loopIV : collectAncestorLoopIVs(contextOp)) {
+    Operation *loopOp = getLoopOpForIV(loopIV);
+
+    if (loopOp) {
+      std::optional<bool> isReduction = isReductionBlockingLoop(loopOp);
+      if (isReduction.has_value() && !*isReduction) {
+        continue;
+      }
+    }
+
     if (!accessDependsOnIV(loadOrStore, kind, loopIV)) {
       guardIVs.push_back(loopIV);
     }
@@ -392,20 +437,24 @@ Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
   // (it reverses the upward walk).
   SmallVector<Value> ancestorIVs = collectAncestorLoopIVs(acquireDstOp);
   for (Value iv : llvm::reverse(ancestorIVs)) {
-    if (anyOutputStoreDependsOnIV(copyInfos, iv)) {
-      // This loop indexes the output -- it is parallel, not a reduction.
-      continue;
-    }
-    // Found the closest reduction loop. Only enable L1-acc if the loop
-    // actually iterates more than once (otherwise the per-iteration
-    // accumulation guard would never fire and we'd just emit dead code).
-    Operation *loopOp = nullptr;
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(iv)) {
-      loopOp = blockArg.getOwner()->getParentOp();
-    }
+    Operation *loopOp = getLoopOpForIV(iv);
     if (!loopOp) {
       continue;
     }
+
+    std::optional<bool> isReduction = isReductionBlockingLoop(loopOp);
+    if (isReduction.has_value() && !*isReduction) {
+      continue;
+    }
+    if (!isReduction.has_value() && anyOutputStoreDependsOnIV(copyInfos, iv)) {
+      // Non-blocking fallback: if this loop indexes the output, it is parallel,
+      // not a reduction.
+      continue;
+    }
+
+    // Found the closest reduction loop. Only enable L1-acc if the loop
+    // actually iterates more than once (otherwise the per-iteration
+    // accumulation guard would never fire and we'd just emit dead code).
     std::optional<int64_t> tripCount = tryGetConstantTripCount(loopOp);
     if (tripCount.has_value() && *tripCount <= 1) {
       continue;
@@ -1464,6 +1513,11 @@ buildIndices(PatternRewriter &rewriter, Location loc,
 
 void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
                             AcquireDstOp acquireDst, Value loopIV) {
+  Operation *loopOp = getLoopOpForIV(loopIV);
+  if (!loopOp) {
+    return;
+  }
+
   rewriter.setInsertionPointAfter(acquireDst);
   Value firstIterationValue = getFirstIterationValue(rewriter, loc, loopIV);
   Value isFirstIteration = rewriter.create<arith::CmpIOp>(
@@ -1475,6 +1529,13 @@ void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,
   Value flag = rewriter.create<arith::SelectOp>(loc, isFirstIteration,
                                                 disableFlag, enableFlag);
   rewriter.create<SetL1AccumulateOp>(loc, flag);
+
+  // Packer L1-acc is sticky. Scope it to the reduction loop so enclosing
+  // parallel M/N reblock iterations start from a clean packer state.
+  rewriter.setInsertionPointAfter(loopOp);
+  Value resetFlag = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(0));
+  rewriter.create<SetL1AccumulateOp>(loc, resetFlag);
 }
 
 // ---------------------------------------------------------------------------
