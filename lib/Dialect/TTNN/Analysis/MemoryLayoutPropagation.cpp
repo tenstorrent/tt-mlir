@@ -984,7 +984,12 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
         !isShardedMemoryLayout(layout.getMemLayout().getValue())) {
       continue;
     }
-    if (ttmlir::utils::volume(layout.getGridShape()) > maxGridVolume) {
+    // The tile-count limit does not apply to row-major reshard targets: RM
+    // shards are not bounded by the output tile count (RM layouts have no
+    // tiles), so HS RM candidates with more cores than the tiled maxGridVolume
+    // are still valid and must not be pruned.
+    if (layout.getLayout() != Layout::RowMajor &&
+        ttmlir::utils::volume(layout.getGridShape()) > maxGridVolume) {
       continue;
     }
     filtered.push_back(layout);

@@ -363,6 +363,9 @@ PadRuleBook::getOutputHints(Operation * /*op*/,
   // nullopt for interleaved tensors. The op model validation doesn't catch
   // this since it only checks sharding constraints when the input is already
   // sharded.
+  // Note: HS RM output from HS RM input would be valid, but reaching that path
+  // requires a tile→RM conversion (validateReshard rejects TILE→RM reshards)
+  // which would need an explicit to_layout before the pad. Left as future work.
   // https://github.com/tenstorrent/tt-metal/issues/40898
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }

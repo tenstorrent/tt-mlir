@@ -70,6 +70,10 @@ struct ReshapeRuleBook : OpRuleBook {
 };
 
 /// PadOp: non-sharded output only, no reshards.
+/// Note: tt-metal pad supports HS RM output when input is HS RM, but the
+/// reshard path is blocked by the tile→RM constraint in validateReshard
+/// (block_sharded TILE → HS RM requires a to_layout step first).
+/// https://github.com/tenstorrent/tt-metal/issues/40898
 struct PadRuleBook : OpRuleBook {
   bool shouldExploreReshards() const override;
   OutputHints
