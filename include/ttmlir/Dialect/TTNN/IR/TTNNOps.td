@@ -4027,7 +4027,7 @@ def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [TTCore_Cr
 
       Example:
       ```mlir
-      %semaphore = "ttnn.create_global_semaphore"(%device) <{initial_value = 0 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : (!ttnn.device) -> !ttnn.global_semaphore
+      %semaphore = "ttnn.create_global_semaphore"(%device) <{core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,7)>]>, initial_value = 0 : ui32}> : (!ttnn.device) -> !ttnn.global_semaphore
       ```
     }];
 
