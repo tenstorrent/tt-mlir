@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpInvoke/TTNN/conv/conv2dOp.h"
+#include "ttmlir/OpInvoke/TTNN/conv/convTranspose2dOp.h"
 #include "ttmlir/OpInvoke/TTNN/eltwise/binary/eltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/eltwise/binary/eltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/eltwise/quantization/eltwiseQuantizationOp.h"
@@ -5707,6 +5708,51 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ConvTranspose2dOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ConvTranspose2dOpT buildConvTranspose2dOpTFromMLIR(
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
+    llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ConvTranspose2dOpT convTranspose2dOpT;
+  convTranspose2dOpT.in_channels = in_channels;
+  convTranspose2dOpT.out_channels = out_channels;
+  convTranspose2dOpT.batch_size = batch_size;
+  convTranspose2dOpT.input_height = input_height;
+  convTranspose2dOpT.input_width = input_width;
+  convTranspose2dOpT.kernel_size =
+      std::vector<int32_t>(kernel_size.begin(), kernel_size.end());
+  convTranspose2dOpT.stride =
+      std::vector<int32_t>(stride.begin(), stride.end());
+  convTranspose2dOpT.padding =
+      std::vector<int32_t>(padding.begin(), padding.end());
+  convTranspose2dOpT.output_padding =
+      std::vector<int32_t>(output_padding.begin(), output_padding.end());
+  convTranspose2dOpT.dilation =
+      std::vector<int32_t>(dilation.begin(), dilation.end());
+  convTranspose2dOpT.groups = groups;
+  convTranspose2dOpT.out = detail::getOutputTensorRefT(outputLayout);
+  convTranspose2dOpT.conv2d_config =
+      (conv2dConfig.has_value() && *conv2dConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
+                toNative(*conv2dConfig))
+          : nullptr;
+  convTranspose2dOpT.compute_config = nullptr;
+  convTranspose2dOpT.conv2d_slice_config =
+      (conv2dSliceConfig.has_value() && *conv2dSliceConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
+                toNative(*conv2dSliceConfig))
+          : nullptr;
+
+  return convTranspose2dOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
@@ -5755,31 +5801,28 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::tt::tt_metal::DataType> outputDtype =
-      detail::getNullableDataType(outputLayout);
-
-  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
-      conversion::getConv2dConfig(conv2dConfig);
-  std::optional<::ttnn::Conv2dSliceConfig> conv2dSliceConfigConverted =
-      conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  ::tt::target::ttnn::ConvTranspose2dOpT convTranspose2dOpT =
+      buildConvTranspose2dOpTFromMLIR(
+          in_channels, out_channels, batch_size, input_height, input_width,
+          kernel_size, stride, padding, output_padding, dilation, groups,
+          conv2dConfig, conv2dSliceConfig, outputLayout);
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::conv_transpose2d, device, inputSpec, weightSpec, device,
-        in_channels, out_channels, batch_size, input_height, input_width,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, outputDtype, biasSpec, conv2dConfigConverted,
-        /* compute_config */ std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        conv2dSliceConfigConverted,
-        /*mirror_kernel=*/true,
-        /*return_output_dim=*/false,
-        /*return_weights_and_bias=*/false);
+    ttnn_op_invoke::ConvTranspose2dOpResult result =
+        ttnn_op_invoke::callConvTranspose2d(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, convTranspose2dOpT,
+            inputSpec, weightSpec,
+            biasSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*biasSpec)
+                : std::nullopt,
+            *device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConvTranspose2dOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5837,31 +5880,28 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::tt::tt_metal::DataType> outputDtype =
-      detail::getNullableDataType(outputLayout);
-
-  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
-      conversion::getConv2dConfig(conv2dConfig);
-  std::optional<::ttnn::Conv2dSliceConfig> conv2dSliceConfigConverted =
-      conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  ::tt::target::ttnn::ConvTranspose2dOpT convTranspose2dOpT =
+      buildConvTranspose2dOpTFromMLIR(
+          in_channels, out_channels, batch_size, input_height, input_width,
+          kernel_size, stride, padding, output_padding, dilation, groups,
+          conv2dConfig, conv2dSliceConfig, outputLayout);
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::conv_transpose2d, device, inputSpec, weightSpec, device,
-        in_channels, out_channels, batch_size, input_height, input_width,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, outputDtype, biasSpec, conv2dConfigConverted,
-        /* compute_config */ std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        conv2dSliceConfigConverted,
-        /*mirror_kernel=*/true,
-        /*return_output_dim=*/false,
-        /*return_weights_and_bias=*/false);
+    ttnn_op_invoke::ConvTranspose2dOpResult result =
+        ttnn_op_invoke::callConvTranspose2d(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, convTranspose2dOpT,
+            inputSpec, weightSpec,
+            biasSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*biasSpec)
+                : std::nullopt,
+            *device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected ConvTranspose2dOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(convTranspose2dOpQuery);

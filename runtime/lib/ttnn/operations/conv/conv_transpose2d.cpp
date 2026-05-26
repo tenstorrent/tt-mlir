@@ -5,15 +5,12 @@
 #include "operations/conv/conv_transpose2d.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/conv/convTranspose2dOp.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
-#include "ttnn/types.hpp"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::conv {
-using ::ttnn::Conv2dResultWithOptions;
+
 void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -27,58 +24,30 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
           ? std::make_optional(tensorPool.getTTNNTensorAndValidate(op->bias()))
           : std::nullopt;
 
-  LOG_ASSERT(op->kernel_size()->size() == 2,
-             "Kernel size expected to have 2 elements");
-  LOG_ASSERT(op->stride()->size() == 2, "Stride expected to have 2 elements");
-  LOG_ASSERT(op->padding()->size() == 2, "Padding expected to have 2 elements");
-  LOG_ASSERT(op->output_padding()->size() == 2,
-             "Output padding expected to have 2 elements");
-  LOG_ASSERT(op->dilation()->size() == 2,
-             "Dilation expected to have 2 elements");
-
-  std::array<uint32_t, 2> kernelSize, stride, padding, outputPadding, dilation;
-  std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
-  std::copy_n(op->stride()->begin(), 2, stride.begin());
-  std::copy_n(op->padding()->begin(), 2, padding.begin());
-  std::copy_n(op->output_padding()->begin(), 2, outputPadding.begin());
-  std::copy_n(op->dilation()->begin(), 2, dilation.begin());
-
-  std::optional<::ttnn::DataType> outputDtype;
-  if (op->output_dtype()) {
-    outputDtype = ttnn_op_invoke::operations::utils::toTTNNDataType(
-        *(op->output_dtype()));
-  }
-
-  auto conv2dConfig = ::ttnn::Conv2dConfig();
-  if (op->conv2d_config()) {
-    conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
-  }
-
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
-
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+  ::tt::target::ttnn::ConvTranspose2dOpT convTranspose2dOpT;
+  op->UnPackTo(&convTranspose2dOpT);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
-  if (op->conv2d_slice_config()) {
-    sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
-  }
-  Conv2dResultWithOptions result = ::ttnn::conv_transpose2d(
-      input, weight, &targetDevice, op->in_channels(), op->out_channels(),
-      op->batch_size(), op->input_height(), op->input_width(), kernelSize,
-      stride, padding, outputPadding, dilation, op->groups(), outputDtype, bias,
-      conv2dConfig, computeConfig, memoryConfig, sliceConfig);
+  ttnn_op_invoke::ConvTranspose2dOpResult result =
+      ttnn_op_invoke::callConvTranspose2d(
+          ttnn_op_invoke::CallType::EXECUTE, convTranspose2dOpT, &input,
+          &weight,
+          bias.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*bias)
+                           : std::nullopt,
+          targetDevice);
 
-  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
+  LOG_ASSERT(
+      std::holds_alternative<::ttnn::ConvTranspose2dResultWithOptions>(result),
+      "Expected ConvTranspose2dResultWithOptions from callConvTranspose2d "
+      "execution");
 
-  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(
+                 std::get<::ttnn::ConvTranspose2dResultWithOptions>(result)),
+             "Expected output Tensor in ConvTranspose2dResultWithOptions");
+
+  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(
+      std::get<::ttnn::ConvTranspose2dResultWithOptions>(result));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
