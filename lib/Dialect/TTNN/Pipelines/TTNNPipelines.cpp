@@ -363,6 +363,15 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
+    // Activation dtype lowering runs after weight dtype conversion so that the
+    // optimizer's view of activation dtypes is final by the time analysis
+    // passes run. Default off; flipped on per-model after hardware validation.
+    if (options.enableActivationDtypeLowering) {
+      TTNNActivationDtypeLoweringOptions actOpts;
+      actOpts.enable = true;
+      devicePm.addPass(createTTNNActivationDtypeLowering(actOpts));
+    }
+
     // KV cache dtype conversion runs before analysis passes so that the
     // optimizer sees the target dtype and can make informed sharding decisions.
     if (options.experimentalKVCacheDtype != BFPDtype::None) {

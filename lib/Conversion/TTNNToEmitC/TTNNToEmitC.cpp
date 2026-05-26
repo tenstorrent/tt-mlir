@@ -683,6 +683,14 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MatmulOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // Prefer the explicit `dtype` attribute (set by the activation-dtype
+    // lowering pass) over the dtype derived from the result tensor's layout.
+    // When unset, fall back to the result-layout-derived dtype so behavior
+    // is preserved for matmul ops without an explicit attribute.
+    mlir::tt::ttcore::DataTypeAttr dtypeAttr =
+        srcOp.getDtypeAttr() ? srcOp.getDtypeAttr()
+                             : emitter.getOutputDtype(srcOp.getResult());
+
     // ANCHOR: adding_an_op_matmul_ttnn_to_emitc_array_attrs
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
@@ -690,7 +698,7 @@ public:
         emitter.emit(srcOp.getTransposeA()),
         emitter.emit(srcOp.getTransposeB()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.emit(emitter.getOutputDtype(srcOp.getResult())),
+        emitter.emit(dtypeAttr),
         /*program_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
         emitter.emit(srcOp.getComputeConfig()),

@@ -481,6 +481,39 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   ];
 }
 
+def TTNNActivationDtypeLowering: Pass<"ttnn-activation-dtype-lowering", "::mlir::ModuleOp"> {
+  let summary = "Lower activation precision to bfp_bf8 around CCL ops.";
+  let description = [{
+    This pass reduces ethernet traffic for collective communication (CCL) ops
+    in large transformer models by lowering activation precision from bf16 to
+    bfp_bf8 across the CCL boundary. Producer matmul ops gain an explicit
+    `dtype = bfp_bf8` attribute (and their result tensor encoding is rewritten
+    to match) so that the tt-metal matmul packer emits the lower precision
+    directly — no explicit ttnn.typecast is required at the producer side.
+
+    The pass implements three strict per-pattern matchers, each modeled after
+    a Llama-70B sub-graph:
+      1. QKV matmul -> reduce_scatter -> all_gather -> slice -> rotary_embedding
+         or update_cache/fill_cache. A ttnn.typecast back to bf16 is inserted
+         before each consumer that requires bf16 (RoPE, KV-cache write).
+      2. O-proj matmul -> reduce_scatter -> all_gather -> add (residual). The
+         residual add's `dtype` is set to bf16 so the output dtype is
+         restored implicitly.
+      3. MLP FF1/FF2/FF3 matmuls -> reduce_scatter -> all_gather, then silu /
+         multiply intermediates remain bfp8, with the final residual add
+         restoring bf16 via its `dtype` attribute.
+
+    A matmul only matches a pattern when the entire downstream chain shape
+    matches the template, so the pass under-triggers by design.
+  }];
+
+  list<Option> options = [
+    Option<"enable", "enable", "bool",
+           /*default=*/"false",
+           "Enable activation dtype lowering. Default off until validated.">,
+  ];
+}
+
 def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert KV cache tensors to a lower precision dtype.";
   let description = [{

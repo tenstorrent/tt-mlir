@@ -168,7 +168,8 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
       matmulOutputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
       srcOp.getTransposeB(), /*matmul_program_config=*/nullptr,
       /*activation=*/nullptr,
-      /*compute_config=*/srcOp.getComputeConfigAttr());
+      /*compute_config=*/srcOp.getComputeConfigAttr(),
+      /*dtype=*/nullptr);
 
   if (auto weightDtype = srcOp->getAttr("ttcore.weight_dtype")) {
     matmulOp->setAttr("ttcore.weight_dtype", weightDtype);

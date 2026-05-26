@@ -410,6 +410,15 @@ struct TTIRToTTNNCommonPipelineOptions
           clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
       llvm::cl::init(BFPDtype::None)};
 
+  Option<bool> enableActivationDtypeLowering{
+      *this, "enable-activation-dtype-lowering",
+      llvm::cl::desc(
+          "Experimental: Lower activation precision to bfp_bf8 across CCL "
+          "boundaries (matmul -> reduce_scatter/all_gather -> consumer). "
+          "Pattern-matches Llama-style sub-graphs (QKV+RoPE, O-proj+residual, "
+          "MLP, LM-head+argmax). Default off until validated on hardware."),
+      llvm::cl::init(false)};
+
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
   // And computeCfgFp32DestAccEn default value is true.
