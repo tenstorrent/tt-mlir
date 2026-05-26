@@ -3180,9 +3180,9 @@ public:
     Location loc = op->getLoc();
     RankedTensorType resultType = op.getResult().getType();
 
-    if (resultType.getRank() != 2) {
+    if (resultType.getRank() < 1 || resultType.getRank() > 2) {
       return rewriter.notifyMatchFailure(
-          op, "D2M arange requires 2D tensor; decomposition pass should "
+          op, "D2M arange requires 1D or 2D tensor; decomposition pass should "
               "have handled other cases");
     }
 
@@ -3277,40 +3277,6 @@ public:
     rewriter.restoreInsertionPoint(insertPoint);
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
-    return success();
-  }
-};
-
-class D2MRank1ArangeOpRewriter : public OpConversionPattern<ttir::ArangeOp> {
-public:
-  D2MRank1ArangeOpRewriter(const TypeConverter &typeConverter,
-                           mlir::MLIRContext *ctx)
-      : OpConversionPattern<ttir::ArangeOp>(typeConverter, ctx,
-                                            /*benefit=*/20) {}
-
-  LogicalResult
-  matchAndRewrite(ttir::ArangeOp op, ttir::ArangeOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType resultType = op.getResult().getType();
-    if (resultType.getRank() != 1) {
-      return rewriter.notifyMatchFailure(op, "requires rank-1 arange");
-    }
-
-    Location loc = op.getLoc();
-    int32_t outputSize = static_cast<int32_t>(resultType.getShape()[0]);
-    auto reshapedArangeType = RankedTensorType::get(
-        {1, resultType.getShape()[0]}, resultType.getElementType(),
-        resultType.getEncoding());
-    auto arange = rewriter.create<ttir::ArangeOp>(
-        loc, reshapedArangeType, adaptor.getStart(), adaptor.getEnd(),
-        adaptor.getStep(),
-        /*arange_dimension=*/1);
-
-    auto reshapedResult = rewriter.create<ttir::ReshapeOp>(
-        loc, resultType, arange.getResult(),
-        rewriter.getI32ArrayAttr({outputSize}));
-
-    rewriter.replaceOp(op, reshapedResult.getResult());
     return success();
   }
 };
@@ -4159,58 +4125,6 @@ concatenateHeadsLogicalInfo(ttir::ConcatenateHeadsOp op) {
   return {map, canBeTilized};
 }
 
-class D2MRank1SliceStaticOpRewriter
-    : public OpConversionPattern<ttir::SliceStaticOp> {
-public:
-  D2MRank1SliceStaticOpRewriter(const TypeConverter &typeConverter,
-                                mlir::MLIRContext *ctx)
-      : OpConversionPattern<ttir::SliceStaticOp>(typeConverter, ctx,
-                                                 /*benefit=*/20) {}
-
-  LogicalResult
-  matchAndRewrite(ttir::SliceStaticOp op, ttir::SliceStaticOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto inType = mlir::cast<RankedTensorType>(op.getInput().getType());
-    auto outType = mlir::cast<RankedTensorType>(op.getResult().getType());
-    if (inType.getRank() != 1 || outType.getRank() != 1) {
-      return rewriter.notifyMatchFailure(op, "requires rank-1 slice");
-    }
-
-    auto begins = extractFromIntegerArrayAttr<int32_t>(op.getBegins());
-    auto ends = extractFromIntegerArrayAttr<int32_t>(op.getEnds());
-    auto step = extractFromIntegerArrayAttr<int32_t>(op.getStep());
-    TT_assert(begins.size() == 1u);
-    TT_assert(ends.size() == 1u);
-    TT_assert(step.size() == 1u);
-
-    Location loc = op.getLoc();
-    Type elementType = inType.getElementType();
-    int32_t inputSize = static_cast<int32_t>(inType.getShape()[0]);
-    int32_t outputSize = static_cast<int32_t>(outType.getShape()[0]);
-    auto reshapedInType = RankedTensorType::get(
-        {1, inType.getShape()[0]}, elementType, inType.getEncoding());
-    auto reshapedOutType = RankedTensorType::get(
-        {1, outType.getShape()[0]}, elementType, outType.getEncoding());
-
-    auto reshapedInput = rewriter.create<ttir::ReshapeOp>(
-        loc, reshapedInType, adaptor.getInput(),
-        rewriter.getI32ArrayAttr({1, inputSize}));
-
-    auto slice = rewriter.create<ttir::SliceStaticOp>(
-        loc, reshapedOutType, reshapedInput.getResult(),
-        rewriter.getI32ArrayAttr({0, begins[0]}),
-        rewriter.getI32ArrayAttr({1, ends[0]}),
-        rewriter.getI32ArrayAttr({1, step[0]}));
-
-    auto reshapedResult = rewriter.create<ttir::ReshapeOp>(
-        loc, outType, slice.getResult(),
-        rewriter.getI32ArrayAttr({outputSize}));
-
-    rewriter.replaceOp(op, reshapedResult.getResult());
-    return success();
-  }
-};
-
 class D2MSliceStaticOpNoCConstraintsRewriter
     : public OpConversionPattern<ttir::SliceStaticOp> {
 public:
@@ -4470,7 +4384,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // High-priority rewrites that introduce helper TTIR/tensor ops before
   // generic tensor-manipulation conversion.
-  patterns.add<D2MScalarReshapeOpRewriter, D2MRank1SliceStaticOpRewriter,
+  patterns.add<D2MScalarReshapeOpRewriter,
                D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
 
   // Decompose inner-dim min reductions to neg(max(neg)); runs during
@@ -4490,7 +4404,6 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace,  ttnnMode, collapseTensors, enableMulticastInference);
 
   // Arange.
-  patterns.add<D2MRank1ArangeOpRewriter>(typeConverter, ctx);
   patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
                                     defaultOutputMemSpace, ttnnMode,
                                     collapseTensors, enableMulticastInference);

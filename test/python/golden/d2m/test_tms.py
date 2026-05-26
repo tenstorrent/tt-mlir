@@ -983,7 +983,8 @@ def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, de
             [7],
             marks=pytest.mark.skip_config(
                 ["sim"],
-                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+                ["ttmetal"],
+                reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
             ),
         ),
         pytest.param(
@@ -993,7 +994,8 @@ def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, de
             [3],
             marks=pytest.mark.skip_config(
                 ["sim"],
-                reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+                ["ttmetal"],
+                reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
             ),
         ),
         # Simple 2D
