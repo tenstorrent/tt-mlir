@@ -3760,9 +3760,9 @@ public:
     auto weightIndexAttr = emitter.emit(srcOp.getWeight());
     auto residualIndexAttr = emitter.emit(srcOp.getResidual());
     auto statsIndexAttr = emitter.emit(srcOp.getStats());
+    auto semaphoreIndexAttr = emitter.emit(srcOp.getSemaphore());
     auto deviceIndexAttr =
         emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice());
-    auto semaphoreIndexAttr = emitter.emit(srcOp.getSemaphore());
 
     llvm::SmallVector<mlir::Attribute> args{
         inputIndexAttr,
