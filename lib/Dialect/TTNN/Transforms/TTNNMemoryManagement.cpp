@@ -23,6 +23,20 @@ static SmallVector<int32_t> toI32Vec(ArrayAttr attrs) {
   return result;
 }
 
+// Rewrites any negative slice index into its non-negative equivalent.
+static void normalizeSliceIndices(SmallVectorImpl<int32_t> &begins,
+                                  SmallVectorImpl<int32_t> &ends,
+                                  ArrayRef<int64_t> inputShape) {
+  for (size_t d = 0; d < inputShape.size(); ++d) {
+    if (begins[d] < 0) {
+      begins[d] += static_cast<int32_t>(inputShape[d]);
+    }
+    if (ends[d] < 0) {
+      ends[d] += static_cast<int32_t>(inputShape[d]);
+    }
+  }
+}
+
 static bool allUsersAreSlice(Operation *op) {
   return llvm::all_of(op->getUsers(), [](Operation *user) {
     return isa<ttnn::SliceStaticOp>(user);
@@ -151,6 +165,7 @@ public:
     SmallVector<int32_t> begins = toI32Vec(op.getBegins());
     SmallVector<int32_t> ends = toI32Vec(op.getEnds());
     SmallVector<int32_t> step = toI32Vec(op.getStep());
+    normalizeSliceIndices(begins, ends, op.getInput().getType().getShape());
 
     // Map slice params to pre-permute space using inverse permutation.
     SmallVector<int32_t> newBegins =
@@ -236,6 +251,7 @@ public:
     SmallVector<int32_t> firstBegins = toI32Vec(sliceOps.front().getBegins());
     SmallVector<int32_t> firstEnds = toI32Vec(sliceOps.front().getEnds());
     SmallVector<int32_t> firstStep = toI32Vec(sliceOps.front().getStep());
+    normalizeSliceIndices(firstBegins, firstEnds, sourceShape);
 
     SmallVector<int64_t> partialDims;
     for (int64_t dim = 0; dim < static_cast<int64_t>(sourceShape.size());
@@ -283,6 +299,7 @@ public:
       SmallVector<int32_t> begins = toI32Vec(sliceOps[i].getBegins());
       SmallVector<int32_t> ends = toI32Vec(sliceOps[i].getEnds());
       SmallVector<int32_t> step = toI32Vec(sliceOps[i].getStep());
+      normalizeSliceIndices(begins, ends, sourceShape);
 
       for (int64_t dim = 0; dim < static_cast<int64_t>(sourceShape.size());
            ++dim) {
@@ -314,6 +331,8 @@ public:
 
     for (size_t i = 0; i < sliceOps.size(); ++i) {
       SmallVector<int32_t> begins = toI32Vec(sliceOps[i].getBegins());
+      SmallVector<int32_t> ends = toI32Vec(sliceOps[i].getEnds());
+      normalizeSliceIndices(begins, ends, sourceShape);
       SmallVector<int32_t> newBegins;
       SmallVector<int32_t> newEnds;
       SmallVector<int32_t> newStep;
@@ -387,6 +406,7 @@ public:
     SmallVector<int32_t> begins = toI32Vec(op.getBegins());
     SmallVector<int32_t> ends = toI32Vec(op.getEnds());
     SmallVector<int32_t> step = toI32Vec(op.getStep());
+    normalizeSliceIndices(begins, ends, outputShape);
 
     // Start with no slicing (full extent on every input dim).
     int64_t inputRank = inputShape.size();
@@ -485,6 +505,7 @@ public:
     SmallVector<int32_t> begins = toI32Vec(op.getBegins());
     SmallVector<int32_t> ends = toI32Vec(op.getEnds());
     SmallVector<int32_t> step = toI32Vec(op.getStep());
+    normalizeSliceIndices(begins, ends, repeatOutputShape);
     SmallVector<int64_t> slicedInputShape;
 
     for (int64_t d = 0; d < rank; ++d) {
@@ -571,6 +592,7 @@ public:
     SmallVector<int32_t> begins = toI32Vec(op.getBegins());
     SmallVector<int32_t> ends = toI32Vec(op.getEnds());
     SmallVector<int32_t> step = toI32Vec(op.getStep());
+    normalizeSliceIndices(begins, ends, outputShape);
 
     struct SliceInfo {
       SmallVector<int32_t> begins, ends, step;
