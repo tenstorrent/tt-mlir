@@ -56,6 +56,14 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     %sem = ttkernel.get_semaphore(%c0_idx) : (index) -> !ttkernel.local_semaphore
     // CHECK: noc_semaphore_set_remote([[SEM]], [[NOCADDR1]])
     ttkernel.remote_sram_write_u32(%sem, %4) : (!ttkernel.local_semaphore, !ttkernel.noc_addr) -> ()
+    // CHECK-DAG: int32_t [[INLINE_VALUE:.*]] = 7
+    // CHECK-DAG: int8_t [[BE:.*]] = 15
+    // CHECK-DAG: int8_t [[NOC:.*]] = 1
+    %inline_value = arith.constant 7 : i32
+    %be = arith.constant 15 : i8
+    %noc = arith.constant 1 : i8
+    // CHECK: noc_inline_dw_write<InlineWriteDst::L1>([[NOCADDR1]], [[INLINE_VALUE]], [[BE]], [[NOC]])
+    ttkernel.noc_inline_dw_write(%4, %inline_value, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
     // CHECK: noc_async_read_barrier
     ttkernel.noc_async_read_barrier() : () -> ()
     // CHECK: return

@@ -3569,15 +3569,34 @@ def TTKernel_RemoteSramWriteU32Op : TTKernel_Op<"remote_sram_write_u32"> {
     let description = [{
       Initiates a 4-byte remote SRAM write of the u32 value stored at a local
       SRAM address on the Tensix core executing this function call. The source
-      SRAM word is usually used as a semaphore or mailbox value.
+      SRAM word may be referenced by a typed SRAM address, a computed i32 SRAM
+      address, or a local semaphore handle.
     }];
 
-    let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_sram_addr,
+    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_sram_addr,
                          TTKernel_NocAddr:$dst_remote_addr,
                          Optional<I8>:$noc_id);
 
     let assemblyFormat = [{
       `(` $src_sram_addr `,` $dst_remote_addr (`,` $noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocInlineDwWriteOp : TTKernel_Op<"noc_inline_dw_write"> {
+    let summary = "NocInlineDwWrite";
+    let description = [{
+      Initiates an inline 32-bit NOC write to a remote L1 address. The value is
+      provided as an SSA value, so the operation does not require a local SRAM
+      staging word.
+    }];
+
+    let arguments = (ins TTKernel_NocAddr:$dst_noc_addr,
+                         I32:$val,
+                         I8:$byte_enable,
+                         I8:$noc_id);
+
+    let assemblyFormat = [{
+      `(` $dst_noc_addr `,` $val `,` $byte_enable `,` $noc_id `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

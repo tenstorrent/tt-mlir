@@ -78,6 +78,18 @@ func.func @test_write_barrier_with_intervening_write(
   return
 }
 
+// CHECK-LABEL: func.func @test_write_barrier_with_intervening_inline_write
+func.func @test_write_barrier_with_intervening_inline_write(
+    %noc_addr: !ttkernel.noc_addr, %val: i32, %byte_enable: i8, %noc_id: i8) {
+  // CHECK: ttkernel.noc_async_write_barrier
+  ttkernel.noc_async_write_barrier() : () -> ()
+  ttkernel.noc_inline_dw_write(%noc_addr, %val, %byte_enable, %noc_id) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+  // CHECK: ttkernel.noc_async_write_barrier
+  ttkernel.noc_async_write_barrier() : () -> ()
+  // CHECK: return
+  return
+}
+
 // CHECK-LABEL: func.func @test_mixed_consecutive_barriers
 func.func @test_mixed_consecutive_barriers() {
   // CHECK: ttkernel.noc_async_read_barrier
