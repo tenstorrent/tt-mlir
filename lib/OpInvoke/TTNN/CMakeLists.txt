@@ -3,6 +3,7 @@ add_library(TTNNOpInvokeLib STATIC
   conv/conv2dOp.cpp
   conv/convTranspose2dOp.cpp
   conv/prepareConvTranspose2dBiasOp.cpp
+  conv/prepareConvTranspose2dWeightsOp.cpp
   eltwise/binary/eltwiseBinaryCompositeOp.cpp
   eltwise/binary/eltwiseBinaryOp.cpp
   eltwise/quantization/eltwiseQuantizationOp.cpp
