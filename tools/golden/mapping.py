@@ -2515,6 +2515,297 @@ def gather_golden(
     return gathered.to(device=device)
 
 
+def stablehlo_scatter_golden(
+    inputs: List[GoldenMapTensor],
+    scatter_indices: GoldenMapTensor,
+    updates: List[GoldenMapTensor],
+    scatter_dimension_numbers,
+    update_computation_region,
+    result_types: List[Type],
+) -> Union[GoldenMapTensor, List[GoldenMapTensor]]:
+    # Unpack dimension numbers
+    update_window_dims = list(scatter_dimension_numbers.update_window_dims)
+    inserted_window_dims = list(scatter_dimension_numbers.inserted_window_dims)
+    input_batching_dims = list(scatter_dimension_numbers.input_batching_dims)
+    scatter_indices_batching_dims = list(
+        scatter_dimension_numbers.scatter_indices_batching_dims
+    )
+    scattered_dims_to_operand_dims = list(
+        scatter_dimension_numbers.scattered_dims_to_operand_dims
+    )
+    index_vector_dim = scatter_dimension_numbers.index_vector_dim
+
+    # Currently support simple cases without batching
+    assert len(input_batching_dims) == 0, "input_batching_dims not supported yet"
+    assert (
+        len(scatter_indices_batching_dims) == 0
+    ), "scatter_indices_batching_dims not supported yet"
+
+    # Validate update_window_dims are trailing dimensions (as currently implemented)
+    # This golden assumes update_window_dims are the trailing dimensions of the update tensor
+    # in order, which is the common case for most scatter operations.
+    if len(update_window_dims) > 0:
+        expected_trailing = list(
+            range(
+                len(updates[0].shape) - len(update_window_dims), len(updates[0].shape)
+            )
+        )
+        assert update_window_dims == expected_trailing, (
+            f"scatter golden currently only supports update_window_dims as trailing "
+            f"dimensions. Got update_window_dims={update_window_dims}, but expected "
+            f"{expected_trailing} for update shape {updates[0].shape}. "
+            f"Arbitrary update_window_dims require proper dimension mapping."
+        )
+
+    # Work with first shard for replicated tensors
+    def _first_shard(t):
+        return t.shard_at(0) if isinstance(t, GoldenMapTensor) else t
+
+    # Initialize outputs as clones of inputs
+    outputs = [inp.clone() for inp in inputs]
+
+    # Get tensor shapes
+    scatter_indices_shape = list(_first_shard(scatter_indices).shape)
+
+    # Determine the batch shape (indices without index_vector_dim)
+    if index_vector_dim < len(scatter_indices_shape):
+        batch_shape = (
+            scatter_indices_shape[:index_vector_dim]
+            + scatter_indices_shape[index_vector_dim + 1 :]
+        )
+        index_depth = scatter_indices_shape[index_vector_dim]
+    else:
+        # index_vector_dim == rank means each element is a scalar index
+        batch_shape = scatter_indices_shape
+        index_depth = 1
+
+    # Flatten scatter indices to [num_indices, index_depth]
+    num_indices = int(torch.tensor(batch_shape).prod()) if batch_shape else 1
+    indices_flat = (
+        _first_shard(scatter_indices).reshape(num_indices, index_depth).long()
+    )
+
+    # Bounds check indices before processing (similar to gather_golden)
+    for i in range(len(inputs)):
+        input_shard = _first_shard(inputs[i])
+        for k, operand_dim in enumerate(scattered_dims_to_operand_dims):
+            if operand_dim in inserted_window_dims:
+                # For inserted dims, the index must be in valid range
+                valid_max = input_shard.size(operand_dim) - 1
+            else:
+                # For window dims, the index + window size must fit
+                # Find the corresponding update window dimension
+                update_dim_for_operand = None
+                non_inserted_count = 0
+                for d in range(len(input_shard.shape)):
+                    if d == operand_dim and d not in inserted_window_dims:
+                        if non_inserted_count < len(update_window_dims):
+                            update_dim_for_operand = update_window_dims[
+                                non_inserted_count
+                            ]
+                        break
+                    if d not in inserted_window_dims:
+                        non_inserted_count += 1
+
+                if update_dim_for_operand is not None:
+                    update_shard = _first_shard(updates[i])
+                    window_size = update_shard.shape[update_dim_for_operand]
+                    valid_max = input_shard.size(operand_dim) - window_size
+                else:
+                    valid_max = input_shard.size(operand_dim) - 1
+
+            if k < index_depth:
+                if torch.any(indices_flat[:, k] < 0) or torch.any(
+                    indices_flat[:, k] > valid_max
+                ):
+                    raise IndexError(
+                        f"scatter indices out of bounds for operand {i} dim {operand_dim}: "
+                        f"indices range [{indices_flat[:, k].min()}, {indices_flat[:, k].max()}], "
+                        f"valid range [0, {valid_max}]"
+                    )
+
+    # Process each scatter index
+    for idx_num in range(num_indices):
+        # Get the index vector for this scatter location
+        index_vector = indices_flat[idx_num]
+
+        # Build the start indices for the operand
+        operand_start_indices = [0] * len(scattered_dims_to_operand_dims)
+        for i, operand_dim in enumerate(scattered_dims_to_operand_dims):
+            if i < len(index_vector):
+                operand_start_indices[i] = int(index_vector[i].item())
+
+        # For each input/update pair
+        for i in range(len(inputs)):
+            output_tensor = outputs[i]
+            if len(output_tensor.shard_map) > 1:
+                first_output_shard = _first_shard(output_tensor)
+                for device, shard in output_tensor.shard_map.items():
+                    if not torch.equal(shard, first_output_shard):
+                        raise AssertionError(
+                            "stablehlo_scatter_golden expects replicated output shards when "
+                            "applying scatter via _first_shard(outputs[i])"
+                        )
+                for device in output_tensor.shard_map:
+                    output_tensor.shard_map[device] = first_output_shard
+            input_shard = _first_shard(output_tensor)
+
+            update_tensor = updates[i]
+            if len(update_tensor.shard_map) > 1:
+                first_update_shard = _first_shard(update_tensor)
+                for device, shard in update_tensor.shard_map.items():
+                    if not torch.equal(shard, first_update_shard):
+                        raise AssertionError(
+                            "stablehlo_scatter_golden expects replicated update shards when "
+                            "reading updates via _first_shard(updates[i])"
+                        )
+            update_shard = _first_shard(update_tensor)
+            update_shape = list(update_shard.shape)
+
+            # Calculate the update slice for this index
+            # The update tensor has batch dims followed by window dims
+            update_batch_idx = []
+            if num_indices > 1:
+                # Convert flat index back to multi-dimensional batch index
+                remaining = idx_num
+                for dim_size in reversed(batch_shape):
+                    update_batch_idx.insert(0, remaining % dim_size)
+                    remaining //= dim_size
+
+            # Extract the update window for this batch element
+            update_slice_indices = tuple(update_batch_idx) + (slice(None),) * len(
+                update_window_dims
+            )
+            update_window = (
+                update_shard[update_slice_indices] if update_batch_idx else update_shard
+            )
+
+            # Build the scatter slice in the operand
+            # Map update window to operand, inserting dims as needed
+            operand_indices = []
+            update_dim_idx = 0
+            for operand_dim in range(len(input_shard.shape)):
+                if operand_dim in inserted_window_dims:
+                    # This dim is collapsed in update, use index
+                    mapped_idx = (
+                        scattered_dims_to_operand_dims.index(operand_dim)
+                        if operand_dim in scattered_dims_to_operand_dims
+                        else None
+                    )
+                    if mapped_idx is not None and mapped_idx < len(
+                        operand_start_indices
+                    ):
+                        operand_indices.append(operand_start_indices[mapped_idx])
+                    else:
+                        operand_indices.append(0)
+                else:
+                    # This dim exists in update window
+                    operand_indices.append(slice(None))
+                    update_dim_idx += 1
+
+            # Apply the update computation
+            # Bounds should already be validated, so use operand_indices directly
+            if len(operand_indices) > 0:
+                try:
+                    current_value = input_shard[tuple(operand_indices)]
+                except IndexError as e:
+                    raise IndexError(
+                        f"Failed to index operand {i} with indices {operand_indices} "
+                        f"(operand shape: {input_shard.shape}, scatter index {idx_num}): {e}"
+                    )
+
+                # Check if the update computation is a simple replacement or an actual computation
+                # by looking at the region operations
+                is_simple_replacement = True
+                applied_op = False
+                if update_computation_region is not None:
+                    for block in update_computation_region.blocks:
+                        for op in block.operations:
+                            # Check if there's any computation beyond just returning the update value
+                            op_type = type(op).__name__
+                            if hasattr(op, "OPERATION_NAME"):
+                                op_name = op.OPERATION_NAME
+                            else:
+                                op_name = op_type
+
+                            # Skip return operations
+                            if "return" in str(op_name).lower():
+                                continue
+
+                            is_simple_replacement = False
+                            # Try to determine the operation type
+                            try:
+                                if "AddOp" in op_type or "add" in str(op_name).lower():
+                                    input_shard[tuple(operand_indices)] = (
+                                        current_value + update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MulOp" in op_type
+                                    or "mul" in str(op_name).lower()
+                                    or "multiply" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = (
+                                        current_value * update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MaxOp" in op_type or "max" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = torch.maximum(
+                                        current_value, update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MinOp" in op_type or "min" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = torch.minimum(
+                                        current_value, update_window
+                                    )
+                                    applied_op = True
+                                else:
+                                    # Default to replacement if we don't recognize the op
+                                    input_shard[tuple(operand_indices)] = update_window
+                                    applied_op = True
+                            except (IndexError, RuntimeError) as e:
+                                raise RuntimeError(
+                                    f"Failed to apply update computation for operand {i}, "
+                                    f"scatter index {idx_num}: update shape {update_window.shape}, "
+                                    f"current value shape {current_value.shape}, error: {e}"
+                                )
+
+                            if applied_op:
+                                break
+                        if applied_op:
+                            break
+
+                if is_simple_replacement and not applied_op:
+                    # Simple replacement (assumes stablehlo.return %arg1 in region)
+                    try:
+                        input_shard[tuple(operand_indices)] = update_window
+                    except (IndexError, RuntimeError) as e:
+                        raise RuntimeError(
+                            f"Failed to apply replacement for operand {i}, "
+                            f"scatter index {idx_num}: update shape {update_window.shape}, "
+                            f"operand indices {operand_indices}, error: {e}"
+                        )
+
+    # Return outputs with proper types
+    output_results = []
+    for i, output in enumerate(outputs):
+        if i < len(result_types):
+            output_dtype = mlir_type_to_torch_dtype(
+                result_types[i].element_type
+                if hasattr(result_types[i], "element_type")
+                else result_types[i]
+            )
+            output_results.append(output.to(output_dtype))
+        else:
+            output_results.append(output)
+
+    return output_results[0] if len(output_results) == 1 else output_results
+
+
 def tilize_golden(
     input_tensor: GoldenMapTensor, tilize=True, **kwargs
 ) -> GoldenMapTensor:
@@ -7878,6 +8169,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SelectOp: stablehlo_select_golden,
     stablehlo.PadOp: stablehlo_pad_golden,
     stablehlo.GatherOp: gather_golden,
+    stablehlo.ScatterOp: stablehlo_scatter_golden,
     # CCL (Collective Communication Library) operations
     stablehlo.AllGatherOp: stablehlo_all_gather_golden,
     stablehlo.AllReduceOp: stablehlo_all_reduce_golden,
