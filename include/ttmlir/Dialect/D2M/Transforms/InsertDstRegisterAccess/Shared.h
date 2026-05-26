@@ -63,35 +63,18 @@ struct DstAccess {
       : op(opIn), kind(kindIn), dstSlice(dstSliceIn), bcast(bcastIn),
         guardIVs(guardIVsIn.begin(), guardIVsIn.end()) {}
 
-  bool isLoad() const {
-    return kind == DstAccessKind::AffineLoad ||
-           kind == DstAccessKind::MemrefLoad;
-  }
-  bool isStore() const {
-    return kind == DstAccessKind::AffineStore ||
-           kind == DstAccessKind::MemrefStore;
-  }
-  bool isAffine() const {
-    return kind == DstAccessKind::AffineLoad ||
-           kind == DstAccessKind::AffineStore;
-  }
-  bool isMemref() const {
-    return kind == DstAccessKind::MemrefLoad ||
-           kind == DstAccessKind::MemrefStore;
-  }
+  bool isLoad() const;
+  bool isStore() const;
+  bool isAffine() const;
+  bool isMemref() const;
 
-  Location getLoc() const { return op->getLoc(); }
+  Location getLoc() const;
   Value getMemRef() const;
   MemRefType getMemRefType() const;
 
   AffineMap getAffineMap() const;
   ValueRange getAffineIndices() const;
   ValueRange getMemrefIndices() const;
-
-  affine::AffineLoadOp getAsAffineLoad() const;
-  affine::AffineStoreOp getAsAffineStore() const;
-  memref::LoadOp getAsMemrefLoad() const;
-  memref::StoreOp getAsMemrefStore() const;
 };
 
 struct CopyInfo {
@@ -268,19 +251,20 @@ void collectDstLoadWithAccumAnalysis(memref::LoadOp loadOp, int64_t operandIdx,
                                      Operation *outermostInnerComputeLoop,
                                      bool noAccumGuard = false);
 
-void replaceLoadWithDst(PatternRewriter &rewriter, DstAccess &access, Value dst,
-                        AffineMap dstAccessMap, ValueRange dstAccessIndices);
+void replaceLoadWithDst(PatternRewriter &rewriter, const DstAccess &access,
+                        Value dst, AffineMap dstAccessMap,
+                        ValueRange dstAccessIndices);
 
-void replaceStoreWithDst(PatternRewriter &rewriter, DstAccess &access,
+void replaceStoreWithDst(PatternRewriter &rewriter, const DstAccess &access,
                          Value dst, AffineMap dstAccessMap,
                          ValueRange dstAccessIndices);
 
-void generateLoadSideCopy(PatternRewriter &rewriter, DstAccess &access,
+void generateLoadSideCopy(PatternRewriter &rewriter, const DstAccess &access,
                           Value dst, AffineMap l1AccessMap,
                           ValueRange l1AccessIndices, AffineMap dstAccessMap,
                           ValueRange dstAccessIndices);
 
-void generateStoreSideCopy(PatternRewriter &rewriter, DstAccess &access,
+void generateStoreSideCopy(PatternRewriter &rewriter, const DstAccess &access,
                            Value dst, AffineMap l1AccessMap,
                            ValueRange l1AccessIndices, AffineMap dstAccessMap,
                            ValueRange dstAccessIndices);
@@ -316,7 +300,7 @@ bool isDstScopeIV(Value iv, Operation *linalgRoot);
 
 std::tuple<AffineMap, SmallVector<Value>, AffineMap, SmallVector<Value>>
 buildIndices(PatternRewriter &rewriter, Location loc,
-             const mlir::IRMapping &irMapper, DstAccess &access,
+             const mlir::IRMapping &irMapper, const DstAccess &access,
              Operation *linalgRoot = nullptr);
 
 void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,

@@ -675,16 +675,37 @@ getAccumClassificationOperandIndices(OperandLoadStoreRegisterOpInterface op) {
 // DstAccess / CopyInfo
 // ---------------------------------------------------------------------------
 
+bool DstAccess::isLoad() const {
+  return kind == DstAccessKind::AffineLoad || kind == DstAccessKind::MemrefLoad;
+}
+
+bool DstAccess::isStore() const {
+  return kind == DstAccessKind::AffineStore ||
+         kind == DstAccessKind::MemrefStore;
+}
+
+bool DstAccess::isAffine() const {
+  return kind == DstAccessKind::AffineLoad ||
+         kind == DstAccessKind::AffineStore;
+}
+
+bool DstAccess::isMemref() const {
+  return kind == DstAccessKind::MemrefLoad ||
+         kind == DstAccessKind::MemrefStore;
+}
+
+Location DstAccess::getLoc() const { return op->getLoc(); }
+
 Value DstAccess::getMemRef() const {
   switch (kind) {
   case DstAccessKind::AffineLoad:
-    return getAsAffineLoad().getMemref();
+    return cast<affine::AffineLoadOp>(op).getMemref();
   case DstAccessKind::AffineStore:
-    return getAsAffineStore().getMemref();
+    return cast<affine::AffineStoreOp>(op).getMemref();
   case DstAccessKind::MemrefLoad:
-    return getAsMemrefLoad().getMemRef();
+    return cast<memref::LoadOp>(op).getMemRef();
   case DstAccessKind::MemrefStore:
-    return getAsMemrefStore().getMemRef();
+    return cast<memref::StoreOp>(op).getMemRef();
   }
   llvm_unreachable("unknown DstAccessKind");
 }
@@ -696,41 +717,25 @@ MemRefType DstAccess::getMemRefType() const {
 AffineMap DstAccess::getAffineMap() const {
   TT_assert(isAffine());
   if (kind == DstAccessKind::AffineLoad) {
-    return getAsAffineLoad().getAffineMap();
+    return cast<affine::AffineLoadOp>(op).getAffineMap();
   }
-  return getAsAffineStore().getAffineMap();
+  return cast<affine::AffineStoreOp>(op).getAffineMap();
 }
 
 ValueRange DstAccess::getAffineIndices() const {
   TT_assert(isAffine());
   if (kind == DstAccessKind::AffineLoad) {
-    return getAsAffineLoad().getIndices();
+    return cast<affine::AffineLoadOp>(op).getIndices();
   }
-  return getAsAffineStore().getIndices();
+  return cast<affine::AffineStoreOp>(op).getIndices();
 }
 
 ValueRange DstAccess::getMemrefIndices() const {
   TT_assert(isMemref());
   if (kind == DstAccessKind::MemrefLoad) {
-    return getAsMemrefLoad().getIndices();
+    return cast<memref::LoadOp>(op).getIndices();
   }
-  return getAsMemrefStore().getIndices();
-}
-
-affine::AffineLoadOp DstAccess::getAsAffineLoad() const {
-  return cast<affine::AffineLoadOp>(op);
-}
-
-affine::AffineStoreOp DstAccess::getAsAffineStore() const {
-  return cast<affine::AffineStoreOp>(op);
-}
-
-memref::LoadOp DstAccess::getAsMemrefLoad() const {
-  return cast<memref::LoadOp>(op);
-}
-
-memref::StoreOp DstAccess::getAsMemrefStore() const {
-  return cast<memref::StoreOp>(op);
+  return cast<memref::StoreOp>(op).getIndices();
 }
 
 void CopyInfo::record(DstAccess access) {
@@ -956,15 +961,19 @@ cloneAffineLoopSkeleton(PatternRewriter &rewriter, Operation *loopNestOrOp) {
   return {skeleton, mapper};
 }
 
-void replaceLoadWithDst(PatternRewriter &rewriter, DstAccess &access, Value dst,
-                        AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+void replaceLoadWithDst(PatternRewriter &rewriter, const DstAccess &access,
+                        Value dst, AffineMap dstAccessMap,
+                        ValueRange dstAccessIndices) {
   switch (access.kind) {
   case DstAccessKind::AffineLoad: {
     auto dstLoad = rewriter.create<affine::AffineLoadOp>(
         access.getLoc(), dst, dstAccessMap, dstAccessIndices);
     if (access.bcast.has_value()) {
-      access.bcast->getResult().replaceAllUsesWith(dstLoad.getResult());
-      rewriter.eraseOp(*access.bcast);
+      // Rewrites IR only; `access` is not mutated (bcast op is erased).
+      Operation *bcastOp = *access.bcast;
+      cast<d2m::TileBcastOp>(bcastOp).getResult().replaceAllUsesWith(
+          dstLoad.getResult());
+      rewriter.eraseOp(bcastOp);
     } else {
       rewriter.replaceOp(access.op, dstLoad.getResult());
     }
@@ -981,12 +990,12 @@ void replaceLoadWithDst(PatternRewriter &rewriter, DstAccess &access, Value dst,
   }
 }
 
-void replaceStoreWithDst(PatternRewriter &rewriter, DstAccess &access,
+void replaceStoreWithDst(PatternRewriter &rewriter, const DstAccess &access,
                          Value dst, AffineMap dstAccessMap,
                          ValueRange dstAccessIndices) {
   switch (access.kind) {
   case DstAccessKind::AffineStore: {
-    auto storeOp = access.getAsAffineStore();
+    auto storeOp = cast<affine::AffineStoreOp>(access.op);
     Value valueToStore = storeOp.getValue();
     auto dstType = cast<MemRefType>(dst.getType());
     if (valueToStore.getType() != dstType.getElementType()) {
@@ -1001,7 +1010,7 @@ void replaceStoreWithDst(PatternRewriter &rewriter, DstAccess &access,
     break;
   }
   case DstAccessKind::MemrefStore: {
-    auto storeOp = access.getAsMemrefStore();
+    auto storeOp = cast<memref::StoreOp>(access.op);
     Value valueToStore = storeOp.getValue();
     auto dstType = cast<MemRefType>(dst.getType());
     if (valueToStore.getType() != dstType.getElementType()) {
@@ -1033,7 +1042,7 @@ void replaceStoreWithDst(PatternRewriter &rewriter, DstAccess &access,
   }
 }
 
-void generateLoadSideCopy(PatternRewriter &rewriter, DstAccess &access,
+void generateLoadSideCopy(PatternRewriter &rewriter, const DstAccess &access,
                           Value dst, AffineMap l1AccessMap,
                           ValueRange l1AccessIndices, AffineMap dstAccessMap,
                           ValueRange dstAccessIndices) {
@@ -1047,7 +1056,8 @@ void generateLoadSideCopy(PatternRewriter &rewriter, DstAccess &access,
     Value valueToStore = cbLoad.getResult();
     if (access.bcast.has_value()) {
       rewriter.setInsertionPointAfter(cbLoad);
-      auto *clonedBcast = rewriter.clone(*(access.bcast->getOperation()));
+      Operation *bcastOp = *access.bcast;
+      auto *clonedBcast = rewriter.clone(*bcastOp);
       clonedBcast->setOperand(0, valueToStore);
       valueToStore = clonedBcast->getResult(0);
     }
@@ -1067,7 +1077,7 @@ void generateLoadSideCopy(PatternRewriter &rewriter, DstAccess &access,
   }
 }
 
-void generateStoreSideCopy(PatternRewriter &rewriter, DstAccess &access,
+void generateStoreSideCopy(PatternRewriter &rewriter, const DstAccess &access,
                            Value dst, AffineMap l1AccessMap,
                            ValueRange l1AccessIndices, AffineMap dstAccessMap,
                            ValueRange dstAccessIndices) {
@@ -1112,7 +1122,7 @@ void emitDstCopyNest(PatternRewriter &rewriter, Operation *loopNestOrOp,
         cloneAffineLoopSkeleton(rewriter, loopNestOrOp);
   }
 
-  for (DstAccess access : accesses) {
+  for (const DstAccess &access : accesses) {
     const bool useInPlace = !cloneLoopNest || access.isMemref();
 
     if (useInPlace) {
@@ -1127,10 +1137,10 @@ void emitDstCopyNest(PatternRewriter &rewriter, Operation *loopNestOrOp,
       if (access.isMemref()) {
         dstAccessMap =
             AffineMap::getConstantMap(access.dstSlice, rewriter.getContext());
-        l1AccessIndices = llvm::to_vector(
-            llvm::map_range(access.getMemrefIndices(), [&](Value index) {
-              return emptyIRMapper.lookupOrDefault(index);
-            }));
+        l1AccessIndices.reserve(access.getMemrefIndices().size());
+        for (Value index : access.getMemrefIndices()) {
+          l1AccessIndices.push_back(emptyIRMapper.lookupOrDefault(index));
+        }
       } else {
         std::tie(l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices) =
             buildIndices(rewriter, access.getLoc(), emptyIRMapper, access,
@@ -1378,7 +1388,7 @@ bool isDstScopeIV(Value iv, Operation *linalgRoot) {
 
 std::tuple<AffineMap, SmallVector<Value>, AffineMap, SmallVector<Value>>
 buildIndices(PatternRewriter &rewriter, Location loc,
-             const mlir::IRMapping &irMapper, DstAccess &access,
+             const mlir::IRMapping &irMapper, const DstAccess &access,
              Operation *linalgRoot) {
   TT_assert(access.isAffine());
   AffineMap map = access.getAffineMap();
