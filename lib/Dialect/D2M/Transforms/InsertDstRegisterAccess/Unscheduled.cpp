@@ -208,97 +208,14 @@ static void dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
     rewriter.setInsertionPointAfter(loopNestOrOp);
     auto insertionPointAfterLoopNest = rewriter.saveInsertionPoint();
 
-    // Step 1: load copy loop.
     rewriter.setInsertionPoint(loopNestOrOp);
-    auto loadAccessGenerator = [&](PatternRewriter &rewriter,
-                                   LoadStoreRecord<affine::AffineLoadOp> record,
-                                   AffineMap l1AccessMap,
-                                   ValueRange l1AccessIndices,
-                                   AffineMap dstAccessMap,
-                                   ValueRange dstAccessIndices) {
-      auto loc = record.loadStore.getLoc();
-      Value cb = record.loadStore.getMemref();
+    emitDstCopyNest(rewriter, loopNestOrOp, dst, copyInfo.loads,
+                    /*isLoadSide=*/true, /*cloneLoopNest=*/true, disableL1Acc);
 
-      auto cbLoad = rewriter.create<affine::AffineLoadOp>(loc, cb, l1AccessMap,
-                                                          l1AccessIndices);
-      Value valueToStore = cbLoad.getResult();
-
-      if (record.bcast.has_value()) {
-        rewriter.setInsertionPointAfter(cbLoad);
-        auto *clonedBcast = rewriter.clone(*(record.bcast->getOperation()));
-        clonedBcast->setOperand(0, valueToStore);
-        valueToStore = clonedBcast->getResult(0);
-      }
-
-      rewriter.create<affine::AffineStoreOp>(loc, valueToStore, dst,
-                                             dstAccessMap, dstAccessIndices);
-    };
-
-    auto loadAccessRewriter = [&](PatternRewriter &rewriter,
-                                  LoadStoreRecord<affine::AffineLoadOp> record,
-                                  AffineMap dstAccessMap,
-                                  ValueRange dstAccessIndices) {
-      auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-          record.loadStore.getLoc(), dst, dstAccessMap, dstAccessIndices);
-      if (record.bcast.has_value()) {
-        record.bcast->getResult().replaceAllUsesWith(dstLoad.getResult());
-        rewriter.eraseOp(*record.bcast);
-      } else {
-        rewriter.replaceOp(record.loadStore, dstLoad.getResult());
-      }
-    };
-
-    emitDstCopyNest<affine::AffineLoadOp>(rewriter, loopNestOrOp,
-                                          copyInfo.loads, loadAccessGenerator,
-                                          loadAccessRewriter,
-                                          /*disableL1Acc=*/disableL1Acc);
-
-    // Step 2: store copy loop.
     rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
-    auto storeAccessGenerator =
-        [&](PatternRewriter &rewriter,
-            LoadStoreRecord<affine::AffineStoreOp> record,
-            AffineMap l1AccessMap, ValueRange l1AccessIndices,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          auto loc = record.loadStore.getLoc();
-          Value cb = record.loadStore.getMemref();
-          auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-              loc, dst, dstAccessMap, dstAccessIndices);
-          Value valueToStore = dstLoad.getResult();
-
-          auto cbType = mlir::cast<MemRefType>(cb.getType());
-          if (valueToStore.getType() != cbType.getElementType()) {
-            valueToStore = rewriter
-                               .create<d2m::DstReinterpretCastOp>(
-                                   loc, cbType.getElementType(), valueToStore)
-                               .getResult();
-          }
-
-          rewriter.create<affine::AffineStoreOp>(loc, valueToStore, cb,
-                                                 l1AccessMap, l1AccessIndices);
-        };
-
-    auto storeAccessRewriter =
-        [&](PatternRewriter &rewriter,
-            LoadStoreRecord<affine::AffineStoreOp> record,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          Value valueToStore = record.loadStore.getValue();
-          auto dstType = mlir::cast<MemRefType>(dst.getType());
-          if (valueToStore.getType() != dstType.getElementType()) {
-            valueToStore = rewriter
-                               .create<d2m::DstReinterpretCastOp>(
-                                   record.loadStore.getLoc(),
-                                   dstType.getElementType(), valueToStore)
-                               .getResult();
-          }
-          rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-              record.loadStore, valueToStore, dst, dstAccessMap,
-              dstAccessIndices);
-        };
-
-    emitDstCopyNest<affine::AffineStoreOp>(
-        rewriter, loopNestOrOp, copyInfo.stores, storeAccessGenerator,
-        storeAccessRewriter);
+    emitDstCopyNest(rewriter, loopNestOrOp, dst, copyInfo.stores,
+                    /*isLoadSide=*/false, /*cloneLoopNest=*/true,
+                    /*disableL1Acc=*/true);
   }
 }
 
