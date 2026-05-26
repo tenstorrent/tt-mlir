@@ -633,8 +633,6 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
             mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
       tileShape = llvm::to_vector(tileType.getShape());
     }
-    TT_assert(ttmlir::utils::volume(oldLayout.getGridShape(oldResultType)) ==
-              1);
     oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
                                         tileShape);
   }
