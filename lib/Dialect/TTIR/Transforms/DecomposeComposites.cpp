@@ -457,6 +457,114 @@ struct DecomposeSoftmaxPattern : public OpRewritePattern<SoftmaxOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// Repeat pattern
+//
+// Decomposes ttir.repeat into nested ttir.concat ops using bit decomposition
+// to minimize concurrent circular buffer usage. For a repeat count, we examine
+// its binary representation and build only the power-of-two chunks needed.
+//
+// Example: repeatCount = 7 (binary: 111b)
+//   - Build chunks by doubling: 1x, 2x, 4x
+//   - Collect chunks for set bits: [1x, 2x, 4x]
+//   - Concatenate all at once: result = 1x + 2x + 4x = 7x
+//
+// This creates O(log N) intermediate values and O(log N) concat operations.
+//===----------------------------------------------------------------------===//
+
+struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
+  using OpRewritePattern<RepeatOp>::OpRewritePattern;
+
+  // Helper function to repeat a tensor along a dimension using bit
+  // decomposition. For repeatCount with binary representation, we build
+  // power-of-two chunks (1x, 2x, 4x, ...) and concatenate only those
+  // corresponding to set bits. This keeps the concat chain O(log repeatCount).
+  //
+  // Example: repeatCount = 7 (binary: 111)
+  //   - Build chunks: 1x, 2x, 4x (doubling each time)
+  //   - Bits 0, 1, 2 are set, so concatenate [1x, 2x, 4x]
+  //
+  // We iterate from LSB to MSB to maintain correct concatenation order.
+  Value repeatAlongDim(Location loc, Value input, int64_t dim,
+                       int64_t repeatCount, PatternRewriter &rewriter) const {
+    assert(repeatCount > 0 && "repeatCount must be positive");
+
+    if (repeatCount == 1) {
+      return input;
+    }
+
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t originalDimSize = inputType.getShape()[dim];
+
+    // Find the highest set bit to know when to stop building chunks.
+    int64_t highestBit = 63 - __builtin_clzll(repeatCount);
+
+    // Build power-of-two chunks and collect those needed based on set bits.
+    // Reserve capacity based on the number of set bits (popcount).
+    SmallVector<Value> partsToConcat;
+    partsToConcat.reserve(__builtin_popcountll(repeatCount));
+
+    Value currentChunk = input;
+    auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+
+    for (int64_t bit = 0; bit <= highestBit; ++bit) {
+      // If this bit is set in repeatCount, we need this chunk.
+      if (repeatCount & (1LL << bit)) {
+        partsToConcat.push_back(currentChunk);
+      }
+
+      // Double the chunk for the next power of 2 (unless we're at the last
+      // bit).
+      if (bit < highestBit) {
+        SmallVector<Value> inputs = {currentChunk, currentChunk};
+
+        SmallVector<int64_t> doubleShape(inputType.getShape().begin(),
+                                         inputType.getShape().end());
+        doubleShape[dim] = originalDimSize * (1LL << (bit + 1));
+        auto doubleType = RankedTensorType::get(
+            doubleShape, inputType.getElementType(), inputType.getEncoding());
+
+        currentChunk =
+            rewriter.create<ConcatOp>(loc, doubleType, inputs, dimAttr);
+      }
+    }
+
+    // Concatenate all the collected parts into the final result.
+    if (partsToConcat.size() == 1) {
+      return partsToConcat[0];
+    }
+
+    SmallVector<int64_t> outputShape(inputType.getShape().begin(),
+                                     inputType.getShape().end());
+    outputShape[dim] = originalDimSize * repeatCount;
+    auto outputType = RankedTensorType::get(
+        outputShape, inputType.getElementType(), inputType.getEncoding());
+
+    return rewriter.create<ConcatOp>(loc, outputType, partsToConcat, dimAttr);
+  }
+
+  LogicalResult matchAndRewrite(RepeatOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto repeatDimensions = op.getRepeatDimensions();
+
+    // Start with the input tensor.
+    Value current = op.getInput();
+    auto inputType = cast<RankedTensorType>(current.getType());
+    int64_t rank = inputType.getRank();
+
+    // Process each dimension, using hierarchical concat.
+    for (int64_t dim = 0; dim < rank; ++dim) {
+      int64_t repeatCount = repeatDimensions[dim];
+      current = repeatAlongDim(loc, current, dim, repeatCount, rewriter);
+    }
+
+    // Replace the original repeat op with the final result.
+    rewriter.replaceOp(op, current);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Pass definition
 //===----------------------------------------------------------------------===//
 
@@ -474,6 +582,7 @@ public:
     patterns.add<DecomposeSDPAPattern>(&getContext(), /*benefit=*/2);
     patterns.add<DecomposeRMSNormPattern>(&getContext(), /*benefit=*/1);
     patterns.add<DecomposeLayerNormPattern>(&getContext(), /*benefit=*/1);
+    patterns.add<DecomposeRepeatPattern>(&getContext(), /*benefit=*/1);
     patterns.add<DecomposeSoftmaxPattern>(&getContext(), /*benefit=*/0);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
