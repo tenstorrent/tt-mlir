@@ -296,7 +296,11 @@ unary_ops = [
     frac | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     trunc | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     tan,
-    tanh,
+    tanh
+    | SkipIf(
+        ["p150", "sim"],
+        reason="Blackhole tt-sim does not implement the SFPU config register used by the accurate tanh kernel.",
+    ),
 ]
 
 unary_ops_dtypes = [

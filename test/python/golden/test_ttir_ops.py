@@ -2105,8 +2105,22 @@ def test_mesh_partition(
         pytest.param((1, 2), [(0, 1), (1, 0)], marks=pytest.mark.skip_config(["sim"])),
         ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0)]),
         ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]),
-        ((2, 4), [(0, 4), (4, 0), (1, 5), (5, 1), (2, 6), (6, 2), (3, 7), (7, 3)]),
-        ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7), (4, 0), (5, 1), (6, 2), (7, 3)]),
+        pytest.param(
+            (2, 4),
+            [(0, 4), (4, 0), (1, 5), (5, 1), (2, 6), (6, 2), (3, 7), (7, 3)],
+            marks=pytest.mark.skip_config(
+                ["llmbox"],
+                reason="tt-metal point_to_point is not reliable for cross-row transfers on llmbox with 1D fabric.",
+            ),
+        ),
+        pytest.param(
+            (2, 4),
+            [(0, 4), (1, 5), (2, 6), (3, 7), (4, 0), (5, 1), (6, 2), (7, 3)],
+            marks=pytest.mark.skip_config(
+                ["llmbox"],
+                reason="tt-metal point_to_point is not reliable for cross-row transfers on llmbox with 1D fabric.",
+            ),
+        ),
         ((2, 4), [(0, 2), (1, 3), (4, 6), (5, 7), (2, 0), (3, 1), (6, 4), (7, 5)]),
         ((2, 4), [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)]),
         ((2, 4), [(0, 1), (2, 3), (4, 5), (6, 7)]),
