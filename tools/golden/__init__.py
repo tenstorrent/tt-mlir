@@ -8,6 +8,7 @@ __all__ = [
     "GoldenMapTensor",
     "unpack_mlir_attr",
     "get_golden_function",
+    "get_golden_function_for_activation",
     "GOLDEN_MAPPINGS",
     "CHISEL_GOLDEN_MAPPINGS",
     "get_chisel_golden_function",

@@ -3052,7 +3052,7 @@ def silu_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
 def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Golden function for silu operation with TTIR parameter names.
+    Golden function for softmax with TTIR/TTNN parameter names.
 
     Parameters
     ----------
@@ -3066,7 +3066,7 @@ def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     GoldenMapTensor
         Softmax output
     """
-    dimension = kwargs.get("dim", 1)
+    dimension = kwargs.get("dimension",  1)
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
 
 
@@ -6740,13 +6740,18 @@ def ttnn_matmul_golden(
     transpose_a_attr: BoolAttr,
     transpose_b_attr: BoolAttr,
     output_type_mlir: Type,
+    activation_attr: Optional[StringAttr] = None,
 ) -> GoldenMapTensor:
     transpose_a = unpack_mlir_attr(transpose_a_attr)
     transpose_b = unpack_mlir_attr(transpose_b_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     a = torch.transpose(input_tensor, -2, -1) if transpose_a else input_tensor
     b = torch.transpose(other_tensor, -2, -1) if transpose_b else other_tensor
-    return torch.matmul(a, b).to(output_dtype)
+    output = torch.matmul(a, b)
+    activation_golden = get_golden_function_for_activation(activation_attr)
+    if activation_golden is not None:
+        return activation_golden(output, output_type_mlir)
+    return output.to(output_dtype)
 
 
 def ttnn_linear_golden(
@@ -7997,6 +8002,40 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 }
 
 
+_FUSED_ACTIVATION_GOLDEN_OPS: Dict[str, type] = {
+    "relu": ttnn.ReluOp,
+    "sigmoid": ttnn.SigmoidOp,
+    "gelu": ttnn.GeluOp,
+    "silu": ttnn.SiluOp,
+}
+
+
+def get_golden_function_for_activation(
+    activation: Optional[Union[str, StringAttr]] = None,
+) -> Optional[Callable]:
+    """
+    Get the TTNN unary golden for a fused matmul/linear activation string.
+
+    Parameters
+    ----------
+    activation : Optional[Union[str, StringAttr]]
+        Activation name from TTNN matmul/linear (e.g. ``"relu"``, ``"sigmoid"``).
+
+    Returns
+    -------
+    Optional[Callable]
+        Unary golden taking ``(input_tensor, output_type_mlir)``, or None if absent.
+    """
+    if activation is None:
+        return None
+    if not isinstance(activation, str):
+        activation = unpack_mlir_attr(activation)
+    op_class = _FUSED_ACTIVATION_GOLDEN_OPS.get(activation)
+    if op_class is None:
+        raise ValueError(f"Unsupported fused activation: {activation}")
+    return get_golden_function(op_class)
+
+
 def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     """
     Get the golden function for a given TTIR operation class.
@@ -8127,6 +8166,7 @@ def chisel_ttnn_matmul(op, inputs):
         other_tensor=inputs["b"],
         transpose_a_attr=op.attributes["transpose_a"],
         transpose_b_attr=op.attributes["transpose_b"],
+        activation_attr=_attr_get(op.attributes, "activation"),
         output_type_mlir=op.results[0].type.element_type,
     )
 
