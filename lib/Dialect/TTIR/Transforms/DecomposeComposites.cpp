@@ -498,28 +498,13 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
     // Find the highest set bit to know when to stop building chunks
     int64_t highestBit = 63 - __builtin_clzll(repeatCount);
 
-    // Optimization: if repeatCount is a power of 2, just do log2(N) doublings
-    if (__builtin_popcountll(repeatCount) == 1) {
-      Value result = input;
-      for (int64_t bit = 0; bit < highestBit; ++bit) {
-        SmallVector<Value> inputs = {result, result};
-        SmallVector<int64_t> doubleShape(inputType.getShape().begin(),
-                                         inputType.getShape().end());
-        doubleShape[dim] = originalDimSize * (1LL << (bit + 1));
-        auto doubleType = RankedTensorType::get(
-            doubleShape, inputType.getElementType(), inputType.getEncoding());
-        auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-        result = rewriter.create<ConcatOp>(loc, doubleType, inputs, dimAttr);
-      }
-      return result;
-    }
-
     // Build power-of-two chunks and collect those needed based on set bits
     // Reserve capacity based on the number of set bits (popcount)
     SmallVector<Value> partsToConcat;
     partsToConcat.reserve(__builtin_popcountll(repeatCount));
 
     Value currentChunk = input;
+    auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
 
     for (int64_t bit = 0; bit <= highestBit; ++bit) {
       // If this bit is set in repeatCount, we need this chunk
@@ -537,7 +522,6 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
         auto doubleType = RankedTensorType::get(
             doubleShape, inputType.getElementType(), inputType.getEncoding());
 
-        auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
         currentChunk =
             rewriter.create<ConcatOp>(loc, doubleType, inputs, dimAttr);
       }
@@ -554,7 +538,6 @@ struct DecomposeRepeatPattern : public OpRewritePattern<RepeatOp> {
     auto outputType = RankedTensorType::get(
         outputShape, inputType.getElementType(), inputType.getEncoding());
 
-    auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
     return rewriter.create<ConcatOp>(loc, outputType, partsToConcat, dimAttr);
   }
 
