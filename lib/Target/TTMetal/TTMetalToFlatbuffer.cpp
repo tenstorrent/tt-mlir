@@ -1040,7 +1040,8 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
 }
 
 static bool isUnitScalarMemref(MemRefType memref) {
-  return memref.hasStaticShape() && memref.getNumElements() == 1 &&
+  return ttcore::getMemorySpace(memref) == ttcore::MemorySpace::System &&
+         memref.hasStaticShape() && memref.getNumElements() == 1 &&
          !mlir::isa<ttcore::TileType>(memref.getElementType());
 }
 
