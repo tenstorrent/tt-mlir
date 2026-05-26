@@ -69,9 +69,15 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
   Value permutedQuery =
       createPermute(op.getQuery(), kToSDPAPermutation, rewriter, loc);
 
-  // Decode applies the mask as softmax(scale*(QK + mask)), but regular SDPA
-  // applies it as softmax(scale*QK + mask). Pre-scale the mask so the
-  // downstream regular SDPA produces decode-equivalent values.
+  // The two SDPA ops have different mask conventions at the API level:
+  //   - decode: result = softmax(scale * (QK + mask))   = softmax(scale*QK +
+  //   scale*mask)
+  //   - prefill: result = softmax(scale * QK + mask) (PyTorch-style)
+  // Both kernels internally compute softmax(scale*(QK + mask)); prefill's host
+  // wrapper compensates by pre-dividing the user mask by scale, decode's does
+  // not. To make a prefill op produce the decode result on the same mask m,
+  // we feed prefill m' = scale * m; then prefill computes
+  //   softmax(scale*QK + scale*m) == decode(m).
   Value scaledMask = op.getAttentionMask();
   if (scaledMask) {
     float scaleValue;
@@ -92,9 +98,9 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
             .create<FullOp>(loc, scalarType,
                             rewriter.getF32FloatAttr(scaleValue), device)
             .getResult();
-    scaledMask = rewriter
-                     .create<MultiplyOp>(loc, maskType, scaledMask, scaleTensor)
-                     .getResult();
+    scaledMask =
+        rewriter.create<MultiplyOp>(loc, maskType, scaledMask, scaleTensor)
+            .getResult();
 
     // Decode mask layout is [B, 1, Hq, Sk] (heads at dim 2). The downstream
     // regular SDPA op expects [B, Hq, Sq, Sk] (heads at dim 1, Sq=1 here).
