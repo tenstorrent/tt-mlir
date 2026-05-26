@@ -1381,6 +1381,16 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     return;
   }
 
+  // Only `ttnn.slice_static`'s verifier enforces that
+  // input.elementType == output.elementType. `ttnn.reshape` and
+  // `ttnn.to_memory_config` permit element type changes (the propagation
+  // engine uses this to "absorb" downstream conversions like ui32→si32).
+  // Including reshape/to_memory_config here would prevent legitimate dtype
+  // conversions and leave function returns with the wrong dtype.
+  auto isViewLikeForLayoutProp = [](Operation *op) {
+    return mlir::isa<ttnn::SliceStaticOp>(op);
+  };
+
   // Update all tensor results. For single-output ops this iterates once.
   // For multi-output ops (e.g. SplitQueryKeyValueAndSplitHeads), each result
   // gets its own layout from outputLayouts.
@@ -1402,6 +1412,21 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     Type newElementType = originalElementType;
     if (!mlir::isa<mlir::quant::QuantizedType>(originalElementType)) {
       newElementType = resultLayout.getScalarElementType();
+    }
+
+    // View-op invariant: result element type must match operand 0's element
+    // type. If the chosen layout would diverge, keep the operand's element
+    // type (and rebuild the encoding to match).
+    if (isViewLikeForLayoutProp(op) && op->getNumOperands() > 0) {
+      auto operandTensorType =
+          mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
+      if (operandTensorType &&
+          operandTensorType.getElementType() != newElementType) {
+        newElementType = operandTensorType.getElementType();
+        // Rebuild the result layout so its encoded element type matches.
+        resultLayout = TTNNLayoutAttr::Builder(resultLayout, tensorShape)
+                           .setElementType(newElementType);
+      }
     }
 
     RankedTensorType newTensorType =
