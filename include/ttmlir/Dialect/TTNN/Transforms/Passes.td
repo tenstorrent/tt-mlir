@@ -301,6 +301,22 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
   }];
 }
 
+def TTNNFoldNHWCConcat : Pass<"ttnn-fold-nhwc-concat", "::mlir::ModuleOp"> {
+  let summary = "Fold permute(NHWC→NCHW)→concat(dim=1)→permute(NCHW→NHWC) into concat(dim=3).";
+  let description = [{
+    Matches the pattern:
+      pre_perm  = permute(nhwc_input, [0,3,1,2])
+      concat    = concat(pre_perm, backbone, dim=1)
+      post_perm = permute(concat, [0,2,3,1])
+    and folds it into:
+      bb_nhwc    = permute(backbone, [0,2,3,1])
+      new_concat = concat(nhwc_input, bb_nhwc, dim=3)
+    eliminating the pre-permute and the post-permute at each matched site.
+    This is a prerequisite for the sharding optimizer to shard the concat
+    along the last (channel) dimension in NHWC layout.
+  }];
+}
+
 def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTNN fusing pass.";

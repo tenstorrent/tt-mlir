@@ -388,6 +388,13 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(transforms::createConstEvalHoistTransform());
     }
 
+    // Fold permute(NHWC→NCHW)→concat(dim=1)→permute(NCHW→NHWC) into
+    // concat(dim=3) before the optimizer so sharding can propagate through
+    // the concat on the last dimension.
+    if (options.optimizerPassEnabled) {
+      devicePm.addPass(createTTNNFoldNHWCConcat());
+    }
+
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
     if (options.enableCreateD2MSubgraphs) {
