@@ -927,6 +927,14 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
       applyCollapsedIntervalsAndAlignments(
           getLogicalShape(), normalizedIntervals, getDimAlignments());
 
+  // Scalar tensors still occupy a single physical tile when tiled on device.
+  // Keep the logical rank 0, but expose a 2D physical tile plane to D2M and
+  // TTKernel lowering.
+  if (getLogicalShape().empty() && physicalShape.empty()) {
+    constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
+    physicalShape.assign(tileShape.begin(), tileShape.end());
+  }
+
   // Rank-1 logical tensors are represented on device as a single logical row
   // in a 2D tile plane. This preserves user-visible rank while keeping D2M and
   // TTKernel tilize/tile compute paths on their native 2D block shape.
@@ -1048,9 +1056,10 @@ MetalLayoutAttr::computeTileAlignments(ArrayRef<int64_t> logicalShape,
   const int64_t logicalRank = logicalShape.size();
   const int64_t collapsedRank = normalizedIntervals.size() / 2;
 
-  assert(logicalRank >= 1);
-
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+  if (logicalRank == 0) {
+    return alignments;
+  }
   if (logicalRank == 1) {
     alignments[0] = tileShape[1];
     return alignments;
@@ -1110,12 +1119,15 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
   const int64_t deviceGridRank = deviceGridShape.size();
   const int64_t tensorGridRank = normalizedIntervals.size() / 2;
 
-  assert(logicalRank >= 1);
   assert(deviceGridRank == 2);
   assert(normalizedIntervals.size() % 2 == 0);
-  assert(deviceGridRank <= tensorGridRank);
 
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+  if (logicalRank == 0) {
+    return alignments;
+  }
+
+  assert(deviceGridRank <= tensorGridRank);
   if (logicalRank == 1) {
     const int64_t tileDim = tileShape[1];
     const int64_t gridDim = deviceGridShape[1];
@@ -1188,6 +1200,10 @@ computeDefaultFlattenedIntervals(MLIRContext *context, int rank) {
   constexpr size_t kGridRank = 2;
 
   // Create collapse intervals.
+  if (rank == 0) {
+    return {};
+  }
+
   int64_t numDimsToCollapse = rank - kGridRank + 1;
   llvm::SmallVector<int64_t> flattenedIntervals;
 
@@ -1208,6 +1224,12 @@ MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
   constexpr size_t kGridRank = 2;
 
   auto flattenedIntervals = computeDefaultFlattenedIntervals(context, rank);
+
+  if (rank == 0) {
+    auto scalarIntervalType =
+        RankedTensorType::get({0, 2}, IntegerType::get(context, 64));
+    return DenseIntElementsAttr::get(scalarIntervalType, flattenedIntervals);
+  }
 
   auto intervalType = RankedTensorType::get(
       {static_cast<int64_t>(kGridRank), 2}, IntegerType::get(context, 64));
@@ -1294,13 +1316,6 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
     TensorMemoryLayout memoryLayout) {
 
   int64_t logicalRank = logicalShape.size();
-
-  // Logical shape must have at least 1 dimension. Rank-1 tensors are expanded
-  // to a synthetic 2D physical tile plane by getPhysicalShape().
-  if (logicalRank < 1) {
-    return emitError() << "logical_shape must have at least 1 dimension, got "
-                       << logicalRank;
-  }
 
   // The dim_alignments rank must match logical_shape rank.
   if (static_cast<int64_t>(dimAlignments.size()) != logicalRank) {

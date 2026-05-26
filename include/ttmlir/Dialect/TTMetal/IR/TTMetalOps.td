@@ -41,7 +41,7 @@ def TTMetal_EnqueueWriteBufferOp : TTMetal_Op<"enqueue_write_buffer", [MemoryEff
       Enqueue write buffer operation
     }];
 
-    let arguments = (ins AnyNon0RankedMemRef:$input, AnyNon0RankedMemRef:$output);
+    let arguments = (ins AnyMemRef:$input, AnyNon0RankedMemRef:$output);
     let hasVerifier = 1;
 }
 
@@ -52,7 +52,7 @@ def TTMetal_EnqueueReadBufferOp : TTMetal_Op<"enqueue_read_buffer", [MemoryEffec
     }];
 
     let arguments = (ins AnyNon0RankedMemRef:$input,
-                         AnyNon0RankedMemRef:$output);
+                         AnyMemRef:$output);
     let hasVerifier = 1;
 }
 

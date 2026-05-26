@@ -774,8 +774,7 @@ protected:
       return mlir::failure();
     }
 
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(output).getRank() / 2;
+    const std::size_t physicalRank = outputRankedTy.getRank() / 2;
 
     SmallVector<AffineMap> indexingMaps =
         getIdentityAffineMapsArray(rewriter, 1, physicalRank);
