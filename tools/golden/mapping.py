@@ -2541,6 +2541,22 @@ def stablehlo_scatter_golden(
         len(scatter_indices_batching_dims) == 0
     ), "scatter_indices_batching_dims not supported yet"
 
+    # Validate update_window_dims are trailing dimensions (as currently implemented)
+    # This golden assumes update_window_dims are the trailing dimensions of the update tensor
+    # in order, which is the common case for most scatter operations.
+    if len(update_window_dims) > 0:
+        expected_trailing = list(
+            range(
+                len(updates[0].shape) - len(update_window_dims), len(updates[0].shape)
+            )
+        )
+        assert update_window_dims == expected_trailing, (
+            f"scatter golden currently only supports update_window_dims as trailing "
+            f"dimensions. Got update_window_dims={update_window_dims}, but expected "
+            f"{expected_trailing} for update shape {updates[0].shape}. "
+            f"Arbitrary update_window_dims require proper dimension mapping."
+        )
+
     # Work with first shard for replicated tensors
     def _first_shard(t):
         return t.shard_at(0) if isinstance(t, GoldenMapTensor) else t
@@ -2568,6 +2584,45 @@ def stablehlo_scatter_golden(
     indices_flat = (
         _first_shard(scatter_indices).reshape(num_indices, index_depth).long()
     )
+
+    # Bounds check indices before processing (similar to gather_golden)
+    for i in range(len(inputs)):
+        input_shard = _first_shard(inputs[i])
+        for k, operand_dim in enumerate(scattered_dims_to_operand_dims):
+            if operand_dim in inserted_window_dims:
+                # For inserted dims, the index must be in valid range
+                valid_max = input_shard.size(operand_dim) - 1
+            else:
+                # For window dims, the index + window size must fit
+                # Find the corresponding update window dimension
+                update_dim_for_operand = None
+                non_inserted_count = 0
+                for d in range(len(input_shard.shape)):
+                    if d == operand_dim and d not in inserted_window_dims:
+                        if non_inserted_count < len(update_window_dims):
+                            update_dim_for_operand = update_window_dims[
+                                non_inserted_count
+                            ]
+                        break
+                    if d not in inserted_window_dims:
+                        non_inserted_count += 1
+
+                if update_dim_for_operand is not None:
+                    update_shard = _first_shard(updates[i])
+                    window_size = update_shard.shape[update_dim_for_operand]
+                    valid_max = input_shard.size(operand_dim) - window_size
+                else:
+                    valid_max = input_shard.size(operand_dim) - 1
+
+            if k < index_depth:
+                if torch.any(indices_flat[:, k] < 0) or torch.any(
+                    indices_flat[:, k] > valid_max
+                ):
+                    raise IndexError(
+                        f"scatter indices out of bounds for operand {i} dim {operand_dim}: "
+                        f"indices range [{indices_flat[:, k].min()}, {indices_flat[:, k].max()}], "
+                        f"valid range [0, {valid_max}]"
+                    )
 
     # Process each scatter index
     for idx_num in range(num_indices):
@@ -2649,30 +2704,37 @@ def stablehlo_scatter_golden(
                     update_dim_idx += 1
 
             # Apply the update computation
-            try:
-                # Try to apply the scatter operation
-                if len(operand_indices) > 0:
+            # Bounds should already be validated, so use operand_indices directly
+            if len(operand_indices) > 0:
+                try:
                     current_value = input_shard[tuple(operand_indices)]
-                    # Check if the update computation is a simple replacement or an actual computation
-                    # by looking at the region operations
-                    is_simple_replacement = True
-                    applied_op = False
-                    if update_computation_region is not None:
-                        for block in update_computation_region.blocks:
-                            for op in block.operations:
-                                # Check if there's any computation beyond just returning the update value
-                                op_type = type(op).__name__
-                                if hasattr(op, "OPERATION_NAME"):
-                                    op_name = op.OPERATION_NAME
-                                else:
-                                    op_name = op_type
+                except IndexError as e:
+                    raise IndexError(
+                        f"Failed to index operand {i} with indices {operand_indices} "
+                        f"(operand shape: {input_shard.shape}, scatter index {idx_num}): {e}"
+                    )
 
-                                # Skip return operations
-                                if "return" in str(op_name).lower():
-                                    continue
+                # Check if the update computation is a simple replacement or an actual computation
+                # by looking at the region operations
+                is_simple_replacement = True
+                applied_op = False
+                if update_computation_region is not None:
+                    for block in update_computation_region.blocks:
+                        for op in block.operations:
+                            # Check if there's any computation beyond just returning the update value
+                            op_type = type(op).__name__
+                            if hasattr(op, "OPERATION_NAME"):
+                                op_name = op.OPERATION_NAME
+                            else:
+                                op_name = op_type
 
-                                is_simple_replacement = False
-                                # Try to determine the operation type
+                            # Skip return operations
+                            if "return" in str(op_name).lower():
+                                continue
+
+                            is_simple_replacement = False
+                            # Try to determine the operation type
+                            try:
                                 if "AddOp" in op_type or "add" in str(op_name).lower():
                                     input_shard[tuple(operand_indices)] = (
                                         current_value + update_window
@@ -2705,18 +2767,28 @@ def stablehlo_scatter_golden(
                                     # Default to replacement if we don't recognize the op
                                     input_shard[tuple(operand_indices)] = update_window
                                     applied_op = True
+                            except (IndexError, RuntimeError) as e:
+                                raise RuntimeError(
+                                    f"Failed to apply update computation for operand {i}, "
+                                    f"scatter index {idx_num}: update shape {update_window.shape}, "
+                                    f"current value shape {current_value.shape}, error: {e}"
+                                )
 
-                                if applied_op:
-                                    break
                             if applied_op:
                                 break
+                        if applied_op:
+                            break
 
-                    if is_simple_replacement and not applied_op:
-                        # Simple replacement (assumes stablehlo.return %arg1 in region)
+                if is_simple_replacement and not applied_op:
+                    # Simple replacement (assumes stablehlo.return %arg1 in region)
+                    try:
                         input_shard[tuple(operand_indices)] = update_window
-            except Exception as e:
-                # If indexing fails, skip this update (bounds checking)
-                pass
+                    except (IndexError, RuntimeError) as e:
+                        raise RuntimeError(
+                            f"Failed to apply replacement for operand {i}, "
+                            f"scatter index {idx_num}: update shape {update_window.shape}, "
+                            f"operand indices {operand_indices}, error: {e}"
+                        )
 
     # Return outputs with proper types
     output_results = []
