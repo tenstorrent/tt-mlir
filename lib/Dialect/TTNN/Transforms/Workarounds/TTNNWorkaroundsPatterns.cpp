@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpRewritePattern.h"
@@ -640,6 +641,7 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<
           GatherSi32Workaround, TTNNAllReduceWorkarounds,
+          workarounds::decomposition::TTNNAllReduceReshapeWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
@@ -748,5 +750,8 @@ const std::set<mlir::StringRef>
         ttnn::ScatterOp::getOperationName(),
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
         // without it, opt_level>=1 dtype propagation picks f32. See #8141.
-        ttnn::TopKOp::getOperationName()};
+        ttnn::TopKOp::getOperationName(),
+        // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
+        // layout. See #8411.
+        ttnn::PrepareConv3dWeightsOp::getOperationName()};
 } // namespace mlir::tt::ttnn

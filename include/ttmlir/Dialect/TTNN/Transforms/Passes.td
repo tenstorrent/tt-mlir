@@ -709,6 +709,28 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNAllocateDistributedOpBuffers
+    : Pass<"ttnn-allocate-distributed-op-buffers", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit scratch buffers for distributed ops.";
+  let description = [{
+    Walks every op implementing `DistributedOpInterface` and invokes
+    `allocateBuffers` on it. See `DistributedOpInterface` for the rationale
+    behind splitting buffer and semaphore allocation into separate passes
+    and for the prelude placement contract.
+  }];
+}
+
+def TTNNAllocateDistributedOpSemaphores
+    : Pass<"ttnn-allocate-distributed-op-semaphores", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit global semaphores for distributed ops.";
+  let description = [{
+    Walks every op implementing `DistributedOpInterface` and invokes
+    `allocateSemaphores` on it. See `DistributedOpInterface` for the
+    rationale behind splitting buffer and semaphore allocation into
+    separate passes and for the prelude placement contract.
+  }];
+}
+
 def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   let summary = "Memory usage optimization pass.";
   let description = [{

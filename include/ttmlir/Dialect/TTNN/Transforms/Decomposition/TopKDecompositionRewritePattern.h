@@ -17,8 +17,11 @@ namespace mlir::tt::ttnn::decomposition {
 
 // Decomposes ttnn::TopKOp back into ttnn::SortOp + ttnn::SliceStaticOp.
 // When validationConfig is provided, decomposition only occurs if op-model
-// validation fails. When validationConfig is std::nullopt, decomposition
-// is unconditional.
+// validation fails. When validationConfig is std::nullopt (e.g. optimizer
+// disabled / opt_level=0), the TopK is preserved as-is — TTNN runtime
+// supports TopK natively, and regenerating sort+slice with default attributes
+// (stable=false, null memory_config) can break downstream paths such as
+// trace capture.
 class TopKDecompositionRewritePattern : public OpRewritePattern<ttnn::TopKOp> {
 public:
   TopKDecompositionRewritePattern(mlir::MLIRContext *context)

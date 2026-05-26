@@ -16,6 +16,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
+        TTNNAllocateDistributedOpBuffers.cpp
+        TTNNAllocateDistributedOpSemaphores.cpp
         TTNNCollaspeD2M.cpp
         TTNNCollectPerfMetrics.cpp
         TTNNCreateD2MSubgraphs.cpp
@@ -47,6 +49,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNWeightDtypeConversion.cpp
         TTNNKVCacheDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
+        Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpRewritePattern.cpp

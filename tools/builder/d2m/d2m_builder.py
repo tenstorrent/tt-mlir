@@ -35,8 +35,11 @@ class D2MBuilder(Builder):
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
         ] = OrderedDict([("x", 1), ("y", 1)]),
+        system_desc_path: Optional[str] = None,
     ):
-        super().__init__(ctx, location, mesh_name, mesh_dict)
+        super().__init__(
+            ctx, location, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
         self.goldens_set = False
 
     def set_goldens(self, *args, **kwargs):
