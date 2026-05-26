@@ -28,6 +28,7 @@ import re
 import einops
 import torch
 import torch.nn.functional
+from ttnn.operations.activations import get_golden_function_for_activation
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug, func
 from ttmlir.ir import *
 from ttmlir.passes import DataType
@@ -6748,9 +6749,12 @@ def ttnn_matmul_golden(
     a = torch.transpose(input_tensor, -2, -1) if transpose_a else input_tensor
     b = torch.transpose(other_tensor, -2, -1) if transpose_b else other_tensor
     output = torch.matmul(a, b)
-    activation_golden = get_golden_function_for_activation(activation_attr)
-    if activation_golden is not None:
-        return activation_golden(output, output_type_mlir)
+    activation = activation_attr
+    if activation is not None and not isinstance(activation, str):
+        activation = unpack_mlir_attr(activation)
+    activation_fn = get_golden_function_for_activation(activation)
+    if activation_fn is not None:
+        output = activation_fn(output)
     return output.to(output_dtype)
 
 
@@ -8000,40 +8004,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     debug.RegionStartOp: debug_region_start_golden,
     debug.RegionEndOp: debug_region_end_golden,
 }
-
-
-_FUSED_ACTIVATION_GOLDEN_OPS: Dict[str, type] = {
-    "relu": ttnn.ReluOp,
-    "sigmoid": ttnn.SigmoidOp,
-    "gelu": ttnn.GeluOp,
-    "silu": ttnn.SiluOp,
-}
-
-
-def get_golden_function_for_activation(
-    activation: Optional[Union[str, StringAttr]] = None,
-) -> Optional[Callable]:
-    """
-    Get the TTNN unary golden for a fused matmul/linear activation string.
-
-    Parameters
-    ----------
-    activation : Optional[Union[str, StringAttr]]
-        Activation name from TTNN matmul/linear (e.g. ``"relu"``, ``"sigmoid"``).
-
-    Returns
-    -------
-    Optional[Callable]
-        Unary golden taking ``(input_tensor, output_type_mlir)``, or None if absent.
-    """
-    if activation is None:
-        return None
-    if not isinstance(activation, str):
-        activation = unpack_mlir_attr(activation)
-    op_class = _FUSED_ACTIVATION_GOLDEN_OPS.get(activation)
-    if op_class is None:
-        raise ValueError(f"Unsupported fused activation: {activation}")
-    return get_golden_function(op_class)
 
 
 def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
