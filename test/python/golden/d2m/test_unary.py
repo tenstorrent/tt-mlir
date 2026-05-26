@@ -295,7 +295,11 @@ unary_ops = [
     selu | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     frac | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     trunc | SkipIf("ttnn", "emitc", "emitpy", "sim"),
-    tan,
+    tan
+    | SkipIf(
+        ["p150", "sim"],
+        reason="Blackhole tt-sim does not implement the SFPU config register used by the accurate tan kernel.",
+    ),
     tanh
     | SkipIf(
         ["p150", "sim"],
