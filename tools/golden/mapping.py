@@ -1823,6 +1823,15 @@ def sdpa_decode_golden(
     # Mask is in decode layout [B, 1, H, S], permute to [B, H, 1, S] to match qk
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float().permute(0, 2, 1, 3))
+    elif is_causal and cur_pos_tensor is not None:
+        # Synthesize a per-batch causal mask: positions j > cur_pos[b] are -inf.
+        b, _, _, seq_len = qk.shape
+        causal_mask = torch.zeros((b, 1, 1, seq_len), dtype=torch.float32)
+        cur_t = _gmt_leaf_torch(cur_pos_tensor)
+        for i in range(b):
+            start_idx = int(cur_t[i].item())
+            causal_mask[i, :, :, start_idx + 1 :] = float("-inf")
+        qk = torch.add(qk, causal_mask)
 
     # Scale AFTER masking (tt-metal fuses scale into exp)
     if scale is not None:
