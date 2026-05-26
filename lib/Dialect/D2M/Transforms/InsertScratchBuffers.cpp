@@ -21,23 +21,8 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Fixed scratch buffer size in bytes used for every fused d2m.generic that
-// needs intermediate spills. We intentionally do NOT size the scratch buffer
-// based on the DST packing analysis, even though that analysis can produce a
-// tighter per-op estimate. The DST estimate is not a safe upper bound after
-// later passes (BlockFactorAnalysis / D2MGenerateOuterLoops) reshape the
-// per-iteration block: the scratch chunk emitted at codegen time can be larger
-// than what the DST analysis predicted at this point in the pipeline,
-// producing peak-scratch overflows in D2MLowerScratchAllocate (e.g. the
-// blackhole binary_tree[f32-2048x1024] regression: 9-tile buffer vs 14-tile
-// demand). Liveness-based slot reuse in D2MLowerScratchAllocate keeps the
-// effective L1 usage close to the true working set even when this nominal cap
-// is generous.
-//
-// TO-DO (ckaravasilis): replace this constant with a real upper-bound
-// computed here from each contained linalg op's worst-case per-core shard, or
-// move scratch sizing after D2MGenerateOuterLoops where the actual block
-// granularity is known.
+// Fixed scratch buffer size used for every fused d2m.generic that needs
+// intermediate spills.
 constexpr size_t kScratchSizeBytes = 128 * 1024;
 
 // Get the tile type from a memref type, if it has one.
@@ -82,10 +67,7 @@ static unsigned countLinalgGenerics(GenericOp genericOp) {
   return linalgCount;
 }
 
-// Compute the number of scratch tiles to allocate for a d2m.generic, in units
-// of `tileType`. Always returns the fixed kScratchSizeBytes converted to
-// tiles. See the comment on kScratchSizeBytes for why this is a fixed size
-// rather than an analysis-driven estimate.
+// Return kScratchSizeBytes expressed in tiles of `tileType` (at least 1).
 static size_t computeScratchNumTiles(ttcore::TileType tileType) {
   return std::max<size_t>(kScratchSizeBytes / tileType.getSizeBytes(), 1);
 }

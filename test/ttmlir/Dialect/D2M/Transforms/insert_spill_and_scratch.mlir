@@ -560,21 +560,10 @@ func.func @outer_scf_loops_get_fused(
 }
 
 // ---------------------------------------------------------------------------
-// Test: dependence-related sibling scratch_space_loop nests at the top of a
-//       generic body (no enclosing scf.for) are NOT fused at the affine level.
-//       Each producer keeps its own outer affine loop, the scratch shape
-//       retains the full row dimension, and the original unpack_stall_on_pack
-//       between producers and consumer is preserved as-is.
-//
-// Affine-level sibling fusion was previously driven from this pass as a
-// capacity-saving rewrite, but it was fragile (partial fusion left producer
-// and consumer scratch shapes with different ranks, breaking
-// `getConsumerScratchAccessMap`). Capacity is now enforced in
-// `D2MLowerScratchAllocate`, which packs slots with use-based liveness and
-// emits a clean diagnostic if peak demand actually exceeds the scratch
-// buffer. The scf.for-level fusion below (`outer_scf_loops_get_fused`) still
-// shares the outer iteration space across nests, which is what production
-// pipelines rely on.
+// Test: sibling scratch_space_loop nests at the top of a generic body stay
+//       separate affine nests (no affine-level fusion). Each producer keeps
+//       its full-rank scratch shape and the inter-loop unpack_stall_on_pack
+//       is preserved. Capacity sharing is delegated to D2MLowerScratchAllocate.
 // ---------------------------------------------------------------------------
 
 // CHECK-LABEL: func.func @dependent_sibling_scratch_loops_not_fused_at_affine_level

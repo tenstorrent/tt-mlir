@@ -943,18 +943,6 @@ private:
       return success();
     }
 
-    // Regather scratch loops after `fuseOuterScfLoops`. Sibling scratch-loop
-    // fusion as a capacity-saving rewrite is intentionally not driven from
-    // here: the previous demand estimate summed per-producer scratch volumes
-    // assuming no slot reuse, which over-counts by an order of magnitude on
-    // long chains and used to force `fuseScratchLoopSiblings` to run even
-    // when the chain would have fit. Partial sibling fusion left producer
-    // and consumer scratch shapes with different ranks, which
-    // `getConsumerScratchAccessMap`'s cross-step branch is not written to
-    // handle and produced ill-typed `affine.load`s. `D2MLowerScratchAllocate`
-    // now performs liveness-aware first-fit-decreasing packing of scratch
-    // slots and emits a clean diagnostic if peak usage actually exceeds the
-    // scratch buffer, so the conservative pre-check here is unnecessary.
     scratchSpaceLoops = collectScratchSpaceLoops(genericOp);
 
     // Collect structural information for each scratch_space_loop.
