@@ -1747,6 +1747,24 @@ void CoreIndexOp::inferResultRanges(
   setResultRange(getResult(), getIndexRange(0, gridShape[dim] - 1));
 }
 
+//===----------------------------------------------------------------------===//
+// MyThreadIdOp
+//===----------------------------------------------------------------------===//
+
+void MyThreadIdOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "tid");
+}
+
+void MyThreadIdOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  constexpr uint64_t kNumComputeThreadsPerNeo = 4;
+  // LowerComputeThreadTiling may lower 2-, 3-, or 4-way tiling, so the
+  // full Neo compute-thread range is a safe upper bound for every lowering.
+  setResultRange(getResult(), getIndexRange(0, kNumComputeThreadsPerNeo - 1));
+}
+
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult TileMatmulBlockOp::verify() {
   if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||

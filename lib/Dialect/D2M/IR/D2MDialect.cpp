@@ -32,13 +32,12 @@ using namespace mlir::tt::d2m;
 // Custom assembly format for D2M_ThreadAttr.
 //
 // Format:  `<` threadType (`,` kernelSymbol)?
-//               (`,` `processor` `=` processorIndex)? `>`
+//               (`,` `processor` `=` processorIndex)?
+//               (`,` `num_compute_threads` `=` numComputeThreads)? `>`
 //
-// The two optional groups both start with `,`, so the declarative tablegen
-// format cannot disambiguate them: it always tries to parse the kernel symbol
-// after the first comma and fails on
-// `#d2m.thread<datamovement, processor = 0>`. We peek for the `processor`
-// keyword to pick the correct branch.
+// The optional groups all start with `,`, so the declarative tablegen format
+// cannot disambiguate them when the kernel symbol is absent. We peek for
+// keywords to pick the right branch.
 mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   if (parser.parseLess()) {
     return {};
@@ -52,25 +51,47 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
 
   SymbolRefAttr kernelSymbol;
   int32_t processorIndex = -1;
+  int32_t numComputeThreads = -1;
+  bool parsedKernelSymbol = false;
+  bool parsedProcessorIndex = false;
+  bool parsedNumComputeThreads = false;
 
-  // First optional: either `, @kernel` or `, processor = N`.
-  if (parser.parseOptionalComma().succeeded()) {
+  while (parser.parseOptionalComma().succeeded()) {
     if (parser.parseOptionalKeyword("processor").succeeded()) {
+      if (parsedProcessorIndex) {
+        parser.emitError(parser.getCurrentLocation(),
+                         "duplicate processor in D2M_ThreadAttr");
+        return {};
+      }
       if (parser.parseEqual() || parser.parseInteger(processorIndex)) {
         return {};
       }
-    } else {
-      if (parser.parseAttribute(kernelSymbol)) {
+      parsedProcessorIndex = true;
+      continue;
+    }
+
+    if (parser.parseOptionalKeyword("num_compute_threads").succeeded()) {
+      if (parsedNumComputeThreads) {
+        parser.emitError(parser.getCurrentLocation(),
+                         "duplicate num_compute_threads in D2M_ThreadAttr");
         return {};
       }
-      // Second optional: only valid if a kernel symbol was given above.
-      if (parser.parseOptionalComma().succeeded()) {
-        if (parser.parseKeyword("processor") || parser.parseEqual() ||
-            parser.parseInteger(processorIndex)) {
-          return {};
-        }
+      if (parser.parseEqual() || parser.parseInteger(numComputeThreads)) {
+        return {};
       }
+      parsedNumComputeThreads = true;
+      continue;
     }
+
+    if (parsedKernelSymbol) {
+      parser.emitError(parser.getCurrentLocation(),
+                       "duplicate kernel symbol in D2M_ThreadAttr");
+      return {};
+    }
+    if (parser.parseAttribute(kernelSymbol)) {
+      return {};
+    }
+    parsedKernelSymbol = true;
   }
 
   if (parser.parseGreater()) {
@@ -78,7 +99,7 @@ mlir::Attribute ThreadAttr::parse(::mlir::AsmParser &parser, ::mlir::Type) {
   }
 
   return ThreadAttr::get(parser.getContext(), *threadType, kernelSymbol,
-                         processorIndex);
+                         processorIndex, numComputeThreads);
 }
 
 void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
@@ -91,8 +112,19 @@ void ThreadAttr::print(::mlir::AsmPrinter &printer) const {
   if (getProcessorIndex() != -1) {
     printer << ", processor = " << getProcessorIndex();
   }
+  if (getNumComputeThreads() != -1) {
+    printer << ", num_compute_threads = " << getNumComputeThreads();
+  }
   printer << ">";
 }
+
+//===----------------------------------------------------------------------===//
+// ComputeThreadMappingAttr - DeviceMappingAttrInterface methods.
+//===----------------------------------------------------------------------===//
+
+int64_t ComputeThreadMappingAttr::getMappingId() const { return 0; }
+bool ComputeThreadMappingAttr::isLinearMapping() const { return true; }
+int64_t ComputeThreadMappingAttr::getRelativeIndex() const { return 0; }
 
 #include "ttmlir/Dialect/D2M/IR/D2MOpsDialect.cpp.inc"
 

@@ -2907,6 +2907,21 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
     let hasVerifier = 1;
 }
 
+def D2M_MyThreadIdOp : D2M_GenericRegionOp<"my_thread_id",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+  ]> {
+    let summary = "Placeholder op to get the index of the current Tensix thread in a Neo";
+    let description = [{
+      The current Tensix thread index returned by this op is how work is divided between multiple Tensix threads in a Neo.
+      This placeholder op is only for compute and should not be used with for data movement.
+    }];
+
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ attr-dict `:` type($result) }];
+}
+
 def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
     let summary = "Mesh position op.";
     let description = [{

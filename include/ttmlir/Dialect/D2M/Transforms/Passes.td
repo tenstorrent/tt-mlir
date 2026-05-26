@@ -116,6 +116,49 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
   ];
 }
 
+def D2MDistributeComputeThreads : Pass<"d2m-distribute-compute-threads", "::mlir::ModuleOp"> {
+  let summary = "Distribute compute work across compute threads via scf.forall.";
+  let description = [{
+    Tiles eligible linalg.generic compute ops across one or two trivially
+    parallel output dimensions, producing scf.forall ops marked with
+    #d2m.compute_thread. Does not operate on datamovement threads.
+
+    The number of available compute threads is fixed by the pass implementation.
+  }];
+
+  list<Option> options = [
+    ListOption<"splitDims", "split-dims", "int64_t",
+           "Optional original loop dimension ids to distribute. Empty means automatic.">,
+    ListOption<"matmulInterchange", "matmul-interchange", "int64_t",
+           "Matmul interchange used before this pass; explicit split-dims are mapped through this permutation.">,
+  ];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
+def D2MLowerComputeThreadTiling : Pass<"d2m-lower-compute-thread-tiling", "::mlir::ModuleOp"> {
+  let summary = "Lower compute-thread scf.forall ops to d2m.my_thread_id.";
+  let description = [{
+    Lowers scf.forall ops marked with #d2m.compute_thread to D2M SPMD IR by
+    creating d2m.my_thread_id, substituting compute-thread induction variables,
+    and inlining the forall body. The pass only handles compute-thread foralls
+    inside d2m.generic compute regions.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "Tile linalg.generic compute loops to fit DST register capacity.";
   let description = [{

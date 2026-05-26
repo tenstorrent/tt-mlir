@@ -181,6 +181,15 @@ void createD2MBackendPipeline(OpPassManager &pm,
                               const D2MPipelineOptions &options) {
   pm.addPass(d2m::createD2MDecomposeArange());
 
+  if (options.enableComputeThreadTiling) {
+    d2m::D2MDistributeComputeThreadsOptions distributeOptions;
+    distributeOptions.splitDims =
+        llvm::to_vector(options.computeThreadSplitDims);
+    distributeOptions.matmulInterchange =
+        llvm::to_vector(options.matmulInterchange);
+    pm.addPass(d2m::createD2MDistributeComputeThreads(distributeOptions));
+  }
+
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
   {
     tileComputeLoopsOptions.maxDstPhysicalSizeTiles =
@@ -259,6 +268,10 @@ void createD2MBackendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MNormalizeThreadArgs());
 
   createOptimizationPasses(pm, options);
+
+  if (options.enableComputeThreadTiling) {
+    pm.addPass(d2m::createD2MLowerComputeThreadTiling());
+  }
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }

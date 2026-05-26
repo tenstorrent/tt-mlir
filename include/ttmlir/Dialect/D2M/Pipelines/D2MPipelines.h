@@ -222,6 +222,17 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::desc("Disable L1 accumulation (force reloading from L1 to DST "
                      "instead of accumulating partials in L1)."),
       llvm::cl::init(false)};
+
+  Option<bool> enableComputeThreadTiling{
+      *this, "enable-compute-thread-tiling",
+      llvm::cl::desc("Distribute compute work across compute threads via "
+                     "scf.forall with #d2m.compute_thread mapping."),
+      llvm::cl::init(false)};
+
+  ListOption<int64_t> computeThreadSplitDims{
+      *this, "compute-thread-split-dims",
+      llvm::cl::desc("Optional original loop dimension ids to distribute "
+                     "across compute threads.")};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm,

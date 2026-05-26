@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         DMAOptimizations.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp
+        DistributeComputeThreads.cpp
         GenericApplyInterchange.cpp
         GenericFusion.cpp
         GenericLinearizeMemref.cpp
@@ -16,6 +17,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         InsertDstRegisterAccess/Scheduled.cpp
         InsertTileMatmulBlock.cpp
         LinalgToAffine.cpp
+        LowerComputeThreadTiling.cpp
         LowerScratchAllocate.cpp
         LowerToLayout/LowerToLayout.cpp
         LowerToLayout/Plan.cpp
