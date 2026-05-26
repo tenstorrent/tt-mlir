@@ -508,7 +508,7 @@ static void applyCompositeViewUpdate(
              "CompositeViewOp input grid analysis is stale");
 
   SmallVector<Value> reblockedInputs;
-  for (auto [input, inputInfo] :
+  for (auto &&[input, inputInfo] :
        llvm::zip_equal(compositeView.getInputs(), info.compositeInputInfos)) {
     TT_assertv(
         input == inputInfo.input,
