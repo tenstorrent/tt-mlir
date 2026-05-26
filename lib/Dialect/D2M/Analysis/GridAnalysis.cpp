@@ -14,6 +14,8 @@
 
 #include "mlir/IR/BuiltinOps.h"
 
+#include <algorithm>
+
 namespace mlir::tt::d2m {
 
 bool GridAnalysis::isTTNNOperand(Value operand) {
