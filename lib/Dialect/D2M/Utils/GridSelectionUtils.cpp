@@ -264,10 +264,12 @@ llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
   return computeOptimalBlockShardedGrid(physicalShape, targetGrid);
 }
 
-llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
-                                                ArrayRef<int64_t> targetGrid,
-                                                bool ttnnMode) {
+enum class PhysicalShapePaddingMode { TileOnly, GridAware };
 
+static llvm::SmallVector<int64_t>
+computeTileAlignedPhysicalShape(mlir::Value operand,
+                                ArrayRef<int64_t> targetGrid, bool ttnnMode,
+                                PhysicalShapePaddingMode paddingMode) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
@@ -286,10 +288,14 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
     tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
   }
 
-  llvm::SmallVector<int64_t> alignments =
-      ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
-          layout.getLogicalShape(), targetGrid,
-          layout.getNormalizedIntervals());
+  llvm::SmallVector<int64_t> alignments;
+  if (paddingMode == PhysicalShapePaddingMode::GridAware) {
+    alignments = ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
+        layout.getLogicalShape(), targetGrid, layout.getNormalizedIntervals());
+  } else {
+    alignments = ttcore::MetalLayoutAttr::computeTileAlignments(
+        layout.getLogicalShape(), layout.getNormalizedIntervals());
+  }
 
   auto tempLayout = ttcore::MetalLayoutAttr::get(
       operand.getContext(), layout.getLogicalShape(), layout.getMemorySpace(),
@@ -297,6 +303,19 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
 
   return tempLayout.getPhysicalShape(
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
+}
+
+llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
+                                                ArrayRef<int64_t> targetGrid,
+                                                bool ttnnMode) {
+  return computeTileAlignedPhysicalShape(operand, targetGrid, ttnnMode,
+                                         PhysicalShapePaddingMode::GridAware);
+}
+
+llvm::SmallVector<int64_t> computeGridSearchPhysicalShape(mlir::Value operand,
+                                                          bool ttnnMode) {
+  return computeTileAlignedPhysicalShape(operand, {}, ttnnMode,
+                                         PhysicalShapePaddingMode::TileOnly);
 }
 
 int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,

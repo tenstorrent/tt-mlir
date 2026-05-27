@@ -87,6 +87,12 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
                                                 ArrayRef<int64_t> targetGrid,
                                                 bool ttnnMode);
 
+// Compute the tile-aligned physical shape used for grid search. This
+// deliberately ignores grid-aware padding because padding is applied after the
+// grid decision is final.
+llvm::SmallVector<int64_t> computeGridSearchPhysicalShape(mlir::Value operand,
+                                                          bool ttnnMode);
+
 // Create a new MetalLayoutAttr with grid-aware dimension alignments for the
 // given selected grid. The tile shape is empty for row-major tensors.
 ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,

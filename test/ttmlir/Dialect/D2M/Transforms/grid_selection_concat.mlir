@@ -71,11 +71,11 @@ module attributes {ttcore.device = #any_device_3} {
 module attributes {ttcore.device = #any_device_4} {
   func.func @concat_row_major(%arg0: tensor<136x448xf32>, %arg1: tensor<136x448xf32>) -> tensor<272x448xf32> {
     // CHECK-LABEL: func.func @concat_row_major
-    // CHECK: d2m.to_layout %arg0, %{{.*}} : tensor<136x448xf32> into tensor<5x8x32x64xf32
-    // CHECK: d2m.to_layout %arg1, %{{.*}} : tensor<136x448xf32> into tensor<5x8x32x64xf32
+    // CHECK: d2m.to_layout %arg0, %{{.*}} : tensor<136x448xf32> into tensor<2x14x80x32xf32
+    // CHECK: d2m.to_layout %arg1, %{{.*}} : tensor<136x448xf32> into tensor<2x14x80x32xf32
     // CHECK: d2m.composite_view
     // CHECK: d2m.generic
-    // CHECK: d2m.to_layout %{{.*}}, %{{.*}} : tensor<8x8x64x64xf32{{.*}} into tensor<272x448xf32>
+    // CHECK: d2m.to_layout %{{.*}}, %{{.*}} : tensor<3x14x96x32xf32{{.*}} into tensor<272x448xf32>
     %0 = "ttir.concat"(%arg0, %arg1) <{dim = 0 : si32}> : (tensor<136x448xf32>, tensor<136x448xf32>) -> tensor<272x448xf32>
     return %0 : tensor<272x448xf32>
   }
