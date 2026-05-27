@@ -2,10 +2,9 @@
 // RUN: ttmlir-opt --ttnn-collect-perf-metrics="ttnn-perf-metrics-output-file=%t.dir/out.json" %s -o /dev/null
 // RUN: cat %t.dir/out.json | FileCheck %s
 
-// Wormhole B0 chip desc; one Parameter arg (BF16 tile, 64x64 = 4096 scalars),
-// one KV cache arg (32x32 = 1024 scalars), one Input arg (ignored for params
-// + kv accounting).
-// Numeric CHECK values are regenerated against the actual emitted JSON.
+// Wormhole B0 chip desc; the forward function has no matmul ops, so the
+// matmul-driven roofline / param accumulators all stay at zero. This test
+// pins the JSON shape (perf_targets block keys, no kv_cache key).
 
 #system_desc = #ttcore.system_desc<[{
   role = host, target_triple = "x86_64-pc-linux"
@@ -48,16 +47,17 @@ module attributes {ttcore.system_desc = #system_desc} {
 // CHECK: "perf_targets":
 // CHECK: "arch": "wormhole_b0"
 // CHECK: "dram_bandwidth_bytes_per_sec": 288000000000
-// CHECK: "kv_cache":
-// CHECK: "count": 1024
-// CHECK: "memory_bytes": 2048
-// CHECK: "memory_bytes_bfp8": 1056
+// CHECK-NOT: "kv_cache":
+// CHECK: "matmul":
+// CHECK: "compute_bound_ops": 0
+// CHECK: "dram_bound_ops": 0
+// CHECK: "roofline_time_us": 0
 // CHECK: "num_chips": 1
 // CHECK: "params":
-// CHECK: "count": 4096
-// CHECK: "memory_bytes": 8192
-// CHECK: "memory_bytes_bfp8": 4224
+// CHECK: "count": 0
+// CHECK: "memory_bytes": 0
+// CHECK-NOT: "memory_bytes_bfp8":
 // CHECK: "roofline":
-// CHECK: "dram_time_ms":
-// CHECK: "top_perf_samples_per_sec":
-// CHECK: "top_perf_time_ms":
+// CHECK-NOT: "dram_time_ms":
+// CHECK: "top_perf_samples_per_sec": 0
+// CHECK: "top_perf_time_ms": 0

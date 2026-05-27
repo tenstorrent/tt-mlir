@@ -25,7 +25,9 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <cassert>
+#include "mlir/IR/Builders.h"
 #include <string>
 
 namespace mlir::tt::ttnn {
@@ -79,67 +81,89 @@ struct AggregatedMetrics {
 };
 
 //===----------------------------------------------------------------------===//
-// DRAM-bound top-perf calculation
+// Per-matmul roofline
 //
-// Emits a theoretical performance ceiling under the assumption that every
-// forward pass is bottlenecked by reading weights and KV cache from DRAM.
-// The result lands in the `perf_targets` section of the JSON output.
+// Walks every ttnn.matmul in the forward function and, for each op, computes
+// the time to fetch the weight (rhs) from DRAM and the time to do the
+// tile-multiplies at peak compute, takes max(dram_us, compute_us), and sums.
+// The sum is divided by a fixed utilization factor at the end to land on a
+// realistic single-step wall-clock estimate.
 //
 // Process
 //   1. Pick the entry point: the unique public forward-device function.
 //      Hard fail if not exactly one, if `ttcore.system_desc` is missing,
-//      or if the arch (currently Quasar) has no calibrated bandwidth.
-//   2. Walk *only the forward function's argument list* (no op-graph
-//      walk). Each tensor arg is bucketed via existing ttcore attributes:
-//        - `ttcore.kv_cache` present       → KV cache bytes
-//        - `ttcore.argument_type != Input` → parameter bytes
-//                                            (Parameter / Constant / Default)
-//        - Input args                      → ignored (activations).
-//   3. Normalize both totals to BFP8-equivalent storage
-//      (1056 B / 32x32 tile = 1.03125 B / scalar), independent of how the
-//      IR has encoded the arg dtype.
-//   4. `dram_time_ms = total_bytes / dram_peak_bandwidth`,
-//      `top_perf_time_ms = dram_time_ms`,
-//      `top_perf_samples_per_sec = 1000 / top_perf_time_ms`.
+//      or if the arch (currently Quasar) has no calibrated constants.
+//   2. Per-arch hardware constants: DRAM bandwidth (B/s), AICLK (Hz), and
+//      the worker-grid Tensix-core count from `ChipDescAttr.getGrid()`.
+//   3. Per matmul:
+//        - rhs scalar count → BFP8 bytes (1056 / 1024 ≈ 1.03125 B/scalar).
+//        - M/K/N from scalar shapes, batch from result shape; tile-mul work
+//          = batch × ceil(M/32) × ceil(K/32) × ceil(N/32).
+//        - dram_us  = rhsBytes / dramBandwidth.
+//        - compute_us = (tileMuls × 32) / (numTensixCores × aiclkHz)
+//          (HiFi2 baseline: 32 cycles per 32×32×32 tile-mul on one Tensix
+//           matrix engine; full-grid parallelism).
+//        - bound = dram_us ≥ compute_us ? DRAM : COMPUTE.
+//        - Accumulate max(dram_us, compute_us) into rooflineTimeUs,
+//          and rhs scalars / bytes into paramCount / paramMemoryBytes.
+//   4. After the walk, divide rooflineTimeUs by kUtilizationFactor
+//      (0.7 — conservative end of the 83–90 % measured range in
+//       tt-metal/tech_reports/Saturating_DRAM_bandwidth.md). Mirror into
+//      topPerfTimeMs / topPerfSamplesPerSec.
 //
 // Assumptions
-//   - DRAM-bound regime. Compute (FLOPs vs TFLOPS), L1/SRAM, dispatch,
-//     kernel-launch overhead, host transfers, and inter-chip traffic are
-//     all ignored.
-//   - All weights assumed to be BFP8.
-//   - Relies on the front end labelling Parameter / Constant / kv_cache on
-//     args correctly.
-//   - Peak per-arch DRAM bandwidth, hardcoded:
-//       Wormhole B0 = 288 GB/s (12-channel GDDR6 aggregate),
-//       Blackhole  = 512 GB/s (placeholder until measured),
-//       Quasar     = uncalibrated (hard fail).
-//     Not pulled from `ChipDescAttr`; not derated for attainable / memory
-//     controller efficiency / access pattern; Galaxy effective bandwidth
-//     differs.
+//   - DRAM-bound regime is typical (and is observed on LLM decode), but the
+//     bound classification picks the per-op winner; compute-bound ops
+//     contribute their compute time to the sum.
+//   - All weights are treated as BFP8 for byte accounting, independent of
+//     how the IR has encoded the rhs dtype.
+//   - Per-arch hardware constants (hardcoded; not pulled from ChipDescAttr):
+//       Wormhole B0 = 288 GB/s, 1.00 GHz, grid from chip desc (e.g. 64).
+//       Blackhole   = 512 GB/s, 1.35 GHz, grid from chip desc (e.g. 130).
+//       Quasar      = uncalibrated (hard fail).
+//     Not derated for attainable bandwidth, memory-controller efficiency,
+//     or access pattern; Galaxy effective bandwidth differs.
 //   - Single-chip only. Multi-chip system_desc is a soft skip (multi-chip
 //     / tensor-parallel accounting is not yet implemented).
-//   - Strict roofline, alpha = 1.0. `top_perf_time_ms = dram_time_ms`
-//     directly — no safety factor, no min(dram, compute) blend. The
-//     emitted number is a pure theoretical ceiling for consumers to
-//     compare measurements against.
+//   - 32 cycles per 32×32×32 tile-mul = HiFi2 baseline (LoFi 16, HiFi3 48,
+//     HiFi4 64; tt-metal/tech_reports/GEMM_FLOPS/GEMM_FLOPS.md:101).
+//   - Compute is assumed to fully parallelize across the worker grid.
+//   - Only the matmul rhs (weight) DRAM read is counted. Activation reuse,
+//     L1 traffic, dispatch overhead, host transfers, KV-cache reads outside
+//     of attention matmuls, and inter-chip traffic are all ignored.
 //   - One sample == one invocation. `samples_per_sec` assumes a single
-//     forward call yields a single sample (one token for decode, one
-//     image for vision); consumers must interpret accordingly.
+//     forward call yields a single sample (one token for decode, one image
+//     for vision); consumers must interpret accordingly.
 //===----------------------------------------------------------------------===//
 struct PerfTargets {
   ttcore::Arch arch = ttcore::Arch::WormholeB0;
   unsigned numChips = 0;
   uint64_t dramBandwidthBytesPerSec = 0;
+  // AICLK (Tensix core clock). Used to convert peak DRAM B/s into B/cycle so
+  // we can compare against per-tile compute cycle counts. Sources:
+  // tt-metal/tech_reports/GEMM_FLOPS/GEMM_FLOPS.md (WH 1 GHz, BH 1.35 GHz).
+  uint64_t aiclkHz = 0;
+  // Worker-grid Tensix-core count (product of ChipDescAttr.getGrid()). Used
+  // to convert serial compute cycles into chip-level cycles for the bound
+  // comparison.
+  uint64_t numTensixCores = 0;
 
+  // Per-matmul roofline classification, summed across all matmuls in the
+  // forward function. rooflineTimeUs is the sum of per-matmul
+  // max(dram_us, compute_us) — the simplest single-op roofline — divided
+  // by a fixed utilization factor (see kUtilizationFactor in
+  // runOnOperation). The bound counts are classified against the peak
+  // numbers, before the derate.
+  uint64_t dramBoundOps = 0;
+  uint64_t computeBoundOps = 0;
+  double rooflineTimeUs = 0.0;
+
+  // Sum of weight (rhs) scalars / bytes across every matmul. Reflects the
+  // total weight stream the forward pass reads from DRAM, accumulated
+  // alongside rooflineTimeUs in the matmul walk.
   uint64_t paramCount = 0;
   uint64_t paramMemoryBytes = 0;
-  uint64_t paramMemoryBytesBfp8 = 0;
 
-  uint64_t kvCacheCount = 0;
-  uint64_t kvCacheMemoryBytes = 0;
-  uint64_t kvCacheMemoryBytesBfp8 = 0;
-
-  double dramRooflineTimeMs = 0.0;
   double topPerfTimeMs = 0.0;
   double topPerfSamplesPerSec = 0.0;
 };
@@ -265,12 +289,19 @@ private:
                                        ttcore::ChipDescAttr chipDesc,
                                        ModuleOp module) {
     t.arch = chipDesc.getArch().getValue();
+    // Worker-grid Tensix-core count from the chip desc.
+    t.numTensixCores = 1;
+    for (int64_t d : chipDesc.getGrid()) {
+      t.numTensixCores *= static_cast<uint64_t>(d);
+    }
     switch (t.arch) {
     case ttcore::Arch::WormholeB0:
       t.dramBandwidthBytesPerSec = 288ULL * 1000ULL * 1000ULL * 1000ULL;
+      t.aiclkHz = 1000ULL * 1000ULL * 1000ULL; // 1.0 GHz
       return success();
     case ttcore::Arch::Blackhole:
       t.dramBandwidthBytesPerSec = 512ULL * 1000ULL * 1000ULL * 1000ULL;
+      t.aiclkHz = 1350ULL * 1000ULL * 1000ULL; // 1.35 GHz
       return success();
     case ttcore::Arch::Quasar:
       return module.emitError()
@@ -280,43 +311,7 @@ private:
     llvm_unreachable("unknown ttcore::Arch value");
   }
 
-  // Walk forward-function arguments only — no op-graph traversal. Classify
-  // each arg via the existing ttcore.argument_type and ttcore.kv_cache attrs.
-  void collectArgumentStats(PerfTargets &t, func::FuncOp funcOp) {
-    for (BlockArgument arg : funcOp.getArguments()) {
-      auto tensorType = mlir::dyn_cast<RankedTensorType>(arg.getType());
-      if (!tensorType) {
-        continue;
-      }
-      // TTNN forward args carry a scalar element type with TTNNLayoutAttr
-      // encoding. A TileType element would mean the outer shape is in
-      // tile counts, breaking the scalarVol/byte math below.
-      assert(!mlir::isa<ttcore::TileType>(tensorType.getElementType()) &&
-             "TTNNCollectPerfMetrics: unexpected TileType element on "
-             "forward arg; expected scalar element + TTNNLayoutAttr "
-             "encoding.");
-      uint64_t scalarVol = static_cast<uint64_t>(tensorType.getNumElements());
-      uint64_t bytes = getTensorMemoryBytes(tensorType);
-      unsigned idx = arg.getArgNumber();
-
-      if (ttcore::isKVCacheArgument(funcOp, idx)) {
-        t.kvCacheCount += scalarVol;
-        t.kvCacheMemoryBytes += bytes;
-        continue;
-      }
-
-      // Parameter / Constant / Default — everything that isn't a runtime
-      // input contributes to the DRAM-bound weight stream.
-      if (ttcore::getFunctionArgumentType(funcOp, idx) !=
-          ttcore::ArgumentType::Input) {
-        t.paramCount += scalarVol;
-        t.paramMemoryBytes += bytes;
-      }
-    }
-  }
-
-  FailureOr<PerfTargets> computePerfTargets(ModuleOp module,
-                                            func::FuncOp forwardFunc) {
+  FailureOr<PerfTargets> computePerfTargets(ModuleOp module) {
     PerfTargets perfTargets;
     auto systemDescAttr = module->getAttrOfType<ttcore::SystemDescAttr>(
         ttcore::SystemDescAttr::name);
@@ -338,38 +333,6 @@ private:
     if (failed(populateHardwareLimits(perfTargets, chipDescs[0], module))) {
       return failure();
     }
-    collectArgumentStats(perfTargets, forwardFunc);
-
-    // Normalize weight / KV bytes to BFP8 storage independent of the
-    // encoded dtype in the IR. The tt-mlir TTNN runtime pipeline pushes
-    // weights through BFP8 by default; the few tensors that stay BF16
-    // (norms, RoPE inv_freq) are small enough that rounding them down
-    // doesn't move the DRAM math materially. This keeps the ceiling stable
-    // across front-end dtype annotations.
-    // BFP8 tile: 1056 B per 32x32 tile = 1056/1024 ≈ 1.03125 B / scalar.
-    constexpr double kBfp8BytesPerElement = 1056.0 / 1024.0;
-    auto bytesAtBfp8 = [](uint64_t count) {
-      return static_cast<uint64_t>(
-          static_cast<double>(count) * kBfp8BytesPerElement + 0.5);
-    };
-    perfTargets.paramMemoryBytesBfp8 = bytesAtBfp8(perfTargets.paramCount);
-    perfTargets.kvCacheMemoryBytesBfp8 = bytesAtBfp8(perfTargets.kvCacheCount);
-
-    uint64_t totalDramBytes =
-        perfTargets.paramMemoryBytesBfp8 + perfTargets.kvCacheMemoryBytesBfp8;
-    assert(perfTargets.dramBandwidthBytesPerSec > 0 &&
-           "TTNNCollectPerfMetrics: DRAM bandwidth must be populated before "
-           "computing the roofline.");
-    double dramTimeSec =
-        static_cast<double>(totalDramBytes) /
-        static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
-    perfTargets.dramRooflineTimeMs = dramTimeSec * 1000.0;
-    // Strict roofline: top_perf_time_ms = dram_time_ms (alpha = 1.0). The
-    // emitted number is a theoretical ceiling consumers can compare against.
-    perfTargets.topPerfTimeMs = perfTargets.dramRooflineTimeMs;
-    perfTargets.topPerfSamplesPerSec = perfTargets.topPerfTimeMs > 0.0
-                                           ? 1000.0 / perfTargets.topPerfTimeMs
-                                           : 0.0;
     return perfTargets;
   }
 
@@ -384,20 +347,18 @@ private:
     llvm::json::Object params;
     params["count"] = static_cast<int64_t>(t.paramCount);
     params["memory_bytes"] = static_cast<int64_t>(t.paramMemoryBytes);
-    params["memory_bytes_bfp8"] = static_cast<int64_t>(t.paramMemoryBytesBfp8);
     pt["params"] = std::move(params);
 
-    llvm::json::Object kv;
-    kv["count"] = static_cast<int64_t>(t.kvCacheCount);
-    kv["memory_bytes"] = static_cast<int64_t>(t.kvCacheMemoryBytes);
-    kv["memory_bytes_bfp8"] = static_cast<int64_t>(t.kvCacheMemoryBytesBfp8);
-    pt["kv_cache"] = std::move(kv);
-
     llvm::json::Object rl;
-    rl["dram_time_ms"] = t.dramRooflineTimeMs;
     rl["top_perf_time_ms"] = t.topPerfTimeMs;
     rl["top_perf_samples_per_sec"] = t.topPerfSamplesPerSec;
     pt["roofline"] = std::move(rl);
+
+    llvm::json::Object mm;
+    mm["dram_bound_ops"] = static_cast<int64_t>(t.dramBoundOps);
+    mm["compute_bound_ops"] = static_cast<int64_t>(t.computeBoundOps);
+    mm["roofline_time_us"] = t.rooflineTimeUs;
+    pt["matmul"] = std::move(mm);
 
     jsonOutput["perf_targets"] = std::move(pt);
   }
@@ -507,8 +468,7 @@ public:
         return;
       }
 
-      FailureOr<PerfTargets> computed =
-          computePerfTargets(module, outerFuncs.front());
+      FailureOr<PerfTargets> computed = computePerfTargets(module);
       if (failed(computed)) {
         signalPassFailure();
         return;
@@ -526,6 +486,100 @@ public:
           return;
         }
       }
+
+      funcOp->walk([&](MatmulOp op) {
+        // For each matmul calculate the number of bytes read from the weight
+        // (rhs) and the number of 32x32x32 tile-multiply units of work.
+        auto rhsType = mlir::dyn_cast<RankedTensorType>(op.getB().getType());
+        auto lhsType = mlir::dyn_cast<RankedTensorType>(op.getA().getType());
+        auto resultType =
+            mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
+        assert(rhsType && lhsType && resultType &&
+               "TTNNCollectPerfMetrics: matmul operands and result must be "
+               "ranked tensors.");
+        // TTNN forward IR carries scalar element type on tensors; tile/dtype
+        // info lives on the TTNNLayoutAttr encoding.
+        assert(!mlir::isa<ttcore::TileType>(rhsType.getElementType()) &&
+               !mlir::isa<ttcore::TileType>(lhsType.getElementType()) &&
+               !mlir::isa<ttcore::TileType>(resultType.getElementType()) &&
+               "TTNNCollectPerfMetrics: expected scalar element type on "
+               "matmul operands and result.");
+
+        ArrayRef<int64_t> lhsShape = lhsType.getShape();
+        ArrayRef<int64_t> rhsShape = rhsType.getShape();
+        ArrayRef<int64_t> resultShape = resultType.getShape();
+        assert(lhsShape.size() >= 2 && rhsShape.size() >= 2 &&
+               resultShape.size() >= 2 &&
+               "TTNNCollectPerfMetrics: matmul shapes must be at least 2D.");
+
+        // M, K, N from the scalar shapes. Last two dims of lhs are (M, K),
+        // last dim of rhs is N. transpose_a/transpose_b are ignored here —
+        // they swap which dim is which but don't change the total work.
+        uint64_t M = static_cast<uint64_t>(lhsShape[lhsShape.size() - 2]);
+        uint64_t K = static_cast<uint64_t>(lhsShape[lhsShape.size() - 1]);
+        uint64_t N = static_cast<uint64_t>(rhsShape[rhsShape.size() - 1]);
+
+        // Round M, K, N up to 32 and count 32x32x32 tile-multiply units.
+        auto roundUp32 = [](uint64_t x) { return (x + 31) & ~uint64_t{31}; };
+        uint64_t mUnits = roundUp32(M) / 32;
+        uint64_t kUnits = roundUp32(K) / 32;
+        uint64_t nUnits = roundUp32(N) / 32;
+
+        // Batch dims come from the result shape (already reflects any lhs/rhs
+        // broadcasting).
+        uint64_t batch = 1;
+        for (size_t i = 0; i + 2 < resultShape.size(); ++i) {
+          batch *= static_cast<uint64_t>(resultShape[i]);
+        }
+        uint64_t tileMuls = batch * mUnits * kUnits * nUnits;
+
+        // Bytes read from the weight (rhs) — scalar element count at BFP8
+        // (1056 bytes / 1024 scalars = 1.03125 B / scalar).
+        assert(utils::getBufferTypeFromTensor(rhsType) == BufferType::DRAM &&
+               "TTNNCollectPerfMetrics: expected matmul rhs (weight) to be in "
+               "DRAM.");
+        uint64_t rhsScalars = static_cast<uint64_t>(rhsType.getNumElements());
+        uint64_t rhsBytes = static_cast<uint64_t>(
+            static_cast<double>(rhsScalars) * 1056.0 / 1024.0 + 0.5);
+
+        // Accumulate the rhs weight stream — useful as a sanity-check
+        // alongside the time-based roofline.
+        perfTargets.paramCount += rhsScalars;
+        perfTargets.paramMemoryBytes += getTensorMemoryBytes(rhsType);
+
+        // Compute vs DRAM-bound classification, directly in us.
+        //
+        // Skip when populateHardwareLimits hasn't populated these (e.g.
+        // multi-chip soft-skip leaves dramBandwidthBytesPerSec / aiclkHz /
+        // numTensixCores all zero).
+        if (perfTargets.dramBandwidthBytesPerSec == 0 ||
+            perfTargets.aiclkHz == 0 || perfTargets.numTensixCores == 0) {
+          return;
+        }
+
+        // DRAM time: bytes / (bytes/sec) = sec, × 1e6 = us. Aggregate chip
+        // bandwidth.
+        double dramUs =
+            static_cast<double>(rhsBytes) * 1.0e6 /
+            static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
+
+        // Compute time at HiFi2: 32 cycles per 32x32x32 tile-mul on one
+        // Tensix matrix engine; the chip runs numTensixCores tile-muls in
+        // parallel at AICLK. Assumes the matmul parallelizes across the full
+        // worker grid (best-case roofline).
+        constexpr uint64_t kCyclesPerTileMatmulHiFi2 = 32;
+        double computeUs =
+            static_cast<double>(tileMuls * kCyclesPerTileMatmulHiFi2) * 1.0e6 /
+            static_cast<double>(perfTargets.numTensixCores *
+                                perfTargets.aiclkHz);
+
+        perfTargets.rooflineTimeUs += std::max(dramUs, computeUs);
+        if (dramUs >= computeUs) {
+          perfTargets.dramBoundOps++;
+        } else {
+          perfTargets.computeBoundOps++;
+        }
+      });
 
       // First pass: identify DRAM spills
       identifyDRAMSpills(funcOp, spilledValues);
@@ -593,6 +647,22 @@ public:
     });
 
     aggregatedMetrics.calculatePercentages();
+
+    // Derate the per-matmul roofline by a fixed utilization factor. The peak
+    // DRAM math assumes 288 GB/s on WH B0 but tt-metal's
+    // tech_reports/Saturating_DRAM_bandwidth.md measures real matmul reads at
+    // ~83-90% of peak; 0.7 is the conservative end of that range and lines up
+    // with published Llama 3 8B decode tok/sec on n150. Apply once at the
+    // end so the per-op classification still uses the peak numbers.
+    constexpr double kUtilizationFactor = 0.7;
+    perfTargets.rooflineTimeUs /= kUtilizationFactor;
+
+    // Mirror the per-matmul total into the ms-scale roofline fields so the
+    // perf_targets.roofline block carries the realistic wall-clock estimate.
+    perfTargets.topPerfTimeMs = perfTargets.rooflineTimeUs / 1000.0;
+    perfTargets.topPerfSamplesPerSec = perfTargets.topPerfTimeMs > 0.0
+                                           ? 1000.0 / perfTargets.topPerfTimeMs
+                                           : 0.0;
 
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);
