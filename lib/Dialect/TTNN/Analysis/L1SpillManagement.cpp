@@ -927,16 +927,12 @@ void L1SpillManagement<MemoryTracker>::insertReshardIntoSchedule(
   }
   data.positionMap[reshardOp] = consumerPos;
 
-  // Shift lastUsePositions for all values whose last use is now past the
-  // insertion point, so processDeadTensors frees them at the right time.
-  for (auto &[val, lastUse] : data.lastUsePositions) {
-    if (lastUse >= consumerPos) {
-      ++lastUse;
-    }
-  }
-  // Reshard's last use is the consumer (now at consumerPos + 1).
+  // Keep lastUsePositions in original-coordinate space so liveSet heap entries
+  // pushed before and after this insertion stay comparable (no priority drift).
+  // deathSchedule is maintained separately in shifted space and owns correctness
+  // for processDeadTensors; lastUsePositions is only used for liveSet priorities.
   int64_t reshardLastUse = consumerPos + 1;
-  data.lastUsePositions[reshardResult] = reshardLastUse;
+  data.lastUsePositions[reshardResult] = consumerPos;
 
   // Rebuild deathSchedule with shifted keys (simpler than in-place shift on a
   // DenseMap where keys can't be updated).
