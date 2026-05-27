@@ -23,8 +23,8 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::PrepareConv2dBiasOpResult result =
-      ttnn_op_invoke::callPrepareConv2dBias(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &biasTensor, targetDevice);
+      ttnn_op_invoke::callPrepareConv2dBias(ttnn_op_invoke::CallType::EXECUTE,
+                                            opT, &biasTensor, targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callPrepareConv2dBias execution");

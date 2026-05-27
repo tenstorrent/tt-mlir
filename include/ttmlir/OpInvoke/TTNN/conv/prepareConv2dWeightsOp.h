@@ -41,11 +41,9 @@ struct PrepareConv2dWeightsResolvedParams {
 PrepareConv2dWeightsResolvedParams resolvePrepareConv2dWeightsParams(
     const ::tt::target::ttnn::PrepareConv2dWeightsOpT &opT, CallType callType);
 
-PrepareConv2dWeightsOpResult
-callPrepareConv2dWeights(CallType callType,
-                         const ::tt::target::ttnn::PrepareConv2dWeightsOpT &opT,
-                         TensorArg weightTensor,
-                         ::ttnn::MeshDevice &targetDevice);
+PrepareConv2dWeightsOpResult callPrepareConv2dWeights(
+    CallType callType, const ::tt::target::ttnn::PrepareConv2dWeightsOpT &opT,
+    TensorArg weightTensor, ::ttnn::MeshDevice &targetDevice);
 
 } // namespace ttnn_op_invoke
 
