@@ -3839,20 +3839,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GroupNormOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // ttnn::group_norm requires core_grid to be explicitly specified.
-    // If the op doesn't have it set, derive it from the device's worker grid.
-    mlir::Attribute coreGridArg;
-    if (srcOp.getCoreGrid()) {
-      coreGridArg = emitter.emit<::ttnn::CoreGrid>(srcOp.getCoreGrid());
-    } else {
-      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
-      auto gridShape = deviceAttr.getWorkerGrid().getShape();
-      // GridAttr shape is [y, x], CoreCoordAttr takes (x, y).
-      auto defaultCoreGrid = mlir::tt::ttnn::CoreCoordAttr::get(
-          rewriter.getContext(), gridShape[1], gridShape[0]);
-      coreGridArg = emitter.emit<::ttnn::CoreGrid>(defaultCoreGrid);
-    }
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getNumGroups()),
@@ -3863,10 +3849,10 @@ public:
         emitter.emit(/* reciprocals= */ std::nullopt),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         emitter.emit(/* dtype= */ std::nullopt),
-        coreGridArg,
+        emitter.emit(/* core_grid= */ std::nullopt),
         emitter.emit(/* inplace= */ std::nullopt),
         emitter.emit(/* output_layout= */ std::nullopt),
-        emitter.emit(/* num_out_blocks= */ -1),
+        emitter.emit(/* num_out_blocks= */ std::nullopt),
     };
 
     emitter.replaceOp(*this, args);

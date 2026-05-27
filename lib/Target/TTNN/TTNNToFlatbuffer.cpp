@@ -1740,17 +1740,9 @@ createOp(FlatbufferObjectCache &cache, GroupNormOp op) {
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       toFlatbuffer(cache, op.getMemoryConfigAttr());
 
-  // Handle optional core_grid attribute
-  const ::tt::target::ttnn::CoreCoord *coreGridPtr = nullptr;
-  ::tt::target::ttnn::CoreCoord coreGridVal;
-  if (auto coreGridAttr = op.getCoreGrid()) {
-    coreGridVal = toFlatbuffer(cache, *coreGridAttr);
-    coreGridPtr = &coreGridVal;
-  }
-
   return ::tt::target::ttnn::CreateGroupNormOp(
       *cache.fbb, input, inputMask, weight, bias, op.getNumGroups(),
-      op.getEpsilon().convertToFloat(), memoryConfig, output, coreGridPtr);
+      op.getEpsilon().convertToFloat(), memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>

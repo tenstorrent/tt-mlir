@@ -3599,16 +3599,18 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
 
   int64_t channelDim = inputShape[3];
 
-  if (channelDim % 32 != 0) {
-    return emitOpError("channel dimension (last dim) must be divisible by 32, "
-                       "got C=")
-           << channelDim;
-  }
-
   if (channelDim % numGroups != 0) {
     return emitOpError("channel dimension (last dim) must be divisible by "
                        "num_groups; got C=")
            << channelDim << ", num_groups=" << numGroups;
+  }
+
+  // input_mask is sized against (C, num_groups), so the channel-padding
+  // workaround cannot fix a non-tile-aligned C when input_mask is present.
+  if (getInputMask() && channelDim % 32 != 0) {
+    return emitOpError("input_mask is not supported when channel dimension is "
+                       "not tile-aligned (multiple of 32); got C=")
+           << channelDim;
   }
 
   if (getWeight()) {
