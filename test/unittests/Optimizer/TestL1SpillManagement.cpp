@@ -27,13 +27,12 @@ TEST_F(LinearChainTest, SpillsFirstProducerWhenSecondCausesOOM) {
   auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/800 * kKiB);
   auto *opB = addUnary(args[0], tt, /*l1UsageBytes=*/800 * kKiB);
   auto *opJoin = addBinary(opA->getResult(0), opB->getResult(0), tt,
-                            /*l1UsageBytes=*/100 * kKiB);
+                           /*l1UsageBytes=*/100 * kKiB);
   finishFunc({opJoin->getResult(0)});
 
   auto [obs] = run();
 
-  EXPECT_EQ(countSpills(), 1u)
-      << "expected one spill-to-DRAM ToMemoryConfigOp";
+  EXPECT_EQ(countSpills(), 1u) << "expected one spill-to-DRAM ToMemoryConfigOp";
   EXPECT_TRUE(wasSpilled(opA->getResult(0)))
       << "opA (only live tensor at OOM) should be spilled";
   ASSERT_EQ(obs->evictions.size(), 1u);
@@ -58,13 +57,13 @@ TEST_F(FarthestLastUseOrderingTest, EvictsFarthestNotNearest) {
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  auto *opA        = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
-  auto *opB        = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opB = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
   auto *opPressure = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
-  auto *opLastB    = addUnary(opB->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
-  auto *opLastA    = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
-  finishFunc({opPressure->getResult(0), opLastB->getResult(0),
-              opLastA->getResult(0)});
+  auto *opLastB = addUnary(opB->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
+  auto *opLastA = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
+  finishFunc(
+      {opPressure->getResult(0), opLastB->getResult(0), opLastA->getResult(0)});
 
   auto [obs] = run();
 
@@ -146,8 +145,7 @@ TEST_F(NotImplementedTest, EvictsAllLiveTensorsBeforeNotImplementedOp) {
       << "opA should be spilled before NotImplemented opC";
   EXPECT_TRUE(wasSpilled(opB->getResult(0)))
       << "opB should be spilled before NotImplemented opC";
-  EXPECT_GE(countSpills(), 2u)
-      << "at least 2 spill-to-DRAM ops expected";
+  EXPECT_GE(countSpills(), 2u) << "at least 2 spill-to-DRAM ops expected";
   // evictAllFromL1 calls onEviction for each victim.
   EXPECT_EQ(obs->evictions.size(), 2u)
       << "evictAllFromL1 should record exactly 2 eviction events (A and B)";
@@ -170,17 +168,17 @@ TEST_F(NotImplementedPostFlushTest, PostFlushAllocationSeesEmptyTracker) {
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  auto *opA         = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
-  auto *opB         = addUnary(args[0], tt, /*l1UsageBytes=*/400 * kKiB);
-  auto *opC         = addBinary(opA->getResult(0), opB->getResult(0), tt,
-                                 /*l1UsageBytes=*/0);
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB = addUnary(args[0], tt, /*l1UsageBytes=*/400 * kKiB);
+  auto *opC = addBinary(opA->getResult(0), opB->getResult(0), tt,
+                        /*l1UsageBytes=*/0);
   forceNotImplemented(opC);
   // After the NotImplemented flush, allocate 1 MiB — this is ~77% of the
   // 1.3 MiB budget. If the tracker still thinks A and B are live, this
   // would push occupied past budget and OOM. With a correct reset, it fits.
-  auto *opPostFlush    = addUnary(args[0], tt, /*l1UsageBytes=*/1000 * kKiB);
-  auto *usePostFlush   = addUnary(opPostFlush->getResult(0), tt,
-                                   /*l1UsageBytes=*/50 * kKiB);
+  auto *opPostFlush = addUnary(args[0], tt, /*l1UsageBytes=*/1000 * kKiB);
+  auto *usePostFlush = addUnary(opPostFlush->getResult(0), tt,
+                                /*l1UsageBytes=*/50 * kKiB);
   finishFunc({opC->getResult(0), usePostFlush->getResult(0)});
 
   auto [obs] = run();
@@ -223,8 +221,8 @@ TEST_F(SnapshotReplayManyAllocsTest, EvictEarliestTensorReplaysAllSuccessors) {
   auto *useC = addUnary(opC->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
   auto *useB = addUnary(opB->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
   auto *useA = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
-  finishFunc({opPressure->getResult(0), useD->getResult(0),
-              useC->getResult(0), useB->getResult(0), useA->getResult(0)});
+  finishFunc({opPressure->getResult(0), useD->getResult(0), useC->getResult(0),
+              useB->getResult(0), useA->getResult(0)});
 
   auto [obs] = run();
 
@@ -262,18 +260,18 @@ TEST_F(SnapshotReplayCrossEvictionTest, SecondEvictionUsesUpdatedSnapshots) {
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  auto *opA  = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
-  auto *opB  = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opB = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
   auto *opP1 = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
   auto *opP2 = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
   // Consumers in REVERSE order of producers so opA has the farthest
   // last-use (→ evicted first), then opB, then opP1, then opP2.
   auto *useP2 = addUnary(opP2->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
   auto *useP1 = addUnary(opP1->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
-  auto *useB  = addUnary(opB->getResult(0),  tt, /*l1UsageBytes=*/50 * kKiB);
-  auto *useA  = addUnary(opA->getResult(0),  tt, /*l1UsageBytes=*/50 * kKiB);
-  finishFunc({useP2->getResult(0), useP1->getResult(0),
-              useB->getResult(0),  useA->getResult(0)});
+  auto *useB = addUnary(opB->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *useA = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  finishFunc({useP2->getResult(0), useP1->getResult(0), useB->getResult(0),
+              useA->getResult(0)});
 
   auto [obs] = run();
 
@@ -306,30 +304,30 @@ TEST_F(SnapshotReplayNonEmptyAndCascadeTest,
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  auto *opA        = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
-  auto *opB        = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
-  auto *opVictim   = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opB = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opVictim = addUnary(args[0], tt, /*l1UsageBytes=*/300 * kKiB);
   auto *opTrigger1 = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
-  auto *opPost     = addUnary(args[0], tt, /*l1UsageBytes=*/100 * kKiB);
+  auto *opPost = addUnary(args[0], tt, /*l1UsageBytes=*/100 * kKiB);
   auto *opTrigger2 = addUnary(args[0], tt, /*l1UsageBytes=*/200 * kKiB);
   // Consumers ordered so last-use is:
   //   Trigger2(6) < Trigger1(7) < Post(8) < A(9) < B(10) < Victim(11).
   // → at OOM #1, farthest is opVictim; at OOM #2, farthest among live is opB.
   auto *useTrigger2 = addUnary(opTrigger2->getResult(0), tt,
-                                /*l1UsageBytes=*/50 * kKiB);
+                               /*l1UsageBytes=*/50 * kKiB);
   auto *useTrigger1 = addUnary(opTrigger1->getResult(0), tt,
-                                /*l1UsageBytes=*/50 * kKiB);
-  auto *usePost     = addUnary(opPost->getResult(0), tt,
-                                /*l1UsageBytes=*/50 * kKiB);
-  auto *useA        = addUnary(opA->getResult(0), tt,
-                                /*l1UsageBytes=*/50 * kKiB);
-  auto *useB        = addUnary(opB->getResult(0), tt,
-                                /*l1UsageBytes=*/50 * kKiB);
-  auto *useVictim   = addUnary(opVictim->getResult(0), tt,
-                                /*l1UsageBytes=*/50 * kKiB);
+                               /*l1UsageBytes=*/50 * kKiB);
+  auto *usePost = addUnary(opPost->getResult(0), tt,
+                           /*l1UsageBytes=*/50 * kKiB);
+  auto *useA = addUnary(opA->getResult(0), tt,
+                        /*l1UsageBytes=*/50 * kKiB);
+  auto *useB = addUnary(opB->getResult(0), tt,
+                        /*l1UsageBytes=*/50 * kKiB);
+  auto *useVictim = addUnary(opVictim->getResult(0), tt,
+                             /*l1UsageBytes=*/50 * kKiB);
   finishFunc({useTrigger2->getResult(0), useTrigger1->getResult(0),
-              usePost->getResult(0),     useA->getResult(0),
-              useB->getResult(0),        useVictim->getResult(0)});
+              usePost->getResult(0), useA->getResult(0), useB->getResult(0),
+              useVictim->getResult(0)});
 
   auto [obs] = run();
 
@@ -367,14 +365,15 @@ TEST_F(ForkJoinTest, SharedTensorEvictedAsFarthestLastUse) {
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  auto *opA   = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
-  auto *opB   = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/500 * kKiB);
-  auto *opC   = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/600 * kKiB);
+  auto *opB = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opC = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/500 * kKiB);
   auto *opJoin = addBinary(opB->getResult(0), opC->getResult(0), tt,
                            /*l1UsageBytes=*/100 * kKiB);
   // opAfterAll keeps opA's last-use later than opJoin's, making opA the
   // farthest-last-use eviction target.
-  auto *opAfterAll = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
+  auto *opAfterAll =
+      addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
   finishFunc({opJoin->getResult(0), opAfterAll->getResult(0)});
 
   auto [obs] = run();
@@ -382,8 +381,7 @@ TEST_F(ForkJoinTest, SharedTensorEvictedAsFarthestLastUse) {
   EXPECT_TRUE(wasSpilled(opA->getResult(0)))
       << "opA (farthest-last-use of the shared fork tensor) should be spilled";
   ASSERT_FALSE(obs->evictions.empty());
-  EXPECT_EQ(obs->evictions.front().victim, opA)
-      << "first eviction must be opA";
+  EXPECT_EQ(obs->evictions.front().victim, opA) << "first eviction must be opA";
 }
 
 //===----------------------------------------------------------------------===//
@@ -431,12 +429,13 @@ TEST_F(ResidualBlockTest, SkipConnectionDoesNotForceEviction) {
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  auto *opSkip    = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
-  auto *opBranch1 = addUnary(opSkip->getResult(0), tt, /*l1UsageBytes=*/400 * kKiB);
+  auto *opSkip = addUnary(args[0], tt, /*l1UsageBytes=*/500 * kKiB);
+  auto *opBranch1 =
+      addUnary(opSkip->getResult(0), tt, /*l1UsageBytes=*/400 * kKiB);
   auto *opBranch2 = addUnary(opBranch1->getResult(0), tt,
-                              /*l1UsageBytes=*/400 * kKiB);
-  auto *opAdd     = addBinary(opSkip->getResult(0), opBranch2->getResult(0), tt,
-                               /*l1UsageBytes=*/100 * kKiB);
+                             /*l1UsageBytes=*/400 * kKiB);
+  auto *opAdd = addBinary(opSkip->getResult(0), opBranch2->getResult(0), tt,
+                          /*l1UsageBytes=*/100 * kKiB);
   finishFunc({opAdd->getResult(0)});
 
   auto [obs] = run();
@@ -462,15 +461,15 @@ TEST_F(QKVForkJoinTest, ThreeWayForkJoinFitsInBudget) {
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  auto *opIn   = addUnary(args[0], tt, /*l1UsageBytes=*/400 * kKiB);
-  auto *opQ    = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
-  auto *opK    = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
-  auto *opV    = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
-  auto *useQK  = addBinary(opQ->getResult(0), opK->getResult(0), tt,
-                            /*l1UsageBytes=*/200 * kKiB);
-  auto *useV   = addUnary(opV->getResult(0), tt, /*l1UsageBytes=*/200 * kKiB);
+  auto *opIn = addUnary(args[0], tt, /*l1UsageBytes=*/400 * kKiB);
+  auto *opQ = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opK = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *opV = addUnary(opIn->getResult(0), tt, /*l1UsageBytes=*/300 * kKiB);
+  auto *useQK = addBinary(opQ->getResult(0), opK->getResult(0), tt,
+                          /*l1UsageBytes=*/200 * kKiB);
+  auto *useV = addUnary(opV->getResult(0), tt, /*l1UsageBytes=*/200 * kKiB);
   auto *opAttn = addBinary(useQK->getResult(0), useV->getResult(0), tt,
-                            /*l1UsageBytes=*/100 * kKiB);
+                           /*l1UsageBytes=*/100 * kKiB);
   finishFunc({opAttn->getResult(0)});
 
   auto [obs] = run();
@@ -498,10 +497,11 @@ TEST_F(CBOverlapTest, HighCBPeakEvictsLowAddressTensor) {
 
   auto args = beginFunc({tt});
   auto *opLarge = addUnary(args[0], tt, /*l1UsageBytes=*/1000 * kKiB);
-  auto *opCB    = addUnary(args[0], tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *opCB = addUnary(args[0], tt, /*l1UsageBytes=*/50 * kKiB);
   setL1Usage(opCB, /*l1=*/50 * kKiB, /*cb=*/800 * kKiB);
   // Force opLarge to outlive opCB so it's still live when the CB check fires.
-  auto *useLarge = addUnary(opLarge->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *useLarge =
+      addUnary(opLarge->getResult(0), tt, /*l1UsageBytes=*/50 * kKiB);
   finishFunc({opCB->getResult(0), useLarge->getResult(0)});
 
   auto [obs] = run();
@@ -537,13 +537,13 @@ TEST_F(CushionDominantTriggerTest, SmallCBPlusCushionFiresAtTightFit) {
 
   auto args = beginFunc({tt});
   auto *opNearFull = addUnary(args[0], tt, /*l1UsageBytes=*/1250 * kKiB);
-  auto *opNext     = addUnary(args[0], tt, /*l1UsageBytes=*/50 * kKiB);
+  auto *opNext = addUnary(args[0], tt, /*l1UsageBytes=*/50 * kKiB);
   // Tiny cbPeak: 1 KiB. On its own, far below lowestExisting (~50 KiB after
   // opNearFull). With the 130-KiB cushion added, exceeds it — fragmentation
   // check fires → handleFragmentation evicts opNearFull.
   setL1Usage(opNext, /*l1=*/50 * kKiB, /*cb=*/1 * kKiB);
   auto *useNearFull = addUnary(opNearFull->getResult(0), tt,
-                                /*l1UsageBytes=*/50 * kKiB);
+                               /*l1UsageBytes=*/50 * kKiB);
   finishFunc({opNext->getResult(0), useNearFull->getResult(0)});
 
   auto [obs] = run();
@@ -551,8 +551,7 @@ TEST_F(CushionDominantTriggerTest, SmallCBPlusCushionFiresAtTightFit) {
   EXPECT_TRUE(wasSpilled(opNearFull->getResult(0)))
       << "cushion contribution should evict opNearFull. "
       << "evictions=" << obs->evictions.size()
-      << " demotions=" << obs->demotions.size()
-      << " spills=" << countSpills();
+      << " demotions=" << obs->demotions.size() << " spills=" << countSpills();
 }
 
 //===----------------------------------------------------------------------===//
@@ -573,10 +572,10 @@ TEST_F(HandleNoFitTest, AllocFreeReallocCoalesces) {
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  auto *opA   = addUnary(args[0], tt, /*l1UsageBytes=*/700 * kKiB);
-  auto *useA  = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
+  auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/700 * kKiB);
+  auto *useA = addUnary(opA->getResult(0), tt, /*l1UsageBytes=*/100 * kKiB);
   // After useA runs, opA dies. opB can now reuse the freed slot.
-  auto *opB   = addUnary(args[0], tt, /*l1UsageBytes=*/700 * kKiB);
+  auto *opB = addUnary(args[0], tt, /*l1UsageBytes=*/700 * kKiB);
   finishFunc({useA->getResult(0), opB->getResult(0)});
 
   auto [obs] = run();
@@ -606,25 +605,26 @@ class ViewEligibleReshapeAliasTest : public L1SpillTestFixture {};
 // canReshapeBeView (or an analogous predicate) before the fit/CB
 // checks. Until then, this test reproduces the limitation: opA is
 // spilled even though the reshape SHOULD alias it.
-TEST_F(ViewEligibleReshapeAliasTest, DISABLED_ReshapeAliasesInputNoDoubleCount) {
+TEST_F(ViewEligibleReshapeAliasTest,
+       DISABLED_ReshapeAliasesInputNoDoubleCount) {
   l1BudgetPerCore = 1300 * kKiB;
 
   // 1024 = 32 × 32 (tile-aligned). 256 = 32 × 8 (tile-aligned).
   // Last dim (1024) is preserved between input and output shapes →
   // canReshapeBeView returns true.
-  llvm::SmallVector<int64_t> shapeIn  = {1, 1, 1024, 1024};
-  llvm::SmallVector<int64_t> shapeOut = {1, 4,  256, 1024};
-  auto layoutIn  = makeL1Sharded(shapeIn);
+  llvm::SmallVector<int64_t> shapeIn = {1, 1, 1024, 1024};
+  llvm::SmallVector<int64_t> shapeOut = {1, 4, 256, 1024};
+  auto layoutIn = makeL1Sharded(shapeIn);
   auto layoutOut = makeL1Sharded(shapeOut);
-  auto ttIn  = tensorType(shapeIn,  layoutIn);
+  auto ttIn = tensorType(shapeIn, layoutIn);
   auto ttOut = tensorType(shapeOut, layoutOut);
 
   auto args = beginFunc({ttIn});
-  auto *opA       = addUnary(args[0], ttIn, /*l1UsageBytes=*/1000 * kKiB);
+  auto *opA = addUnary(args[0], ttIn, /*l1UsageBytes=*/1000 * kKiB);
   auto *opReshape = addReshape(opA->getResult(0), ttOut,
-                                /*l1UsageBytes=*/1000 * kKiB);
+                               /*l1UsageBytes=*/1000 * kKiB);
   auto *opConsumer = addUnary(opReshape->getResult(0), ttOut,
-                               /*l1UsageBytes=*/100 * kKiB);
+                              /*l1UsageBytes=*/100 * kKiB);
   finishFunc({opConsumer->getResult(0)});
 
   auto [obs] = run();

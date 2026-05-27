@@ -45,11 +45,9 @@ struct SumL1MemoryTracker {
   /// explicit additionalL1Usage. Used by consumer-reshard probes and DRAM
   /// CB re-queries inside L1SpillManagement — those call sites already know
   /// the L1 pressure they want to express.
-  op_constraint_validation::ValidationResult
-  validateBackendDirect(Operation *op,
-                        llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                        const OpConfig &config,
-                        uint64_t additionalL1Usage) const;
+  op_constraint_validation::ValidationResult validateBackendDirect(
+      Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+      const OpConfig &config, uint64_t additionalL1Usage) const;
 
   /// Initialize address simulation with the L1 budget. Must be called before
   /// addTensor/removeTensor.

@@ -36,8 +36,8 @@ using op_constraint_validation::ValidationResult;
 using op_constraint_validation::ValidationStatus;
 
 /// Kibibyte constant (IEC binary prefix: 1 KiB = 1024 bytes). Used as a
-/// readable size multiplier in tests — `1300 * kKiB ≈ 1.3 MB`, in the same
-/// ball-park as one L1 bank's scratch space.
+/// readable size multiplier in tests — `1300 * kKiB ≈ 1.27 MiB`, in the
+/// ball-park of one L1 bank's scratch space.
 inline constexpr uint64_t kKiB = 1024;
 
 //===----------------------------------------------------------------------===//
@@ -140,9 +140,9 @@ public:
   struct PerOpConfig {
     std::optional<ValidationStatus> forceStatus;
     uint64_t outputL1Usage = 0;
-    uint64_t cbPeakUsage = 0;        // CB peak when output is L1-sharded
-    uint64_t dramCBPeakUsage = 0;    // CB peak when output is DRAM-interleaved
-                                     // (used by evictForDramCBGrowth probe)
+    uint64_t cbPeakUsage = 0;     // CB peak when output is L1-sharded
+    uint64_t dramCBPeakUsage = 0; // CB peak when output is DRAM-interleaved
+                                  // (used by evictForDramCBGrowth probe)
   };
   llvm::DenseMap<mlir::Operation *, PerOpConfig> perOpConfigs;
 
@@ -210,57 +210,60 @@ public:
   beginFunc(llvm::ArrayRef<mlir::RankedTensorType> argTypes,
             llvm::StringRef name = "test") {
     llvm::SmallVector<mlir::Type> types(argTypes.begin(), argTypes.end());
-    auto funcType = builder.getType<mlir::FunctionType>(
-        mlir::TypeRange(types), mlir::TypeRange({}));
+    auto funcType = builder.getType<mlir::FunctionType>(mlir::TypeRange(types),
+                                                        mlir::TypeRange({}));
     func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), name,
                                               funcType);
     mlir::Block *block = func.addEntryBlock();
     builder.setInsertionPointToStart(block);
 
     llvm::SmallVector<mlir::Value> args;
-    for (unsigned i = 0; i < argTypes.size(); ++i)
+    for (unsigned i = 0; i < argTypes.size(); ++i) {
       args.push_back(block->getArgument(i));
+    }
     return args;
   }
 
   mlir::Operation *addUnary(mlir::Value input, mlir::RankedTensorType outType,
-                             uint64_t l1UsageBytes) {
+                            uint64_t l1UsageBytes) {
     auto op = builder.create<ReluOp>(builder.getUnknownLoc(), outType, input);
     setL1Usage(op.getOperation(), l1UsageBytes);
     return op.getOperation();
   }
 
   mlir::Operation *addBinary(mlir::Value lhs, mlir::Value rhs,
-                              mlir::RankedTensorType outType,
-                              uint64_t l1UsageBytes) {
-    auto op =
-        builder.create<AddOp>(builder.getUnknownLoc(), outType, lhs, rhs,
-                               /*broadcast=*/nullptr);
+                             mlir::RankedTensorType outType,
+                             uint64_t l1UsageBytes) {
+    auto op = builder.create<AddOp>(builder.getUnknownLoc(), outType, lhs, rhs,
+                                    /*broadcast=*/nullptr);
     setL1Usage(op.getOperation(), l1UsageBytes);
     return op.getOperation();
   }
 
   /// Add a ReshapeOp whose output shape qualifies for `canReshapeBeView`
   /// when the caller picks a tile-aligned shape with matching last dim.
-  mlir::Operation *addReshape(mlir::Value input,
-                               mlir::RankedTensorType outType,
-                               uint64_t l1UsageBytes) {
+  mlir::Operation *addReshape(mlir::Value input, mlir::RankedTensorType outType,
+                              uint64_t l1UsageBytes) {
     auto outShape = outType.getShape();
     llvm::SmallVector<int32_t> shapeI32(outShape.begin(), outShape.end());
     auto shapeAttr = builder.getI32ArrayAttr(shapeI32);
-    auto op = builder.create<ReshapeOp>(builder.getUnknownLoc(), outType,
-                                         input, shapeAttr);
+    auto op = builder.create<ReshapeOp>(builder.getUnknownLoc(), outType, input,
+                                        shapeAttr);
     setL1Usage(op.getOperation(), l1UsageBytes);
     return op.getOperation();
   }
 
   void finishFunc(llvm::ArrayRef<mlir::Value> returnVals) {
-    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(), returnVals);
+    // Update the FunctionType FIRST so the ReturnOp's operands are
+    // consistent with the function signature at creation time; otherwise
+    // any intermediate verification would see a mismatch.
     llvm::SmallVector<mlir::Type> retTypes;
-    for (auto v : returnVals)
+    for (auto v : returnVals) {
       retTypes.push_back(v.getType());
+    }
     auto argTypes = func.getFunctionType().getInputs();
     func.setType(builder.getType<mlir::FunctionType>(argTypes, retTypes));
+    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(), returnVals);
   }
 
   // --- Backend validator builder ---
@@ -273,13 +276,13 @@ public:
   ///      current result-type layout.
   SumL1MemoryTracker::BackendValidatorFn makeValidator() const {
     uint64_t budget = l1BudgetPerCore;
-    return [this, budget](
-               mlir::Operation *op,
-               llvm::ArrayRef<TTNNLayoutAttr> /*inputLayouts*/,
-               const OpConfig &config,
-               uint64_t additionalL1) -> ValidationResult {
+    return [this, budget](mlir::Operation *op,
+                          llvm::ArrayRef<TTNNLayoutAttr> /*inputLayouts*/,
+                          const OpConfig &config,
+                          uint64_t additionalL1) -> ValidationResult {
       auto it = perOpConfigs.find(op);
-      uint64_t outL1   = (it != perOpConfigs.end()) ? it->second.outputL1Usage : 0;
+      uint64_t outL1 =
+          (it != perOpConfigs.end()) ? it->second.outputL1Usage : 0;
 
       // CB peak depends on whether the probed config is L1 or DRAM. The pass
       // queries DRAM CB after demotion via evictForDramCBGrowth — read
@@ -291,26 +294,32 @@ public:
       }
       uint64_t cbP = 0;
       if (it != perOpConfigs.end()) {
-        cbP = configIsDRAM ? it->second.dramCBPeakUsage : it->second.cbPeakUsage;
-      }
-
-      if (it != perOpConfigs.end() && it->second.forceStatus.has_value()) {
-        ValidationStatus s = *it->second.forceStatus;
-        if (s == ValidationStatus::Success)
-          return ValidationResult::success(0, layoutFromOp(op, config), outL1,
-                                           cbP);
-        if (s == ValidationStatus::NotImplemented)
-          return ValidationResult::notImplemented("injected NotImplemented");
-        if (s == ValidationStatus::OutOfMemoryError)
-          return ValidationResult::outOfMemoryError("injected OOM");
-        return ValidationResult::metalBackendError("injected backend error");
+        cbP =
+            configIsDRAM ? it->second.dramCBPeakUsage : it->second.cbPeakUsage;
       }
 
       // DRAM probes (additionalL1=0 by convention) never report OOM in our
       // fake; they only carry CB info back to the pass.
       uint64_t effectiveOutL1 = configIsDRAM ? 0 : outL1;
-      if (additionalL1 + effectiveOutL1 > budget)
+
+      if (it != perOpConfigs.end() && it->second.forceStatus.has_value()) {
+        ValidationStatus s = *it->second.forceStatus;
+        if (s == ValidationStatus::Success) {
+          return ValidationResult::success(0, layoutFromOp(op, config),
+                                           effectiveOutL1, cbP);
+        }
+        if (s == ValidationStatus::NotImplemented) {
+          return ValidationResult::notImplemented("injected NotImplemented");
+        }
+        if (s == ValidationStatus::OutOfMemoryError) {
+          return ValidationResult::outOfMemoryError("injected OOM");
+        }
+        return ValidationResult::metalBackendError("injected backend error");
+      }
+
+      if (additionalL1 + effectiveOutL1 > budget) {
         return ValidationResult::outOfMemoryError("budget exceeded");
+      }
       return ValidationResult::success(0, layoutFromOp(op, config),
                                        effectiveOutL1, cbP);
     };
@@ -349,13 +358,15 @@ public:
   size_t countSpills() {
     size_t n = 0;
     func.walk([&](ToMemoryConfigOp op) {
-      auto rt = mlir::dyn_cast<mlir::RankedTensorType>(
-          op.getResult().getType());
-      if (!rt)
+      auto rt =
+          mlir::dyn_cast<mlir::RankedTensorType>(op.getResult().getType());
+      if (!rt) {
         return;
+      }
       auto enc = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rt.getEncoding());
-      if (enc && enc.getBufferType() == BufferType::DRAM)
+      if (enc && enc.getBufferType() == BufferType::DRAM) {
         ++n;
+      }
     });
     return n;
   }
@@ -364,15 +375,18 @@ public:
   bool wasSpilled(mlir::Value v) {
     for (auto *user : v.getUsers()) {
       auto mc = mlir::dyn_cast<ToMemoryConfigOp>(user);
-      if (!mc)
+      if (!mc) {
         continue;
+      }
       auto rt =
           mlir::dyn_cast<mlir::RankedTensorType>(mc.getResult().getType());
-      if (!rt)
+      if (!rt) {
         continue;
+      }
       auto enc = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rt.getEncoding());
-      if (enc && enc.getBufferType() == BufferType::DRAM)
+      if (enc && enc.getBufferType() == BufferType::DRAM) {
         return true;
+      }
     }
     return false;
   }
@@ -402,12 +416,14 @@ private:
   /// back via applyOutputConfig; returning the same layout means the IR is
   /// not modified by validation.
   static TTNNLayoutAttr layoutFromOp(mlir::Operation *op,
-                                      const OpConfig &config) {
+                                     const OpConfig &config) {
     if (op->getNumResults() > 0) {
       if (auto rt = mlir::dyn_cast<mlir::RankedTensorType>(
               op->getResult(0).getType())) {
-        if (auto enc = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rt.getEncoding()))
+        if (auto enc =
+                mlir::dyn_cast_or_null<TTNNLayoutAttr>(rt.getEncoding())) {
           return enc;
+        }
       }
     }
     return config.outputLayout;
