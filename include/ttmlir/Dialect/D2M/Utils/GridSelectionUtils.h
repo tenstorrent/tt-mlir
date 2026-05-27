@@ -18,6 +18,15 @@ namespace mlir::tt::d2m {
 
 namespace utils {
 
+enum class VirtualGridMode {
+  // Preserve the original 2D virtual-grid behavior: pick one sharded tensor
+  // dimension and materialize Nx1/1xN.
+  SingleAxis2D,
+  // Explore factors from every tensor-grid dimension. This can materialize
+  // broader 2D virtual grids without changing the caller's virtual-grid gate.
+  General
+};
+
 // Walk back through any chain of ViewLayoutOp producers and return the
 // ToLayoutOp that feeds them. Returns a null ToLayoutOp if `operand` is not
 // produced through at least one view, or if the value behind the views is not
@@ -50,12 +59,12 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetGrid);
 
 // Compute optimal virtual grid shape for a given physical shape and target
-// grid. For ND tensors, explores Cartesian product of dimension factors.
-// For 2D tensors, finds the largest factor of the sharded dimension. Returns
-// empty vector if utilization is too low (signals fallback to block sharding).
+// grid. SingleAxis2D preserves main's 2D behavior; General explores Cartesian
+// products of dimension factors. Returns empty vector if utilization is too low
+// (signals fallback to block sharding).
 llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
-                          ArrayRef<int64_t> targetGrid);
+                          ArrayRef<int64_t> targetGrid, VirtualGridMode mode);
 
 // Determine whether a tensor should use a virtual grid based on its physical
 // shape and the target grid. Returns true when block sharding yields low grid
@@ -68,7 +77,8 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
 // block sharding based on heuristics.
 llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
                                               ArrayRef<int64_t> physicalShape,
-                                              ArrayRef<int64_t> targetGrid);
+                                              ArrayRef<int64_t> targetGrid,
+                                              VirtualGridMode mode);
 
 // Compute physical shape for a MetalLayoutAttr. In TTNN mode, returns the raw
 // physical shape without alignment adjustments. Otherwise, computes grid-aware

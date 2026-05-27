@@ -138,56 +138,55 @@ static unsigned findShardedDimIndex(ArrayRef<int64_t> physicalShape) {
   return bestIndex;
 }
 
-llvm::SmallVector<int64_t>
-computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
-                          ArrayRef<int64_t> targetGrid) {
+struct VirtualGridCandidate {
+  llvm::SmallVector<int64_t> grid;
+  int64_t volume = 0;
+};
 
+static VirtualGridCandidate
+computeBestFactorProductGrid(ArrayRef<int64_t> physicalShape,
+                             ArrayRef<int64_t> targetGrid) {
   int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
-  if (physicalShape.size() != 2) {
+  SmallVector<SmallVector<int64_t>> factors =
+      llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
+        return ttmlir::utils::getFactors(dim);
+      }));
 
-    // Compute factors for all dims.
-    SmallVector<SmallVector<int64_t>> factors =
-        llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
-          return ttmlir::utils::getFactors(dim);
-        }));
+  auto factorCombinations =
+      ttmlir::utils::computeCartesianProduct<int64_t>(factors);
 
-    auto factorCombinations =
-        ttmlir::utils::computeCartesianProduct<int64_t>(factors);
-
-    // Find grid with the greatest volume that is less than or equal to the
-    // target grid volume.
-    SmallVector<int64_t> bestGrid = {0};
-    int64_t bestGridVolume = 0;
-    for (const auto &grid : factorCombinations) {
-      int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
-      if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        auto physGrid =
-            utils::findLegalPhysicalGridForVolume(gridVolume, targetGrid);
-        if (!physGrid.empty()) {
-
-          bestGrid = grid;
-          bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
-        }
-      }
+  VirtualGridCandidate best;
+  for (const auto &grid : factorCombinations) {
+    int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
+    if (gridVolume > targetGridVolume || gridVolume <= best.volume) {
+      continue;
     }
-    return bestGrid;
+    if (utils::findLegalPhysicalGridForVolume(gridVolume, targetGrid).empty()) {
+      continue;
+    }
+    best.grid = grid;
+    best.volume = gridVolume;
   }
+  return best;
+}
 
-  // If not ND sharded, compute grid for 2D height or width sharding (Nx1, 1xN).
+static llvm::SmallVector<int64_t>
+computeSingleAxis2DVirtualGrid(ArrayRef<int64_t> physicalShape,
+                               ArrayRef<int64_t> targetGrid) {
+  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
   unsigned shardedDimIndex = findShardedDimIndex(physicalShape);
 
-  // Find the largest factor of the sharded dimension that fits within the
-  // target grid volume.
   int64_t bestFactor = 0;
   const auto factors =
       ttmlir::utils::getFactors(physicalShape[shardedDimIndex]);
   for (int64_t factor : llvm::reverse(factors)) {
-    if (factor <= targetGridVolume) {
-      auto physGrid = utils::findLegalPhysicalGridForVolume(factor, targetGrid);
-      if (!physGrid.empty()) {
-        bestFactor = factor;
-        break;
-      }
+    if (factor > targetGridVolume) {
+      continue;
+    }
+    auto physGrid = utils::findLegalPhysicalGridForVolume(factor, targetGrid);
+    if (!physGrid.empty()) {
+      bestFactor = factor;
+      break;
     }
   }
 
@@ -198,15 +197,30 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     return {};
   }
 
-  llvm::SmallVector<int64_t> grid;
-  for (size_t i = 0; i < physicalShape.size(); ++i) {
-    if (i == shardedDimIndex) {
-      grid.push_back(bestFactor);
-    } else {
-      grid.push_back(1);
-    }
-  }
+  llvm::SmallVector<int64_t> grid(physicalShape.size(), 1);
+  grid[shardedDimIndex] = bestFactor;
   return grid;
+}
+
+llvm::SmallVector<int64_t>
+computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
+                          ArrayRef<int64_t> targetGrid, VirtualGridMode mode) {
+  if (physicalShape.size() == 2 && mode == VirtualGridMode::SingleAxis2D) {
+    return computeSingleAxis2DVirtualGrid(physicalShape, targetGrid);
+  }
+
+  VirtualGridCandidate best =
+      computeBestFactorProductGrid(physicalShape, targetGrid);
+
+  // Preserve the existing 2D fallback gate: if virtual packing cannot use at
+  // least 25% of the target cores, let block sharding win instead.
+  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
+  if (physicalShape.size() == 2 &&
+      best.volume <= static_cast<int64_t>(0.25 * targetGridVolume)) {
+    return {};
+  }
+
+  return best.grid;
 }
 
 bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
@@ -238,9 +252,11 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
 
 llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
                                               ArrayRef<int64_t> physicalShape,
-                                              ArrayRef<int64_t> targetGrid) {
+                                              ArrayRef<int64_t> targetGrid,
+                                              VirtualGridMode mode) {
   if (shouldImplementAsVirtualGrid(tensorType, physicalShape, targetGrid)) {
-    auto virtualGrid = computeOptimalVirtualGrid(physicalShape, targetGrid);
+    auto virtualGrid =
+        computeOptimalVirtualGrid(physicalShape, targetGrid, mode);
     if (!virtualGrid.empty()) {
       return virtualGrid;
     }
