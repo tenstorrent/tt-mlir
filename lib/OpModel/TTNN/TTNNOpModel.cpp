@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpInvoke/TTNN/conv/conv2dOp.h"
+#include "ttmlir/OpInvoke/TTNN/conv/conv3dOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/convTranspose2dOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/prepareConv2dBiasOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/prepareConv2dWeightsOp.h"
@@ -5511,110 +5512,51 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-namespace {
-
-struct Conv3dSpecs {
-  ::ttnn::TensorSpec inputSpec;
-  ::ttnn::TensorSpec weightSpec;
-  std::optional<::ttnn::TensorSpec> biasSpec;
-  std::optional<::ttnn::experimental::prim::Conv3dConfig> config;
-  ::tt::tt_metal::DataType dtype;
-  uint32_t outputChannels;
-  std::array<uint32_t, 3> kernelSize;
-  std::array<uint32_t, 3> stride;
-  std::array<uint32_t, 3> padding;
-  std::string paddingMode;
-  uint32_t groups;
-  std::optional<::ttnn::DeviceComputeKernelConfig> deviceComputeKernelConfig;
-};
-
-llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
-    ::tt::tt_metal::distributed::MeshDevice *device,
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, uint32_t out_channels,
+::tt::target::ttnn::Conv3dOpT buildConv3dOpTFromMLIR(
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_depth, uint32_t input_height, uint32_t input_width,
     llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
     llvm::ArrayRef<int32_t> padding, llvm::StringRef padding_mode,
     uint32_t groups, std::optional<ttcore::DataTypeAttr> outputDtype,
     std::optional<Conv3dConfigAttr> conv3dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     TTNNLayoutAttr outputLayout) {
-
-  // Convert input layout to TensorSpec
-  ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
-      detail::convertToTensorSpec(device, inputShape, inputLayout));
-
-  // Convert weight layout to TensorSpec
-  ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightSpec,
-      detail::convertToTensorSpec(device, weightShape, weightLayout));
-
-  // Convert bias if present
-  std::optional<::ttnn::TensorSpec> biasSpec;
-  if (biasShape && biasLayout) {
-    ASSIGN_OR_RETURN(
-        biasSpec, detail::convertToTensorSpec(device, *biasShape, *biasLayout));
-  }
-
-  std::optional<::ttnn::experimental::prim::Conv3dConfig> config;
-
-  // Apply Conv3dConfig overrides if provided
-  if (conv3dConfig.has_value()) {
-    config.emplace();
-    if (conv3dConfig->getWeightsDtype()) {
-      config->weights_dtype =
-          conversion::getDataType(*conv3dConfig->getWeightsDtype());
-    }
-    if (conv3dConfig->getTOutBlock()) {
-      config->T_out_block = *conv3dConfig->getTOutBlock();
-    }
-    if (conv3dConfig->getWOutBlock()) {
-      config->W_out_block = *conv3dConfig->getWOutBlock();
-    }
-    if (conv3dConfig->getHOutBlock()) {
-      config->H_out_block = *conv3dConfig->getHOutBlock();
-    }
-    if (conv3dConfig->getCOutBlock()) {
-      config->C_out_block = *conv3dConfig->getCOutBlock();
-    }
-    if (conv3dConfig->getCInBlock()) {
-      config->C_in_block = *conv3dConfig->getCInBlock();
-    }
-    config->compute_with_storage_grid_size =
-        device->compute_with_storage_grid_size();
-  }
-
-  // Get output dtype in this order: explicit outputDtype → outputLayout →
-  // BFLOAT16
-  std::optional<::tt::tt_metal::DataType> dtype;
+  ::tt::target::ttnn::Conv3dOpT conv3dOpT;
+  conv3dOpT.in_channels = in_channels;
+  conv3dOpT.out_channels = out_channels;
+  conv3dOpT.batch_size = batch_size;
+  conv3dOpT.input_depth = input_depth;
+  conv3dOpT.input_height = input_height;
+  conv3dOpT.input_width = input_width;
+  conv3dOpT.kernel_size =
+      std::vector<int32_t>(kernel_size.begin(), kernel_size.end());
+  conv3dOpT.stride = std::vector<int32_t>(stride.begin(), stride.end());
+  conv3dOpT.padding = std::vector<int32_t>(padding.begin(), padding.end());
+  conv3dOpT.padding_mode = padding_mode.str();
+  conv3dOpT.groups = groups;
+  conv3dOpT.out = detail::getOutputTensorRefT(outputLayout);
   if (outputDtype.has_value() && outputDtype.value()) {
-    dtype = conversion::getDataType(outputDtype.value().getValue());
+    conv3dOpT.output_dtype = toNative(outputDtype.value().getValue());
   }
-  if (!dtype) {
-    dtype = detail::getNullableDataType(outputLayout);
-  }
+  conv3dOpT.conv3d_config =
+      (conv3dConfig.has_value() && *conv3dConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv3dConfigT>(
+                toNative(*conv3dConfig))
+          : nullptr;
+  conv3dOpT.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  auto outputMemoryConfigT = detail::getNullableMemoryConfigT(outputLayout);
+  conv3dOpT.memory_config =
+      outputMemoryConfigT.has_value()
+          ? std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+                *outputMemoryConfigT)
+          : nullptr;
 
-  std::optional<::ttnn::DeviceComputeKernelConfig>
-      deviceComputeKernelConfigConverted =
-          conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
-
-  return Conv3dSpecs{
-      inputSpec,
-      weightSpec,
-      biasSpec,
-      config,
-      dtype.value_or(::tt::tt_metal::DataType::BFLOAT16),
-      out_channels,
-      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(kernel_size),
-      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(stride),
-      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(padding),
-      padding_mode.str(),
-      groups,
-      deviceComputeKernelConfigConverted};
+  return conv3dOpT;
 }
-} // namespace
 #endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
@@ -5636,25 +5578,38 @@ llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto specsExp = prepareConv3dSpecs(
-      device, inputShape, inputLayout, weightShape, weightLayout, biasShape,
-      biasLayout, out_channels, kernel_size, stride, padding, padding_mode,
-      groups, outputDtype, conv3dConfig, deviceComputeKernelConfig,
-      outputLayout);
-  if (!specsExp) {
-    return specsExp.takeError();
-  }
-  auto specs = specsExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  auto conv3dOpQuery = [=, &specs]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::experimental::conv3d, device, specs.inputSpec, specs.weightSpec,
-        std::optional<::tt::tt_metal::distributed::MeshDevice *>(device),
-        specs.biasSpec, specs.config, specs.dtype, specs.outputChannels,
-        specs.kernelSize, specs.stride, specs.padding,
-        std::array<uint32_t, 3>{1, 1, 1}, specs.paddingMode, specs.groups,
-        detail::getNullableMemoryConfig(outputLayout),
-        specs.deviceComputeKernelConfig);
+  std::optional<::ttnn::TensorSpec> biasSpec;
+  if (biasShape && biasLayout) {
+    ASSIGN_OR_RETURN(
+        biasSpec, detail::convertToTensorSpec(device, *biasShape, *biasLayout));
+  }
+
+  ::tt::target::ttnn::Conv3dOpT conv3dOpT = buildConv3dOpTFromMLIR(
+      in_channels, out_channels, batch_size, input_depth, input_height,
+      input_width, kernel_size, stride, padding, padding_mode, groups,
+      outputDtype, conv3dConfig, deviceComputeKernelConfig, outputLayout);
+
+  auto conv3dOpQuery = [=]() {
+    ttnn_op_invoke::Conv3dOpResult result = ttnn_op_invoke::callConv3d(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, conv3dOpT, inputSpec,
+        weightSpec,
+        biasSpec.has_value()
+            ? std::optional<ttnn_op_invoke::TensorArg>(*biasSpec)
+            : std::nullopt,
+        *device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected Conv3dOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -5682,25 +5637,37 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto specsExp = prepareConv3dSpecs(
-      device, inputShape, inputLayout, weightShape, weightLayout, biasShape,
-      biasLayout, out_channels, kernel_size, stride, padding, padding_mode,
-      groups, outputDtype, conv3dConfig, deviceComputeKernelConfig,
-      outputLayout);
-  if (!specsExp) {
-    return specsExp.takeError();
-  }
-  auto specs = specsExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  auto conv3dOpRuntime = [=, &specs]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::experimental::conv3d, device, specs.inputSpec, specs.weightSpec,
-        std::optional<::tt::tt_metal::distributed::MeshDevice *>(device),
-        specs.biasSpec, specs.config, specs.dtype, specs.outputChannels,
-        specs.kernelSize, specs.stride, specs.padding,
-        std::array<uint32_t, 3>{1, 1, 1}, specs.paddingMode, specs.groups,
-        detail::getNullableMemoryConfig(outputLayout),
-        specs.deviceComputeKernelConfig);
+  std::optional<::ttnn::TensorSpec> biasSpec;
+  if (biasShape && biasLayout) {
+    ASSIGN_OR_RETURN(
+        biasSpec, detail::convertToTensorSpec(device, *biasShape, *biasLayout));
+  }
+
+  ::tt::target::ttnn::Conv3dOpT conv3dOpT = buildConv3dOpTFromMLIR(
+      in_channels, out_channels, batch_size, input_depth, input_height,
+      input_width, kernel_size, stride, padding, padding_mode, groups,
+      outputDtype, conv3dConfig, deviceComputeKernelConfig, outputLayout);
+
+  auto conv3dOpRuntime = [=]() {
+    ttnn_op_invoke::Conv3dOpResult result = ttnn_op_invoke::callConv3d(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, conv3dOpT, inputSpec,
+        weightSpec,
+        biasSpec.has_value()
+            ? std::optional<ttnn_op_invoke::TensorArg>(*biasSpec)
+            : std::nullopt,
+        *device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected Conv3dOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(conv3dOpRuntime);

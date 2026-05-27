@@ -426,6 +426,233 @@ INSTANTIATE_TEST_SUITE_P(Conv2dOpTPathParityTest, Conv2dOpTPathParityTest,
                          ::testing::ValuesIn(conv2dOpList));
 
 //===----------------------------------------------------------------------===//
+// Conv3dOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::Conv3dOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, Conv3dOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::Conv3dOpT buildConv3dOpTFromMLIR(
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_depth, uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::StringRef padding_mode,
+    uint32_t groups, std::optional<ttcore::DataTypeAttr> outputDtype,
+    std::optional<Conv3dConfigAttr> conv3dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+const mlir::tt::ttnn::Conv3dConfigAttr nonDefaultConv3dConfigAttr =
+    mlir::tt::ttnn::Conv3dConfigAttr::get(
+        getContext(),
+        /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
+        /*t_out_block=*/1u,
+        /*w_out_block=*/2u,
+        /*h_out_block=*/2u,
+        /*c_out_block=*/16u,
+        /*c_in_block=*/16u,
+        /*compute_with_storage_grid_size=*/
+        mlir::tt::ttcore::GridAttr::get(getContext(),
+                                        llvm::ArrayRef<int64_t>{8, 8}));
+
+void resetUnusedFields(::tt::target::ttnn::Conv3dOpT &opTOpModel,
+                       ::tt::target::ttnn::Conv3dOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::Conv3dOpT &opT) {
+    opT.input.reset();
+    opT.weight.reset();
+    opT.bias.reset();
+    opT.device.reset();
+    resetOutputTensorRefT(opT.out);
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::Conv3dOp buildTestConv3dOp(
+    bool withBias = false, mlir::tt::ttcore::DataTypeAttr outputDtype = {},
+    mlir::tt::ttnn::Conv3dConfigAttr conv3dConfig = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeKernelConfig = {},
+    uint32_t inChannels = 32, uint32_t outChannels = 64, uint32_t batchSize = 1,
+    uint32_t inputDepth = 8, uint32_t inputHeight = 8, uint32_t inputWidth = 8,
+    llvm::ArrayRef<int32_t> kernelSize = {3, 3, 3},
+    llvm::ArrayRef<int32_t> stride = {1, 1, 1},
+    llvm::ArrayRef<int32_t> padding = {0, 0, 0},
+    llvm::StringRef paddingMode = "zeros", uint32_t groups = 1) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto weightType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value weight =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{weightType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value bias = nullptr;
+  if (withBias) {
+    auto biasType = tiledL1BF16Type(defaultShape);
+    bias = e.builder
+               .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{biasType},
+                                               mlir::ValueRange{})
+               .getResult();
+  }
+
+  mlir::Value device =
+      e.builder
+          .create<mlir::tt::ttnn::GetDeviceOp>(
+              loc, e.builder.getType<mlir::tt::ttnn::DeviceType>(),
+              mlir::tt::ttnn::MeshShapeAttr::get(&e.context, 1, 1),
+              mlir::tt::ttnn::MeshOffsetAttr::get(&e.context, 0, 0))
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::Conv3dOp>(
+      loc, outputType, input, weight, bias, device, inChannels, outChannels,
+      batchSize, inputDepth, inputHeight, inputWidth, kernelSize, stride,
+      padding, paddingMode, groups, outputDtype, conv3dConfig,
+      computeKernelConfig);
+}
+
+} // namespace
+
+using Conv3dOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::Conv3dOp>;
+
+TEST_P(Conv3dOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::Conv3dOp conv3dOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::Conv3dOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildConv3dOpTFromMLIR(
+          conv3dOp.getInChannels(), conv3dOp.getOutChannels(),
+          conv3dOp.getBatchSize(), conv3dOp.getInputDepth(),
+          conv3dOp.getInputHeight(), conv3dOp.getInputWidth(),
+          conv3dOp.getKernelSize(), conv3dOp.getStride(), conv3dOp.getPadding(),
+          conv3dOp.getPaddingMode(), conv3dOp.getGroups(),
+          conv3dOp.getDtypeAttr(), conv3dOp.getConv3dConfig(),
+          conv3dOp.getComputeConfig(), resolveOutputLayout(conv3dOp));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, conv3dOp.getInput(),
+                               conv3dOp.getWeight());
+  if (conv3dOp.getBias()) {
+    prepopulateOperandTensorRefs(cache, conv3dOp.getBias());
+  }
+  cache.getOrCreate(conv3dOp.getDevice(), mlir::tt::ttnn::createDeviceRef);
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, conv3dOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::Conv3dOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::Conv3dOp> conv3dOpList = {
+    buildTestConv3dOp(),
+    buildTestConv3dOp(/*withBias=*/true),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/bf16DtypeAttr),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/nonDefaultConv3dConfigAttr),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{},
+                      /*computeKernelConfig=*/
+                      nonDefaultDeviceComputeKernelConfigAttr),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/64u),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/128u),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/4u),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/1u, /*inputDepth=*/16u),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/1u, /*inputDepth=*/8u,
+                      /*inputHeight=*/16u),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/1u, /*inputDepth=*/8u,
+                      /*inputHeight=*/8u, /*inputWidth=*/16u),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/1u, /*inputDepth=*/8u,
+                      /*inputHeight=*/8u, /*inputWidth=*/8u,
+                      /*kernelSize=*/{2, 2, 2}),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/1u, /*inputDepth=*/8u,
+                      /*inputHeight=*/8u, /*inputWidth=*/8u,
+                      /*kernelSize=*/{3, 3, 3}, /*stride=*/{2, 2, 2}),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/1u, /*inputDepth=*/8u,
+                      /*inputHeight=*/8u, /*inputWidth=*/8u,
+                      /*kernelSize=*/{3, 3, 3}, /*stride=*/{1, 1, 1},
+                      /*padding=*/{1, 1, 1}),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/1u, /*inputDepth=*/8u,
+                      /*inputHeight=*/8u, /*inputWidth=*/8u,
+                      /*kernelSize=*/{3, 3, 3}, /*stride=*/{1, 1, 1},
+                      /*padding=*/{0, 0, 0},
+                      /*paddingMode=*/"replicate"),
+    buildTestConv3dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv3dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*inChannels=*/32u, /*outChannels=*/64u,
+                      /*batchSize=*/1u, /*inputDepth=*/8u,
+                      /*inputHeight=*/8u, /*inputWidth=*/8u,
+                      /*kernelSize=*/{3, 3, 3}, /*stride=*/{1, 1, 1},
+                      /*padding=*/{0, 0, 0}, /*paddingMode=*/"zeros",
+                      /*groups=*/4u),
+    buildTestConv3dOp(/*withBias=*/true, /*outputDtype=*/bf16DtypeAttr,
+                      /*conv3dConfig=*/nonDefaultConv3dConfigAttr,
+                      /*computeKernelConfig=*/
+                      nonDefaultDeviceComputeKernelConfigAttr,
+                      /*inChannels=*/64u, /*outChannels=*/128u,
+                      /*batchSize=*/4u, /*inputDepth=*/16u,
+                      /*inputHeight=*/16u, /*inputWidth=*/16u,
+                      /*kernelSize=*/{2, 2, 2}, /*stride=*/{2, 2, 2},
+                      /*padding=*/{1, 1, 1}, /*paddingMode=*/"replicate",
+                      /*groups=*/2u),
+};
+
+INSTANTIATE_TEST_SUITE_P(Conv3dOpTPathParityTest, Conv3dOpTPathParityTest,
+                         ::testing::ValuesIn(conv3dOpList));
+
+//===----------------------------------------------------------------------===//
 // ConvTranspose2dOpTPathParity
 //===----------------------------------------------------------------------===//
 
