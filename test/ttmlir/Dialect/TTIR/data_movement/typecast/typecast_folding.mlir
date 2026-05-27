@@ -175,6 +175,19 @@ module attributes {} {
         return %3 : tensor<64x128xui8>
     }
 
+    // Test case to verify that integer narrowing-then-widening typecast ops do NOT fold.
+    // i32->i8->i32 semantically means "& 0xFF" and must never become identity.
+    // CHECK-LABEL: typecast_folding_int_narrowing_then_widening_typecasts
+    func.func @typecast_folding_int_narrowing_then_widening_typecasts(%arg0: tensor<64x128xi32>) -> tensor<64x128xi32> {
+        // CHECK: ttir.typecast
+        // CHECK-SAME: -> tensor<64x128xi8>
+        // CHECK: ttir.typecast
+        // CHECK-SAME: -> tensor<64x128xi32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xi32>) -> tensor<64x128xi8>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xi8>) -> tensor<64x128xi32>
+        return %3 : tensor<64x128xi32>
+    }
+
     // Test case to verify that we do not fold consecutive typecast ops if the first typecast have more than a single use.
     // CHECK-LABEL: typecast_folding_consecutive_typecasts_with_multiple_uses
     func.func @typecast_folding_consecutive_typecasts_with_multiple_uses(%arg0: tensor<64x128xf32>) -> (tensor<64x128xbf16>, tensor<64x128xi32>) {

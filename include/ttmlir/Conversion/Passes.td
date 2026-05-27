@@ -416,4 +416,72 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
 }
 
 
+def ConvertTTIRToSMT : Pass<"convert-ttir-to-smt", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR dialect to SMT dialect for formal verification.";
+  let description = [{
+    Lowers TTIR tensor operations to SMT bitvector operations for use in
+    logical equivalence checking and bounded model checking. Single-element
+    tensors (tensor<1xiN>) map to smt::BitVectorType(N). Multi-element
+    tensors (tensor<KxiN>) map to smt::ArrayType.
+  }];
+  let constructor = "createConvertTTIRToSMTPass()";
+  let dependentDialects = ["mlir::smt::SMTDialect"];
+}
+
+def FuncDropUnusedArgs : Pass<"func-drop-unused-args", "::mlir::ModuleOp"> {
+  let summary = "Drop func.func arguments that have no uses in the body.";
+  let description = [{
+    For each func.func in the module, erase any block argument whose value
+    is unused. Use after canonicalize/DCE to clean up arguments that became
+    unreferenced. Unlike --remove-dead-values, this does not eliminate
+    private functions with no callers.
+  }];
+  let constructor = "createFuncDropUnusedArgsPass()";
+  let dependentDialects = ["mlir::func::FuncDialect"];
+}
+
+def TTIRPruneToOutput : Pass<"ttir-prune-to-output", "::mlir::ModuleOp"> {
+  let summary = "Prune all func.func results except the one with the given name.";
+  let description = [{
+    For each func.func in the module that has at least one result with
+    a result-attribute key (controlled by name-attr, default "ttir.name")
+    matching keep-output, erase all other results (and update the func.return).
+    This works in concert with --canonicalize to eliminate dead logic,
+    shrinking the SMT problem for per-output LEC.
+  }];
+  let constructor = "createTTIRPruneToOutputPass()";
+  let dependentDialects = ["mlir::func::FuncDialect"];
+  let options = [
+    Option<"keepOutput", "keep-output", "std::string", /*default=*/"\"\"",
+           "Name of the result to keep">,
+    Option<"nameAttr", "name-attr", "std::string", /*default=*/"\"ttir.name\"",
+           "Result-attribute key used to identify port names (default: ttir.name; "
+           "use hw.port_name for CIRCT-emitted IR)">
+  ];
+}
+
+def ConstructTTIRLEC : Pass<"construct-ttir-lec", "::mlir::ModuleOp"> {
+  let summary = "Construct an LEC (logical equivalence check) from two SMT functions.";
+  let description = [{
+    Takes two func.func ops (already lowered to SMT) and constructs an
+    smt.solver that asserts their outputs differ for some input, then
+    issues a check. If port widths differ between the two functions, this
+    pass inserts zero-extend on inputs and truncate on outputs to adapt
+    the wider side down to the narrower side's width.
+  }];
+  let constructor = "createConstructTTIRLECPass()";
+  let dependentDialects = ["mlir::smt::SMTDialect", "mlir::func::FuncDialect"];
+  let options = [
+    Option<"firstFunc", "c1", "std::string", /*default=*/"", "Name of first function to compare">,
+    Option<"secondFunc", "c2", "std::string", /*default=*/"", "Name of second function to compare">,
+    Option<"checkOutput", "check-output", "std::string", /*default=*/"\"\"",
+           "Compare only the named output (default: compare all)">,
+    Option<"checkOutputIdx", "check-output-idx", "int", /*default=*/"-1",
+           "Compare only the output at this index (overrides check-output)">,
+    Option<"nameAttr", "name-attr", "std::string", /*default=*/"\"ttir.name\"",
+           "Result-attribute key used to identify port names (default: ttir.name; "
+           "use hw.port_name for CIRCT-emitted IR)">
+  ];
+}
+
 #endif // TTMLIR_CONVERSION_PASSES
