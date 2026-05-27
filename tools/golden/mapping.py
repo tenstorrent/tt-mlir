@@ -28,7 +28,6 @@ import re
 import einops
 import torch
 import torch.nn.functional
-from ttnn.operations.activations import get_golden_function_for_activation
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug, func
 from ttmlir.ir import *
 from ttmlir.passes import DataType
@@ -6735,6 +6734,38 @@ def ttnn_atan2_golden(
     return torch.atan2(input_tensor, other_tensor).to(output_dtype)
 
 
+# Torch goldens for fused matmul activations. Mirrors
+# ttnn.operations.activations._get_golden_map_for_unary_op (string keys are
+# lowercase op names; ``*_approx`` suffix is stripped before lookup).
+_FUSED_MATMUL_ACTIVATION_FNS: Dict[str, Callable] = {
+    "relu": torch.nn.functional.relu,
+    "relu6": torch.nn.functional.relu6,
+    "silu": torch.nn.functional.silu,
+    "mish": torch.nn.functional.mish,
+    "sigmoid": torch.nn.functional.sigmoid,
+    "hardsigmoid": torch.nn.functional.hardsigmoid,
+    "tanh": torch.nn.functional.tanh,
+    "log": torch.log,
+    "softplus": torch.nn.functional.softplus,
+    "gelu": torch.nn.functional.gelu,
+    "sqrt": torch.sqrt,
+}
+
+
+def _get_fused_matmul_activation_fn(
+    activation: Optional[Union[str, StringAttr]],
+) -> Optional[Callable]:
+    if activation is None:
+        return None
+    if not isinstance(activation, str):
+        activation = unpack_mlir_attr(activation)
+    name = activation[:-7] if activation.endswith("_approx") else activation
+    activation_fn = _FUSED_MATMUL_ACTIVATION_FNS.get(name)
+    if activation_fn is None:
+        raise ValueError(f"Unsupported fused matmul activation: {activation}")
+    return activation_fn
+
+
 def ttnn_matmul_golden(
     input_tensor: GoldenMapTensor,
     other_tensor: GoldenMapTensor,
@@ -6749,10 +6780,7 @@ def ttnn_matmul_golden(
     a = torch.transpose(input_tensor, -2, -1) if transpose_a else input_tensor
     b = torch.transpose(other_tensor, -2, -1) if transpose_b else other_tensor
     output = torch.matmul(a, b)
-    activation = activation_attr
-    if activation is not None and not isinstance(activation, str):
-        activation = unpack_mlir_attr(activation)
-    activation_fn = get_golden_function_for_activation(activation)
+    activation_fn = _get_fused_matmul_activation_fn(activation_attr)
     if activation_fn is not None:
         output = activation_fn(output)
     return output.to(output_dtype)
