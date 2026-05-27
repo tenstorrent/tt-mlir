@@ -592,16 +592,15 @@ TEST_F(HandleNoFitTest, AllocFreeReallocCoalesces) {
 
 class ViewEligibleReshapeAliasTest : public L1SpillTestFixture {};
 
-// DISABLED until the pass recognises view-eligible reshapes BEFORE
-// ensureFitsL1 / wouldAllocateAt.
+// DISABLED — reproducer for
+// https://github.com/tenstorrent/tt-mlir/issues/8625
 //
-// As of L1SpillManagement.cpp:1124-1133, the alias path
-// (`addTensorAtAddress`) is taken only AFTER `ensureFitsL1` already
-// queried `wouldAllocateAt(perResultL1)` using the reshape's full L1
-// size — the size the IR claims, ignoring that aliasing would not
-// consume a fresh slot. So in any scenario where the would-be alias
-// budget would otherwise force eviction, the pass evicts the input
-// instead of recognizing the alias.
+// The alias path (`addTensorAtAddress` at L1SpillManagement.cpp:1124-1133)
+// runs only AFTER `ensureFitsL1` queries `wouldAllocateAt(perResultL1)`
+// using the reshape's full output size — ignoring that a view-eligible
+// reshape would not consume a fresh slot. So in any scenario where the
+// would-be alias size would otherwise force eviction, the pass evicts
+// the input instead of recognising the alias.
 //
 // To meaningfully test the alias path, the pass needs to consult
 // canReshapeBeView (or an analogous predicate) before the fit/CB
