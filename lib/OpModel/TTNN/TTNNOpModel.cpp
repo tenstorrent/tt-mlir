@@ -15,6 +15,7 @@
 #include "ttmlir/OpInvoke/TTNN/conv/conv2dOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/convTranspose2dOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/prepareConv2dBiasOp.h"
+#include "ttmlir/OpInvoke/TTNN/conv/prepareConv2dWeightsOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/prepareConvTranspose2dBiasOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/prepareConvTranspose2dWeightsOp.h"
 #include "ttmlir/OpInvoke/TTNN/eltwise/binary/eltwiseBinaryCompositeOp.h"
@@ -5917,6 +5918,62 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
 // PrepareConv2dWeightsOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PrepareConv2dWeightsOpT buildPrepareConv2dWeightsOpTFromMLIR(
+    MemoryConfigAttr inputMemConfig,
+    ::mlir::tt::ttnn::Layout inputTensorLayout, llvm::StringRef weightsFormat,
+    int32_t inChannels, int32_t outChannels, int32_t batchSize,
+    int32_t inputHeight, int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool hasBias, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PrepareConv2dWeightsOpT opT;
+  opT.in_channels = inChannels;
+  opT.out_channels = outChannels;
+  opT.batch_size = batchSize;
+  opT.input_height = inputHeight;
+  opT.input_width = inputWidth;
+  opT.kernel_size = std::vector<int32_t>(kernelSize.begin(), kernelSize.end());
+  opT.stride = std::vector<int32_t>(stride.begin(), stride.end());
+  auto reorderedPadding = detail::reorderPool2dPadding(padding);
+  std::visit(
+      [&opT](const auto &arr) { opT.padding.assign(arr.begin(), arr.end()); },
+      reorderedPadding);
+  opT.dilation = std::vector<int32_t>(dilation.begin(), dilation.end());
+  opT.has_bias = hasBias;
+  opT.groups = groups;
+  opT.weights_format = weightsFormat.str();
+  opT.input_tensor_layout = toNative(inputTensorLayout);
+  opT.input_dtype = toNative(inputDtype);
+  if (outputDtype.has_value()) {
+    opT.output_dtype = toNative(outputDtype.value());
+  }
+  opT.input_memory_config = std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+      toNative(inputMemConfig));
+  opT.conv2d_config = (conv2dConfig.has_value() && *conv2dConfig)
+                          ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
+                                toNative(*conv2dConfig))
+                          : nullptr;
+  opT.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  opT.conv2d_slice_config =
+      (conv2dSliceConfig.has_value() && *conv2dSliceConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
+                toNative(*conv2dSliceConfig))
+          : nullptr;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, TTNNLayoutAttr weightLayout,
     llvm::ArrayRef<int64_t> weightShape, MemoryConfigAttr inputMemConfig,
@@ -5939,31 +5996,26 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
-  // Read output data type from output layout (if present) or from outputDtype.
-  std::optional<::tt::tt_metal::DataType> convertedOutputDtype = std::nullopt;
-  if (outputLayout) {
-    convertedOutputDtype = conversion::getDataType(outputLayout.getDataType());
-  } else if (outputDtype.has_value()) {
-    convertedOutputDtype = conversion::getDataType(outputDtype.value());
-  }
 
-  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
-      conversion::getConv2dSliceConfig(conv2dSliceConfig);
+  ::tt::target::ttnn::PrepareConv2dWeightsOpT opT =
+      buildPrepareConv2dWeightsOpTFromMLIR(
+          inputMemConfig, inputTensorLayout, weightsFormat, inChannels,
+          outChannels, batchSize, inputHeight, inputWidth, kernelSize, stride,
+          padding, dilation, hasBias, groups, inputDtype, outputDtype,
+          conv2dConfig, deviceComputeKernelConfig, conv2dSliceConfig,
+          outputLayout);
 
   auto prepareConv2dWeightsQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        &::ttnn::operations::conv::conv2d::prepare_conv_weights, device,
-        weightTensor, conversion::getMemoryConfig(inputMemConfig),
-        conversion::getPageLayout(inputTensorLayout), weightsFormat.str(),
-        inChannels, outChannels, batchSize, inputHeight, inputWidth,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        hasBias, groups, device, conversion::getDataType(inputDtype),
-        convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
-        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
-        sliceConfigConverted);
+    ttnn_op_invoke::PrepareConv2dWeightsOpResult result =
+        ttnn_op_invoke::callPrepareConv2dWeights(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, &weightTensor,
+            *device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected PrepareConv2dWeightsOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(weightLayout.getContext(), deviceGrid,

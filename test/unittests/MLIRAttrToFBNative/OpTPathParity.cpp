@@ -17,6 +17,46 @@ const mlir::tt::ttcore::DataTypeAttr bf16DtypeAttr =
     mlir::tt::ttcore::DataTypeAttr::get(getContext(),
                                         mlir::tt::ttcore::DataType::BFloat16);
 
+const mlir::tt::ttnn::Conv2dConfigAttr nonDefaultConv2dConfigAttr =
+    mlir::tt::ttnn::Conv2dConfigAttr::get(
+        getContext(),
+        /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
+        /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
+        /*deallocate_activation=*/mlir::BoolAttr::get(getContext(), false),
+        /*reallocate_halo_output=*/mlir::BoolAttr::get(getContext(), true),
+        /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+        /*reshard_if_not_optimal=*/mlir::BoolAttr::get(getContext(), false),
+        /*override_sharding_config=*/mlir::BoolAttr::get(getContext(), false),
+        /*shard_layout=*/std::nullopt,
+        /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
+        /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
+        /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
+        /*enable_act_double_buffer=*/mlir::BoolAttr::get(getContext(), true),
+        /*enable_weights_double_buffer=*/
+        mlir::BoolAttr::get(getContext(), true),
+        /*enable_kernel_stride_folding=*/
+        mlir::BoolAttr::get(getContext(), false),
+        /*config_tensors_in_dram=*/mlir::BoolAttr());
+
+const mlir::tt::ttnn::DeviceComputeKernelConfigAttr
+    nonDefaultDeviceComputeKernelConfigAttr =
+        mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
+            getContext(), mlir::tt::ttnn::MathFidelity::HiFi2,
+            mlir::BoolAttr::get(getContext(), false),
+            mlir::BoolAttr::get(getContext(), true),
+            mlir::BoolAttr::get(getContext(), true),
+            mlir::BoolAttr::get(getContext(), false));
+
+const mlir::tt::ttnn::Conv2dSliceConfigAttr nonDefaultConv2dSliceConfigAttr =
+    mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
+        getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 4);
+
+const mlir::tt::ttnn::MemoryConfigAttr nonDefaultInputMemoryConfigAttr =
+    mlir::tt::ttnn::MemoryConfigAttr::Builder(
+        mlir::tt::ttnn::MemoryConfigAttr::get(
+            createTiledL1InterleavedLayout({32, 32})))
+        .setBufferType(mlir::tt::ttnn::BufferType::DRAM);
+
 namespace mlir::tt::ttnn {
 ::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
 createOp(::mlir::tt::FlatbufferObjectCache &cache, MatmulOp op);
@@ -306,47 +346,15 @@ TEST_P(Conv2dOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
 const std::initializer_list<mlir::tt::ttnn::Conv2dOp> conv2dOpList = {
     buildTestConv2dOp(),
     buildTestConv2dOp(/*withBias=*/true),
-    buildTestConv2dOp(/*withBias=*/false,
-                      /*outputDtype=*/bf16DtypeAttr),
-    buildTestConv2dOp(
-        /*withBias=*/false, /*outputDtype=*/{},
-        /*conv2dConfig=*/
-        mlir::tt::ttnn::Conv2dConfigAttr::get(
-            getContext(),
-            /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
-            /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
-            /*deallocate_activation=*/mlir::BoolAttr::get(getContext(), false),
-            /*reallocate_halo_output=*/mlir::BoolAttr::get(getContext(), true),
-            /*act_block_h_override=*/0, /*act_block_w_div=*/1,
-            /*reshard_if_not_optimal=*/mlir::BoolAttr::get(getContext(), false),
-            /*override_sharding_config=*/
-            mlir::BoolAttr::get(getContext(), false),
-            /*shard_layout=*/std::nullopt,
-            /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
-            /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
-            /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
-            /*enable_act_double_buffer=*/
-            mlir::BoolAttr::get(getContext(), true),
-            /*enable_weights_double_buffer=*/
-            mlir::BoolAttr::get(getContext(), true),
-            /*enable_kernel_stride_folding=*/
-            mlir::BoolAttr::get(getContext(), false),
-            /*config_tensors_in_dram=*/mlir::BoolAttr())),
+    buildTestConv2dOp(/*withBias=*/false, /*outputDtype=*/bf16DtypeAttr),
+    buildTestConv2dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv2dConfig=*/nonDefaultConv2dConfigAttr),
     buildTestConv2dOp(
         /*withBias=*/false, /*outputDtype=*/{}, /*conv2dConfig=*/{},
-        /*computeKernelConfig=*/
-        mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
-            getContext(), mlir::tt::ttnn::MathFidelity::HiFi2,
-            mlir::BoolAttr::get(getContext(), false),
-            mlir::BoolAttr::get(getContext(), true),
-            mlir::BoolAttr::get(getContext(), true),
-            mlir::BoolAttr::get(getContext(), false))),
-    buildTestConv2dOp(
-        /*withBias=*/false, /*outputDtype=*/{}, /*conv2dConfig=*/{},
-        /*computeKernelConfig=*/{},
-        /*conv2dSliceConfig=*/
-        mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-            getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 4)),
+        /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+    buildTestConv2dOp(/*withBias=*/false, /*outputDtype=*/{},
+                      /*conv2dConfig=*/{}, /*computeKernelConfig=*/{},
+                      /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr),
     buildTestConv2dOp(/*withBias=*/false, /*outputDtype=*/{},
                       /*conv2dConfig=*/{}, /*computeKernelConfig=*/{},
                       /*conv2dSliceConfig=*/{}, /*inChannels=*/64u),
@@ -402,45 +410,16 @@ const std::initializer_list<mlir::tt::ttnn::Conv2dOp> conv2dOpList = {
                       /*kernelSize=*/{7, 7}, /*stride=*/{2, 2},
                       /*padding=*/{3, 3}, /*dilation=*/{1, 1},
                       /*groups=*/3u),
-    buildTestConv2dOp(
-        /*withBias=*/true,
-        /*outputDtype=*/bf16DtypeAttr,
-        /*conv2dConfig=*/
-        mlir::tt::ttnn::Conv2dConfigAttr::get(
-            getContext(),
-            /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
-            /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
-            /*deallocate_activation=*/mlir::BoolAttr::get(getContext(), true),
-            /*reallocate_halo_output=*/mlir::BoolAttr::get(getContext(), false),
-            /*act_block_h_override=*/32, /*act_block_w_div=*/1,
-            /*reshard_if_not_optimal=*/mlir::BoolAttr::get(getContext(), false),
-            /*override_sharding_config=*/
-            mlir::BoolAttr::get(getContext(), false),
-            /*shard_layout=*/std::nullopt,
-            /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
-            /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
-            /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
-            /*enable_act_double_buffer=*/
-            mlir::BoolAttr::get(getContext(), true),
-            /*enable_weights_double_buffer=*/
-            mlir::BoolAttr::get(getContext(), false),
-            /*enable_kernel_stride_folding=*/
-            mlir::BoolAttr::get(getContext(), false),
-            /*config_tensors_in_dram=*/mlir::BoolAttr()),
-        /*computeKernelConfig=*/
-        mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
-            getContext(), mlir::tt::ttnn::MathFidelity::HiFi3,
-            mlir::BoolAttr::get(getContext(), false),
-            mlir::BoolAttr::get(getContext(), false),
-            mlir::BoolAttr::get(getContext(), true),
-            mlir::BoolAttr::get(getContext(), true)),
-        /*conv2dSliceConfig=*/
-        mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-            getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 2),
-        /*inChannels=*/16u, /*outChannels=*/32u, /*batchSize=*/2u,
-        /*inputHeight=*/112u, /*inputWidth=*/112u,
-        /*kernelSize=*/{3, 3}, /*stride=*/{1, 1}, /*padding=*/{1, 1},
-        /*dilation=*/{1, 1}, /*groups=*/1u),
+    buildTestConv2dOp(/*withBias=*/true, /*outputDtype=*/bf16DtypeAttr,
+                      /*conv2dConfig=*/nonDefaultConv2dConfigAttr,
+                      /*computeKernelConfig=*/
+                      nonDefaultDeviceComputeKernelConfigAttr,
+                      /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr,
+                      /*inChannels=*/64u, /*outChannels=*/128u,
+                      /*batchSize=*/8u, /*inputHeight=*/56u,
+                      /*inputWidth=*/56u, /*kernelSize=*/{3, 3},
+                      /*stride=*/{1, 1}, /*padding=*/{1, 1},
+                      /*dilation=*/{2, 2}, /*groups=*/2u),
 };
 
 INSTANTIATE_TEST_SUITE_P(Conv2dOpTPathParityTest, Conv2dOpTPathParityTest,
@@ -592,48 +571,21 @@ const std::initializer_list<mlir::tt::ttnn::ConvTranspose2dOp>
         buildTestConvTranspose2dOp(/*withBias=*/true),
         buildTestConvTranspose2dOp(/*withBias=*/false,
                                    /*outputDtype=*/bf16DtypeAttr),
-        buildTestConvTranspose2dOp(
-            /*withBias=*/false, /*outputDtype=*/{},
-            /*conv2dConfig=*/
-            mlir::tt::ttnn::Conv2dConfigAttr::get(
-                getContext(),
-                /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
-                /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
-                /*deallocate_activation=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*reallocate_halo_output=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*act_block_h_override=*/0, /*act_block_w_div=*/1,
-                /*reshard_if_not_optimal=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*override_sharding_config=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*shard_layout=*/std::nullopt,
-                /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
-                /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
-                /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
-                /*enable_act_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_weights_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_kernel_stride_folding=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*config_tensors_in_dram=*/mlir::BoolAttr())),
+        buildTestConvTranspose2dOp(/*withBias=*/false, /*outputDtype=*/{},
+                                   /*conv2dConfig=*/nonDefaultConv2dConfigAttr),
         buildTestConvTranspose2dOp(
             /*withBias=*/false, /*outputDtype=*/{}, /*conv2dConfig=*/{},
-            /*computeKernelConfig=*/
-            mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
-                getContext(), mlir::tt::ttnn::MathFidelity::HiFi2,
-                mlir::BoolAttr::get(getContext(), false),
-                mlir::BoolAttr::get(getContext(), true),
-                mlir::BoolAttr::get(getContext(), true),
-                mlir::BoolAttr::get(getContext(), false))),
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
         buildTestConvTranspose2dOp(
             /*withBias=*/false, /*outputDtype=*/{}, /*conv2dConfig=*/{},
             /*computeKernelConfig=*/{},
-            /*conv2dSliceConfig=*/
-            mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-                getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 4)),
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr),
+        buildTestConvTranspose2dOp(/*withBias=*/false, /*outputDtype=*/{},
+                                   /*conv2dConfig=*/{},
+                                   /*computeKernelConfig=*/{},
+                                   /*conv2dSliceConfig=*/{},
+                                   /*memoryConfig=*/
+                                   nonDefaultInputMemoryConfigAttr),
         buildTestConvTranspose2dOp(/*withBias=*/false, /*outputDtype=*/{},
                                    /*conv2dConfig=*/{},
                                    /*computeKernelConfig=*/{},
@@ -727,95 +679,15 @@ const std::initializer_list<mlir::tt::ttnn::ConvTranspose2dOp>
                                    /*outputPadding=*/{0, 0},
                                    /*dilation=*/{1, 1}, /*groups=*/4u),
         buildTestConvTranspose2dOp(
-            /*withBias=*/true,
-            /*outputDtype=*/bf16DtypeAttr,
-            /*conv2dConfig=*/
-            mlir::tt::ttnn::Conv2dConfigAttr::get(
-                getContext(),
-                /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
-                /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
-                /*deallocate_activation=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*reallocate_halo_output=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*act_block_h_override=*/32, /*act_block_w_div=*/1,
-                /*reshard_if_not_optimal=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*override_sharding_config=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*shard_layout=*/std::nullopt,
-                /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
-                /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
-                /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
-                /*enable_act_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_weights_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*enable_kernel_stride_folding=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*config_tensors_in_dram=*/mlir::BoolAttr()),
-            /*computeKernelConfig=*/{},
-            /*conv2dSliceConfig=*/
-            mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-                getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 2),
-            /*memoryConfig=*/{},
-            /*inChannels=*/32u, /*outChannels=*/16u, /*batchSize=*/2u,
-            /*inputHeight=*/14u, /*inputWidth=*/14u,
-            /*kernelSize=*/{3, 3}, /*stride=*/{2, 2}, /*padding=*/{1, 1},
-            /*outputPadding=*/{1, 1}, /*dilation=*/{1, 1}, /*groups=*/1u),
-        // Non-default memory config: DRAM + Interleaved.
-        buildTestConvTranspose2dOp(
-            /*withBias=*/false, /*outputDtype=*/{}, /*conv2dConfig=*/{},
-            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
-            /*memoryConfig=*/
-            mlir::tt::ttnn::MemoryConfigAttr::get(
-                getContext(),
-                mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-                    getContext(),
-                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
-                mlir::tt::ttnn::BufferTypeAttr::get(
-                    getContext(), mlir::tt::ttnn::BufferType::DRAM),
-                /*shardSpec=*/std::nullopt)),
-        // Non-default memory config: L1 + Interleaved (explicit) combined with
-        // bias and conv2d config.
-        buildTestConvTranspose2dOp(
-            /*withBias=*/true,
-            /*outputDtype=*/bf16DtypeAttr,
-            /*conv2dConfig=*/
-            mlir::tt::ttnn::Conv2dConfigAttr::get(
-                getContext(),
-                /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
-                /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
-                /*deallocate_activation=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*reallocate_halo_output=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*act_block_h_override=*/0, /*act_block_w_div=*/1,
-                /*reshard_if_not_optimal=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*override_sharding_config=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*shard_layout=*/std::nullopt,
-                /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
-                /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
-                /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
-                /*enable_act_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_weights_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_kernel_stride_folding=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*config_tensors_in_dram=*/mlir::BoolAttr()),
-            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
-            /*memoryConfig=*/
-            mlir::tt::ttnn::MemoryConfigAttr::get(
-                getContext(),
-                mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-                    getContext(),
-                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved),
-                mlir::tt::ttnn::BufferTypeAttr::get(
-                    getContext(), mlir::tt::ttnn::BufferType::DRAM),
-                /*shardSpec=*/std::nullopt)),
+            /*withBias=*/true, /*outputDtype=*/bf16DtypeAttr,
+            /*conv2dConfig=*/nonDefaultConv2dConfigAttr,
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr,
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr,
+            /*memoryConfig=*/nonDefaultInputMemoryConfigAttr,
+            /*inChannels=*/128u, /*outChannels=*/64u, /*batchSize=*/4u,
+            /*inputHeight=*/14u, /*inputWidth=*/14u, /*kernelSize=*/{4, 4},
+            /*stride=*/{1, 1}, /*padding=*/{0, 0}, /*outputPadding=*/{1, 1},
+            /*dilation=*/{2, 2}, /*groups=*/2u),
 };
 
 INSTANTIATE_TEST_SUITE_P(ConvTranspose2dOpTPathParityTest,
@@ -871,7 +743,11 @@ mlir::tt::ttnn::PrepareConv2dBiasOp buildTestPrepareConv2dBiasOp(
     llvm::ArrayRef<int32_t> kernelSize = {7, 7},
     llvm::ArrayRef<int32_t> stride = {2, 2},
     llvm::ArrayRef<int32_t> padding = {3, 3},
-    llvm::ArrayRef<int32_t> dilation = {1, 1}, uint32_t groups = 1) {
+    llvm::ArrayRef<int32_t> dilation = {1, 1}, uint32_t groups = 1,
+    mlir::tt::ttnn::MemoryConfigAttr inputMemoryConfig = {},
+    mlir::tt::ttnn::Layout inputTensorLayout = mlir::tt::ttnn::Layout::Tile,
+    mlir::tt::ttcore::DataType inputDtype =
+        mlir::tt::ttcore::DataType::BFloat16) {
   auto &e = env();
   auto loc = e.builder.getUnknownLoc();
 
@@ -893,15 +769,16 @@ mlir::tt::ttnn::PrepareConv2dBiasOp buildTestPrepareConv2dBiasOp(
               mlir::tt::ttnn::MeshOffsetAttr::get(&e.context, 0, 0))
           .getResult();
 
-  auto biasLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-      mlir::cast<mlir::RankedTensorType>(biasType).getEncoding());
-  auto inputMemoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(biasLayout);
+  if (!inputMemoryConfig) {
+    auto biasLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(biasType).getEncoding());
+    inputMemoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(biasLayout);
+  }
 
   return e.builder.create<mlir::tt::ttnn::PrepareConv2dBiasOp>(
-      loc, outputType, bias, inputMemoryConfig, mlir::tt::ttnn::Layout::Tile,
-      inChannels, outChannels, batchSize, inputHeight, inputWidth, kernelSize,
-      stride, padding, dilation, groups, device,
-      mlir::tt::ttcore::DataType::BFloat16, outputDtype, conv2dConfig,
+      loc, outputType, bias, inputMemoryConfig, inputTensorLayout, inChannels,
+      outChannels, batchSize, inputHeight, inputWidth, kernelSize, stride,
+      padding, dilation, groups, device, inputDtype, outputDtype, conv2dConfig,
       computeKernelConfig, conv2dSliceConfig);
 }
 
@@ -948,51 +825,13 @@ const std::initializer_list<mlir::tt::ttnn::PrepareConv2dBiasOp>
         buildTestPrepareConv2dBiasOp(),
         buildTestPrepareConv2dBiasOp(/*outputDtype=*/bf16DtypeAttr),
         buildTestPrepareConv2dBiasOp(
-            /*outputDtype=*/{},
-            /*conv2dConfig=*/
-            mlir::tt::ttnn::Conv2dConfigAttr::get(
-                getContext(),
-                /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
-                /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
-                /*deallocate_activation=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*reallocate_halo_output=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*act_block_h_override=*/0, /*act_block_w_div=*/1,
-                /*reshard_if_not_optimal=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*override_sharding_config=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*shard_layout=*/std::nullopt,
-                /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
-                /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
-                /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
-                /*enable_act_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_weights_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_kernel_stride_folding=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*config_tensors_in_dram=*/mlir::BoolAttr())),
+            /*outputDtype=*/{}, /*conv2dConfig=*/nonDefaultConv2dConfigAttr),
         buildTestPrepareConv2dBiasOp(
             /*outputDtype=*/{}, /*conv2dConfig=*/{},
-            /*computeKernelConfig=*/
-            mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
-                getContext(), mlir::tt::ttnn::MathFidelity::HiFi2,
-                mlir::BoolAttr::get(getContext(), false),
-                mlir::BoolAttr::get(getContext(), true),
-                mlir::BoolAttr::get(getContext(), true),
-                mlir::BoolAttr::get(getContext(), false))),
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
         buildTestPrepareConv2dBiasOp(
             /*outputDtype=*/{}, /*conv2dConfig=*/{}, /*computeKernelConfig=*/{},
-            /*conv2dSliceConfig=*/
-            mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-                getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 4)),
-        buildTestPrepareConv2dBiasOp(
-            /*outputDtype=*/{}, /*conv2dConfig=*/{}, /*computeKernelConfig=*/{},
-            /*conv2dSliceConfig=*/
-            mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-                getContext(), mlir::tt::ttnn::Conv2dSliceType::DramWidth, 8)),
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr),
         buildTestPrepareConv2dBiasOp(/*outputDtype=*/{}, /*conv2dConfig=*/{},
                                      /*computeKernelConfig=*/{},
                                      /*conv2dSliceConfig=*/{},
@@ -1047,11 +886,307 @@ const std::initializer_list<mlir::tt::ttnn::PrepareConv2dBiasOp>
             /*batchSize=*/1u, /*inputHeight=*/224u, /*inputWidth=*/224u,
             /*kernelSize=*/{7, 7}, /*stride=*/{2, 2}, /*padding=*/{3, 3},
             /*dilation=*/{1, 1}, /*groups=*/3u),
+        buildTestPrepareConv2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{}, /*computeKernelConfig=*/{},
+            /*conv2dSliceConfig=*/{}, /*inChannels=*/3u, /*outChannels=*/64u,
+            /*batchSize=*/1u, /*inputHeight=*/224u, /*inputWidth=*/224u,
+            /*kernelSize=*/{7, 7}, /*stride=*/{2, 2}, /*padding=*/{3, 3},
+            /*dilation=*/{1, 1}, /*groups=*/1u,
+            /*inputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+        buildTestPrepareConv2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{}, /*computeKernelConfig=*/{},
+            /*conv2dSliceConfig=*/{}, /*inChannels=*/3u, /*outChannels=*/64u,
+            /*batchSize=*/1u, /*inputHeight=*/224u, /*inputWidth=*/224u,
+            /*kernelSize=*/{7, 7}, /*stride=*/{2, 2}, /*padding=*/{3, 3},
+            /*dilation=*/{1, 1}, /*groups=*/1u,
+            /*inputMemoryConfig=*/{},
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::RowMajor),
+        buildTestPrepareConv2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{}, /*computeKernelConfig=*/{},
+            /*conv2dSliceConfig=*/{}, /*inChannels=*/3u, /*outChannels=*/64u,
+            /*batchSize=*/1u, /*inputHeight=*/224u, /*inputWidth=*/224u,
+            /*kernelSize=*/{7, 7}, /*stride=*/{2, 2}, /*padding=*/{3, 3},
+            /*dilation=*/{1, 1}, /*groups=*/1u,
+            /*inputMemoryConfig=*/{},
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::Tile,
+            /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
+        buildTestPrepareConv2dBiasOp(
+            /*outputDtype=*/bf16DtypeAttr,
+            /*conv2dConfig=*/nonDefaultConv2dConfigAttr,
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr,
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr,
+            /*inChannels=*/64u, /*outChannels=*/128u, /*batchSize=*/8u,
+            /*inputHeight=*/56u, /*inputWidth=*/56u, /*kernelSize=*/{3, 3},
+            /*stride=*/{1, 1}, /*padding=*/{1, 1}, /*dilation=*/{2, 2},
+            /*groups=*/2u,
+            /*inputMemoryConfig=*/nonDefaultInputMemoryConfigAttr,
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::RowMajor,
+            /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
 };
 
 INSTANTIATE_TEST_SUITE_P(PrepareConv2dBiasOpTPathParityTest,
                          PrepareConv2dBiasOpTPathParityTest,
                          ::testing::ValuesIn(prepareConv2dBiasOpList));
+
+//===----------------------------------------------------------------------===//
+// PrepareConv2dWeightsOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dWeightsOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PrepareConv2dWeightsOpT
+buildPrepareConv2dWeightsOpTFromMLIR(
+    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
+    llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    bool hasBias, int32_t groups, ttcore::DataType inputDtype,
+    std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::PrepareConv2dWeightsOpT &opTOpModel,
+                       ::tt::target::ttnn::PrepareConv2dWeightsOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::PrepareConv2dWeightsOpT &opT) {
+    opT.weight_tensor.reset();
+    opT.device.reset();
+    resetOutputTensorRefT(opT.out);
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::PrepareConv2dWeightsOp buildTestPrepareConv2dWeightsOp(
+    mlir::tt::ttcore::DataTypeAttr outputDtype = {},
+    mlir::tt::ttnn::Conv2dConfigAttr conv2dConfig = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeKernelConfig = {},
+    mlir::tt::ttnn::Conv2dSliceConfigAttr conv2dSliceConfig = {},
+    llvm::StringRef weightsFormat = "OIHW", bool hasBias = false,
+    uint32_t inChannels = 3, uint32_t outChannels = 64, uint32_t batchSize = 1,
+    uint32_t inputHeight = 224, uint32_t inputWidth = 224,
+    llvm::ArrayRef<int32_t> kernelSize = {7, 7},
+    llvm::ArrayRef<int32_t> stride = {2, 2},
+    llvm::ArrayRef<int32_t> padding = {3, 3},
+    llvm::ArrayRef<int32_t> dilation = {1, 1}, uint32_t groups = 1,
+    mlir::tt::ttnn::MemoryConfigAttr inputMemoryConfig = {},
+    mlir::tt::ttnn::Layout inputTensorLayout = mlir::tt::ttnn::Layout::Tile,
+    mlir::tt::ttcore::DataType inputDtype =
+        mlir::tt::ttcore::DataType::BFloat16) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  llvm::SmallVector<int64_t, 4> weightShape = {
+      static_cast<int64_t>(outChannels),
+      static_cast<int64_t>(inChannels / groups),
+      static_cast<int64_t>(kernelSize[0]), static_cast<int64_t>(kernelSize[1])};
+  auto weightType = tiledL1BF16Type(weightShape);
+  auto outputType = tiledL1BF16Type(weightShape);
+
+  mlir::Value weight =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{weightType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  mlir::Value device =
+      e.builder
+          .create<mlir::tt::ttnn::GetDeviceOp>(
+              loc, e.builder.getType<mlir::tt::ttnn::DeviceType>(),
+              mlir::tt::ttnn::MeshShapeAttr::get(&e.context, 1, 1),
+              mlir::tt::ttnn::MeshOffsetAttr::get(&e.context, 0, 0))
+          .getResult();
+
+  if (!inputMemoryConfig) {
+    auto weightLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(weightType).getEncoding());
+    inputMemoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(weightLayout);
+  }
+
+  return e.builder.create<mlir::tt::ttnn::PrepareConv2dWeightsOp>(
+      loc, outputType, weight, inputMemoryConfig, inputTensorLayout,
+      weightsFormat, inChannels, outChannels, batchSize, inputHeight,
+      inputWidth, kernelSize, stride, padding, dilation, hasBias, groups,
+      device, inputDtype, outputDtype, conv2dConfig, computeKernelConfig,
+      conv2dSliceConfig);
+}
+
+} // namespace
+
+using PrepareConv2dWeightsOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::PrepareConv2dWeightsOp>;
+
+TEST_P(PrepareConv2dWeightsOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PrepareConv2dWeightsOp prepareOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PrepareConv2dWeightsOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildPrepareConv2dWeightsOpTFromMLIR(
+          prepareOp.getInputMemoryConfig(), prepareOp.getInputTensorLayout(),
+          prepareOp.getWeightsFormat(), prepareOp.getInChannels(),
+          prepareOp.getOutChannels(), prepareOp.getBatchSize(),
+          prepareOp.getInputHeight(), prepareOp.getInputWidth(),
+          prepareOp.getKernelSize(), prepareOp.getStride(),
+          prepareOp.getPadding(), prepareOp.getDilation(),
+          prepareOp.getHasBias(), prepareOp.getGroups(),
+          prepareOp.getInputDtype(), prepareOp.getOutputDtype(),
+          prepareOp.getConv2dConfig(), prepareOp.getComputeConfig(),
+          prepareOp.getConv2dSliceConfig(), resolveOutputLayout(prepareOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, prepareOp.getWeightTensor());
+  cache.getOrCreate(prepareOp.getDevice(), mlir::tt::ttnn::createDeviceRef);
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, prepareOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PrepareConv2dWeightsOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::PrepareConv2dWeightsOp>
+    prepareConv2dWeightsOpList = {
+        buildTestPrepareConv2dWeightsOp(),
+        buildTestPrepareConv2dWeightsOp(/*outputDtype=*/bf16DtypeAttr),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{},
+            /*conv2dConfig=*/nonDefaultConv2dConfigAttr),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{},
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"IOHW"),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/true),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/64u),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/128u),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/8u),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/56u),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/56u),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/224u, /*kernelSize=*/{3, 3}),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/224u, /*kernelSize=*/{7, 7}, /*stride=*/{1, 1}),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/224u, /*kernelSize=*/{7, 7}, /*stride=*/{2, 2},
+            /*padding=*/{1, 1}),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/224u, /*kernelSize=*/{7, 7}, /*stride=*/{2, 2},
+            /*padding=*/{3, 3}, /*dilation=*/{2, 2}),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/224u, /*kernelSize=*/{7, 7}, /*stride=*/{2, 2},
+            /*padding=*/{3, 3}, /*dilation=*/{1, 1}, /*groups=*/3u),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/224u, /*kernelSize=*/{7, 7}, /*stride=*/{2, 2},
+            /*padding=*/{3, 3}, /*dilation=*/{1, 1}, /*groups=*/1u,
+            /*inputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/224u, /*kernelSize=*/{7, 7}, /*stride=*/{2, 2},
+            /*padding=*/{3, 3}, /*dilation=*/{1, 1}, /*groups=*/1u,
+            /*inputMemoryConfig=*/{},
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::RowMajor),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false, /*inChannels=*/3u,
+            /*outChannels=*/64u, /*batchSize=*/1u, /*inputHeight=*/224u,
+            /*inputWidth=*/224u, /*kernelSize=*/{7, 7}, /*stride=*/{2, 2},
+            /*padding=*/{3, 3}, /*dilation=*/{1, 1}, /*groups=*/1u,
+            /*inputMemoryConfig=*/{},
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::Tile,
+            /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
+        buildTestPrepareConv2dWeightsOp(
+            /*outputDtype=*/bf16DtypeAttr,
+            /*conv2dConfig=*/nonDefaultConv2dConfigAttr,
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr,
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr,
+            /*weightsFormat=*/"IOHW", /*hasBias=*/true,
+            /*inChannels=*/64u, /*outChannels=*/128u, /*batchSize=*/8u,
+            /*inputHeight=*/56u, /*inputWidth=*/56u, /*kernelSize=*/{3, 3},
+            /*stride=*/{1, 1}, /*padding=*/{1, 1}, /*dilation=*/{2, 2},
+            /*groups=*/2u,
+            /*inputMemoryConfig=*/nonDefaultInputMemoryConfigAttr,
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::RowMajor,
+            /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
+};
+
+INSTANTIATE_TEST_SUITE_P(PrepareConv2dWeightsOpTPathParityTest,
+                         PrepareConv2dWeightsOpTPathParityTest,
+                         ::testing::ValuesIn(prepareConv2dWeightsOpList));
 
 //===----------------------------------------------------------------------===//
 // PrepareConvTranspose2dBiasOpTPathParity
@@ -1106,7 +1241,11 @@ buildTestPrepareConvTranspose2dBiasOp(
     llvm::ArrayRef<int32_t> kernelSize = {3, 3},
     llvm::ArrayRef<int32_t> stride = {2, 2},
     llvm::ArrayRef<int32_t> padding = {1, 1},
-    llvm::ArrayRef<int32_t> dilation = {1, 1}, uint32_t groups = 1) {
+    llvm::ArrayRef<int32_t> dilation = {1, 1}, uint32_t groups = 1,
+    mlir::tt::ttnn::MemoryConfigAttr inputMemoryConfig = {},
+    mlir::tt::ttnn::Layout inputTensorLayout = mlir::tt::ttnn::Layout::Tile,
+    mlir::tt::ttcore::DataType inputDtype =
+        mlir::tt::ttcore::DataType::BFloat16) {
   auto &e = env();
   auto loc = e.builder.getUnknownLoc();
 
@@ -1128,15 +1267,16 @@ buildTestPrepareConvTranspose2dBiasOp(
               mlir::tt::ttnn::MeshOffsetAttr::get(&e.context, 0, 0))
           .getResult();
 
-  auto biasLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-      mlir::cast<mlir::RankedTensorType>(biasType).getEncoding());
-  auto inputMemoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(biasLayout);
+  if (!inputMemoryConfig) {
+    auto biasLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(biasType).getEncoding());
+    inputMemoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(biasLayout);
+  }
 
   return e.builder.create<mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>(
-      loc, outputType, bias, inputMemoryConfig, mlir::tt::ttnn::Layout::Tile,
-      inChannels, outChannels, batchSize, inputHeight, inputWidth, kernelSize,
-      stride, padding, dilation, groups, device,
-      mlir::tt::ttcore::DataType::BFloat16, outputDtype, conv2dConfig,
+      loc, outputType, bias, inputMemoryConfig, inputTensorLayout, inChannels,
+      outChannels, batchSize, inputHeight, inputWidth, kernelSize, stride,
+      padding, dilation, groups, device, inputDtype, outputDtype, conv2dConfig,
       computeKernelConfig, conv2dSliceConfig);
 }
 
@@ -1185,46 +1325,14 @@ const std::initializer_list<mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>
         buildTestPrepareConvTranspose2dBiasOp(/*outputDtype=*/bf16DtypeAttr),
         buildTestPrepareConvTranspose2dBiasOp(
             /*outputDtype=*/{},
-            /*conv2dConfig=*/
-            mlir::tt::ttnn::Conv2dConfigAttr::get(
-                getContext(),
-                /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
-                /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
-                /*deallocate_activation=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*reallocate_halo_output=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*act_block_h_override=*/0, /*act_block_w_div=*/1,
-                /*reshard_if_not_optimal=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*override_sharding_config=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*shard_layout=*/std::nullopt,
-                /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
-                /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
-                /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
-                /*enable_act_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_weights_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_kernel_stride_folding=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*config_tensors_in_dram=*/mlir::BoolAttr())),
+            /*conv2dConfig=*/nonDefaultConv2dConfigAttr),
         buildTestPrepareConvTranspose2dBiasOp(
             /*outputDtype=*/{}, /*conv2dConfig=*/{},
-            /*computeKernelConfig=*/
-            mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
-                getContext(), mlir::tt::ttnn::MathFidelity::HiFi2,
-                mlir::BoolAttr::get(getContext(), false),
-                mlir::BoolAttr::get(getContext(), true),
-                mlir::BoolAttr::get(getContext(), true),
-                mlir::BoolAttr::get(getContext(), false))),
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
         buildTestPrepareConvTranspose2dBiasOp(
             /*outputDtype=*/{}, /*conv2dConfig=*/{},
             /*computeKernelConfig=*/{},
-            /*conv2dSliceConfig=*/
-            mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-                getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 4)),
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr),
         buildTestPrepareConvTranspose2dBiasOp(
             /*outputDtype=*/{}, /*conv2dConfig=*/{},
             /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
@@ -1277,6 +1385,43 @@ const std::initializer_list<mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>
             /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{3, 3},
             /*stride=*/{2, 2}, /*padding=*/{1, 1}, /*dilation=*/{1, 1},
             /*groups=*/4u),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{3, 3},
+            /*stride=*/{2, 2}, /*padding=*/{1, 1}, /*dilation=*/{1, 1},
+            /*groups=*/1u,
+            /*inputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{3, 3},
+            /*stride=*/{2, 2}, /*padding=*/{1, 1}, /*dilation=*/{1, 1},
+            /*groups=*/1u, /*inputMemoryConfig=*/{},
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::RowMajor),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{3, 3},
+            /*stride=*/{2, 2}, /*padding=*/{1, 1}, /*dilation=*/{1, 1},
+            /*groups=*/1u, /*inputMemoryConfig=*/{},
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::Tile,
+            /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/bf16DtypeAttr,
+            /*conv2dConfig=*/nonDefaultConv2dConfigAttr,
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr,
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr,
+            /*inChannels=*/128u, /*outChannels=*/64u, /*batchSize=*/4u,
+            /*inputHeight=*/14u, /*inputWidth=*/14u, /*kernelSize=*/{4, 4},
+            /*stride=*/{1, 1}, /*padding=*/{0, 0}, /*dilation=*/{2, 2},
+            /*groups=*/2u,
+            /*inputMemoryConfig=*/nonDefaultInputMemoryConfigAttr,
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::RowMajor,
+            /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
 };
 
 INSTANTIATE_TEST_SUITE_P(PrepareConvTranspose2dBiasOpTPathParityTest,
@@ -1339,7 +1484,11 @@ buildTestPrepareConvTranspose2dWeightsOp(
     llvm::ArrayRef<int32_t> kernelSize = {3, 3},
     llvm::ArrayRef<int32_t> stride = {2, 2},
     llvm::ArrayRef<int32_t> padding = {1, 1},
-    llvm::ArrayRef<int32_t> dilation = {1, 1}, uint32_t groups = 1) {
+    llvm::ArrayRef<int32_t> dilation = {1, 1}, uint32_t groups = 1,
+    mlir::tt::ttnn::MemoryConfigAttr inputMemoryConfig = {},
+    mlir::tt::ttnn::Layout inputTensorLayout = mlir::tt::ttnn::Layout::Tile,
+    mlir::tt::ttcore::DataType inputDtype =
+        mlir::tt::ttcore::DataType::BFloat16) {
   auto &e = env();
   auto loc = e.builder.getUnknownLoc();
 
@@ -1364,16 +1513,18 @@ buildTestPrepareConvTranspose2dWeightsOp(
               mlir::tt::ttnn::MeshOffsetAttr::get(&e.context, 0, 0))
           .getResult();
 
-  auto weightLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-      mlir::cast<mlir::RankedTensorType>(weightType).getEncoding());
-  auto inputMemoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(weightLayout);
+  if (!inputMemoryConfig) {
+    auto weightLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(weightType).getEncoding());
+    inputMemoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(weightLayout);
+  }
 
   return e.builder.create<mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>(
-      loc, outputType, weight, inputMemoryConfig, mlir::tt::ttnn::Layout::Tile,
+      loc, outputType, weight, inputMemoryConfig, inputTensorLayout,
       weightsFormat, inChannels, outChannels, batchSize, inputHeight,
       inputWidth, kernelSize, stride, padding, dilation, hasBias, groups,
-      device, mlir::tt::ttcore::DataType::BFloat16, outputDtype, conv2dConfig,
-      computeKernelConfig, conv2dSliceConfig, mirrorKernel);
+      device, inputDtype, outputDtype, conv2dConfig, computeKernelConfig,
+      conv2dSliceConfig, mirrorKernel);
 }
 
 } // namespace
@@ -1423,46 +1574,14 @@ const std::initializer_list<mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>
         buildTestPrepareConvTranspose2dWeightsOp(/*outputDtype=*/bf16DtypeAttr),
         buildTestPrepareConvTranspose2dWeightsOp(
             /*outputDtype=*/{},
-            /*conv2dConfig=*/
-            mlir::tt::ttnn::Conv2dConfigAttr::get(
-                getContext(),
-                /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
-                /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
-                /*deallocate_activation=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*reallocate_halo_output=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*act_block_h_override=*/0, /*act_block_w_div=*/1,
-                /*reshard_if_not_optimal=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*override_sharding_config=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*shard_layout=*/std::nullopt,
-                /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
-                /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
-                /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
-                /*enable_act_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_weights_double_buffer=*/
-                mlir::BoolAttr::get(getContext(), true),
-                /*enable_kernel_stride_folding=*/
-                mlir::BoolAttr::get(getContext(), false),
-                /*config_tensors_in_dram=*/mlir::BoolAttr())),
+            /*conv2dConfig=*/nonDefaultConv2dConfigAttr),
         buildTestPrepareConvTranspose2dWeightsOp(
             /*outputDtype=*/{}, /*conv2dConfig=*/{},
-            /*computeKernelConfig=*/
-            mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
-                getContext(), mlir::tt::ttnn::MathFidelity::HiFi2,
-                mlir::BoolAttr::get(getContext(), false),
-                mlir::BoolAttr::get(getContext(), true),
-                mlir::BoolAttr::get(getContext(), true),
-                mlir::BoolAttr::get(getContext(), false))),
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
         buildTestPrepareConvTranspose2dWeightsOp(
             /*outputDtype=*/{}, /*conv2dConfig=*/{},
             /*computeKernelConfig=*/{},
-            /*conv2dSliceConfig=*/
-            mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-                getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 4)),
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr),
         buildTestPrepareConvTranspose2dWeightsOp(
             /*outputDtype=*/{}, /*conv2dConfig=*/{},
             /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
@@ -1541,6 +1660,48 @@ const std::initializer_list<mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>
             /*batchSize=*/1u, /*inputHeight=*/28u, /*inputWidth=*/28u,
             /*kernelSize=*/{3, 3}, /*stride=*/{2, 2}, /*padding=*/{1, 1},
             /*dilation=*/{1, 1}, /*groups=*/4u),
+        buildTestPrepareConvTranspose2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false,
+            /*mirrorKernel=*/true, /*inChannels=*/64u, /*outChannels=*/32u,
+            /*batchSize=*/1u, /*inputHeight=*/28u, /*inputWidth=*/28u,
+            /*kernelSize=*/{3, 3}, /*stride=*/{2, 2}, /*padding=*/{1, 1},
+            /*dilation=*/{1, 1}, /*groups=*/1u,
+            /*inputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+        buildTestPrepareConvTranspose2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false,
+            /*mirrorKernel=*/true, /*inChannels=*/64u, /*outChannels=*/32u,
+            /*batchSize=*/1u, /*inputHeight=*/28u, /*inputWidth=*/28u,
+            /*kernelSize=*/{3, 3}, /*stride=*/{2, 2}, /*padding=*/{1, 1},
+            /*dilation=*/{1, 1}, /*groups=*/1u, /*inputMemoryConfig=*/{},
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::RowMajor),
+        buildTestPrepareConvTranspose2dWeightsOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*weightsFormat=*/"OIHW", /*hasBias=*/false,
+            /*mirrorKernel=*/true, /*inChannels=*/64u, /*outChannels=*/32u,
+            /*batchSize=*/1u, /*inputHeight=*/28u, /*inputWidth=*/28u,
+            /*kernelSize=*/{3, 3}, /*stride=*/{2, 2}, /*padding=*/{1, 1},
+            /*dilation=*/{1, 1}, /*groups=*/1u, /*inputMemoryConfig=*/{},
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::Tile,
+            /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
+        // Everything non-default.
+        buildTestPrepareConvTranspose2dWeightsOp(
+            /*outputDtype=*/bf16DtypeAttr,
+            /*conv2dConfig=*/nonDefaultConv2dConfigAttr,
+            /*computeKernelConfig=*/nonDefaultDeviceComputeKernelConfigAttr,
+            /*conv2dSliceConfig=*/nonDefaultConv2dSliceConfigAttr,
+            /*weightsFormat=*/"IOHW", /*hasBias=*/true, /*mirrorKernel=*/false,
+            /*inChannels=*/128u, /*outChannels=*/64u, /*batchSize=*/4u,
+            /*inputHeight=*/14u, /*inputWidth=*/14u, /*kernelSize=*/{4, 4},
+            /*stride=*/{1, 1}, /*padding=*/{0, 0}, /*dilation=*/{2, 2},
+            /*groups=*/2u,
+            /*inputMemoryConfig=*/nonDefaultInputMemoryConfigAttr,
+            /*inputTensorLayout=*/mlir::tt::ttnn::Layout::RowMajor,
+            /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
 };
 
 INSTANTIATE_TEST_SUITE_P(
