@@ -14,8 +14,6 @@ module attributes {} {
     %1 = "ttir.relu"(%0) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
     // Verify no spill ops were inserted with comfortable headroom.
     // CHECK-NOT: "ttnn.to_memory_config"
-    // Verify no ttnn.output_l1_usage attributes remain (cleaned up by spill pass).
-    // CHECK-NOT: ttnn.output_l1_usage
     return %1 : tensor<64x128xbf16>
   }
 }

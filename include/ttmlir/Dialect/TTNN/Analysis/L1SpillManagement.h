@@ -147,8 +147,8 @@ private:
   llvm::DenseMap<uint64_t, AliasGroup> aliasGroups;
 };
 
-/// L1SpillManagement enforces L1 budget constraints using Belady's optimal
-/// page replacement algorithm with validation-based budget enforcement.
+/// L1SpillManagement enforces L1 budget constraints using farthest-last-use
+/// eviction with validation-based budget enforcement.
 /// Each op is re-validated during the sweep using validateOperation() with
 /// the sum of live tensor L1 sizes as additionalL1Usage. When validation
 /// fails (OOM), tensors are evicted until it succeeds.
@@ -159,7 +159,6 @@ private:
 /// After processing, it modifies the IR:
 /// - Inserts ToMemoryConfigOp after spilled ops (L1 -> DRAM)
 /// - Reconnects uses to read from spilled tensor
-/// - Removes "ttnn.output_l1_usage" attributes (cleanup)
 template <typename MemoryTracker = SumL1MemoryTracker>
 class L1SpillManagement {
 public:
@@ -167,8 +166,8 @@ public:
                     uint64_t l1BudgetPerCore,
                     std::unique_ptr<L1SpillObserver> observer = nullptr);
 
-  /// Run Belady's algorithm with validation-based eviction and apply spills
-  /// directly to the IR.
+  /// Run farthest-last-use eviction with validation-based enforcement and apply
+  /// spills directly to the IR.
   void run();
 
   /// Access the observer (always non-null; NullObject when tracing disabled).
@@ -188,7 +187,7 @@ private:
   /// Pluggable memory state tracker.
   MemoryTracker memoryTracker;
 
-  /// Belady eviction ordering: max-heap by lastUsePosition, keyed by Value.
+  /// Farthest-last-use ordering: max-heap by lastUsePosition, keyed by Value.
   using LiveEntry = std::pair<int64_t, Value>;
   struct LiveEntryCompare {
     bool operator()(const LiveEntry &a, const LiveEntry &b) const {
@@ -261,9 +260,6 @@ private:
   /// right before that op (e.g., a CCL op) instead of after the defining op.
   void spillToDram(Value result, Operation *insertBefore = nullptr);
 
-  /// Remove all "ttnn.output_l1_usage" attributes from ops in the function.
-  void cleanupL1UsageAttrs();
-
   /// Bundled schedule data built once at the start of run().
   struct ScheduleData {
     llvm::SmallVector<Operation *> schedule;
@@ -286,30 +282,29 @@ private:
   bool wouldCBsOverlapTensors(Operation *op, int64_t pos, uint64_t cbPeakUsage,
                               uint64_t speculativeOutputAddr);
 
-  /// Output cannot fit contiguously in the free list. Evict using Belady's
-  /// algorithm until the output fits, then re-validate. Returns L1 bytes to
-  /// add to live set (0 if demoted to DRAM).
+  /// Output cannot fit contiguously in the free list. Evict farthest-last-use
+  /// tensors until the output fits, then re-validate. Returns L1 bytes to add
+  /// to live set (0 if demoted to DRAM).
   uint64_t handleNoFit(Operation *op, int64_t pos, const ScheduleData &data,
-                       uint64_t opL1Usage, uint64_t outputL1Size);
+                       uint64_t outputL1Size);
 
   /// CB fragmentation recovery: evict tensors in the CB danger zone,
   /// re-validate, or demote output to DRAM. Returns L1 bytes to add to live
   /// set (0 if demoted).
   uint64_t handleFragmentation(Operation *op, int64_t pos,
-                               const ScheduleData &data, uint64_t opL1Usage,
-                               uint64_t cbPeakUsage, uint64_t outputL1Size);
+                               const ScheduleData &data, uint64_t cbPeakUsage,
+                               uint64_t outputL1Size);
 
   /// Run contiguous-fit and CB-fragmentation checks on a validated op's
   /// output. Returns the (possibly updated) L1 size to add to the live set,
   /// or 0 if the output was demoted to DRAM.
   uint64_t ensureFitsL1(Operation *op, int64_t pos, const ScheduleData &data,
-                        uint64_t opL1Usage, uint64_t cbPeakUsage,
-                        uint64_t l1Size);
+                        uint64_t cbPeakUsage, uint64_t l1Size);
 
-  /// OOM recovery: demote to L1-interleaved, evict farthest-use, or spill self.
+  /// OOM recovery: evict farthest-last-use tensors or demote self to DRAM.
   void handleOOM(Operation *op, int64_t pos,
                  llvm::ArrayRef<OpResult> tensorResults,
-                 const ScheduleData &data, uint64_t opL1Usage,
+                 const ScheduleData &data,
                  std::function<void(uint64_t)> addResultsToLiveSet);
 
   /// Evict all live L1 tensors. Used when encountering ops without OpModel
@@ -319,14 +314,14 @@ private:
   void evictAllFromL1(int64_t pos, const ScheduleData &data,
                       Operation *triggerOp = nullptr);
 
-  /// Evict live tensors using Belady's algorithm until no tensor's simulated
+  /// Evict live tensors (farthest-last-use first) until no tensor's simulated
   /// address falls below the cushioned CB threshold. Replaces the former
   /// evictTensorsBelow, which was incorrect after address rebuild (addresses
   /// shift, making the threshold check stale).
   void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
                          const ScheduleData &data);
 
-  /// Evict tensors using Belady's algorithm until shouldStop() returns true
+  /// Evict tensors (farthest-last-use first) until shouldStop() returns true
   /// or the live set is empty. Returns true if shouldStop was satisfied.
   /// After each eviction, rebuilds address simulation and inserts reshards
   /// for already-processed consumers.

@@ -364,12 +364,10 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
     }
 
     size_t ri = opResult.getResultNumber();
-    TTNNLayoutAttr resultLayout = (ri < result.actualOutputLayouts.size())
-                                      ? result.actualOutputLayouts[ri]
-                                      : chosenLayout;
-    if (!resultLayout) {
-      continue;
-    }
+    assert(ri < result.actualOutputLayouts.size() &&
+           "validation result has fewer output layouts than tensor results");
+    TTNNLayoutAttr resultLayout = result.actualOutputLayouts[ri];
+    assert(resultLayout && "result layout is null for tensor result");
 
     llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
@@ -396,15 +394,6 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
     ttcore::DataTypeAttr newDataTypeAttr =
         ttcore::DataTypeAttr::get(op->getContext(), chosenLayout.getDataType());
     dtypeOp.setDtypeAttr(newDataTypeAttr);
-  }
-
-  // Update L1 usage attribute.
-  if (chosenLayout.hasL1BufferType() && result.outputL1Usage > 0) {
-    OpBuilder builder(op->getContext());
-    op->setAttr("ttnn.output_l1_usage",
-                builder.getI64IntegerAttr(result.outputL1Usage));
-  } else {
-    op->removeAttr("ttnn.output_l1_usage");
   }
 }
 
@@ -582,11 +571,11 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
 
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
-    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
-    uint64_t cbPeakUsage, uint64_t l1Size) {
+    Operation *op, int64_t pos, const ScheduleData &data, uint64_t cbPeakUsage,
+    uint64_t l1Size) {
   auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   if (!speculativeAddr) {
-    l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
+    l1Size = handleNoFit(op, pos, data, l1Size);
     speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   }
   // Always run the overlap check when the op declares a non-zero CB peak;
@@ -597,7 +586,7 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
       speculativeAddr.value_or(std::numeric_limits<uint64_t>::max());
   if (cbPeakUsage > 0 &&
       wouldCBsOverlapTensors(op, pos, cbPeakUsage, addrForCheck)) {
-    l1Size = handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
+    l1Size = handleFragmentation(op, pos, data, cbPeakUsage, l1Size);
   }
   return l1Size;
 }
@@ -609,31 +598,37 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
 template <typename MemoryTracker>
 void L1SpillManagement<MemoryTracker>::handleOOM(
     Operation *op, int64_t pos, llvm::ArrayRef<OpResult> tensorResults,
-    const ScheduleData &data, uint64_t opL1Usage,
+    const ScheduleData &data,
     std::function<void(uint64_t)> addResultsToLiveSet) {
   observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    OOM: validation failed, trying demotion/eviction");
 
-  auto inputLayouts = utils::extractInputLayouts(op);
-  auto config = extractOpConfigFromIR(op);
-
-  // Evict from live set (Belady: farthest last-use first).
+  // Evict from live set (farthest last-use first) until validation succeeds.
   // Uses evictUntil which inserts reshards for already-processed consumers
   // instead of cascade revalidation, preserving downstream sharded layouts.
-  auto result = memoryTracker.validate(op, inputLayouts, config);
-  if (!result.isSuccess()) {
-    evictUntil(pos, data, [&]() {
-      inputLayouts = utils::extractInputLayouts(op);
-      result = memoryTracker.validate(op, inputLayouts, config);
-      return result.isSuccess();
-    });
-  }
+  // handleOOM is only called when validation already failed — skip the initial
+  // redundant validate and go straight to eviction.
+  auto inputLayouts = utils::extractInputLayouts(op);
+  auto config = extractOpConfigFromIR(op);
+  auto result =
+      op_constraint_validation::ValidationResult::outOfMemoryError("");
+  evictUntil(pos, data, [&]() {
+    inputLayouts = utils::extractInputLayouts(op);
+    result = memoryTracker.validate(op, inputLayouts, config);
+    return result.isSuccess();
+  });
 
   if (result.isSuccess()) {
-    uint64_t l1Size =
-        result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
-    l1Size = ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
+    uint64_t l1Size = result.outputL1Usage;
+    if (l1Size > 0) {
+      l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
+    } else {
+      // DRAM-output op: validate's byte-budget check accounts for CB usage in
+      // total but not for CB-vs-tensor address overlap. Evict low-address
+      // tensors that would collide with the op's CB region.
+      evictForDramCBGrowth(op, pos, data);
+    }
     if (l1Size > 0) {
       addResultsToLiveSet(l1Size);
       observer_->onLiveAdded(op, pos, l1Size, pos,
@@ -645,13 +640,13 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
                    liveValues.size());
     }
   } else {
-    // Stage 3: Op exceeds budget alone -- spill all results to DRAM.
+    // Stage 3: Op exceeds L1 budget even with no other live tensors — the op
+    // itself is too large for the configured cap. Demote its output to DRAM.
+    // No evictForDramCBGrowth needed: evictUntil already drained the live set.
     observer_->onSelfSpill(op, pos);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    SPILL SELF: op exceeds budget alone");
-    for (auto r : tensorResults) {
-      spillToDram(r);
-    }
+                 "    DEMOTE SELF: op exceeds budget alone");
+    demoteToDram(op);
   }
 }
 
@@ -783,6 +778,10 @@ void L1SpillManagement<MemoryTracker>::evictValue(Value victim, int64_t pos,
 
       if (needsReshard) {
         for (unsigned i : spilledOperandIdx) {
+          TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                       "    RESHARD: inserting L1 reshard before {0} "
+                       "(operand {1} changed L1→DRAM after eviction of {2})",
+                       consumer->getName(), i, ttmlir::opToString(victimOp));
           insertReshardForConsumer(consumer, i, originalL1Layout);
         }
       }
@@ -811,7 +810,6 @@ template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
                                                        int64_t pos,
                                                        const ScheduleData &data,
-                                                       uint64_t opL1Usage,
                                                        uint64_t outputL1Size) {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    NO_FIT: output {0} bytes can't fit contiguously, evicting",
@@ -834,8 +832,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
   auto freshResult = memoryTracker.validate(op, freshInputLayouts, freshConfig);
   if (freshResult.isSuccess()) {
     applyOutputConfig(op, freshResult);
-    uint64_t freshL1 =
-        freshResult.outputL1Usage > 0 ? freshResult.outputL1Usage : opL1Usage;
+    uint64_t freshL1 = freshResult.outputL1Usage;
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    NO_FIT resolved: L1 now {0}/{1}",
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore);
@@ -856,13 +853,13 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
 
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
-    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
-    uint64_t cbPeakUsage, uint64_t outputL1Size) {
+    Operation *op, int64_t pos, const ScheduleData &data, uint64_t cbPeakUsage,
+    uint64_t outputL1Size) {
   // Add the same safety cushion as wouldCBsOverlapTensors to account for
   // unmodeled runtime fragmentation from transient internal op allocations.
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  // Evict tensors using Belady's algorithm until CB overlap resolves.
+  // Evict tensors (farthest last-use first) until CB overlap resolves.
   evictUntil(pos, data, [&]() {
     auto specAddr = memoryTracker.wouldAllocateAt(outputL1Size);
     if (!specAddr) {
@@ -902,8 +899,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   auto config = extractOpConfigFromIR(op);
   auto freshResult = memoryTracker.validate(op, inputLayouts, config);
   if (freshResult.isSuccess()) {
-    uint64_t freshL1 =
-        freshResult.outputL1Usage > 0 ? freshResult.outputL1Usage : opL1Usage;
+    uint64_t freshL1 = freshResult.outputL1Usage;
     applyOutputConfig(op, freshResult);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    FRAG_RESOLVED: L1 now {0}/{1}",
@@ -1020,7 +1016,7 @@ void L1SpillManagement<MemoryTracker>::run() {
 
   [[maybe_unused]] int64_t spillCount = 0;
 
-  // Belady's algorithm sweep with validation-based eviction.
+  // Farthest-last-use eviction sweep with validation-based enforcement.
   for (int64_t pos = 0; pos < static_cast<int64_t>(data.schedule.size());
        ++pos) {
     Operation *op = data.schedule[pos];
@@ -1037,13 +1033,13 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     // ToLayoutOp with L1 output: workaround-inserted and always immediately
-    // consumed by the target op. MemoryLayoutPropagation skips these, so
-    // output_l1_usage is never set and pre-decomposition OpModel is inaccurate.
-    // Use Belady to evict other live tensors if needed to create room, but do
-    // not add the output to liveValues — it is not a long-lived L1 tenant and
-    // will be gone (or dead) before any subsequent eviction decision matters.
-    // Being absent from liveValues also means evictAllFromL1 (e.g. triggered by
-    // DistributedRMSNormOp's isNotImplemented) cannot spill it.
+    // consumed by the target op. MemoryLayoutPropagation skips these, and
+    // pre-decomposition OpModel is inaccurate.
+    // Use farthest-last-use eviction for live tensors if needed to create room,
+    // but do not add the output to liveValues — it is not a long-lived L1
+    // tenant and will be gone (or dead) before any subsequent eviction decision
+    // matters. Being absent from liveValues also means evictAllFromL1 (e.g.
+    // triggered by DistributedRMSNormOp's isNotImplemented) cannot spill it.
     if (isa<ToLayoutOp>(op)) {
       auto resultType =
           mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
@@ -1060,21 +1056,25 @@ void L1SpillManagement<MemoryTracker>::run() {
                      memoryTracker.getOccupiedL1(), l1BudgetPerCore);
         // CBPeakUsage fixed to 0 as we have no validation result for ToLayoutOp
         // itself which is yet to be decomposed.
-        ensureFitsL1(op, pos, data, derivedL1, /*cbPeakUsage=*/0, derivedL1);
+        ensureFitsL1(op, pos, data, /*cbPeakUsage=*/0, derivedL1);
         continue;
       }
       // DRAM ToLayoutOp: fall through to standard processing.
     }
 
-    // Ops with L1 output annotation get full processing.
-    // DRAM-output ops (no annotation) still need CB overlap checking against
-    // live L1 tensors -- skip only if there are no live L1 tensors that could
-    // clash. Ops that can't be checked return NotImplemented from validation,
-    // which triggers a full spill regardless of live set size.
-    auto l1Attr = op->getAttrOfType<IntegerAttr>("ttnn.output_l1_usage");
-    uint64_t opL1Usage = l1Attr ? l1Attr.getValue().getZExtValue() : 0;
+    // Determine if the op outputs to L1 by inspecting its result types
+    // directly. DRAM-output ops still need CB overlap checking against live L1
+    // tensors -- skip only if there are no live L1 tensors that could clash.
+    // Ops that can't be checked return NotImplemented from validation, which
+    // triggers a full spill regardless of live set size.
+    bool hasL1Output = llvm::any_of(op->getResults(), [](OpResult r) {
+      auto tt = mlir::dyn_cast<RankedTensorType>(r.getType());
+      auto lo = tt ? mlir::dyn_cast_or_null<TTNNLayoutAttr>(tt.getEncoding())
+                   : nullptr;
+      return lo && lo.hasL1BufferType();
+    });
 
-    if (!l1Attr) {
+    if (!hasL1Output) {
       if (liveValues.empty()) {
         continue;
       }
@@ -1091,9 +1091,9 @@ void L1SpillManagement<MemoryTracker>::run() {
 
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "  [pos={0}] PROCESS: {1}\n"
-                 "    output L1: {2} bytes, tensor results: {3}\n"
+                 "    hasL1Output: {2}, tensor results: {3}\n"
                  "    occupied L1 before: {4}/{5} ({6} tensors)",
-                 pos, ttmlir::opToString(op), opL1Usage, numTensorResults,
+                 pos, ttmlir::opToString(op), hasL1Output, numTensorResults,
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore,
                  liveValues.size());
 
@@ -1153,16 +1153,14 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     if (result.isSuccess()) {
-      uint64_t l1Size =
-          result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
+      uint64_t l1Size = result.outputL1Usage;
 
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    VALIDATION SUCCESS: op {0}, "
                    "cbPeakUsage={1}, outputL1={2} bytes",
                    ttmlir::opToString(op), result.cbPeakUsage, l1Size);
 
-      l1Size =
-          ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
+      l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
       if (l1Size == 0) {
         continue;
       }
@@ -1177,23 +1175,22 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    // Backend constraint error: ops like SDPA have hard input-layout
-    // constraints (e.g. mask must be DRAM) that the L1 spill management
-    // sweep can violate when upstream evictions change input buffer types.
-    // Gracefully spill to DRAM rather than crashing.
+    // Non-OOM backend constraint error: the op rejects its current
+    // input/output layout combination. Eviction can't help (the failure
+    // isn't from L1 pressure), so skip the OOM path and demote the output
+    // to DRAM as a graceful fallback rather than crash on a hard
+    // constraint.
     if (result.isMetalBackendError()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    BACKEND_ERROR at pos {0} for {1}: {2}. "
-                   "Spilling to DRAM.",
+                   "Demoting to DRAM.",
                    pos, ttmlir::opToString(op), result.errorMessage);
-      for (auto r : tensorResults) {
-        spillToDram(r);
-      }
+      demoteToDram(op);
       ++spillCount;
       continue;
     }
 
-    handleOOM(op, pos, tensorResults, data, opL1Usage, addResultsToLiveSet);
+    handleOOM(op, pos, tensorResults, data, addResultsToLiveSet);
   }
 
   // Print final memory view summary.
@@ -1205,9 +1202,6 @@ void L1SpillManagement<MemoryTracker>::run() {
                "  Final live L1: {1}/{2} ({3} tensors)",
                spillCount, memoryTracker.getOccupiedL1(), l1BudgetPerCore,
                liveValues.size());
-
-  // Step 4: Cleanup L1 usage attributes.
-  cleanupL1UsageAttrs();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1277,9 +1271,6 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
         utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
     opResult.setType(newType);
   }
-
-  // Remove L1 usage annotation since the output is now DRAM.
-  op->removeAttr("ttnn.output_l1_usage");
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "Demoted to DRAM: {0}",
                ttmlir::opToString(op));
@@ -1460,19 +1451,6 @@ void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
                "Inserted reshard op: {0} before {1}",
                ttmlir::opToString(reshardOp.getOperation()),
                ttmlir::opToString(consumer));
-}
-
-//===----------------------------------------------------------------------===//
-// cleanupL1UsageAttrs
-//===----------------------------------------------------------------------===//
-
-template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::cleanupL1UsageAttrs() {
-  func->walk([](Operation *op) {
-    if (op->hasAttr("ttnn.output_l1_usage")) {
-      op->removeAttr("ttnn.output_l1_usage");
-    }
-  });
 }
 
 //===----------------------------------------------------------------------===//

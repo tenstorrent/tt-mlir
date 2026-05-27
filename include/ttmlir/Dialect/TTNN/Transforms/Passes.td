@@ -739,10 +739,10 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
 }
 
 def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
-  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let summary = "Farthest-last-use eviction for L1 budget enforcement.";
   let description = [{
-    This pass uses Belady's optimal page replacement algorithm to enforce L1
-    memory budgets by spilling tensors to DRAM when necessary.
+    This pass enforces L1 memory budgets by spilling tensors to DRAM using a
+    farthest-last-use eviction strategy.
   }];
   let options = [
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
