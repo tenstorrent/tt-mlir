@@ -56,10 +56,10 @@ func.func @test_read_barriers_with_push_between(%num_pages: i32) {
 
 // CHECK-LABEL: func.func @test_read_barrier_with_intervening_read
 func.func @test_read_barrier_with_intervening_read(
-    %noc_addr: !ttkernel.noc_addr, %l1_addr: i32, %size: i32) {
+    %x: index, %y: index, %remote_addr: i32, %l1_addr: i32, %size: i32) {
   // CHECK: ttkernel.noc_async_read_barrier
   ttkernel.noc_async_read_barrier() : () -> ()
-  ttkernel.noc_async_read(%noc_addr, %l1_addr, %size) : (!ttkernel.noc_addr, i32, i32) -> ()
+  ttkernel.noc_async_read core[%x, %y], %remote_addr, %l1_addr, %size : (index, index, i32, i32, i32) -> ()
   // CHECK: ttkernel.noc_async_read_barrier
   ttkernel.noc_async_read_barrier() : () -> ()
   // CHECK: return
@@ -68,10 +68,22 @@ func.func @test_read_barrier_with_intervening_read(
 
 // CHECK-LABEL: func.func @test_write_barrier_with_intervening_write
 func.func @test_write_barrier_with_intervening_write(
-    %l1_addr: i32, %noc_addr: !ttkernel.noc_addr, %size: i32) {
+    %l1_addr: i32, %x: index, %y: index, %remote_addr: i32, %size: i32) {
   // CHECK: ttkernel.noc_async_write_barrier
   ttkernel.noc_async_write_barrier() : () -> ()
-  ttkernel.noc_async_write(%l1_addr, %noc_addr, %size) : (i32, !ttkernel.noc_addr, i32) -> ()
+  ttkernel.noc_async_write %l1_addr, core[%x, %y], %remote_addr, %size : (i32, index, index, i32, i32) -> ()
+  // CHECK: ttkernel.noc_async_write_barrier
+  ttkernel.noc_async_write_barrier() : () -> ()
+  // CHECK: return
+  return
+}
+
+// CHECK-LABEL: func.func @test_write_barrier_with_intervening_inline_write
+func.func @test_write_barrier_with_intervening_inline_write(
+    %noc_addr: !ttkernel.noc_addr, %val: i32, %byte_enable: i8, %noc_id: i8) {
+  // CHECK: ttkernel.noc_async_write_barrier
+  ttkernel.noc_async_write_barrier() : () -> ()
+  ttkernel.noc_inline_dw_write(%noc_addr, %val, %byte_enable, %noc_id) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
   // CHECK: ttkernel.noc_async_write_barrier
   ttkernel.noc_async_write_barrier() : () -> ()
   // CHECK: return

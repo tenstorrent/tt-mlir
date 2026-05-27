@@ -11,6 +11,7 @@ from chisel.report import (
     DtypeMismatchPayload,
     ErrorPayload,
     NoGoldenPayload,
+    NumericsMode,
     NumericsPayload,
     ShapeMismatchPayload,
     SkippedNumericsPayload,
@@ -27,7 +28,12 @@ def _records_for_each_status():
             program_name="prog0",
             program_index=0,
             payload=NumericsPayload(
-                status=RecordStatus.OK, pcc=0.999, atol=1e-8, rtol=1e-5, device_id=0
+                status=RecordStatus.OK,
+                mode=NumericsMode.ISOLATED,
+                pcc=0.999,
+                atol=1e-8,
+                rtol=1e-5,
+                device_id=0,
             ),
         ),
         ChiselRecord(
@@ -47,6 +53,7 @@ def _records_for_each_status():
             op_asm="some asm",
             payload=NumericsPayload(
                 status=RecordStatus.NUMERICS_FAIL,
+                mode=NumericsMode.ACCUMULATED,
                 pcc=0.42,
                 atol=1.0,
                 rtol=1.0,
@@ -54,7 +61,11 @@ def _records_for_each_status():
             ),
         ),
         ChiselRecord(op="ttnn.linear", check="numerics", payload=ErrorPayload()),
-        ChiselRecord(op="ttnn.add", check="numerics", payload=SkippedNumericsPayload()),
+        ChiselRecord(
+            op="ttnn.add",
+            check="numerics",
+            payload=SkippedNumericsPayload(mode=NumericsMode.ISOLATED),
+        ),
         ChiselRecord(
             op="ttnn.unknown",
             check="numerics",

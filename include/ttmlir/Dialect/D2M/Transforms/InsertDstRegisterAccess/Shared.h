@@ -43,47 +43,53 @@ struct DstRegionOpClassification {
   bool hasMarkedAffineLoops = false;
 };
 
-template <typename LoadOrStoreTy>
-struct LoadStoreRecord {
-  LoadOrStoreTy loadStore = nullptr;
-  std::optional<d2m::TileBcastOp> bcast = std::nullopt;
+enum class DstAccessKind : uint8_t {
+  AffineLoad,
+  AffineStore,
+  MemrefLoad,
+  MemrefStore,
+};
+
+struct DstAccess {
+  Operation *op = nullptr;
+  DstAccessKind kind = DstAccessKind::AffineLoad;
   int dstSlice = -1;
+  std::optional<d2m::TileBcastOp> bcast = std::nullopt;
   SmallVector<Value> guardIVs = {};
 
-  LoadStoreRecord(LoadOrStoreTy loadStore,
-                  std::optional<d2m::TileBcastOp> bcast, int dstSlice,
-                  ArrayRef<Value> guardIVs)
-      : loadStore(loadStore), bcast(bcast), dstSlice(dstSlice),
-        guardIVs(guardIVs.begin(), guardIVs.end()) {}
+  DstAccess() = default;
+  DstAccess(Operation *opIn, DstAccessKind kindIn, int dstSliceIn,
+            std::optional<d2m::TileBcastOp> bcastIn, ArrayRef<Value> guardIVsIn)
+      : op(opIn), kind(kindIn), dstSlice(dstSliceIn), bcast(bcastIn),
+        guardIVs(guardIVsIn.begin(), guardIVsIn.end()) {}
+
+  bool isLoad() const;
+  bool isStore() const;
+  bool isAffine() const;
+  bool isMemref() const;
+
+  Location getLoc() const;
+  Value getMemRef() const;
+  MemRefType getMemRefType() const;
+
+  AffineMap getAffineMap() const;
+  ValueRange getAffineIndices() const;
+  ValueRange getMemrefIndices() const;
 };
 
 struct CopyInfo {
+  void record(DstAccess access);
+
   void record(affine::AffineLoadOp load, int dstSlice,
-              ArrayRef<Value> guardIVs) {
-    loads.emplace_back(load, std::nullopt, dstSlice, guardIVs);
-  }
-
+              ArrayRef<Value> guardIVs);
   void record(affine::AffineLoadOp load, d2m::TileBcastOp bcast, int dstSlice,
-              ArrayRef<Value> guardIVs) {
-    loads.emplace_back(load, bcast, dstSlice, guardIVs);
-  }
+              ArrayRef<Value> guardIVs);
+  void record(affine::AffineStoreOp store, int dstSlice, ArrayRef<Value>);
+  void record(memref::LoadOp load, int dstSlice, ArrayRef<Value> guardIVs);
+  void record(memref::StoreOp store, int dstSlice, ArrayRef<Value>);
 
-  void record(affine::AffineStoreOp store, int dstSlice, ArrayRef<Value>) {
-    stores.emplace_back(store, std::nullopt, dstSlice, ArrayRef<Value>{});
-  }
-
-  void record(memref::LoadOp load, int dstSlice, ArrayRef<Value> guardIVs) {
-    memrefLoads.emplace_back(load, std::nullopt, dstSlice, guardIVs);
-  }
-
-  void record(memref::StoreOp store, int dstSlice, ArrayRef<Value>) {
-    memrefStores.emplace_back(store, std::nullopt, dstSlice, ArrayRef<Value>{});
-  }
-
-  SmallVector<LoadStoreRecord<affine::AffineLoadOp>> loads;
-  SmallVector<LoadStoreRecord<affine::AffineStoreOp>> stores;
-  SmallVector<LoadStoreRecord<memref::LoadOp>> memrefLoads;
-  SmallVector<LoadStoreRecord<memref::StoreOp>> memrefStores;
+  SmallVector<DstAccess> loads;
+  SmallVector<DstAccess> stores;
 };
 
 // `MapVector` is used (instead of `DenseMap`) so that iteration order is
@@ -102,10 +108,46 @@ struct DstAccessCollection {
   DstIntermediatesMap dstIntermediates;
 };
 
-// DST slice allocator types live in their respective pass .cpp files
-// (`DstSliceAllocationState` in InsertDstRegisterAccess/Unscheduled.cpp,
-// `DstStackAllocator` in InsertDstRegisterAccess/Scheduled.cpp), since each is
-// only used by one pass.
+// ---------------------------------------------------------------------------
+// DstSliceAllocator
+//
+// Free-slot pool for the DST register.  Slots are bump-allocated from
+// `sliceStack` and reclaimed only via `deallocateAllButFirstInput()` (the
+// multi-input fold case); `inputStack` exists so that path has the
+// current op's operand slots to free.  `scratchSlots` is a separate pool
+// so that a later compute op can never pick a scratch slot as a
+// candidate for in-place reuse.
+// ---------------------------------------------------------------------------
+
+class DstSliceAllocator {
+public:
+  DstSliceAllocator() = delete;
+  explicit DstSliceAllocator(unsigned dstSliceCapacityIn)
+      : dstSliceCapacity(dstSliceCapacityIn) {
+    initSliceStack();
+  }
+
+  unsigned allocateInput();
+  unsigned allocateOutput();
+  unsigned allocateScratch();
+
+  void setStoreToDst() { storedToDst = true; }
+  bool didStoreToDst() const { return storedToDst; }
+
+  unsigned getCurrSliceIndex() const;
+  unsigned getFirstInputSliceIndex() const;
+  void deallocateAllButFirstInput();
+
+private:
+  unsigned dstSliceCapacity = 0;
+  std::optional<unsigned> currSliceIndex;
+  SmallVector<unsigned, 16> inputStack;
+  SmallVector<unsigned, 4> scratchSlots;
+  SmallVector<unsigned, 16> sliceStack;
+  bool storedToDst = false;
+
+  void initSliceStack();
+};
 
 // ---------------------------------------------------------------------------
 // Shared utility free functions
@@ -133,17 +175,17 @@ bool isPackerL1AccumulationSupportedDataType(ttcore::DataType dt);
 // gating on `hasTileMatmul`).
 bool allTileMatmulOutputsSupportPackerL1Acc(Operation *loopOp);
 
-// Find the outermost ancestor reduction loop IV of `acquireDst`, where
+// Find the closest ancestor reduction loop IV of `acquireDst`, where
 // "reduction" means: no output store recorded in `copyInfos` depends on the
-// loop's induction variable. This is the loop whose iterations accumulate
-// into the same output L1 slot, and is therefore the correct trigger for
-// switching the packer to L1-acc mode.
+// loop's induction variable. The closest such loop is the loop whose adjacent
+// iterations accumulate into the same output L1 slot, and is therefore the
+// correct trigger for switching the packer to L1-acc mode.
 //
-// Returns nullptr if there is no such reduction loop, or if the candidate
-// reduction loop has a constant trip count <= 1 (in which case L1-acc is
-// not needed and the trigger comparison would never fire correctly).
-Value findOutermostReductionLoopIVForL1Acc(Operation *acquireDstOp,
-                                           const CopyInfoMap &copyInfos);
+// Returns nullptr if there is no qualifying reduction loop with trip count > 1.
+// Reduction loops with constant trip count <= 1 are skipped because L1-acc is
+// not needed for them.
+Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
+                                         const CopyInfoMap &copyInfos);
 
 // Stamp a pass-allocated scratch slice onto the op's `dst_scratch_index`
 // attribute for the TTKernel lowering to consume.  Today only supports ops
@@ -209,6 +251,24 @@ void collectDstLoadWithAccumAnalysis(memref::LoadOp loadOp, int64_t operandIdx,
                                      Operation *outermostInnerComputeLoop,
                                      bool noAccumGuard = false);
 
+void replaceLoadWithDst(PatternRewriter &rewriter, const DstAccess &access,
+                        Value dst, AffineMap dstAccessMap,
+                        ValueRange dstAccessIndices);
+
+void replaceStoreWithDst(PatternRewriter &rewriter, const DstAccess &access,
+                         Value dst, AffineMap dstAccessMap,
+                         ValueRange dstAccessIndices);
+
+void generateLoadSideCopy(PatternRewriter &rewriter, const DstAccess &access,
+                          Value dst, AffineMap l1AccessMap,
+                          ValueRange l1AccessIndices, AffineMap dstAccessMap,
+                          ValueRange dstAccessIndices);
+
+void generateStoreSideCopy(PatternRewriter &rewriter, const DstAccess &access,
+                           Value dst, AffineMap l1AccessMap,
+                           ValueRange l1AccessIndices, AffineMap dstAccessMap,
+                           ValueRange dstAccessIndices);
+
 scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
                               ValueRange guardIVs, bool isBcastGuard);
 
@@ -219,30 +279,14 @@ scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
 std::pair<Operation *, mlir::IRMapping>
 cloneAffineLoopSkeleton(PatternRewriter &rewriter, Operation *loopNestOrOp);
 
-// Shared "wrap a compute loop with a cloned CB<->DST copy nest" emitter
-// used by both the scheduled and unscheduled paths.
-//
-// For each record in `loadStoreRecords`, this:
-//   1. Emits a copy op via `copyGenerator` inside a clone of `loopNestOrOp`
-//      (the *shared* clone built once up front); records that carry a
-//      non-empty `guardIVs` get a fresh, per-record clone wrapped in an
-//      `scf.if` (accumulation / bcast init guard).
-//   2. Rewrites the original load/store via `accessReplacer` so it now
-//      goes through the DST register.
-//
-// `disableL1Acc=false` (i.e. L1 acc on) skips the upfront copy nest
-// entirely (the L1 acc guard preserves the running tile).
-template <typename LoadOrStoreTy>
-void emitDstCopyNest(
-    PatternRewriter &rewriter, Operation *loopNestOrOp,
-    ArrayRef<LoadStoreRecord<LoadOrStoreTy>> loadStoreRecords,
-    llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
-                            AffineMap, ValueRange, AffineMap, ValueRange)>
-        copyGenerator,
-    llvm::function_ref<void(PatternRewriter &, LoadStoreRecord<LoadOrStoreTy>,
-                            AffineMap, ValueRange)>
-        accessReplacer,
-    bool disableL1Acc = true);
+// Shared CB<->DST copy nest emitter used by both scheduled and unscheduled
+// paths.  When `cloneLoopNest` is true (unscheduled), affine accesses are
+// wrapped in a cloned affine.for skeleton; when false (scheduled in-place),
+// copy ops are emitted at each access site.  Memref accesses always use the
+// in-place path with a constant DST slice map.
+void emitDstCopyNest(PatternRewriter &rewriter, Operation *loopNestOrOp,
+                     Value dst, ArrayRef<DstAccess> accesses, bool isLoadSide,
+                     bool cloneLoopNest, bool disableL1Acc = true);
 
 std::pair<AffineMap, SmallVector<Value>>
 buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op, int dstSlice,
@@ -256,8 +300,7 @@ bool isDstScopeIV(Value iv, Operation *linalgRoot);
 
 std::tuple<AffineMap, SmallVector<Value>, AffineMap, SmallVector<Value>>
 buildIndices(PatternRewriter &rewriter, Location loc,
-             const mlir::IRMapping &irMapper, ValueRange currentIndices,
-             int dstSlice, AffineMap map, MemRefType cbType,
+             const mlir::IRMapping &irMapper, const DstAccess &access,
              Operation *linalgRoot = nullptr);
 
 void insertPackerL1AccGuard(PatternRewriter &rewriter, Location loc,

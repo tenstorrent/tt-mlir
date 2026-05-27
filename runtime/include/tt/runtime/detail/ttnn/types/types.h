@@ -17,7 +17,6 @@
 #include <optional>
 #include <shared_mutex>
 #include <unordered_map>
-#include <variant>
 #include <vector>
 
 namespace tt::runtime::ttnn {
@@ -187,14 +186,16 @@ public:
     return programOutputIds;
   }
 
+  std::uint32_t getScalarKernelArgAndValidate(
+      const ::tt::target::ttnn::TensorRef *tensorRef) const;
+
 private:
+  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
+  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;
   TensorMap intermedTensors;
   TensorPtrMap liveTensors;
-
-  const ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId) const;
-  ::tt::runtime::Tensor &getRuntimeTensor(std::uint32_t globalId);
 };
 
 class ProgramGlobalSemaphorePool {
@@ -247,15 +248,14 @@ public:
                  GlobalSemaphoreMap &&liveGlobalSemaphores,
                  common::DylibManager &&programDylibManager,
                  ::tt::runtime::Device deviceHandle,
-                 const Binary &executableHandle, size_t programIndex = 0,
-                 ProgramContext *parentContext = nullptr)
+                 const Binary &executableHandle, size_t programIndex = 0)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         globalSemaphorePool(
             ProgramGlobalSemaphorePool(std::move(liveGlobalSemaphores))),
         dylibManager(std::move(programDylibManager)),
         deviceHandle(deviceHandle), executableHandle(executableHandle),
-        programIndex(programIndex), parentContext(parentContext) {
+        programIndex(programIndex) {
     LOG_ASSERT(deviceHandle.handle, "DeviceHandle cannot be null");
   }
 
@@ -306,23 +306,6 @@ public:
     return globalSemaphorePool;
   }
 
-  // Returns a cached GlobalSemaphore for `opKey`, creating it on first use.
-  // Lookups forward to the root context so a semaphore created during warmup
-  // is reused during trace capture (create_global_semaphore writes L1 and
-  // cannot run inside capture).
-  ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
-      uintptr_t opKey,
-      const std::function<::ttnn::GlobalSemaphore()> &factory) {
-    if (parentContext) {
-      return parentContext->getOrCreateImplicitGlobalSemaphore(opKey, factory);
-    }
-    auto it = implicitOpSemaphores.find(opKey);
-    if (it == implicitOpSemaphores.end()) {
-      it = implicitOpSemaphores.emplace(opKey, factory()).first;
-    }
-    return it->second;
-  }
-
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -335,9 +318,6 @@ private:
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
 
-  // Op-implicit GlobalSemaphores keyed by flatbuffer op pointer; root only.
-  std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
-
   common::DylibManager dylibManager;
 
   ::tt::runtime::Device deviceHandle;
@@ -347,10 +327,6 @@ private:
 
   // The index of the program within the binary
   const size_t programIndex;
-
-  // Caller's context (e.g. FuncCallOp), used to forward state shared across
-  // nested invocations. Non-owning.
-  ProgramContext *parentContext = nullptr;
 };
 
 } // namespace tt::runtime::ttnn

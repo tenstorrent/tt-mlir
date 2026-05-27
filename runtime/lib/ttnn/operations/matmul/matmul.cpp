@@ -146,8 +146,8 @@ void run(const ::tt::target::ttnn::SparseMatmulOp *op,
   }
 
   std::optional<uint32_t> nnz =
-      op->nnz() != 0 ? std::make_optional(static_cast<uint32_t>(op->nnz()))
-                     : std::nullopt;
+      op->nnz() ? std::make_optional(static_cast<uint32_t>(*op->nnz()))
+                : std::nullopt;
 
   // Read program config from the flatbuffer (populated at compile time by
   // TTIRToTTNN lowering).

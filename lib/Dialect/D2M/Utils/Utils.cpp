@@ -556,6 +556,17 @@ getGridMapsFromVirtualGridMapping(Value val, ArrayRef<int64_t> gridShape) {
   if (gridFwdMap.getNumDims() != rank || gridFwdMap.getNumResults() != 3) {
     return std::nullopt;
   }
+
+  SmallVector<int64_t> physicalGridShape =
+      ttmlir::utils::evalShape(gridFwdMap, gridShape);
+  ArrayRef<int64_t> physicalWorkerGridShape(physicalGridShape);
+  // The transformed map must cover the same worker count after collapsing the
+  // virtual grid back to physical device/core coordinates.
+  if (ttmlir::utils::volume<int64_t>(physicalWorkerGridShape.drop_front()) !=
+      ttmlir::utils::volume<int64_t>(gridShape)) {
+    return std::nullopt;
+  }
+
   return std::make_pair(gridFwdMap, *invMap);
 }
 
@@ -662,10 +673,7 @@ getMemoryMapImpl(ttcore::DeviceAttr device, MemRefType memrefType,
   if (auto shardLayout =
           mlir::dyn_cast<ttcore::ShardLayoutAttr>(memrefType.getLayout())) {
 
-    unsigned shardRank = shardLayout.getRank();
-    unsigned gridRank = memrefType.getRank() - shardRank;
-
-    auto gridShape = memrefType.getShape().take_front(gridRank);
+    auto gridShape = shardLayout.getGridShape(memrefType);
     auto deviceGridShape = device.getWorkerGrid().getShape();
 
     // Use stored forward map if available; otherwise fall back to
@@ -937,11 +945,24 @@ collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
   return result;
 }
 
-int32_t getNocElementAlignmentL1(
-    Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
-  const int32_t nocAlignmentL1 =
-      ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes();
+int32_t getNocAddressAlignmentBytes(Operation *op,
+                                    ttcore::MemorySpace memorySpace) {
+  ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(op);
+  switch (memorySpace) {
+  case ttcore::MemorySpace::DeviceL1:
+    return chipDesc.getNocL1AddressAlignBytes();
+  case ttcore::MemorySpace::DeviceDRAM:
+    return chipDesc.getNocDRAMAddressAlignBytes();
+  default:
+    llvm_unreachable("Unsupported NoC memory space");
+  }
+}
 
+int32_t
+getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
+                       const std::variant<RankedTensorType, MemRefType> &type) {
+  const int32_t nocAlignmentBytes =
+      getNocAddressAlignmentBytes(op, memorySpace);
   const int32_t elemBitWidth = std::visit(
       [&](auto &&ty) -> int32_t {
         return static_cast<int32_t>(ty.getElementTypeBitWidth());
@@ -949,8 +970,13 @@ int32_t getNocElementAlignmentL1(
       type);
   const int32_t elemBytes = std::max(1, elemBitWidth / 8);
 
-  TT_assert(((nocAlignmentL1 != 0) && (nocAlignmentL1 % elemBytes == 0)));
-  return nocAlignmentL1 / elemBytes;
+  TT_assert(((nocAlignmentBytes != 0) && (nocAlignmentBytes % elemBytes == 0)));
+  return nocAlignmentBytes / elemBytes;
+}
+
+int32_t getNocElementAlignmentL1(
+    Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
+  return getNocElementAlignment(op, ttcore::MemorySpace::DeviceL1, type);
 }
 
 } // namespace mlir::tt::d2m::utils

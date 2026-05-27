@@ -23,6 +23,7 @@ from builder.base.builder_utils import (
     tag,
     parse,
     split,
+    derive_canonical_core_range_set,
 )
 
 
@@ -52,6 +53,7 @@ class Builder(metaclass=BuilderMeta):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
+        system_desc_path: Optional[str] = None,
     ):
         self._ctx = ctx
         self._loc = location
@@ -59,7 +61,12 @@ class Builder(metaclass=BuilderMeta):
         self._force_graph_level_check = False
         self._deallocate_goldens = deallocate_goldens
         self._deallocated_goldens_dir = deallocated_goldens_dir
+        self._system_desc_path = system_desc_path
         os.makedirs(self._deallocated_goldens_dir, exist_ok=True)
+
+        # Lazy-loaded grid shapes from system descriptor
+        self._worker_grid_shape: Optional[List[int]] = None
+        self._dram_grid_shape: Optional[List[int]] = None
 
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
         # ordered dict determines program order when comparing goldens during runtime
@@ -750,6 +757,56 @@ class Builder(metaclass=BuilderMeta):
 
     # ----- Private TTNN Tensor Generation Helpers -----
 
+    def _get_grid_shapes(self) -> Tuple[List[int], List[int]]:
+        """
+        Lazily load and cache worker and DRAM grid shapes from system descriptor.
+
+        Returns
+        -------
+        Tuple[List[int], List[int]]
+            (worker_grid_shape, dram_grid_shape) as [rows, cols] lists
+        """
+        if self._system_desc_path is None:
+            raise ValueError(
+                "system_desc_path must be provided before loading grid shapes."
+            )
+
+        if self._worker_grid_shape is None or self._dram_grid_shape is None:
+            from builder.base.builder_utils import load_grid_shapes_from_system_desc
+
+            grid_shapes = load_grid_shapes_from_system_desc(self._system_desc_path)
+            self._worker_grid_shape = grid_shapes.worker_grid_shape
+            self._dram_grid_shape = grid_shapes.dram_grid_shape
+        return self._worker_grid_shape, self._dram_grid_shape
+
+    def _get_core_range_set_for_sharded_layout(
+        self,
+        buffer_type: ttnn.ir.BufferType,
+        tensor_memory_layout: ttnn.ir.TensorMemoryLayout,
+        grid_shape: List[int],
+    ) -> ttnn.ir.CoreRangeSetAttr:
+        if self._system_desc_path is not None:
+            worker_grid_shape, dram_grid_shape = self._get_grid_shapes()
+
+            # Calculate the canonical core_range_set using cached grid shapes
+            return derive_canonical_core_range_set(
+                self._ctx,
+                buffer_type,
+                tensor_memory_layout,
+                grid_shape,
+                worker_grid_shape,
+                dram_grid_shape,
+            )
+        else:
+            # If no system_desc_path was provided, require explicit core_range_set
+            raise ValueError(
+                "Sharded layout requires either: "
+                "(1) a `system_desc_path` to be set when creating the builder, or "
+                "(2) an explicit `core_range_set` to be provided. "
+                "The builder cannot synthesize core placements without knowing "
+                "the target architecture's worker/DRAM grid shapes."
+            )
+
     def _create_ttnn_tensor_encoding(
         self,
         shape: Shape,
@@ -796,10 +853,10 @@ class Builder(metaclass=BuilderMeta):
             )
 
             if is_sharded and core_range_set is None:
-                raise ValueError(
-                    "Sharded TTNNLayoutAttr requires an explicit `core_range_set`; "
-                    "the builder does not synthesize one because the canonical "
-                    "placement depends on the target arch's worker/DRAM grid."
+                core_range_set = self._get_core_range_set_for_sharded_layout(
+                    buffer_type,
+                    tensor_memory_layout,
+                    grid_shape,
                 )
 
             return ttnn.ir.TTNNLayoutAttr.get(

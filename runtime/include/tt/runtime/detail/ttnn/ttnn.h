@@ -39,6 +39,7 @@
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/experimental/ccl/moe/selective_reduce_combine/selective_reduce_combine.hpp"
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
+#include "ttnn/operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
 #include "ttnn/operations/experimental/topk_router_gpt/topk_router_gpt.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
@@ -133,6 +134,8 @@ Tensor createMultiDeviceBorrowedHostTensor(
 ::tt::runtime::Tensor createEmptyTensor(
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize);
+
+::tt::runtime::Tensor createScalarTensor(::tt::runtime::Scalar scalar);
 
 inline ::tt::runtime::Tensor createOwnedHostTensor(const void *data,
                                                    const TensorDesc &desc) {
@@ -275,9 +278,9 @@ using OpWalkFn = std::function<void(tt::runtime::OpContext)>;
 void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
                  const OpWalkFn &cb);
 
-// Returns tensor to which tensorRef refers
-// In case that that tensor is not in the tensor pool, returns std::nullopt
-// For now only supports single device tensors
+// Returns the tensor from the tensor pool that is referenced by the given
+// tensor reference. Returns std::nullopt if the tensor is not present in the
+// pool.
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize);

@@ -7,7 +7,6 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -28,6 +27,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <type_traits>
 #include <utility>
@@ -36,18 +36,48 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
-static Value i16(OpBuilder &rewriter, Location loc, int16_t value) {
-  return rewriter
-      .create<arith::ConstantOp>(loc, rewriter.getI16Type(),
-                                 rewriter.getI16IntegerAttr(value))
-      .getResult();
+template <typename T>
+static Value intConstant(OpBuilder &rewriter, Location loc, T value) {
+  static_assert(std::is_integral_v<T>, "T must be an integer type.");
+
+  // Signless types are required, don't pass std::is_signed_v<T>.
+  auto type = rewriter.getIntegerType(sizeof(T) * 8);
+  auto attr = rewriter.getIntegerAttr(type, value);
+  return rewriter.create<arith::ConstantOp>(loc, type, attr).getResult();
 }
 
-static Value i32(OpBuilder &rewriter, Location loc, int32_t value) {
-  return rewriter
-      .create<arith::ConstantOp>(loc, rewriter.getI32Type(),
-                                 rewriter.getI32IntegerAttr(value))
-      .getResult();
+static FailureOr<int32_t> getKernelNocIndex(Operation *op) {
+  if (ttcore::getOpChipDescAttr(op).getArch().getValue() ==
+      ttcore::Arch::Quasar) {
+    return 0;
+  }
+
+  auto funcOp = op->getParentOfType<func::FuncOp>();
+  if (!funcOp) {
+    return failure();
+  }
+
+  auto threadAttr =
+      funcOp->getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
+  if (!threadAttr ||
+      threadAttr.getThreadType() != d2m::ThreadType::Datamovement) {
+    return failure();
+  }
+
+  const int32_t processorIdx = threadAttr.getProcessorIndex();
+  const int32_t nocIdx = 1 - processorIdx;
+  TT_assertv((nocIdx == 0 || nocIdx == 1), "nocIndex should be 0 or 1.");
+  return nocIdx;
+}
+
+// On WH & BH, NoC1's traversal direciton (bottom left to top right) is the
+// opposite of NoC0's, reverse the coords accordingly.
+static void flipMcastCoordsIfNoc1(const int32_t nocIdx, Value &startX,
+                                  Value &startY, Value &endX, Value &endY) {
+  if (nocIdx == 1) {
+    std::swap(startX, endX);
+    std::swap(startY, endY);
+  }
 }
 
 static Value index(OpBuilder &rewriter, Location loc, int64_t value) {
@@ -873,13 +903,13 @@ public:
       if (auto func = op->template getParentOfType<func::FuncOp>();
           !hasMatmulInit(func)) {
         setInsertionPointToFuncStart(rewriter, func, op);
-        auto transposeInit = i32(rewriter, op->getLoc(), 0);
+        auto transposeInit = intConstant<int32_t>(rewriter, op->getLoc(), 0);
         rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
                                                 transposeInit);
       }
 
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-      auto transpose = i32(rewriter, op->getLoc(), 0);
+      auto transpose = intConstant<int32_t>(rewriter, op->getLoc(), 0);
       rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
                                                    transpose);
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
@@ -899,9 +929,12 @@ public:
 
       auto typeA = llvm::cast<MemRefType>(op.getA().getType());
       auto typeB = llvm::cast<MemRefType>(op.getB().getType());
-      auto rt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[0]);
-      auto kt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[1]);
-      auto ct_i32 = i32(rewriter, op->getLoc(), typeB.getShape()[1]);
+      auto rt_i32 =
+          intConstant<int32_t>(rewriter, op->getLoc(), typeA.getShape()[0]);
+      auto kt_i32 =
+          intConstant<int32_t>(rewriter, op->getLoc(), typeA.getShape()[1]);
+      auto ct_i32 =
+          intConstant<int32_t>(rewriter, op->getLoc(), typeB.getShape()[1]);
 
       auto getNumColumns = [](Value view) {
         if (auto castOp =
@@ -914,9 +947,10 @@ public:
         auto srcTy = cast<MemRefType>(view.getType());
         return srcTy.getShape()[1];
       };
-      auto nt_i32 = i32(rewriter, op->getLoc(), getNumColumns(op.getB()));
+      auto nt_i32 = intConstant<int32_t>(rewriter, op->getLoc(),
+                                         getNumColumns(op.getB()));
 
-      auto transpose = i32(rewriter, op->getLoc(), 0);
+      auto transpose = intConstant<int32_t>(rewriter, op->getLoc(), 0);
 
       rewriter.create<ttkernel::MatmulBlockInitOp>(
           op->getLoc(), cbA, cbB, outCB, transpose, ct_i32, rt_i32, kt_i32);
@@ -1609,8 +1643,10 @@ public:
     auto collapsed2DShape =
         ttcore::collapseGridTo2D(preLinearizedMemrefType.getShape());
 
-    auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
-    auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);
+    auto blockR =
+        intConstant<int32_t>(rewriter, op->getLoc(), collapsed2DShape[0]);
+    auto blockC =
+        intConstant<int32_t>(rewriter, op->getLoc(), collapsed2DShape[1]);
     rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
                                                         nullptr, dst);
 
@@ -1938,7 +1974,7 @@ public:
 
     auto cbNumPages = device.getMemrefCBNumPages(
         op.getCb().getType().template getUnderlyingAs<MemRefType>());
-    auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
+    auto numPages = intConstant<int32_t>(rewriter, op->getLoc(), cbNumPages);
 
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
 
@@ -1966,7 +2002,7 @@ public:
 
     auto cbNumPages = device.getMemrefCBNumPages(
         op.getCb().getType().template getUnderlyingAs<MemRefType>());
-    auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
+    auto numPages = intConstant<int32_t>(rewriter, op->getLoc(), cbNumPages);
 
     rewriter.replaceOpWithNewOp<TTKernelReleaseOp>(op, adaptor.getCb(),
                                                    numPages);
@@ -1989,39 +2025,54 @@ static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
       ->getResult(0);
 }
 
-static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
-                             ValueRange index, ttcore::ChipDescAttr chipDesc,
-                             ttcore::MemorySpace memspace) {
+struct NocEndpoint {
+  ttcore::MemorySpace memorySpace = ttcore::MemorySpace::System;
+  SmallVector<Value, 2> coreXY = {nullptr, nullptr};
+  Value bankId = nullptr;
+  Value address = nullptr;
+};
+
+static NocEndpoint buildNocEndpoint(OpBuilder &rewriter, Location loc, Value cb,
+                                    ValueRange index,
+                                    ttcore::ChipDescAttr chipDesc,
+                                    ttcore::MemorySpace memspace) {
   assert(memspace == ttcore::MemorySpace::DeviceL1 ||
          memspace == ttcore::MemorySpace::DeviceDRAM);
   auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
   assert(index.size() == 3);
-  Value noc_addr_op;
+  NocEndpoint endpoint{memspace, {}, nullptr, nullptr};
   if (memspace == ttcore::MemorySpace::DeviceL1) {
     auto gridY = index[0];
     auto gridX = index[1];
     auto offset = index[2];
     auto offsetInt =
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
-    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
-    // Translate the src coordinates to virtual coordinates.
+    endpoint.address = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
-    noc_addr_op =
-        rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
+    endpoint.coreXY = {virtX, virtY};
   } else {
     auto bankID = index[1];
-    auto bankIDInt =
+    endpoint.bankId =
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), bankID);
     auto offset = index[2];
     auto offsetInt =
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
-    auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
-
-    return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
-                                                             addr);
+    endpoint.address = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
   }
-  return noc_addr_op;
+  return endpoint;
+}
+
+static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
+                                          const NocEndpoint &endpoint) {
+  if (endpoint.memorySpace == ttcore::MemorySpace::DeviceDRAM) {
+    return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(
+        loc, endpoint.bankId, endpoint.address);
+  }
+
+  TT_assert(endpoint.memorySpace == ttcore::MemorySpace::DeviceL1);
+  return rewriter.create<ttkernel::GetNocAddrOp>(
+      loc, endpoint.coreXY[0], endpoint.coreXY[1], endpoint.address);
 }
 
 static SmallVector<Value> decomposeLinearIndex(OpBuilder &rewriter,
@@ -2065,6 +2116,12 @@ static int64_t getCollapsed2DPhysicalRows(MemRefType memrefType) {
          "expected 2D sharded memref with explicit grid and shard dims");
   ArrayRef<int64_t> shape = memrefType.getShape();
   return shape[0] * shape[2];
+}
+
+static int64_t getCollapsed2DShardWidth(MemRefType memrefType) {
+  assert(hasCollapsed2DShard(memrefType) &&
+         "expected 2D sharded memref with explicit grid and shard dims");
+  return memrefType.getShape()[3];
 }
 
 static SmallVector<Value> getCollapsed2DElementIndices(OpBuilder &rewriter,
@@ -2113,25 +2170,45 @@ static Value getCollapsedOutputRow(OpBuilder &rewriter, Location loc,
   return row;
 }
 
-static Value buildMappedL1NocAddr(OpBuilder &rewriter, Location loc, Value base,
-                                  AffineMap memoryMap,
-                                  ValueRange logicalIndices,
-                                  ttcore::ChipDescAttr chipDesc) {
+static NocEndpoint buildMappedNocEndpoint(OpBuilder &rewriter, Location loc,
+                                          Value base, AffineMap memoryMap,
+                                          ValueRange logicalIndices,
+                                          ttcore::ChipDescAttr chipDesc,
+                                          ttcore::MemorySpace memorySpace) {
   SmallVector<Value> mappedIndices =
       d2m::utils::applyMap(rewriter, loc, memoryMap, logicalIndices, true);
-  return buildNocAddress(rewriter, loc, base, mappedIndices, chipDesc,
-                         ttcore::MemorySpace::DeviceL1);
+  return buildNocEndpoint(rewriter, loc, base, mappedIndices, chipDesc,
+                          memorySpace);
 }
 
-static Value loadI32FromL1PacketThroughScratch(OpBuilder &rewriter,
-                                               Location loc, Value scratchCb,
-                                               Value srcNocAddr, Value laneI32,
-                                               Value transferSizeBytes,
-                                               Value onePage) {
+static void createNocAsyncRead(OpBuilder &rewriter, Location loc,
+                               const NocEndpoint &src, Value dstLocalL1Addr,
+                               Value size) {
+  SmallVector<Value, 1> srcBankId;
+  if (src.bankId) {
+    srcBankId.push_back(src.bankId);
+  }
+  rewriter.create<ttkernel::NocAsyncReadOp>(loc, src.coreXY, srcBankId,
+                                            src.address, dstLocalL1Addr, size);
+}
+
+static void createNocAsyncWrite(OpBuilder &rewriter, Location loc,
+                                Value srcLocalL1Addr, const NocEndpoint &dst,
+                                Value size) {
+  SmallVector<Value, 1> dstBankId;
+  if (dst.bankId) {
+    dstBankId.push_back(dst.bankId);
+  }
+  rewriter.create<ttkernel::NocAsyncWriteOp>(loc, srcLocalL1Addr, dst.coreXY,
+                                             dstBankId, dst.address, size);
+}
+
+static Value loadI32FromNocPacketThroughScratch(
+    OpBuilder &rewriter, Location loc, Value scratchCb, const NocEndpoint &src,
+    Value laneI32, Value transferSizeBytes, Value onePage) {
   rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
   Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
-  rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, writePtr,
-                                            transferSizeBytes);
+  createNocAsyncRead(rewriter, loc, src, writePtr, transferSizeBytes);
   rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
   rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
   rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
@@ -2144,20 +2221,18 @@ static Value loadI32FromL1PacketThroughScratch(OpBuilder &rewriter,
   return value;
 }
 
-static void copyL1ToL1ThroughScratch(OpBuilder &rewriter, Location loc,
-                                     Value scratchCb, Value srcNocAddr,
-                                     Value dstNocAddr, Value transferSizeBytes,
-                                     Value onePage) {
+static void copyNocToNocThroughScratch(OpBuilder &rewriter, Location loc,
+                                       Value scratchCb, const NocEndpoint &src,
+                                       const NocEndpoint &dst,
+                                       Value transferSizeBytes, Value onePage) {
   rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
   Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
-  rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, writePtr,
-                                            transferSizeBytes);
+  createNocAsyncRead(rewriter, loc, src, writePtr, transferSizeBytes);
   rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
   rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
   rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
   Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
-  rewriter.create<ttkernel::NocAsyncWriteOp>(loc, readPtr, dstNocAddr,
-                                             transferSizeBytes);
+  createNocAsyncWrite(rewriter, loc, readPtr, dst, transferSizeBytes);
   rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
   rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
 }
@@ -2194,7 +2269,7 @@ public:
     Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
         rewriter, loc, adaptor.getDst(), op.getDstIndices());
 
-    auto size = i32(rewriter, loc, op.getSizeBytes());
+    auto size = intConstant<int32_t>(rewriter, loc, op.getSizeBytes());
 
     if (op.isSrcLocal()) {
       Value srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
@@ -2203,16 +2278,14 @@ public:
       auto myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, loc, chipDesc, ValueRange{myY, myX});
-      auto srcNocAddr =
-          rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, srcL1Addr);
-      rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
-                                                size);
+      NocEndpoint srcEndpoint{
+          ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, srcL1Addr};
+      createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size);
     } else {
-      auto srcNocAddr =
-          buildNocAddress(rewriter, loc, adaptor.getSrc(), op.getSrcIndices(),
-                          chipDesc, op.getSrcMemorySpace());
-      rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, dstL1Addr,
-                                                size);
+      auto srcEndpoint =
+          buildNocEndpoint(rewriter, loc, adaptor.getSrc(), op.getSrcIndices(),
+                           chipDesc, op.getSrcMemorySpace());
+      createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size);
     }
 
     rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
@@ -2240,11 +2313,14 @@ public:
     if (op.getStartDevice().size() > 0) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
+      auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
+                                          adaptor.getDst(), op.getDstIndices(),
+                                          chipDesc, op.getDstMemorySpace());
       auto dstNocAddr =
-          buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
-                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
-      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-      auto meshId = i16(rewriter, op->getLoc(), 0);
+          materializeTranslatedNocAddr(rewriter, op.getLoc(), dstEndpoint);
+      auto size =
+          intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
+      auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
       auto fcm = getFabricConnectionManager(op);
 
       // fabric unicast
@@ -2281,8 +2357,8 @@ public:
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-          rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                     dstNocAddr, size);
+          createNocAsyncWrite(rewriter, op.getLoc(), srcL1Addr, dstEndpoint,
+                              size);
           rewriter.create<scf::YieldOp>(op.getLoc());
         }
       }
@@ -2309,7 +2385,8 @@ public:
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
-      Value transferSize = i32(rewriter, op->getLoc(), op.getSizeBytes());
+      Value transferSize =
+          intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
       if (op.isMcast()) {
         // Multicast lowering
         // Get virtual start coordinates from DMA op logical coordinates
@@ -2331,44 +2408,49 @@ public:
             rewriter.create<arith::ConstantOp>(op.getLoc(),
                                                rewriter.getI32Type(),
                                                rewriter.getI32IntegerAttr(1)));
-        auto mcastAddr =
-            rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-                op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
-                dstL1Start, nullptr);
+        FailureOr<int32_t> nocIdx = getKernelNocIndex(op.getOperation());
+        if (failed(nocIdx)) {
+          return rewriter.notifyMatchFailure(
+              op, "unable to resolve datamovement kernel NoC index");
+        }
+        Value nocId = intConstant<int8_t>(rewriter, op->getLoc(), *nocIdx);
+
+        flipMcastCoordsIfNoc1(*nocIdx, virtX, virtY, virtMcastEndX,
+                              virtMcastEndY);
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize,
-              numDestsMinusOne, rewriter.getBoolAttr(true), nullptr, nullptr);
+              op.getLoc(), srcL1Start, transferSize, numDestsMinusOne, virtX,
+              virtY, virtMcastEndX, virtMcastEndY, dstL1Start, nocId,
+              rewriter.getBoolAttr(true));
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
-              rewriter.getBoolAttr(true), nullptr, nullptr);
+              op.getLoc(), srcL1Start, transferSize, numDests, virtX, virtY,
+              virtMcastEndX, virtMcastEndY, dstL1Start, nocId,
+              rewriter.getBoolAttr(true));
         }
       } else {
-        // Local L1 to Local L1 local data movement lowering
-        // Get local coordinates using myY and myX ops
+        // Local L1 to Local L1 local data movement lowering.
         auto myY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
         auto myX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
-        // Convert local coordinates to virtual coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
-        auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-            op.getLoc(), virtX, virtY, dstL1Start);
-        rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
-                                                   nocAddr, transferSize);
+        NocEndpoint dstEndpoint{
+            ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, dstL1Start};
+        createNocAsyncWrite(rewriter, op.getLoc(), srcL1Start, dstEndpoint,
+                            transferSize);
       }
     } else if (op.isDstRemote()) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-      auto dstNocAddr =
-          buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
-                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
-      auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
-      rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                 dstNocAddr, size);
+      auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
+                                          adaptor.getDst(), op.getDstIndices(),
+                                          chipDesc, op.getDstMemorySpace());
+      auto size =
+          intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
+      createNocAsyncWrite(rewriter, op.getLoc(), srcL1Addr, dstEndpoint, size);
     }
 
     rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
@@ -2392,12 +2474,18 @@ public:
     auto srcType = mlir::cast<MemRefType>(op.getSrc().getType());
     auto dstType = mlir::cast<MemRefType>(op.getDst().getType());
 
-    if (ttcore::getMemorySpace(indicesType) != ttcore::MemorySpace::DeviceL1 ||
-        ttcore::getMemorySpace(srcType) != ttcore::MemorySpace::DeviceL1 ||
-        ttcore::getMemorySpace(dstType) != ttcore::MemorySpace::DeviceL1) {
+    ttcore::MemorySpace indicesMemorySpace =
+        ttcore::getMemorySpace(indicesType);
+    ttcore::MemorySpace srcMemorySpace = ttcore::getMemorySpace(srcType);
+    ttcore::MemorySpace dstMemorySpace = ttcore::getMemorySpace(dstType);
+    if (indicesMemorySpace != ttcore::MemorySpace::DeviceL1 ||
+        (srcMemorySpace != ttcore::MemorySpace::DeviceL1 &&
+         srcMemorySpace != ttcore::MemorySpace::DeviceDRAM) ||
+        (dstMemorySpace != ttcore::MemorySpace::DeviceL1 &&
+         dstMemorySpace != ttcore::MemorySpace::DeviceDRAM)) {
       return rewriter.notifyMatchFailure(
-          op, "indexed row copy currently supports L1 indices, source, and "
-              "destination");
+          op, "indexed row copy currently supports L1 indices, L1/DRAM "
+              "source, and L1/DRAM destination");
     }
     if (!hasCollapsed2DShard(indicesType) || !hasCollapsed2DShard(srcType) ||
         !hasCollapsed2DShard(dstType)) {
@@ -2427,20 +2515,47 @@ public:
     AffineMap dstMemoryMap =
         d2m::utils::getMemoryMap(device, op.getDst(), true);
 
-    constexpr int64_t kIndexTransferSizeBytes = 16;
-    constexpr int64_t kMaxRowTransferSizeBytes = 16;
+    int64_t indexElementSizeBytes =
+        ttcore::getElementSizeBytes(indicesType.getElementType());
+    int64_t indexTransferSizeBytes = d2m::utils::getNocAddressAlignmentBytes(
+        op, ttcore::MemorySpace::DeviceL1);
+    TT_assert(indexTransferSizeBytes > 0);
+    TT_assert(indexTransferSizeBytes % indexElementSizeBytes == 0);
+    int64_t indexElementsPerTransfer =
+        indexTransferSizeBytes / indexElementSizeBytes;
+
     int64_t rowElementSizeBytes =
         ttcore::getElementSizeBytes(srcType.getElementType());
-    int64_t rowElementsPerTransfer =
-        kMaxRowTransferSizeBytes / rowElementSizeBytes;
+    int64_t srcTransferAlignmentBytes =
+        d2m::utils::getNocAddressAlignmentBytes(op, srcMemorySpace);
+    int64_t dstTransferAlignmentBytes =
+        d2m::utils::getNocAddressAlignmentBytes(op, dstMemorySpace);
+    int64_t rowTransferSizeBytes =
+        std::max(srcTransferAlignmentBytes, dstTransferAlignmentBytes);
+    TT_assert(rowTransferSizeBytes > 0);
+    TT_assert(rowTransferSizeBytes % rowElementSizeBytes == 0);
+    int64_t rowElementsPerTransfer = rowTransferSizeBytes / rowElementSizeBytes;
+    if (getCollapsed2DShardWidth(indicesType) % indexElementsPerTransfer != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "indexed row copy requires index shard width to be NoC transfer "
+              "aligned");
+    }
+    if (getCollapsed2DShardWidth(srcType) % rowElementsPerTransfer != 0 ||
+        getCollapsed2DShardWidth(dstType) % rowElementsPerTransfer != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "indexed row copy requires source and destination shard widths "
+              "to be NoC transfer aligned");
+    }
 
-    Value onePage = i32(rewriter, loc, 1);
-    Value indexTransferSizeBytes = i32(rewriter, loc, kIndexTransferSizeBytes);
-    Value rowElementSizeBytesValue = i32(rewriter, loc, rowElementSizeBytes);
-    Value maxRowElementsPerTransfer =
+    Value onePage = intConstant<int32_t>(rewriter, loc, 1);
+    Value indexTransferSizeBytesValue =
+        intConstant<int32_t>(rewriter, loc, indexTransferSizeBytes);
+    Value rowTransferSizeBytesValue =
+        intConstant<int32_t>(rewriter, loc, rowTransferSizeBytes);
+    Value rowElementsPerTransferValue =
         index(rewriter, loc, rowElementsPerTransfer);
-    Value fourIndex = index(rewriter, loc, 4);
-    Value rowStep = index(rewriter, loc, rowElementsPerTransfer);
+    Value indexElementsPerTransferValue =
+        index(rewriter, loc, indexElementsPerTransfer);
     Value oneIndex = index(rewriter, loc, 1);
     Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
     Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
@@ -2480,10 +2595,10 @@ public:
             rewriter.create<arith::MulIOp>(loc, indexRow, columnExtent);
         indexColumn = rewriter.create<arith::SubIOp>(loc, i, rowBase);
       }
-      Value indexColumnGroup =
-          rewriter.create<arith::DivSIOp>(loc, indexColumn, fourIndex);
-      Value indexGroupColumn =
-          rewriter.create<arith::MulIOp>(loc, indexColumnGroup, fourIndex);
+      Value indexColumnGroup = rewriter.create<arith::DivSIOp>(
+          loc, indexColumn, indexElementsPerTransferValue);
+      Value indexGroupColumn = rewriter.create<arith::MulIOp>(
+          loc, indexColumnGroup, indexElementsPerTransferValue);
       Value indexLane =
           rewriter.create<arith::SubIOp>(loc, indexColumn, indexGroupColumn);
       Value indexLaneI32 = rewriter.create<arith::IndexCastOp>(
@@ -2491,48 +2606,37 @@ public:
 
       SmallVector<Value> indexLogicalIndices = getCollapsed2DElementIndices(
           rewriter, loc, indicesType, indexRow, indexGroupColumn);
-      Value indexNocAddr =
-          buildMappedL1NocAddr(rewriter, loc, adaptor.getIndices(),
-                               indicesMemoryMap, indexLogicalIndices, chipDesc);
-      Value indexValue = loadI32FromL1PacketThroughScratch(
-          rewriter, loc, adaptor.getIndexScratch(), indexNocAddr, indexLaneI32,
-          indexTransferSizeBytes, onePage);
+      NocEndpoint indexEndpoint = buildMappedNocEndpoint(
+          rewriter, loc, adaptor.getIndices(), indicesMemoryMap,
+          indexLogicalIndices, chipDesc, ttcore::MemorySpace::DeviceL1);
+      Value indexValue = loadI32FromNocPacketThroughScratch(
+          rewriter, loc, adaptor.getIndexScratch(), indexEndpoint, indexLaneI32,
+          indexTransferSizeBytesValue, onePage);
 
       Value srcRowIndex = rewriter.create<arith::IndexCastOp>(
           loc, rewriter.getIndexType(), indexValue);
       Value outputRow = getCollapsedOutputRow(
           rewriter, loc, indicesShape, i, getCollapsed2DPhysicalRows(dstType));
-      auto columnLoop =
-          rewriter.create<scf::ForOp>(loc, startColumn, endColumn, rowStep);
+      auto columnLoop = rewriter.create<scf::ForOp>(
+          loc, startColumn, endColumn, rowElementsPerTransferValue);
       {
         OpBuilder::InsertionGuard columnGuard(rewriter);
         rewriter.setInsertionPointToStart(columnLoop.getBody());
         Value j = columnLoop.getInductionVar();
-        Value remainingElements =
-            rewriter.create<arith::SubIOp>(loc, endColumn, j);
-        Value hasTailTransfer = rewriter.create<arith::CmpIOp>(
-            loc, arith::CmpIPredicate::slt, remainingElements,
-            maxRowElementsPerTransfer);
-        Value rowElementsThisTransfer = rewriter.create<arith::SelectOp>(
-            loc, hasTailTransfer, remainingElements, maxRowElementsPerTransfer);
-        Value rowElementsThisTransferI32 = rewriter.create<arith::IndexCastOp>(
-            loc, rewriter.getI32Type(), rowElementsThisTransfer);
-        Value rowTransferSizeBytes = rewriter.create<arith::MulIOp>(
-            loc, rowElementsThisTransferI32, rowElementSizeBytesValue);
 
         SmallVector<Value> srcLogicalIndices = getCollapsed2DElementIndices(
             rewriter, loc, srcType, srcRowIndex, j);
-        Value srcNocAddr =
-            buildMappedL1NocAddr(rewriter, loc, adaptor.getSrc(), srcMemoryMap,
-                                 srcLogicalIndices, chipDesc);
+        NocEndpoint srcEndpoint = buildMappedNocEndpoint(
+            rewriter, loc, adaptor.getSrc(), srcMemoryMap, srcLogicalIndices,
+            chipDesc, srcMemorySpace);
         SmallVector<Value> outputLogicalIndices =
             getCollapsed2DElementIndices(rewriter, loc, dstType, outputRow, j);
-        Value outputNocAddr =
-            buildMappedL1NocAddr(rewriter, loc, adaptor.getDst(), dstMemoryMap,
-                                 outputLogicalIndices, chipDesc);
-        copyL1ToL1ThroughScratch(rewriter, loc, adaptor.getRowScratch(),
-                                 srcNocAddr, outputNocAddr,
-                                 rowTransferSizeBytes, onePage);
+        NocEndpoint outputEndpoint = buildMappedNocEndpoint(
+            rewriter, loc, adaptor.getDst(), dstMemoryMap, outputLogicalIndices,
+            chipDesc, dstMemorySpace);
+        copyNocToNocThroughScratch(rewriter, loc, adaptor.getRowScratch(),
+                                   srcEndpoint, outputEndpoint,
+                                   rowTransferSizeBytesValue, onePage);
       }
     }
 
@@ -2821,11 +2925,7 @@ public:
   static void convertFunctionAttrs(Builder &builder, func::FuncOp op,
                                    ArrayRef<ArgAttr> rtArgs,
                                    ArrayRef<ArgAttr> ctArgs) {
-
-    // Get the TTKernel thread type and replace D2M thread type with TTKernel
-    // thread type
     ThreadType threadType = getTTKernelThreadType(op);
-    op->removeAttr(d2m::ThreadAttr::name);
     op->setAttr(ThreadTypeAttr::name,
                 builder.getAttr<ThreadTypeAttr>(threadType));
     ArgSpecAttr::setArgSpec(op, builder.getAttr<ArgSpecAttr>(rtArgs, ctArgs));
@@ -2834,7 +2934,8 @@ public:
   LogicalResult
   matchAndRewrite(func::FuncOp op, func::FuncOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (!op->hasAttr(d2m::ThreadAttr::name)) {
+    if (!op->hasAttr(d2m::ThreadAttr::name) ||
+        op->hasAttr(ThreadTypeAttr::name)) {
       return failure();
     }
 
@@ -2889,7 +2990,7 @@ public:
           op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, semaphoreAddr);
-      auto meshId = i16(rewriter, op->getLoc(), 0);
+      auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
       auto fcm = getFabricConnectionManager(op);
 
       // fabric unicast
@@ -2971,10 +3072,18 @@ public:
           op.getLoc(), numDests,
           rewriter.create<arith::ConstantOp>(op.getLoc(), rewriter.getI32Type(),
                                              rewriter.getI32IntegerAttr(1)));
-      auto mcastAddr =
-          rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-              op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
-              semaphoreAddr, nullptr);
+      FailureOr<int32_t> nocIdx = getKernelNocIndex(op.getOperation());
+      if (failed(nocIdx)) {
+        return rewriter.notifyMatchFailure(
+            op, "unable to resolve datamovement kernel NoC index");
+      }
+      Value nocId = intConstant<int8_t>(rewriter, op->getLoc(), *nocIdx);
+
+      flipMcastCoordsIfNoc1(*nocIdx, virtX, virtY, virtMcastEndX,
+                            virtMcastEndY);
+      auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
+          op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
+          semaphoreAddr, nocId);
 
       auto semaphorePtr = rewriter.create<ttkernel::CastToL1PtrOp>(
           op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
@@ -2982,7 +3091,7 @@ public:
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    value);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
-          op, semaphoreAddr, mcastAddr, numDestsMinusOne, nullptr, nullptr);
+          op, semaphoreAddr, mcastAddr, numDestsMinusOne, nullptr);
     }
 
     return success();
@@ -3040,9 +3149,10 @@ public:
 
     assert(op.getSenderStartDevice().size() > 0 && "start device must be set");
     auto fcm = getFabricConnectionManager(op);
-    auto meshId = i16(rewriter, op->getLoc(), 0);
-    auto incr = i32(rewriter, op->getLoc(), 1);
-    auto numReceivers = i32(rewriter, op->getLoc(), op.getNumReceivers());
+    auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
+    auto incr = intConstant<int32_t>(rewriter, op->getLoc(), 1);
+    auto numReceivers =
+        intConstant<int32_t>(rewriter, op->getLoc(), op.getNumReceivers());
 
     // fabric unicast
     if (op.getSenderDeviceMcastShape().size()) {

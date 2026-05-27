@@ -298,7 +298,8 @@ protected:
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled, bool noCollapse,
                               mlir::ConversionPatternRewriter &rewriter,
-                              ttcore::OOBVal oobVal) const {
+                              ttcore::OOBVal oobVal,
+                              RankedTensorType logicalType = {}) const {
     bool isTTNN = isTTNNTensor(value.getType());
     if (isTTNN) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
@@ -359,9 +360,14 @@ protected:
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+    // Relayouts of already-layouted values can still need the original logical
+    // tensor shape, e.g. embedding indices staged from DRAM back to L1.
+    if (!logicalType) {
+      logicalType = tensorType;
+    }
+    ArrayRef<int64_t> logicalShape = logicalType.getShape();
 
-    Type elementType = tensorType.getElementType();
+    Type elementType = logicalType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
     if (tiled) {
       constexpr std::array<int64_t, 2> defaultShape =
@@ -392,11 +398,12 @@ protected:
     llvm::SmallVector<int64_t> unshardedShape =
         layout.getPhysicalShape(tileShape);
 
-    // Use a placeholder, 1-filled grid for this pass.
-    llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
+    // Use a placeholder, 1-filled tensor grid for this pass. The length is the
+    // physical tensor rank, not a device-grid height.
+    llvm::SmallVector<int64_t> placeholderTensorGrid(unshardedShape.size(), 1);
 
     llvm::SmallVector<int64_t> shardedShape =
-        layout.getDeviceShape(simpleGrid, tileShape);
+        layout.getDeviceShape(placeholderTensorGrid, tileShape);
 
     auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
                                                  elementType, layout);
@@ -406,8 +413,8 @@ protected:
     // optimizes the grid.
     if (logicalShape.size() > 2) {
       auto [forwardMap, inverseMap] =
-          ttmlir::d2m::utils::grids::createCoreVirtMaps(rewriter.getContext(),
-                                                        simpleGrid, {1, 1});
+          ttmlir::d2m::utils::grids::createCoreVirtMaps(
+              rewriter.getContext(), placeholderTensorGrid, {1, 1});
       emptyOp.setVirtualGridInverseMappingAttr(AffineMapAttr::get(inverseMap));
       emptyOp.setVirtualGridForwardMappingAttr(AffineMapAttr::get(forwardMap));
     }
@@ -3236,12 +3243,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::EmbeddingOp op, ttir::EmbeddingOp::Adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (memorySpaces[0] != ttcore::MemorySpace::DeviceL1 ||
-        memorySpaces[1] != ttcore::MemorySpace::DeviceL1) {
-      return rewriter.notifyMatchFailure(
-          op, "D2M embedding currently supports L1 inputs and outputs only");
-    }
-
     auto indicesType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
     auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
@@ -3270,12 +3271,20 @@ public:
     }
 
     Location loc = op.getLoc();
-    SmallVector<Value> inputs{
-        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
-                              /*tiled=*/false, /*noCollapse=*/false, rewriter),
+    Value weightInput =
         createOptimalLayoutOp(op.getWeight(), memorySpaces[0],
-                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
-
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter);
+    Value indicesBoundaryInput =
+        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter);
+    Value indicesInput =
+        memorySpaces[0] == ttcore::MemorySpace::DeviceL1
+            ? indicesBoundaryInput
+            : createOptimalLayoutOp(
+                  indicesBoundaryInput, ttcore::MemorySpace::DeviceL1,
+                  /*tiled=*/false, /*noCollapse=*/false, rewriter,
+                  ttcore::OOBVal::Undef, indicesType);
+    SmallVector<Value> inputs{indicesInput, weightInput};
     SmallVector<Value> origOutputs =
         createDpsOutputs(loc, rewriter, {resultType});
     SmallVector<Value> outputs{

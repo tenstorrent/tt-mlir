@@ -242,6 +242,12 @@ void createTTNNPipelineWorkaroundPass(
   workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
+
+  // Bind distributed-op scratch buffers before the optimizer so they
+  // contribute to L1 budgeting; the canonicalize + CSE below dedupe matching
+  // EmptyOps across multiple distributed ops.
+  pm.addPass(createTTNNAllocateDistributedOpBuffers());
+
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
 }
@@ -433,6 +439,11 @@ void createTTIRToTTNNCommonPipeline(
       }
     }
 
+    // Bind distributed-op semaphores after the optimizer (core range derives
+    // from the finalized input shard spec) and before trace hoisting (SSA
+    // values must be visible at the trace boundary).
+    devicePm.addPass(createTTNNAllocateDistributedOpSemaphores());
+
     // Trace hoisting must run before layout decomposition because it adjusts
     // layouts of function arguments (e.g. moving inputs to system_memory). It
     // is much easier to work at the layout abstraction level than on individual
@@ -519,8 +530,9 @@ void createTTNNCommonToEmitCPipeline(
 
   if (options.targetDylib) {
     // In dylib path, only run tuplification with forced settings.
-    // This ensures tensor inputs are always tuplified even when the input is
-    // empty, which is necessary for proper dylib interface generation.
+    // This ensures that forward function input tensors are always tuplified
+    // even when the input is empty, which is necessary for proper dylib
+    // interface generation.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
@@ -563,9 +575,9 @@ void createTTNNCommonToEmitPyPipeline(
 
   if (options.targetModule) {
     // In module path, run tuplification with forced settings and add device
-    // argument. This ensures tensor inputs are always tuplified even when the
-    // input is empty, which is necessary for proper module interface
-    // generation.
+    // argument. This ensures forward function input tensors are always
+    // tuplified even when the input is empty, which is necessary for proper
+    // module interface generation.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
@@ -577,7 +589,9 @@ void createTTNNCommonToEmitPyPipeline(
     // weights first. Then tuplify everything else.
     //
     devicePm.addPass(createTTNNSplitForwardFuncArgsByType());
-    devicePm.addPass(createTTNNTuplifyTensors());
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
+    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;

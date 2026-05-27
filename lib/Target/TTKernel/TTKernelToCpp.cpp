@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
 #include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
-#include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_1d_routing_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_2d_routing_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_api_generated.h"
@@ -120,10 +119,6 @@ public:
         emitLlk(experimental_pack_untilize_llks_generated,
                 experimental_pack_untilize_llks_generated_len);
       }
-      if (callee == "experimental::get_noc_multicast_addr") {
-        emitLlk(experimental_dataflow_api_generated,
-                experimental_dataflow_api_generated_len);
-      }
       if (callee == "experimental::semaphore_wait" ||
           callee == "experimental::semaphore_wait_min") {
         emitLlk(experimental_semaphore_generated,
@@ -178,6 +173,12 @@ public:
 
       if (value.starts_with("CircularBuffer")) {
         headers.insert("api/dataflow/circular_buffer.h");
+      }
+
+      if (value.starts_with("Noc ")) {
+        headers.insert("api/core_local_mem.h");
+        headers.insert("api/dataflow/endpoints.h");
+        headers.insert("api/dataflow/noc.h");
       }
 
       // Some callees are embedded in VerbatimOps.

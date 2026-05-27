@@ -204,6 +204,7 @@ def build_module(
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    system_desc_path: Optional[str] = None,
 ) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
     """
     Build an MLIR `Module` from a Python emission function using the chosen builder.
@@ -223,6 +224,9 @@ def build_module(
         When True, writes the emitted module to `artifact_dir`.
     artifact_dir : str
         Directory to write artifacts if `save_artifacts` is True.
+    system_desc_path : Optional[str]
+        Path to the system descriptor file (e.g., "ttrt-artifacts/system_desc.ttsys").
+        If provided, the builder will use it to calculate canonical core placements.
 
     Returns
     -------
@@ -239,13 +243,21 @@ def build_module(
         loc = Location.unknown(ctx)
 
     if builder_type == "ttir":
-        builder = TTIRBuilder(ctx, loc, mesh_name, mesh_dict)
+        builder = TTIRBuilder(
+            ctx, loc, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
     elif builder_type == "stablehlo":
-        builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
+        builder = StableHLOBuilder(
+            ctx, loc, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
     elif builder_type == "ttnn":
-        builder = TTNNBuilder(ctx, loc, mesh_name, mesh_dict)
+        builder = TTNNBuilder(
+            ctx, loc, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
     elif builder_type == "d2m":
-        builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
+        builder = D2MBuilder(
+            ctx, loc, mesh_name, mesh_dict, system_desc_path=system_desc_path
+        )
 
     with ctx, loc:
         new_module = _compile(mod, builder)
@@ -816,6 +828,7 @@ def compile_ttir_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            system_desc_path=system_desc_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -902,6 +915,7 @@ def compile_ttnn_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            system_desc_path=system_desc_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1002,6 +1016,7 @@ def compile_d2m_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            system_desc_path=system_desc_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1121,6 +1136,7 @@ def compile_stablehlo_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            system_desc_path=system_desc_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)

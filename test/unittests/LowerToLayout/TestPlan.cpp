@@ -355,11 +355,10 @@ TEST_F(CanonicalizeTest, HostToDRAMPreservesTargetVgmOnDRAMStep) {
   Plan plan =
       canonicalize(PlanState{systemType}, PlanState{targetType, {}, vgm, vgm},
                    {8, 8}, &context);
-  ASSERT_EQ(plan.size(), 2u);
+  ASSERT_EQ(plan.size(), 1u);
   ASSERT_TRUE(std::holds_alternative<HostToDeviceStep>(plan[0]));
-  ASSERT_TRUE(std::holds_alternative<L1ToDRAMStep>(plan[1]));
-  EXPECT_EQ(std::get<L1ToDRAMStep>(plan[1]).output.vgmForward, vgm);
-  EXPECT_EQ(std::get<L1ToDRAMStep>(plan[1]).output.vgmInverse, vgm);
+  EXPECT_EQ(std::get<HostToDeviceStep>(plan[0]).output.vgmForward, vgm);
+  EXPECT_EQ(std::get<HostToDeviceStep>(plan[0]).output.vgmInverse, vgm);
 }
 
 TEST_F(CanonicalizeTest, RemapOnlyChangeProducesExplicitRemapStep) {

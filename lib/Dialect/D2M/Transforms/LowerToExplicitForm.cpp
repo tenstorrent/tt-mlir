@@ -46,6 +46,9 @@ static void lowerBlockingAffineLoopsToSCF(IRRewriter &rewriter,
   // Preserve the d2m.blocking_loop marker attribute (carries block factor
   // index).
   scfForOp->setAttr("d2m.blocking_loop", forOp->getAttr("d2m.blocking_loop"));
+  if (forOp->hasAttr("d2m.reduction_loop")) {
+    scfForOp->setAttr("d2m.reduction_loop", rewriter.getUnitAttr());
+  }
 
   Block *affineBody = forOp.getBody();
   Block *scfBody = scfForOp.getBody();

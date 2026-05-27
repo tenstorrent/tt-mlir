@@ -19,15 +19,13 @@ class ProgramContext; // Forward declaration
  */
 class ProgramExecutor {
 public:
-  // `parentContext` (optional) links this executor's ProgramContext to the
-  // caller's context so child programs can share state (e.g. implicit
-  // GlobalSemaphores) across nested invocations.
   ProgramExecutor(::tt::runtime::Device deviceHandle,
                   ::tt::runtime::Binary &executableHandle,
                   const size_t programIndex,
                   std::vector<::tt::runtime::Tensor> &programInputs,
                   bool constEvalProgram = false,
-                  ProgramContext *parentContext = nullptr);
+                  const std::vector<::tt::runtime::GlobalSemaphore>
+                      &programSemaphoreInputs = {});
 
   /**
    * Executes pre/post operation callbacks if registered

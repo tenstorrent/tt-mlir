@@ -18,7 +18,7 @@ namespace mlir::tt::d2m {
 /// explicit-datamovement form), this analysis computes reblocked block
 /// factors according to the configured buffer size policy.
 struct BlockFactorAnalysis {
-  enum class BufferSizePolicy { Auto, Bounded, Min, Max };
+  enum class BufferSizePolicy { Auto, AutoMN, Bounded, Min, Max };
 
   struct Options {
     BufferSizePolicy policy = BufferSizePolicy::Auto;

@@ -1363,7 +1363,7 @@ public:
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.emit(srcOp.getComputeConfig()),
-        /*dram_slice_config=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1421,6 +1421,50 @@ public:
         emitter.emit(srcOp.getOutputDtype()),
         emitter.emit(srcOp.getConv2dConfig()),
         emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getConv2dSliceConfig()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PrepareConv3dWeights op conversion pattern
+//
+namespace {
+class PrepareConv3dWeightsOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareConv3dWeightsOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv3d_weights";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::experimental::conv3d::prepare_conv3d_weights";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareConv3dWeightsOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PrepareConv3dWeightsOp srcOp,
+                  mlir::tt::ttnn::PrepareConv3dWeightsOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PrepareConv3dWeightsOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getWeightTensor()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getCInBlock()),
+        emitter.emit(srcOp.getAlignment()),
+        emitter.emit(srcOp.getDevice()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3627,16 +3671,9 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
         emitter(srcOp, adaptor, rewriter);
 
-    mlir::Value globalSemaphore =
-        rewriter
-            .create<emitc::CallOpaqueOp>(
-                srcOp.getLoc(),
-                emitc::OpaqueType::get(rewriter.getContext(),
-                                       "::ttnn::GlobalSemaphore"),
-                ttnn_to_emitc::kCreateGlobalSemaphoreFunctionName,
-                /*args=*/nullptr,
-                /*template_args=*/nullptr, adaptor.getInput())
-            .getResult(0);
+    if (!srcOp.getSemaphore()) {
+      return rewriter.notifyMatchFailure(srcOp, "missing semaphore operand");
+    }
 
     // Emit SSA operands in ODS order to maintain correct index mapping, then
     // arrange the returned attributes in the C++ API call order.
@@ -3646,8 +3683,7 @@ public:
     auto statsIndexAttr = emitter.emit(srcOp.getStats());
     auto deviceIndexAttr =
         emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice());
-    auto semaphoreIndexAttr =
-        emitter.emit(globalSemaphore, srcOp->getNumOperands());
+    auto semaphoreIndexAttr = emitter.emit(srcOp.getSemaphore());
 
     llvm::SmallVector<mlir::Attribute> args{
         inputIndexAttr,
@@ -4094,8 +4130,10 @@ public:
         emitter.emit(srcOp.getTopkTensor()),
         emitter.emit(srcOp.getExpertMapping()),
         emitter.emit(srcOp.getExpertMetadata()),
-        emitter.emit(srcOp.getReductionSize()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
+        /*optional_output_tensor=*/emitter.emit(std::nullopt),
+        /*optional_reduced_tensor=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getReductionSize()),
     };
 
     // Multi-result: returns std::vector<ttnn::Tensor> with 2 elements.
@@ -5388,6 +5426,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<PrepareConv2dWeightsOpConversionPattern>(typeConverter, ctx);
   patterns.add<PrepareConv2dBiasOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PrepareConv3dWeightsOpConversionPattern>(typeConverter, ctx);
   patterns.add<PrepareConvTranspose2dWeightsOpConversionPattern>(typeConverter,
                                                                  ctx);
   patterns.add<PrepareConvTranspose2dBiasOpConversionPattern>(typeConverter,

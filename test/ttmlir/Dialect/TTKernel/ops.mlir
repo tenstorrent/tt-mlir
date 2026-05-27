@@ -188,3 +188,60 @@ func.func @test_noc_trid_with_implicit_noc(%trid: i32) {
       : (i32, i32, i32, i32) -> ()
   return
 }
+
+// CHECK-LABEL: func.func @test_remote_sram_write_u32_sram_addr
+// CHECK-SAME: (%[[SRC:.*]]: !ttkernel.l1_addr, %[[DST:.*]]: !ttkernel.noc_addr)
+func.func @test_remote_sram_write_u32_sram_addr(%src: !ttkernel.l1_addr, %dst: !ttkernel.noc_addr) {
+  // CHECK: ttkernel.remote_sram_write_u32(%[[SRC]], %[[DST]]) : (!ttkernel.l1_addr, !ttkernel.noc_addr) -> ()
+  ttkernel.remote_sram_write_u32(%src, %dst) : (!ttkernel.l1_addr, !ttkernel.noc_addr) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_remote_sram_write_u32_computed_sram_addr
+// CHECK-SAME: (%[[BASE:.*]]: i32, %[[DST:.*]]: !ttkernel.noc_addr)
+func.func @test_remote_sram_write_u32_computed_sram_addr(%base: i32, %dst: !ttkernel.noc_addr) {
+  // CHECK: %[[OFFSET:.*]] = arith.constant 16 : i32
+  %offset = arith.constant 16 : i32
+  // CHECK: %[[SRC:.*]] = arith.addi %[[BASE]], %[[OFFSET]] : i32
+  %src = arith.addi %base, %offset : i32
+  // CHECK: ttkernel.remote_sram_write_u32(%[[SRC]], %[[DST]]) : (i32, !ttkernel.noc_addr) -> ()
+  ttkernel.remote_sram_write_u32(%src, %dst) : (i32, !ttkernel.noc_addr) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_noc_inline_dw_write
+// CHECK-SAME: (%[[DST:.*]]: !ttkernel.noc_addr, %[[VAL:.*]]: i32, %[[BE:.*]]: i8, %[[NOC:.*]]: i8)
+func.func @test_noc_inline_dw_write(%dst: !ttkernel.noc_addr, %val: i32, %be: i8, %noc: i8) {
+  // CHECK: ttkernel.noc_inline_dw_write(%[[DST]], %[[VAL]], %[[BE]], %[[NOC]]) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+  ttkernel.noc_inline_dw_write(%dst, %val, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_remote_sram_write_u32_local_semaphore
+// CHECK-SAME: (%[[SRC:.*]]: !ttkernel.local_semaphore, %[[DST:.*]]: !ttkernel.noc_addr, %[[NOC:.*]]: i8)
+func.func @test_remote_sram_write_u32_local_semaphore(%src: !ttkernel.local_semaphore, %dst: !ttkernel.noc_addr, %noc: i8) {
+  // CHECK: ttkernel.remote_sram_write_u32(%[[SRC]], %[[DST]], %[[NOC]]) : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i8) -> ()
+  ttkernel.remote_sram_write_u32(%src, %dst, %noc) : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i8) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_remote_mailbox_protocol_ops
+func.func @test_remote_mailbox_protocol_ops(%mailbox: !ttkernel.l1_addr) {
+  %zero = arith.constant 0 : i32
+  %one = arith.constant 1 : index
+  %value = arith.constant 64 : i32
+  // CHECK: %[[SEM:.*]] = ttkernel.get_semaphore
+  %sem = ttkernel.get_semaphore(%zero) : (i32) -> !ttkernel.local_semaphore
+  // CHECK: %[[PTR:.*]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>
+  %sem_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%sem) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
+  // CHECK: ttkernel.store_to_l1
+  ttkernel.store_to_l1(%value, %sem_ptr, %zero) : (i32, !ttkernel.l1_addr_ptr, i32) -> ()
+  // CHECK: ttkernel.load_from_l1
+  %loaded = ttkernel.load_from_l1(%sem_ptr, %zero) : (!ttkernel.l1_addr_ptr, i32) -> i32
+  // CHECK: %[[DST:.*]] = ttkernel.get_noc_addr
+  %dst = ttkernel.get_noc_addr(%one, %one, %mailbox) : (index, index, !ttkernel.l1_addr) -> !ttkernel.noc_addr
+  // CHECK: ttkernel.remote_sram_write_u32(%[[SEM]], %[[DST]])
+  ttkernel.remote_sram_write_u32(%sem, %dst) : (!ttkernel.local_semaphore, !ttkernel.noc_addr) -> ()
+  %sink = arith.addi %loaded, %zero : i32
+  return
+}

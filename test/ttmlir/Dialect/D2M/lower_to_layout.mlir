@@ -386,14 +386,9 @@ func.func @untilize_input_only_vgm_fallback() -> tensor<32x32xbf16> {
 func.func @host_to_dram_with_vgm(%arg0: tensor<64x64xbf16>) -> tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst> {
   // CHECK-LABEL: @host_to_dram_with_vgm
   // CHECK: %[[DRAM:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
-  // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
-  // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<64x64xbf16> into tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
-  // CHECK: %[[COPY:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<2x2, virt_to_physical_map = {{.*}}, physical_to_virt_map = {{.*}}>
-  // CHECK-NEXT: ins(%[[TODEV]] : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>)
-  // CHECK-NEXT: outs(%[[DRAM]] : tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>)
+  // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[DRAM]] layout = #layout{{[0-9]+}} : tensor<64x64xbf16> into tensor<2x2x32x32xbf16, #layout{{[0-9]+}}>
   // CHECK-NOT: d2m.generic
-  // CHECK: return %[[COPY]]
+  // CHECK: return %[[TODEV]]
   %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>
   %1 = d2m.to_layout %arg0, %0 : tensor<64x64xbf16> into tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst> -> tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>
   return %1 : tensor<2x2x32x32xbf16, #host_to_dram_with_vgm_dst>

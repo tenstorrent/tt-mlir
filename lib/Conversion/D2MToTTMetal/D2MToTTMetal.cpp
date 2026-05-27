@@ -93,9 +93,8 @@ public:
       CoreRangeAttr coreRange, const SymbolTable &symbolTable,
       ttmetal::MathFidelity mathFidelity,
       const DenseMap<size_t, size_t> &cbOperandIndexToPort,
-      const DenseMap<uint32_t, uint32_t> &argMapping) {
+      const DenseMap<uint32_t, uint32_t> &argMapping, const ttcore::Arch arch) {
     SmallVector<Attribute> kernelConfigs;
-    int unassignedNocCounter = 0;
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
@@ -130,13 +129,13 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        int32_t nocIdx = thread.getNocIndex();
-        if (nocIdx < 0) {
-          nocIdx = unassignedNocCounter++ % 2;
-        }
+        const int32_t processorIdx = thread.getProcessorIndex();
+        TT_assert(processorIdx >= 0);
+        const auto nocIdx = (arch == ttcore::Arch::Quasar || processorIdx == 1)
+                                ? ttcore::NocIndex::Noc0
+                                : ttcore::NocIndex::Noc1;
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs,
-            *ttcore::symbolizeNocIndex(nocIdx));
+            thread.getKernelSymbol(), coreRange, kernelArgs, nocIdx);
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -230,9 +229,10 @@ public:
 
     ArrayAttr threads = op.getThreads();
     CoreRangeAttr coreRange = coreRangeAttrFromOp(rewriter, op);
+    const auto arch = ttcore::getOpChipDescAttr(op).getArch().getValue();
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
-        mathFidelity_, cbOperandIndexToPort, argMapping);
+        mathFidelity_, cbOperandIndexToPort, argMapping, arch);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, args, cbs, cbPorts, kernelConfigs,
         op.getFabricConnectionConfigAttr());
@@ -529,8 +529,20 @@ public:
   LogicalResult
   matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    Value sourceInput = adaptor.getInput();
+
+    // When d2m.spatial consumes the view result, pre-update that use to the
+    // view input so the spatial operand type tracks the underlying memref type.
+    for (OpOperand &use :
+         llvm::make_early_inc_range(op.getResult().getUses())) {
+      if (mlir::isa<d2m::SpatialOp>(use.getOwner())) {
+        use.set(sourceInput);
+        continue;
+      }
+    }
+
     // Erase views.
-    rewriter.replaceOp(op, adaptor.getInput());
+    rewriter.replaceOp(op, sourceInput);
     return success();
   }
 };
@@ -654,6 +666,7 @@ private:
     DenseMap<Value, size_t> ioToUnifiedIdx_;
     DenseMap<LocalKey, size_t> ioArgMap_;
     DenseMap<LocalKey, size_t> globalSemaphoreArgMap_;
+    DenseMap<LocalKey, size_t> localSemaphoreArgMap_;
 
   public:
     void addEnqueueArgs(ttmetal::EnqueueProgramOp enqueueProgram) {
@@ -664,6 +677,12 @@ private:
           size_t unifiedIdx = unifiedArgs_.size();
           unifiedArgs_.push_back(arg);
           globalSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
+          continue;
+        }
+        if (mlir::isa<ttmetal::LocalSemaphoreType>(arg.getType())) {
+          size_t unifiedIdx = unifiedArgs_.size();
+          unifiedArgs_.push_back(arg);
+          localSemaphoreArgMap_.insert({{op, localIdx}, unifiedIdx});
           continue;
         }
 
@@ -701,6 +720,17 @@ private:
       }
       return std::nullopt;
     }
+
+    std::optional<size_t>
+    lookupLocalSemaphore(ttmetal::EnqueueProgramOp enqueueProgram,
+                         size_t localIdx) const {
+      auto it =
+          localSemaphoreArgMap_.find({enqueueProgram.getOperation(), localIdx});
+      if (it != localSemaphoreArgMap_.end()) {
+        return it->second;
+      }
+      return std::nullopt;
+    }
   };
 
   static KernelArgAttr remapKernelArg(Builder &builder, KernelArgAttr kernelArg,
@@ -715,6 +745,11 @@ private:
     } else if (kernelArg.getType() == ttkernel::ArgType::GlobalSemaphore) {
       if (auto unified =
               remapTable.lookupGlobalSemaphore(enqueueProgram, operandIndex)) {
+        operandIndex = *unified;
+      }
+    } else if (kernelArg.getType() == ttkernel::ArgType::LocalSemaphore) {
+      if (auto unified =
+              remapTable.lookupLocalSemaphore(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
     } else if (kernelArg.getType() == ttkernel::ArgType::CBPort) {

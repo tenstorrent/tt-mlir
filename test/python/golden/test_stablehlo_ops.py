@@ -1888,6 +1888,73 @@ def test_all_gather(target: str, request, device):
     )
 
 
+# Update computation body options for scatter: (factory(current, update) -> OpResult).
+_SCATTER_UPDATE_OPTIONS = {
+    "replace": lambda current_val, update_val: update_val,
+    "add": lambda current_val, update_val: stablehlo.AddOp(
+        current_val, update_val
+    ).result,
+}
+
+
+@pytest.mark.parametrize(
+    "input_shape,indices_shape,updates_shape",
+    [
+        ((8,), (3,), (3,)),
+        ((4, 8), (2, 1), (2, 8)),
+        ((32, 64), (4, 1), (4, 64)),
+    ],
+)
+@pytest.mark.parametrize("update_mode", list(_SCATTER_UPDATE_OPTIONS.keys()))
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_scatter(
+    input_shape: Shape,
+    indices_shape: Shape,
+    updates_shape: Shape,
+    update_mode: str,
+    target: str,
+    request,
+    device,
+):
+    if len(input_shape) > 1 and update_mode == "add":
+        pytest.skip(
+            "2D scatter with add mode not supported by TTIR embedding_backward lowering"
+        )
+
+    update_fn = _SCATTER_UPDATE_OPTIONS[update_mode]
+
+    def module_scatter(builder: StableHLOBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def scatter_func(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            indices = builder.constant(torch.zeros(indices_shape, dtype=torch.int32))
+            updates = builder.constant(torch.ones(updates_shape, dtype=torch.float32))
+
+            if len(input_shape) == 1:
+                update_window_dims = []
+            else:
+                update_window_dims = [1]
+            return builder.scatter(
+                inputs=[in0],
+                scatter_indices=indices,
+                updates=[updates],
+                update_window_dims=update_window_dims,
+                inserted_window_dims=[0],
+                scattered_dims_to_operand_dims=[0],
+                index_vector_dim=1,
+                update_computation=update_fn,
+                indices_are_sorted=False,
+                unique_indices=False,
+            )
+
+    compile_and_execute_shlo(
+        module_scatter,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize(
     "shapes,stride,padding,dilation,groups",
     [

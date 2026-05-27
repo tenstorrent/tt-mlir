@@ -278,9 +278,21 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
   }
 
   if (outputMemLayout == TensorMemoryLayout::BlockSharded) {
-    return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                         fusedActivation, maxSubblockSize,
-                                         fuseBatch);
+    // 2D mcast requires both grid dims > 1. On a degenerate grid (one dim == 1)
+    // fall back to 1D mcast: tt-metal treats BlockSharded + 1D-grid as an
+    // intentional alias for WidthSharded/HeightSharded (see
+    // ttnn/cpp/ttnn/operations/matmul/device/matmul_device_operation.cpp
+    // ~L197), and the 1D mcast direction must follow which grid dim is
+    // degenerate, not outputMemLayout (otherwise mcast_in0 picks the wrong
+    // direction).
+    auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
+    if (gridX > 1 && gridY > 1) {
+      return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
+                                           fusedActivation, maxSubblockSize,
+                                           fuseBatch);
+    }
+    outputMemLayout = (gridY == 1) ? TensorMemoryLayout::WidthSharded
+                                   : TensorMemoryLayout::HeightSharded;
   }
 
   return generateMatmul1DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,

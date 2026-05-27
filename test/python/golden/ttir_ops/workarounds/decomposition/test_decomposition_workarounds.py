@@ -555,6 +555,80 @@ def test_all_gather_1d_no_workaround(
     )
 
 
+@pytest.mark.parametrize("test_size", [64])
+@pytest.mark.parametrize(
+    "mesh_shape",
+    [(1, 2), (2, 1)],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.xfail(
+    reason="ttnn.all_reduce decomposes into reduce_scatter + all_gather, and "
+    "reduce_scatter does not support 1D tensors. Without the workaround, "
+    "reshape ops are not inserted to make the tensor at least 2D. "
+    "Metal issue: https://github.com/tenstorrent/tt-metal/issues/45024"
+)
+def test_all_reduce_1d_no_workaround(
+    test_size: int,
+    mesh_shape: Tuple[int, int],
+    cluster_axis: int,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("all_reduce across 1 device is meaningless")
+
+    shard_dims = [0, 1]
+    shard_shape_2d = make_shard_shape(2, shard_dims, mesh_shape)
+
+    full_input_shape = [1 * mesh_shape[0], test_size * mesh_shape[1]]
+    shard_test_shape_1d = [test_size]
+    # all_reduce keeps the per-device shape, so reshape back to the shard shape.
+    reduced_shape_2d = [1, test_size]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def all_reduce(in0: Operand, builder: TTIRBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_2d,
+                shard_dims=shard_dims,
+            )
+
+            # Reshape to 1D to exercise the all_reduce 1D workaround.
+            in_1d = builder.reshape(in_shard, shape=shard_test_shape_1d)
+
+            all_reduce0 = builder.all_reduce(
+                in_1d,
+                cluster_axis=cluster_axis,
+                reduce_type=ReduceType.Sum.value,
+            )
+
+            # Reshape back to 2D so mesh_shard can unshard.
+            out_2d = builder.reshape(all_reduce0, shape=reduced_shape_2d)
+
+            return builder.mesh_shard(
+                out_2d,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_2d,
+                shard_dims=shard_dims,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        **get_request_kwargs(request),
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
+
+
 @pytest.mark.parametrize(
     "shape,scatter_dim",
     [

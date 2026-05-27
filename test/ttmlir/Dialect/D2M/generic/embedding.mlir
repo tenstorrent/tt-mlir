@@ -29,6 +29,7 @@ module {
 // -----
 
 #l1 = #ttcore.memory_space<l1>
+#dram = #ttcore.memory_space<dram>
 
 module {
   // CHECK-LABEL: func.func @memref_indexed_row_copy_explicit
@@ -41,6 +42,19 @@ module {
     // CHECK: d2m.indexed_row_copy {{.*}} scratch {{.*}}<8, 16>
     // CHECK-SAME: {indicesShape = array<i64: 2, 4>}
     d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<8, 16> {indicesShape = array<i64: 2, 4>} : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1024xi32, #l1>, memref<1x1024xf32, #l1>
+    return
+  }
+
+  // CHECK-LABEL: func.func @memref_indexed_row_copy_dram_source_explicit
+  func.func @memref_indexed_row_copy_dram_source_explicit(
+      %indices: memref<1x1x2x4xi32, #l1>,
+      %weight: memref<1x1x8x16xf32, #dram>,
+      %output: memref<1x1x8x16xf32, #l1>,
+      %index_scratch: memref<1x1024xi32, #l1>,
+      %row_scratch: memref<1x1024xf32, #l1>) {
+    // CHECK: d2m.indexed_row_copy {{.*}} scratch {{.*}}<8, 16>
+    // CHECK-SAME: : memref<{{.*}}, #l1>, memref<{{.*}}, #dram>, memref<{{.*}}, #l1>
+    d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<8, 16> {indicesShape = array<i64: 2, 4>} : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #dram>, memref<1x1x8x16xf32, #l1>, memref<1x1024xi32, #l1>, memref<1x1024xf32, #l1>
     return
   }
 }

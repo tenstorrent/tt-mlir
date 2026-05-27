@@ -12,7 +12,7 @@ from golden.mapping import mlir_datatype_to_torch_dtype, mlir_type_to_torch_dtyp
 from golden.metrics import get_atol_rtol_pcc
 
 from .exceptions import ChiselFailure, DtypeMismatch, ShapeMismatch
-from .report import ChiselRecord, NumericsPayload, RecordStatus
+from .report import ChiselRecord, NumericsMode, NumericsPayload, RecordStatus
 
 logger = logging.getLogger("chisel")
 
@@ -46,6 +46,12 @@ class ChiselChecksConfig:
     max_atol: Optional[float] = None
     max_rtol: Optional[float] = None
 
+    # Per-op golden modes:
+    #   isolation:   re-run the golden each op from device inputs.
+    #   accumulation: chain goldens through a program-scoped pool.
+    isolation: bool = False
+    accumulation: bool = True
+
 
 def _extract_shape_dtype(source) -> tuple[list, torch.dtype]:
     # Accepts a GoldenMapTensor, an MLIR IR Value, a flatbuffer TensorRef, or
@@ -78,13 +84,14 @@ def check_shape_dtype(op, check: str, expected, actual) -> None:
 
 
 def check_numerics(
-    ctx, op, ssa: str, golden: GoldenMapTensor, device: GoldenMapTensor
+    ctx,
+    op,
+    ssa: str,
+    golden: GoldenMapTensor,
+    device: GoldenMapTensor,
+    mode: NumericsMode = NumericsMode.ISOLATED,
 ) -> None:
-    """Per-shard PCC check.
-
-    Writes one record per shard; multi-shard tensors are compared shard-by-shard
-    rather than collapsed to a single comparison.
-    """
+    """Per-shard PCC check; emits one record per shard, tagged by `mode`."""
     check = "numerics"
     check_shape_dtype(op, check, golden, device)
 
@@ -118,7 +125,12 @@ def check_numerics(
                 check=check,
                 ssa=ssa,
                 payload=NumericsPayload(
-                    status=status, pcc=pcc, atol=atol, rtol=rtol, device_id=device_id
+                    status=status,
+                    mode=mode,
+                    pcc=pcc,
+                    atol=atol,
+                    rtol=rtol,
+                    device_id=device_id,
                 ),
             )
         )

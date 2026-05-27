@@ -31,6 +31,7 @@
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/conv/prepare_conv2d_bias.h"
 #include "operations/conv/prepare_conv2d_weights.h"
+#include "operations/conv/prepare_conv3d_weights.h"
 #include "operations/conv/prepare_conv_transpose2d_bias.h"
 #include "operations/conv/prepare_conv_transpose2d_weights.h"
 #include "operations/cpu/cpu.h"
@@ -132,7 +133,7 @@ ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
     std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram,
-    ProgramContext *parentContext)
+    const std::vector<::tt::runtime::GlobalSemaphore> &programSemaphoreInputs)
     : program(utils::getProgram(executableHandle, programIndex)),
       executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
@@ -155,10 +156,26 @@ ProgramExecutor::ProgramExecutor(
     programOutputIds.push_back(output->global_id());
   }
 
+  GlobalSemaphoreMap liveGlobalSemaphores;
+  size_t expectedSemaphoreInputs =
+      program->semaphore_inputs() ? program->semaphore_inputs()->size() : 0;
+  LOG_ASSERT(programSemaphoreInputs.size() == expectedSemaphoreInputs,
+             "Program semaphore input size mismatch: ", expectedSemaphoreInputs,
+             " != ", programSemaphoreInputs.size());
+  if (program->semaphore_inputs()) {
+    size_t i = 0;
+    for (const ::tt::target::ttnn::GlobalSemaphoreRef *semaphoreRef :
+         *program->semaphore_inputs()) {
+      auto [iter, inserted] = liveGlobalSemaphores.try_emplace(
+          semaphoreRef->global_id(), programSemaphoreInputs[i++]);
+      LOG_ASSERT(inserted, "Duplicate input semaphore");
+    }
+  }
+
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      GlobalSemaphoreMap(), common::DylibManager(program->dylibs()),
-      std::move(deviceHandle), executableHandle, programIndex, parentContext);
+      std::move(liveGlobalSemaphores), common::DylibManager(program->dylibs()),
+      std::move(deviceHandle), executableHandle, programIndex);
 }
 
 void ProgramExecutor::runOpCallback(
@@ -466,6 +483,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
     return operations::conv::run(op->type_as_PrepareConv2dBiasOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    return operations::conv::run(op->type_as_PrepareConv3dWeightsOp(),
                                  getContext());
   }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {

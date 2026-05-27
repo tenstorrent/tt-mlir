@@ -1547,6 +1547,7 @@ public:
         emitter.template emit<std::vector<uint32_t>>(conv2dOp.getDilationAttr(),
                                                      "dilation"),
         emitter.emit(conv2dOp.getGroups(), "groups"),
+        emitter.emit(conv2dOp.getDtype(), "dtype"),
         emitter.emit(conv2dOp.getBias(), "bias_tensor"),
         emitter.emit(conv2dOp.getConv2dConfig(), "conv_config"),
         emitter.emit(conv2dOp.getComputeConfig(), "compute_config"),
@@ -1757,7 +1758,7 @@ public:
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_config"),
-        emitter.emit(std::nullopt, "slice_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1817,6 +1818,50 @@ public:
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_config"),
+        emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PrepareConv3dWeights op conversion pattern
+//
+namespace {
+class PrepareConv3dWeightsOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareConv3dWeightsOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv3d_weights";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.prepare_conv3d_weights";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareConv3dWeightsOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PrepareConv3dWeightsOp srcOp,
+                  mlir::tt::ttnn::PrepareConv3dWeightsOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PrepareConv3dWeightsOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getWeightTensor(), "weight_tensor"),
+        emitter.emit(srcOp.getGroups(), "groups"),
+        emitter.emit(srcOp.getCInBlock(), "C_in_block"),
+        emitter.emit(srcOp.getAlignment(), "alignment"),
+        emitter.emit(srcOp.getDevice(), "device"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3745,8 +3790,8 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getTopkTensor(), "topk_tensor"),
-        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
-        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
+        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata_tensor"),
         emitter.emit(srcOp.getReductionSize(), "reduction_size"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
@@ -3857,19 +3902,16 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
         emitter(srcOp, adaptor, rewriter);
 
-    auto opaqueType =
-        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor");
-
-    auto globalSemaphoreOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(), opaqueType, "utils.create_global_semaphore",
-        llvm::SmallVector<mlir::Value>{adaptor.getInput()});
+    if (!srcOp.getSemaphore()) {
+      return rewriter.notifyMatchFailure(srcOp, "missing semaphore operand");
+    }
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(srcOp.getClusterAxis()),
         emitter.emit(srcOp.getDevice()),
-        emitter.emit(globalSemaphoreOp.getResult(0), "", 2),
+        emitter.emit(srcOp.getSemaphore()),
         emitter.emit(srcOp.getStats(), "stats"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
@@ -5132,6 +5174,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<Conv2dOpConversionPattern, ConvTranspose2dOpConversionPattern,
                PrepareConv2dWeightsOpConversionPattern,
                PrepareConv2dBiasOpConversionPattern,
+               PrepareConv3dWeightsOpConversionPattern,
                PrepareConvTranspose2dWeightsOpConversionPattern,
                PrepareConvTranspose2dBiasOpConversionPattern,
                Conv3dOpConversionPattern>(typeConverter, ctx);

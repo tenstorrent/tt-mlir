@@ -129,16 +129,7 @@ checkConstraintsResult(Operation *contextOp,
   auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
         outputTensorUsagePerCore, outputLayouts] = constraints.get();
 
-  const float tensorL1UsageCap = utils::getTensorL1UsageCap(contextOp);
-
-  ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
-      contextOp->getParentOfType<ModuleOp>()->getAttr(
-          ttcore::SystemDescAttr::name));
-  ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-  uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
-
-  uint64_t effectiveL1Limit =
-      static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize);
+  uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
   uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
 
   if (totalL1Usage > effectiveL1Limit) {

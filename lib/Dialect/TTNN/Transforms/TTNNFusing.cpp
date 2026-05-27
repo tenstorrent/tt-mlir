@@ -320,9 +320,20 @@ public:
       OpValidationConfig validationConfig;
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
 
-      patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
+      if (enableRoPEFusion) {
+        patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
+                                                   validationConfig);
+        patterns.add<fusing::RoPEExpandedFusing>(&getContext(),
                                                  validationConfig);
-      patterns.add<fusing::RoPEExpandedFusing>(&getContext(), validationConfig);
+      }
+      // RoPEDecodeFusing must always run (not gated by enableRoPEFusion)
+      // because it rearranges the [2,0,1,3] permutes that
+      // NLPCreateQKVHeadsDecodeFusing depends on. When TTIR-level RoPE fusion
+      // is active (enableRoPEFusion=false), the RotaryEmbeddingOp already
+      // exists from TTIR lowering — RoPEDecodeFusing detects the decode
+      // signature and sets token_index, enabling the decode QKV upgrade.
+      // TODO(sdjordjevic): #8598 Decouple NLPCreateQKVHeadsDecodeFusing from
+      // RoPEDecodeFusing
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
