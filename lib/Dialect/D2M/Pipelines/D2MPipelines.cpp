@@ -257,7 +257,6 @@ void createD2MBackendPipeline(OpPassManager &pm,
   // treat all arguments.
   pm.addPass(d2m::createD2MNormalizeThreadArgs());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
   createOptimizationPasses(pm, options);
 }
