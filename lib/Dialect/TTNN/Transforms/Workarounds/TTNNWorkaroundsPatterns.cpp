@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/FillCacheInputPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
@@ -650,6 +651,10 @@ public:
           workarounds::decomposition::ArgMaxOpDimRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
+          workarounds::decomposition::FillCacheInputPadRewritePattern<
+              ttnn::FillCacheOp>,
+          workarounds::decomposition::FillCacheInputPadRewritePattern<
+              ttnn::PagedFillCacheOp>,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::
