@@ -1764,17 +1764,34 @@ module {
 
     // CHECK-LABEL: func @noc_async_read
     func.func @noc_async_read() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK: emitc.verbatim "Noc noc;"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %dst_addr = arith.constant 303104 : i32
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
-      // CHECK: emitc.call_opaque "noc_async_read"(%[[SRC_ADDR]], %[[DST_ADDR]], %[[SIZE]])
-      "ttkernel.noc_async_read"(%src_addr, %dst_addr, %size) : (!ttkernel.noc_addr, i32, i32) -> ()
+      // CHECK: emitc.verbatim "noc.async_read
+      ttkernel.noc_async_read core[%x, %y], %temp, %dst_addr, %size : (index, index, i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_read_dram
+    func.func @noc_async_read_dram() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %bank_id = arith.constant 1 : i32
+      %offset = arith.constant 4096 : i32
+      %dst = arith.constant 8192 : i32
+      %size = arith.constant 128 : i32
+      // CHECK: emitc.verbatim "AllocatorBank<AllocatorBankType::DRAM> dram_ep;"
+      // CHECK: emitc.verbatim "Noc noc;"
+      // CHECK: emitc.verbatim "noc.async_read(dram_ep
+      // CHECK-SAME: .bank_id = static_cast<uint32_t>
+      // CHECK-SAME: .addr = static_cast<uint32_t>
+      // CHECK-NOT: emitc.call_opaque "get_noc_addr_from_bank_id"
+      // CHECK-NOT: emitc.call_opaque "noc_async_read"
+      ttkernel.noc_async_read bank[%bank_id], %offset, %dst, %size : (i32, i32, i32, i32) -> ()
       return
     }
 
@@ -1809,30 +1826,68 @@ module {
 
     // CHECK-LABEL: func @noc_async_read_barrier
     func.func @noc_async_read_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: emitc.call_opaque "noc_async_read_barrier"()
+      // CHECK: emitc.verbatim "Noc noc;"
+      // CHECK: emitc.verbatim "noc.async_read_barrier<Noc::BarrierMode::FULL>();"
       "ttkernel.noc_async_read_barrier"() : () -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_write
     func.func @noc_async_write() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK: emitc.verbatim "Noc noc;"
       // CHECK: %[[SRC_ADDR:.*]] = "emitc.constant"
       %src_addr = arith.constant 303104 : i32
-      // CHECK: %[[DST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
-      %dst_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
-      // CHECK: emitc.call_opaque "noc_async_write"(%[[SRC_ADDR]], %[[DST_ADDR]], %[[SIZE]])
-      "ttkernel.noc_async_write"(%src_addr, %dst_addr, %size) : (i32, !ttkernel.noc_addr, i32) -> ()
+      // CHECK: emitc.verbatim "noc.async_write
+      ttkernel.noc_async_write %src_addr, core[%x, %y], %temp, %size : (i32, index, index, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_multicasts
+    func.func @noc_async_multicasts() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %xs = arith.constant 0 : index
+      %ys = arith.constant 1 : index
+      %xe = arith.constant 2 : index
+      %ye = arith.constant 3 : index
+      %addr = arith.constant 262144 : i32
+      %src = arith.constant 303104 : i32
+      %size = arith.constant 64 : i32
+      %num_dests = arith.constant 4 : i32
+      %noc = arith.constant 1 : i8
+      // CHECK-NOT: get_noc_id
+      // CHECK-NOT: get_noc_multicast_addr
+      // CHECK-NOT: noc_async_write_multicast
+      // CHECK: emitc.verbatim "MulticastEndpoint mcast_ep;"
+      // CHECK: emitc.verbatim "Noc noc(1);"
+      // CHECK: %[[XS:.*]] = "emitc.constant"() <{value = 0 : index}>
+      // CHECK: %[[YS:.*]] = "emitc.constant"() <{value = 1 : index}>
+      // CHECK: %[[XE:.*]] = "emitc.constant"() <{value = 2 : index}>
+      // CHECK: %[[YE:.*]] = "emitc.constant"() <{value = 3 : index}>
+      // CHECK: %[[ADDR:.*]] = "emitc.constant"() <{value = 262144 : i32}>
+      // CHECK: %[[SRC:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      // CHECK: %[[SIZE:.*]] = "emitc.constant"() <{value = 64 : i32}>
+      // CHECK: %[[NUM_DESTS:.*]] = "emitc.constant"() <{value = 4 : i32}>
+      // CHECK: %[[NOC:.*]] = "emitc.constant"() <{value = 1 : i8}>
+      // CHECK: emitc.verbatim "noc.async_write_multicast<Noc::McastMode::EXCLUDE_SRC>
+      // CHECK-SAME: noc_traits_t<MulticastEndpoint>::dst_args_mcast_type
+      // CHECK-SAME: args %[[SRC]], %[[SIZE]], %[[NUM_DESTS]], %[[XE]], %[[YE]], %[[XS]], %[[YS]], %[[ADDR]]
+      ttkernel.noc_async_write_multicast(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
+      // CHECK: emitc.verbatim "noc.async_write_multicast<Noc::McastMode::INCLUDE_SRC>
+      // CHECK-SAME: noc_traits_t<MulticastEndpoint>::dst_args_mcast_type
+      // CHECK-SAME: args %[[SRC]], %[[SIZE]], %[[NUM_DESTS]], %[[XE]], %[[YE]], %[[XS]], %[[YS]], %[[ADDR]]
+      ttkernel.noc_async_write_multicast_loopback_src(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_write_barrier
     func.func @noc_async_write_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: emitc.call_opaque "noc_async_write_barrier"()
+      // CHECK: emitc.verbatim "Noc noc;"
+      // CHECK: emitc.verbatim "noc.async_write_barrier<Noc::BarrierMode::FULL>();"
       "ttkernel.noc_async_write_barrier"() : () -> ()
       return
     }
@@ -1980,16 +2035,18 @@ module {
 
     // CHECK-LABEL: func @noc_async_atomic_barrier
     func.func @noc_async_atomic_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: emitc.call_opaque "noc_async_atomic_barrier"() :
+      // CHECK: emitc.verbatim "Noc noc;"
+      // CHECK: emitc.verbatim "noc.async_atomic_barrier<Noc::BarrierMode::FULL>();"
       ttkernel.noc_async_atomic_barrier() : () -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_atomic_barrier_with_noc_id
     func.func @noc_async_atomic_barrier_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "Noc noc(1);"
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
       %noc_id = arith.constant 1 : i8
-      // CHECK: emitc.call_opaque "noc_async_atomic_barrier"(%[[NOC_ID]]) :
+      // CHECK: emitc.verbatim "noc.async_atomic_barrier<Noc::BarrierMode::FULL>();"
       ttkernel.noc_async_atomic_barrier(%noc_id) : (i8) -> ()
       return
     }
@@ -2135,10 +2192,9 @@ module {
       %dst_mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp2) : (index, index, i32) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // TODO(#2229): emitc lowering ignores 'linked' and 'multicast_path_reserve'
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast"(%src_addr, %dst_mcast_addr, %num_dsts) <{
-          linked = false, multicast_path_reserve = true
+          linked = false
         }> : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i32) -> ()
       return
     }
@@ -2155,10 +2211,9 @@ module {
       %dst_mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp2) : (index, index, i32) -> (!ttkernel.noc_addr) // dummy l1 addr (use mcast getter)
       // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
       %num_dsts = arith.constant 8 : i32
-      // TODO(#2229): emitc lowering ignores 'linked' and 'multicast_path_reserve'
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast_loopback_src"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast_loopback_src"(%src_addr, %dst_mcast_addr, %num_dsts) <{
-          linked = false, multicast_path_reserve = true
+          linked = false
         }> : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i32) -> ()
       return
     }

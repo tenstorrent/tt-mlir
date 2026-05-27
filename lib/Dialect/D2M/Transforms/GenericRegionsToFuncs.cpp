@@ -101,6 +101,26 @@ materializeCoreCoordinateOperandsInPhysicalSpace(GenericOp generic,
   });
 }
 
+static int32_t resolveDmProcessorIndex(ThreadAttr thread,
+                                       ttcore::ChipDescAttr chipDesc,
+                                       int &unassignedDmProcessorCounter) {
+  int32_t processorIdx = thread.getProcessorIndex();
+  // Handle unassigned DM core.
+  if (thread.getThreadType() == ThreadType::Datamovement && processorIdx < 0) {
+    const auto arch = chipDesc.getArch().getValue();
+    const auto nDmCores = chipDesc.getNumDatamovementThreads();
+    if (arch == ttcore::Arch::Quasar) {
+      // For Quasar, the downstream passes will force assign NoC0.
+      processorIdx = unassignedDmProcessorCounter++ % nDmCores;
+    } else {
+      // For WH & BH, alternate between Core1-NoC0 and Core0-NoC1.
+      const int32_t nocIdx = unassignedDmProcessorCounter++ % nDmCores;
+      processorIdx = 1 - nocIdx;
+    }
+  }
+  return processorIdx;
+}
+
 class D2MGenericRegionsToFuncs
     : public impl::D2MGenericRegionsToFuncsBase<D2MGenericRegionsToFuncs> {
 public:
@@ -117,20 +137,23 @@ public:
 
       SmallVector<Attribute> threads;
       auto origThreads = generic.getThreadsAttr().getValue();
+      const auto chipDesc = ttcore::getOpChipDescAttr(generic);
+      int unassignedDmProcessorCounter = 0;
       for (Region &region : generic.getRegions()) {
         builder.setInsertionPoint(moduleOp.getBody(),
                                   moduleOp.getBody()->end());
         auto origThreadAttr =
             mlir::cast<ThreadAttr>(origThreads[region.getRegionNumber()]);
         ThreadType threadType = origThreadAttr.getThreadType();
-        int32_t processorIndex = origThreadAttr.getProcessorIndex();
+        const int32_t processorIdx = resolveDmProcessorIndex(
+            origThreadAttr, chipDesc, unassignedDmProcessorCounter);
         std::string symbolName =
             stringifyEnum(threadType).str() + "_kernel" + Twine(unique++).str();
         auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
             threadType, builder.getAttr<SymbolRefAttr>(symbolName),
-            processorIndex);
+            processorIdx);
         auto threadAttrWithoutSym =
-            builder.getAttr<ThreadAttr>(threadType, nullptr, processorIndex);
+            builder.getAttr<ThreadAttr>(threadType, nullptr, processorIdx);
         Location loc = region.getNumArguments() > 0
                            ? region.getArgument(0).getLoc()
                            : generic.getLoc();

@@ -21,7 +21,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -288,12 +287,12 @@ createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
 static SmallVector<mlir::Attribute> createKernelDescriptors(
     Builder &builder, const ArrayAttr &threads,
     const ttnn::CoreRangeSetAttr &coreRangeSet, const SymbolTable &symbolTable,
-    ttmetal::MathFidelity mathFidelity,
+    const ttmetal::MathFidelity mathFidelity,
     const llvm::DenseMap<size_t, size_t> &semIndexMap,
     const DenseMap<uint32_t, uint32_t> &additionalArgMapping,
-    const DenseMap<size_t, size_t> &cbOperandIndexToPortMapping) {
+    const DenseMap<size_t, size_t> &cbOperandIndexToPortMapping,
+    const ttcore::Arch arch) {
   SmallVector<mlir::Attribute> kernelConfigs(threads.size());
-  int unassignedNocCounter = 0;
   for (const auto [i, thread] : llvm::enumerate(threads)) {
     const d2m::ThreadAttr threadAttr = mlir::cast<d2m::ThreadAttr>(thread);
 
@@ -340,21 +339,15 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       break;
     }
     case d2m::ThreadType::Datamovement: {
-      int32_t processorIdx = threadAttr.getProcessorIndex();
-      ttcore::NocIndex nocIndex;
-      if (processorIdx < 0) {
-        int32_t index = unassignedNocCounter++ % 2;
-        nocIndex = index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-        processorIdx = index == 0 ? 1 : 0;
-      } else {
-        nocIndex =
-            processorIdx == 1 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-      }
-      auto processor = processorIdx == 1 ? ttnn::DataMovementProcessor::RiscV1
-                                         : ttnn::DataMovementProcessor::RiscV0;
-
+      const int32_t processorIdx = threadAttr.getProcessorIndex();
+      TT_assert(processorIdx >= 0);
+      const auto nocIdx = (arch == ttcore::Arch::Quasar || processorIdx == 1)
+                              ? ttcore::NocIndex::Noc0
+                              : ttcore::NocIndex::Noc1;
+      auto processor = processorIdx == 0 ? ttnn::DataMovementProcessor::RiscV0
+                                         : ttnn::DataMovementProcessor::RiscV1;
       kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
-          kernelSymbol, coreRangeSet, processor, nocIndex,
+          kernelSymbol, coreRangeSet, processor, nocIdx,
           ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);
       break;
     }
@@ -725,9 +718,10 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
                                  opSymTable, semIndexMap);
 
+  const auto arch = ttcore::getOpChipDescAttr(op).getArch().getValue();
   SmallVector<mlir::Attribute> kernelDescriptors = createKernelDescriptors(
       rewriter, op.getThreads(), coreRangeSet, opSymTable, mathFidelity,
-      semIndexMap, additionalArgMapping, cbOperandIndexToPortMapping);
+      semIndexMap, additionalArgMapping, cbOperandIndexToPortMapping, arch);
 
   ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
       ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);

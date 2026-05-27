@@ -3238,17 +3238,23 @@ def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
     }];
 }
 
-def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
+def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read", [AttrSizedOperandSegments]> {
     let summary = "NocAsyncRead";
     let description = [{
-      NocAsyncRead
+      NocAsyncRead from either an L1 core coordinate or a DRAM bank.
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$dstLocalL1Addr, I32:$size);
+    let arguments = (ins Variadic<IndexLike>:$srcCoreXY,
+                         Variadic<I32>:$srcBankId,
+                         I32:$srcAddress,
+                         I32:$dstLocalL1Addr,
+                         I32:$size);
 
     let assemblyFormat = [{
-      `(` $srcNocAddr `,` $dstLocalL1Addr `,` $size `)` attr-dict `:` functional-type(operands, results)
+      (`core` `[` $srcCoreXY^ `]`)? (`bank` `[` $srcBankId^ `]`)? `,` $srcAddress `,` $dstLocalL1Addr `,` $size attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
@@ -3363,17 +3369,23 @@ def TTKernel_NocAsyncReadBarrierWithTridOp : TTKernel_Op<"noc_async_read_barrier
     }];
 }
 
-def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write"> {
+def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write", [AttrSizedOperandSegments]> {
     let summary = "NocAsyncWrite";
     let description = [{
-      NocAsyncWrite
+      NocAsyncWrite to either an L1 core coordinate or a DRAM bank.
     }];
 
-    let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size);
+    let arguments = (ins I32:$srcLocalL1Addr,
+                         Variadic<IndexLike>:$dstCoreXY,
+                         Variadic<I32>:$dstBankId,
+                         I32:$dstAddress,
+                         I32:$size);
 
     let assemblyFormat = [{
-      `(` $srcLocalL1Addr `,` $dstNocAddr `,` $size `)` attr-dict `:` functional-type(operands, results)
+      $srcLocalL1Addr `,` (`core` `[` $dstCoreXY^ `]`)? (`bank` `[` $dstBankId^ `]`)? `,` $dstAddress `,` $size attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
@@ -3653,11 +3665,10 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
     let arguments = (ins AnyTypeOf<[TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
-                         OptionalAttr<BoolAttr>:$linked,
-                         OptionalAttr<BoolAttr>:$multicast_path_reserve);
+                         OptionalAttr<BoolAttr>:$linked);
 
     let assemblyFormat = [{
-      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -4131,28 +4142,15 @@ def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental::g
 def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
   let summary = "GetNocMulticastAddr";
   let description = [{
-    Default tt-metal get_noc_multicast_addr
+    Default tt-metal get_noc_multicast_addr.
+    The caller should flip the mcast start and end coordinates on WH/BH's NoC1.
   }];
 
-  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$addr, Optional<I8>:$noc);
+  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$addr, I8:$noc);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 
     let assemblyFormat = [{
-      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_ExperimentalGetNocMulticastAddrOp : TTKernel_Op<"experimental::get_noc_multicast_addr"> {
-  let summary = "Experimental GetNocMulticastAddr";
-  let description = [{
-    Default tt-metal get_noc_multicast_addr, but flips mcast start and end coordinates on NOC1.
-  }];
-
-  let arguments = (ins IndexLike:$noc_x_start, IndexLike:$noc_y_start, IndexLike:$noc_x_end, IndexLike:$noc_y_end, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$addr, Optional<I8>:$noc);
-  let results = (outs TTKernel_NocAddr:$mcastNocAddr);
-
-    let assemblyFormat = [{
-      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $noc_x_start `,` $noc_y_start `,` $noc_x_end `,` $noc_y_end `,` $addr `,` $noc `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -4163,10 +4161,10 @@ def TTKernel_NocAsyncWriteMulticastOnePacketOp : TTKernel_Op<"noc_async_write_mu
     this issues only a single packet with size <= NOC_MAX_BURST_SIZE (ie maximum packet size)
   }];
 
-  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -4175,10 +4173,11 @@ def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast">
   let description = [{
     Initiates an asynchronous write from a source address in L1 memory on the
     Tensix core executing this function call to a rectangular destination grid.
-    The destinations are specified using a uint64_t encoding referencing an
-    on-chip grid of nodes located at NOC coordinate range
-    (x_start,y_start,x_end,y_end) and a local address created using
-    *get_noc_multicast_addr* function. Also, *see noc_async_write_barrier*.
+    The destinations are specified using an on-chip grid of nodes located at
+    NOC coordinate range (x_start,y_start,x_end,y_end) and a local address.
+    Also, *see noc_async_write_barrier*.
+
+    The caller should flip the mcast start and end coordinates on WH/BH's NoC1.
 
     The destination nodes can only be a set of Tensix cores + L1 memory address.
     The destination nodes must form a rectangular grid. The destination L1
@@ -4196,23 +4195,49 @@ def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast">
     maximum number of destinations is 119.
   }];
 
-  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+  let arguments = (ins I32:$srcLocalL1Addr,
+                       I32:$size,
+                       I32:$num_dests,
+                       IndexLike:$dstNocXStart,
+                       IndexLike:$dstNocYStart,
+                       IndexLike:$dstNocXEnd,
+                       IndexLike:$dstNocYEnd,
+                       I32:$dstLocalL1Addr,
+                       I8:$noc,
+                       OptionalAttr<BoolAttr>:$linked);
 
   let assemblyFormat = [{
-    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:`functional-type(operands, results)
+    `(` $srcLocalL1Addr `,` $size `,` $num_dests `,`
+        `start_xy` `[` $dstNocXStart `,` $dstNocYStart `]` `,`
+        `end_xy` `[` $dstNocXEnd `,` $dstNocYEnd `]` `,`
+        $dstLocalL1Addr `,` $noc (`,` $linked^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
 def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_multicast_loopback_src"> {
   let summary = "NocAsyncWriteMulticastLoopbackSrc";
   let description = [{
-    NocAsyncWriteMulticastLoopbackSrc
+    Multicast write that allows the sender to be part of the destinations.
+
+    The caller should flip the mcast start and end coordinates on WH/BH's NoC1.
   }];
 
-  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+  let arguments = (ins I32:$srcLocalL1Addr,
+                       I32:$size,
+                       I32:$num_dests,
+                       IndexLike:$dstNocXStart,
+                       IndexLike:$dstNocYStart,
+                       IndexLike:$dstNocXEnd,
+                       IndexLike:$dstNocYEnd,
+                       I32:$dstLocalL1Addr,
+                       I8:$noc,
+                       OptionalAttr<BoolAttr>:$linked);
 
   let assemblyFormat = [{
-    `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    `(` $srcLocalL1Addr `,` $size `,` $num_dests `,`
+        `start_xy` `[` $dstNocXStart `,` $dstNocYStart `]` `,`
+        `end_xy` `[` $dstNocXEnd `,` $dstNocYEnd `]` `,`
+        $dstLocalL1Addr `,` $noc (`,` $linked^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 
