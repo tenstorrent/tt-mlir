@@ -103,10 +103,18 @@ OutputHints SplitQKVRuleBook::getOutputHints(
 LayoutFilterFn
 PagedUpdateCacheRuleBook::getInputLayoutFilter(RankedTensorType inputType,
                                                unsigned operandIdx) const {
-  // Operand 1 (fill value) must be L1 height-sharded on a {numUsers, 1}
-  // virtual grid.  Any other grid causes PCC degradation;
-  // https://github.com/tenstorrent/tt-metal/issues/44923 relax when tt-metal
-  // enforces this and raises an error for PCC-degrading layouts.
+  // Operand 1 (fill value): L1 height-sharded with virtual grid
+  // {numUsers, 1}, where numUsers = input1.shape[1].  Any other grid
+  // silently produced PCC=0 for upper users
+  // (https://github.com/tenstorrent/tt-metal/issues/44923).  HS in tt-mlir
+  // IR is pinned to {M, 1}, so this is the canonical (and only) HS grid
+  // shape with num_cores == numUsers.
+  //
+  // TODO(bmalesevic): once tt-metal PR #45016 is uplifted, metal enforces
+  // `grid.num_cores() == padded_shape()[1]` from its side and this rule
+  // can be removed; the tripwire at
+  // test/unittests/OpModel/TTNN/Lib/TestOpModelLibTripwires.cpp will fail
+  // and signal the point.
   if (operandIdx == 1) {
     int64_t numUsers = inputType.getShape()[1];
     return [numUsers](TTNNLayoutAttr layout) -> bool {
