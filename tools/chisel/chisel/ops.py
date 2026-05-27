@@ -47,28 +47,6 @@ def get_op_inputs(op: Operation) -> list[Value]:
     return [operand for operand in op.operands if is_tensor_value(operand)]
 
 
-def get_inplace_input_refs(op, input_refs, asm_state) -> list:
-    """Pair each in-place mutated tensor operand with its TensorRef.
-
-    Returns a list of `(ssa, tensor_ref)`. `input_refs` is the flat list of
-    tensor-typed operand refs from the runtime (same order as
-    `get_op_inputs(op)`); in-place operands are a subset of those, so we walk
-    both in parallel and emit a pair when an SSA name matches one of the
-    in-place values reported by `get_inplace_vals`.
-    """
-    inplace_vals = get_inplace_vals(op)
-    if not inplace_vals:
-        return []
-    inplace_ssas = {val.get_name(asm_state) for val in inplace_vals}
-    out: list[tuple[SSAName, object]] = []
-    for mlir_in, ref in zip(get_op_inputs(op), input_refs):
-        ssa = mlir_in.get_name(asm_state)
-        if ssa not in inplace_ssas:
-            continue
-        out.append((ssa, ref))
-    return out
-
-
 def get_inplace_vals(op) -> list[Value]:
     """Return tensor operands `op` declares MemWrite on, in flat operand order.
 

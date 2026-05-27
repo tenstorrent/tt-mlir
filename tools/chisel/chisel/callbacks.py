@@ -26,7 +26,7 @@ from .executor import execute_golden_with_ssa_inputs
 from .op_configs import ChiselOpConfig
 from .ops import (
     SSAName,
-    get_inplace_input_refs,
+    get_inplace_vals,
     get_op_inputs,
     get_op_outputs,
 )
@@ -156,12 +156,34 @@ def _emit_pcc(
     check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode)
 
 
+def _get_inplace_input_refs(
+    op, input_refs: list[TensorRef], asm_state
+) -> list[tuple[Value, TensorRef]]:
+    """Pair each in-place mutated tensor operand with its runtime TensorRef.
+
+    `input_refs` is the flat list of tensor-typed operand refs from the runtime
+    (same order as `get_op_inputs(op)`); in-place operands are a subset of
+    those, so we walk both in parallel and emit a pair when an operand matches
+    one of the in-place values reported by `get_inplace_vals`.
+    """
+    inplace_vals = get_inplace_vals(op)
+    if not inplace_vals:
+        return []
+    inplace_ssas = {val.get_name(asm_state) for val in inplace_vals}
+    out: list[tuple[Value, TensorRef]] = []
+    for mlir_in, ref in zip(get_op_inputs(op), input_refs):
+        if mlir_in.get_name(asm_state) in inplace_ssas:
+            out.append((mlir_in, ref))
+    return out
+
+
 def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
     """For each mutated tensor operand on `ctx.op`, drop the golden and record."""
     op = ctx.op
     asm_state = ctx.asm_state
     golden_pool = ctx.golden_tensor_pool
-    for ssa, _ref in get_inplace_input_refs(op, ctx.input_refs, asm_state):
+    for val in get_inplace_vals(op):
+        ssa = val.get_name(asm_state)
         golden_pool.pop(ssa, None)
         ctx.write_record(
             ChiselRecord(
@@ -185,7 +207,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     asm_state = ctx.asm_state
 
     mlir_op_outputs = get_op_outputs(op)
-    inplace_refs = get_inplace_input_refs(op, ctx.input_refs, asm_state)
+    inplace_refs = _get_inplace_input_refs(op, ctx.input_refs, asm_state)
     if not mlir_op_outputs and not inplace_refs:
         return
 
@@ -201,9 +223,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     entries: list[tuple[Value, TensorRef]] = list(
         zip(mlir_op_outputs, ctx.output_refs, strict=True)
     )
-    if inplace_refs:
-        ssa_to_value = {inp.get_name(asm_state): inp for inp in get_op_inputs(op)}
-        entries.extend((ssa_to_value[ssa], ref) for ssa, ref in inplace_refs)
+    entries.extend(inplace_refs)
 
     # Pull every entry's device tensor once; the device-side bytes don't
     # change between iso and accum golden runs (goldens run host-side),
