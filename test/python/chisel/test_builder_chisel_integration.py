@@ -8,9 +8,11 @@ import torch
 
 import chisel
 from ttmlir.dialects import ttnn
-from builder.base.builder_apis import compile_and_execute_ttnn
+from builder.base.builder_apis import compile_and_execute_ttnn, compile_and_execute_ttir
 from builder.base.builder_utils import Operand
 from builder.ttnn.ttnn_builder import TTNNBuilder
+from builder.ttir.ttir_builder import TTIRBuilder
+
 
 # n300 mesh layout used by the multichip tests; the `multichip_device` fixture
 # opens a matching (1, 2) mesh device and skips when the host has fewer chips.
@@ -444,8 +446,10 @@ def test_chisel_records_matmul_tensor_parallel_multichip(
 
 
 def test_chisel_records_update_cache_inplace(request, device, tmp_path):
-    # ttnn.update_cache mutates its `cache` operand in place, has no SSA
-    # result, and has a chisel golden registered. The new in-place flow
+    # ttir.update_cache canonicalizes to ttir.paged_update_cache (see
+    # UpdateCacheOp::getCanonicalizationPatterns in TTIROps.cpp), which lowers
+    # to ttnn.paged_update_cache - an in-place op that mutates `cache`, has no
+    # SSA result, and has a chisel golden registered. The new in-place flow
     # should: PRE pull all inputs, POST re-pull the mutated cache from
     # device, and emit a `numerics` record with role=`cache`.
     cache_shape = (1, 32, 64, 512)
@@ -490,12 +494,12 @@ def test_chisel_records_update_cache_inplace(request, device, tmp_path):
     cache_numerics = [
         r
         for r in records
-        if r.op == "ttnn.update_cache"
+        if r.op == "ttnn.paged_update_cache"
         and r.check == "numerics"
         and r.payload.role == "cache"
     ]
     assert cache_numerics, (
-        "no role='cache' numerics records produced for ttnn.update_cache; "
+        "no role='cache' numerics records produced for ttnn.paged_update_cache; "
         f"saw: {[(r.op, r.check, getattr(r.payload, 'role', None)) for r in records]}"
     )
 
@@ -516,10 +520,10 @@ def test_chisel_records_update_cache_inplace(request, device, tmp_path):
     evictions = [
         r
         for r in records
-        if r.check == "golden_evicted" and r.op == "ttnn.update_cache"
+        if r.check == "golden_evicted" and r.op == "ttnn.paged_update_cache"
     ]
     assert not evictions, (
-        f"unexpected golden_evicted records on ttnn.update_cache: "
+        f"unexpected golden_evicted records on ttnn.paged_update_cache: "
         f"{[r.ssa for r in evictions]}"
     )
 

@@ -9165,7 +9165,7 @@ def chisel_ttnn_paged_fill_cache(op, inputs):
         input_tensor=inputs["input"],
         page_table_tensor=inputs["page_table"],
         batch_idx_tensor=inputs["batch_idx_tensor"],
-        output_type_mlir=op.results[0].type.element_type,
+        output_type_mlir=op.operands[0].type.element_type,
     )
 
 
@@ -9179,7 +9179,7 @@ def chisel_ttnn_paged_update_cache(op, inputs):
         update_index_tensor=inputs["update_index"],
         share_cache_attr=_attr_get(op.attributes, "share_cache", default=False),
         page_table_tensor=inputs["page_table"],
-        output_type_mlir=op.results[0].type.element_type,
+        output_type_mlir=op.operands[0].type.element_type,
     )
 
 
