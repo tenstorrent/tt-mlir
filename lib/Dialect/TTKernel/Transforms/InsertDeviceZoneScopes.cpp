@@ -28,6 +28,7 @@ static bool opHasTraitNamed(Operation *op, StringRef traitName) {
       .Case("ternary",     op->hasTrait<TTKernelTernaryOpTrait>())
       .Case("device-zone", op->hasTrait<TTKernelDeviceZoneOpTrait>())
       .Case("trid-noc",    op->hasTrait<TTKernelTridNocOpTrait>())
+      .Case("all", true)
       .Default(false);
 }
 
@@ -45,9 +46,9 @@ public:
     }
 
     ModuleOp module = getOperation();
-    llvm::errs() << "looking at module: ";
-    module.print(llvm::errs());
-    llvm::errs() << "\n";
+    // llvm::errs() << "looking at module: ";
+    // module.print(llvm::errs());
+    // llvm::errs() << "\n";
 
     // wraps each kernel function body with a DeviceZoneScopedN labeled by the
     // function's symbol name (e.g. "compute_kernel1", "datamovement_kernel0")
@@ -67,7 +68,7 @@ public:
 
     // adds {DeviceZoneScopedN(name) } around selected traits
     module.walk([&](Operation *op) {
-      llvm::errs() << "Visiting: " << op->getName() << " from dialect " << op->getDialect()->getNamespace() << "\n";
+      // llvm::errs() << "Visiting: " << op->getName() << " from dialect " << op->getDialect()->getNamespace() << "\n";
       if (op->getDialect() != getContext().getLoadedDialect<ttkernel::TTKernelDialect>()) {
         return;
       }
@@ -75,6 +76,11 @@ public:
               return opHasTraitNamed(op, t);
           })
       ) {
+        return;
+      }
+      // skips ops whose results are used downstream to avoid scoping issues
+      if (llvm::any_of(op->getResults(),
+                       [](Value v) { return !v.use_empty(); })) {
         return;
       }
       OpBuilder builder(op);
