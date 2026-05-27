@@ -129,6 +129,7 @@ config.ttmlir_tools_dir = os.path.join(config.ttmlir_obj_root, "bin")
 config.ttmlir_libs_dir = os.path.join(config.ttmlir_obj_root, "lib")
 
 config.substitutions.append(("%ttmlir_libs", config.ttmlir_libs_dir))
+config.substitutions.append(("%ttmlir_tools", config.ttmlir_tools_dir))
 
 config.test_root = os.path.join(config.ttmlir_source_dir, "test")
 config.scripts_root = os.path.join(config.ttmlir_source_dir, "tools/scripts")
