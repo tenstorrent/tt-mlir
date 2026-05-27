@@ -5099,14 +5099,11 @@ TEST_P(OpModelGroupNormParam, GroupNormParam) {
     biasLayout = CreateRowMajorLayout(shape, bufferType, layout, virtualGrid);
   }
 
-  // group_norm requires explicit core_grid; use a fixed test value.
-  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
-
   // Test getOpConstraints
   auto constraintsExp = op_model::OpModel<GroupNormOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, inputMaskShape,
       inputMaskLayout, weightShape, weightLayout, biasShape, biasLayout,
-      numGroups, epsilon, outputLayout, coreGrid);
+      numGroups, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -5123,8 +5120,7 @@ TEST_P(OpModelGroupNormParam, GroupNormParam) {
   // Test getOpRuntime
   auto runtimeExp = op_model::OpModel<GroupNormOp>::getOpRuntime(
       inputShape, inputLayout, inputMaskShape, inputMaskLayout, weightShape,
-      weightLayout, biasShape, biasLayout, numGroups, epsilon, outputLayout,
-      coreGrid);
+      weightLayout, biasShape, biasLayout, numGroups, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {

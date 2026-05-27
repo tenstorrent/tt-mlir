@@ -4052,19 +4052,6 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GroupNormOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // ttnn::group_norm requires core_grid to be explicitly specified.
-    // If the op doesn't have it set, derive it from the device's worker grid.
-    mlir::tt::ttnn::CoreCoordAttr coreGridValue;
-    if (srcOp.getCoreGrid()) {
-      coreGridValue = *srcOp.getCoreGrid();
-    } else {
-      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
-      auto gridShape = deviceAttr.getWorkerGrid().getShape();
-      // GridAttr shape is [y, x], CoreCoordAttr takes (x, y).
-      coreGridValue = mlir::tt::ttnn::CoreCoordAttr::get(
-          rewriter.getContext(), gridShape[1], gridShape[0]);
-    }
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getInputMask(), "input_mask"),
@@ -4073,9 +4060,9 @@ public:
         emitter.emit(srcOp.getNumGroups(), "num_groups"),
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
-        emitter.emit<::ttnn::CoreGrid>(coreGridValue, "core_grid"),
+        emitter.emit(std::nullopt, "core_grid"),
         emitter.emit(false, "inplace"),
-        emitter.emit(-1, "num_out_blocks"),
+        emitter.emit(std::nullopt, "num_out_blocks"),
     };
 
     emitter.replaceOp(*this, args);

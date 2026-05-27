@@ -32,7 +32,7 @@ LogicalResult GroupNormDecompositionRewritePattern::matchAndRewrite(
     auto validationResult = validator.validateOp<ttnn::GroupNormOp>(
         op.getOperation(), op.getLoc(), {resultType}, op.getInput(),
         op.getInputMask(), op.getWeight(), op.getBias(), op.getNumGroupsAttr(),
-        op.getEpsilonAttr(), op.getCoreGridAttr());
+        op.getEpsilonAttr());
 
     if (validationResult.isSuccess()) {
       return failure();
