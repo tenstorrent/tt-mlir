@@ -22,10 +22,7 @@ from golden import GoldenMapTensor
 
 from .context import ChiselContext, get_instance
 from .exceptions import IrRuntimeMismatch
-from .executor import (
-    execute_golden_from_pool,
-    execute_golden_with_ssa_inputs,
-)
+from .executor import execute_golden_with_ssa_inputs
 from .op_configs import ChiselOpConfig
 from .ops import (
     SSAName,
@@ -217,15 +214,16 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     ]
 
     # Each enabled mode runs its golden once; the result is aligned with
-    # [SSA outputs ..., in-place operands ...]. Accumulation re-publishes
-    # to the golden pool below: execute_golden_from_pool writes SSA outputs
-    # back itself, but in-place operands are returned without being stored,
-    # so we need to push them in to keep the chain coherent.
+    # [SSA outputs ..., in-place operands ...]. Accumulation publishes every
+    # entry back to the golden pool below so SSA outputs and in-place operands
+    # are handled uniformly and the chain stays coherent.
     for mode in modes:
-        if mode is NumericsMode.ISOLATED:
-            all_outs = execute_golden_with_ssa_inputs(op, ctx.stashed_inputs, asm_state)
-        else:
-            all_outs = execute_golden_from_pool(op, ctx.golden_tensor_pool, asm_state)
+        ssa_inputs = (
+            ctx.stashed_inputs
+            if mode is NumericsMode.ISOLATED
+            else ctx.golden_tensor_pool
+        )
+        all_outs = execute_golden_with_ssa_inputs(op, ssa_inputs, asm_state)
 
         for idx, (mlir_value, _tensor_ref) in enumerate(entries):
             ssa = mlir_value.get_name(asm_state)
