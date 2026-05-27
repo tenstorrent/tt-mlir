@@ -120,10 +120,10 @@ public:
     auto outputTensorType = mlir::RankedTensorType::get(
         outputShape, builder.getBF16Type(), outputLayout);
 
-    auto input = OnesOp::create(
-        builder, builder.getUnknownLoc(), inputTensorType,
-        /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-        /*dtype=*/nullptr, /*layout=*/nullptr);
+    auto input =
+        OnesOp::create(builder, builder.getUnknownLoc(), inputTensorType,
+                       /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
+                       /*dtype=*/nullptr, /*layout=*/nullptr);
 
     llvm::SmallVector<int32_t> outputShapeI32(outputShape.begin(),
                                               outputShape.end());

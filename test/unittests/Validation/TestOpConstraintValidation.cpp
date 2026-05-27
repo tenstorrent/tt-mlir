@@ -177,10 +177,10 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
                                        TensorMemoryLayout::Interleaved);
   auto cacheTensorType = mlir::RankedTensorType::get(
       cacheShape, builder.getBF16Type(), cacheLayout);
-  auto cacheOp = OnesOp::create(
-      builder, builder.getUnknownLoc(), cacheTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, cacheShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr);
+  auto cacheOp =
+      OnesOp::create(builder, builder.getUnknownLoc(), cacheTensorType,
+                     /*device=*/nullptr, ShapeAttr::get(&context, cacheShape),
+                     /*dtype=*/nullptr, /*layout=*/nullptr);
 
   // Create input tensor (4D tensor with dim 2 = 1)
   llvm::SmallVector<int64_t> inputShape = {1, 1, 1, 32};
@@ -188,10 +188,10 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
                                        TensorMemoryLayout::Interleaved);
   auto inputTensorType = mlir::RankedTensorType::get(
       inputShape, builder.getBF16Type(), inputLayout);
-  auto inputOp = OnesOp::create(
-      builder, builder.getUnknownLoc(), inputTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-      /*dtype=*/nullptr, /*layout=*/nullptr);
+  auto inputOp =
+      OnesOp::create(builder, builder.getUnknownLoc(), inputTensorType,
+                     /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
+                     /*dtype=*/nullptr, /*layout=*/nullptr);
 
   // Create update_index tensor with WRONG type (BF16 instead of uint32)
   // This should cause validation to fail

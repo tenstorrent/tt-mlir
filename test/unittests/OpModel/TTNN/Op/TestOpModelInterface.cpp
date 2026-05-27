@@ -1666,11 +1666,11 @@ TEST_F(OpModelBase, TopKOp) {
   auto topKValues = createEmptyTensor(tensorShapeO);
   auto indices = createEmptyTensor(tensorShapeO);
   // TopKOp returns 2 tensors: top k values and their indices
-  auto topK = TopKOp::create(
-      builder, builder.getUnknownLoc(),
-      mlir::TypeRange{topKValues.getType(),
-                      indices.getType()}, // 2 result types
-      input, k, /*dim=*/-1, /*largest=*/false, /*sorted=*/true);
+  auto topK =
+      TopKOp::create(builder, builder.getUnknownLoc(),
+                     mlir::TypeRange{topKValues.getType(),
+                                     indices.getType()}, // 2 result types
+                     input, k, /*dim=*/-1, /*largest=*/false, /*sorted=*/true);
 
   // test TopK Op interface
   auto constraintsExp = getOpConstraints(topK.getOperation());
@@ -5232,10 +5232,10 @@ TEST_F(OpModelBase, FullOpInterface) {
   }
 
   // test FullOp interface with float fill value:
-  auto fullF = FullOp::create(
-      builder, builder.getUnknownLoc(), outputType, /*device=*/nullptr,
-      ttnn::ShapeAttr::get(&context, tensorShape), builder.getF32FloatAttr(0.5),
-      nullptr, nullptr);
+  auto fullF = FullOp::create(builder, builder.getUnknownLoc(), outputType,
+                              /*device=*/nullptr,
+                              ttnn::ShapeAttr::get(&context, tensorShape),
+                              builder.getF32FloatAttr(0.5), nullptr, nullptr);
   auto backendF = dyn_cast<OpModel>(fullF.getOperation());
   auto constraintsExpF =
       backendF.getOpConstraints(getInputLayouts(fullF), OpConfig(nullptr));
@@ -5377,11 +5377,11 @@ TEST_F(OpModelBase, RandOpInterface) {
       ttnn::MeshOffsetAttr::get(&context, 0, 0));
 
   // Create RandOp with default parameters (low=0.0, high=1.0, seed=0)
-  auto randOp = RandOp::create(
-      builder, builder.getUnknownLoc(), outputType, device,
-      ttnn::ShapeAttr::get(&context, tensorShape),
-      /*low=*/nullptr, /*high=*/nullptr, /*seed=*/nullptr,
-      /*dtype=*/nullptr, /*layout=*/nullptr);
+  auto randOp =
+      RandOp::create(builder, builder.getUnknownLoc(), outputType, device,
+                     ttnn::ShapeAttr::get(&context, tensorShape),
+                     /*low=*/nullptr, /*high=*/nullptr, /*seed=*/nullptr,
+                     /*dtype=*/nullptr, /*layout=*/nullptr);
 
   // Test RandOp interface
   auto backend = dyn_cast<OpModel>(randOp.getOperation());
