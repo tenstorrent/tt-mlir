@@ -114,3 +114,26 @@ module @test_gather_uniform_max_indices {
     return %2 : tensor<193x768xf32>
   }
 }
+
+// When the indexed dim has size 1 (maxIndex == 0), 0 and maxIndex collapse;
+// all surplus indices become front padding without double-counting them as
+// back padding.
+// CHECK-LABEL: func.func @repeat_front_singleton_indexed_dim
+module @test_gather_repeat_front_singleton_indexed_dim {
+  func.func @repeat_front_singleton_indexed_dim(%arg0: tensor<1x16x1x40x64xbf16>) -> (tensor<1x16x3x40x64xbf16>) {
+    // CHECK: "ttir.slice_static"
+    // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32]
+    // CHECK-SAME: ends = [1 : i32, 16 : i32, 1 : i32, 40 : i32, 64 : i32]
+    // CHECK-SAME: (tensor<1x16x1x40x64xbf16>) -> tensor<1x16x1x40x64xbf16>
+    // CHECK: "ttir.repeat"
+    // CHECK-SAME: repeat_dimensions = array<i64: 1, 1, 2, 1, 1>
+    // CHECK-SAME: (tensor<1x16x1x40x64xbf16>) -> tensor<1x16x2x40x64xbf16>
+    // CHECK: "ttir.concat"
+    // CHECK-SAME: dim = 2
+    // CHECK-SAME: (tensor<1x16x2x40x64xbf16>, tensor<1x16x1x40x64xbf16>) -> tensor<1x16x3x40x64xbf16>
+    // CHECK-NOT: stablehlo.gather
+    %1 = "stablehlo.constant"() <{value = dense<[[0], [0], [0]]> : tensor<3x1xi64>}> : () -> tensor<3x1xi64>
+    %2 = "stablehlo.gather"(%arg0, %1) <{dimension_numbers = #stablehlo.gather<offset_dims = [0, 1, 3, 4], collapsed_slice_dims = [2], start_index_map = [2], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 16, 1, 40, 64>}> : (tensor<1x16x1x40x64xbf16>, tensor<3x1xi64>) -> tensor<1x16x3x40x64xbf16>
+    return %2 : tensor<1x16x3x40x64xbf16>
+  }
+}
