@@ -12990,7 +12990,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.SoftmaxOp,
             [in0],
-            golden_kwargs={"dim": dimension},
+            golden_kwargs={"dimension": dimension},
             ttir_kwargs={
                 "dimension": dimension,
                 "numericStable": numeric_stable,
