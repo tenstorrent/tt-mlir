@@ -3343,7 +3343,7 @@ def silu_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
 def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Golden function for silu operation with TTIR parameter names.
+    Golden function for softmax with TTIR/TTNN parameter names.
 
     Parameters
     ----------
@@ -3357,7 +3357,7 @@ def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     GoldenMapTensor
         Softmax output
     """
-    dimension = kwargs.get("dim", 1)
+    dimension = kwargs.get("dimension", 1)
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
 
 
@@ -7025,19 +7025,56 @@ def ttnn_atan2_golden(
     return torch.atan2(input_tensor, other_tensor).to(output_dtype)
 
 
+# Torch goldens for fused matmul/linear activations. Mirrors
+# ttnn.operations.activations._get_golden_map_for_unary_op (string keys are
+# lowercase op names; ``*_approx`` suffix is stripped before lookup).
+_FUSED_ACTIVATION_FNS: Dict[str, Callable] = {
+    "relu": torch.nn.functional.relu,
+    "relu6": torch.nn.functional.relu6,
+    "silu": torch.nn.functional.silu,
+    "mish": torch.nn.functional.mish,
+    "sigmoid": torch.nn.functional.sigmoid,
+    "hardsigmoid": torch.nn.functional.hardsigmoid,
+    "tanh": torch.nn.functional.tanh,
+    "log": torch.log,
+    "softplus": torch.nn.functional.softplus,
+    "gelu": torch.nn.functional.gelu,
+    "sqrt": torch.sqrt,
+}
+
+
+def _get_fused_activation_fn(
+    activation: Optional[Union[str, StringAttr]],
+) -> Optional[Callable]:
+    if activation is None:
+        return None
+    if not isinstance(activation, str):
+        activation = unpack_mlir_attr(activation)
+    name = activation[:-7] if activation.endswith("_approx") else activation
+    activation_fn = _FUSED_ACTIVATION_FNS.get(name)
+    if activation_fn is None:
+        raise ValueError(f"Unsupported fused activation: {activation}")
+    return activation_fn
+
+
 def ttnn_matmul_golden(
     input_tensor: GoldenMapTensor,
     other_tensor: GoldenMapTensor,
     transpose_a_attr: BoolAttr,
     transpose_b_attr: BoolAttr,
     output_type_mlir: Type,
+    activation_attr: Optional[StringAttr] = None,
 ) -> GoldenMapTensor:
     transpose_a = unpack_mlir_attr(transpose_a_attr)
     transpose_b = unpack_mlir_attr(transpose_b_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     a = torch.transpose(input_tensor, -2, -1) if transpose_a else input_tensor
     b = torch.transpose(other_tensor, -2, -1) if transpose_b else other_tensor
-    return torch.matmul(a, b).to(output_dtype)
+    output = torch.matmul(a, b)
+    activation_fn = _get_fused_activation_fn(activation_attr)
+    if activation_fn is not None:
+        output = activation_fn(output)
+    return output.to(output_dtype)
 
 
 def ttnn_linear_golden(
@@ -7047,6 +7084,7 @@ def ttnn_linear_golden(
     transpose_a_attr: BoolAttr,
     transpose_b_attr: BoolAttr,
     output_type_mlir: Type,
+    activation_attr: Optional[StringAttr] = None,
 ) -> GoldenMapTensor:
     transpose_a = unpack_mlir_attr(transpose_a_attr)
     transpose_b = unpack_mlir_attr(transpose_b_attr)
@@ -7063,7 +7101,11 @@ def ttnn_linear_golden(
         if bias_tensor.shape != output.shape
         else bias_tensor
     )
-    return torch.add(output, bias_tensor).to(output_dtype)
+    output = torch.add(output, bias_tensor)
+    activation_fn = _get_fused_activation_fn(activation_attr)
+    if activation_fn is not None:
+        output = activation_fn(output)
+    return output.to(output_dtype)
 
 
 def ttnn_rms_norm_pre_all_gather_golden(
@@ -8419,6 +8461,7 @@ def chisel_ttnn_matmul(op, inputs):
         other_tensor=inputs["b"],
         transpose_a_attr=op.attributes["transpose_a"],
         transpose_b_attr=op.attributes["transpose_b"],
+        activation_attr=_attr_get(op.attributes, "activation"),
         output_type_mlir=op.results[0].type.element_type,
     )
 
@@ -8478,6 +8521,7 @@ def chisel_ttnn_linear(op, inputs):
         bias_tensor=inputs["bias"],
         transpose_a_attr=op.attributes["transpose_a"],
         transpose_b_attr=op.attributes["transpose_b"],
+        activation_attr=_attr_get(op.attributes, "activation"),
         output_type_mlir=op.results[0].type.element_type,
     )
 
