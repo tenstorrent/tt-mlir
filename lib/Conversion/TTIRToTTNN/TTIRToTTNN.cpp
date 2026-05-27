@@ -3585,6 +3585,7 @@ public:
     return success();
   }
 };
+
 } // namespace
 
 namespace mlir::tt {

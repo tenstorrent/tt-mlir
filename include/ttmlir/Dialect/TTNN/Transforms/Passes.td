@@ -693,6 +693,22 @@ def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> {
+  let summary = "Resolve composite ops into typed ops or inline decompositions.";
+  let description = [{
+    This pass resolves `ttcore.composite` ops by attempting to replace each one
+    with a dedicated typed TTNN op (e.g. `ttnn.topk_router_gpt`). If the typed
+    op fails verification or OpModel validation, the decomposition function body
+    is inlined as a fallback.
+
+    Typed op promotion requires OpModel validation. If OpModel is not available
+    all composites are unconditionally decomposed into their primitive equivalents.
+
+    After resolution, decomposition functions that are no longer referenced are
+    erased from the module.
+  }];
+}
+
 def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
   let summary = "Collapse D2M subgraph modules(s) back into original module.";
   let description = [{

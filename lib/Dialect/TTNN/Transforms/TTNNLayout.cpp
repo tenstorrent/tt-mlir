@@ -382,6 +382,43 @@ public:
 };
 } // namespace
 
+// Rewrite CompositeOp result types to match the decomposition function
+// signature, ensuring layout encoding is propagated correctly.
+namespace {
+class TTNNLayoutCompositeOpTypeRewriter
+    : public OpRewritePattern<ttcore::CompositeOp> {
+public:
+  TTNNLayoutCompositeOpTypeRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttcore::CompositeOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(ttcore::CompositeOp compositeOp,
+                                PatternRewriter &rewriter) const override {
+    auto *symbolOp = SymbolTable::lookupNearestSymbolFrom(
+        compositeOp, compositeOp.getDecompositionAttr());
+    auto funcOp = dyn_cast_or_null<func::FuncOp>(symbolOp);
+    if (!funcOp) {
+      return failure();
+    }
+
+    bool modified = false;
+
+    for (auto [idx, resultType] :
+         llvm::enumerate(compositeOp->getResultTypes())) {
+      if (idx >= funcOp.getResultTypes().size()) {
+        break;
+      }
+      auto funcResultType = funcOp.getResultTypes()[idx];
+      if (resultType != funcResultType) {
+        compositeOp->getResult(idx).setType(funcResultType);
+        modified = true;
+      }
+    }
+
+    return success(modified);
+  }
+};
+} // namespace
+
 namespace {
 
 // Rewriter which handles layouts of ttir::MeshShardOp.
@@ -778,6 +815,7 @@ public:
       // callee function signatures in case const-eval function signatures have
       // been updated.
       patterns.add<TTNNLayoutLoadCachedOpTypeRewriter>(&getContext());
+      patterns.add<TTNNLayoutCompositeOpTypeRewriter>(&getContext());
 
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
