@@ -21,6 +21,7 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -1855,6 +1856,30 @@ uint64_t TileType::getSizeBytes() const {
 
 mlir::Type TileType::getElementType() const {
   return dataTypeToElementType(getContext(), getDataType());
+}
+
+const llvm::fltSemantics &TileType::getFloatSemantics() {
+  switch (getDataType()) {
+  case DataType::Float32:
+    return llvm::APFloat::IEEEsingle();
+  case DataType::Float16:
+  case DataType::BFP_Float8:
+  case DataType::BFP_Float4:
+  case DataType::BFP_Float2:
+    return llvm::APFloat::IEEEhalf();
+  case DataType::BFloat16:
+  case DataType::BFP_BFloat8:
+  case DataType::BFP_BFloat4:
+  case DataType::BFP_BFloat2:
+    return llvm::APFloat::BFloat();
+  case DataType::UInt32:
+  case DataType::UInt16:
+  case DataType::UInt8:
+  case DataType::Int32:
+  case DataType::Bool:
+    break;
+  }
+  llvm_unreachable("getFloatSemantics called on non-float TileType");
 }
 
 TileType TileType::cloneWith(::std::optional<::llvm::ArrayRef<int64_t>> shape,
