@@ -88,6 +88,13 @@ struct SumL1MemoryTracker {
   /// Address-only: does not update tensorSizes/currentOccupied.
   void freeAddress(Value result);
 
+  /// Return all Values whose simulated start address is strictly above
+  /// \p threshold.  Used to identify tensors that are in the CB-zone when the
+  /// simulation's top-down virtual space is inverted w.r.t. TTNN's bottom-up
+  /// physical L1 space.
+  llvm::SmallVector<Value>
+  getValuesAboveVirtualThreshold(uint64_t threshold) const;
+
 private:
   uint64_t currentOccupied = 0;
   llvm::DenseMap<Value, uint64_t> tensorSizes;
@@ -119,7 +126,7 @@ template <typename MemoryTracker = SumL1MemoryTracker>
 class L1SpillManagement {
 public:
   L1SpillManagement(func::FuncOp func, ttcore::GridAttr deviceGrid,
-                    uint64_t l1BudgetPerCore,
+                    uint64_t l1BudgetPerCore, uint64_t usableL1Size,
                     std::unique_ptr<L1SpillObserver> observer = nullptr);
 
   /// Run Belady's algorithm with validation-based eviction and apply spills
@@ -136,6 +143,13 @@ private:
 
   /// Precomputed CB fragmentation cushion (bytes). See kCBFragCushionFraction.
   uint64_t cbFragCushion;
+
+  /// Dead zone = usableL1Size - l1BudgetPerCore.  This is the gap between the
+  /// simulation's virtual floor (l1_size - l1BudgetPerCore) and the hardware
+  /// l1_unreserved_base where CBs physically start.  If cbPeakUsage exceeds
+  /// this value, the CB region extends below the simulation's range and may
+  /// overlap tensors that spilled out of the budget at runtime.
+  uint64_t l1DeadZone;
 
   /// Observer (NullObject pattern: always non-null).
   std::unique_ptr<L1SpillObserver> observer_;
