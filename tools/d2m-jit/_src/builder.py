@@ -35,7 +35,7 @@ except (ModuleNotFoundError, ImportError):
 
 from ttmlir.ir import *
 from ttmlir.passmanager import PassManager
-from ttmlir.dialects import d2m, func, arith, ttcore
+from ttmlir.dialects import d2m, func, arith, linalg, ttcore
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
 from .ast import D2MCompiler
@@ -449,21 +449,124 @@ def empty(layout: Layout) -> LazyTensor:
 def full(layout: Layout, value) -> LazyTensor:
     """Allocate a device tensor initialised to `value` (a Python scalar).
 
-    Implemented as a host-side `torch.full` followed by `to_layout`. This
-    is a copy rather than a device-side fill; a true device-side
-    `d2m.tile_fill` + `linalg.fill` path runs into pipeline materialisation
-    issues at host-func scope today.
+    Tiled layouts: emits a `d2m.generic` wrapping
+    `linalg.generic { d2m.tile_fill }` + `d2m.remote_store`, mirroring
+    `lowerRankedTensorFillViaGeneric` in `TTIRToD2M.cpp`. No host roundtrip.
+
+    Non-tiled layouts: falls back to a host-side `torch.full` + `to_layout`
+    copy, since `d2m.tile_fill` is a tile-typed op.
+
+    Note: on Wormhole, `d2m.tile_fill` for f32 routes through the SFPU's
+    vFloat (fp19: 1+8+10), so values with non-zero lower-13 mantissa bits
+    (e.g. 3.14) are truncated. 0.0, 1.0, and other fp19-exact values are
+    bit-perfect; arbitrary f32 values are not.
     """
-    if torch is None:
-        raise RuntimeError("torch is required for d2m_jit.full()")
-    torch_dtype = _ttcore_to_torch_dtype(layout.dtype)
-    host = torch.full(list(layout.logical_shape), value, dtype=torch_dtype)
-    return to_layout(host, layout)
+    if not layout.tiled:
+        if torch is None:
+            raise RuntimeError(
+                "torch is required for d2m_jit.full() on non-tiled layouts"
+            )
+        torch_dtype = _ttcore_to_torch_dtype(layout.dtype)
+        host = torch.full(list(layout.logical_shape), value, dtype=torch_dtype)
+        return to_layout(host, layout)
+
+    b = _get_scope()
+    with b.ctx, b.loc, b.insert_point:
+        # Allocate the output device tensor (mirror empty()).
+        unblocked_ty = layout.build_device_tensor_type(b.ctx, blocked=False)
+        raw = d2m.empty(unblocked_ty)
+        out_blocked = layout.build_blocked_view(b.ctx, raw)
+        outer_ty = out_blocked.type
+        outer_rt = RankedTensorType(outer_ty)
+
+        # Outer blocked rank is 2N: grid dims (first N) + shard dims (last N).
+        # The per-shard tensor type drops the grid dims and the encoding.
+        outer_rank = outer_rt.rank
+        assert (
+            outer_rank % 2 == 0
+        ), f"expected blocked tensor rank to be even, got {outer_rank}"
+        physical_rank = outer_rank // 2
+        tile_ty = outer_rt.element_type
+        shard_shape = list(outer_rt.shape)[physical_rank:]
+        shard_ty = RankedTensorType.get(shard_shape, tile_ty)
+
+        # Outer d2m.generic attrs: identity affine map and parallel iterators
+        # over the user grid; one compute thread.
+        identity = AffineMap.get_identity(physical_rank)
+        indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)])
+        parallel_iter = ttcore.ir.IteratorTypeAttr.get(
+            b.ctx, ttcore.IteratorType.Parallel.value
+        )
+        iterator_types = ArrayAttr.get([parallel_iter] * physical_rank)
+        # Unified, not Compute: remote_store can only live in a
+        # datamovement or unified region.
+        threads = ArrayAttr.get(
+            [d2m.ir.ThreadAttr.get(b.ctx, str(d2m.ThreadType.Unified))]
+        )
+        grid_attr = ttcore.ir.GridAttr.get(b.ctx, list(layout.grid_shape))
+
+        generic = d2m.GenericOp(
+            [outer_ty],
+            [],  # inputs
+            [out_blocked],  # outputs
+            [],  # additionalArgs
+            grid_attr,
+            [1] * physical_rank,  # block_factors: one block per grid cell
+            indexing_maps,
+            iterator_types,
+            threads,
+            1,  # num_regions
+        )
+
+        body = Block.create_at_start(generic.regions[0], [], [])
+        with InsertionPoint(body):
+            # Per-shard buffer that the inner linalg.generic fills.
+            shard_buf = d2m.empty(shard_ty)
+
+            # Inner linalg.generic { arith.constant + d2m.tile_fill }.
+            linalg_indexing = ArrayAttr.get([AffineMapAttr.get(identity)])
+            linalg_parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+            linalg_iter = ArrayAttr.get([linalg_parallel] * physical_rank)
+
+            inner_generic = linalg.GenericOp(
+                [shard_ty],
+                [],  # no inputs
+                [shard_buf],
+                linalg_indexing,
+                linalg_iter,
+            )
+            inner_body = Block.create_at_start(
+                inner_generic.regions[0], [tile_ty], [Location.unknown()]
+            )
+            with InsertionPoint(inner_body):
+                scalar_ty = layout.get_scalar_type(b.ctx)
+                if FloatType.isinstance(scalar_ty):
+                    scalar_attr = FloatAttr.get(scalar_ty, float(value))
+                else:
+                    scalar_attr = IntegerAttr.get(scalar_ty, int(value))
+                scalar = arith.ConstantOp(scalar_ty, scalar_attr).result
+                filled_tile = d2m.TileFillOp(tile_ty, scalar).result
+                linalg.yield_([filled_tile])
+
+            # Grid indices for remote_store: d2m.block_index(d) per dim.
+            indices = [d2m.block_index(d) for d in range(physical_rank)]
+            stored = d2m.remote_store(
+                outer_ty,
+                out_blocked,
+                indices,
+                start_device=[],
+                device_mcast_shape=[],
+                semaphore_indices=[],
+                local_buffer=inner_generic.result,
+            )
+            d2m.yield_([stored])
+
+    return LazyTensor(layout, generic.results[0], b.generation)
 
 
 def zeros(layout: Layout) -> LazyTensor:
-    """`d2m.full(layout, 0.0)` -- allocate a zero-initialised device tensor."""
-    return full(layout, 0.0)
+    """`d2m.full(layout, 0)` -- allocate a zero-initialised device tensor."""
+    return full(layout, 0)
 
 
 def _derive_perm_layout(src_layout: Layout, spec):

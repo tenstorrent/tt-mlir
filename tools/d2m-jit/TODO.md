@@ -78,39 +78,6 @@ in the same scope (or split them into separate synchronized scopes).
 
 ---
 
-### 🔴 Host-scope `linalg.generic` doesn't lower
-
-**Where:** any DSL emission that produces a `linalg.generic` at
-host-`func.func` scope (outside a `d2m.GenericOp` region).
-
-**Symptom:**
-
-```
-error: 'builtin.module' op found linalg.generic operations that were
-  not converted to affine loops.
- Please run --d2m-linalg-to-affine before the d2m-insert-dst-register-
-  access-unscheduled / d2m-insert-dst-register-access-scheduled passes.
-```
-
-**Root cause:** `d2m-linalg-to-affine` only walks `linalg.generic`s
-**inside** `d2m.GenericOp` regions. Host-scope `linalg.generic`s
-survive into later passes that don't expect them.
-
-**Impact:** blocks every host-scope linalg pattern. We hit it when
-prototyping a device-side `d2m.zeros(L)` via
-`linalg.generic { d2m.tile_fill }`; we ended up using a host-side
-`torch.zeros` + `to_layout` round-trip instead.
-
-**Workaround for the DSL:** avoid emitting `linalg.generic` at host
-scope. Use `to_layout` from a host-side `torch` tensor instead.
-
-**Fix shape:** make `d2m-linalg-to-affine` (or a sibling pass) also
-handle the host-func-scope case, or have the DSL synthesise a
-`d2m.GenericOp` wrapper around host-side fills so they go through the
-existing path.
-
----
-
 ## Missing API surface
 
 These ops live in `D2MGenericRegionOps.td` but are not yet exposed in
