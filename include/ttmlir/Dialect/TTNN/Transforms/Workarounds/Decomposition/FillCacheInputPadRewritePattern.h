@@ -45,6 +45,17 @@ public:
     }
     int64_t paddedSeqLen = llvm::divideCeil(seqLen, TILE_HEIGHT) * TILE_HEIGHT;
 
+    // `FillCacheOp` requires input.dim(-2) <= cache.dim(-2); skip when
+    // padding would exceed cache.dim(-2). `PagedFillCacheOp` is unconstrained
+    // here -- its cache.dim(-2) is page-block size, not seq_len.
+    if constexpr (std::is_same_v<CacheWriteOpT, ttnn::FillCacheOp>) {
+      auto cacheShape =
+          mlir::cast<RankedTensorType>(op.getCache().getType()).getShape();
+      if (paddedSeqLen > cacheShape[seqDim]) {
+        return failure();
+      }
+    }
+
     SmallVector<int64_t> paddedShape(shape);
     paddedShape[seqDim] = paddedSeqLen;
     SmallVector<int32_t> padding(2 * shape.size(), 0);
