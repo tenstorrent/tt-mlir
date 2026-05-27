@@ -7497,8 +7497,46 @@ llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
     TTNNLayoutAttr gridLayout, llvm::StringRef mode,
     llvm::StringRef paddingMode, bool alignCorners,
     TTNNLayoutAttr outputLayout) {
-  return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                 "GridSampleOp op model not implemented");
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto gridSpecExp =
+      detail::convertToTensorSpec(device, gridShape, gridLayout);
+  if (!gridSpecExp) {
+    return gridSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec gridSpec = gridSpecExp.get();
+
+  // For nearest mode (BEV model): always use precomputed grid, no batch output
+  // channels. Pass std::nullopt for output memory config so the kernel
+  // auto-generates the correct HEIGHT_SHARDED L1 shard spec. The returned
+  // outputLayouts will contain this layout, telling MLA to assign HEIGHT_SHARDED
+  // L1 to the grid_sample output and chain sharded layouts through downstream ops.
+  // Explicit type required: template deduction can't convert nullopt_t to
+  // optional<MemoryConfig> when the argument is passed through a variadic template.
+  std::optional<::ttnn::MemoryConfig> gridSampleOutMemCfg = std::nullopt;
+  auto query = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::grid_sample, device, inputSpec,
+                                gridSpec, std::string(mode),
+                                std::string(paddingMode), alignCorners,
+                                /*use_precomputed_grid=*/true,
+                                /*batch_output_channels=*/false,
+                                gridSampleOutMemCfg);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 llvm::Expected<size_t> OpModel<GridSampleOp>::getOpRuntime(
@@ -7506,8 +7544,38 @@ llvm::Expected<size_t> OpModel<GridSampleOp>::getOpRuntime(
     TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout, llvm::StringRef mode,
     llvm::StringRef paddingMode, bool alignCorners,
     TTNNLayoutAttr outputLayout) {
-  return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                 "GridSampleOp op model not implemented");
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto gridSpecExp =
+      detail::convertToTensorSpec(device, gridShape, gridLayout);
+  if (!gridSpecExp) {
+    return gridSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec gridSpec = gridSpecExp.get();
+
+  std::optional<::ttnn::MemoryConfig> gridSampleOutMemCfgRt = std::nullopt;
+  auto query = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::grid_sample, device, inputSpec, gridSpec,
+                            std::string(mode), std::string(paddingMode),
+                            alignCorners,
+                            /*use_precomputed_grid=*/true,
+                            /*batch_output_channels=*/false,
+                            gridSampleOutMemCfgRt);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 // Upsample

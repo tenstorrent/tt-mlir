@@ -4858,15 +4858,36 @@ PermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 GridSampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
-  return detail::issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 2);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto gridShape = getGrid().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<GridSampleOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, gridShape, inputs[0], inputs[1], getMode(), getPaddingMode(),
+      getAlignCorners(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 GridSampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
-  return detail::issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 2);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto gridShape = getGrid().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<GridSampleOp>::getOpRuntime, *this, inputShape,
+      gridShape, inputs[0], inputs[1], getMode(), getPaddingMode(),
+      getAlignCorners(), opConfig.outputLayout);
 }
 
 // UpsampleOp - TTNN Op Model Interface
