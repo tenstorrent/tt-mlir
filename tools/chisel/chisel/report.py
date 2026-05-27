@@ -65,11 +65,7 @@ class _Payload(BaseModel):
 
 
 class NumericsPayload(_Payload):
-    """Shared by OK and NUMERICS_FAIL; status set by check_numerics.
-
-    `role` is set when the comparison is against an in-place mutated operand
-    (e.g. `cache`, `running_mean`). Unset for normal SSA-output comparisons.
-    """
+    """Shared by OK and NUMERICS_FAIL; status set by check_numerics."""
 
     status: Literal[RecordStatus.OK, RecordStatus.NUMERICS_FAIL]
     mode: NumericsMode

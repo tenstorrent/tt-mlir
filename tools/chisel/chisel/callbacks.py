@@ -114,6 +114,7 @@ def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
 
     mlir_op_inputs = get_op_inputs(op)
     for mlir_input, rt_tensor_ref in zip(mlir_op_inputs, ctx.input_refs, strict=True):
+        # TODO(ndrakulic): Right now we are pulling input device tensors to host potentially multiple times
         tensor = _validate_and_retrieve_tensor(ctx, mlir_input, rt_tensor_ref)
         ssa = mlir_input.get_name(asm_state)
         ctx.stashed_inputs[ssa] = tensor
@@ -144,12 +145,7 @@ def _emit_pcc(
     skip_pcc: bool,
     role: Optional[str] = None,
 ) -> None:
-    """Shape/dtype + PCC for one (golden, device) pair under `mode`.
-
-    `role` is set for in-place mutated-operand comparisons; it's threaded
-    into the emitted record so consumers can distinguish SSA outputs from
-    mutated operands.
-    """
+    """Shape/dtype + PCC for one (golden, device) pair under `mode`."""
     check_shape_dtype(op, "mlir_vs_golden", mlir_value, golden_out)
     if skip_pcc:
         ctx.write_record(
@@ -165,12 +161,7 @@ def _emit_pcc(
 
 
 def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
-    """For each mutated tensor operand on `ctx.op`, drop the golden and record.
-
-    Called from `_default_post_op` when the op has no golden but the IR
-    declares MemWrite effects. The on-device contents have diverged from
-    any prior golden, so chisel can't reason about this SSA anymore.
-    """
+    """For each mutated tensor operand on `ctx.op`, drop the golden and record."""
     op = ctx.op
     asm_state = ctx.asm_state
     golden_pool = ctx.golden_tensor_pool
@@ -188,11 +179,7 @@ def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
 
 @chisel_safe
 def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
-    """Run isolation + accumulation goldens; shape/dtype + PCC each output.
-
-    For ops with no golden but IR-declared MemWrite effects, evict each
-    mutated SSA from the golden pool (see `_evict_inplace_no_golden`).
-    """
+    """Run isolation + accumulation goldens; shape/dtype + PCC each output."""
     if config.no_golden:
         # IR-driven dispatch: only no-golden ops that mutate operands need
         # the eviction sweep; pure no-golden ops fall through to return.

@@ -92,10 +92,7 @@ def check_numerics(
     mode: NumericsMode = NumericsMode.ISOLATED,
     role: Optional[str] = None,
 ) -> None:
-    """Per-shard PCC check; emits one record per shard, tagged by `mode`.
-
-    `role` is set for in-place mutated-operand comparisons (e.g. `cache`).
-    """
+    """Per-shard PCC check; emits one record per shard, tagged by `mode`."""
     check = "numerics"
     check_shape_dtype(op, check, golden, device)
 
