@@ -56,15 +56,9 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         ttnn.CaptureOrExecuteTraceOp: ChiselOpConfig(no_golden=True),
         ttnn.CreateGlobalSemaphoreOp: ChiselOpConfig(no_golden=True),
         ttnn.ResetGlobalSemaphoreOp: ChiselOpConfig(no_golden=True),
-        # In-place ops without a registered chisel golden: PRE/POST run, but
-        # the post-op falls into the IR-driven eviction branch (see
-        # _evict_inplace_no_golden in callbacks.py).
+        # In-place ops with no golden.
         ttnn.WriteTensorOp: ChiselOpConfig(no_golden=True),
-        ttnn.BatchNormTrainingOp: ChiselOpConfig(no_golden=True),
         ttnn.PointToPointOp: ChiselOpConfig(no_golden=True),
-        # UpdateCacheOp / FillCacheOp / PagedUpdateCacheOp / PagedFillCacheOp
-        # have CHISEL_GOLDEN_MAPPINGS entries and exercise the full in-place
-        # golden flow (re-pull + PCC against the golden's mutated tensor).
         # Quantization ops not currently supported.
         ttnn.QuantizeOp: ChiselOpConfig(no_golden=True),
         ttnn.DequantizeOp: ChiselOpConfig(no_golden=True),

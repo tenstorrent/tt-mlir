@@ -451,7 +451,9 @@ def test_chisel_records_update_cache_inplace(request, device, tmp_path):
     # to ttnn.paged_update_cache - an in-place op that mutates `cache`, has no
     # SSA result, and has a chisel golden registered. The new in-place flow
     # should: PRE pull all inputs, POST re-pull the mutated cache from
-    # device, and emit a `numerics` record with role=`cache`.
+    # device, and emit a `numerics` record for the in-place cache operand.
+    # The op has no SSA result, so every numerics record on it describes the
+    # in-place cache.
     cache_shape = (1, 32, 64, 512)
     update_shape = (1, 32, 1, 512)
     index_shape = (1,)
@@ -489,31 +491,30 @@ def test_chisel_records_update_cache_inplace(request, device, tmp_path):
 
     assert records, "chisel report is empty"
 
-    # The numerics records for the in-place mutation should be labeled
-    # role='cache' and pass at both isolation and accumulation.
+    # The numerics records for the in-place mutation should pass at both
+    # isolation and accumulation. The op has no SSA result, so every numerics
+    # record on it describes the in-place cache operand.
     cache_numerics = [
         r
         for r in records
-        if r.op == "ttnn.paged_update_cache"
-        and r.check == "numerics"
-        and r.payload.role == "cache"
+        if r.op == "ttnn.paged_update_cache" and r.check == "numerics"
     ]
     assert cache_numerics, (
-        "no role='cache' numerics records produced for ttnn.paged_update_cache; "
-        f"saw: {[(r.op, r.check, getattr(r.payload, 'role', None)) for r in records]}"
+        "no numerics records produced for ttnn.paged_update_cache; "
+        f"saw: {[(r.op, r.check) for r in records]}"
     )
 
     PCC_THRESHOLD = 0.99
     for mode in (chisel.NumericsMode.ISOLATED, chisel.NumericsMode.ACCUMULATED):
         for_mode = [r for r in cache_numerics if r.payload.mode == mode]
-        assert for_mode, f"no role='cache' record for mode={mode}"
+        assert for_mode, f"no cache numerics record for mode={mode}"
         for r in for_mode:
             assert (
                 r.status == chisel.RecordStatus.OK
-            ), f"role='cache' {mode} fail: payload={r.payload}"
+            ), f"cache {mode} fail: payload={r.payload}"
             assert (
                 r.payload.pcc >= PCC_THRESHOLD
-            ), f"role='cache' {mode} PCC {r.payload.pcc} below {PCC_THRESHOLD}"
+            ), f"cache {mode} PCC {r.payload.pcc} below {PCC_THRESHOLD}"
 
     # No golden_evicted records for the cache SSA - the in-place flow with
     # a golden refreshes the pool, it does not evict.
@@ -528,11 +529,13 @@ def test_chisel_records_update_cache_inplace(request, device, tmp_path):
     )
 
 
-def test_chisel_evicts_on_inplace_batch_norm_training(request, device, tmp_path):
-    # ttnn.batch_norm_training mutates `running_mean` and `running_var` but
-    # has no registered chisel golden. The IR-driven no-golden branch in
-    # _default_post_op should emit one golden_evicted record per mutated
-    # operand, and drop those SSAs from both pools.
+def test_chisel_records_batch_norm_training_inplace(request, device, tmp_path):
+    # ttnn.batch_norm_training has one SSA result (the normalized output) plus
+    # two in-place mutated operands (`running_mean`, `running_var`). With a
+    # chisel golden registered, the in-place flow should: PRE pull all inputs,
+    # POST re-pull the mutated running stats from device, and emit `numerics`
+    # records for the SSA result and every in-place operand at both isolation
+    # and accumulation - all of which should pass PCC.
     n, c, h, w = 1, 4, 8, 8
     input_shape = (n, c, h, w)
     param_shape = (c,)
@@ -564,6 +567,7 @@ def test_chisel_evicts_on_inplace_batch_norm_training(request, device, tmp_path)
 
     with chisel.session(
         results_path=str(tmp_path / "chisel_result.jsonl"),
+        checks_config=chisel.ChiselChecksConfig(isolation=True, accumulation=True),
     ) as report:
         compile_and_execute_ttir(
             module,
@@ -576,27 +580,45 @@ def test_chisel_evicts_on_inplace_batch_norm_training(request, device, tmp_path)
 
     assert records, "chisel report is empty"
 
-    evictions = [
-        r
-        for r in records
-        if r.op == "ttnn.batch_norm_training" and r.check == "golden_evicted"
-    ]
-    # batch_norm_training writes to running_mean + running_variance, but the
-    # generated TTNN module may not pass both as block args (one could be a
-    # constant). We just require at least one eviction record, which is what
-    # the IR-driven no-golden path is designed to produce.
-    assert evictions, (
-        "expected at least one golden_evicted record on ttnn.batch_norm_training; "
-        f"saw: {[(r.op, r.check) for r in records]}"
-    )
-
-    # No PCC numerics records on this op - it has no golden.
     bnt_numerics = [
         r
         for r in records
         if r.op == "ttnn.batch_norm_training" and r.check == "numerics"
     ]
-    assert not bnt_numerics, (
-        "did not expect numerics records on ttnn.batch_norm_training "
-        f"(no golden); got: {bnt_numerics}"
+    assert bnt_numerics, (
+        "no numerics records produced for ttnn.batch_norm_training; "
+        f"saw: {[(r.op, r.check) for r in records]}"
+    )
+
+    PCC_THRESHOLD = 0.99
+    for mode in (chisel.NumericsMode.ISOLATED, chisel.NumericsMode.ACCUMULATED):
+        for_mode = [r for r in bnt_numerics if r.payload.mode == mode]
+        assert for_mode, f"no batch_norm_training numerics record for mode={mode}"
+        # One record per SSA result + per in-place mutated operand. Distinct
+        # SSAs prove the in-place running_mean / running_var were validated
+        # alongside the SSA result.
+        ssas = {r.ssa for r in for_mode}
+        assert len(ssas) >= 2, (
+            f"expected numerics records for the SSA result plus at least one "
+            f"in-place operand on ttnn.batch_norm_training in {mode} mode, "
+            f"got ssas={ssas}"
+        )
+        for r in for_mode:
+            assert (
+                r.status == chisel.RecordStatus.OK
+            ), f"batch_norm_training {mode} fail: payload={r.payload}"
+            assert (
+                r.payload.pcc >= PCC_THRESHOLD
+            ), f"batch_norm_training {mode} PCC {r.payload.pcc} below {PCC_THRESHOLD}"
+
+    # No golden_evicted records on this op - the in-place flow with a golden
+    # refreshes the pool, it does not evict.
+    evictions = [
+        r
+        for r in records
+        if r.op == "ttnn.batch_norm_training" and r.check == "golden_evicted"
+    ]
+    assert not evictions, (
+        f"unexpected golden_evicted records on ttnn.batch_norm_training: "
+        f"{[r.ssa for r in evictions]}"
     )

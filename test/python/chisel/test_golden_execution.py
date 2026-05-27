@@ -15,7 +15,7 @@ from chisel.executor import (
 )
 from chisel.op_configs import get_op_names_no_golden
 from chisel.ops import (
-    get_flat_inplace_vals,
+    get_inplace_vals,
     get_op_inputs,
     get_op_outputs,
     is_tensor_value,
@@ -106,11 +106,13 @@ def test_golden_execution(subtests, ir_module, binary, binary_path):
                         f"\nbinary: {binary_path}"
                     )
 
-                inplace_vals = get_flat_inplace_vals(op.opview)
-                for out, (role, val) in zip(result[len(op_outputs) :], inplace_vals):
+                inplace_vals = get_inplace_vals(op.opview)
+                for i, (out, val) in enumerate(
+                    zip(result[len(op_outputs) :], inplace_vals)
+                ):
                     expected_shape = list(val.type.shape)
                     assert list(out.shape) == expected_shape, (
-                        f"inplace:{role} shape mismatch: got {list(out.shape)}, expected {expected_shape}"
+                        f"inplace[{i}] shape mismatch: got {list(out.shape)}, expected {expected_shape}"
                         f"\nbinary: {binary_path}"
                     )
                     try:
@@ -118,6 +120,6 @@ def test_golden_execution(subtests, ir_module, binary, binary_path):
                     except TypeError as e:
                         pytest.skip(f"{op.name}: unsupported dtype ({e})")
                     assert out.dtype == expected_dtype, (
-                        f"inplace:{role} dtype mismatch: got {out.dtype}, expected {expected_dtype}"
+                        f"inplace[{i}] dtype mismatch: got {out.dtype}, expected {expected_dtype}"
                         f"\nbinary: {binary_path}"
                     )

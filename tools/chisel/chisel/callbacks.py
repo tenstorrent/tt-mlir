@@ -83,7 +83,6 @@ def _assert_op_matches_runtime(ctx: ChiselContext) -> None:
 def _validate_and_retrieve_tensor(
     ctx: ChiselContext, mlir_value: Value, rt_tensor_ref: TensorRef
 ) -> GoldenMapTensor:
-    """Validate IR vs ref shape/dtype, pull tensor from device, revalidate."""
     op = ctx.op
     check_shape_dtype(op, "mlir_vs_tensor_ref", mlir_value, rt_tensor_ref)
     tensor = retrieve_tensor(ctx.rt_program_context, rt_tensor_ref, ctx.mesh_shape)
@@ -159,13 +158,7 @@ def _emit_pcc(
 def _get_inplace_input_refs(
     op, input_refs: list[TensorRef], asm_state
 ) -> list[tuple[Value, TensorRef]]:
-    """Pair each in-place mutated tensor operand with its runtime TensorRef.
-
-    `input_refs` is the flat list of tensor-typed operand refs from the runtime
-    (same order as `get_op_inputs(op)`); in-place operands are a subset of
-    those, so we walk both in parallel and emit a pair when an operand matches
-    one of the in-place values reported by `get_inplace_vals`.
-    """
+    """Pair each in-place mutated tensor operand with its runtime TensorRef."""
     inplace_vals = get_inplace_vals(op)
     if not inplace_vals:
         return []
@@ -218,8 +211,6 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         modes.append(NumericsMode.ACCUMULATED)
 
     # Validate SSA outputs and in-place mutated operands with one loop.
-    # The SSA on each emitted record disambiguates which entry the record
-    # describes; no per-entry role label is needed in the payload.
     entries: list[tuple[Value, TensorRef]] = list(
         zip(mlir_op_outputs, ctx.output_refs, strict=True)
     )
@@ -233,10 +224,6 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         for mlir_value, tensor_ref in entries
     ]
 
-    # Each enabled mode runs its golden once; the result is aligned with
-    # [SSA outputs ..., in-place operands ...]. Accumulation publishes every
-    # entry back to the golden pool below so SSA outputs and in-place operands
-    # are handled uniformly and the chain stays coherent.
     for mode in modes:
         ssa_inputs = (
             ctx.stashed_inputs
@@ -258,8 +245,10 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
                 mode=mode,
                 skip_pcc=config.skip_pcc,
             )
-            if mode is NumericsMode.ACCUMULATED:
-                ctx.golden_tensor_pool[ssa] = golden_out
+            if mode is NumericsMode.ISOLATED:
+                continue
+            
+            ctx.golden_tensor_pool[ssa] = golden_out
 
 
 def run_op_callback(
