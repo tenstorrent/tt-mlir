@@ -70,6 +70,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static SliceRuleBook slice;
   static ReshapeRuleBook reshape;
   static PadRuleBook pad;
+  static MaxPool2dRuleBook maxPool2d;
   static ConcatenateHeadsRuleBook concatHeads;
   static SDPARuleBook sdpa;
   static EmbeddingRuleBook embedding;
@@ -90,6 +91,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     };
     reg(Conv2dOp::getOperationName(), &conv2d);
     reg(ConvTranspose2dOp::getOperationName(), &conv2d);
+    reg(MaxPool2dOp::getOperationName(), &maxPool2d);
     reg(MatmulOp::getOperationName(), &matmul);
     reg(LinearOp::getOperationName(), &matmul);
     reg(ConcatOp::getOperationName(), &concat);

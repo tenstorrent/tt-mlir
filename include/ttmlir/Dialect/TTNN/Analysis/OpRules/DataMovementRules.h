@@ -75,6 +75,17 @@ struct PadRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// MaxPool2dOp: reject BLOCK_SHARDED output.
+/// Downstream consumers (SliceStaticOp via SliceRmShardedWidthTrimProgramFactory,
+/// conv2d with config_tensors_in_dram) only accept HEIGHT_SHARDED ROW_MAJOR or
+/// DRAM. A BLOCK_SHARDED output always requires an immediate DRAM spill.
+/// Use non-sharded (DRAM) as primary hints; HEIGHT_SHARDED as fallback.
+struct MaxPool2dRuleBook : OpRuleBook {
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_DATAMOVEMENTRULES_H

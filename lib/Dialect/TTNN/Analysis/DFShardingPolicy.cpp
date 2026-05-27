@@ -2295,9 +2295,12 @@ void DFShardingPolicy::run() {
       // TODO (mvasiljevic): RMSNormOp is excluded from sharding as a
       // workaround until the following metal fix is uplifted:
       // https://github.com/tenstorrent/tt-metal/pull/34335
-      // TODO (jserbedzija): SliceStaticOp is excluded from sharding as a
-      // workaround until the following metal issue is fixed:
-      // https://github.com/tenstorrent/tt-metal/issues/38016
+      // TODO (jserbedzija): SliceStaticOp general sharding excluded until
+      // https://github.com/tenstorrent/tt-metal/issues/38016 is fixed.
+      // SliceStaticOp accepts HEIGHT_SHARDED ROW_MAJOR input via
+      // SliceRmShardedWidthTrimProgramFactory but outputs to DRAM interleaved
+      // (no output CB), so it does not produce an L1-sharded output and must
+      // remain excluded from validForSharding.
       bool validForSharding =
           llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::AddOp,
                     ttnn::MultiplyOp, ttnn::ReluOp, ttnn::Relu6Op, ttnn::SiluOp,

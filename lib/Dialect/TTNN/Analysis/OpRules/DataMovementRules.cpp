@@ -132,21 +132,76 @@ OutputHints ConcatRuleBook::getOutputHints(
 // SliceRuleBook
 //===----------------------------------------------------------------------===//
 
+// Returns true when op is a SliceStaticOp that only affects the last dimension,
+// which SliceRmShardedWidthTrimProgramFactory can handle locally on each core:
+//   outer dims: begins = 0, step = 1, ends == inputShape (unaffected)
+//   last dim:   step = 1, output size < inputShape[last]
+// Covers both width-trim (begins[last]=0) and tail-trim (begins[last]>0).
+static bool isWidthTrimSliceStatic(Operation *op) {
+  auto sliceOp = mlir::dyn_cast<SliceStaticOp>(op);
+  if (!sliceOp)
+    return false;
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(sliceOp.getInput().getType());
+  if (!inputType)
+    return false;
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  unsigned rank = inputShape.size();
+  if (rank == 0)
+    return false;
+  mlir::ArrayAttr begins = sliceOp.getBegins();
+  mlir::ArrayAttr ends = sliceOp.getEnds();
+  mlir::ArrayAttr step = sliceOp.getStep();
+  if (begins.size() != rank || ends.size() != rank || step.size() != rank)
+    return false;
+  for (unsigned i = 0; i < rank - 1; ++i) {
+    if (mlir::cast<mlir::IntegerAttr>(begins[i]).getInt() != 0)
+      return false;
+    if (mlir::cast<mlir::IntegerAttr>(step[i]).getInt() != 1)
+      return false;
+    if (mlir::cast<mlir::IntegerAttr>(ends[i]).getInt() != inputShape[i])
+      return false;
+  }
+  unsigned last = rank - 1;
+  if (mlir::cast<mlir::IntegerAttr>(step[last]).getInt() != 1)
+    return false;
+  int64_t lastBegin = mlir::cast<mlir::IntegerAttr>(begins[last]).getInt();
+  int64_t lastEnd = mlir::cast<mlir::IntegerAttr>(ends[last]).getInt();
+  return (lastEnd - lastBegin) < inputShape[last];
+}
+
 LayoutFilterFn
 SliceRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
-  // Slice: sharded inputs produce incorrect results in tt-metal.
+  // Allow HEIGHT_SHARDED ROW_MAJOR inputs — SliceRmShardedWidthTrimProgramFactory
+  // handles the width-trim case locally on each core without cross-core traffic.
+  // All other sharded layouts (block-sharded, width-sharded, HS-tiled) produce
+  // incorrect results in tt-metal.
   // https://github.com/tenstorrent/tt-metal/issues/39074
-  return layout_filter_utils::rejectAllSharded;
+  return [](TTNNLayoutAttr layout) -> bool {
+    auto ml = layout.getMemLayout();
+    if (!ml || !isShardedMemoryLayout(ml.getValue()))
+      return true; // interleaved — keep
+    return ml.getValue() == TensorMemoryLayout::HeightSharded &&
+           layout.getLayout() == Layout::RowMajor;
+  };
 }
 
 bool SliceRuleBook::shouldExploreReshards() const { return false; }
 
 OutputHints
-SliceRuleBook::getOutputHints(Operation * /*op*/,
+SliceRuleBook::getOutputHints(Operation *op,
                               const std::vector<OpConfig> &legalConfigs) const {
-  // SliceStaticOp, SliceDynamicOp: disabled due to
-  // https://github.com/tenstorrent/tt-metal/issues/38016
-  // TODO(rpavlovicTT): re-enable slice ops.
+  // For width/tail-trim SliceStaticOp with HEIGHT_SHARDED ROW_MAJOR input,
+  // SliceRmShardedWidthTrimProgramFactory handles the kernel but outputs to
+  // DRAM interleaved (no output L1 CB — zero extra L1 pressure).  Use a
+  // NULL hint so getOpConstraints produces the DRAM output layout analytically
+  // without adding L1 sharding to the slice output.  All other slices also
+  // use non-sharded (DRAM) output only.
+  if (isWidthTrimSliceStatic(op)) {
+    OutputHints result;
+    result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+    return result;
+  }
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
 
@@ -244,6 +299,43 @@ PadRuleBook::getOutputHints(Operation * /*op*/,
   // sharded.
   // https://github.com/tenstorrent/tt-metal/issues/40898
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dRuleBook
+//===----------------------------------------------------------------------===//
+
+OutputHints
+MaxPool2dRuleBook::getOutputHints(Operation * /*op*/,
+                                  const std::vector<OpConfig> &legalConfigs) const {
+  // Reject BLOCK_SHARDED output for max_pool2d.  Downstream ops
+  // (SliceStaticOp via SliceRmShardedWidthTrimProgramFactory, conv2d with
+  // config_tensors_in_dram) only accept HEIGHT_SHARDED ROW_MAJOR or DRAM.
+  // A BLOCK_SHARDED output would always be immediately spilled to DRAM.
+  //
+  // Strategy: DRAM/interleaved configs as primary hints (no NULL hint to avoid
+  // the backend defaulting to BLOCK_SHARDED for a BLOCK_SHARDED input);
+  // HEIGHT_SHARDED as fallback.  The NULL hint is omitted on purpose so that
+  // inputs with BLOCK_SHARDED layout don't inherit BLOCK_SHARDED output.
+  OutputHints result;
+  for (const auto &cfg : legalConfigs) {
+    if (!cfg.outputLayout) {
+      continue; // skip NULL hint
+    }
+    auto ml = cfg.outputLayout.getMemLayout();
+    if (!ml || !isShardedMemoryLayout(ml.getValue())) {
+      result.hints.push_back(cfg); // DRAM / L1-interleaved (primary)
+    } else if (ml.getValue() == TensorMemoryLayout::HeightSharded) {
+      result.fallbackHints.push_back(cfg); // HEIGHT_SHARDED (fallback)
+    }
+    // BLOCK_SHARDED: excluded
+  }
+  // If legalConfigs produced no non-sharded entry, fall back to NULL hint so
+  // we don't end up with zero primary hints (which would cause no candidate).
+  if (result.hints.empty()) {
+    result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+  }
+  return result;
 }
 
 } // namespace mlir::tt::ttnn

@@ -1156,7 +1156,15 @@ void L1SpillManagement<MemoryTracker>::run() {
         ensureFitsL1(op, pos, data, derivedL1, /*cbPeakUsage=*/0, derivedL1);
         continue;
       }
-      // DRAM ToLayoutOp: fall through to standard processing.
+      // DRAM ToLayoutOp: skip. Pre-decomposition OpModel is inaccurate for
+      // chain-end HS→DRAM conversions (sharded input causes
+      // OpNotSupportedError → NotImplemented → spurious evictAllFromL1).
+      // The DRAM output has no L1 footprint; no spill accounting is needed.
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "  [pos={0}] DRAM_TOLAYOUT: {1}, skipping validation "
+                   "(pre-decomposition OpModel inaccurate for DRAM output)",
+                   pos, ttmlir::opToString(op));
+      continue;
     }
 
     // Ops with L1 output annotation get full processing.

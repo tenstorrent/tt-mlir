@@ -1970,6 +1970,90 @@ llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // HEIGHT_SHARDED ROW_MAJOR analytical bypass for last-dim-only slices.
+  // tt-metal's QUERY_OP_CONSTRAINTS path calls validate_on_program_cache_miss
+  // which asserts input.buffer() != nullptr — this fails for HEIGHT_SHARDED
+  // inputs in the op-model singleton context. A dedicated kernel
+  // (SliceRmShardedWidthTrimProgramFactory) handles this case; here we
+  // replicate its two-CB accounting analytically.
+  // Covers width-trim (begins[last]=0) and tail-trim (begins[last]>0):
+  //   outer dims: begins=0, step=1, ends=inputShape (unaffected)
+  //   last dim:   step=1, output size = ends[last]-begins[last] < inputShape[last]
+  bool isHSRM =
+      inputLayout && inputLayout.getMemLayout() &&
+      inputLayout.getMemLayout().getValue() ==
+          TensorMemoryLayout::HeightSharded &&
+      inputLayout.getLayout() == Layout::RowMajor;
+  bool outputIsHS =
+      outputLayout && outputLayout.getMemLayout() &&
+      outputLayout.getMemLayout().getValue() ==
+          TensorMemoryLayout::HeightSharded &&
+      outputLayout.getLayout() == Layout::RowMajor;
+  // Analytical bypass for HEIGHT_SHARDED ROW_MAJOR last-dim-only slices.
+  // tt-metal's QUERY_OP_CONSTRAINTS path calls validate_on_program_cache_miss
+  // which asserts input.buffer() != nullptr — this fails for HEIGHT_SHARDED
+  // inputs in the op-model singleton context. SliceRmShardedWidthTrimProgramFactory
+  // handles this case; here we replicate its CB accounting analytically.
+  //
+  // For HS→DRAM (the normal path): the factory reads from the globally-allocated
+  // input CB and writes directly to DRAM via noc_async_write — no output CB is
+  // needed, so cbOutSize = 0 and the output layout is DRAM interleaved.
+  //
+  // For HS→HS (kept for backward compat): both CBs are globally-allocated;
+  // cbOutSize accounts for the output HS tensor size.
+  if (isHSRM) {
+    unsigned rank = inputShape.size();
+    bool lastDimOnlySlice = (rank > 0);
+    for (unsigned i = 0; i + 1 < rank && lastDimOnlySlice; ++i) {
+      lastDimOnlySlice &= (begins[i] == 0) && (ends[i] == inputShape[i]) &&
+                          (step[i] == 1);
+    }
+    if (rank > 0) {
+      int64_t lastBegin = begins[rank - 1];
+      int64_t lastEnd   = ends[rank - 1];
+      lastDimOnlySlice &= (step[rank - 1] == 1) &&
+                          (lastEnd - lastBegin) < inputShape[rank - 1];
+    }
+    if (lastDimOnlySlice) {
+      auto gridShape = inputLayout.getGridShape();
+      int64_t numCores = 1;
+      for (auto d : gridShape) numCores *= static_cast<int64_t>(d);
+      int64_t totalSticks = 1;
+      for (unsigned i = 0; i + 1 < rank; ++i) totalSticks *= inputShape[i];
+      int64_t sticksPerCore = (totalSticks + numCores - 1) / numCores;
+      constexpr int64_t kElemBytes = 2; // bf16
+      const int64_t CIn  = inputShape[rank - 1];
+      const int64_t COut = ends[rank - 1] - begins[rank - 1];
+      const size_t cbInSize  = static_cast<size_t>(sticksPerCore * CIn * kElemBytes);
+      llvm::SmallVector<int64_t> outShape(inputShape.begin(), inputShape.end());
+      outShape[rank - 1] = COut;
+      if (outputIsHS) {
+        // HS output path: both CBs globally-allocated; cbOutSize = output shard.
+        const size_t cbOutSize = static_cast<size_t>(sticksPerCore * COut * kElemBytes);
+        const size_t cbPeak    = cbInSize + cbOutSize;
+        TTNNLayoutAttr outputHSLayout =
+            TTNNLayoutAttr::Builder(inputLayout, outShape)
+                .setElementType(inputLayout.getScalarElementType())
+                .setBufferType(BufferType::L1)
+                .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+                .setGridShape(gridShape)
+                .setCoreRangeSet(inputLayout.getCoreRangeSet())
+                .build();
+        llvm::SmallVector<TTNNLayoutAttr> outLayouts = {outputHSLayout};
+        return OpConstraints(cbPeak, cbPeak, cbPeak, cbOutSize, outLayouts);
+      }
+      // DRAM output path (default): kernel reads from HS input CB and writes
+      // directly to DRAM via noc_async_write — no output CB, zero extra L1.
+      TTNNLayoutAttr outputDRAMLayout =
+          TTNNLayoutAttr::Builder(inputLayout, outShape)
+              .setBufferType(BufferType::DRAM)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .build();
+      llvm::SmallVector<TTNNLayoutAttr> outLayouts = {outputDRAMLayout};
+      return OpConstraints(cbInSize, cbInSize, cbInSize, 0, outLayouts);
+    }
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
