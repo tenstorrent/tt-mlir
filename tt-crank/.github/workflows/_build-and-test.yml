@@ -1,15 +1,11 @@
-name: build-and-test
+name: _build-and-test
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      sim:
+        type: boolean
+        default: false
 
 jobs:
   resolve-image:
@@ -25,11 +21,23 @@ jobs:
           TAG=$(cd third_party/tt-mlir && bash .github/get-docker-tag.sh)
           echo "image=ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-24-04:$TAG" >> $GITHUB_OUTPUT
 
+  reset-device:
+    if: ${{ !inputs.sim }}
+    runs-on: [self-hosted, "${{ inputs.sim && 'compute' || 'qb' }}"]
+    steps:
+      - name: Reset device
+        run: tt-smi -r
+
+      - name: Show device info
+        run: tt-smi -s --snapshot_no_tty
+
   build-and-test:
-    needs: resolve-image
-    runs-on: [self-hosted, compute]
+    needs: [resolve-image, reset-device]
+    if: ${{ !cancelled() && needs.resolve-image.result == 'success' && needs.reset-device.result != 'failure' }}
+    runs-on: [self-hosted, "${{ inputs.sim && 'compute' || 'qb' }}"]
     container:
       image: ${{ needs.resolve-image.outputs.image }}
+      options: ${{ inputs.sim && '' || '--device /dev/tenstorrent -v /dev/hugepages-1G:/dev/hugepages-1G' }}
       volumes:
         - /opt/cpm-cache:/cpm-cache
       env:
@@ -57,14 +65,14 @@ jobs:
           source venv/activate
           ./scripts/install-py
 
-      - name: Unit Test (sim)
+      - name: Unit Test
         shell: bash
         run: |
           source venv/activate
-          ./scripts/test sim
+          ./scripts/test ${{ inputs.sim && 'sim' || '' }}
 
-      - name: Pytest Test (sim)
+      - name: Pytest Test
         shell: bash
         run: |
           source venv/activate
-          pytest tests/python --sim
+          pytest tests/python ${{ inputs.sim && '--sim' || '' }}
