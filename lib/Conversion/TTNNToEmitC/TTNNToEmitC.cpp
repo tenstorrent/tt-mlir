@@ -1099,7 +1099,7 @@ public:
         emitter.emit(srcOp.getPaddingMode()),
         emitter.emit(srcOp.getAlignCorners()),
         emitter.emit(std::nullopt), // use_precomputed_grid = false
-        emitter.emit(std::nullopt), // batch_output_channels = false
+        emitter.emit(srcOp.getBatchOutputChannels()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };

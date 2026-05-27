@@ -4873,7 +4873,7 @@ GridSampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<GridSampleOp>::getOpConstraints, *this, deviceGrid,
       inputShape, gridShape, inputs[0], inputs[1], getMode(), getPaddingMode(),
-      getAlignCorners(), opConfig.outputLayout);
+      getAlignCorners(), getBatchOutputChannels(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4887,7 +4887,7 @@ GridSampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<GridSampleOp>::getOpRuntime, *this, inputShape,
       gridShape, inputs[0], inputs[1], getMode(), getPaddingMode(),
-      getAlignCorners(), opConfig.outputLayout);
+      getAlignCorners(), getBatchOutputChannels(), opConfig.outputLayout);
 }
 
 // UpsampleOp - TTNN Op Model Interface

@@ -3294,6 +3294,7 @@ def TTNN_GridSampleOp : TTNN_Op<"grid_sample"> {
                          DefaultValuedAttr<StrAttr, "\"bilinear\"">:$mode,
                          DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
                          DefaultValuedAttr<BoolAttr, "false">:$align_corners,
+                         DefaultValuedAttr<BoolAttr, "false">:$batch_output_channels,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);

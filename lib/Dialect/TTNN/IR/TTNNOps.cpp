@@ -4244,9 +4244,18 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
     return emitOpError("output tensor must be 4D, got rank ")
            << outputType.getRank();
   }
-  if (gridType.getShape()[3] != 2) {
-    return emitOpError("grid last dimension must be 2, got ")
-           << gridType.getShape()[3];
+  int64_t gridLastDim = gridType.getShape()[3];
+  if (getBatchOutputChannels()) {
+    if (gridLastDim < 2 || gridLastDim % 2 != 0) {
+      return emitOpError(
+                 "grid last dimension must be 2*K (K>=1) when "
+                 "batch_output_channels=true, got ")
+             << gridLastDim;
+    }
+  } else {
+    if (gridLastDim != 2) {
+      return emitOpError("grid last dimension must be 2, got ") << gridLastDim;
+    }
   }
 
   llvm::SmallVector<llvm::StringRef> legalModes = {"bilinear", "nearest"};

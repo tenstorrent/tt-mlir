@@ -1836,6 +1836,7 @@ createOp(FlatbufferObjectCache &cache, GridSampleOp op) {
   flatbuffers::Offset<flatbuffers::String> paddingMode =
       toFlatbuffer(cache, op.getPaddingMode());
   bool alignCorners = op.getAlignCorners();
+  bool batchOutputChannels = op.getBatchOutputChannels();
   flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, op.getMemoryConfig().value())
                            : 0;
@@ -1845,6 +1846,7 @@ createOp(FlatbufferObjectCache &cache, GridSampleOp op) {
 
   return ::tt::target::ttnn::CreateGridSampleOp(*cache.fbb, input, grid, mode,
                                                 paddingMode, alignCorners,
+                                                batchOutputChannels,
                                                 memoryConfig, output);
 }
 

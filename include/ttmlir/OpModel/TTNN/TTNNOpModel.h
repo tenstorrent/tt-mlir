@@ -1795,14 +1795,16 @@ struct OpModel<GridSampleOp> {
                    llvm::ArrayRef<int64_t> gridShape,
                    TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout,
                    llvm::StringRef mode, llvm::StringRef paddingMode,
-                   bool alignCorners, TTNNLayoutAttr outputLayout);
+                   bool alignCorners, bool batchOutputChannels,
+                   TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                llvm::ArrayRef<int64_t> gridShape,
                TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout,
                llvm::StringRef mode, llvm::StringRef paddingMode,
-               bool alignCorners, TTNNLayoutAttr outputLayout);
+               bool alignCorners, bool batchOutputChannels,
+               TTNNLayoutAttr outputLayout);
 };
 
 // UpsampleOp

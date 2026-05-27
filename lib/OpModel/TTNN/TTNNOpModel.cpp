@@ -7495,7 +7495,7 @@ llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     llvm::ArrayRef<int64_t> gridShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr gridLayout, llvm::StringRef mode,
-    llvm::StringRef paddingMode, bool alignCorners,
+    llvm::StringRef paddingMode, bool alignCorners, bool batchOutputChannels,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7515,11 +7515,9 @@ llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec gridSpec = gridSpecExp.get();
 
-  // For nearest mode (BEV model): always use precomputed grid, no batch output
-  // channels. Pass std::nullopt for output memory config so the kernel
-  // auto-generates the correct HEIGHT_SHARDED L1 shard spec. The returned
-  // outputLayouts will contain this layout, telling MLA to assign HEIGHT_SHARDED
-  // L1 to the grid_sample output and chain sharded layouts through downstream ops.
+  // Pass std::nullopt for output memory config so the kernel auto-generates the
+  // correct HEIGHT_SHARDED L1 shard spec. batchOutputChannels is forwarded from
+  // the op attribute so batched (K>1) grid_sample uses the correct code path.
   // Explicit type required: template deduction can't convert nullopt_t to
   // optional<MemoryConfig> when the argument is passed through a variadic template.
   std::optional<::ttnn::MemoryConfig> gridSampleOutMemCfg = std::nullopt;
@@ -7528,7 +7526,7 @@ llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
                                 gridSpec, std::string(mode),
                                 std::string(paddingMode), alignCorners,
                                 /*use_precomputed_grid=*/true,
-                                /*batch_output_channels=*/false,
+                                batchOutputChannels,
                                 gridSampleOutMemCfg);
   };
 
@@ -7542,7 +7540,7 @@ llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(
 llvm::Expected<size_t> OpModel<GridSampleOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, llvm::ArrayRef<int64_t> gridShape,
     TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout, llvm::StringRef mode,
-    llvm::StringRef paddingMode, bool alignCorners,
+    llvm::StringRef paddingMode, bool alignCorners, bool batchOutputChannels,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7568,7 +7566,7 @@ llvm::Expected<size_t> OpModel<GridSampleOp>::getOpRuntime(
                             std::string(mode), std::string(paddingMode),
                             alignCorners,
                             /*use_precomputed_grid=*/true,
-                            /*batch_output_channels=*/false,
+                            batchOutputChannels,
                             gridSampleOutMemCfgRt);
   };
 
