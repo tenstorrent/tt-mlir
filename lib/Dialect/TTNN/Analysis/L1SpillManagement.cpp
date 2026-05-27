@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
@@ -591,44 +592,6 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   }
   if (l1Size > 0 && speculativeAddr) {
-    // Evict live tensors whose TTNN physical address falls inside this op's CB
-    // region [l1_unreserved_base, l1_unreserved_base + cbPeakUsage).
-    //
-    // The simulation allocates top-down (high-virtual first) while TTNN
-    // allocates bottom-up (low-physical first).  A tensor at simulation virtual
-    // V > (l1BudgetPerCore - cbPeakUsage) maps to a physical address below
-    // (l1_unreserved_base + cbPeakUsage), i.e. inside the CB zone.
-    // evictForCBOverlap (used by wouldCBsOverlapTensors below) only checks
-    // the lowest virtual address (= most recently allocated = highest physical),
-    // missing tensors allocated earlier that have higher virtual addresses and
-    // lower physical addresses inside the CB zone.  Evict those here.
-    //
-    // Only check when cbPeakUsage > l1DeadZone: below this threshold the CB
-    // region is entirely within the dead zone (below the simulation floor) so
-    // no simulation-tracked tensor can have a conflicting physical address.
-    if (cbPeakUsage > l1DeadZone && cbPeakUsage <= l1BudgetPerCore) {
-      uint64_t cbVT = l1BudgetPerCore - cbPeakUsage;
-      bool anyEvicted = false;
-      for (Value victim : memoryTracker.getValuesAboveVirtualThreshold(cbVT)) {
-        if (!liveValues.count(victim)) {
-          continue;
-        }
-        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                     "    CB_ZONE_EVICT: cbPeakUsage={0} cbVT={1}, evicting "
-                     "high-virtual tensor to prevent CB-tensor clash",
-                     cbPeakUsage, cbVT);
-        evictValue(victim, pos, data);
-        anyEvicted = true;
-      }
-      if (anyEvicted) {
-        // Recompute after address rebuild triggered by evictions.
-        speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
-        if (!speculativeAddr) {
-          l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
-          speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
-        }
-      }
-    }
     // Large-tensor fragmentation guard: if a single tensor exceeds ~40% of
     // the L1 budget, runtime fragmentation from untracked L1 allocations
     // (e.g. ToLayoutOp outputs that are excluded from liveValues by design)
@@ -670,6 +633,101 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     }
   }
   return l1Size;
+}
+
+//===----------------------------------------------------------------------===//
+// tryReduceConv2dActBlockH
+//===----------------------------------------------------------------------===//
+
+// act_block_h search space: largest first (best throughput), step 32, down
+// to minimum 32.  Mirrors the search space in OperationValidationAndFallback
+// but scoped to L1Full (not DRAM slices) and driven by L1 pressure rather
+// than initial validation.
+static constexpr std::array<uint32_t, 32> kActBlockHSearchSpace = {
+    1024, 992, 960, 928, 896, 864, 832, 800, 768, 736, 704, 672, 640, 608,
+    576,  544, 512, 480, 448, 416, 384, 352, 320, 288, 256, 224, 192, 160,
+    128,  96,  64,  32};
+
+template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::tryReduceConv2dActBlockH(
+    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    std::function<void(uint64_t)> addResultsToLiveSet) {
+  // Only applicable to Conv2dOp.
+  auto conv2d = dyn_cast<Conv2dOp>(op);
+  if (!conv2d)
+    return false;
+
+  // Only when slice config is L1Full (DRAM-slice variants read from DRAM and
+  // do not benefit from keeping their predecessor in L1).
+  auto sliceCfg = conv2d.getConv2dSliceConfigAttr();
+  if (!sliceCfg || sliceCfg.getSliceType() != Conv2dSliceType::L1Full)
+    return false;
+
+  // Only when act_block_h is currently 0 (hardware auto = full activation).
+  // If it was already reduced by a prior pass, skip to avoid double-reduction.
+  auto originalConfigAttr = conv2d.getConv2dConfigAttr();
+  if (!originalConfigAttr)
+    return false;
+  Conv2dConfigParams originalParams(originalConfigAttr);
+  if (originalParams.actBlockHOverride.has_value() &&
+      *originalParams.actBlockHOverride != 0)
+    return false;
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    ACT_BLOCK_H_REDUCE: trying smaller act_block_h for {0} "
+               "(L1 occupied={1}/{2})",
+               ttmlir::opToString(op), memoryTracker.getOccupiedL1(),
+               l1BudgetPerCore);
+
+  // Try candidate act_block_h values from largest (best throughput) to smallest.
+  for (uint32_t abh : kActBlockHSearchSpace) {
+    Conv2dConfigParams newParams(originalConfigAttr);
+    newParams.actBlockHOverride = abh;
+    Conv2dConfigAttr newConfigAttr =
+        newParams.buildConv2dConfigAttr(op->getContext());
+    conv2d.setConv2dConfigAttr(newConfigAttr);
+
+    auto inputLayouts = utils::extractInputLayouts(op);
+    auto config = extractOpConfigFromIR(op);
+    auto result = memoryTracker.validate(op, inputLayouts, config);
+
+    if (!result.isSuccess()) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "    ACT_BLOCK_H_REDUCE: abh={0} failed validation", abh);
+      continue;
+    }
+
+    uint64_t l1Size =
+        result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
+    l1Size = ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
+
+    // ensureFitsL1 returns 0 when it demotes the op to DRAM due to
+    // fragmentation.  In that case the op is handled (no further OOM recovery
+    // needed), but we do not add to the live set.
+    if (l1Size == 0) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    ACT_BLOCK_H_REDUCE: abh={0} fits CB but demoted to "
+                   "DRAM by fragmentation guard",
+                   abh);
+      return true;
+    }
+
+    addResultsToLiveSet(l1Size);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    ACT_BLOCK_H_REDUCE: abh={0} fits, predecessor stays in "
+                 "L1. L1 now {1}/{2}",
+                 abh, memoryTracker.getOccupiedL1(), l1BudgetPerCore);
+    return true;
+  }
+
+  // No smaller act_block_h succeeded — restore original config and fall
+  // through to the normal eviction path.
+  conv2d.setConv2dConfigAttr(originalConfigAttr);
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    ACT_BLOCK_H_REDUCE: no act_block_h fit; falling back to "
+               "eviction for {0}",
+               ttmlir::opToString(op));
+  return false;
 }
 
 //===----------------------------------------------------------------------===//

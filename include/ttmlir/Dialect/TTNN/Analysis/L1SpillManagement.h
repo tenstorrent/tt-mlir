@@ -281,6 +281,15 @@ private:
                  const ScheduleData &data, uint64_t opL1Usage,
                  std::function<void(uint64_t)> addResultsToLiveSet);
 
+  /// For a conv2d with L1Full slice config and act_block_h=0, try progressively
+  /// smaller act_block_h values to reduce CB peak usage enough to fit within
+  /// the current L1 budget without evicting predecessor tensors. Returns true
+  /// if a smaller act_block_h was found and applied (op was handled); returns
+  /// false to fall through to the normal eviction path.
+  bool tryReduceConv2dActBlockH(
+      Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+      std::function<void(uint64_t)> addResultsToLiveSet);
+
   /// Evict all live L1 tensors. Used when encountering ops without OpModel
   /// support — since we cannot know their L1 requirements, the only safe
   /// choice is a full flush. Spill ops are inserted right before triggerOp
