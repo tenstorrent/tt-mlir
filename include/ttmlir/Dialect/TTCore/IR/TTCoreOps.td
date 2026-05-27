@@ -266,4 +266,45 @@ def TTCore_GetKeyValueOp : TTCore_Op<"get_key_value", [MemoryEffects<[MemRead]>]
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// TTCore Composite op
+//===----------------------------------------------------------------------===//
+
+def TTCore_CompositeOp : TTCore_Op<"composite", [TTCore_NonCacheableTrait]> {
+  let summary = "A named composite operation with an inlineable decomposition.";
+  let description = [{
+    A composite operation that carries a named fused pattern along with a
+    reference to a decomposition function. During lowering, the composite is
+    either promoted to a typed backend op (if validation succeeds) or its
+    decomposition body is inlined as a fallback.
+
+    Example:
+    ```mlir
+    %indices, %weights = ttcore.composite "topk_router_gpt"
+        (%input, %weight, %bias)
+        decomposition(@topk_router_gpt_decomp)
+        composite_attributes = {k = 4 : i32, num_experts = 128 : i32}
+        : (tensor<32x64xbf16>, tensor<64x128xbf16>, tensor<32x128xbf16>)
+          -> (tensor<32x4xui16>, tensor<32x4xbf16>)
+
+    func.func private @topk_router_gpt_decomp(
+        %arg0: tensor<32x64xbf16>,
+        %arg1: tensor<64x128xbf16>,
+        %arg2: tensor<32x128xbf16>)
+        -> (tensor<32x4xui16>, tensor<32x4xbf16>) {
+      // ... sequence of primitive ops ...
+    }
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$composite_name,
+                       FlatSymbolRefAttr:$decomposition,
+                       OptionalAttr<DictionaryAttr>:$composite_attributes);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let hasVerifier = 1;
+}
+
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPS_TD
