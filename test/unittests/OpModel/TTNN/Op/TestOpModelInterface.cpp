@@ -1701,11 +1701,11 @@ TEST_F(OpModelBase, TopKOp) {
   auto topKValues = createEmptyTensor(tensorShapeO);
   auto indices = createEmptyTensor(tensorShapeO);
   // TopKOp returns 2 tensors: top k values and their indices
-  auto topK = TopKOp::create(
-      builder, builder.getUnknownLoc(),
-      mlir::TypeRange{topKValues.getType(),
-                      indices.getType()}, // 2 result types
-      input, k, /*dim=*/-1, /*largest=*/false, /*sorted=*/true);
+  auto topK =
+      TopKOp::create(builder, builder.getUnknownLoc(),
+                     mlir::TypeRange{topKValues.getType(),
+                                     indices.getType()}, // 2 result types
+                     input, k, /*dim=*/-1, /*largest=*/false, /*sorted=*/true);
 
   // test TopK Op interface
   auto constraintsExp = getOpConstraints(topK.getOperation());

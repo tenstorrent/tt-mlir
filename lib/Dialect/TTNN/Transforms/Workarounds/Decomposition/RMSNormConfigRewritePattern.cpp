@@ -36,10 +36,10 @@ RMSNormConfigRewritePattern::matchAndRewrite(RMSNormOp srcOp,
       /*dstFullSyncEn=*/nullptr);
 
   // Create a new operation with the compute config set
-  auto newOp = RMSNormOp::create(
-      rewriter, srcOp.getLoc(), srcOp.getResult().getType(), srcOp.getInput(),
-      srcOp.getWeight(), srcOp.getBias(), srcOp.getEpsilonAttr(),
-      computeConfig);
+  auto newOp =
+      RMSNormOp::create(rewriter, srcOp.getLoc(), srcOp.getResult().getType(),
+                        srcOp.getInput(), srcOp.getWeight(), srcOp.getBias(),
+                        srcOp.getEpsilonAttr(), computeConfig);
 
   rewriter.replaceOp(srcOp, newOp.getResult());
   return success();
