@@ -41,6 +41,7 @@ namespace mlir::tt::d2m {
 } // namespace mlir::tt::d2m
 
 namespace {
+
 struct ConvertD2MToTTKernel
     : public d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
 
@@ -104,8 +105,10 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<memref::GlobalOp>();
     target.addLegalOp<memref::GetGlobalOp>();
 
-    target.addDynamicallyLegalOp<func::FuncOp>(
-        [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return !op->hasAttr(d2m::ThreadAttr::name) ||
+             op->hasAttr(ttkernel::ThreadTypeAttr::name);
+    });
 
     if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
             moduleOp, "D2MToTTKernel"))) {
@@ -198,6 +201,11 @@ struct ConvertD2MToTTKernel
       signalPassFailure();
       return;
     }
+
+    // The d2m.thread attr is kept until the end of this pass, when body
+    // rewrites have consumed nocIndex.
+    getOperation()->walk(
+        [](func::FuncOp funcOp) { funcOp->removeAttr(d2m::ThreadAttr::name); });
   };
 };
 } // namespace

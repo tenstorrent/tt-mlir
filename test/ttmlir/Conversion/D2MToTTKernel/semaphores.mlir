@@ -29,7 +29,7 @@ module {
   }
 
   // Remote multicast semaphore_set
-  func.func private @mcast_set() attributes {d2m.thread = #d2m.thread<datamovement>} {
+  func.func private @mcast_set() attributes {d2m.thread = #d2m.thread<datamovement, processor = 1>} {
     %sem0 = d2m.get_arg(0) : !d2m.local_semaphore
     %c7 = arith.constant 7 : index
     %y  = arith.constant 4 : index
@@ -39,10 +39,32 @@ module {
     d2m.semaphore_set %sem0, %c7, core[%y, %x] mcast[%h, %w] : !d2m.local_semaphore
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
-    // CHECK: %[[MADDR:[0-9]+]] = ttkernel.experimental::get_noc_multicast_addr({{.*}}, {{.*}}, {{.*}}, {{.*}}, %[[SEM]])
+    // CHECK: %[[NOC:[a-zA-Z0-9_]+]] = arith.constant 0 : i8
+    // CHECK: %[[MADDR:[0-9]+]] = ttkernel.get_noc_multicast_addr({{.*}}, {{.*}}, {{.*}}, {{.*}}, %[[SEM]], %[[NOC]])
     // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
     // CHECK: ttkernel.noc_semaphore_set(%[[PTR]], %c7)
     // CHECK: ttkernel.noc_semaphore_set_multicast(%[[SEM]], %[[MADDR]], {{.*}})
+    return
+  }
+
+  // Remote multicast semaphore_set on NOC1 flips the start and end coordinate
+  // operands before creating the standard multicast address.
+  func.func private @mcast_set_noc1() attributes {d2m.thread = #d2m.thread<datamovement, processor = 0>} {
+    %sem0 = d2m.get_arg(0) : !d2m.local_semaphore
+    %c7 = arith.constant 7 : index
+    %y  = arith.constant 4 : index
+    %x  = arith.constant 5 : index
+    %h  = arith.constant 2 : index
+    %w  = arith.constant 3 : index
+    d2m.semaphore_set %sem0, %c7, core[%y, %x] mcast[%h, %w] : !d2m.local_semaphore
+    // CHECK-LABEL: func.func private @mcast_set_noc1
+    // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore
+    // CHECK: %[[START_Y:[0-9]+]] = ttkernel.experimental::convert_logical_y_to_translated
+    // CHECK: %[[START_X:[0-9]+]] = ttkernel.experimental::convert_logical_x_to_translated
+    // CHECK: %[[END_Y:[0-9]+]] = ttkernel.experimental::convert_logical_y_to_translated
+    // CHECK: %[[END_X:[0-9]+]] = ttkernel.experimental::convert_logical_x_to_translated
+    // CHECK: %[[NOC:[a-zA-Z0-9_]+]] = arith.constant 1 : i8
+    // CHECK: ttkernel.get_noc_multicast_addr(%[[END_X]], %[[END_Y]], %[[START_X]], %[[START_Y]], %[[SEM]], %[[NOC]])
     return
   }
 
