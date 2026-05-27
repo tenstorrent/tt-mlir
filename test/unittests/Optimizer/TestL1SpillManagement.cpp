@@ -81,18 +81,18 @@ TEST_F(FarthestLastUseOrderingTest, EvictsFarthestNotNearest) {
 
 class SelfSpillTest : public L1SpillTestFixture {};
 
-// DISABLED until rpavlovic/remove-output-l1-usage-attr lands. On that
-// branch the Stage-3 OOM path switches from spillToDram to demoteToDram
-// for ops whose output alone exceeds the budget. Remove the DISABLED_
-// prefix after the branch merges.
-TEST_F(SelfSpillTest, DISABLED_OpTooLargeForBudgetDemotes) {
+// Op whose output alone exceeds budget cannot be made to fit by evicting
+// anything else. The pass demotes the op's output in place (result type
+// flips from L1 to DRAM) and fires onSelfSpill — this is the Stage-3
+// OOM path in handleOOM (post remove-output-l1-usage-attr).
+TEST_F(SelfSpillTest, OpTooLargeForBudgetDemotes) {
   l1BudgetPerCore = 1300 * kKiB;
   llvm::SmallVector<int64_t> shape = {1, 1, 2048, 1024};
   auto l1Layout = makeL1Sharded(shape);
   auto tt = tensorType(shape, l1Layout);
 
   auto args = beginFunc({tt});
-  // opA output ≈ 2 MB; budget ≈ 1.3 MB → cannot fit even with empty live set.
+  // opA output ≈ 2 MiB; budget ≈ 1.3 MiB → cannot fit even with empty live set.
   auto *opA = addUnary(args[0], tt, /*l1UsageBytes=*/2000 * kKiB);
   finishFunc({opA->getResult(0)});
 
@@ -108,9 +108,11 @@ TEST_F(SelfSpillTest, DISABLED_OpTooLargeForBudgetDemotes) {
   EXPECT_FALSE(layout.hasL1BufferType())
       << "opA should be demoted in place to DRAM";
 
-  // Observer should record the demotion (success=true).
-  ASSERT_FALSE(obs->demotions.empty()) << "expected at least one demotion event";
-  EXPECT_TRUE(obs->demotions.front().success);
+  // Stage-3 OOM path fires onSelfSpill. The action (demoteToDram) updates
+  // the result type but doesn't itself fire onDemotion.
+  ASSERT_FALSE(obs->selfSpills.empty())
+      << "expected an onSelfSpill event from Stage-3 OOM handling";
+  EXPECT_EQ(obs->selfSpills.front().op, opA);
 }
 
 //===----------------------------------------------------------------------===//
