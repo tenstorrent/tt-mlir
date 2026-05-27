@@ -12,6 +12,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn {
@@ -109,6 +110,28 @@ static void insertToLayoutRowMajorBF16(IRRewriter &rewriter, Operation *useOp,
       useOp->getLoc(), resultType, operand,
       LayoutAttr::get(rewriter.getContext(), Layout::RowMajor));
   useOp->setOperand(operandIdx, toLayout.getResult());
+}
+
+// Insert a ttnn.typecast on `useOp`'s `operandIdx` so the value observed by
+// `useOp` is `targetDtype`. The producer's result keeps its (lowered) dtype.
+//
+// TODO: ttnn.typecast on bfp_bf8 -> bf16 (Tile) is slow today. When tt-metal
+// exposes a fast kernel-level bfp_bf8(Tile) -> bf16(Tile) op, replace this
+// helper at the QKV-projection-matcher exit so RoPE / KV-cache consumers
+// receive bf16 without a separate device pass.
+static void insertTypecast(OpBuilder &builder, Operation *useOp,
+                           unsigned operandIdx, ttcore::DataType targetDtype) {
+  Value operand = useOp->getOperand(operandIdx);
+  auto operandType = mlir::cast<RankedTensorType>(operand.getType());
+  if (getValueDtype(operand) == targetDtype) {
+    return;
+  }
+  auto newType =
+      ttnn::utils::RankedTensorTypeFactory::create(operandType, targetDtype);
+  builder.setInsertionPoint(useOp);
+  auto typecast =
+      builder.create<TypecastOp>(useOp->getLoc(), newType, operand);
+  useOp->setOperand(operandIdx, typecast.getResult());
 }
 
 // Projection-residual shape (read-only check):
@@ -304,6 +327,68 @@ static bool tryLMHeadArgmaxMatcher(MatmulOp matmul) {
   }
 }
 
+// QKV projection matmul -> [slice / CCL / view]* -> rotary_embedding /
+// update_cache / fill_cache.
+//
+// Unlike the linear-chain matchers above, the fused QKV projection fans out:
+// slices split the matmul output into Q / K / V branches, so this matcher
+// walks the def-use tree instead of a single-use chain. The match is still
+// strict: every leaf consumer must be a RoPE or KV-cache write.
+//
+// Lowers the matmul output to bfp_bf8, propagates it through every
+// flow-through op, and inserts a ttnn.typecast back to bf16 before each
+// consumer (RoPE / KV-cache writes need bf16 in Tile layout, so the
+// to_layout-with-implicit-untilize fast path used by the LM-head matcher
+// does not apply).
+//
+// TODO: ttnn.typecast on bfp_bf8 -> bf16 (Tile) is too slow on hardware to
+// be a net CCL win today. This matcher is parked here until tt-metal
+// exposes a fast bfp_bf8(Tile) -> bf16(Tile) op; at that point swap the
+// `insertTypecast` call for a `to_layout`-style fast-path call analogous to
+// the LM-head matcher's exit.
+static bool tryQKVRoPEMatcher(MatmulOp matmul, OpBuilder &builder) {
+  if (!isLowerableFloat(getValueDtype(matmul.getResult()))) {
+    return false;
+  }
+
+  llvm::SmallVector<Operation *> flowOps;
+  llvm::SmallVector<std::pair<Operation *, unsigned>> exits;
+  llvm::SmallPtrSet<Operation *, 16> seen;
+  llvm::SmallVector<Value, 8> worklist{matmul.getResult()};
+  bool sawCCL = false;
+  while (!worklist.empty()) {
+    Value v = worklist.pop_back_val();
+    for (OpOperand &use : v.getUses()) {
+      Operation *user = use.getOwner();
+      if (isViewLikeOp(user) || isCCLOp(user)) {
+        if (user->getNumResults() != 1) {
+          return false;
+        }
+        if (seen.insert(user).second) {
+          sawCCL |= isCCLOp(user);
+          flowOps.push_back(user);
+          worklist.push_back(user->getResult(0));
+        }
+        continue;
+      }
+      // Exit: every leaf consumer must be a RoPE or KV-cache write.
+      if (!mlir::isa<RotaryEmbeddingOp, UpdateCacheOp, FillCacheOp>(user)) {
+        return false;
+      }
+      exits.emplace_back(user, use.getOperandNumber());
+    }
+  }
+  if (!sawCCL || exits.empty()) {
+    return false;
+  }
+
+  downcastChain(matmul, flowOps);
+  for (auto [exitOp, operandIdx] : exits) {
+    insertTypecast(builder, exitOp, operandIdx, ttcore::DataType::BFloat16);
+  }
+  return true;
+}
+
 class TTNNCCLActivationDtypeLoweringPass
     : public impl::TTNNCCLActivationDtypeLoweringBase<
           TTNNCCLActivationDtypeLoweringPass> {
@@ -313,6 +398,7 @@ public:
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
+    OpBuilder builder(&getContext());
 
     // Collect matmuls in a stable order before mutating; rewrites change the
     // IR and we don't want to revisit a transformed matmul.
@@ -327,6 +413,9 @@ public:
         continue;
       }
       if (tryMLPUpGateMatcher(matmul)) {
+        continue;
+      }
+      if (tryQKVRoPEMatcher(matmul, builder)) {
         continue;
       }
       if (tryLMHeadArgmaxMatcher(matmul)) {
