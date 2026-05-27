@@ -909,6 +909,38 @@ public:
 };
 } // namespace
 
+namespace {
+class GridSampleOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::GridSampleOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GridSampleOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GridSampleOp srcOp,
+                  mlir::tt::ttnn::GridSampleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GridSampleOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getGrid()),
+        emitter.emit(srcOp.getMode(), "mode"),
+        emitter.emit(srcOp.getPaddingMode(), "padding_mode"),
+        emitter.emit(srcOp.getAlignCorners(), "align_corners"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // CumSum op conversion pattern
 //
 namespace {
@@ -5213,7 +5245,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                GlobalAvgPool2dOpConversionPattern,
                MaxPool2dOpConversionPattern,
                MaxPool2dWithIndicesOpConversionPattern,
-               UpsampleOpConversionPattern
+               UpsampleOpConversionPattern,
+               GridSampleOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
 

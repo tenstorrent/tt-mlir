@@ -16627,6 +16627,31 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def grid_sample(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output: Operand,
+        mode: str = "bilinear",
+        padding_mode: str = "zeros",
+        align_corners: bool = False,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        output_shape = self._get_golden_tensor(output).shape
+        kwargs = {
+            "mode": mode,
+            "padding_mode": padding_mode,
+            "align_corners": align_corners,
+        }
+        return self._op_proxy(
+            ttir.GridSampleOp,
+            [in0, in1, output],
+            ttir_kwargs=kwargs,
+            organize_ttir_args=lambda i, _: (self._get_type(i[2]), i[0], i[1]),
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+        )
+
     # class TTIR_GenericElementwiseBinaryOp
 
     def atan2(

@@ -54,6 +54,7 @@
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/generic/generic_pools.hpp"
 #include "ttnn/operations/pool/upsample/upsample.hpp"
+#include "ttnn/operations/pool/grid_sample/grid_sample.hpp"
 #include "ttnn/operations/rand/rand.hpp"
 #include "ttnn/operations/reduction/accumulation/cumsum/cumsum.hpp"
 #include "ttnn/operations/reduction/argmax/argmax.hpp"

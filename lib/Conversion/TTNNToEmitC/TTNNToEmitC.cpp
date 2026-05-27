@@ -1078,6 +1078,37 @@ public:
   }
 };
 
+class GridSampleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::GridSampleOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GridSampleOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GridSampleOp srcOp,
+                  mlir::tt::ttnn::GridSampleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GridSampleOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getGrid()),
+        emitter.emit(srcOp.getMode()),
+        emitter.emit(srcOp.getPaddingMode()),
+        emitter.emit(srcOp.getAlignCorners()),
+        emitter.emit(std::nullopt), // use_precomputed_grid = false
+        emitter.emit(std::nullopt), // batch_output_channels = false
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+
 // Quantization ops conversion pattern
 //
 template <typename OpType>
@@ -5439,6 +5470,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<MaxPool2dWithIndicesOpConversionPattern>(typeConverter, ctx);
   patterns.add<GlobalAvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
+  patterns.add<GridSampleOpConversionPattern>(typeConverter, ctx);
 
   // Convolution ops
   //

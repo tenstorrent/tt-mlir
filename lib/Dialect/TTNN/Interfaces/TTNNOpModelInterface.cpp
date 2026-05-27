@@ -4852,6 +4852,23 @@ PermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// GridSampleOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+GridSampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return detail::issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+GridSampleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return detail::issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
 // UpsampleOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
