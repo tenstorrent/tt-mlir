@@ -28,7 +28,7 @@ SSAName = NewType("SSAName", str)
 
 # Operand role name on an OpView (e.g. "lhs", "rhs", "input"). Sourced from
 # `OpView.OPERAND_NAMES`; used to dispatch goldens by their declared keyword
-# arguments and to label in-place mutation records.
+# arguments.
 RoleName = NewType("RoleName", str)
 
 
@@ -50,36 +50,34 @@ def get_op_inputs(op: Operation) -> list[Value]:
 def get_inplace_input_refs(op, input_refs, asm_state) -> list:
     """Pair each in-place mutated tensor operand with its TensorRef.
 
-    Returns a list of `(role, ssa, tensor_ref)`. `input_refs` is the flat
-    list of tensor-typed operand refs from the runtime (same order as
-    `get_op_inputs(op)`); in-place operands are a subset of those, so we
-    walk both in parallel and emit a triple when an SSA name matches one
-    of the in-place values reported by `get_flat_inplace_vals`.
+    Returns a list of `(ssa, tensor_ref)`. `input_refs` is the flat list of
+    tensor-typed operand refs from the runtime (same order as
+    `get_op_inputs(op)`); in-place operands are a subset of those, so we walk
+    both in parallel and emit a pair when an SSA name matches one of the
+    in-place values reported by `get_inplace_vals`.
     """
-    inplace_pairs = get_flat_inplace_vals(op)
-    if not inplace_pairs:
+    inplace_vals = get_inplace_vals(op)
+    if not inplace_vals:
         return []
-    role_by_ssa = {val.get_name(asm_state): role for role, val in inplace_pairs}
-    out = []
+    inplace_ssas = {val.get_name(asm_state) for val in inplace_vals}
+    out: list[tuple[SSAName, object]] = []
     for mlir_in, ref in zip(get_op_inputs(op), input_refs):
         ssa = mlir_in.get_name(asm_state)
-        role = role_by_ssa.get(ssa)
-        if role is None:
+        if ssa not in inplace_ssas:
             continue
-        out.append((role, ssa, ref))
+        out.append((ssa, ref))
     return out
 
 
-def get_flat_inplace_vals(op) -> list[tuple[RoleName, Value]]:
-    """Return (role, value) pairs for tensor operands `op` declares MemWrite on.
+def get_inplace_vals(op) -> list[Value]:
+    """Return tensor operands `op` declares MemWrite on, in flat operand order.
 
     Driven by MemoryEffectOpInterface via
-    `ttmlir.util.get_write_effect_operand_indices`. Returns [] when:
+    `ttmlir.util.get_write_effect_operand_indices`, which returns flat
+    operand indices (variadics already expanded). Returns [] when:
       - the op doesn't implement MemoryEffectOpInterface (effects unknown),
       - the op writes to no operand, or
       - all write-effect operands are non-tensor (e.g. device handles).
-    The C++ side flattens variadic operands, so OpOperandList expansion is
-    handled there.
 
     Accepts either an MLIR `Operation` or an `OpView`. The C++ binding takes
     `MlirOperation`, so we normalize via `op.operation` when present.
@@ -89,20 +87,7 @@ def get_flat_inplace_vals(op) -> list[tuple[RoleName, Value]]:
     if not indices:
         return []
     operands = list(mlir_op.operands)
-    # OPERAND_NAMES lives on the OpView class. If `op` is an Operation, its
-    # `.opview` gives us the typed view; if it already is an OpView, use it.
-    opview = op.opview if hasattr(op, "opview") else op
-    names = getattr(type(opview), "OPERAND_NAMES", None) or []
-    out: list[tuple[RoleName, Value]] = []
-    for i in indices:
-        if i >= len(operands):
-            continue
-        val = operands[i]
-        if not is_tensor_value(val):
-            continue
-        role = RoleName(names[i] if i < len(names) else f"operand[{i}]")
-        out.append((role, val))
-    return out
+    return [operands[i] for i in indices if is_tensor_value(operands[i])]
 
 
 class IRModule:

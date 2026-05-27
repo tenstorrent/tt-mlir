@@ -90,7 +90,6 @@ def check_numerics(
     golden: GoldenMapTensor,
     device: GoldenMapTensor,
     mode: NumericsMode = NumericsMode.ISOLATED,
-    role: Optional[str] = None,
 ) -> None:
     """Per-shard PCC check; emits one record per shard, tagged by `mode`."""
     check = "numerics"
@@ -132,7 +131,6 @@ def check_numerics(
                     atol=atol,
                     rtol=rtol,
                     device_id=device_id,
-                    role=role,
                 ),
             )
         )

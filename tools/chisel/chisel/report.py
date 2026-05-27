@@ -73,7 +73,6 @@ class NumericsPayload(_Payload):
     atol: float
     rtol: float
     device_id: Optional[int] = None
-    role: Optional[str] = None
 
 
 class ShapeMismatchPayload(_Payload):
@@ -95,7 +94,6 @@ class ErrorPayload(_Payload):
 class SkippedNumericsPayload(_Payload):
     status: Literal[RecordStatus.SKIPPED_NUMERICS] = RecordStatus.SKIPPED_NUMERICS
     mode: NumericsMode
-    role: Optional[str] = None
 
 
 class NoGoldenPayload(_Payload):

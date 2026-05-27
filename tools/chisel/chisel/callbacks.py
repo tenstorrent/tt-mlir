@@ -11,7 +11,7 @@ are recorded as chisel_bug.
 import logging
 from contextlib import contextmanager
 from enum import Enum
-from typing import Iterator, Optional
+from typing import Iterator
 
 from _ttmlir_runtime import runtime as tt_runtime
 from _ttmlir_runtime.binary import Binary
@@ -143,7 +143,6 @@ def _emit_pcc(
     *,
     mode: NumericsMode,
     skip_pcc: bool,
-    role: Optional[str] = None,
 ) -> None:
     """Shape/dtype + PCC for one (golden, device) pair under `mode`."""
     check_shape_dtype(op, "mlir_vs_golden", mlir_value, golden_out)
@@ -153,11 +152,11 @@ def _emit_pcc(
                 op=op.name,
                 check="numerics",
                 ssa=ssa,
-                payload=SkippedNumericsPayload(mode=mode, role=role),
+                payload=SkippedNumericsPayload(mode=mode),
             )
         )
         return
-    check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode, role=role)
+    check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode)
 
 
 def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
@@ -165,7 +164,7 @@ def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
     op = ctx.op
     asm_state = ctx.asm_state
     golden_pool = ctx.golden_tensor_pool
-    for role, ssa, _ref in get_inplace_input_refs(op, ctx.input_refs, asm_state):
+    for ssa, _ref in get_inplace_input_refs(op, ctx.input_refs, asm_state):
         golden_pool.pop(ssa, None)
         ctx.write_record(
             ChiselRecord(
@@ -181,8 +180,7 @@ def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
 def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     """Run isolation + accumulation goldens; shape/dtype + PCC each output."""
     if config.no_golden:
-        # IR-driven dispatch: only no-golden ops that mutate operands need
-        # the eviction sweep; pure no-golden ops fall through to return.
+        # In case where we dont have golden for the operation we need to remove the golden as it will be giving false errors on this tensor afterward.
         _evict_inplace_no_golden(ctx)
         return
 
@@ -201,25 +199,21 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         modes.append(NumericsMode.ACCUMULATED)
 
     # Validate SSA outputs and in-place mutated operands with one loop.
-    result_names = getattr(type(op), "RESULT_NAMES", None) or []
-    entries: list[tuple[Optional[str], Value, TensorRef]] = [
-        (result_names[i] if i < len(result_names) else None, mlir_out, ref)
-        for i, (mlir_out, ref) in enumerate(
-            zip(mlir_op_outputs, ctx.output_refs, strict=True)
-        )
-    ]
+    # The SSA on each emitted record disambiguates which entry the record
+    # describes; no per-entry role label is needed in the payload.
+    entries: list[tuple[Value, TensorRef]] = list(
+        zip(mlir_op_outputs, ctx.output_refs, strict=True)
+    )
     if inplace_refs:
         ssa_to_value = {inp.get_name(asm_state): inp for inp in get_op_inputs(op)}
-        entries.extend(
-            (role, ssa_to_value[ssa], ref) for role, ssa, ref in inplace_refs
-        )
+        entries.extend((ssa_to_value[ssa], ref) for ssa, ref in inplace_refs)
 
     # Pull every entry's device tensor once; the device-side bytes don't
     # change between iso and accum golden runs (goldens run host-side),
     # so we share the retrieved tensor across all enabled modes.
     device_tensors = [
         _validate_and_retrieve_tensor(ctx, mlir_value, tensor_ref)
-        for _, mlir_value, tensor_ref in entries
+        for mlir_value, tensor_ref in entries
     ]
 
     # Each enabled mode runs its golden once; the result is aligned with
@@ -229,15 +223,11 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     # so we need to push them in to keep the chain coherent.
     for mode in modes:
         if mode is NumericsMode.ISOLATED:
-            all_outs = execute_golden_with_ssa_inputs(
-                op, ctx.stashed_inputs, asm_state
-            )
+            all_outs = execute_golden_with_ssa_inputs(op, ctx.stashed_inputs, asm_state)
         else:
-            all_outs = execute_golden_from_pool(
-                op, ctx.golden_tensor_pool, asm_state
-            )
+            all_outs = execute_golden_from_pool(op, ctx.golden_tensor_pool, asm_state)
 
-        for idx, (role, mlir_value, _tensor_ref) in enumerate(entries):
+        for idx, (mlir_value, _tensor_ref) in enumerate(entries):
             ssa = mlir_value.get_name(asm_state)
             golden_out = all_outs[idx]
             _emit_pcc(
@@ -249,7 +239,6 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
                 device_tensors[idx],
                 mode=mode,
                 skip_pcc=config.skip_pcc,
-                role=role,
             )
             if mode is NumericsMode.ACCUMULATED:
                 ctx.golden_tensor_pool[ssa] = golden_out

@@ -19,7 +19,7 @@ from .exceptions import GoldenNotImplementedError
 from .ops import (
     RoleName,
     SSAName,
-    get_flat_inplace_vals,
+    get_inplace_vals,
     get_op_inputs,
     get_op_outputs,
     is_tensor_value,
@@ -92,7 +92,7 @@ def execute_golden(
         )
 
     ssa_count = len(get_op_outputs(op))
-    inplace_vals = get_flat_inplace_vals(op)
+    inplace_vals = get_inplace_vals(op)
     expected = ssa_count + len(inplace_vals)
     assert len(tensors) == expected, (
         f"Golden for {type(op).__name__} returned {len(tensors)} tensor(s) "
