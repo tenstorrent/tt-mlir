@@ -69,3 +69,41 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     // CHECK: return
     func.return
 }
+
+// CHECK: inline float ttkernel_i32_to_f32
+// CHECK: inline int32_t ttkernel_f32_to_i32
+// CHECK: inline float ttkernel_u32_to_f32
+// CHECK: inline uint32_t ttkernel_f32_to_u32
+// CHECK: inline float ttkernel_i16_to_bf16
+// CHECK: inline int16_t ttkernel_bf16_to_i16
+// CHECK: inline float ttkernel_u16_to_bf16
+// CHECK: inline uint16_t ttkernel_bf16_to_u16
+// CHECK: void kernel_main
+func.func @ttkernel_noc_bitcast_helpers() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    %src_i32 = arith.constant 1065353216 : i32
+    // CHECK: float [[I32_AS_F32:.*]] = ttkernel_i32_to_f32
+    %i32_as_f32 = ttkernel.bitcast %src_i32 : i32 to f32
+    // CHECK: int32_t {{.*}} = ttkernel_f32_to_i32([[I32_AS_F32]])
+    %f32_as_i32 = ttkernel.bitcast %i32_as_f32 : f32 to i32
+
+    %src_ui32 = ttkernel.get_compile_time_arg_val(0) : () -> ui32
+    // CHECK: float [[UI32_AS_F32:.*]] = ttkernel_u32_to_f32(get_compile_time_arg_val(0))
+    %ui32_as_f32 = ttkernel.bitcast %src_ui32 : ui32 to f32
+    // CHECK: uint32_t {{.*}} = ttkernel_f32_to_u32([[UI32_AS_F32]])
+    %f32_as_ui32 = ttkernel.bitcast %ui32_as_f32 : f32 to ui32
+
+    %src_i16 = arith.constant 16256 : i16
+    // CHECK: float [[I16_AS_BF16:.*]] = ttkernel_i16_to_bf16
+    %i16_as_bf16 = ttkernel.bitcast %src_i16 : i16 to bf16
+    // CHECK: int16_t {{.*}} = ttkernel_bf16_to_i16([[I16_AS_BF16]])
+    %bf16_as_i16 = ttkernel.bitcast %i16_as_bf16 : bf16 to i16
+
+    // CHECK: uint16_t [[SRC_UI16:.*]] = (uint16_t) get_compile_time_arg_val(0)
+    %src_ui16 = ttkernel.bitcast %src_ui32 : ui32 to ui16
+    // CHECK: float [[UI16_AS_BF16:.*]] = ttkernel_u16_to_bf16([[SRC_UI16]])
+    %ui16_as_bf16 = ttkernel.bitcast %src_ui16 : ui16 to bf16
+    // CHECK: uint16_t {{.*}} = ttkernel_bf16_to_u16([[UI16_AS_BF16]])
+    %bf16_as_ui16 = ttkernel.bitcast %ui16_as_bf16 : bf16 to ui16
+    // CHECK: return
+    func.return
+}

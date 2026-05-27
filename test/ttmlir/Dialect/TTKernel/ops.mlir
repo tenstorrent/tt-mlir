@@ -245,3 +245,27 @@ func.func @test_remote_mailbox_protocol_ops(%mailbox: !ttkernel.l1_addr) {
   %sink = arith.addi %loaded, %zero : i32
   return
 }
+
+// CHECK-LABEL: func.func @test_bitcast_pairs
+// CHECK-SAME: (%[[I32_BITS:.*]]: i32, %[[UI32_BITS:.*]]: ui32, %[[F32_VALUE:.*]]: f32, %[[I16_BITS:.*]]: i16, %[[UI16_BITS:.*]]: ui16, %[[BF16_VALUE:.*]]: bf16, %[[CT_ARG:.*]]: ui32)
+func.func @test_bitcast_pairs(%i32_bits: i32, %ui32_bits: ui32, %f32_value: f32, %i16_bits: i16, %ui16_bits: ui16, %bf16_value: bf16, %ct_arg: ui32) {
+  // CHECK: ttkernel.bitcast %[[I32_BITS]] : i32 to f32
+  %f32 = ttkernel.bitcast %i32_bits : i32 to f32
+  // CHECK: ttkernel.bitcast %[[UI32_BITS]] : ui32 to f32
+  %f32_from_ui32 = ttkernel.bitcast %ui32_bits : ui32 to f32
+  // CHECK: ttkernel.bitcast %[[F32_VALUE]] : f32 to i32
+  %i32 = ttkernel.bitcast %f32_value : f32 to i32
+  // CHECK: ttkernel.bitcast %[[F32_VALUE]] : f32 to ui32
+  %ui32 = ttkernel.bitcast %f32_value : f32 to ui32
+  // CHECK: ttkernel.bitcast %[[I16_BITS]] : i16 to bf16
+  %bf16 = ttkernel.bitcast %i16_bits : i16 to bf16
+  // CHECK: ttkernel.bitcast %[[UI16_BITS]] : ui16 to bf16
+  %bf16_from_ui16 = ttkernel.bitcast %ui16_bits : ui16 to bf16
+  // CHECK: ttkernel.bitcast %[[BF16_VALUE]] : bf16 to i16
+  %i16 = ttkernel.bitcast %bf16_value : bf16 to i16
+  // CHECK: ttkernel.bitcast %[[BF16_VALUE]] : bf16 to ui16
+  %ui16 = ttkernel.bitcast %bf16_value : bf16 to ui16
+  // CHECK: ttkernel.bitcast %[[CT_ARG]] : ui32 to f16
+  %f16 = ttkernel.bitcast %ct_arg : ui32 to f16
+  return
+}

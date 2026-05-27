@@ -43,6 +43,67 @@ namespace mlir::tt::ttkernel {
 // kernel.
 namespace {
 
+static StringRef getBitcastHelperDefinition(StringRef callee) {
+  if (callee == "ttkernel_u32_to_f32") {
+    return "inline float ttkernel_u32_to_f32(const uint32_t bits) { "
+           "float result; __builtin_memcpy(&result, &bits, sizeof(result)); "
+           "return result; }";
+  }
+  if (callee == "ttkernel_i32_to_f32") {
+    return "inline float ttkernel_i32_to_f32(const int32_t bits) { "
+           "float result; __builtin_memcpy(&result, &bits, sizeof(result)); "
+           "return result; }";
+  }
+  if (callee == "ttkernel_f32_to_i32") {
+    return "inline int32_t ttkernel_f32_to_i32(const float value) { "
+           "int32_t result; __builtin_memcpy(&result, &value, "
+           "sizeof(result)); return result; }";
+  }
+  if (callee == "ttkernel_f32_to_u32") {
+    return "inline uint32_t ttkernel_f32_to_u32(const float value) { "
+           "uint32_t result; __builtin_memcpy(&result, &value, "
+           "sizeof(result)); return result; }";
+  }
+  if (callee == "ttkernel_u32_to_bf16") {
+    return "inline float ttkernel_u32_to_bf16(const uint32_t bits) { "
+           "uint32_t f32Bits = (bits & 0xffffu) << 16; float result; "
+           "__builtin_memcpy(&result, &f32Bits, sizeof(result)); return "
+           "result; }";
+  }
+  if (callee == "ttkernel_i16_to_bf16") {
+    return "inline float ttkernel_i16_to_bf16(const int16_t bits) { "
+           "uint16_t storageBits; __builtin_memcpy(&storageBits, &bits, "
+           "sizeof(storageBits)); uint32_t f32Bits = "
+           "static_cast<uint32_t>(storageBits) << 16; float result; "
+           "__builtin_memcpy(&result, &f32Bits, sizeof(result)); return "
+           "result; }";
+  }
+  if (callee == "ttkernel_u16_to_bf16") {
+    return "inline float ttkernel_u16_to_bf16(const uint16_t bits) { "
+           "uint32_t f32Bits = static_cast<uint32_t>(bits) << 16; "
+           "float result; __builtin_memcpy(&result, &f32Bits, "
+           "sizeof(result)); return result; }";
+  }
+  if (callee == "ttkernel_bf16_to_i16") {
+    return "// Pack bf16 by truncating the float carrier to its upper 16 "
+           "bits.\n"
+           "inline int16_t ttkernel_bf16_to_i16(const float value) { "
+           "uint32_t bits; __builtin_memcpy(&bits, &value, sizeof(bits)); "
+           "uint16_t storageBits = static_cast<uint16_t>(bits >> 16); "
+           "int16_t result; __builtin_memcpy(&result, &storageBits, "
+           "sizeof(result)); return result; "
+           "}";
+  }
+  if (callee == "ttkernel_bf16_to_u16") {
+    return "// Pack bf16 by truncating the float carrier to its upper 16 "
+           "bits.\n"
+           "inline uint16_t ttkernel_bf16_to_u16(const float value) { "
+           "uint32_t bits; __builtin_memcpy(&bits, &value, sizeof(bits)); "
+           "return static_cast<uint16_t>(bits >> 16); }";
+  }
+  return {};
+}
+
 class ScopedModuleHelper {
 public:
   ScopedModuleHelper(OpBuilder *builder, Location loc, Region *region,
@@ -102,6 +163,8 @@ public:
       if (callee.starts_with("ttmlir::dprint")) {
         hasDevicePrint = true;
       }
+
+      emitBitcastHelper(callee);
 
       // Our experimental kernel code snippets.
       if (callee == "experimental::unpack_stall_on_pack") {
@@ -211,6 +274,10 @@ public:
       builder->create<emitc::IncludeOp>(loc, header, isStandard);
     }
 
+    for (llvm::StringRef helper : bitcastHelpersToEmit) {
+      builder->create<emitc::VerbatimOp>(loc, helper);
+    }
+
     if (threadType == ThreadType::Compute) {
       // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
       // ops).
@@ -227,6 +294,17 @@ public:
     for (llvm::StringRef snippet : llksToEmit) {
       builder->create<emitc::VerbatimOp>(loc, snippet);
     }
+  }
+
+  void emitBitcastHelper(StringRef callee) {
+    StringRef definition = getBitcastHelperDefinition(callee);
+    if (definition.empty()) {
+      return;
+    }
+    if (!emittedBitcastHelpers.insert(definition).second) {
+      return;
+    }
+    bitcastHelpersToEmit.push_back(definition);
   }
 
   ~ScopedModuleHelper() = default;
@@ -297,7 +375,9 @@ private:
   OpBuilder *builder;
   Location loc;
   std::set<llvm::StringRef> emittedLlks;
+  std::set<llvm::StringRef> emittedBitcastHelpers;
   llvm::SmallVector<llvm::StringRef> llksToEmit;
+  llvm::SmallVector<llvm::StringRef> bitcastHelpersToEmit;
 };
 } // namespace
 

@@ -19,6 +19,10 @@ def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 
 def IndexLike: AnyTypeOf<[Index, I32]>;
 
+def TTKernel_BitcastInputScalar: AnyTypeOf<[AnyInteger, F32, BF16, F16]>;
+def TTKernel_BitcastResultScalar:
+    AnyTypeOf<[AnyInteger, Index, F32, BF16, F16]>;
+
 //===----------------------------------------------------------------------===//
 // TTKernel Compute Kernel Hardware Startup operation
 //===----------------------------------------------------------------------===//
@@ -3790,16 +3794,20 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
 //===----------------------------------------------------------------------===//
 
 def TTKernel_BitcastOp : TTKernel_Op<"bitcast", [Pure]> {
-    let summary = "Reinterpret a ui32 compile-time arg value as a scalar type.";
+    let summary = "Reinterpret scalar storage bits across TTKernel scalar types.";
     let description = [{
-      Reinterprets the bits of a ui32 compile-time arg as the given type.
-      Used to recover typed scalar kernel arguments after reading them from
-      the compile-time arg slot (which always stores ui32).
+      Reinterprets scalar storage bits across TTKernel scalar types. A ui32
+      input represents a compile-time argument slot and may be unpacked to the
+      scalar result types used by D2M argument lowering. Elementwise storage
+      boundary bitcasts are supported for i32/ui32 <-> f32 and i16/ui16 <->
+      bf16.
     }];
 
-    let arguments = (ins UI32:$input);
+    let arguments = (ins TTKernel_BitcastInputScalar:$input);
 
-    let results = (outs AnyType:$result);
+    let results = (outs TTKernel_BitcastResultScalar:$result);
+
+    let hasVerifier = 1;
 
     let assemblyFormat = [{
       $input `:` type($input) `to` type($result) attr-dict

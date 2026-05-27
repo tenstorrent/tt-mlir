@@ -2553,6 +2553,59 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @bitcast_storage_pairs
+    func.func @bitcast_storage_pairs() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[SRC_I32:.*]] = "emitc.constant"
+      %src_i32 = arith.constant 1065353216 : i32
+      // CHECK: emitc.call_opaque "ttkernel_i32_to_f32"(%[[SRC_I32]]) : (i32) -> f32
+      %i32_as_f32 = ttkernel.bitcast %src_i32 : i32 to f32
+
+      // CHECK: %[[SRC_UI32:.*]] = emitc.literal "get_compile_time_arg_val(0)" : ui32
+      %src_ui32 = ttkernel.get_compile_time_arg_val(0) : () -> ui32
+      // CHECK: emitc.call_opaque "ttkernel_u32_to_f32"(%[[SRC_UI32]]) : (ui32) -> f32
+      %ui32_as_f32 = ttkernel.bitcast %src_ui32 : ui32 to f32
+
+      // CHECK: %[[SRC_F32:.*]] = "emitc.constant"
+      %src_f32 = arith.constant 1.0 : f32
+      // CHECK: emitc.call_opaque "ttkernel_f32_to_i32"(%[[SRC_F32]]) : (f32) -> i32
+      %f32_as_i32 = ttkernel.bitcast %src_f32 : f32 to i32
+      // CHECK: emitc.call_opaque "ttkernel_f32_to_u32"(%[[SRC_F32]]) : (f32) -> ui32
+      %f32_as_ui32 = ttkernel.bitcast %src_f32 : f32 to ui32
+
+      // CHECK: %[[SRC_I16:.*]] = "emitc.constant"
+      %src_i16 = arith.constant 16256 : i16
+      // CHECK: emitc.call_opaque "ttkernel_i16_to_bf16"(%[[SRC_I16]]) : (i16) -> f32
+      %i16_as_bf16 = ttkernel.bitcast %src_i16 : i16 to bf16
+
+      // CHECK: %[[SRC_UI16:.*]] = emitc.cast %[[SRC_UI32]] : ui32 to ui16
+      %src_ui16 = ttkernel.bitcast %src_ui32 : ui32 to ui16
+      // CHECK: emitc.call_opaque "ttkernel_u16_to_bf16"(%[[SRC_UI16]]) : (ui16) -> f32
+      %ui16_as_bf16 = ttkernel.bitcast %src_ui16 : ui16 to bf16
+
+      // CHECK: %[[SRC_BF16:.*]] = "emitc.constant"
+      %src_bf16 = arith.constant 1.0 : bf16
+      // CHECK: emitc.call_opaque "ttkernel_bf16_to_i16"(%[[SRC_BF16]]) : (f32) -> i16
+      %bf16_as_i16 = ttkernel.bitcast %src_bf16 : bf16 to i16
+      // CHECK: emitc.call_opaque "ttkernel_bf16_to_u16"(%[[SRC_BF16]]) : (f32) -> ui16
+      %bf16_as_ui16 = ttkernel.bitcast %src_bf16 : bf16 to ui16
+      return
+    }
+
+    // CHECK-LABEL: func @bitcast_compile_time_arg_regression
+    func.func @bitcast_compile_time_arg_regression() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CT_ARG:.*]] = emitc.literal "get_compile_time_arg_val(0)" : ui32
+      %ct_arg = ttkernel.get_compile_time_arg_val(0) : () -> ui32
+      // CHECK: emitc.cast %[[CT_ARG]] : ui32 to i32
+      %ct_arg_as_i32 = ttkernel.bitcast %ct_arg : ui32 to i32
+      // CHECK: emitc.call_opaque "ttkernel_u32_to_f32"(%[[CT_ARG]]) : (ui32) -> f32
+      %ct_arg_as_f32 = ttkernel.bitcast %ct_arg : ui32 to f32
+      // CHECK: emitc.call_opaque "ttkernel_u32_to_bf16"(%[[CT_ARG]]) : (ui32) -> f32
+      %ct_arg_as_bf16 = ttkernel.bitcast %ct_arg : ui32 to bf16
+      // CHECK: emitc.cast %[[CT_ARG]] : ui32 to ui16
+      %ct_arg_as_f16 = ttkernel.bitcast %ct_arg : ui32 to f16
+      return
+    }
+
   } // module
 
 } // module

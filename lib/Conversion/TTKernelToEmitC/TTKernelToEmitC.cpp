@@ -642,6 +642,18 @@ private:
 } // namespace
 
 namespace {
+static bool isUnsignedInteger(Type type, unsigned bitWidth) {
+  auto integerType = dyn_cast<IntegerType>(type);
+  return integerType && integerType.getWidth() == bitWidth &&
+         integerType.getSignedness() == IntegerType::Unsigned;
+}
+
+static bool isSignlessInteger(Type type, unsigned bitWidth) {
+  auto integerType = dyn_cast<IntegerType>(type);
+  return integerType && integerType.getWidth() == bitWidth &&
+         integerType.getSignedness() == IntegerType::Signless;
+}
+
 class TTKernelBitcastOpRewriter
     : public OpConversionPattern<ttkernel::BitcastOp> {
 public:
@@ -650,12 +662,11 @@ public:
   LogicalResult
   matchAndRewrite(ttkernel::BitcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    Type inputType = op.getInput().getType();
     Type resultType = op.getResult().getType();
     Value input = adaptor.getInput();
 
-    // Integer and index types: static_cast handles reinterpretation correctly.
-    // IndexType lowers to emitc::SizeTType (size_t) via the type converter.
-    if (mlir::isa<IntegerType, IndexType>(resultType)) {
+    auto replaceWithCast = [&]() -> LogicalResult {
       Type convertedType = getTypeConverter()->convertType(resultType);
       if (!convertedType) {
         return rewriter.notifyMatchFailure(
@@ -663,63 +674,64 @@ public:
       }
       rewriter.replaceOpWithNewOp<emitc::CastOp>(op, convertedType, input);
       return success();
-    }
+    };
 
-    // Float types: bit-cast via __builtin_memcpy (well-defined, avoids UB).
-    // Derive a unique variable name from the SSA result number.
-    std::string ssaName;
-    {
-      llvm::raw_string_ostream os(ssaName);
-      mlir::OpPrintingFlags flags;
-      op.getResult().printAsOperand(os, flags);
-      os.flush();
-    }
-    std::string varName = "_rc" + ssaName.substr(1);
-
-    // Emits: uint32_t <var>_src = <srcInit>; float <var>;
-    //        __builtin_memcpy(&<var>, &<var>_src, sizeof(<var>));
-    // then replaces op with a LiteralOp referencing <var>.
-    auto emitMemcpyBitcast = [&](std::string srcInit) -> LogicalResult {
-      std::string code = "uint32_t " + varName + "_src = " + srcInit +
-                         "; float " + varName + "; __builtin_memcpy(&" +
-                         varName + ", &" + varName + "_src, sizeof(" + varName +
-                         "));";
-      rewriter.create<emitc::VerbatimOp>(
-          op.getLoc(), rewriter.getStringAttr(code), ValueRange{input});
-      rewriter.replaceOp(
-          op, rewriter
-                  .create<emitc::LiteralOp>(
-                      op.getLoc(), Float32Type::get(op.getContext()), varName)
-                  .getResult());
+    auto replaceWithHelperCall = [&](StringRef callee) -> LogicalResult {
+      Type convertedType = getTypeConverter()->convertType(resultType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(op, "unsupported bitcast result");
+      }
+      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          op, convertedType, callee,
+          /*args=*/nullptr,
+          /*templateArgs=*/nullptr, adaptor.getOperands());
       return success();
     };
 
-    if (mlir::isa<Float32Type>(resultType)) {
-      // uint32 -> float: store input in an addressable temporary, then memcpy.
-      // "{{" escapes to "{" in EmitC verbatim; "}" needs no escaping.
-      return emitMemcpyBitcast("{}");
-    }
-
-    if (mlir::isa<BFloat16Type>(resultType)) {
-      // BFloat16 arg is packed in the lower 16 bits of the uint32.
-      // BFloat16 == upper 16 bits of float32, so shift left by 16 to get the
-      // correct float32 bit pattern. The type converter maps bf16 -> float.
-      return emitMemcpyBitcast("static_cast<uint32_t>({}) << 16");
-    }
-
-    if (mlir::isa<Float16Type>(resultType)) {
-      // Float16 arg is packed in the lower 16 bits of the uint32.
-      // Truncate to uint16_t to preserve the bit pattern.
-      // Type converter maps Float16Type -> ui16 consistently.
-      Type convertedType = getTypeConverter()->convertType(resultType);
-      if (!convertedType) {
-        return rewriter.notifyMatchFailure(op, "unsupported f16 result type");
+    if (isUnsignedInteger(inputType, 32)) {
+      if (mlir::isa<IntegerType, IndexType, Float16Type>(resultType)) {
+        return replaceWithCast();
       }
-      rewriter.replaceOpWithNewOp<emitc::CastOp>(op, convertedType, input);
-      return success();
+      if (mlir::isa<Float32Type>(resultType)) {
+        return replaceWithHelperCall("ttkernel_u32_to_f32");
+      }
+      if (mlir::isa<BFloat16Type>(resultType)) {
+        return replaceWithHelperCall("ttkernel_u32_to_bf16");
+      }
+      return rewriter.notifyMatchFailure(
+          op, "unsupported ui32 compile-time arg bitcast result type");
     }
 
-    return rewriter.notifyMatchFailure(op, "unsupported float type");
+    if (isSignlessInteger(inputType, 32) &&
+        mlir::isa<Float32Type>(resultType)) {
+      return replaceWithHelperCall("ttkernel_i32_to_f32");
+    }
+    if (mlir::isa<Float32Type>(inputType) &&
+        isSignlessInteger(resultType, 32)) {
+      return replaceWithHelperCall("ttkernel_f32_to_i32");
+    }
+    if (mlir::isa<Float32Type>(inputType) &&
+        isUnsignedInteger(resultType, 32)) {
+      return replaceWithHelperCall("ttkernel_f32_to_u32");
+    }
+    if (isSignlessInteger(inputType, 16) &&
+        mlir::isa<BFloat16Type>(resultType)) {
+      return replaceWithHelperCall("ttkernel_i16_to_bf16");
+    }
+    if (isUnsignedInteger(inputType, 16) &&
+        mlir::isa<BFloat16Type>(resultType)) {
+      return replaceWithHelperCall("ttkernel_u16_to_bf16");
+    }
+    if (mlir::isa<BFloat16Type>(inputType) &&
+        isSignlessInteger(resultType, 16)) {
+      return replaceWithHelperCall("ttkernel_bf16_to_i16");
+    }
+    if (mlir::isa<BFloat16Type>(inputType) &&
+        isUnsignedInteger(resultType, 16)) {
+      return replaceWithHelperCall("ttkernel_bf16_to_u16");
+    }
+
+    return rewriter.notifyMatchFailure(op, "unsupported bitcast type pair");
   }
 };
 } // namespace

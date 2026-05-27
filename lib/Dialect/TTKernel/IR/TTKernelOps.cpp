@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include <limits>
+#include <optional>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.cpp.inc"
@@ -291,6 +292,67 @@ static bool isSFPUReduceDataFormatSupported(ttcore::DataType dt) {
                        "decompose into Col + Row");
   }
   return success();
+}
+
+static bool isUnsignedInteger(Type type, unsigned bitWidth) {
+  auto integerType = dyn_cast<IntegerType>(type);
+  return integerType && integerType.getWidth() == bitWidth &&
+         integerType.getSignedness() == IntegerType::Unsigned;
+}
+
+static bool isSignlessInteger(Type type, unsigned bitWidth) {
+  auto integerType = dyn_cast<IntegerType>(type);
+  return integerType && integerType.getWidth() == bitWidth &&
+         integerType.getSignedness() == IntegerType::Signless;
+}
+
+static bool isSupportedCompileTimeArgBitcastResult(Type type) {
+  return isa<IndexType, IntegerType, Float32Type, BFloat16Type, Float16Type>(
+      type);
+}
+
+static std::optional<unsigned> getScalarBitWidth(Type type) {
+  if (auto integerType = dyn_cast<IntegerType>(type)) {
+    return integerType.getWidth();
+  }
+  if (isa<Float32Type>(type)) {
+    return 32;
+  }
+  if (isa<BFloat16Type, Float16Type>(type)) {
+    return 16;
+  }
+  return std::nullopt;
+}
+
+::mlir::LogicalResult BitcastOp::verify() {
+  Type inputType = getInput().getType();
+  Type resultType = getResult().getType();
+
+  if (isUnsignedInteger(inputType, 32) &&
+      isSupportedCompileTimeArgBitcastResult(resultType)) {
+    return success();
+  }
+
+  if ((isSignlessInteger(inputType, 32) && isa<Float32Type>(resultType)) ||
+      (isa<Float32Type>(inputType) && isSignlessInteger(resultType, 32)) ||
+      (isa<Float32Type>(inputType) && isUnsignedInteger(resultType, 32)) ||
+      (isSignlessInteger(inputType, 16) && isa<BFloat16Type>(resultType)) ||
+      (isUnsignedInteger(inputType, 16) && isa<BFloat16Type>(resultType)) ||
+      (isa<BFloat16Type>(inputType) && isSignlessInteger(resultType, 16)) ||
+      (isa<BFloat16Type>(inputType) && isUnsignedInteger(resultType, 16))) {
+    return success();
+  }
+
+  std::optional<unsigned> inputBitWidth = getScalarBitWidth(inputType);
+  std::optional<unsigned> resultBitWidth = getScalarBitWidth(resultType);
+  if (inputBitWidth && resultBitWidth && *inputBitWidth != *resultBitWidth) {
+    return emitOpError()
+           << "requires source and result types with equal bit widths, got "
+           << inputType << " and " << resultType;
+  }
+
+  return emitOpError() << "does not support bitcast from " << inputType
+                       << " to " << resultType;
 }
 
 ::mlir::LogicalResult DPrintOp::verify() {
