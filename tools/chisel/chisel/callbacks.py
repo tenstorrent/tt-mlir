@@ -42,7 +42,7 @@ from .report import (
     SkippedNumericsPayload,
 )
 from .safety import chisel_safe
-from .utils import cached_retrieve_tensor, get_op_asm, invalidate_device_cache
+from .utils import get_op_asm, retrieve_tensor
 from .validators import check_numerics, check_shape_dtype
 
 logger = logging.getLogger("chisel")
@@ -86,11 +86,10 @@ def _assert_op_matches_runtime(ctx: ChiselContext) -> None:
 def _validate_and_retrieve_tensor(
     ctx: ChiselContext, mlir_value: Value, rt_tensor_ref: TensorRef
 ) -> GoldenMapTensor:
-    """Validate IR vs ref shape/dtype, fetch tensor (via device cache), revalidate."""
+    """Validate IR vs ref shape/dtype, pull tensor from device, revalidate."""
     op = ctx.op
     check_shape_dtype(op, "mlir_vs_tensor_ref", mlir_value, rt_tensor_ref)
-    ssa = mlir_value.get_name(ctx.asm_state)
-    tensor = cached_retrieve_tensor(ctx, ssa, rt_tensor_ref, ctx.mesh_shape)
+    tensor = retrieve_tensor(ctx.rt_program_context, rt_tensor_ref, ctx.mesh_shape)
     check_shape_dtype(op, "mlir_vs_runtime_tensor", mlir_value, tensor)
     return tensor
 
@@ -166,19 +165,16 @@ def _emit_pcc(
 
 
 def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
-    """For each mutated tensor operand on `ctx.op`, drop both pools and record.
+    """For each mutated tensor operand on `ctx.op`, drop the golden and record.
 
     Called from `_default_post_op` when the op has no golden but the IR
     declares MemWrite effects. The on-device contents have diverged from
-    any cached host copy and from any prior golden, so chisel can't
-    reason about this SSA anymore.
+    any prior golden, so chisel can't reason about this SSA anymore.
     """
     op = ctx.op
     asm_state = ctx.asm_state
     golden_pool = ctx.golden_tensor_pool
-    device_pool = ctx.device_tensor_pool
     for role, ssa, _ref in get_inplace_input_refs(op, ctx.input_refs, asm_state):
-        device_pool.pop(ssa, None)
         golden_pool.pop(ssa, None)
         ctx.write_record(
             ChiselRecord(
@@ -195,7 +191,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     """Run isolation + accumulation goldens; shape/dtype + PCC each output.
 
     For ops with no golden but IR-declared MemWrite effects, evict each
-    mutated SSA from both pools (see `_evict_inplace_no_golden`).
+    mutated SSA from the golden pool (see `_evict_inplace_no_golden`).
     """
     if config.no_golden:
         # IR-driven dispatch: only no-golden ops that mutate operands need
@@ -211,100 +207,65 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     if not mlir_op_outputs and not inplace_refs:
         return
 
-    # Goldens return ssa_count + n_inplace tensors. Run iso/accum once each;
-    # below we split each result list into (ssa_outs, inplace_outs).
-    ssa_count = len(mlir_op_outputs)
-
+    modes: list[NumericsMode] = []
     if ctx.checks_config.isolation:
-        iso_all = execute_golden_with_ssa_inputs(op, ctx.stashed_inputs, asm_state)
-        iso_ssa_outs = iso_all[:ssa_count]
-        iso_inplace_outs = iso_all[ssa_count:]
-    else:
-        iso_ssa_outs = [None] * ssa_count
-        iso_inplace_outs = [None] * len(inplace_refs)
-
+        modes.append(NumericsMode.ISOLATED)
     if ctx.checks_config.accumulation:
-        accum_all = execute_golden_from_pool(op, ctx.golden_tensor_pool, asm_state)
-        accum_ssa_outs = accum_all[:ssa_count]
-        accum_inplace_outs = accum_all[ssa_count:]
-    else:
-        accum_ssa_outs = [None] * ssa_count
-        accum_inplace_outs = [None] * len(inplace_refs)
+        modes.append(NumericsMode.ACCUMULATED)
 
-    # Validate SSA outputs and in-place mutated operands with one loop. Each
-    # entry is (role, mlir_value, tensor_ref, iso_out, accum_out). `role`
-    # comes from the OpView's RESULT_NAMES for SSA outputs and from
-    # OPERAND_NAMES (via get_inplace_input_refs) for in-place operands.
+    # Validate SSA outputs and in-place mutated operands with one loop.
     result_names = getattr(type(op), "RESULT_NAMES", None) or []
-    entries = [
-        (
-            result_names[i] if i < len(result_names) else None,
-            mlir_out,
-            ref,
-            iso,
-            accum,
-        )
-        for i, (mlir_out, ref, iso, accum) in enumerate(
-            zip(
-                mlir_op_outputs,
-                ctx.output_refs,
-                iso_ssa_outs,
-                accum_ssa_outs,
-                strict=True,
-            )
+    entries: list[tuple[Optional[str], Value, TensorRef]] = [
+        (result_names[i] if i < len(result_names) else None, mlir_out, ref)
+        for i, (mlir_out, ref) in enumerate(
+            zip(mlir_op_outputs, ctx.output_refs, strict=True)
         )
     ]
     if inplace_refs:
-        ssa_to_value = {
-            inp.get_name(asm_state): inp for inp in get_op_inputs(op)
-        }
+        ssa_to_value = {inp.get_name(asm_state): inp for inp in get_op_inputs(op)}
         entries.extend(
-            (role, ssa_to_value[ssa], ref, iso, accum)
-            for (role, ssa, ref), iso, accum in zip(
-                inplace_refs, iso_inplace_outs, accum_inplace_outs, strict=True
-            )
+            (role, ssa_to_value[ssa], ref) for role, ssa, ref in inplace_refs
         )
 
-    for role, mlir_value, tensor_ref, iso_out, accum_out in entries:
-        ssa = mlir_value.get_name(asm_state)
-        # For in-place operands the cached PRE copy is stale; for SSA
-        # outputs the SSA is freshly produced and unlikely to be cached.
-        # Invalidate unconditionally - it's a no-op when absent.
-        invalidate_device_cache(ctx, ssa)
-        device_tensor = _validate_and_retrieve_tensor(ctx, mlir_value, tensor_ref)
+    # Pull every entry's device tensor once; the device-side bytes don't
+    # change between iso and accum golden runs (goldens run host-side),
+    # so we share the retrieved tensor across all enabled modes.
+    device_tensors = [
+        _validate_and_retrieve_tensor(ctx, mlir_value, tensor_ref)
+        for _, mlir_value, tensor_ref in entries
+    ]
 
-        if iso_out is not None:
+    # Each enabled mode runs its golden once; the result is aligned with
+    # [SSA outputs ..., in-place operands ...]. Accumulation re-publishes
+    # to the golden pool below: execute_golden_from_pool writes SSA outputs
+    # back itself, but in-place operands are returned without being stored,
+    # so we need to push them in to keep the chain coherent.
+    for mode in modes:
+        if mode is NumericsMode.ISOLATED:
+            all_outs = execute_golden_with_ssa_inputs(
+                op, ctx.stashed_inputs, asm_state
+            )
+        else:
+            all_outs = execute_golden_from_pool(
+                op, ctx.golden_tensor_pool, asm_state
+            )
+
+        for idx, (role, mlir_value, _tensor_ref) in enumerate(entries):
+            ssa = mlir_value.get_name(asm_state)
+            golden_out = all_outs[idx]
             _emit_pcc(
                 ctx,
                 op,
                 ssa,
                 mlir_value,
-                iso_out,
-                device_tensor,
-                mode=NumericsMode.ISOLATED,
+                golden_out,
+                device_tensors[idx],
+                mode=mode,
                 skip_pcc=config.skip_pcc,
                 role=role,
             )
-
-        if accum_out is not None:
-            _emit_pcc(
-                ctx,
-                op,
-                ssa,
-                mlir_value,
-                accum_out,
-                device_tensor,
-                mode=NumericsMode.ACCUMULATED,
-                skip_pcc=config.skip_pcc,
-                role=role,
-            )
-            # Keep the program chain coherent: write the (possibly mutated)
-            # tensor back into the golden pool. For SSA outputs
-            # execute_golden_from_pool already wrote this value; for
-            # in-place operands the executor returned the tensor but did
-            # not store it, so we do it here. The overwrite is idempotent
-            # in the SSA-output case.
-            ctx.golden_tensor_pool[ssa] = accum_out
+            if mode is NumericsMode.ACCUMULATED:
+                ctx.golden_tensor_pool[ssa] = golden_out
 
 
 def run_op_callback(

@@ -64,26 +64,6 @@ def retrieve_tensor(
     return GoldenMapTensor(shard_map, mesh_shape)
 
 
-def cached_retrieve_tensor(ctx, ssa: str, rt_tensor_ref: TensorRef, mesh_shape: Tuple[int, ...]) -> GoldenMapTensor:
-    """Return a host copy of `rt_tensor_ref`, caching by `ssa` in the device pool.
-
-    On a cache miss the tensor is pulled from device and stored; subsequent
-    requests for the same SSA reuse the cached copy.
-    """
-    pool = ctx.device_tensor_pool
-    cached = pool.get(ssa)
-    if cached is not None:
-        return cached
-    tensor = retrieve_tensor(ctx.rt_program_context, rt_tensor_ref, mesh_shape)
-    pool[ssa] = tensor
-    return tensor
-
-
-def invalidate_device_cache(ctx, ssa: str) -> None:
-    """Drop any cached host copy for `ssa` so the next read re-pulls from device."""
-    ctx.device_tensor_pool.pop(ssa, None)
-
-
 def get_op_asm(op) -> str:
     # Mirror OpPrintingFlags from FuncOpToProgram so the asm string matches
     # the flatbuffer debug_info.
