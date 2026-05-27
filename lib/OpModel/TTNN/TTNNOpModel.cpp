@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpInvoke/TTNN/conv/conv2dOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/conv3dOp.h"
+#include "ttmlir/OpInvoke/TTNN/transformer/concatenateHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/convTranspose2dOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/prepareConv2dBiasOp.h"
 #include "ttmlir/OpInvoke/TTNN/conv/prepareConv2dWeightsOp.h"
@@ -2998,6 +2999,15 @@ OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 // ConcatenateHeadsOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ConcatenateHeadsOpT
+buildConcatenateHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ConcatenateHeadsOpT opT;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<ConcatenateHeadsOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
@@ -3009,11 +3019,20 @@ llvm::Expected<OpConstraints> OpModel<ConcatenateHeadsOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::ConcatenateHeadsOpT opT =
+      buildConcatenateHeadsOpTFromMLIR(outputLayout);
+
   auto concatenateHeadsOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::transformer::concatenate_heads, device,
-                                inputSpec,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ConcatenateHeadsOpResult result =
+        ttnn_op_invoke::callConcatenateHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+            *device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConcatenateHeadsOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3035,11 +3054,20 @@ OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::ConcatenateHeadsOpT opT =
+      buildConcatenateHeadsOpTFromMLIR(outputLayout);
+
   auto concatenateHeadsOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::transformer::concatenate_heads, device,
-                            inputSpec,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ConcatenateHeadsOpResult result =
+        ttnn_op_invoke::callConcatenateHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec,
+            *device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected ConcatenateHeadsOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(concatenateHeadsOpQuery);

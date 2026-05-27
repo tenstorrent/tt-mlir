@@ -1915,7 +1915,6 @@ const std::initializer_list<mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>
             /*dilation=*/{1, 1}, /*groups=*/1u, /*inputMemoryConfig=*/{},
             /*inputTensorLayout=*/mlir::tt::ttnn::Layout::Tile,
             /*inputDtype=*/mlir::tt::ttcore::DataType::Float32),
-        // Everything non-default.
         buildTestPrepareConvTranspose2dWeightsOp(
             /*outputDtype=*/bf16DtypeAttr,
             /*conv2dConfig=*/nonDefaultConv2dConfigAttr,
@@ -2992,5 +2991,96 @@ const std::initializer_list<mlir::tt::ttnn::RequantizeOp> requantizeOpList = {
 INSTANTIATE_TEST_SUITE_P(RequantizeOpTPathParityTest,
                          RequantizeOpTPathParityTest,
                          ::testing::ValuesIn(requantizeOpList));
+
+//===----------------------------------------------------------------------===//
+// ConcatenateHeadsOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::ConcatenateHeadsOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, ConcatenateHeadsOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ConcatenateHeadsOpT
+buildConcatenateHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::ConcatenateHeadsOpT &opTOpModel,
+                       ::tt::target::ttnn::ConcatenateHeadsOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::ConcatenateHeadsOpT &opT) {
+    opT.in.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memcfg.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::ConcatenateHeadsOp buildTestConcatenateHeadsOp(
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::ConcatenateHeadsOp>(loc, outputType,
+                                                              input);
+}
+
+} // namespace
+
+using ConcatenateHeadsOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::ConcatenateHeadsOp>;
+
+TEST_P(ConcatenateHeadsOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::ConcatenateHeadsOp concatOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ConcatenateHeadsOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildConcatenateHeadsOpTFromMLIR(
+          resolveOutputLayout(concatOp));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, concatOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, concatOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ConcatenateHeadsOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::ConcatenateHeadsOp>
+    concatenateHeadsOpList = {
+        buildTestConcatenateHeadsOp(),
+        buildTestConcatenateHeadsOp(
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(ConcatenateHeadsOpTPathParityTest,
+                         ConcatenateHeadsOpTPathParityTest,
+                         ::testing::ValuesIn(concatenateHeadsOpList));
 
 #endif // TTMLIR_ENABLE_OPMODEL
