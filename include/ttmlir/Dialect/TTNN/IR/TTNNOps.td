@@ -4026,11 +4026,13 @@ def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [TTCore_Cr
 
       Example:
       ```mlir
-      %semaphore = "ttnn.create_global_semaphore"() <{initial_value = 0 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : () -> !ttnn.global_semaphore
+      %semaphore = "ttnn.create_global_semaphore"(%device) <{core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,7)>]>, initial_value = 0 : ui32}> : (!ttnn.device) -> !ttnn.global_semaphore
       ```
     }];
 
-    let arguments = (ins OptionalAttr<UI32Attr>:$initial_value, TTNN_CoreRangeAttr:$core_range);
+    let arguments = (ins TTNN_Device:$device,
+                         OptionalAttr<UI32Attr>:$initial_value,
+                         TTNN_CoreRangeSetAttr:$core_range_set);
     let results = (outs TTNN_GlobalSemaphore:$result);
 }
 
@@ -4045,7 +4047,8 @@ def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExem
       ```
     }];
 
-    let arguments = (ins TTNN_GlobalSemaphore:$semaphore, UI32Attr:$value);
+    let arguments = (ins TTNN_GlobalSemaphore:$semaphore,
+                         UI32Attr:$value);
 }
 
 #endif

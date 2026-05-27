@@ -39,6 +39,10 @@ public:
       return emitpy::OpaqueType::get(
           ctx, ttnn_to_emitpy::TypeNameV<std::vector<::ttnn::Tensor>>);
     });
+    addConversion(
+        [ctx](tt::ttnn::GlobalSemaphoreType type) -> emitpy::OpaqueType {
+          return emitpy::OpaqueType::get(ctx, "ttnn.GlobalSemaphore");
+        });
     addConversion([ctx](tt::ttcore::DictType type) -> emitpy::DictType {
       return emitpy::DictType::get(ctx, Type(), Type());
     });

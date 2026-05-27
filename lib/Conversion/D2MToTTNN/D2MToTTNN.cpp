@@ -559,11 +559,15 @@ handleD2MCreateGlobalSemaphore(d2m::CreateGlobalSemaphoreOp op,
       ttnn::CoreCoordAttr::get(rewriter.getContext(), 0, 0),
       ttnn::CoreCoordAttr::get(rewriter.getContext(), gridShape[0] - 1,
                                gridShape[1] - 1));
+  auto coreRangeSet = ttnn::CoreRangeSetAttr::get(
+      rewriter.getContext(), llvm::ArrayRef<ttnn::CoreRangeAttr>{coreRange});
+
+  auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
   auto ttnnOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
-      op.getLoc(), op.getValueAttr(), coreRange);
+      op.getLoc(), device, op.getValueAttr(), coreRangeSet);
   valueMapping[op.getResult()] = ttnnOp.getResult();
   return success();
 }

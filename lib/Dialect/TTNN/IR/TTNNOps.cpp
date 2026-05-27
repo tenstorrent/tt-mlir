@@ -3308,9 +3308,14 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
   {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(device);
+    auto semaphoreCoreRangeSet = CoreRangeSetAttr::get(
+        rewriter.getContext(),
+        llvm::ArrayRef<CoreRangeAttr>{*semaphoreCoreRange});
     semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
         getLoc(), GlobalSemaphoreType::get(rewriter.getContext()),
-        /*initial_value=*/rewriter.getUI32IntegerAttr(0), *semaphoreCoreRange);
+        device.getResult(),
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0),
+        semaphoreCoreRangeSet);
   }
 
   rewriter.modifyOpInPlace(

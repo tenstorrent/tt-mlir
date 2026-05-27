@@ -2006,6 +2006,85 @@ public:
 };
 } // namespace
 
+// CreateGlobalSemaphoreOp conversion pattern
+//
+namespace {
+class CreateGlobalSemaphoreOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::CreateGlobalSemaphoreOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.create_global_semaphore";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::global_semaphore::create_global_semaphore";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::CreateGlobalSemaphoreOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CreateGlobalSemaphoreOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::CreateGlobalSemaphoreOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit<::ttnn::distributed::MeshDevice *>(srcOp.getDevice()),
+        emitter.emit(srcOp.getCoreRangeSet()),
+        emitter.emit(srcOp.getInitialValue()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// ResetGlobalSemaphoreOp conversion pattern
+//
+namespace {
+class ResetGlobalSemaphoreOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::ResetGlobalSemaphoreOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.reset_global_semaphore";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::global_semaphore::reset_global_semaphore_value";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ResetGlobalSemaphoreOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ResetGlobalSemaphoreOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ResetGlobalSemaphoreOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getSemaphore()),
+        emitter.emit(srcOp.getValue()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ToDeviceOp conversion pattern
 //
 namespace {
@@ -3681,9 +3760,9 @@ public:
     auto weightIndexAttr = emitter.emit(srcOp.getWeight());
     auto residualIndexAttr = emitter.emit(srcOp.getResidual());
     auto statsIndexAttr = emitter.emit(srcOp.getStats());
+    auto semaphoreIndexAttr = emitter.emit(srcOp.getSemaphore());
     auto deviceIndexAttr =
         emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice());
-    auto semaphoreIndexAttr = emitter.emit(srcOp.getSemaphore());
 
     llvm::SmallVector<mlir::Attribute> args{
         inputIndexAttr,
@@ -5249,7 +5328,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Device ops
   //
   patterns.add<TTDeviceOpConversionPattern>(typeConverter, ctx);
-  patterns.add<GetDeviceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<GetDeviceOpConversionPattern,
+               CreateGlobalSemaphoreOpConversionPattern,
+               ResetGlobalSemaphoreOpConversionPattern>(typeConverter, ctx);
 
   // Memory ops
   //
