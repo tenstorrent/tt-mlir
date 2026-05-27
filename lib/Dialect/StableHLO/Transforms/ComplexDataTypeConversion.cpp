@@ -311,9 +311,13 @@ public:
     auto newResultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
 
-    auto operandType =
-        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
-    int64_t trailingDim = operandType.getRank() - 1;
+    // Use the pre-conversion operand rank: the trailing real/imag dimension is
+    // always appended at index origRank (e.g. 512x24 complex -> 512x24x2xf32).
+    // Using adaptor operand rank-1 is wrong when upstream reshapes are not yet
+    // converted (rank still 2), which produced offset_dims=[1,1].
+    auto origOperandType =
+        mlir::cast<RankedTensorType>(op.getOperand().getType());
+    int64_t trailingDim = origOperandType.getRank();
 
     SmallVector<int64_t> newSliceSizes(op.getSliceSizes().begin(),
                                        op.getSliceSizes().end());
