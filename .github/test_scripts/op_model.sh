@@ -13,6 +13,8 @@ echo "Running op-model test Interface"
 $BUILD_DIR/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
 echo "Running op-model test MockDevice"
 $BUILD_DIR/test/unittests/OpModel/TTNN/Lib/TestOpModelLibMockDevice
+echo "Running op-model tripwire tests"
+$BUILD_DIR/test/unittests/OpModel/TTNN/Lib/TestOpModelLibTripwires
 
 echo
 echo "Run Optimizer Models Perf Tests"
