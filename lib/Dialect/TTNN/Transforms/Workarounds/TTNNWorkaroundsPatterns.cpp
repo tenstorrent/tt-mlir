@@ -683,9 +683,9 @@ public:
 
       // The all_reduce decomposition workaround can be disabled via a pass
       // option, e.g. once TTNN provides stable native all_reduce support.
-      if (allReduceWorkaroundEnabled) {
-        patterns.add<TTNNAllReduceWorkarounds>(&getContext());
-      }
+      // if (allReduceWorkaroundEnabled) {
+      //   patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+      // }
 
       // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
       // At level >= 2 the greedy sharding optimizer drives the upstream
