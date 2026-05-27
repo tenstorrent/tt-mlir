@@ -393,24 +393,6 @@ def test_distributed_rms_norm(
     2. RMS normalization
     3. All-gather collective communication
     """
-    if (
-        target in ("emitpy", "emitc")
-        and has_weight
-        and shape
-        in [
-            (1, 1, 32, 128),
-            (1, 1, 32, 512),
-            (1, 1, 32, 4096),
-            (1, 1, 32, 8192),
-            (32, 128),
-            (1, 32, 128),
-        ]
-    ):
-        pytest.skip(
-            "EmitPy/EmitC: missing ttnn.create_global_semaphore conversion. "
-            "Issue: https://github.com/tenstorrent/tt-mlir/issues/8464"
-        )
-
     # Determine input shapes
     shapes = [shape]
     weight_shape = (shape[-1],)  # Weight matches last dimension
