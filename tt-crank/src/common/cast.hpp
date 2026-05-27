@@ -27,11 +27,12 @@ template <class To, class From> [[nodiscard]] constexpr To checked_cast(const Fr
 template <class To, class From> [[nodiscard]] constexpr To as(const From &from) {
     if constexpr (std::is_same_v<From, To>) {
         return from;
-    }
-
-    if constexpr (std::is_pointer_v<From> || std::is_pointer_v<To> || std::is_reference_v<From> ||
-                  std::is_reference_v<To>) {
+    } else if constexpr (std::is_pointer_v<From> || std::is_pointer_v<To> || std::is_reference_v<From> ||
+                         std::is_reference_v<To>) {
         return std::bit_cast<To>(from);
+    } else if constexpr (std::is_floating_point_v<From> && std::is_floating_point_v<To>) {
+        // FP-to-FP narrowing conversions are lossy by design - skip the data loss check.
+        return static_cast<To>(from);
     } else {
         return checked_cast<To>(from);
     }

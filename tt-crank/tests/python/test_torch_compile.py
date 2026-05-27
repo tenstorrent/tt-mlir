@@ -1,0 +1,184 @@
+"""Smoke tests for the `torch.compile(model, backend="tt")` path.
+
+Phase-0 surface: `aten.add.Tensor` only - but with full semantics
+(broadcasting, alpha scaling, dtype promotion), mirroring the eager kernel.
+Each test builds a small `nn.Module` made entirely of additions, compiles
+it through the tt dynamo backend, runs it on the tt device, and compares
+the result against the eager CPU output.
+"""
+
+import pytest
+import torch
+import torch.nn as nn
+
+from tt_kurbla.torch.testing import DeviceType
+
+
+# Tile-aligned bf16 shapes only - same constraints as the eager elementwise
+# tests: ttsim trips on TTNN-emitted f32 kernels, and the TTNN pipeline
+# segfaults on non-tile-aligned small inputs (see
+# tests/python/op_tests/test_elementwise.py).
+_TILE_SHAPES: list[tuple[int, ...]] = [(32, 32), (64, 128), (32, 64, 32)]
+
+
+def _skip_if_sim(device_type: DeviceType) -> None:
+    """ttsim's TTNN-emitted f32/i32 kernels trip UB; tests that exercise a
+    non-bf16 lowering can't run there. Same helper shape as
+    `op_tests/test_dtype_promotion._skip_if_sim`."""
+    if device_type is DeviceType.SIM:
+        pytest.skip("compile-path dtype promotion needs the f32 emitter, unreliable under ttsim")
+
+
+def _assert_compile_matches_eager(
+    model: nn.Module,
+    *cpu_inputs: torch.Tensor,
+    atol: float | None = None,
+    rtol: float | None = None,
+) -> None:
+    """Compile `model` with the tt dynamo backend and compare its output to
+    eager-CPU.
+
+    Pattern mirrors the remote phase-0 smoke test: take the eager-CPU output
+    first while parameters are still on CPU, then `.to("tt")` both the
+    model (so parameters become tt-resident graph inputs) and the user
+    inputs before invoking the compiled callable.
+    """
+    with torch.no_grad():
+        cpu_out = model(*cpu_inputs)
+
+        model_tt = model.to("tt")
+        compiled = torch.compile(model_tt, backend="tt", dynamic=False)
+        tt_inputs = tuple(t.to("tt") for t in cpu_inputs)
+        tt_out = compiled(*tt_inputs).cpu()
+
+    torch.testing.assert_close(tt_out, cpu_out, atol=atol, rtol=rtol)
+
+
+class _ChainAdd(nn.Module):
+    """`((a + b) + c) + a` - exercises operand reuse and a 3-deep add chain
+    from a single FX graph."""
+
+    def forward(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        t = a + b
+        t = t + c
+        return t + a
+
+
+class _AddWithParam(nn.Module):
+    """`x + bias` where `bias` is an nn.Parameter - the parameter crosses
+    the aot boundary as a graph input alongside `x`, so the compile path
+    sees a 2-arg function regardless of how the module advertises arity."""
+
+    def __init__(self, shape: tuple[int, ...]) -> None:
+        super().__init__()
+        self.bias = nn.Parameter(torch.randn(shape, dtype=torch.bfloat16))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.bias
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_single_add(shape: tuple[int, ...]) -> None:
+    """The minimal compile graph: one add. Smoke-tests that the FX walker,
+    builder, compile, and run plumbing all line up end-to-end."""
+    torch.manual_seed(0)
+
+    class _Add(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return a + b
+
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Add(), a, b)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_chain_add(shape: tuple[int, ...]) -> None:
+    """Multiple stacked adds, with one input reused twice. The whole chain
+    must lower into a single TTIR module - if anything falls out of the
+    walker into an unhandled FX target, this will trip.
+
+    Loosened tolerance: accumulated bf16 quantization across three adds
+    drifts up to one ULP per add at the operands' magnitude (~0.05 absolute
+    at randn() scale), which is well beyond the default bf16 atol of 1e-5.
+    """
+    torch.manual_seed(0)
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.randn(shape, dtype=torch.bfloat16)
+    c = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_ChainAdd(), a, b, c, atol=0.1, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_add_with_parameter(shape: tuple[int, ...]) -> None:
+    """nn.Parameter as the second operand. aot lifts module parameters into
+    the graph's argument list, so the runner closure receives them alongside
+    the user's input."""
+    torch.manual_seed(0)
+    model = _AddWithParam(shape)
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(model, x)
+
+
+@pytest.mark.parametrize("alpha", [2.0, 0.5, -1.0])
+def test_compile_add_alpha(alpha: float) -> None:
+    """`torch.add(a, b, alpha=k)` - the alpha scale must travel from the FX
+    kwarg through the lowering into the same `scale_tensor` subgraph the
+    eager kernel emits. Mirror of the eager `test_add_alpha`."""
+    torch.manual_seed(0)
+
+    class _AddAlpha(nn.Module):
+        def __init__(self, k: float) -> None:
+            super().__init__()
+            self.k = k
+
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.add(a, b, alpha=self.k)
+
+    a = torch.randn((32, 32), dtype=torch.bfloat16)
+    b = torch.randn((32, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_AddAlpha(alpha), a, b)
+
+
+@pytest.mark.parametrize(
+    "lhs_shape,rhs_shape",
+    [
+        # Row vector broadcasts across a matrix.
+        ((32, 64), (1, 64)),
+        # Column vector broadcasts across a matrix.
+        ((32, 64), (32, 1)),
+        # Bias-style broadcast: 3D activation + per-channel 1D bias.
+        ((32, 64, 32), (32,)),
+    ],
+    ids=["row_bcast", "col_bcast", "channel_bcast"],
+)
+def test_compile_add_broadcast(lhs_shape: tuple[int, ...], rhs_shape: tuple[int, ...]) -> None:
+    """Broadcasting matrices: lhs and rhs have different ranks/shapes, the
+    compile lowering must compute the broadcasted result shape via
+    `at::infer_size` - same path the eager kernel takes - instead of
+    assuming shapes match."""
+    torch.manual_seed(0)
+
+    class _Add(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return a + b
+
+    a = torch.randn(lhs_shape, dtype=torch.bfloat16)
+    b = torch.randn(rhs_shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Add(), a, b)
+
+
+def test_compile_add_dtype_promotion(device_type: DeviceType) -> None:
+    """bf16 + f32 must promote to f32 - same `at::promote_types` semantics
+    the eager kernel applies. Validates that the compile path's MLIR-level
+    promotion matches the torch-level promotion."""
+    _skip_if_sim(device_type)
+    torch.manual_seed(0)
+
+    class _Add(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return a + b
+
+    a = torch.randn((32, 32), dtype=torch.bfloat16)
+    b = torch.randn((32, 32), dtype=torch.float32)
+    _assert_compile_matches_eager(_Add(), a, b)

@@ -48,3 +48,17 @@ def device_type() -> DeviceType:
     fixture and inspect it.
     """
     return DeviceType.SIM if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1" else DeviceType.REAL
+
+
+@pytest.fixture(autouse=True)
+def _reset_dynamo_between_tests() -> None:
+    """Wipe dynamo's compile cache before every test.
+
+    Parametrized compile-mode tests retrace the same ``forward`` code object
+    with different input dtypes/shapes — each counts as a recompile against
+    ``torch._dynamo.config.recompile_limit`` (default 8). Once the limit is
+    hit dynamo silently runs subsequent calls eagerly, masking real
+    compile-path bugs as passing tests. Resetting per test keeps each one
+    starting from a clean recompile count.
+    """
+    torch._dynamo.reset()

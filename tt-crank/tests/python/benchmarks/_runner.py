@@ -83,7 +83,7 @@ def prepare_model(model: nn.Module, mode: str) -> nn.Module:
     if mode == "eager":
         return model
     if mode == "compile":
-        return torch.compile(model, backend="tt_kurbla")
+        return torch.compile(model, backend="tt")
     raise ValueError(f"unknown mode {mode!r}; expected 'eager' or 'compile'")
 
 

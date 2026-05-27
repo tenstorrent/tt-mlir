@@ -6,9 +6,9 @@
 #include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
 
 #include "torch/backend.hpp"
+#include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
 #include "torch/ttir_module_builder.hpp"
-#include "utils.hpp"
 
 namespace tt::kurbla::torch_backend {
 
@@ -53,10 +53,10 @@ at::Tensor tt_addmm(const at::Tensor &self, const at::Tensor &mat1, const at::Te
     } else {
         result = mb.create<mlir::tt::ttir::MatmulOp>(result_type, a, b, false, false).getResult();
         if (alpha.toDouble() != 1.0) {
-            result = scale_tensor(mb, result, alpha);
+            result = scale_tensor(mb, result, alpha.toDouble());
         }
         if (beta.toDouble() != 0.0) {
-            mlir::Value scaled_bias = beta.toDouble() == 1.0 ? bias : scale_tensor(mb, bias, beta);
+            mlir::Value scaled_bias = beta.toDouble() == 1.0 ? bias : scale_tensor(mb, bias, beta.toDouble());
             result = mb.create<mlir::tt::ttir::AddOp>(result_type, result, scaled_bias).getResult();
         }
     }
