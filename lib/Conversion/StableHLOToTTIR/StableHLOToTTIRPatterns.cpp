@@ -6892,7 +6892,12 @@ private:
 
   Value extractElementWiseScatterIndices(mlir::stablehlo::ScatterOp op,
                                          PatternRewriter &rewriter) const {
-    // Indices need to match updates tensor.
+    // ttir.scatter requires indices and updates to have matching shapes, while
+    // ttir.repeat may only expand unit extents in-place. That means every
+    // update_window_dims position must already be size-1 before repeating;
+    // otherwise we'd be trying to rewrite one non-unit extent into another,
+    // which repeat rejects. The previous "append trailing 1s" approach only
+    // happened to work when all window dims were trailing dimensions.
     TypedValue<RankedTensorType> indexTensor = op.getScatterIndices();
     RankedTensorType updateType =
         mlir::cast<RankedTensorType>(op.getUpdates()[0].getType());
@@ -6900,27 +6905,47 @@ private:
     llvm::SmallVector<int64_t> indexShape(indexType.getShape());
     ArrayRef<int64_t> updateShape = updateType.getShape();
 
-    if (indexShape.size() < updateShape.size()) {
-      // Need to reshape indices by appending 1s to the shape.
-      llvm::SmallVector<int64_t> newShape(indexShape.begin(), indexShape.end());
-      newShape.resize(updateShape.size(), 1);
+    auto scatterDimNumbers = op.getScatterDimensionNumbers();
+    ArrayRef<int64_t> updateWindowDims =
+        scatterDimNumbers.getUpdateWindowDims();
+    int64_t indexVectorDim = scatterDimNumbers.getIndexVectorDim();
 
-      indexTensor = ttir::utils::createReshapeOp(rewriter, op.getLoc(),
-                                                 indexTensor, newShape);
-      indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
-      indexShape = newShape;
+    // index_vector_dim is the only one that doesn't correspond to a
+    // non-window position in updates, so it's the only one to skip.
+    llvm::SmallVector<int64_t> scatterBatchDims;
+    scatterBatchDims.reserve(indexShape.size());
+    for (size_t i = 0; i < indexShape.size(); ++i) {
+      if (static_cast<int64_t>(i) != indexVectorDim) {
+        scatterBatchDims.push_back(indexShape[i]);
+      }
     }
 
-    // Repeat along update_window_dims to match update tensor shape.
-    ArrayRef<int64_t> updateWindowDims =
-        op.getScatterDimensionNumbers().getUpdateWindowDims();
+    // Scatter-batch dims keep their original order so the index/value
+    // correspondence in the upstream stablehlo.scatter is preserved.
+    llvm::DenseSet<int64_t> updateWindowDimsSet(updateWindowDims.begin(),
+                                                updateWindowDims.end());
+    llvm::SmallVector<int64_t> preRepeatShape(updateShape.size(), 1);
+    size_t batchIdx = 0;
+    for (size_t d = 0; d < updateShape.size(); ++d) {
+      if (!updateWindowDimsSet.contains(static_cast<int64_t>(d)) &&
+          batchIdx < scatterBatchDims.size()) {
+        preRepeatShape[d] = scatterBatchDims[batchIdx++];
+      }
+    }
+
+    if (llvm::ArrayRef<int64_t>(preRepeatShape) !=
+        llvm::ArrayRef<int64_t>(indexShape)) {
+      indexTensor = ttir::utils::createReshapeOp(rewriter, op.getLoc(),
+                                                 indexTensor, preRepeatShape);
+      indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
+      indexShape = preRepeatShape;
+    }
+
+    // Safe by construction: the reshape above guaranteed unit window slots,
+    // so this can only widen 1 -> updateShape[dim].
     llvm::SmallVector<int64_t> repeatDims(indexShape.size(), 1);
     bool needsRepeat = false;
-
-    // For each update_window_dim, set repeat factor to match update tensor
-    // size.
-    for (auto dimAttr : updateWindowDims) {
-      int64_t dim = dimAttr;
+    for (int64_t dim : updateWindowDims) {
       if (indexShape[dim] != updateShape[dim]) {
         repeatDims[dim] = updateShape[dim];
         needsRepeat = true;
