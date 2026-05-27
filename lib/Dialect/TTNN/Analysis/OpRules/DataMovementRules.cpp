@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 
 namespace mlir::tt::ttnn {
@@ -191,18 +192,74 @@ bool SliceRuleBook::shouldExploreReshards() const { return false; }
 OutputHints
 SliceRuleBook::getOutputHints(Operation *op,
                               const std::vector<OpConfig> &legalConfigs) const {
-  // For width/tail-trim SliceStaticOp with HEIGHT_SHARDED ROW_MAJOR input,
-  // SliceRmShardedWidthTrimProgramFactory handles the kernel but outputs to
-  // DRAM interleaved (no output L1 CB — zero extra L1 pressure).  Use a
-  // NULL hint so getOpConstraints produces the DRAM output layout analytically
-  // without adding L1 sharding to the slice output.  All other slices also
-  // use non-sharded (DRAM) output only.
+  // For width/tail-trim SliceStaticOp, SliceRmShardedWidthTrimProgramFactory
+  // supports two output paths:
+  //   HS RM output: each core trims its shard in-place into a globally-
+  //     allocated L1 output CB (same grid, reduced last dim). No cross-core
+  //     NOC reads. isValidOutputHintForInputs restricts this to HS RM inputs.
+  //   DRAM output: kernel reads from HS L1 shard and writes trimmed sticks
+  //     to DRAM via noc_async_write. No output CB; zero extra L1 pressure.
+  //
+  // legalConfigs (rowMajorEnabled=false) has no HS RM entries for slice output,
+  // but DOES have HEIGHT_SHARDED TILED entries. Convert one to RM as a "marker"
+  // hint: the op model's analytical bypass checks outputIsHS (memLayout +
+  // layout), builds the actual output from the INPUT layout (ignoring the hint's
+  // grid), so the hint just needs to carry the HS RM flag. TTNNLayoutAttr::build()
+  // requires coreRangeSet for sharded layouts; inheriting it from the TILED
+  // template satisfies this constraint.
+  // isValidOutputHintForInputs restricts the HS hint to HS RM input candidates
+  // (MaxPool2d beam state); DRAM inputs fall through to the NULL fallback.
   if (isWidthTrimSliceStatic(op)) {
     OutputHints result;
-    result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+
+    // Build HS RM marker hint from the first HS TILED config in legalConfigs.
+    auto outputType =
+        mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+    if (outputType) {
+      auto outShape = outputType.getShape();
+      for (const auto &cfg : legalConfigs) {
+        if (!cfg.outputLayout) {
+          continue;
+        }
+        auto ml = cfg.outputLayout.getMemLayout();
+        if (!ml || ml.getValue() != TensorMemoryLayout::HeightSharded) {
+          continue;
+        }
+        // cfg is HS TILED: inherit its grid and coreRangeSet, switch to RM.
+        TTNNLayoutAttr markerHint =
+            TTNNLayoutAttr::Builder(cfg.outputLayout, outShape)
+                .setLayout(Layout::RowMajor)
+                .build();
+        result.hints.push_back(OpConfig(markerHint));
+        break; // One HS RM marker is sufficient.
+      }
+    }
+
+    result.fallbackHints.push_back(OpConfig(TTNNLayoutAttr())); // DRAM fallback
+    if (result.hints.empty()) {
+      // No HS TILED entry in legalConfigs; use NULL hint (→ DRAM) as primary.
+      result.hints.swap(result.fallbackHints);
+    }
     return result;
   }
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
+bool SliceRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint,
+    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.empty() || !hint.outputLayout)
+    return true;
+  auto hintML = hint.outputLayout.getMemLayout();
+  if (!hintML || !isShardedMemoryLayout(hintML.getValue()))
+    return true; // DRAM/interleaved output: valid for any input
+  // Sharded output hint: only valid when input is HEIGHT_SHARDED ROW_MAJOR.
+  // SliceRmShardedWidthTrimProgramFactory L1 HS output requires the input
+  // shard grid to match the output grid — guaranteed when input is HS RM.
+  auto inputML = inputLayouts[0].getMemLayout();
+  return inputML &&
+         inputML.getValue() == TensorMemoryLayout::HeightSharded &&
+         inputLayouts[0].getLayout() == Layout::RowMajor;
 }
 
 //===----------------------------------------------------------------------===//

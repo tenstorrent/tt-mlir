@@ -21,12 +21,14 @@ namespace mlir::tt::ttnn {
 //     (round-trip through interleaved internally in tt-metal)
 //
 // Output hints:
-//   All: non-sharded only
+//   Most: non-sharded only
 //     PadOp: invoke_tile crashes with sharded output + interleaved input
 //     https://github.com/tenstorrent/tt-metal/issues/40898
-//     SliceOps: https://github.com/tenstorrent/tt-metal/issues/38016
+//     SliceOps (general): https://github.com/tenstorrent/tt-metal/issues/38016
 //     ConcatOp: device close hang,
 //     https://github.com/tenstorrent/tt-metal/issues/39419
+//   SliceStaticOp (last-dim-only / width-trim, HS RM input):
+//     HEIGHT_SHARDED RM output via SliceRmShardedWidthTrimProgramFactory L1 path.
 //
 // Reshard exploration: disabled for all data movement ops except ConcatOp.
 //===----------------------------------------------------------------------===//
@@ -46,14 +48,20 @@ struct ConcatRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
-/// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded
-/// output, no reshards.
+/// SliceStaticOp, SliceDynamicOp: HEIGHT_SHARDED ROW_MAJOR input accepted for
+/// last-dim-only (width-trim) slices via SliceRmShardedWidthTrimProgramFactory.
+/// That kernel supports both DRAM output (primary for interleaved inputs) and
+/// L1 HS RM output (primary for HS RM inputs — each core trims its shard
+/// locally, no cross-core reads, output stays in L1).
 struct SliceRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
 };
 
 /// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
