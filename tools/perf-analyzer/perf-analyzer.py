@@ -80,7 +80,7 @@ def derive_op_label(compute_zones: set[str]) -> str:
     return "+".join(sorted(primitives)) if primitives else "<unknown>"
 
 
-def aggregate_by_host_id(profile_log: pathlib.Path, freq_mhz: float):
+def aggregate_by_host_id(profile_log: pathlib.Path, freq_mhz: float) -> dict:
     """Returns dict[host_id] -> {op_label, total_compute_ns, zone_stats}."""
     zones_per_host: dict[str, set[str]] = defaultdict(set)
     zone_cycles: dict[tuple[str, str], list[int]] = defaultdict(list)
