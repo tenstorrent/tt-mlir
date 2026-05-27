@@ -2015,6 +2015,178 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
   return success();
 }
 
+// ToMemoryConfigOp folder: fold identity ops where input and output have the
+// same type (no layout change needed).
+mlir::OpFoldResult mlir::tt::ttnn::ToMemoryConfigOp::fold(FoldAdaptor) {
+  if (getInput().getType() == getResult().getType()) {
+    return getInput();
+  }
+  return nullptr;
+}
+
+namespace {
+// Fold two consecutive ToMemoryConfigOps when the intermediate result is L1
+// sharded and its only non-dealloc use is the outer to_memory_config. This
+// eliminates round-trips like DRAM → L1_sharded → DRAM or
+// DRAM → L1_sharded → L1_interleaved that MLA inserts when propagating
+// layouts across consumers. Soft (force=false) deallocate users of the
+// intermediate are erased along with the intermediate itself.
+struct FoldConsecutiveToMemoryConfigOps
+    : public OpRewritePattern<ttnn::ToMemoryConfigOp> {
+  using OpRewritePattern<ttnn::ToMemoryConfigOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::ToMemoryConfigOp op,
+                                PatternRewriter &rewriter) const override {
+    auto defOp = op.getInput().getDefiningOp<ttnn::ToMemoryConfigOp>();
+    if (!defOp)
+      return failure();
+
+    // Only fold when the intermediate is L1 sharded.
+    auto intermediateLayout = mlir::cast<TTNNLayoutAttr>(
+        mlir::cast<RankedTensorType>(defOp.getResult().getType())
+            .getEncoding());
+    if (!intermediateLayout.hasShardedL1TensorMemoryLayout())
+      return failure();
+
+    // Allow the outer to_memory_config (op) plus soft deallocate ops as users
+    // of the intermediate. Hard deallocates (force=true) may have ordering
+    // dependencies we cannot safely remove.
+    SmallVector<ttnn::DeallocateOp> defOpDeallocs;
+    for (Operation *user : defOp.getResult().getUsers()) {
+      if (user == op.getOperation())
+        continue;
+      auto deallocOp = dyn_cast<ttnn::DeallocateOp>(user);
+      if (deallocOp && !deallocOp.getForce()) {
+        defOpDeallocs.push_back(deallocOp);
+        continue;
+      }
+      return failure();
+    }
+
+    // Erase soft deallocates of the intermediate before removing defOp.
+    for (ttnn::DeallocateOp dealloc : defOpDeallocs)
+      rewriter.eraseOp(dealloc);
+
+    // Bypass the intermediate: outer op now reads directly from defOp's input.
+    rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
+        op, op.getResult().getType(), defOp.getInput(), op.getMemoryConfig());
+
+    // defOp has no remaining uses; erase it.
+    rewriter.eraseOp(defOp);
+    return success();
+  }
+};
+// For a DRAM to_memory_config whose source is L1-sharded, reroute ALL of its
+// L1-interleaved consumers to read the L1-sharded source directly, bypassing
+// the DRAM hop. The pattern fires on the DRAM op itself so that multiple
+// L1-interleaved consumers are handled in a single rewrite step — a
+// consumer-by-consumer approach would leave one unfixed after the first
+// rerouting reduces the DRAM op to a single-consumer case.
+//
+// The DRAM intermediate is kept alive when it has non-L1-interleaved compute
+// users (e.g. a downstream conv2d that requires DRAM activation). When all
+// remaining users are L1-interleaved or soft deallocates, the DRAM op and its
+// soft deallocates are erased entirely.
+//
+// Guard: if the L1-sharded source already has a DeallocateOp user, the pattern
+// does not fire — the source's L1 lifetime has already been fixed by a prior
+// pass and extending it past the dealloc would be unsafe.
+//
+// Pattern matched:
+//   %src  = ... → L1_sharded                      [no dealloc users]
+//   %dram = to_memory_config(%src, DRAM)           ← this op
+//   %l1_a = to_memory_config(%dram, L1_int_a)      ← rerouted
+//   %l1_b = to_memory_config(%dram, L1_int_b)      ← rerouted
+//   %other = <any non-L1_int compute user of %dram> ← unchanged
+//
+// Transforms to:
+//   %src   = ... → L1_sharded
+//   [%dram = to_memory_config(%src, DRAM)]   ← kept only if %other exists
+//   %l1_a  = to_memory_config(%src, L1_int_a)
+//   %l1_b  = to_memory_config(%src, L1_int_b)
+//   %other = <uses %dram if it was kept>
+struct BypassDRAMForL1InterleavedConsumers
+    : public OpRewritePattern<ttnn::ToMemoryConfigOp> {
+  using OpRewritePattern<ttnn::ToMemoryConfigOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::ToMemoryConfigOp op,
+                                PatternRewriter &rewriter) const override {
+    // op must produce DRAM.
+    auto dramLayout = mlir::cast<TTNNLayoutAttr>(
+        mlir::cast<RankedTensorType>(op.getResult().getType()).getEncoding());
+    if (!dramLayout.hasDRAMBufferType())
+      return failure();
+
+    // op's source must be L1-sharded.
+    auto srcLayout = mlir::cast<TTNNLayoutAttr>(
+        mlir::cast<RankedTensorType>(op.getInput().getType()).getEncoding());
+    if (!srcLayout.hasShardedL1TensorMemoryLayout())
+      return failure();
+
+    // Guard: if any deallocate on the L1-sharded source already exists,
+    // extending its live range past the dealloc would be unsafe.
+    for (Operation *user : op.getInput().getUsers()) {
+      if (isa<ttnn::DeallocateOp>(user))
+        return failure();
+    }
+
+    // Collect L1-interleaved consumers and classify other users.
+    SmallVector<ttnn::ToMemoryConfigOp> l1IntConsumers;
+    SmallVector<ttnn::DeallocateOp> softDeallocs;
+    bool hasNonL1IntComputeUser = false;
+
+    for (Operation *user : op.getResult().getUsers()) {
+      if (auto deallocOp = dyn_cast<ttnn::DeallocateOp>(user)) {
+        if (!deallocOp.getForce()) {
+          softDeallocs.push_back(deallocOp);
+          continue;
+        }
+        hasNonL1IntComputeUser = true;
+        continue;
+      }
+      auto tmcUser = dyn_cast<ttnn::ToMemoryConfigOp>(user);
+      if (tmcUser) {
+        auto userLayout = mlir::cast<TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(tmcUser.getResult().getType())
+                .getEncoding());
+        if (userLayout.hasL1BufferType() &&
+            !userLayout.hasShardedL1TensorMemoryLayout()) {
+          l1IntConsumers.push_back(tmcUser);
+          continue;
+        }
+      }
+      hasNonL1IntComputeUser = true;
+    }
+
+    if (l1IntConsumers.empty())
+      return failure();
+
+    // Reroute all L1-interleaved consumers to read the L1-sharded source.
+    Value src = op.getInput();
+    for (ttnn::ToMemoryConfigOp consumer : l1IntConsumers) {
+      rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
+          consumer, consumer.getResult().getType(), src,
+          consumer.getMemoryConfig());
+    }
+
+    // If no non-L1_int compute users remain, erase the DRAM op entirely.
+    if (!hasNonL1IntComputeUser) {
+      for (ttnn::DeallocateOp dealloc : softDeallocs)
+        rewriter.eraseOp(dealloc);
+      rewriter.eraseOp(op);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+void mlir::tt::ttnn::ToMemoryConfigOp::getCanonicalizationPatterns(
+    RewritePatternSet &patterns, MLIRContext *context) {
+  patterns.add<FoldConsecutiveToMemoryConfigOps>(context);
+  patterns.add<BypassDRAMForL1InterleavedConsumers>(context);
+}
+
 //===----------------------------------------------------------------------===//
 // ToLayoutOp
 //===----------------------------------------------------------------------===//

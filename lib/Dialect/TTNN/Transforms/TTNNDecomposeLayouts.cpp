@@ -1319,5 +1319,6 @@ private:
     handleDeviceInputLayoutConversion(op, rewriter, currentInput, info);
     return success();
   }
+
 };
 } // namespace mlir::tt::ttnn

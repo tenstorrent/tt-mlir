@@ -168,6 +168,10 @@ void createTTNNPipelineAnalysisPasses(
                     validationOptions));
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+            // Re-run canonicalization to fold bounce spills introduced by
+            // OperationValidationAndFallback (e.g. DRAM→L1_sharded→DRAM for
+            // concat→conv2d paths where the fallback inserts a DRAM hop).
+            innerPm.addPass(mlir::createCanonicalizerPass());
           },
           wrapperOptions));
     }
@@ -416,6 +420,10 @@ void createTTIRToTTNNCommonPipeline(
     }
 
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+
+    // Fold bounce spills (DRAM->L1_sharded->DRAM) introduced by ToLayoutOp
+    // decomposition in the layout decomposition pass above.
+    devicePm.addPass(mlir::createCanonicalizerPass());
 
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
