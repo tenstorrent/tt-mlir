@@ -483,7 +483,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
 
     ArrayRef<int64_t> targetGrid = perOperandTargetGrids[operandIndex];
     llvm::SmallVector<int64_t> physShape =
-        utils::computeGridSearchPhysicalShape(operand, ttnnMode);
+        utils::computePhysicalShape(operand, targetGrid, ttnnMode);
     physicalShapes.push_back(physShape);
     auto optimalGrid = utils::computeOptimalGrid(operandType, physShape,
                                                  targetGrid, virtualGridMode);
@@ -513,7 +513,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
         auto inputType =
             mlir::cast<mlir::RankedTensorType>(toLayoutResult.getType());
         llvm::SmallVector<int64_t> inputPhysShape =
-            utils::computeGridSearchPhysicalShape(toLayoutResult, ttnnMode);
+            utils::computePhysicalShape(toLayoutResult, targetGrid, ttnnMode);
         info.viewSourceGrid = utils::computeOptimalGrid(
             inputType, inputPhysShape, targetGrid, virtualGridMode);
       }

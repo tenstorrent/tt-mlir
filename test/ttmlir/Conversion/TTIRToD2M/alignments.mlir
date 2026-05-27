@@ -13,11 +13,11 @@
 // CHECK-DAG: #[[LAYOUT_4D:.*]] = #ttcore.metal_layout<logical_shape = 2x2x64x64, dim_alignments = 1x1x32x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_BOUNDARY:.*]] = #ttcore.metal_layout<logical_shape = 256x32, dim_alignments = 32x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_UNDER:.*]] = #ttcore.metal_layout<logical_shape = 255x32, dim_alignments = 32x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_ABOVE:.*]] = #ttcore.metal_layout<logical_shape = 257x32, dim_alignments = 96x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_ABOVE:.*]] = #ttcore.metal_layout<logical_shape = 257x32, dim_alignments = 256x32, {{.*}}>
 // CHECK-DAG: #[[LAYOUT_NONALIGNED_2D:.*]] = #ttcore.metal_layout<logical_shape = 100x100, dim_alignments = 32x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_H:.*]] = #ttcore.metal_layout<logical_shape = 5x37x11, dim_alignments = 160x32x32, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_W:.*]] = #ttcore.metal_layout<logical_shape = 3x61x419, dim_alignments = 1x32x224, {{.*}}>
-// CHECK-DAG: #[[LAYOUT_NONALIGNED_4D:.*]] = #ttcore.metal_layout<logical_shape = 1x19x1x1, dim_alignments = 1x1x32x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_H:.*]] = #ttcore.metal_layout<logical_shape = 5x37x11, dim_alignments = 256x32x32, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_NONALIGNED_3D_LARGE_W:.*]] = #ttcore.metal_layout<logical_shape = 3x61x419, dim_alignments = 1x32x256, {{.*}}>
+// CHECK-DAG: #[[LAYOUT_NONALIGNED_4D:.*]] = #ttcore.metal_layout<logical_shape = 1x19x1x1, dim_alignments = 192x1x32x32, {{.*}}>
 
 module {
   // CHECK-LABEL: func @test_alignment_rules
