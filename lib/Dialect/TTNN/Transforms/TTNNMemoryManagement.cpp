@@ -1149,18 +1149,21 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns
-        .add<PropagateSliceThroughPermute, PropagateSliceThroughReshape,
-             HoistCommonReshapeAboveSlices, PropagateSliceThroughRepeat,
-             PropagateSliceThroughEltwise<ttnn::AddOp>,
-             PropagateSliceThroughEltwise<ttnn::MultiplyOp>,
-             PropagateSliceThroughEltwise<ttnn::SubtractOp>,
-             PropagateSliceThroughEltwise<ttnn::DivideOp>,
-             RepeatReshapeAdjusting, ReshapeElementwiseAdjusting<ttnn::AddOp>,
-             ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
-             ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
-             ReshapeElementwiseAdjusting<ttnn::DivideOp>,
-             PermuteRowMajorAdjusting, ReshapeRowMajorAdjusting>(&getContext());
+    if (enableAllPatterns) {
+      patterns.add<PropagateSliceThroughEltwise<ttnn::AddOp>,
+                   PropagateSliceThroughEltwise<ttnn::MultiplyOp>,
+                   PropagateSliceThroughEltwise<ttnn::SubtractOp>,
+                   PropagateSliceThroughEltwise<ttnn::DivideOp>,
+                   ReshapeElementwiseAdjusting<ttnn::AddOp>,
+                   ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
+                   ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
+                   ReshapeElementwiseAdjusting<ttnn::DivideOp>,
+                   PermuteRowMajorAdjusting, ReshapeRowMajorAdjusting>(
+          &getContext());
+    }
+    patterns.add<PropagateSliceThroughPermute, PropagateSliceThroughReshape,
+                 HoistCommonReshapeAboveSlices, PropagateSliceThroughRepeat,
+                 RepeatReshapeAdjusting>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
