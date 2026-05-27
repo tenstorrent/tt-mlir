@@ -26,6 +26,7 @@ nanobind_add_module(_tt_kurbla_torch_native NB_STATIC
     ops/elementwise.cpp
     ops/fallback.cpp
     ops/linear.cpp
+    ops/op_utils.cpp
     ops/tensor.cpp
     tensor.cpp
     ttir_module_builder.cpp
@@ -47,6 +48,16 @@ target_link_libraries(_tt_kurbla_torch_native PRIVATE
     tt_kurbla_common
     ${TORCH_LIBRARIES}
 )
+
+# torch_python ships separately from libtorch_cpu/c10 and isn't pulled in by
+# ${TORCH_LIBRARIES}. The torch.compile path's _native.cpp uses THPVariable_*
+# to unpack/wrap torch.Tensors across the nanobind boundary; those symbols
+# (e.g. ParameterClass) live in libtorch_python.so.
+find_library(TORCH_PYTHON_LIBRARY torch_python
+    PATHS "${TORCH_INSTALL_PREFIX}/lib"
+    NO_DEFAULT_PATH REQUIRED
+)
+target_link_libraries(_tt_kurbla_torch_native PRIVATE ${TORCH_PYTHON_LIBRARY})
 
 # Final import name on disk is `_native.so` so Python sees tt_kurbla.torch._native.
 # INSTALL_RPATH points at the in-build-tree locations of libtt_kurbla.so,

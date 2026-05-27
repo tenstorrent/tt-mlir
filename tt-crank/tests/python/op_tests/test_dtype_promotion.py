@@ -24,7 +24,12 @@ from __future__ import annotations
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import DeviceType, assert_close_cpu_vs_tt, strict_no_fallback
+from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt, strict_no_fallback
+
+
+# Run every binary-op test in both modes so any eager-vs-compile dtype
+# divergence shows up in the regular matrix.
+_MODES = [ExecutionMode.EAGER, ExecutionMode.COMPILE]
 
 
 def _skip_if_sim(device_type: DeviceType) -> None:
@@ -76,9 +81,16 @@ def _tolerance(a_dtype: torch.dtype, b_dtype: torch.dtype) -> dict[str, float]:
     return {}
 
 
+@pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.value)
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize("a_dtype,b_dtype", DTYPE_PAIRS)
-def test_binary_op_dtype(device_type: DeviceType, op_name: str, a_dtype: torch.dtype, b_dtype: torch.dtype) -> None:
+def test_binary_op_dtype(
+    device_type: DeviceType,
+    mode: ExecutionMode,
+    op_name: str,
+    a_dtype: torch.dtype,
+    b_dtype: torch.dtype,
+) -> None:
     _skip_if_sim(device_type)
     op, xfail_set = BINARY_OPS[op_name]
     if (a_dtype, b_dtype) in xfail_set:
@@ -86,21 +98,12 @@ def test_binary_op_dtype(device_type: DeviceType, op_name: str, a_dtype: torch.d
 
     a = _make_tensor(a_dtype)
     b = _make_tensor(b_dtype)
-    expected_dtype = op(a, b).dtype
-
-    a_tt, b_tt = a.to("tt"), b.to("tt")
-    with strict_no_fallback():
-        out_tt = op(a_tt, b_tt)
-    assert out_tt.dtype == expected_dtype, (
-        f"{op_name}({a_dtype}, {b_dtype}): tt dtype {out_tt.dtype} != expected {expected_dtype}"
-    )
-    assert_close_cpu_vs_tt(op, a, b, **_tolerance(a_dtype, b_dtype))
+    assert_close_cpu_vs_tt(op, a, b, mode=mode, **_tolerance(a_dtype, b_dtype))
 
 
-# Tensor + Python scalar. PyTorch demotes the scalar's category, so the
-# result dtype is the tensor's, not promotion-up to the scalar's type. The
-# composite default of `add.Scalar` decomposes into `add.Tensor(tt, cpu_scalar)`
-# which exercises our `to_tt` upload path.
+# Tensor + Python scalar: result dtype follows the tensor (PyTorch's
+# wrapped-scalar rule), not the scalar's natural Python type.
+@pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.value)
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize(
     "a_dtype,scalar",
@@ -112,23 +115,22 @@ def test_binary_op_dtype(device_type: DeviceType, op_name: str, a_dtype: torch.d
         (torch.int32, 3),
     ],
 )
-def test_binary_op_scalar(device_type: DeviceType, op_name: str, a_dtype: torch.dtype, scalar) -> None:
+def test_binary_op_scalar(
+    device_type: DeviceType,
+    mode: ExecutionMode,
+    op_name: str,
+    a_dtype: torch.dtype,
+    scalar,
+) -> None:
     _skip_if_sim(device_type)
     op, _ = BINARY_OPS[op_name]
     a = _make_tensor(a_dtype)
-    expected_dtype = op(a, scalar).dtype
-
-    a_tt = a.to("tt")
-    with strict_no_fallback():
-        out_tt = op(a_tt, scalar)
-    assert out_tt.dtype == expected_dtype, (
-        f"{op_name}({a_dtype}, scalar={scalar}): tt dtype {out_tt.dtype} != expected {expected_dtype}"
-    )
-    assert_close_cpu_vs_tt(lambda x: op(x, scalar), a, **_tolerance(a_dtype, a_dtype))
+    assert_close_cpu_vs_tt(lambda x: op(x, scalar), a, mode=mode, **_tolerance(a_dtype, a_dtype))
 
 
-# Cross-device: one tt operand, one CPU operand. The dispatcher routes us as
-# long as any input is on tt — kernels have to materialize the CPU side.
+# Cross-device: one tt operand, one CPU operand. Eager only - torch.compile
+# rejects mixed-device inputs at FakeTensor trace time, so the compile path
+# never sees this case.
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize("a_dtype,b_dtype", [(torch.float32, torch.float32), (torch.float32, torch.float64)])
 def test_binary_op_mixed_device(device_type: DeviceType, op_name: str, a_dtype: torch.dtype, b_dtype: torch.dtype) -> None:
@@ -146,9 +148,9 @@ def test_binary_op_mixed_device(device_type: DeviceType, op_name: str, a_dtype: 
     )
 
 
-# `tensor.to(other_dtype)` on tt — PyTorch decomposes this into an empty tt
-# tensor of the target dtype plus `aten::_copy_from(src_old, dst_new)`. Our
-# `_copy_from` has to handle the cross-dtype case; this test pins it down.
+# `tensor.to(other_dtype)` on tt: values survive the cross-dtype conversion
+# and the output reports the target dtype. Eager only - this isn't an op
+# torch.compile traces into a graph.
 @pytest.mark.parametrize(
     "src_dtype,dst_dtype",
     [

@@ -76,18 +76,50 @@ C10_REGISTER_GUARD_IMPL(PrivateUse1, DeviceGuard);
 
 } // namespace
 
-std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op,
-                                                   llvm::ArrayRef<at::Tensor> inputs) {
+std::shared_ptr<::tt::kurbla::CompiledProgram> compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op) {
     ::tt::kurbla::CompileOptions opts;
     opts.system_desc = ::tt::kurbla::runtime_system_desc();
-    auto program = std::make_shared<::tt::kurbla::CompiledProgram>(
+    return std::make_shared<::tt::kurbla::CompiledProgram>(
         ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), opts));
+}
 
+std::vector<at::Tensor> run_compiled_program(const std::shared_ptr<::tt::kurbla::CompiledProgram> &program,
+                                             llvm::ArrayRef<at::Tensor> inputs,
+                                             llvm::ArrayRef<::tt::target::DataType> logical_output_dtypes) {
     ::tt::kurbla::ExecutionPayload payload(program);
     for (std::uint32_t i = 0; i < inputs.size(); ++i) {
         payload.bind_tensor(storage_of(inputs[i]).tensor(), i);
     }
 
+    std::vector<::tt::runtime::Tensor> raw_outputs = payload.run();
+    auto output_descs = program->output_descs(payload.program_index());
+    TORCH_INTERNAL_ASSERT(raw_outputs.size() == output_descs.size(),
+                          "run_compiled_program: output count mismatch between runtime and program metadata");
+    TORCH_CHECK(raw_outputs.size() == logical_output_dtypes.size(), "run_compiled_program: caller provided ",
+                logical_output_dtypes.size(), " logical output dtypes but program has ", raw_outputs.size(),
+                " outputs");
+
+    std::vector<at::Tensor> outputs;
+    outputs.reserve(raw_outputs.size());
+    for (std::size_t i = 0; i < raw_outputs.size(); ++i) {
+        const auto &desc = output_descs[i];
+        std::vector<std::int64_t> sizes;
+        sizes.reserve(desc.shape.size());
+        for (auto s : desc.shape) {
+            sizes.push_back(as<std::int64_t>(s));
+        }
+        outputs.push_back(wrap_tt_tensor(std::move(raw_outputs[i]), sizes, to_torch_dtype(logical_output_dtypes[i])));
+    }
+    return outputs;
+}
+
+std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op,
+                                                   llvm::ArrayRef<at::Tensor> inputs) {
+    auto program = compile_module(std::move(module_op));
+    ::tt::kurbla::ExecutionPayload payload(program);
+    for (std::uint32_t i = 0; i < inputs.size(); ++i) {
+        payload.bind_tensor(storage_of(inputs[i]).tensor(), i);
+    }
     return payload.run();
 }
 

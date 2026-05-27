@@ -22,6 +22,18 @@ class DeviceType(enum.Enum):
     REAL = "real"
 
 
+class ExecutionMode(enum.Enum):
+    """How a callable runs on the tt backend.
+
+    ``EAGER``: invoked directly through the dispatcher, one ATen kernel at a
+    time. ``COMPILE``: wrapped with ``torch.compile(backend="tt")`` so the
+    whole graph lowers into a single TTIR module before execution.
+    """
+
+    EAGER = "eager"
+    COMPILE = "compile"
+
+
 @contextmanager
 def strict_no_fallback() -> Iterator[None]:
     """Make the global CPU fallback raise instead of running, for the body.
@@ -45,36 +57,70 @@ def assert_close_cpu_vs_tt(
     atol: float | None = None,
     rtol: float | None = None,
     assert_native: bool = True,
+    mode: ExecutionMode = ExecutionMode.EAGER,
 ) -> None:
     """Run ``fn`` on CPU and on tt with mirrored args; assert the outputs match.
 
     Mirrors each tensor arg to the ``"tt"`` device, runs ``fn`` on both sides,
     brings the tt result back to CPU, and compares with
-    ``torch.testing.assert_close``. Non-tensor args are passed through unchanged.
+    ``torch.testing.assert_close`` (which enforces ``tt_out.dtype ==
+    cpu_out.dtype`` by default). Non-tensor args are passed through unchanged.
 
     If ``fn`` is an :class:`torch.nn.Module`, its parameters are moved to tt
-    for the tt-side call and restored to CPU afterward, so the caller's device
-    state is not mutated.
+    for the tt-side call.
 
-    Defaults to ``assert_native=True``: the tt-side call runs inside
-    :func:`strict_no_fallback`, so any op that would silently fall back to CPU
-    raises instead. This is how op tests enforce "this op is implemented
-    natively on tt" by default — without it, a fallback-only path would still
-    match CPU and pass spuriously. Pass ``assert_native=False`` to explicitly
-    allow the fallback (e.g. when testing the fallback path itself).
+    ``mode`` picks the tt execution path:
+
+      - :attr:`ExecutionMode.EAGER` (default): invokes ``fn`` directly on
+        tt-resident operands. When ``assert_native`` is true, wraps the call
+        in :func:`strict_no_fallback` so any op that would silently route
+        through CPU raises instead. This is how op tests enforce "this op is
+        implemented natively on tt" by default — without it, a fallback-only
+        path would still match CPU and pass spuriously. Pass
+        ``assert_native=False`` to explicitly allow the fallback (e.g. when
+        testing the fallback path itself).
+      - :attr:`ExecutionMode.COMPILE`: wraps ``fn`` in an ``nn.Module``
+        (unless it already is one), moves the module to tt, runs it through
+        ``torch.compile(backend="tt", dynamic=False)``, and compares. The
+        compile path doesn't share the strict-fallback toggle — dynamo
+        graph-breaks surface as logs/warnings, not as a captured exception
+        from the eager dispatcher — so ``assert_native`` is ignored here.
     """
     cpu_out = fn(*cpu_args)
 
-    if isinstance(fn, torch.nn.Module): fn.to("tt")
+    if isinstance(fn, torch.nn.Module):
+        fn.to("tt")
     tt_args = tuple(a.to("tt") if isinstance(a, torch.Tensor) else a for a in cpu_args)
 
-    if assert_native:
-        with strict_no_fallback():
+    if mode is ExecutionMode.EAGER:
+        if assert_native:
+            with strict_no_fallback():
+                tt_out = fn(*tt_args).cpu()
+        else:
             tt_out = fn(*tt_args).cpu()
+    elif mode is ExecutionMode.COMPILE:
+        model = fn if isinstance(fn, torch.nn.Module) else _wrap_callable_as_module(fn)
+        compiled = torch.compile(model.to("tt"), backend="tt", dynamic=False)
+        with torch.no_grad():
+            tt_out = compiled(*tt_args).cpu()
     else:
-        tt_out = fn(*tt_args).cpu()
+        raise ValueError(f"unknown ExecutionMode: {mode!r}")
 
     torch.testing.assert_close(tt_out, cpu_out, atol=atol, rtol=rtol)
+
+
+def _wrap_callable_as_module(fn: Callable[..., torch.Tensor]) -> torch.nn.Module:
+    """Wrap a callable in a parameter-less ``nn.Module`` so it can be moved
+    to a device with ``.to(...)`` before ``torch.compile``. The wrapper has
+    no parameters or buffers, so the FX graph aot traces from it contains
+    only the user's tensor inputs, no extra module-state placeholders.
+    """
+
+    class _FnModule(torch.nn.Module):
+        def forward(self, *args: Any, **kwargs: Any) -> torch.Tensor:
+            return fn(*args, **kwargs)
+
+    return _FnModule()
 
 
 def get_supported_dtypes() -> list[torch.dtype]:
