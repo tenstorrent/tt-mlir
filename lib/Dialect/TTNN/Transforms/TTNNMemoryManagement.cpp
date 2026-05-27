@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <cstdint>
@@ -669,6 +671,95 @@ public:
   }
 };
 
+// When an eltwise op produces a tile-padded tensor whose padding waste is
+// dominated by sub-tile inner dims (e.g. trailing (..., 1, 2) padding up to
+// (..., 32, 32) for a 512x bloat), swap the eltwise and its upstream reshapes
+// to row-major (no tile-padding waste), and add a single to_layout back to
+// tile for downstream consumers.
+template <typename EltwiseOpTy>
+class EltwiseBloatedTileToRowMajor : public OpRewritePattern<EltwiseOpTy> {
+public:
+  using OpRewritePattern<EltwiseOpTy>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(EltwiseOpTy op,
+                                PatternRewriter &rewriter) const override {
+    auto outputType = cast<RankedTensorType>(op->getResult(0).getType());
+    auto outputLayout = mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+    if (!outputLayout.isTiled()) {
+      return failure();
+    }
+
+    ArrayRef<int64_t> outShape = outputType.getShape();
+    if (!hasNonTileAlignedInnerDims(outShape)) {
+      return failure();
+    }
+
+    // Only fire on significant bloat. HiDream's case is 512x; tensors with
+    // a single mildly sub-tile inner dim see only ~2-4x and aren't worth the
+    // to_layout cost.
+    auto paddedShape = ttnn::utils::getTilePaddedShape(outShape);
+    int64_t paddedVolume = ttmlir::utils::volume(llvm::ArrayRef(paddedShape));
+    int64_t actualVolume = ttmlir::utils::volume(outShape);
+    if (paddedVolume < 10 * actualVolume) {
+      return failure();
+    }
+
+    // Every operand must be a one-use reshape so we can flip its output
+    // layout to row-major without affecting other consumers.
+    SmallVector<ttnn::ReshapeOp> operandReshapes;
+    for (Value v : op->getOperands()) {
+      auto r = v.getDefiningOp<ttnn::ReshapeOp>();
+      if (!r || !r->hasOneUse()) {
+        return failure();
+      }
+      operandReshapes.push_back(r);
+    }
+
+    // For each upstream reshape, promote its input to row-major (so the
+    // reshape goes row-major -> row-major instead of tile -> row-major,
+    // which the runtime kernel cannot do in one step). Then flip the
+    // reshape's output type to row-major. Finally flip this eltwise's
+    // output type to row-major as well.
+    for (auto reshape : operandReshapes) {
+      Value reshapeInput = reshape.getInput();
+      auto inputType = mlir::cast<RankedTensorType>(reshapeInput.getType());
+      auto inputLayout =
+          mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+      if (inputLayout && inputLayout.isTiled()) {
+        rewriter.setInsertionPoint(reshape);
+        auto rowMajorInput = utils::createToLayoutOp(
+            reshape,
+            mlir::cast<mlir::TypedValue<RankedTensorType>>(reshapeInput),
+            rewriter, Layout::RowMajor, inputLayout.getBufferType(),
+            inputLayout.getMemLayout(), inputLayout.getDataType(),
+            "_input_row_major");
+        rewriter.modifyOpInPlace(reshape, [&]() {
+          reshape.getInputMutable().assign(rowMajorInput.getResult());
+        });
+      }
+    }
+
+    rewriter.modifyOpInPlace(op, [&]() {
+      for (auto reshape : operandReshapes) {
+        auto oldType = cast<RankedTensorType>(reshape.getResult().getType());
+        reshape.getResult().setType(
+            utils::RankedTensorTypeFactory::create(oldType, Layout::RowMajor));
+      }
+      op->getResult(0).setType(
+          utils::RankedTensorTypeFactory::create(outputType, Layout::RowMajor));
+    });
+
+    // Restore tile layout for downstream consumers via a single to_layout.
+    rewriter.setInsertionPointAfter(op);
+    auto resultValue = cast<TypedValue<RankedTensorType>>(op->getResult(0));
+    auto toTile = utils::createToLayoutOp(
+        op, resultValue, rewriter, Layout::Tile, outputLayout.getBufferType(),
+        outputLayout.getMemLayout(), outputLayout.getDataType(), "_to_tile");
+    op->getResult(0).replaceAllUsesExcept(toTile.getResult(), toTile);
+    return success();
+  }
+};
+
 class TTNNMemoryManagement
     : public impl::TTNNMemoryManagementBase<TTNNMemoryManagement> {
 public:
@@ -686,7 +777,8 @@ public:
         ReshapeElementwiseAdjusting<ttnn::AddOp>,
         ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
         ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
-        ReshapeElementwiseAdjusting<ttnn::DivideOp>>(&getContext());
+        ReshapeElementwiseAdjusting<ttnn::DivideOp>,
+        EltwiseBloatedTileToRowMajor<ttnn::MultiplyOp>>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
