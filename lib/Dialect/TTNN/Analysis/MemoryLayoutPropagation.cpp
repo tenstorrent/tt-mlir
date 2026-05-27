@@ -1369,15 +1369,6 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     d2m_optimizer_utils::applyChosenLayoutToD2MSubgraphOp(
         dispatchOp, chosenLayout, deviceAttr.getWorkerGrid());
 
-    // Attach L1 usage annotation for spill management.
-    if (chosenLayout.hasL1BufferType() &&
-        candidate.validationResult.isSuccess() &&
-        candidate.validationResult.outputL1Usage > 0) {
-      OpBuilder builder(op->getContext());
-      op->setAttr(
-          "ttnn.output_l1_usage",
-          builder.getI64IntegerAttr(candidate.validationResult.outputL1Usage));
-    }
     return;
   }
 
@@ -1425,22 +1416,6 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
   }
 
   applyOpSpecificAttrs(op, candidate);
-
-  // Attach L1 usage annotation for spill management.
-  if (chosenLayout.hasL1BufferType() &&
-      candidate.validationResult.isSuccess() &&
-      candidate.validationResult.outputL1Usage > 0) {
-    OpBuilder builder(op->getContext());
-    op->setAttr(
-        "ttnn.output_l1_usage",
-        builder.getI64IntegerAttr(candidate.validationResult.outputL1Usage));
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "L1 annotation: {0} @{1} -> outputL1Usage={2} bytes, "
-                 "bufType={3}, memLayout={4}",
-                 op->getName(), op->getLoc(),
-                 candidate.validationResult.outputL1Usage,
-                 chosenLayout.getBufferType(), chosenLayout.getMemLayout());
-  }
 }
 
 void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
@@ -1491,15 +1466,6 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
       builder.create<ToMemoryConfigOp>(loc, newTensorType, operand);
 
   consumerOp->setOperand(operandIndex, memoryReconfigOp->getResult(0));
-
-  // Annotate L1 output usage so L1SpillManagement can track this op.
-  if (outputLayout.hasL1BufferType()) {
-    uint64_t l1Usage = utils::getPerCoreL1Usage(
-        outputLayout, deviceAttr.getWorkerGrid().getGridVolume());
-    OpBuilder attrBuilder(memoryReconfigOp->getContext());
-    memoryReconfigOp->setAttr("ttnn.output_l1_usage",
-                              attrBuilder.getI64IntegerAttr(l1Usage));
-  }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Inserted memory reconfig op: {0}", memoryReconfigOp);

@@ -16,6 +16,13 @@
 
 namespace mlir::tt::d2m {
 
+/// Grid and materialized type selected for one CompositeViewOp input.
+struct CompositeInputGridInfo {
+  Value input;
+  llvm::SmallVector<int64_t> selectedGrid;
+  RankedTensorType materializedType;
+};
+
 /// Per-operand analysis result describing the chosen grid for a GenericOp
 /// operand. The concrete update strategy is recovered at apply time from the
 /// operand's defining op.
@@ -24,10 +31,20 @@ struct OperandGridInfo {
   llvm::SmallVector<int64_t> selectedGrid;
   llvm::SmallVector<int64_t> targetGrid;
 
+  // Set only when a scalar materialized operand must stay compatible with
+  // a tiled layout bridge selected during analysis. Empty means row-major
+  // padding is sufficient.
+  llvm::SmallVector<int64_t> paddingTileShape;
+
   // Set only when the operand is a ViewLayoutOp whose input is a ToLayoutOp
   // that should have its grid optimized independently. Carries the optimal
   // grid for that upstream ToLayoutOp's own tensor shape. Empty otherwise.
   llvm::SmallVector<int64_t> viewSourceGrid;
+
+  // Set only when the operand is a CompositeViewOp. Carries each composite
+  // input's selected grid and padded/materialized tensor type so apply-time
+  // rewriting does not re-run grid selection.
+  llvm::SmallVector<CompositeInputGridInfo> compositeInputInfos;
 };
 
 /// Effective target grid range for a GenericOp.

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-memory-management -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-memory-management -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #dram = #ttnn.buffer_type<dram>
@@ -20,6 +20,13 @@
 #layout_mm_1x8190x6x3072 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 262080 + d1 * 32 + d2, d3), <1x1>, memref<8190x96x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_mm_1x8190x3072 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 8192 + d1, d2), <1x1>, memref<256x96x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_mm_1x49140x3072 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 49152 + d1, d2), <1x1>, memref<1536x96x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_1x67M_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2097152x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_67Mx1_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2097152x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_67Mx2_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2097152x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_8192x8192_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<256x256x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_8192x16384_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<256x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_4d_1x1x8192x8192_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 8192 + d1 * 8192 + d2, d3), <1x1>, memref<256x256x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_4d_8192x8192x1x1_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 8192 + d1 + d2, d3), <1x1>, memref<2097152x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 
 module {
   // sliceReshape
@@ -106,5 +113,55 @@ module {
     %2 = "ttnn.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32, 3 : i32, 0 : i32], ends = [1 : i32, 8190 : i32, 4 : i32, 3072 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x8190x6x3072xf32, #layout_mm_1x8190x6x3072>) -> tensor<1x8190x1x3072xf32, #layout_mm_1x8190x6x3072>
     %3 = "ttnn.reshape"(%2) <{shape = [1 : i32, 8190 : i32, 3072 : i32]}> : (tensor<1x8190x1x3072xf32, #layout_mm_1x8190x6x3072>) -> tensor<1x8190x3072xf32, #layout_mm_1x8190x3072>
     return %1, %3 : tensor<1x8190x3072xf32, #layout_mm_1x8190x3072>, tensor<1x8190x3072xf32, #layout_mm_1x8190x3072>
+  }
+  // permute-reshape row-major adjust:
+  // CHECK-LABEL: func.func @permute_reshape_row_major_adjusting
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}>
+  // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RM_IN]])
+  // CHECK-SAME: permutation = array<i64: 1, 0>
+  // CHECK-SAME: -> tensor<67108864x1xf32
+  // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[PERM]]) <{shape = [8192 : i32, 8192 : i32]}>
+  // CHECK-SAME: -> tensor<8192x8192xf32
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[RESHAPE]]) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}>
+  // CHECK: return %[[RESTORED]]
+  func.func @permute_reshape_row_major_adjusting(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<8192x8192xf32, #layout_8192x8192_tile> {
+    %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
+    %1 = "ttnn.reshape"(%0) <{shape = [8192 : i32, 8192 : i32]}> : (tensor<67108864x1xf32, #layout_67Mx1_tile>) -> tensor<8192x8192xf32, #layout_8192x8192_tile>
+    return %1 : tensor<8192x8192xf32, #layout_8192x8192_tile>
+  }
+
+  // permute-repeat-reshape row-major adjust:
+  // CHECK-LABEL: func.func @permute_repeat_reshape_row_major_adjusting
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}>
+  // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RM_IN]])
+  // CHECK-SAME: permutation = array<i64: 1, 0>
+  // CHECK-SAME: -> tensor<67108864x1xf32
+  // CHECK: %[[REPEAT:.*]] = "ttnn.repeat"(%[[PERM]]) <{repeat_dims = #ttnn.shape<1x2>}>
+  // CHECK-SAME: -> tensor<67108864x2xf32
+  // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[REPEAT]]) <{shape = [8192 : i32, 16384 : i32]}>
+  // CHECK-SAME: -> tensor<8192x16384xf32
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[RESHAPE]]) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}>
+  // CHECK: return %[[RESTORED]]
+  func.func @permute_repeat_reshape_row_major_adjusting(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<8192x16384xf32, #layout_8192x16384_tile> {
+    %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
+    %1 = "ttnn.repeat"(%0) <{repeat_dims = #ttnn.shape<1x2>}> : (tensor<67108864x1xf32, #layout_67Mx1_tile>) -> tensor<67108864x2xf32, #layout_67Mx2_tile>
+    %2 = "ttnn.reshape"(%1) <{shape = [8192 : i32, 16384 : i32]}> : (tensor<67108864x2xf32, #layout_67Mx2_tile>) -> tensor<8192x16384xf32, #layout_8192x16384_tile>
+    return %2 : tensor<8192x16384xf32, #layout_8192x16384_tile>
+  }
+
+  // reshape-permute row-major adjust:
+  // CHECK-LABEL: func.func @reshape_permute_row_major_adjusting
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}>
+  // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[RM_IN]]) <{shape = [8192 : i32, 8192 : i32, 1 : i32, 1 : i32]}>
+  // CHECK-SAME: -> tensor<8192x8192x1x1xf32
+  // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RESHAPE]])
+  // CHECK-SAME: permutation = array<i64: 2, 3, 0, 1>
+  // CHECK-SAME: -> tensor<1x1x8192x8192xf32
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[PERM]]) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}>
+  // CHECK: return %[[RESTORED]]
+  func.func @reshape_permute_row_major_adjusting(%arg0: tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>) -> tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile> {
+    %0 = "ttnn.reshape"(%arg0) <{shape = [8192 : i32, 8192 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>) -> tensor<8192x8192x1x1xf32, #layout_4d_8192x8192x1x1_tile>
+    %1 = "ttnn.permute"(%0) <{permutation = array<i64: 2, 3, 0, 1>}> : (tensor<8192x8192x1x1xf32, #layout_4d_8192x8192x1x1_tile>) -> tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>
+    return %1 : tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>
   }
 }
