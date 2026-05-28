@@ -3,15 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallSet.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRIMPLICITBROADCASTFOLD
@@ -99,107 +96,76 @@ public:
   }
 };
 
-// Fold `dot_general(lhs, broadcast(rhs))` (and the symmetric lhs case) by
-// dropping batch dims that the broadcast expanded — the dim survives on the
-// other operand alone. Avoids materializing the expanded tensor.
-//
-// Only safe when every expanded dim is a batch dim of the dot_general:
-// expanding a contract dim would change semantics, and expanding a non-batch
-// non-contract dim would shrink the output. This is why it is done as a 
-// a separate pattern rather than using the Broadcastable trait.
-class FoldBroadcastIntoDotGeneral
-    : public OpRewritePattern<ttir::DotGeneralOp> {
+// Drop a `ttir.broadcast` feeding a `ttir.matmul` operand when it only
+// expands batch (leading) dims and the other operand already supplies the
+// expanded size at those positions. matmul's verifier broadcasts batch dims
+// natively (see MatmulOp::verify), so removing the explicit broadcast keeps
+// the result shape and computation. Avoids materializing the expanded
+// operand and prevents ConstEvalHoist from baking it into HBM (AOTAutograd
+// einsum tracing emits this on small constant matmul operands; the broadcast
+// lands on matmul after dot_general decomposition + canonicalization).
+class FoldBroadcastIntoMatmul : public OpRewritePattern<ttir::MatmulOp> {
 public:
-  using OpRewritePattern<ttir::DotGeneralOp>::OpRewritePattern;
+  using OpRewritePattern<ttir::MatmulOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttir::DotGeneralOp op,
+  LogicalResult matchAndRewrite(ttir::MatmulOp op,
                                 PatternRewriter &rewriter) const override {
-    if (succeeded(tryFoldOperand(op, /*isRhs=*/true, rewriter))) {
-      return success();
+    Value newA = op.getA();
+    Value newB = op.getB();
+    bool changed = false;
+    if (Value dropped = tryDropBroadcast(newA, newB)) {
+      newA = dropped;
+      changed = true;
     }
-    return tryFoldOperand(op, /*isRhs=*/false, rewriter);
+    if (Value dropped = tryDropBroadcast(newB, newA)) {
+      newB = dropped;
+      changed = true;
+    }
+    if (!changed) {
+      return failure();
+    }
+    rewriter.modifyOpInPlace(op, [&]() {
+      op.setOperand(0, newA);
+      op.setOperand(1, newB);
+    });
+    return success();
   }
 
 private:
-  static LogicalResult tryFoldOperand(ttir::DotGeneralOp op, bool isRhs,
-                                      PatternRewriter &rewriter) {
-    Value foldOperand = isRhs ? op.getRhs() : op.getLhs();
-    auto bcast = foldOperand.getDefiningOp<ttir::BroadcastOp>();
-    if (!bcast) {
-      return failure();
+  // If `operand` is a ttir.broadcast that expanded only batch (leading-but-
+  // not-last-two) dims, and `other` already has the expanded size at every
+  // such position, return the broadcast's input. Otherwise return a null
+  // Value.
+  static Value tryDropBroadcast(Value operand, Value other) {
+    auto bcast = operand.getDefiningOp<ttir::BroadcastOp>();
+    if (!bcast || !ttir::utils::isImplicitBroadcastSupported(bcast)) {
+      return {};
     }
-
-    auto outType = mlir::cast<RankedTensorType>(foldOperand.getType());
-    auto inType = mlir::cast<RankedTensorType>(bcast.getInput().getType());
-    if (!inType.hasStaticShape() || !outType.hasStaticShape()) {
-      return failure();
+    auto inShape =
+        mlir::cast<RankedTensorType>(bcast.getInput().getType()).getShape();
+    auto outShape = mlir::cast<RankedTensorType>(operand.getType()).getShape();
+    auto otherShape = mlir::cast<RankedTensorType>(other.getType()).getShape();
+    int64_t rank = outShape.size();
+    // Require ≥3D and equal ranks: matmul aligns batch dims by position when
+    // ranks match; differing ranks complicate the safety check.
+    if (rank < 3 || static_cast<int64_t>(otherShape.size()) != rank) {
+      return {};
     }
-
-    llvm::SmallSet<int64_t, 4> expanded;
-    for (int64_t i = 0; i < outType.getRank(); ++i) {
-      if (inType.getShape()[i] != outType.getShape()[i]) {
-        expanded.insert(i);
+    // Inner two dims (M/K or K/N) are matmul-inner; broadcasting them would
+    // change semantics — in particular expanding K changes the contract size.
+    for (int64_t i = rank - 2; i < rank; ++i) {
+      if (inShape[i] != outShape[i]) {
+        return {};
       }
     }
-    if (expanded.empty()) {
-      return failure();
-    }
-
-    auto foldBatch = isRhs ? op.getBatchDimsRhs() : op.getBatchDimsLhs();
-    auto otherBatch = isRhs ? op.getBatchDimsLhs() : op.getBatchDimsRhs();
-    auto foldContract =
-        isRhs ? op.getContractDimsRhs() : op.getContractDimsLhs();
-    auto otherContract =
-        isRhs ? op.getContractDimsLhs() : op.getContractDimsRhs();
-
-    if (!llvm::all_of(expanded, [&](int64_t d) {
-          return llvm::is_contained(foldBatch, d);
-        })) {
-      return failure();
-    }
-
-    // Drop expanded positions and build an old→new index remap.
-    llvm::SmallVector<int64_t> newShape;
-    llvm::SmallVector<int64_t> remap(outType.getRank(), -1);
-    for (int64_t i = 0, j = 0; i < outType.getRank(); ++i) {
-      if (!expanded.contains(i)) {
-        newShape.push_back(inType.getShape()[i]);
-        remap[i] = j++;
+    // For each expanded batch dim, the other operand must already supply the
+    // expanded size — otherwise dropping the broadcast shrinks the result.
+    for (int64_t i = 0; i < rank - 2; ++i) {
+      if (inShape[i] != outShape[i] && otherShape[i] != outShape[i]) {
+        return {};
       }
     }
-
-    llvm::SmallVector<int64_t> newFoldBatch, newOtherBatch;
-    for (auto [f, o] : llvm::zip_equal(foldBatch, otherBatch)) {
-      if (!expanded.contains(f)) {
-        newFoldBatch.push_back(remap[f]);
-        newOtherBatch.push_back(o);
-      }
-    }
-
-    llvm::SmallVector<int64_t> newFoldContract;
-    for (int64_t d : foldContract) {
-      newFoldContract.push_back(remap[d]);
-    }
-
-    Value newOperand = ttir::utils::createReshapeOp(
-        rewriter, op.getLoc(), bcast.getInput(), newShape);
-
-    Value newLhs = isRhs ? op.getLhs() : newOperand;
-    Value newRhs = isRhs ? newOperand : op.getRhs();
-    llvm::ArrayRef<int64_t> newBatchLhs = isRhs ? newOtherBatch : newFoldBatch;
-    llvm::ArrayRef<int64_t> newBatchRhs = isRhs ? newFoldBatch : newOtherBatch;
-    llvm::ArrayRef<int64_t> newContractLhs =
-        isRhs ? otherContract : llvm::ArrayRef<int64_t>(newFoldContract);
-    llvm::ArrayRef<int64_t> newContractRhs =
-        isRhs ? llvm::ArrayRef<int64_t>(newFoldContract) : otherContract;
-
-    rewriter.replaceOpWithNewOp<ttir::DotGeneralOp>(
-        op, op.getResult().getType(), newLhs, newRhs,
-        rewriter.getDenseI64ArrayAttr(newBatchLhs),
-        rewriter.getDenseI64ArrayAttr(newContractLhs),
-        rewriter.getDenseI64ArrayAttr(newBatchRhs),
-        rewriter.getDenseI64ArrayAttr(newContractRhs));
-    return success();
+    return bcast.getInput();
   }
 };
 
@@ -210,7 +176,7 @@ public:
       TTIRImplicitBroadcastFold>::TTIRImplicitBroadcastFoldBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRImplicitBroadcastFoldRewriter, FoldBroadcastIntoDotGeneral>(
+    patterns.add<TTIRImplicitBroadcastFoldRewriter, FoldBroadcastIntoMatmul>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
 
