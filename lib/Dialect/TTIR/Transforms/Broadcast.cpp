@@ -98,12 +98,7 @@ public:
 
 // Drop a `ttir.broadcast` feeding a `ttir.matmul` operand when it only
 // expands batch (leading) dims and the other operand already supplies the
-// expanded size at those positions. matmul's verifier broadcasts batch dims
-// natively (see MatmulOp::verify), so removing the explicit broadcast keeps
-// the result shape and computation. Avoids materializing the expanded
-// operand and prevents ConstEvalHoist from baking it into HBM (AOTAutograd
-// einsum tracing emits this on small constant matmul operands; the broadcast
-// lands on matmul after dot_general decomposition + canonicalization).
+// expanded size at those positions.
 class FoldBroadcastIntoMatmul : public OpRewritePattern<ttir::MatmulOp> {
 public:
   using OpRewritePattern<ttir::MatmulOp>::OpRewritePattern;
