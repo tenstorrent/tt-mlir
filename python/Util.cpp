@@ -10,8 +10,6 @@
 
 namespace mlir::ttmlir::python {
 
-// Returns operand indices of `op` that carry a MemoryEffects::Write effect,
-// or std::nullopt if `op` does not implement MemoryEffectOpInterface.
 static std::optional<std::vector<int64_t>>
 collectWriteEffectOperandIndices(mlir::Operation *op) {
   auto iface = mlir::dyn_cast<mlir::MemoryEffectOpInterface>(op);
@@ -35,10 +33,6 @@ collectWriteEffectOperandIndices(mlir::Operation *op) {
 }
 
 void populateUtilModule(nb::module_ &m) {
-  // Returns operand indices on `op` carrying a MemoryEffects::Write, or None
-  // if `op` does not implement MemoryEffectOpInterface (effects are unknown).
-  // Indices are into op->getOperands(); empty list means the op implements the
-  // interface but writes to no operand.
   m.def(
       "get_write_effect_operand_indices",
       [](MlirOperation op) -> nb::object {

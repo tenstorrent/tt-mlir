@@ -220,8 +220,6 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     )
     entries.extend(inplace_refs)
 
-    # Goldens run host-side, so device bytes are identical across iso and
-    # accum runs - retrieve each device tensor once and share across modes.
     device_tensors = [
         _validate_and_retrieve_tensor(ctx, mlir_value, tensor_ref)
         for mlir_value, tensor_ref in entries
