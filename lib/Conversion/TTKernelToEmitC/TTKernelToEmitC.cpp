@@ -2014,6 +2014,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortWithDtOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitShortOp>,
@@ -2028,8 +2029,12 @@ public:
 
         // Transpose Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeTileOp>>(
+        typeConverter, funcOp.getContext());
 
+    // Split add<...> calls to stay under clang's fold-expression nesting limit
+    // of 256.
+    patterns.add<
         // SFPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::InitSFPUOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileInitOp>,

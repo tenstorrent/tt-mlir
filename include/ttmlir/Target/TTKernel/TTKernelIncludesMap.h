@@ -168,6 +168,7 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"mm_block_init_short",                            {"api/compute/matmul.h", ""}},
         {"mm_init",                                        {"api/compute/matmul.h", ""}},
         {"mm_init_short",                                  {"api/compute/matmul.h", ""}},
+        {"mm_init_short_with_dt",                          {"api/compute/matmul.h", ""}},
         {"mul_binary_tile",                                {"api/compute/eltwise_binary_sfpu.h", ""}},
         {"mul_binary_tile_init",                           {"api/compute/eltwise_binary_sfpu.h", ""}},
         {"mul_int_tile",                                   {"api/compute/mul_int_sfpu.h", ""}},

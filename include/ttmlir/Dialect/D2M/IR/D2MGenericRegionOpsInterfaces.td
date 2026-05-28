@@ -157,4 +157,69 @@ def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegis
   ];
 }
 
+// Interface declaring per-operand tilization fusion CAPABILITY on compute ops
+// in the generic region. Used by the post-LowerToLayout `D2MGenericFusion`
+// pass to decide whether a tilize-only (or untilize-only) `d2m.generic` can
+// be folded into a consumer/producer's body.
+//
+// === Responsibility split ===
+//
+//   * Interface (this file): per-op CAPABILITY + per-op ENVIRONMENTAL
+//     CONSTRAINTS. "Given the current pipeline setting `l1AccEnabled`, can
+//     this op accept untilized data on operand `i` / emit untilized data on
+//     result `i`?" The op encodes its own physical limitations here (e.g.
+//     matmul's `pack_untilize` requires L1-acc off because it reads DST).
+//
+//   * Pass (D2MGenericFusion): IR STRUCTURE. Finds pure tilize-/untilize-
+//     shaped `d2m.generic` neighbours, enforces single-use / grid-match /
+//     no-`d2m.mask` invariants, performs the rewrite. The pass never makes
+//     op-specific decisions — it only asks the interface.
+//
+// Defaults return false so non-opting ops never enter the fusion path.
+
+def D2M_TilizedOperandInterface : OpInterface<"TilizedOperandInterface"> {
+  let cppNamespace = "::mlir::tt::d2m";
+  let description = [{
+    Compute ops opt in to tilize/untilize fusion by implementing this
+    interface and overriding the relevant per-operand / per-result methods.
+
+    The output-side method takes `l1AccEnabled` because the only env-
+    dependent constraint we currently model lives on the pack-untilize
+    path. The input-side method is env-free — the unpacker can tilize on
+    the fly regardless of L1-acc setting. New env-dependent constraints
+    on the input side would be added by extending that method's signature.
+  }];
+
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns true if operand `operandIdx` may be sourced as scalar
+        (row-major) data and tilized on the fly by an inlined
+        `d2m.tile_tilize_block` inside the consumer's body. When true, the
+        post-LTL `D2MGenericFusion` pass is allowed to fold a pure
+        tilize-`d2m.generic` producer into this consumer over that operand.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"canConsumeUntilizedOperand",
+      /*args=*/(ins "int64_t":$operandIdx),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns true if result `resultIdx` may be emitted as scalar
+        (row-major) data, untilizing on the fly via an inlined
+        `d2m.tile_untilize_block`. When true, the post-LTL `D2MGenericFusion`
+        pass is allowed to fold a pure untilize-`d2m.generic` consumer into
+        this producer's body.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"canProduceUntilizedResult",
+      /*args=*/(ins "int64_t":$resultIdx, "bool":$l1AccEnabled),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
+  ];
+}
+
 #endif // TTMLIR_D2M_DIALECT_D2M_IR_D2MGENERICREGIONOPSINTERFACES_TD

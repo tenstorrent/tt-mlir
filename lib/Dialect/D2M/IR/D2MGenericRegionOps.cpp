@@ -1798,7 +1798,15 @@ mlir::LogicalResult TileTilizeBlockOp::bufferize(
 
   rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), mlir::TypeRange{},
                                                     in, out);
-  rewriter.replaceAllUsesWith(getResult(), out);
+  // Wrap the bufferized output in a `bufferization.to_tensor` so consumers
+  // that still see the old tensor result (e.g. a `linalg.generic` ins) keep
+  // their tensor type until their own bufferize() runs and traces through
+  // the wrapper. Without this, eager memref propagation here can leave a
+  // partially-bufferized linalg.generic with mixed memref/tensor operands,
+  // failing the "pure tensor semantics" check.
+  auto toTensor = rewriter.create<mlir::bufferization::ToTensorOp>(
+      getLoc(), getResult().getType(), out);
+  rewriter.replaceAllUsesWith(getResult(), toTensor.getResult());
   rewriter.eraseOp(*this);
   return mlir::success();
 }
@@ -1904,7 +1912,12 @@ mlir::LogicalResult TileUntilizeBlockOp::bufferize(
 
   rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(
       getLoc(), mlir::TypeRange{}, in, out);
-  rewriter.replaceAllUsesWith(getResult(), out);
+  // See TileTilizeBlockOp::bufferize for rationale: wrap the bufferized
+  // output so still-tensor downstream consumers don't observe a mixed-type
+  // SSA edge mid-bufferization.
+  auto toTensor = rewriter.create<mlir::bufferization::ToTensorOp>(
+      getLoc(), getResult().getType(), out);
+  rewriter.replaceAllUsesWith(getResult(), toTensor.getResult());
   rewriter.eraseOp(*this);
   return mlir::success();
 }

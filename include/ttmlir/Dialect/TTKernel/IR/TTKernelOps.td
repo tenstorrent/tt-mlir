@@ -341,6 +341,25 @@ def TTKernel_MatmulInitShortOp : TTKernel_InitOp<"mm_init_short"> {
     }];
 }
 
+def TTKernel_MatmulInitShortWithDtOp : TTKernel_InitOp<"mm_init_short_with_dt"> {
+    let summary = "Matmul short init that reconfigures srcA data format.";
+    let description = [{
+      A short version of matmul_tiles initialization that first reconfigures the
+      srcA unpacker / math data formats from `c_in_old_srca` to `in1_cb`, then
+      reinitializes the matmul state. Use this to restore matmul mode after an
+      intervening op (e.g. `tilize_block` or `pack_untilize`) clobbered srcA.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb,
+                         TTKernel_CB:$in1_cb,
+                         TTKernel_CB:$c_in_old_srca,
+                         I32:$transpose);
+
+    let assemblyFormat = [{
+      `(` $in0_cb `,` $in1_cb `,` $c_in_old_srca `,` $transpose `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{

@@ -548,6 +548,149 @@ static bool hasMatmulInit(func::FuncOp func) {
   });
 }
 
+// Resolve a CB-port value (either a pre-conversion memref derived from
+// `d2m.get_arg` / `d2m.get_cb`, or a post-conversion
+// `ttkernel.get_compile_time_arg_val` reading a CBPort entry) back to its
+// underlying `operand_index`. Returns `nullopt` if the value does not name
+// a single CB port. SSA pointer equality is insufficient because
+// `d2m.generic-regions-to-funcs` may emit two distinct ops for the same
+// underlying port (e.g. `d2m.get_arg(N)` for the matmul operand and
+// `d2m.get_cb(N)` for the tilize sync ops), and the conversion then
+// produces two separate `get_compile_time_arg_val` ct_arg slots for them.
+static std::optional<int64_t> resolveCBPortIndex(Value v) {
+  while (v) {
+    Operation *def = v.getDefiningOp();
+    if (!def) {
+      return std::nullopt;
+    }
+    if (auto getArg = dyn_cast<d2m::GetArgOp>(def)) {
+      return static_cast<int64_t>(getArg.getOperandIndex());
+    }
+    if (auto getCb = dyn_cast<d2m::GetCBOp>(def)) {
+      return static_cast<int64_t>(getCb.getCbOperandIdx());
+    }
+    if (auto getCt = dyn_cast<ttkernel::GetCompileArgValOp>(def)) {
+      auto func = getCt->getParentOfType<func::FuncOp>();
+      if (!func) {
+        return std::nullopt;
+      }
+      auto argSpec = func->getAttrOfType<ttkernel::ArgSpecAttr>(
+          ttkernel::ArgSpecAttr::name);
+      if (!argSpec) {
+        return std::nullopt;
+      }
+      auto ctArgs = argSpec.getCtArgs();
+      int32_t idx = getCt.getArgIndex();
+      if (idx < 0 || static_cast<size_t>(idx) >= ctArgs.size()) {
+        return std::nullopt;
+      }
+      ttkernel::ArgAttr a = ctArgs[idx];
+      if (a.getArgType() != ttkernel::ArgType::CBPort) {
+        return std::nullopt;
+      }
+      return static_cast<int64_t>(a.getOperandIndex());
+    }
+    if (auto reserve = dyn_cast<d2m::ReserveOp>(def)) {
+      v = reserve.getCb();
+      continue;
+    }
+    if (auto wait = dyn_cast<d2m::WaitOp>(def)) {
+      v = wait.getCb();
+      continue;
+    }
+    if (auto collapse = dyn_cast<memref::CollapseShapeOp>(def)) {
+      v = collapse.getSrc();
+      continue;
+    }
+    if (auto expand = dyn_cast<memref::ExpandShapeOp>(def)) {
+      v = expand.getSrc();
+      continue;
+    }
+    if (auto subview = dyn_cast<memref::SubViewOp>(def)) {
+      v = subview.getSource();
+      continue;
+    }
+    if (auto cast = dyn_cast<memref::CastOp>(def)) {
+      v = cast.getSource();
+      continue;
+    }
+    return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+// True when `a` and `b` resolve to the same underlying CB port even though
+// they may be distinct SSA values.
+static bool cbsRefSamePort(Value a, Value b) {
+  if (a == b) {
+    return true;
+  }
+  auto pa = resolveCBPortIndex(a);
+  auto pb = resolveCBPortIndex(b);
+  return pa && pb && *pa == *pb;
+}
+
+// If matmul srcA was just produced by an upstream tilize call in the same
+// block, return the row-major source CB so the matmul lowering can swap
+// `mm_init_short` for `mm_init_short_with_dt` and restore srcA data format.
+//
+// Recognizes both pre- and post-conversion tilize forms so the result does
+// not depend on the order in which `applyFullConversion` happens to fire
+// patterns:
+//   - `ttkernel.experimental::tilize_block` (post-conversion form)
+//   - `d2m.tile_tilize_block`               (pre-conversion form)
+//
+// `aOperand` is the matmul srcA tile-typed value (an `affine.load` /
+// `memref.load` of the consumed CB memref). `cbA` is the already-converted
+// TTKernel CB used by the matmul. The match compares the CB port behind
+// `cbA` / `aMemRef` against the port behind the tilize output rather than
+// using SSA pointer equality (see `resolveCBPortIndex` for why).
+static Value findUpstreamTilizeSource(ConversionPatternRewriter &rewriter,
+                                      Operation *anchor, Value aOperand,
+                                      Value cbA) {
+  // Resolve matmul-A to its underlying CB memref so we can compare against
+  // a pre-conversion `d2m.tile_tilize_block` result.
+  Value aMemRef;
+  if (auto load = aOperand.getDefiningOp<memref::LoadOp>()) {
+    aMemRef = load.getMemRef();
+  } else if (auto load = aOperand.getDefiningOp<affine::AffineLoadOp>()) {
+    aMemRef = load.getMemRef();
+  }
+
+  // Walk back through enclosing blocks (matmul typically lives inside one
+  // or more `affine.for` / `scf.for` loops; tilize sits in the kernel
+  // func's entry block) until the func boundary.
+  Operation *current = anchor;
+  while (current) {
+    Block *block = current->getBlock();
+    if (!block) {
+      break;
+    }
+    for (auto it = Block::reverse_iterator(current->getIterator());
+         it != block->rend(); ++it) {
+      Operation &op = *it;
+      if (auto tilize = dyn_cast<ttkernel::ExperimentalTilizeBlockOp>(&op)) {
+        if (cbsRefSamePort(tilize.getCbOut(), cbA)) {
+          return tilize.getCbIn();
+        }
+      }
+      if (auto tilize = dyn_cast<d2m::TileTilizeBlockOp>(&op)) {
+        if (aMemRef && (cbsRefSamePort(tilize.getOutput(), aMemRef) ||
+                        (tilize.getResult() &&
+                         cbsRefSamePort(tilize.getResult(), aMemRef)))) {
+          return rewriter.getRemappedValue(tilize.getInput());
+        }
+      }
+    }
+    Operation *parent = block->getParentOp();
+    if (!parent || isa<func::FuncOp>(parent)) {
+      break;
+    }
+    current = parent;
+  }
+  return nullptr;
+}
+
 } // namespace
 
 namespace {
@@ -1001,8 +1144,28 @@ public:
 
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
       auto transpose = intConstant<int32_t>(rewriter, op->getLoc(), 0);
-      rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
-                                                   transpose);
+      // The interface declares whether this op can consume srcA as scalar
+      // (row-major) data with an inlined on-the-fly tilize. When it can,
+      // probe the upstream for a tilize call so we can emit the dt-restore
+      // variant that flips the unpacker srcA data format back to the tiled
+      // scratch CB the matmul expects. When the op cannot consume an
+      // untilized srcA, there is no fused tilize and no dt swap is needed.
+      auto tilizedIface = cast<d2m::TilizedOperandInterface>(op.getOperation());
+      Value oldSrca =
+          tilizedIface.canConsumeUntilizedOperand(/*operandIdx=*/0)
+              ? findUpstreamTilizeSource(rewriter, op, op.getA(), cbA)
+              : nullptr;
+      if (oldSrca) {
+        // srcA was just used by a tilize call (row-major-fed matmul path);
+        // emit the dt variant so the unpacker srcA data format flips back
+        // from the row-major source CB to the tiled scratch CB the matmul
+        // expects.
+        rewriter.create<ttkernel::MatmulInitShortWithDtOp>(
+            op->getLoc(), cbA, cbB, oldSrca, transpose);
+      } else {
+        rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
+                                                     transpose);
+      }
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
                                                adaptor.getA(), adaptor.getB(),
                                                adaptor.getC());

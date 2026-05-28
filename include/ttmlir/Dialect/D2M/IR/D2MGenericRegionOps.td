@@ -961,7 +961,8 @@ def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast"> {
   let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
+def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul",
+    [D2M_TilizedOperandInterface]> {
   let summary = "D2M Tile Matmul Op";
   let description = [{
         The `tile_matmul` operation computes the matrix multiplication of A and B input tiles and element-wise adds C tile: result <- a @ b + c.
@@ -976,6 +977,19 @@ def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
     }
     bool getDstRegInPlace() {
       return true;
+    }
+    // srcA / srcB are read by the unpacker and can be tilized on the fly
+    // via an inlined `d2m.tile_tilize_block`. srcC (the accumulator at idx 2)
+    // is always tile-typed.
+    bool canConsumeUntilizedOperand(int64_t operandIdx) {
+      return operandIdx == 0 || operandIdx == 1;
+    }
+    // `pack_untilize` reads DST. With L1 accumulation on, partials live in
+    // L1 across K iterations — so the untilize fusion is only safe when
+    // L1-acc is off. Lift this constraint once loop-aware `pack_untilize`
+    // placement lands.
+    bool canProduceUntilizedResult(int64_t resultIdx, bool l1AccEnabled) {
+      return resultIdx == 0 && !l1AccEnabled;
     }
   }];
 }

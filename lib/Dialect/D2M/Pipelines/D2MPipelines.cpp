@@ -127,10 +127,16 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MLowerToLayout());
   pm.addPass(d2m::createD2MMaterializeViewReturns());
 
-  if (options.enableElementwiseFusion || options.enableEltwiseReductionFusion) {
+  // Run GenericFusion post-LowerToLayout: every `d2m.to_layout` is now a
+  // `d2m.generic`, so the fusion patterns see both producer and consumer
+  // with encoded layouts. Tilize/untilize fusion is always on by default;
+  // elementwise / eltwise-reduction patterns remain gated by the existing
+  // options.
+  {
     d2m::D2MGenericFusionOptions fusionOptions;
     fusionOptions.enableEltwiseReductionFusion =
         options.enableEltwiseReductionFusion;
+    fusionOptions.enableL1Acc = !options.disableL1Acc;
     pm.addPass(d2m::createD2MGenericFusion(fusionOptions));
   }
   pm.addPass(mlir::createCanonicalizerPass());

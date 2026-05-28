@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
-#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -17,8 +16,8 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/Support/Casting.h"
 
+#include <cassert>
 #include <tuple>
 
 #define DEBUG_TYPE "D2MGenericFusion"
@@ -748,6 +747,588 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 };
 } // namespace
 
+// =============================================================================
+// Tilize / untilize fusion
+// =============================================================================
+//
+// After LowerToLayout, every `d2m.to_layout` is materialized as a
+// `d2m.generic` whose body contains a single `d2m.tile_tilize_block`
+// (scalar-in / tile-out) or `d2m.tile_untilize_block` (tile-in / scalar-out)
+// op. When such a generic feeds an interface-tagged consumer (e.g. matmul)
+// — or is fed by one — we can fold the tilize/untilize body into the
+// consumer/producer so the resulting compute kernel does on-the-fly tilize
+// + matmul + (optional) untilize without materializing an intermediate
+// CB-to-CB format-conversion kernel.
+
+namespace {
+
+// === Responsibility split between this pass and `TilizedOperandInterface` ===
+//
+// `TilizedOperandInterface` (on compute ops like `tile_matmul`) answers a
+// per-op CAPABILITY + ENVIRONMENTAL-CONSTRAINT question: "given the current
+// `l1AccEnabled` setting, can I accept untilized data on operand i / emit
+// untilized data on result i?". It NEVER inspects IR neighbours.
+//
+// The two patterns in this file own all IR-STRUCTURE concerns: finding a
+// pure tilize-/untilize-shaped `d2m.generic` neighbour, enforcing single-
+// use / grid-match / no-`d2m.mask` invariants, and rewriting the result.
+// The pattern queries the interface only at the very end — once the
+// structural shape is recognised — to get the op-specific go/no-go signal.
+
+// Direction of the row-major↔tile conversion a single-purpose
+// `d2m.generic` performs. Used to share matcher and helper code between
+// the tilize-input-side and untilize-output-side fusion patterns.
+enum class RMConversionDir { Tilize, Untilize };
+
+// True iff `gOp` is a single-purpose `d2m.generic` that does only a
+// row-major↔tile conversion in the requested direction:
+//
+//   * `Tilize`:   outer input scalar-elem, outer init tile-elem, body
+//                 contains exactly one `d2m.tile_tilize_block`.
+//   * `Untilize`: outer input tile-elem, outer init scalar-elem, body
+//                 contains exactly one `d2m.tile_untilize_block`. We also
+//                 require input/init indexing maps to be identical (no
+//                 reblock); that invariant lets `fuseUntilizeFromProducer`
+//                 keep the producer's init indexing map unchanged.
+bool isPureRMConversionGeneric(GenericOp gOp, RMConversionDir dir) {
+  if (gOp.getNumDpsInputs() != 1 || gOp.getNumDpsInits() != 1) {
+    return false;
+  }
+  if (!gOp.hasPureTensorSemantics()) {
+    return false;
+  }
+  auto inTy = mlir::dyn_cast<RankedTensorType>(
+      gOp.getDpsInputOperand(0)->get().getType());
+  auto outTy = mlir::dyn_cast<RankedTensorType>(
+      gOp.getDpsInitOperand(0)->get().getType());
+  if (!inTy || !outTy) {
+    return false;
+  }
+  const bool inTiled = ttcore::isTiled(inTy);
+  const bool outTiled = ttcore::isTiled(outTy);
+  if (dir == RMConversionDir::Tilize) {
+    if (inTiled || !outTiled) {
+      return false;
+    }
+  } else {
+    if (!inTiled || outTiled) {
+      return false;
+    }
+    // No-reblock invariant for untilize: see fuseUntilizeFromProducer.
+    unsigned inIdx = gOp.getDpsInputOperand(0)->getOperandNumber();
+    unsigned outIdx = gOp.getDpsInitOperand(0)->getOperandNumber();
+    if (gOp.getIndexingMap(inIdx) != gOp.getIndexingMap(outIdx)) {
+      return false;
+    }
+  }
+  if (gOp.getNumRegions() == 0 || gOp.getRegion(0).empty()) {
+    return false;
+  }
+  // Body must contain exactly one of the requested direction's block op
+  // and zero of the opposite direction's.
+  unsigned want = 0;
+  for (Operation &op : gOp.getRegion(0).front()) {
+    if (dir == RMConversionDir::Tilize) {
+      if (isa<TileTilizeBlockOp>(op)) {
+        ++want;
+      } else if (isa<TileUntilizeBlockOp>(op)) {
+        return false;
+      }
+    } else {
+      if (isa<TileUntilizeBlockOp>(op)) {
+        ++want;
+      } else if (isa<TileTilizeBlockOp>(op)) {
+        return false;
+      }
+    }
+  }
+  return want == 1;
+}
+
+// Returns true if any `d2m.mask` op is reachable from `start` along forward
+// def-use chains. Bounded by the visited set. Used by the fusion matchers
+// to soft-bail when an unaligned workload inserted a mask op between the
+// row-major converter generic and its neighbour: such workloads are
+// perfectly valid IR — they just can't participate in this fusion until
+// mask-aware fusion lands.
+bool hasMaskOpDownstream(Value start) {
+  llvm::SmallPtrSet<Operation *, 8> visited;
+  llvm::SmallVector<Value, 8> worklist;
+  worklist.push_back(start);
+  while (!worklist.empty()) {
+    Value current = worklist.pop_back_val();
+    for (OpOperand &use : current.getUses()) {
+      Operation *user = use.getOwner();
+      if (!visited.insert(user).second) {
+        continue;
+      }
+      if (isa<MaskOp>(user)) {
+        return true;
+      }
+      for (Value result : user->getResults()) {
+        worklist.push_back(result);
+      }
+    }
+  }
+  return false;
+}
+
+// Shared checks for a tilize/untilize fusion candidate. Returns the
+// fused operand (and producer) if the producer-consumer pair is fuseable
+// over a single operand; otherwise nullptr.
+struct TilizeFusionMatch {
+  OpOperand *operand = nullptr;
+  GenericOp producer = nullptr;
+};
+
+TilizeFusionMatch matchTilizeIntoConsumer(GenericOp consumer) {
+  // Build a `outerOperand -> (tilizableOp, operand idx on tilizableOp)` map
+  // by walking the consumer body ONCE. The tilizable compute op (e.g.
+  // `d2m.tile_matmul`) lives inside a `linalg.generic`; each of its
+  // operands is a bb-arg of that linalg, which corresponds to a
+  // `d2m.remote_load(outerOperand, ...)` outside the linalg. So
+  // (tilizable operand i) ↔ (linalg input k) ↔ (remote_load memref M).
+  llvm::DenseMap<Value, std::pair<TilizedOperandInterface, int64_t>>
+      outerOperandToTilizable;
+  consumer.getRegion(0).walk([&](Operation *op) {
+    auto tilizableOp = dyn_cast<TilizedOperandInterface>(op);
+    if (!tilizableOp) {
+      return;
+    }
+    auto linalgOp = op->getParentOfType<linalg::GenericOp>();
+    if (!linalgOp) {
+      return;
+    }
+    Block &linalgBlock = linalgOp.getRegion().front();
+    for (auto [tilizableOperandIdx, tilizableInput] :
+         llvm::enumerate(op->getOperands())) {
+      auto linalgBlockArg = dyn_cast<BlockArgument>(tilizableInput);
+      if (!linalgBlockArg || linalgBlockArg.getOwner() != &linalgBlock) {
+        continue;
+      }
+      unsigned linalgInputIdx = linalgBlockArg.getArgNumber();
+      if (linalgInputIdx >= linalgOp.getInputs().size()) {
+        continue;
+      }
+      auto loadOp =
+          linalgOp.getInputs()[linalgInputIdx].getDefiningOp<RemoteLoadOp>();
+      if (!loadOp) {
+        continue;
+      }
+      outerOperandToTilizable.try_emplace(
+          loadOp.getMemref(), tilizableOp,
+          static_cast<int64_t>(tilizableOperandIdx));
+    }
+  });
+
+  // Now iterate consumer inputs and look up the tilizable op's decision
+  // per input.
+  for (OpOperand *use : consumer.getDpsInputOperands()) {
+    auto producer = use->get().getDefiningOp<GenericOp>();
+    if (!producer ||
+        !isPureRMConversionGeneric(producer, RMConversionDir::Tilize)) {
+      continue;
+    }
+    if (producer.getGrid() != consumer.getGrid()) {
+      continue;
+    }
+    if (!producerResultUsedOnlyByConsumer(producer, consumer)) {
+      continue;
+    }
+    auto it = outerOperandToTilizable.find(use->get());
+    if (it == outerOperandToTilizable.end()) {
+      continue;
+    }
+    auto [tilizableOp, tilizableOperandIdx] = it->second;
+    if (!tilizableOp.canConsumeUntilizedOperand(tilizableOperandIdx)) {
+      continue;
+    }
+    // Soft-bail: mask op downstream means an unaligned-shape workload that
+    // mask-aware fusion would need to handle. Valid IR; just don't fuse.
+    if (hasMaskOpDownstream(producer.getResult(0))) {
+      continue;
+    }
+    return {use, producer};
+  }
+  return {};
+}
+
+TilizeFusionMatch matchUntilizeFromProducer(GenericOp producer,
+                                            bool l1AccEnabled) {
+  // `producer` is a generic whose single result is consumed by exactly one
+  // untilize-shaped `d2m.generic`. The producer must contain a tilizable
+  // compute op (`TilizedOperandInterface`) whose `canProduceUntilizedResult
+  // (0, l1AccEnabled)` returns true.
+  if (producer.getNumResults() != 1) {
+    return {};
+  }
+  Value producerResult = producer.getResult(0);
+
+  // The consumer of `producerResult` (outside producer's own region) must
+  // be exactly one GenericOp that is a pure untilize. Uses inside the
+  // consumer's own region (e.g. a `d2m.remote_load` referencing the outer
+  // SSA value) are allowed — walk up to find the enclosing GenericOp.
+  GenericOp untilizeConsumer;
+  OpOperand *fusedOperand = nullptr;
+  for (OpOperand &use : producerResult.getUses()) {
+    Operation *owner = use.getOwner();
+    if (producer.getOperation()->isProperAncestor(owner)) {
+      continue;
+    }
+    Operation *ancestor = owner;
+    while (ancestor && !isa<GenericOp>(ancestor)) {
+      ancestor = ancestor->getParentOp();
+    }
+    if (!ancestor) {
+      return {};
+    }
+    auto enclosingGeneric = cast<GenericOp>(ancestor);
+    if (untilizeConsumer && untilizeConsumer != enclosingGeneric) {
+      return {};
+    }
+    untilizeConsumer = enclosingGeneric;
+    // The OpOperand for `fuseUntilizeFromProducer` must be the outer
+    // operand of the consumer generic, not the body-internal use.
+    if (owner == enclosingGeneric.getOperation()) {
+      fusedOperand = &use;
+    }
+  }
+  if (!untilizeConsumer || !fusedOperand) {
+    return {};
+  }
+  if (!isPureRMConversionGeneric(untilizeConsumer, RMConversionDir::Untilize)) {
+    return {};
+  }
+  if (producer.getGrid() != untilizeConsumer.getGrid()) {
+    return {};
+  }
+
+  // Producer body must contain a tilizable op whose result feeds (via
+  // remote_store) the producer's init.
+  bool fuseable = false;
+  producer.getRegion(0).walk([&](Operation *op) {
+    auto tilizableOp = dyn_cast<TilizedOperandInterface>(op);
+    if (!tilizableOp) {
+      return WalkResult::advance();
+    }
+    if (tilizableOp.canProduceUntilizedResult(/*resultIdx=*/0, l1AccEnabled)) {
+      fuseable = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (!fuseable) {
+    return {};
+  }
+
+  // Soft-bail: mask op downstream means an unaligned-shape workload that
+  // mask-aware fusion would need to handle. Valid IR; just don't fuse.
+  if (hasMaskOpDownstream(producerResult)) {
+    return {};
+  }
+  return {fusedOperand, producer};
+}
+
+// Insert a `tensor::EmptyOp` of `dstTy` followed by either a
+// `d2m.tile_tilize_block` or `d2m.tile_untilize_block` at the current
+// insertion point, bridging `src` (the OPPOSITE element type) to a value
+// of `dstTy`. Returns the converter op's result. Shared by both fusion
+// rewriters.
+template <typename ConvOp>
+static Value insertRMConversion(PatternRewriter &rewriter, Location loc,
+                                Value src, RankedTensorType dstTy) {
+  auto scratch = rewriter.create<tensor::EmptyOp>(loc, dstTy.getShape(),
+                                                  dstTy.getElementType());
+  return rewriter.create<ConvOp>(loc, dstTy, src, scratch.getResult())
+      .getResult();
+}
+
+// Compute the row-major equivalent of a tiled tensor type: drop the
+// `!ttcore.tile<H x W, T>` element type to scalar `T` and grow the last two
+// dims by the tile factor.
+//
+// Only valid for LOCAL SHARD types (`d2m.remote_load` / `d2m.remote_store`
+// local buffers) — those have no `MetalLayoutAttr` encoding, since the
+// encoding lives on the OUTER tensor only. Asserting null encoding here
+// keeps callers honest: passing an outer (encoded) tensor would silently
+// produce a wrong type because `MetalLayoutAttr` carries shape-dependent
+// metadata (logical_shape, alignment) that doesn't survive the tile→scalar
+// dimension grow without recomputation.
+static RankedTensorType tiledTensorToScalar(RankedTensorType tiledTy) {
+  assert(!tiledTy.getEncoding() &&
+         "tiledTensorToScalar: expected unencoded local shard type");
+  auto tileTy = mlir::cast<ttcore::TileType>(tiledTy.getElementType());
+  ArrayRef<int64_t> tileShape = tileTy.getShape();
+  SmallVector<int64_t> rmShape(tiledTy.getShape().begin(),
+                               tiledTy.getShape().end());
+  assert(rmShape.size() >= 2 && "tiled tensor must have rank >= 2");
+  rmShape[rmShape.size() - 2] *= tileShape[0];
+  rmShape[rmShape.size() - 1] *= tileShape[1];
+  return RankedTensorType::get(rmShape, tileTy.getElementType());
+}
+
+// Custom helper to fold a tilize-only `producer` generic into a `consumer`
+// generic over `consumerOperand`. Unlike the generic `fuseOverOperand`, this
+// helper preserves the consumer's body structure (including its existing
+// `d2m.block_index` calls and indexing maps) and only:
+//
+//   * rewires the consumer's outer operand to point at the producer's
+//     scalar input;
+//   * updates the consumer's indexing_map for that operand to
+//     `producer_argMap ∘ inv(producer_resMap) ∘ consumer_argMap`;
+//   * rewrites the consumer's `d2m.remote_load(producer_result, ...)` so it
+//     reads the producer's scalar input into a scalar shard buffer; and
+//   * inserts a `d2m.tile_tilize_block` immediately after the new load to
+//     produce the tile shard the consumer's downstream compute expects.
+//
+// The producer is then erased.
+static LogicalResult fuseTilizeIntoConsumer(OpOperand *consumerOperand,
+                                            GenericOp producer,
+                                            GenericOp consumer,
+                                            PatternRewriter &rewriter) {
+  unsigned consumerOperandIdx = consumerOperand->getOperandNumber();
+
+  // Locate the consumer's remote_load that reads from the producer's
+  // result. The replacement is keyed off that load.
+  Value producerResult = producer.getResult(0);
+  RemoteLoadOp consumerLoad;
+  consumer.getRegion(0).walk([&](RemoteLoadOp op) {
+    if (op.getMemref() == producerResult) {
+      consumerLoad = op;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (!consumerLoad) {
+    return failure();
+  }
+  // V1: only handle the implicit-buffer load path.
+  if (consumerLoad.getCb()) {
+    return failure();
+  }
+
+  // Derive the scalar shard type from the existing tile shard buffer.
+  auto tiledShardTy =
+      mlir::cast<RankedTensorType>(consumerLoad.getResult().getType());
+  RankedTensorType rmShardTy = tiledTensorToScalar(tiledShardTy);
+
+  Value producerScalarInput = producer.getDpsInputOperand(0)->get();
+
+  // 1) Create the new scalar-shard local buffer at the consumer load's
+  //    insertion point. We don't rely on the old buffer's defining op
+  //    being a `tensor.empty` (it could be a block-arg, cast, etc.); the
+  //    old buffer becomes dead once the old load is erased and will be
+  //    DCE'd by canonicalization.
+  Value oldBuffer = consumerLoad.getLocalBuffer();
+  rewriter.setInsertionPoint(consumerLoad);
+  auto newEmpty = rewriter.create<tensor::EmptyOp>(
+      consumerLoad.getLoc(), rmShardTy.getShape(), rmShardTy.getElementType());
+
+  // 2) Recreate the remote_load with scalar types, reading from the
+  //    producer's scalar input.
+  SmallVector<Value> indices(consumerLoad.getIndices().begin(),
+                             consumerLoad.getIndices().end());
+  SmallVector<Value> mcastStartIndex(consumerLoad.getMcastStartIndex().begin(),
+                                     consumerLoad.getMcastStartIndex().end());
+  SmallVector<Value> mcastShape(consumerLoad.getMcastShape().begin(),
+                                consumerLoad.getMcastShape().end());
+  SmallVector<Value> mcastDims(consumerLoad.getMcastDims().begin(),
+                               consumerLoad.getMcastDims().end());
+  auto newLoadOp = rewriter.create<RemoteLoadOp>(
+      consumerLoad.getLoc(),
+      /*result=*/TypeRange{rmShardTy},
+      /*localBuffer=*/newEmpty.getResult(),
+      /*memref=*/producerScalarInput, indices,
+      /*cb=*/Value{}, mcastStartIndex, mcastShape, mcastDims);
+  Value newLoad = newLoadOp.getResult();
+
+  // 3) Inject tile_tilize_block(newLoad, scratch) producing the tile-typed
+  //    value the consumer's downstream linalg.generic expects.
+  rewriter.setInsertionPointAfter(newLoadOp);
+  Value tilized = insertRMConversion<TileTilizeBlockOp>(
+      rewriter, consumerLoad.getLoc(), newLoad, tiledShardTy);
+
+  // 4) Rewire downstream uses of the original tile-typed loaded value.
+  rewriter.replaceAllUsesWith(consumerLoad.getResult(), tilized);
+
+  // 5) Erase the old load. The old local buffer (tile-typed) becomes
+  //    dead — if it's a `tensor.empty` with no other uses, erase it
+  //    eagerly so the rewriter doesn't loop on stale ops; otherwise
+  //    leave for canonicalization to DCE.
+  rewriter.eraseOp(consumerLoad);
+  if (auto oldEmpty = oldBuffer.getDefiningOp<tensor::EmptyOp>();
+      oldEmpty && oldEmpty->use_empty()) {
+    rewriter.eraseOp(oldEmpty);
+  }
+
+  // 6) Update the consumer's outer operand + indexing_map for that operand.
+  AffineMap prodResMap = producer.getIndexingMap(
+      producer.getDpsInitOperand(0)->getOperandNumber());
+  AffineMap prodArgMap = producer.getIndexingMap(
+      producer.getDpsInputOperand(0)->getOperandNumber());
+  AffineMap consMap = consumer.getIndexingMap(consumerOperandIdx);
+  // Pure tilize → prodResMap is identity-permutation (enforced by
+  // `isPureRMConversionGeneric`). Future relaxation (reblocking tilize)
+  // must update this composition.
+  assert(prodResMap.isPermutation() &&
+         "tilize fusion: producer init map must be a permutation");
+  AffineMap newMap =
+      prodArgMap.compose(inversePermutation(prodResMap)).compose(consMap);
+
+  SmallVector<AffineMap> newMaps =
+      llvm::to_vector(consumer.getIndexingMapsValue());
+  newMaps[consumerOperandIdx] = newMap;
+
+  rewriter.modifyOpInPlace(consumer, [&]() {
+    consumer.setOperand(consumerOperandIdx, producerScalarInput);
+    consumer.setIndexingMapsAttr(rewriter.getAffineMapArrayAttr(newMaps));
+  });
+
+  // 7) Erase the producer now that nothing references its result.
+  rewriter.eraseOp(producer);
+
+  return success();
+}
+
+// Custom helper to fold an untilize-only `untilizeConsumer` generic into a
+// `producer` generic that produces tile data. Symmetric to
+// `fuseTilizeIntoConsumer`:
+//
+//   * the untilize consumer's outer output replaces the producer's
+//     tile-typed output;
+//   * the producer's indexing_map for its init is left UNCHANGED. The
+//     no-reblock invariant enforced by `isPureRMConversionGeneric` for the
+//     `Untilize` direction (`untilize_argMap == untilize_initMap`) makes
+//     the composition `prodInitMap ∘ inv(untilize_argMap) ∘ untilize_initMap`
+//     collapse to `prodInitMap`. Future relaxation (reblocking untilize)
+//     must drop that invariant and recompose here;
+//   * the producer's body's `d2m.remote_store(producer_init, ..., %tile)`
+//     is rewritten so the stored value is first piped through a
+//     `d2m.tile_untilize_block` and stored as scalar shard data.
+static LogicalResult fuseUntilizeFromProducer(GenericOp producer,
+                                              GenericOp untilizeConsumer,
+                                              PatternRewriter &rewriter) {
+  assert(producer.getNumDpsInits() == 1 &&
+         "untilize fusion: producer must have exactly one init");
+  Value untilizeOutput = untilizeConsumer.getDpsInitOperand(0)->get();
+
+  // Build newProducer with the consumer's scalar output as its init operand
+  // and matching scalar result type. The producer's region is moved over
+  // via `takeBody`, and all body surgery (insert `tile_untilize_block`,
+  // rewrite `remote_store` to scalar) is done INSIDE newProducer's region
+  // afterwards. This avoids leaving the old producer in a half-modified
+  // state where its yield type doesn't match its result type — which makes
+  // the greedy rewriter loop while trying to resolve a transiently-invalid
+  // op.
+  // newProducer references `untilizeOutput` (the consumer's outer init),
+  // which is defined AFTER the original producer in IR order. Place
+  // newProducer where untilizeConsumer was so dominance holds for the
+  // rewired init operand.
+  rewriter.setInsertionPoint(untilizeConsumer);
+  auto newProducer = rewriter.create<GenericOp>(
+      producer.getLoc(), TypeRange{untilizeOutput.getType()},
+      producer.getInputs(), ValueRange{untilizeOutput},
+      producer.getAdditionalArgs(), producer.getGrid(),
+      producer.getBlockFactors(),
+      rewriter.getAffineMapArrayAttr(producer.getIndexingMapsValue()),
+      producer.getIteratorTypes(), producer.getThreads(),
+      producer.getFabricConnectionConfigAttr(), /*regions=*/1);
+  newProducer.getRegion(0).takeBody(producer.getRegion(0));
+
+  // Find the producer's `remote_store` that targets the (old) producer init
+  // — now living inside newProducer's region. The store's memref operand
+  // still references the OLD producer's init SSA value, because that's the
+  // outer value the body op was bound to. We rewrite the store to use
+  // `untilizeOutput` instead and inject the `tile_untilize_block` ahead of
+  // it. Then update the body yield's operand to the new store's result.
+  Value oldProducerInit = producer.getDpsInitOperand(0)->get();
+  RemoteStoreOp producerStore;
+  newProducer.getRegion(0).walk([&](RemoteStoreOp op) {
+    if (op.getMemref() == oldProducerInit) {
+      producerStore = op;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  assert(producerStore && "producer body must have a remote_store targeting "
+                          "its init operand");
+
+  Value tileShardValue = producerStore.getLocalBuffer();
+  auto tiledShardTy = mlir::cast<RankedTensorType>(tileShardValue.getType());
+  RankedTensorType rmShardTy = tiledTensorToScalar(tiledShardTy);
+
+  rewriter.setInsertionPoint(producerStore);
+  Value untilized = insertRMConversion<TileUntilizeBlockOp>(
+      rewriter, producerStore.getLoc(), tileShardValue, rmShardTy);
+
+  SmallVector<Value> indices(producerStore.getIndices().begin(),
+                             producerStore.getIndices().end());
+  auto newStoreOp =
+      rewriter.create<RemoteStoreOp>(producerStore.getLoc(),
+                                     /*resultType=*/untilizeOutput.getType(),
+                                     /*memref=*/untilizeOutput, indices,
+                                     /*localBuffer=*/untilized);
+
+  rewriter.replaceAllUsesWith(producerStore.getResult(),
+                              newStoreOp.getResult());
+  rewriter.eraseOp(producerStore);
+
+  for (auto [i, r] : llvm::enumerate(untilizeConsumer->getResults())) {
+    r.replaceAllUsesWith(newProducer.getResult(i));
+  }
+  rewriter.eraseOp(untilizeConsumer);
+  rewriter.eraseOp(producer);
+  return success();
+}
+
+// A `d2m.generic` is eligible as the CENTER of either tilize-input fusion
+// (consumer side) or untilize-output fusion (producer side) when it has
+// pure tensor semantics and is NOT itself a single-purpose RM↔tile
+// converter — otherwise the patterns would either fire on the tilize/
+// untilize generic itself or double-fire on its neighbours.
+bool isFusionCenterCandidate(GenericOp gOp) {
+  if (!gOp.hasPureTensorSemantics()) {
+    return false;
+  }
+  if (isPureRMConversionGeneric(gOp, RMConversionDir::Tilize) ||
+      isPureRMConversionGeneric(gOp, RMConversionDir::Untilize)) {
+    return false;
+  }
+  return true;
+}
+
+// Single pattern handling both fusion directions on the same `d2m.generic`
+// candidate: when the op is the consumer-of-a-tilize, fold the tilize in;
+// when it is the producer-of-an-untilize, fold the untilize in. A given
+// generic can satisfy at most one direction per invocation (the IR shape
+// differs); both checks are cheap. The greedy rewriter re-fires the
+// pattern after a successful fold, so the symmetric case (matmul with
+// tilize input AND untilize output) lands in two iterations.
+struct FuseD2MRMConversionPattern : public OpRewritePattern<GenericOp> {
+  FuseD2MRMConversionPattern(MLIRContext *ctx, bool l1AccEnabled)
+      : OpRewritePattern<GenericOp>(ctx), l1AccEnabled(l1AccEnabled) {}
+
+  LogicalResult matchAndRewrite(GenericOp op,
+                                PatternRewriter &rewriter) const final {
+    if (!isFusionCenterCandidate(op)) {
+      return failure();
+    }
+    if (auto match = matchTilizeIntoConsumer(op); match.operand) {
+      return fuseTilizeIntoConsumer(match.operand, match.producer, op,
+                                    rewriter);
+    }
+    if (auto match = matchUntilizeFromProducer(op, l1AccEnabled);
+        match.operand) {
+      auto untilizeConsumer = cast<GenericOp>(match.operand->getOwner());
+      return fuseUntilizeFromProducer(op, untilizeConsumer, rewriter);
+    }
+    return failure();
+  }
+
+  bool l1AccEnabled;
+};
+} // namespace
+
 namespace {
 class D2MGenericFusion
     : public tt::d2m::impl::D2MGenericFusionBase<D2MGenericFusion> {
@@ -759,6 +1340,10 @@ class D2MGenericFusion
     patterns.add<FuseD2MElementwiseOpsPattern>(ctx);
     if (enableEltwiseReductionFusion) {
       patterns.add<FuseD2MEltwiseReductionOpsPattern>(ctx);
+    }
+    if (enableTilizeFusion) {
+      patterns.add<FuseD2MRMConversionPattern>(ctx,
+                                               /*l1AccEnabled=*/enableL1Acc);
     }
     GreedyRewriteConfig cfg;
 

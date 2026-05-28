@@ -53,27 +53,36 @@ def D2MInsertScratchBuffers : Pass<"d2m-insert-scratch-buffers", "::mlir::Module
   ];
 }
 
-// Fusion of d2m.generic ops on tensors (elementwise, eltwise->reduction).
+// Fusion of d2m.generic ops on tensors (elementwise, eltwise->reduction,
+// tilize→consumer, producer→untilize).
 def D2MGenericFusion : Pass<"d2m-generic-fusion", "::mlir::ModuleOp"> {
-  let summary = "Fuse compute-only d2m.generic ops (elementwise and eltwise->reduction)";
+  let summary = "Fuse compute-only d2m.generic ops (elementwise, eltwise->reduction, tilize/untilize)";
   let description = [{
     Performs fusion for `d2m.generic` producers into consumers when safe to do
     so. The initial implementation targets compute-only, affine-map form
     `d2m.generic` with tensor semantics and matching device attributes (grid,
     threads, block_factors). Elementwise->elementwise fusion is always enabled;
     elementwise->reduction fusion (single reduction dim) is opt-in via
-    `enable-eltwise-reduction-fusion`. The pass is intended to run
-    pre-bufferization to reduce intermediary tensors and improve locality.
+    `enable-eltwise-reduction-fusion`. Tilize-into-consumer and
+    producer-into-untilize fusion are gated by `enable-tilize-fusion`
+    (default on) and respect the per-op `TilizedOperandInterface` capability
+    methods. The pass is intended to run post-LowerToLayout, pre-bufferize,
+    so both producer and consumer carry encoded layouts.
   }];
 
   list<Option> options = [
     Option<"enableEltwiseReductionFusion", "enable-eltwise-reduction-fusion", "bool", "false",
            "Enable fusion of an elementwise d2m.generic producer into a reduction d2m.generic consumer (single reduction dim).">,
+    Option<"enableTilizeFusion", "enable-tilize-fusion", "bool", "true",
+           "Enable fusion of pure tilize/untilize d2m.generic ops into their interface-tagged consumer/producer (e.g. matmul).">,
+    Option<"enableL1Acc", "enable-l1-acc", "bool", "true",
+           "Reflects the pipeline's L1 accumulation setting; consumed by the untilize fusion pattern when querying canProduceUntilizedResult.">,
   ];
 
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
-    "::mlir::affine::AffineDialect"
+    "::mlir::affine::AffineDialect",
+    "::mlir::tensor::TensorDialect"
   ];
 }
 
