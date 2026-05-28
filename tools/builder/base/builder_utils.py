@@ -310,7 +310,7 @@ def get_metal_tensor_layout(
         for testing masking of complete out-of-bounds tiles.
     element_dtype : torch.dtype
         Element dtype for the resulting tensor. Supports torch.float32,
-        torch.int32, torch.uint16, and torch.bfloat16.
+        torch.int32, torch.uint16, torch.uint32 and torch.bfloat16.
 
     Returns
     -------
