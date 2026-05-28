@@ -620,9 +620,7 @@ def test_spatial_two_regions_two_matmuls(
         spatial_module,
         target=target,
         device=device,
-        print_ir=True,
         check_pcc=check_pcc,
-        save_artifacts=True,
         **get_request_kwargs(request),
     )
 
@@ -862,8 +860,6 @@ def test_spatial_two_regions_allgather_and_matmul(
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         pipeline_options=["mesh-topology=linear,ring"],
-        print_ir=True,
         check_pcc=check_pcc,
-        save_artifacts=True,
         **get_request_kwargs(request),
     )
