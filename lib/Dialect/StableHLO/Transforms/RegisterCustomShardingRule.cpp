@@ -1036,8 +1036,7 @@ getTopKShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  auto inputType =
-      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
   if (!inputType || inputType.getRank() != 2) {
     return mlir::sdy::OpShardingRuleAttr();
   }
@@ -1067,7 +1066,8 @@ getTopKShardingRule(mlir::stablehlo::CustomCallOp op) {
   // Vocab dim: pass-through on input, no corresponding output dim.
   // This tells Shardy the input can be sharded on vocab and the op handles
   // the distributed topk internally. Shardy will not insert an all_gather.
-  builder.addFactor({1}, llvm::SmallVector<int64_t>(numResults, mlir::sdy::kNullDim),
+  builder.addFactor({1},
+                    llvm::SmallVector<int64_t>(numResults, mlir::sdy::kNullDim),
                     vocabSize, mlir::sdy::FactorType::kPassThrough);
 
   // K dim in output: always replicated, not linked to any input dim.
