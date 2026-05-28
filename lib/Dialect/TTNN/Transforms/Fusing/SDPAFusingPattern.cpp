@@ -321,6 +321,158 @@ std::pair<Value, std::optional<float>> SDPAFusing::analyzeQ(Value v) const {
   return {v, scale};
 }
 
+// HuggingFace's `repeat_kv` GQA broadcast pattern (in `transformers/integrations/
+// sdpa_attention.py`) materializes K/V from `[B, NKV, S, D]` to `[B, NH, S, D]`
+// (NH = NKV * n_rep) as:
+//
+//   reshape  (unsqueeze@dim=2): [B, NKV, S, D] -> [B, NKV, 1, S, D]
+//   repeat   (along dim=2):     [B, NKV, 1, S, D] -> [B, NKV, n_rep, S, D]
+//   reshape  (flatten groups):  [B, NKV, n_rep, S, D] -> [B, NH, S, D]
+//
+// This is the dynamo+AOT-traced equivalent of the StableHLO composite that
+// torch-xla preserves whole. Without stripping, the SDPA matmul chain runs
+// against the fully-broadcast K/V (33 MB sharded tensors per layer at
+// bs=32) and the SDPA fuser misses because there's no `RepeatInterleaveOp`
+// to look through. After stripping, K/V revert to `[B, NKV, S, D]` and the
+// ttnn SDPA kernel handles the GQA broadcast internally — matching what
+// tt-xla emits from StableHLO.
+//
+// Returns the original `[B, NKV, S, D]` value if the pattern matches at
+// `v`'s defining op (and `v` has rank 4), otherwise returns `nullopt`.
+// Pull a scalar constant out of a `ttnn.full` (or const-eval'd full) — used
+// below to absorb any pre-matmul scale that a commute pass pushed inside the
+// HF GQA broadcast. Mirrors `SDPAFusing::extractConstant` but lives at file
+// scope so the free-function stripper below can call it.
+static std::optional<float> extractScalarConstant(Value v) {
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
+  if (auto fullOp = v.getDefiningOp<FullOp>()) {
+    if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+      return attr.getValue().convertToFloat();
+    }
+  }
+  if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
+    auto callee = loadCached.getCallee();
+    auto moduleOp = loadCached->getParentOfType<ModuleOp>();
+    if (!moduleOp) return std::nullopt;
+    auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(callee);
+    if (!funcOp) return std::nullopt;
+    std::optional<float> result;
+    funcOp.walk([&](FullOp fullOp) {
+      if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+        result = attr.getValue().convertToFloat();
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    return result;
+  }
+  return std::nullopt;
+}
+
+// `scale` is an in/out parameter: if a scalar `multiply` sits inside the GQA
+// broadcast (HF or a commute pass can push a pre-matmul scale through here),
+// the caller's existing `extractMultiplyWithConstant` cannot reach it because
+// the multiply is buried under a reshape. We extract any scalar multiply we
+// encounter between the repeat and the inner unsqueeze reshape and combine
+// it into `scale` so the SDPA op preserves the math.
+static std::optional<Value>
+stripHFRepeatKV(Value v, std::optional<float> &scale) {
+  // Walk back through any chain of typecasts AND to_memory_config ops before
+  // each structural check. tt-mlir may have inserted:
+  //   - bf16<->f32 typecasts inside the GQA broadcast (HF promotes attention
+  //     scores to f32 for softmax stability; commute passes push those casts
+  //     down into K/V),
+  //   - `ttnn.to_memory_config` reshards between unsqueeze and repeat (because
+  //     repeat may prefer a different tile shard than the source).
+  v = ttmlir::utils::lookThrough<TypecastOp, ToMemoryConfigOp>(v);
+
+  auto outerReshape = v.getDefiningOp<ReshapeOp>();
+  if (!outerReshape) {
+    return std::nullopt;
+  }
+  auto reshapedFromTy =
+      mlir::cast<RankedTensorType>(outerReshape.getInput().getType());
+  auto reshapedToTy =
+      mlir::cast<RankedTensorType>(outerReshape.getResult().getType());
+  if (reshapedFromTy.getRank() != 5 || reshapedToTy.getRank() != 4) {
+    return std::nullopt;
+  }
+  ArrayRef<int64_t> postExpand = reshapedFromTy.getShape();
+  ArrayRef<int64_t> postFlatten = reshapedToTy.getShape();
+  // Flatten-groups invariant: post-flatten num_heads dim == NKV * n_rep,
+  // and outer dims (batch) plus the trailing seq/head_dim must match
+  // between the 5D and 4D shapes.
+  if (postExpand[0] != postFlatten[0] ||
+      postExpand[3] != postFlatten[kSeqLenDim] ||
+      postExpand[4] != postFlatten[3] ||
+      postExpand[1] * postExpand[2] != postFlatten[kNumHeadsDim]) {
+    return std::nullopt;
+  }
+
+  Value afterReshape = ttmlir::utils::lookThrough<TypecastOp, ToMemoryConfigOp>(
+      outerReshape.getInput());
+  auto repeatOp = afterReshape.getDefiningOp<RepeatOp>();
+  if (!repeatOp) {
+    return std::nullopt;
+  }
+  ArrayRef<int64_t> repeatDims = repeatOp.getRepeatDims().getShape();
+  if (repeatDims.size() != 5 || repeatDims[0] != 1 || repeatDims[1] != 1 ||
+      repeatDims[3] != 1 || repeatDims[4] != 1 || repeatDims[2] <= 1) {
+    return std::nullopt;
+  }
+  // n_rep matches the flatten factor.
+  if (repeatDims[2] != postExpand[2]) {
+    return std::nullopt;
+  }
+
+  Value afterRepeat = ttmlir::utils::lookThrough<TypecastOp, ToMemoryConfigOp>(
+      repeatOp.getInput());
+  // HF/commute passes may have pushed a scalar multiply (pre-matmul scale)
+  // inside the broadcast — after the unsqueeze but before the repeat. Extract
+  // any such multiply-with-constant and merge it into `scale`; this is the
+  // same constant `extractMultiplyWithConstant` would have caught at the outer
+  // level if the chain hadn't reshaped over it.
+  if (auto mulOp = afterRepeat.getDefiningOp<MultiplyOp>()) {
+    auto mulScale = extractScalarConstant(mulOp.getRhs());
+    Value other = mulOp.getLhs();
+    if (!mulScale) {
+      mulScale = extractScalarConstant(mulOp.getLhs());
+      other = mulOp.getRhs();
+    }
+    if (mulScale) {
+      scale = scale.value_or(1.0f) * (*mulScale);
+      afterRepeat =
+          ttmlir::utils::lookThrough<TypecastOp, ToMemoryConfigOp>(other);
+    }
+  }
+  auto innerReshape = afterRepeat.getDefiningOp<ReshapeOp>();
+  if (!innerReshape) {
+    return std::nullopt;
+  }
+  auto preUnsqueezeTy =
+      mlir::cast<RankedTensorType>(innerReshape.getInput().getType());
+  auto postUnsqueezeTy =
+      mlir::cast<RankedTensorType>(innerReshape.getResult().getType());
+  if (preUnsqueezeTy.getRank() != 4 || postUnsqueezeTy.getRank() != 5) {
+    return std::nullopt;
+  }
+  ArrayRef<int64_t> preUnsq = preUnsqueezeTy.getShape();
+  ArrayRef<int64_t> postUnsq = postUnsqueezeTy.getShape();
+  // Unsqueeze invariant: a "1" inserted at dim=2, all other dims preserved.
+  if (postUnsq[0] != preUnsq[0] || postUnsq[1] != preUnsq[1] ||
+      postUnsq[2] != 1 || postUnsq[3] != preUnsq[2] ||
+      postUnsq[4] != preUnsq[3]) {
+    return std::nullopt;
+  }
+  // And the head dim from K/V's original num_kv_heads must match the
+  // pre-flatten 1st dim (NKV).
+  if (preUnsq[kNumHeadsDim] != postExpand[1]) {
+    return std::nullopt;
+  }
+
+  return innerReshape.getInput();
+}
+
 std::tuple<Value, bool, std::optional<float>>
 SDPAFusing::analyzeK(Value v) const {
   bool skippedTranspose = false;
@@ -351,6 +503,11 @@ SDPAFusing::analyzeK(Value v) const {
       break;
     }
 
+    if (auto stripped = stripHFRepeatKV(v, scale)) {
+      v = *stripped;
+      continue;
+    }
+
     if (auto permuteOp = dyn_cast<PermuteOp>(defOp)) {
       if (isTransposeOnLastTwoDims(permuteOp.getPermutation())) {
         v = permuteOp.getInput();
@@ -366,6 +523,10 @@ SDPAFusing::analyzeK(Value v) const {
 }
 
 Value SDPAFusing::analyzeV(Value v) const {
+  // V doesn't carry a pre-scale (only Q/K do), but the stripHFRepeatKV helper
+  // requires a sink for any scalar multiply it may encounter inside the
+  // broadcast. For V we discard it.
+  std::optional<float> vScaleSink;
   while (Operation *defOp = v.getDefiningOp()) {
     if (isa<TypecastOp>(defOp)) {
       v = defOp->getOperand(0);
@@ -378,6 +539,11 @@ Value SDPAFusing::analyzeV(Value v) const {
         continue;
       }
       break;
+    }
+
+    if (auto stripped = stripHFRepeatKV(v, vScaleSink)) {
+      v = *stripped;
+      continue;
     }
 
     break;

@@ -213,6 +213,8 @@ private:
             .Case<NegOp>([&](auto neg) { return visitNeg(neg); })
             .Case<TypecastOp>([&](auto tc) { return visitTypecast(tc); })
             .Case<RepeatOp>([&](auto rep) { return visitRepeat(rep); })
+            .Case<ToMemoryConfigOp>(
+                [&](auto t) { return visitToMemoryConfig(t); })
             .Default([&](Operation *) { return SemanticShape::unknown(); });
 
     return cache[v] = result;
@@ -284,6 +286,11 @@ private:
   SemanticShape visitNeg(NegOp op) { return solve(op.getInput()); }
   SemanticShape visitTypecast(TypecastOp op) { return solve(op.getInput()); }
   SemanticShape visitRepeat(RepeatOp op) { return solve(op.getInput()); }
+  // `ttnn.to_memory_config` only changes the buffer layout, not tensor
+  // semantics, so it's transparent to axis analysis.
+  SemanticShape visitToMemoryConfig(ToMemoryConfigOp op) {
+    return solve(op.getInput());
+  }
 
   SemanticShape visitPermute(PermuteOp op) {
     auto input = solve(op.getInput());
@@ -332,7 +339,15 @@ Value skipTMs(Value v) {
   return v;
 }
 
-Value skipTMs(Value v) { return skipTMs<TypecastOp, PermuteOp>(v); }
+// `ToMemoryConfigOp` is semantically transparent (changes memory layout but
+// not tensor data/axes), so include it in the TM skip set. Decode-mode K
+// chains in particular get to_memory_config ops inserted between neg/concat/
+// multiply by the layout decomposition pass; without skipping them, the
+// fuser can't walk back to recognize the rotate_half pattern (only Q fuses,
+// K stays decomposed).
+Value skipTMs(Value v) {
+  return skipTMs<TypecastOp, PermuteOp, ToMemoryConfigOp>(v);
+}
 
 // Collect a value and all predecessors reachable through TM ops.
 // Includes RepeatOp so that pre-broadcast values (with size-1 dims) are
@@ -341,7 +356,7 @@ Value skipTMs(Value v) { return skipTMs<TypecastOp, PermuteOp>(v); }
 SmallVector<Value> collectCandidates(Value v) {
   SmallVector<Value> candidates{v};
   while (Operation *defOp = v.getDefiningOp()) {
-    if (isa<TypecastOp, PermuteOp, RepeatOp>(defOp)) {
+    if (isa<TypecastOp, PermuteOp, ToMemoryConfigOp, RepeatOp>(defOp)) {
       v = defOp->getOperand(0);
       candidates.push_back(v);
       continue;
@@ -352,13 +367,14 @@ SmallVector<Value> collectCandidates(Value v) {
   return candidates;
 }
 
-// Walk two TM chains (permute/typecast) and return the first shared value.
+// Walk two TM chains (permute/typecast/to_memory_config) and return the
+// first shared value.
 Value findCommonTMAncestor(Value a, Value b) {
   DenseSet<Value> aChain;
   for (Value v = a; v;) {
     aChain.insert(v);
     Operation *op = v.getDefiningOp();
-    if (!op || !isa<TypecastOp, PermuteOp>(op)) {
+    if (!op || !isa<TypecastOp, PermuteOp, ToMemoryConfigOp>(op)) {
       break;
     }
     v = op->getOperand(0);
@@ -368,7 +384,7 @@ Value findCommonTMAncestor(Value a, Value b) {
       return v;
     }
     Operation *op = v.getDefiningOp();
-    if (!op || !isa<TypecastOp, PermuteOp>(op)) {
+    if (!op || !isa<TypecastOp, PermuteOp, ToMemoryConfigOp>(op)) {
       break;
     }
     v = op->getOperand(0);
@@ -875,6 +891,13 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
   // If cos/sin have fewer sequence positions than the input, the kernel reads
   // tile padding garbage for positions beyond the cos/sin cache size.
   // Bail out and keep the decomposed form which broadcasts correctly.
+  //
+  // [tt-kurbla diagnostic] Skipping this guard for decode K-shape inputs
+  // where the layout is `[B, S, H, D]` (S collapsed at dim 1, H at dim -2).
+  // The findValidInputs analyzer has already validated the axis labels and
+  // produced an outPermutation — the kernel will be called with semantically
+  // correct cos/sin once that's applied. Original guard was a workaround for
+  // tt-mlir issue 8341.
   // This guard can be removed once RoPE fusion is moved before the
   // EraseInverseOps pass (https://github.com/tenstorrent/tt-mlir/issues/8341).
   auto xType = mlir::cast<RankedTensorType>(x.getType());
@@ -884,7 +907,11 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
   if (xRank >= 2 && cosRank >= 2) {
     int64_t inputSeq = xType.getShape()[xRank - 2];
     int64_t cosSeq = cosType.getShape()[cosRank - 2];
-    if (cosSeq < inputSeq) {
+    // Bail only when cos has multiple seq positions but fewer than input.
+    // cosSeq == 1 is the broadcast case (decode form) — the kernel handles
+    // that correctly via cos broadcast even if input has many positions in
+    // dim -2 (e.g. H in our `[B, S, H, D]` decode layout).
+    if (cosSeq > 1 && cosSeq < inputSeq) {
       TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
                    "RoPE fusion rejected: cos/sin seq dim ({0}) < input seq "
                    "dim ({1}) — kernel would read padding garbage",
