@@ -2,33 +2,41 @@ import argparse
 import csv
 import pathlib
 import re
-import statistics
-import typing
 from collections import defaultdict
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+# basically all FW and KERNEL zones that are not of interest
+EXCLUDED_ZONES: frozenset[str] = frozenset({
+    'BRISC-FW',
+    'NCRISC-FW',
+    'TRISC-FW',
+    'TRISC_0-FW',
+    'TRISC_1-FW',
+    'TRISC_2-FW',
+    'ERISC-FW',
+    'IDLE_ERISC-FW',
+    'SUBORDINATE_IDLE_ERISC-FW',
+    'NCRISC-KERNEL',
+    'BRISC-KERNEL'
+})
 
-GENERIC_COMPUTE_ZONES = {
-    'binary_op_init_common',
-    'init_sfpu',
-    'copy_tile_init',
-    'compute_kernel_hw_startup',
-}
 
-FIRMWARE_ZONES = {
-    'BRISC-FW', 'NCRISC-FW', 'TRISC-FW',
-    'BRISC-KERNEL', 'NCRISC-KERNEL', 'TRISC-KERNEL',
-}
+def cycles_to_ns(cycles: int, freq_mhz: float) -> float:
+    return cycles / freq_mhz * 1e3
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('path_to_perf_dir', type=pathlib.Path)
+    parser.add_argument('--by_kernel', action='store_true', help='split ops up by kernel for detailed view (applies to all other options)')
     parser.add_argument('--op_times', action='store_true', help='displays a table of all captured ops along with their associated data')
     parser.add_argument('--op_graph', metavar='PATH', default=None, help='plots a bar graph of each op\'s total duration to PATH')
+    parser.add_argument('--timeline', action='store_true', help='prints the timeline of every op call in every kernel')
+    parser.add_argument('--runtimes', action='store_true', help='shows how long the program took to run')
+    # parser.add_argument('--stats', action='store_true', help='performs statistical analysis of the perf output (NOT IMPLEMENTED)')
     args = parser.parse_args()
 
     if not args.path_to_perf_dir.is_dir():
@@ -46,165 +54,168 @@ def read_chip_freq_mhz(profile_log: pathlib.Path) -> float:
     return float(m.group(1))
 
 
-def parse_profile_log(profile_log: pathlib.Path):
-    '''Yield (host_id, zone_name, core_x, core_y, risc, duration_cycles).'''
+def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]:
+    ''' returns a list of all captured zones (excluding firmware and kernel setup zones)
+        as well as the total runtime of the program as a tuple '''
+
     with profile_log.open() as f:
-        f.readline()  # arch/freq header
-        reader = csv.reader(f)
-        next(reader)  # column header
+        f.readline()    # skip arch header
+        reader = csv.DictReader(f)
+        
+        result: list[dict] = []
 
         open_zones: dict[tuple, int] = {}
+        kernel_name: str = ''
+        min_cycle, max_cycle = float('inf'), 0
         for row in reader:
-            row = [c.strip() for c in row]
-            core_x, core_y = row[1], row[2]
-            risc = row[3]
-            timer_id = row[4]
-            cycles = int(row[5])
-            host_id = row[7]
-            zone_name = row[10]
-            zone_type = row[11]
+            row = {k.strip().lower(): v for k, v in row.items()}
 
-            key = (core_x, core_y, risc, timer_id, host_id, zone_name)
-            if zone_type == 'ZONE_START':
+            if row['zone name'].startswith('kernel_outer'):
+                kernel_name = row['zone name'][13:]
+                continue
+
+            if row['zone name'] in EXCLUDED_ZONES:
+                continue
+
+            key = (row['core_x'], row['core_y'], row['risc processor type'], row['timer_id'], row['run host id'], row['zone name'])
+            cycles = int(row['time[cycles since reset]'])
+            
+            min_cycle = min(min_cycle, cycles)
+            max_cycle = max(max_cycle, cycles)
+            
+            if row['type'] == 'ZONE_START':
                 open_zones[key] = cycles
-            elif zone_type == 'ZONE_END':
-                start = open_zones.pop(key, None)
-                if start is None:
+            elif row['type'] == 'ZONE_END':
+                start_cycles = open_zones.pop(key, None)
+                if start_cycles is None:
                     continue
-                # print((host_id, zone_name, core_x, core_y, risc, cycles - start))
-                yield host_id, zone_name, core_x, core_y, risc, cycles - start
+
+                zone = {
+                    'name': row['zone name'],
+                    'kernel': kernel_name,
+                    'host_id': row['run host id'],
+                    'core': (int(row['core_x']), int(row['core_y'])),
+                    'risc': row['risc processor type'],
+                    'duration': cycles - start_cycles
+                }
+
+                result.append(zone)
+        
+        return result, max_cycle - min_cycle
 
 
-def derive_op_label(compute_zones: set[str]) -> str:
-    primitives = set()
-    for z in compute_zones:
-        if z in GENERIC_COMPUTE_ZONES or z.startswith('kernel_outer_'):
+def aggregate_by_zone(rows: list[dict], split_by_kernel: bool) -> dict[str, tuple[int, int]]:
+    ''' returns a dict mapping op name -> (total duration in cycles, number of calls) '''
+
+    result: dict[str, tuple[int, int]] = defaultdict(lambda: (0, 0))
+
+    for row in rows:
+        if row['name'].startswith('TRISC-KERNEL'):
             continue
-        if z in FIRMWARE_ZONES:
-            continue
-        primitives.add(z[:-5] if z.endswith('_init') else z)
-    return '+'.join(sorted(primitives)) if primitives else '<unknown>'
 
+        if split_by_kernel:
+            key = f'{row["name"]}[{row["risc"]}:{row["kernel"]}]'
+        else:
+            key = f'{row["name"]}'
+        total, count = result[key]
+        result[key] = (total + row['duration'], count + 1)
 
-def aggregate_by_host_id(profile_log: pathlib.Path, freq_mhz: float) -> dict:
-    '''Returns dict[host_id] -> {op_label, total_compute_ns, zone_stats}.'''
-    zones_per_host: dict[str, set[str]] = defaultdict(set)
-    zone_cycles: dict[tuple[str, str], list[int]] = defaultdict(list)
-
-    for host_id, zone_name, *_core, dur in parse_profile_log(profile_log):
-        if zone_name in FIRMWARE_ZONES or zone_name.startswith('kernel_outer_'):
-            continue
-        zones_per_host[host_id].add(zone_name)
-        zone_cycles[(host_id, zone_name)].append(dur)
-
-    result = {}
-    cycles_to_ns = 1000.0 / freq_mhz
-    for host_id, zones in zones_per_host.items():
-        zone_stats = {}
-        total_compute_cycles = 0
-        for z in zones:
-            durs = zone_cycles[(host_id, z)]
-            total_compute_cycles += sum(durs)
-            zone_stats[z] = {
-                'count': len(durs),
-                'total_ns': sum(durs) * cycles_to_ns,
-                'mean_ns': statistics.mean(durs) * cycles_to_ns,
-            }
-        result[host_id] = {
-            'op_label': derive_op_label(zones),
-            'total_compute_ns': total_compute_cycles * cycles_to_ns,
-            'zone_stats': zone_stats,
-        }
     return result
 
 
-def join_with_ops_perf(ops_perf_csv: pathlib.Path, per_host: dict):
-    '''Yield merged dict rows: ops_perf row + derived op label/compute time.'''
-    with ops_perf_csv.open() as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            host_id = row['GLOBAL CALL COUNT'].strip()
-            derived = per_host.get(host_id, {})
-            yield {
-                'host_id': host_id,
-                'op_label': derived.get('op_label', '<no-profile-data>'),
-                'loc': row['OP CODE'],
-                'device_kernel_ns': int(row['DEVICE KERNEL DURATION [ns]'] or 0),
-                'host_ns': int(row['HOST DURATION [ns]'] or 0),
-                'op_to_op_ns': int(row['OP TO OP LATENCY [ns]'] or 0),
-                'core_count': int(row['CORE COUNT'] or 0),
-                'compute_ns_from_zones': derived.get('total_compute_ns', 0.0),
-            }
+def get_runtimes(rows: list[dict], wall_cycles: int) -> dict[str, float]:
+    ''' returns a dict with fields "device wall time", "device kernel time", "compute share" '''
+
+    # count up trisc kernel envelopes
+    kernel_cycles = sum(r['duration'] for r in rows if r['name'] == 'TRISC-KERNEL')
+    return {
+        'device wall time': wall_cycles,
+        'device kernel time': kernel_cycles,
+        'compute share': kernel_cycles / wall_cycles if wall_cycles else 0.0,
+    }
 
 
-def print_per_op_table(rows: list[dict]) -> None:
-    header = ['host_id', 'op_label', 'kernel_ns', 'host_ns', 'op2op_ns', 'cores', 'loc']
-    widths = [12, 28, 12, 12, 20, 6, 40]
-    print('\n\n===== PER-OP TABLE ===== \n')
-    print('  '.join(f'{h:<{w}}' for h, w in zip(header, widths)))
-    print('  '.join('-' * w for w in widths))
-    for r in rows:
-        cells = [
-            r["host_id"],
-            r["op_label"][:widths[1]],
-            f'{r["device_kernel_ns"]:,}',
-            f'{r["host_ns"]:,}',
-            f'{r["op_to_op_ns"]:,}',
-            str(r["core_count"]),
-            r["loc"][:widths[6]],
-        ]
-        print('  '.join(f'{c:<{w}}' for c, w in zip(cells, widths)))
+def get_stats(rows: list[dict]) -> dict:
+    return {'slowest op': 'slowest op'}
 
 
-def print_aggregate_by_op(rows: list[dict]) -> None:
-    by_op: dict[str, list[int]] = defaultdict(list)
-    max_width = 0   # for pretty printing
+def time_formatter(cycles: int, freq_mhz: float) -> str:
+    ''' formats time as {cycles} ({time in ns} ns) '''
 
-    for r in rows:
-        by_op[r["op_label"]].append(r["device_kernel_ns"])
-        if len(r["op_label"]) > max_width:
-            max_width = len(r["op_label"])
+    return f'{int(cycles):} ({cycles_to_ns(cycles, freq_mhz):.3f} ns)'
 
-    total = sum(r['device_kernel_ns'] for r in rows) or 1
 
-    header = ['op_label', 'calls', 'total_ns', '%', 'mean_ns', 'max_ns']
-    widths = [max_width + 3, 6, 14, 8, 12, 12]
+def print_runtimes(rows: list[dict], wall_cycles: int, freq_mhz: float) -> None:
+    runtimes = get_runtimes(rows, wall_cycles)
+    formatted = {
+        k: f'{v * 100:.5f}%' if k == 'compute share' else time_formatter(v, freq_mhz)
+        for k, v in runtimes.items()
+    }
+    label_w = max(len(k) for k in formatted)
+    val_w = max(len(v) for v in formatted.values())
 
-    print('\n\n===== AGGREGATE TABLE ===== \n')
-    print('  '.join(f'{h:<{w}}' for h, w in zip(header, widths)))
-    print('  '.join('-' * w for w in widths))
-    for label, durs in sorted(by_op.items(), key=lambda kv: -sum(kv[1])):
-        s = sum(durs)
-        cells = [
-            label,
-            len(durs),
-            s,
-            f'{100 * s / total:.2f}%',
-            int(statistics.mean(durs)),
-            max(durs)
-        ]
-        print('  '.join(f'{str(c):<{w}}' for c, w in zip(cells, widths)))
+    print('\n===== RUNTIME =====\n')
+    for k, v in formatted.items():
+        print(f'{k:<{label_w}}\t{v:>{val_w}}')
 
-def plot_histogram(rows: list[dict], output_file: str) -> None:
-    by_op: dict[str, list[int]] = defaultdict(list)
 
-    for r in rows:
-        by_op[r["op_label"]].append(r["device_kernel_ns"])
+def plot_histogram(rows: dict[str, tuple[int, int]], output_file: str) -> None:
+    labels = list(rows.keys())
+    totals = [t for t, _ in rows.values()]
+    counts = [c for _, c in rows.values()]
 
-    total = sum(r["device_kernel_ns"] for r in rows) or 1
+    fig, (ax_dur, ax_cnt) = plt.subplots(
+        1, 2, sharey=True,
+        figsize=(12, max(4, 0.3 * len(labels))),
+    )
 
-    dist = {}
+    ax_dur.barh(labels, totals)
+    ax_dur.set_xlabel('Total duration (ns)')
+    ax_dur.set_ylabel('TTKernel Op')
 
-    for label, durs in by_op.items():
-        calls = sum(durs)
-        dist[label] = calls
-    
-    plt.bar(dist.keys(), dist.values())
-    plt.xlabel('TTKernel Op')
-    plt.ylabel('Total duration (ns)')
-    plt.title('Runtime breakdown per op :]')
+    ax_cnt.barh(labels, counts)
+    ax_cnt.set_xlabel('Number of calls')
 
-    plt.savefig(output_file)
+    fig.suptitle('Kernel runtime breakdown :]')
+    fig.tight_layout()
+    fig.savefig(output_file)
+    plt.close(fig)
+
+
+def print_op_times(rows: dict[str, tuple[int, int]], freq_mhz: float) -> None:
+    print('\n===== OP TIMES =====\n')
+
+    headers = ('Op', 'Calls', 'Total time', 'Cycles/call')
+    table = [
+        (k, str(count), time_formatter(total, freq_mhz), f'{total / count:.3f}')
+        for k, (total, count) in rows.items()
+    ]
+    widths = [max(len(row[i]) for row in (*table, headers)) for i in range(4)]
+
+    def fmt(row: tuple[str, str, str, str]) -> str:
+        return (f'{row[0]:<{widths[0]}}  {row[1]:>{widths[1]}}  '
+                f'{row[2]:>{widths[2]}}  {row[3]:>{widths[3]}}')
+
+    print(fmt(headers))
+    print('-' * (sum(widths) + 6))
+    for row in table:
+        print(fmt(row))
+
+
+def print_timeline(rows: list[dict], freq_mhz: float) -> None:
+    current_kernel: str = None
+
+    max_width = 0
+    for row in rows:
+        max_width = max(max_width, len(row['name']))
+
+    print('\n===== TIMELINE =====')
+    for row in rows:
+        if row['kernel'] != current_kernel:
+            current_kernel = row['kernel']
+            print(current_kernel)
+
+        print(f'\t{row['name']:<{max_width + 3}}\t[core:{row["core"]}, RISC: {row["risc"]}]\t{time_formatter(row['duration'], freq_mhz)}')
 
 
 def main() -> None:
@@ -215,17 +226,22 @@ def main() -> None:
 
     for file in (profile_log, ops_perf):
         if not file.is_file():
-            raise SystemExit(f'missing: {file}')
+            raise FileNotFoundError(f'missing: {file}')
 
     freq = read_chip_freq_mhz(profile_log)
-    per_host = aggregate_by_host_id(profile_log, freq)
-    rows = list(join_with_ops_perf(ops_perf, per_host))
+    raw_timeline, wall_time = collect_device_timeline(profile_log)
+    zone_grouped_rows = aggregate_by_zone(raw_timeline, args.by_kernel)
 
-    if args.op_times:
-        print_per_op_table(rows)
     if args.op_graph:
-        plot_histogram(rows, args.op_graph)
-    print_aggregate_by_op(rows)
+        plot_histogram(zone_grouped_rows, args.op_graph)
+    if args.op_times:
+        print_op_times(zone_grouped_rows, freq)
+    if args.timeline:
+        print_timeline(raw_timeline, freq)
+    if args.runtimes:
+        print_runtimes(raw_timeline, wall_time, freq)
+
+    print()
 
 
 if __name__ == '__main__':

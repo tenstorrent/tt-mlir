@@ -28,6 +28,7 @@ static bool opHasTraitNamed(Operation *op, StringRef traitName) {
       .Case("ternary",     op->hasTrait<TTKernelTernaryOpTrait>())
       .Case("device-zone", op->hasTrait<TTKernelDeviceZoneOpTrait>())
       .Case("trid-noc",    op->hasTrait<TTKernelTridNocOpTrait>())
+      .Case("layout",      op->hasTrait<TTKernelLayoutOpTrait>())
       .Case("all", true)  // will probably result in hash collisions, will try to fix
       .Default(false);
 }

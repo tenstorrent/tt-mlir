@@ -24,7 +24,7 @@ def TTKernelInsertDeviceZoneScopes: Pass<"insert-device-zone-scopes", "::mlir::M
   }];
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttkernel::TTKernelDialect"];
   let options = [
-    ListOption<"traitNames", "traits", "std::string", "TTKernel traits to instrument (fpu, sfpu, init, unary, binary, ternary, device-zone, trid-noc, all). Empty = nothing" >
+    ListOption<"traitNames", "traits", "std::string", "TTKernel traits to instrument (fpu, sfpu, init, unary, binary, ternary, device-zone, trid-noc, layout, all). Empty = nothing" >
   ];
 }
 
