@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttcore-mark-functions-as-forward --ttnn-decompose-layouts -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttcore-mark-functions-as-forward --ttnn-decompose-layouts --mlir-print-local-scope -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
@@ -19,74 +19,70 @@
 module attributes {} {
 
     // DRAM interleaved RM bf16 -> DRAM interleaved RM f32. Same memory config,
-    // just a dtype change. Expected: a single on-device typecast, no host
-    // round-trip and no spurious to_memory_config.
+    // just a dtype change. The typecast consumes %arg0 directly and its result
+    // tensor stays in DRAM.
     func.func @dram_il_rm_bf16_to_dram_il_rm_f32(%arg0: tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #dram_il_rm_f32> {
         // CHECK-LABEL: func.func @dram_il_rm_bf16_to_dram_il_rm_f32
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
+        // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[CAST]]
-        // CHECK-NOT: ttnn.from_device
-        // CHECK-NOT: ttnn.to_device
-        // CHECK-NOT: ttnn.to_memory_config
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #dram_il_rm_f32>
         return %0 : tensor<32x128xf32, #dram_il_rm_f32>
     }
 
     // DRAM interleaved RM f32 -> DRAM interleaved RM bf16. Opposite dtype
-    // direction; same single-typecast expectation.
+    // direction; same single-typecast expectation, result stays in DRAM.
     func.func @dram_il_rm_f32_to_dram_il_rm_bf16(%arg0: tensor<32x128xf32, #dram_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16> {
         // CHECK-LABEL: func.func @dram_il_rm_f32_to_dram_il_rm_bf16
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+        // CHECK-SAME: -> tensor<32x128xbf16, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[CAST]]
-        // CHECK-NOT: ttnn.from_device
-        // CHECK-NOT: ttnn.to_device
-        // CHECK-NOT: ttnn.to_memory_config
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x128xf32, #dram_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
         return %0 : tensor<32x128xbf16, #dram_il_rm_bf16>
     }
 
     // L1 interleaved RM bf16 -> L1 interleaved RM f32. Same memory config,
-    // just a dtype change. Same single-typecast expectation as the DRAM case.
+    // just a dtype change. Result stays in L1.
     func.func @l1_il_rm_bf16_to_l1_il_rm_f32(%arg0: tensor<32x128xbf16, #l1_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32> {
         // CHECK-LABEL: func.func @l1_il_rm_bf16_to_l1_il_rm_f32
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
+        // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: return %[[CAST]]
-        // CHECK-NOT: ttnn.from_device
-        // CHECK-NOT: ttnn.to_device
-        // CHECK-NOT: ttnn.to_memory_config
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#l1, <interleaved>>}> : (tensor<32x128xbf16, #l1_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
         return %0 : tensor<32x128xf32, #l1_il_rm_f32>
     }
 
     // DRAM interleaved RM bf16 -> L1 interleaved RM f32. Dtype change plus a
-    // memory move. Expected on-device sequence: typecast (in DRAM) followed
-    // by a single to_memory_config to L1; no host round-trip.
+    // memory move. The typecast runs on the DRAM input, then a single
+    // to_memory_config moves the (already-typecast) result to L1; no host
+    // round-trip.
     func.func @dram_il_rm_bf16_to_l1_il_rm_f32(%arg0: tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32> {
         // CHECK-LABEL: func.func @dram_il_rm_bf16_to_l1_il_rm_f32
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
+        // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: %[[MEM:.*]] = "ttnn.to_memory_config"(%[[CAST]])
+        // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: return %[[MEM]]
-        // CHECK-NOT: ttnn.from_device
-        // CHECK-NOT: ttnn.to_device
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#l1, <interleaved>>}> : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
         return %0 : tensor<32x128xf32, #l1_il_rm_f32>
     }
 
     // L1 interleaved RM f32 -> DRAM interleaved RM bf16. Opposite memory
-    // direction with the smaller dtype on the output side. Same expectation:
-    // typecast first, then a single to_memory_config; no host round-trip.
+    // direction with the smaller dtype on the output side. The typecast runs
+    // on the L1 input (so its result is in L1), then a single to_memory_config
+    // moves it to DRAM; no host round-trip.
     func.func @l1_il_rm_f32_to_dram_il_rm_bf16(%arg0: tensor<32x128xf32, #l1_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16> {
         // CHECK-LABEL: func.func @l1_il_rm_f32_to_dram_il_rm_bf16
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+        // CHECK-SAME: -> tensor<32x128xbf16, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: %[[MEM:.*]] = "ttnn.to_memory_config"(%[[CAST]])
+        // CHECK-SAME: -> tensor<32x128xbf16, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[MEM]]
-        // CHECK-NOT: ttnn.from_device
-        // CHECK-NOT: ttnn.to_device
         %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x128xf32, #l1_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
         return %0 : tensor<32x128xbf16, #dram_il_rm_bf16>
     }
