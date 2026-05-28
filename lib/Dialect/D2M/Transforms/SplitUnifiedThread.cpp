@@ -84,21 +84,12 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
 
 LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
                                               PatternRewriter &rewriter) {
-  // Look for a D2M_GenericRegionComputeOp, and collect the outermost ops that
-  // contain them in the generic op.
-  // Skip ops that have the SynchronizableOpInterface,
-  // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
-  // they haven't been lowered yet into non-synchronized ops
   OpBuilder::InsertionGuard guard(rewriter);
 
-  // Collect the ops that directly contain SynchronizableOpInterface ops.
-  // These delimit the scope where compute is synchronized: the outermost
-  // compute ancestor is a direct child of such an op, alongside the
-  // synchronizable ops that bound it. Multiple parents are allowed: each
-  // identifies an independent synchronized scope at its own nesting level
-  // (e.g. remote_loads in an accumulator loop bounding the matmul compute,
-  // while a remote_store in the enclosing loop bounds a separate compute
-  // region around the epilogue).
+  // Collect ops that directly contain a SynchronizableOpInterface op. Each
+  // such parent delimits an independent synchronized scope at its own nesting
+  // level (e.g. remote_loads in an accumulator loop bound the matmul compute,
+  // while a remote_store in the enclosing loop bounds the epilogue compute).
   DenseSet<Operation *> opsWithSynchronizableOps;
   genericOp.getRegion(0).walk([&](Operation *op) {
     if (dyn_cast<SynchronizableOpInterface>(op)) {
@@ -134,9 +125,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       }
     }
 
-    // Skip ops that have the SynchronizableOpInterface,
-    // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
-    // they haven't been lowered yet into non-synchronized ops.
+    // Skip synchronizable ops (e.g. TileTilize/UntilizeBlockOp) not yet
+    // lowered to non-synchronized form.
     if (!dyn_cast<SynchronizableOpInterface>(outermostOp)) {
       outermostOps.insert(outermostOp);
     }
@@ -148,23 +138,14 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     return failure();
   }
 
-  // Expand and merge compute regions until we hit a synchronizable op on both
-  // ends.
-  //
-  // Beyond hitting a SynchronizableOpInterface op (which bounds the wrap),
-  // two additional stop conditions matter:
-  // (1) A sibling op already in `opsWithSynchronizableOps` hosts its own
-  //     synchronized scope at a deeper level; folding it in would nest
-  //     sync regions (e.g. an inner accumulator loop sitting next to a
-  //     remote_store in the outer loop's body).
-  // (2) Including an op whose result is consumed past the wrap would
-  //     violate `wrapInSynchronizedRegion`'s precondition: any op in
-  //     [start, end) whose operand chain reaches a non-pure op gets
-  //     erased after the wrap is created, so leaving an outside user
-  //     dangles. Check users unconditionally — an op like
-  //     `arith.index_cast` is itself Pure but is treated as non-pure
-  //     by the wrap utility once an ancestor like `arith.divsi` (which
-  //     can fault) enters the operand chain.
+  // Expand each compute region outward until it hits a boundary. Three stop
+  // conditions: (1) a SynchronizableOpInterface op, which bounds the wrap;
+  // (2) a sibling in `opsWithSynchronizableOps`, whose own deeper scope must
+  // not be nested inside this one; (3) an op whose result is used past the
+  // wrap — wrapInSynchronizedRegion erases non-pure ops in [start, end), so an
+  // outside user would dangle. Check users unconditionally: a Pure op like
+  // arith.index_cast is treated as non-pure once a faulting ancestor (e.g.
+  // arith.divsi) enters its operand chain.
   auto hasUserOutsideRange = [](Operation *op, Block::iterator s,
                                 Block::iterator e) {
     Block *block = op->getBlock();
@@ -241,24 +222,20 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     computeRegions.push_back({start, std::next(end)});
   }
 
-  // Merge overlapping compute regions and fixpoint-expand each merged region
-  // so wrapInSynchronizedRegion's precondition holds: no op that will be
-  // erased by that utility may have result users outside [start, end).
+  // Merge overlapping compute regions and fixpoint-expand each so
+  // wrapInSynchronizedRegion's precondition holds: no op it erases may have
+  // result users outside [start, end).
   //
-  // Overlaps arise when hasUserOutsideRange causes independent per-outermostOp
-  // expansions to produce regions that share ops.  For example, acquire_dst
-  // and tile_add form an interdependent value chain in a flat block: the
-  // acquire_dst expansion stops early because tile_add's result escapes, and
-  // tile_add's expansion starts one op after acquire_dst for the same reason,
-  // yielding overlapping [A, B) and [B-1, C).  Wrapping the first region then
-  // erases the shared op (B-1), leaving the second region's start iterator
-  // dangling and triggering an ilist sentinel crash.
+  // Overlaps arise when hasUserOutsideRange splits an interdependent value
+  // chain across per-outermostOp expansions. E.g. acquire_dst and tile_add in
+  // a flat block yield overlapping [A, B) and [B-1, C); wrapping the first
+  // erases the shared op B-1, leaving the second's start iterator dangling
+  // (ilist sentinel crash).
   if (!computeRegions.empty()) {
-    // Purity cache mirroring isPurelyDerivedOp in wrapInSynchronizedRegion:
-    // an op is purely derived if it is pure and every operand-defining op is
-    // also purely derived.  Ops that are not purely derived will be erased by
-    // wrapInSynchronizedRegion; their results must not escape the region.
-    // The cache is block-agnostic and shared across all per-block passes below.
+    // Purity cache mirroring isPurelyDerivedOp in wrapInSynchronizedRegion: an
+    // op is purely derived if it is pure and all operand-defining ops are too.
+    // Non-purely-derived ops get erased there, so their results must not escape
+    // the region. Block-agnostic; shared across all per-block passes below.
     DenseMap<Operation *, bool> pureCache;
     auto isPurelyDerived = [&](auto &self, Operation *op) -> bool {
       auto it = pureCache.find(op);
@@ -280,8 +257,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     };
 
     // Group regions by block: multi-level scopes can produce regions in
-    // different blocks (e.g. inner K-loop body vs. enclosing block).
-    // A stable insertion-order vector preserves deterministic processing.
+    // different blocks (e.g. inner K-loop body vs. enclosing block). The
+    // insertion-order vector keeps processing deterministic.
     SmallVector<Block *> blockOrder;
     DenseMap<Block *, SmallVector<std::pair<Block::iterator, Block::iterator>>>
         regionsByBlock;
@@ -328,19 +305,14 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
         }
       }
 
-      // Fixpoint expansion: extend each merged region in both directions.
+      // Fixpoint-expand each merged region in both directions, stopping at
+      // SynchronizableOpInterface boundaries.
       //
-      // Downward (end grows): a non-pure op in [startPos, endPos) has result
-      // users outside the range that would dangle after
-      // wrapInSynchronizedRegion erases the op.  Expand endPos to include those
-      // users.
-      //
-      // Upward (start shrinks): a non-pure op in the range has an operand
-      // defined by another non-pure op just before startPos.  Expand startPos
-      // to include that defining op so that CB-load detection (which walks ops
-      // inside [start, end)) can find the CB operand feeding the region.
-      //
-      // Both directions stop at SynchronizableOpInterface boundaries.
+      // Downward: a non-pure op in range has result users past endPos that
+      // would dangle once wrapInSynchronizedRegion erases it — pull them in.
+      // Upward: a non-pure op has an operand defined by a non-pure op before
+      // startPos — pull it in so CB-load detection (which walks [start, end))
+      // can see the CB operand feeding the region.
       for (auto &[startPos, endPos] : merged) {
         bool changed = true;
         while (changed) {
@@ -544,13 +516,12 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
         !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
       auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
 
-      // The CB ops we emit must fire once per DMA partner activation, not
-      // once per compute iteration. When the DMA partner sits in an outer
-      // block (e.g. a matmul accumulator: remote_loads inside the K loop,
-      // remote_store outside it), placing wait/pop or reserve/push around
-      // `synchronizedOp` would emit N pairs against a single DMA op. Climb
-      // synchronizedOp's ancestors until we reach one whose parent block
-      // matches the partner's; that ancestor is the anchor for the CB ops.
+      // CB ops must fire once per DMA partner activation, not once per compute
+      // iteration. When the partner sits in an outer block (e.g. a matmul
+      // accumulator: remote_loads in the K loop, remote_store outside it),
+      // wrapping `synchronizedOp` would emit N pairs against one DMA op. Climb
+      // synchronizedOp's ancestors until one shares the partner's block; that
+      // ancestor anchors the CB ops.
       auto anchorForPartner = [&](Operation *partner) -> Operation * {
         Block *targetBlock = partner->getBlock();
         Operation *anchor = synchronizedOp;
