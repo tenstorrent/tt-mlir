@@ -3042,30 +3042,6 @@ def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
-def TTNN_MeshShardOp: TTNN_Op<"mesh_shard", [OpModelExempt]> {
-    let summary = "Mesh shard op.";
-    let description = [{
-        Tensor Mesh Shard operation
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_Device:$device,
-                         TTCore_MeshShardDirectionAttr:$shard_direction,
-                         TTCore_MeshShardTypeAttr:$shard_type,
-                         DenseI64ArrayAttr:$shard_shape,
-                         DenseI64ArrayAttr:$shard_dims);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(getShardType());
-      }
-    }];
-
-    let hasVerifier = 1;
-}
-
 def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition"> {
   let summary = "Mesh partition operation.";
   let description = [{
