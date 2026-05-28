@@ -236,9 +236,48 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
               ", current gen ", traceCache->getGenerationId(),
               "), invalidating and recapturing");
 
+    // Snapshot the addresses of the stale trace's I/O slots before erase. The
+    // recapture will allocate fresh slots; if any address moves, the device
+    // allocator's free-list has shifted relative to what sibling traces in the
+    // cache assumed. Those siblings must be marked stale (via generation bump)
+    // because their captured replays may write into memory that this recapture
+    // just claimed. If addresses are stable, no sibling invalidation is needed.
+    auto slotAddrs = [](const std::vector<::tt::runtime::Tensor> &slots) {
+      std::vector<std::uint64_t> addrs;
+      addrs.reserve(slots.size());
+      for (const auto &slot : slots) {
+        const ::ttnn::Tensor &t =
+            ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(slot);
+        if (t.storage_type() == ::ttnn::StorageType::DEVICE && t.buffer()) {
+          addrs.push_back(t.buffer()->address());
+        } else {
+          addrs.push_back(0);
+        }
+      }
+      return addrs;
+    };
+    std::vector<std::uint64_t> oldInputAddrs = slotAddrs(traceData->inputTensors);
+    std::vector<std::uint64_t> oldOutputAddrs = slotAddrs(traceData->outputTensors);
+
     // Remove the stale trace from the cache and recapture it.
     traceCache->erase(mainProgramKey, captureExecuteKey);
     runTraceProgramAndCaptureTrace(op, context, *traceCache);
+
+    TraceData *newTraceData =
+        traceCache->get(mainProgramKey, captureExecuteKey);
+    LOG_ASSERT(newTraceData,
+               "Recaptured TraceData must be populated in TraceCache");
+    std::vector<std::uint64_t> newInputAddrs =
+        slotAddrs(newTraceData->inputTensors);
+    std::vector<std::uint64_t> newOutputAddrs =
+        slotAddrs(newTraceData->outputTensors);
+
+    if (oldInputAddrs != newInputAddrs || oldOutputAddrs != newOutputAddrs) {
+      LOG_DEBUG("Recapture moved slot addresses; bumping generation to "
+                "invalidate sibling traces");
+      traceCache->incrementGeneration();
+      newTraceData->generationId = traceCache->getGenerationId();
+    }
 
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("TraceStaleRecapture");

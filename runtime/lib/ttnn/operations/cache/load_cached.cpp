@@ -44,7 +44,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   const std::vector<Tensor> *cachedOutputs = cache.getAll(cacheKey);
 
   if (cachedOutputs) {
-    LOG_DEBUG("Cache hit for function: ", constEvalFuncname.c_str());
+    LOG_DEBUG("ConstEval HIT  ", constEvalFuncname);
 
     LOG_ASSERT(cachedOutputs->size() == op->outputs()->size());
     for (size_t i = 0; i < cachedOutputs->size(); ++i) {
@@ -55,7 +55,7 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     return;
   }
 
-  LOG_DEBUG("Cache miss or invalid cache for function: ", constEvalFuncname);
+  LOG_DEBUG("ConstEval MISS ", constEvalFuncname);
 
   // Collect the ::ttnn::Tensor objects for execution
   std::vector<::tt::runtime::Tensor> inputs;
