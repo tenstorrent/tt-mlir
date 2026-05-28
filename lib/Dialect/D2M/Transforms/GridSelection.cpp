@@ -204,6 +204,18 @@ computeViewRequiredPhysicalShape(RankedTensorType materializedViewType,
   utils::BoundingBox baseDomain =
       utils::getProjectedBoundingBox(viewDomain, viewToBase);
 
+  // Sparse projections, such as strided slices, should keep their
+  // producer layout and let the view remapping express the sparse access.
+  int64_t viewVolume =
+      ttmlir::utils::volume<int64_t>(materializedViewType.getShape());
+  int64_t baseDomainVolume = 1;
+  for (auto [start, end] : llvm::zip_equal(baseDomain.start, baseDomain.end)) {
+    baseDomainVolume *= end - start + 1;
+  }
+  if (baseDomainVolume > viewVolume) {
+    return {};
+  }
+
   llvm::SmallVector<int64_t> requiredDeviceShape =
       llvm::to_vector(baseType.getShape());
   if (requiredDeviceShape.size() != baseDomain.end.size() ||
