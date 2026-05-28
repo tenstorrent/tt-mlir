@@ -618,7 +618,7 @@ class D2MBuilder(Builder):
                 text = f"#ttcore.core_range<({sy}, {sx}), ({ey}, {ex})>"
                 range_attrs.append(Attribute.parse(text, self._ctx))
             grid_attr = ArrayAttr.get(range_attrs)
-            if loc is not None:
+            if isinstance(loc, str):
                 loc = Location.name(loc, context=self._ctx)
             resolved_result_types = (
                 list(result_types)
