@@ -309,8 +309,9 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       for (auto [s, e] : regions) {
         posRegions.push_back({posMap[&*s], posMap[&*std::prev(e)]});
       }
-      llvm::sort(posRegions,
-                 [](const auto &a, const auto &b) { return a.first < b.first; });
+      llvm::sort(posRegions, [](const auto &a, const auto &b) {
+        return a.first < b.first;
+      });
 
       // Merge overlapping intervals.
       SmallVector<std::pair<unsigned, unsigned>> merged;
@@ -325,8 +326,9 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       // Fixpoint expansion: extend each merged region in both directions.
       //
       // Downward (end grows): a non-pure op in [startPos, endPos) has result
-      // users outside the range that would dangle after wrapInSynchronizedRegion
-      // erases the op.  Expand endPos to include those users.
+      // users outside the range that would dangle after
+      // wrapInSynchronizedRegion erases the op.  Expand endPos to include those
+      // users.
       //
       // Upward (start shrinks): a non-pure op in the range has an operand
       // defined by another non-pure op just before startPos.  Expand startPos
