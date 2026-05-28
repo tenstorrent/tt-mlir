@@ -6,8 +6,9 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/AffineExpr.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/IR/PatternMatch.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERATEOUTERLOOPS
@@ -59,11 +60,6 @@ public:
 
   static void rewriteBlockIndexOps(PatternRewriter &rewriter, Location loc,
                                    GenericOp generic) {
-    AffineMap addMap = AffineMap::get(
-        /*dimCount=*/1, /*symbolCount=*/1,
-        rewriter.getAffineDimExpr(0) + rewriter.getAffineSymbolExpr(0),
-        rewriter.getContext());
-
     SmallVector<BlockIndexOp> blockIndices;
     generic->walk(
         [&](BlockIndexOp blockIndex) { blockIndices.push_back(blockIndex); });
@@ -73,8 +69,7 @@ public:
       int64_t dim = blockIndex.getDim();
       Value offset = rewriter.create<BlockOffsetOp>(loc, dim);
       Value iterIndex = rewriter.create<IterIndexOp>(loc, dim);
-      Value index = rewriter.create<affine::AffineApplyOp>(
-          loc, addMap, ValueRange{iterIndex, offset});
+      Value index = rewriter.create<arith::AddIOp>(loc, iterIndex, offset);
       rewriter.replaceOp(blockIndex, index);
     }
   }
@@ -191,10 +186,16 @@ public:
       D2MGenerateOuterLoops>::D2MGenerateOuterLoopsBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<D2MGenerateOuterLoopsRewriter>(&getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
+    D2MGenerateOuterLoopsRewriter pattern(&getContext());
+
+    SmallVector<GenericOp> genericOps;
+    getOperation().walk(
+        [&](GenericOp generic) { genericOps.push_back(generic); });
+
+    for (GenericOp generic : genericOps) {
+      PatternRewriter rewriter(&getContext());
+      rewriter.setInsertionPoint(generic);
+      (void)pattern.matchAndRewrite(generic, rewriter);
     }
   }
 };

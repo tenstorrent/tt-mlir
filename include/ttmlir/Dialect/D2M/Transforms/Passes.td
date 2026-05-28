@@ -968,7 +968,8 @@ def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp">
     This pass generates outer loops for generic operations.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect",
-                           "::mlir::affine::AffineDialect"];
+                           "::mlir::affine::AffineDialect",
+                           "::mlir::arith::ArithDialect"];
 }
 
 def D2MLowerToExplicitForm : Pass<"d2m-generic-lower-to-explicit-form", "::mlir::ModuleOp"> {
