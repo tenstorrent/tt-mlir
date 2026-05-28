@@ -39,6 +39,7 @@ SNIPPETS = [
     "models/gpt_oss_120b/attention_mask_ge_prefill",
     "models/gpt_oss_120b/rope_sin_prefill",
     "models/gpt_oss_120b/rope_cos_prefill",
+    "models/gpt_oss_120b/rope_cos_sin_concat_prefill",
     "models/gpt_oss_120b/attention_mask_compare_prefill",
     "ttir/d2m_optimizer_two_d2m_subgraphs/unary_matmul_unary",
     "ttir/d2m_optimizer_two_d2m_subgraphs/eltwise_matmul_eltwise",
@@ -54,6 +55,7 @@ TRACE_SNIPPETS = [
     "models/gpt_oss_120b/compare_eq_multiply",
     "models/gpt_oss_120b/attention_mask_ge_prefill",
     "models/gpt_oss_120b/attention_mask_compare_prefill",
+    "models/gpt_oss_120b/rope_cos_sin_concat_prefill",
 ]
 
 
