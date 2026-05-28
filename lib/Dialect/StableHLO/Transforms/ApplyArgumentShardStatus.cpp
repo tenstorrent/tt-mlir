@@ -16,6 +16,87 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_APPLYARGUMENTSHARDSTATUSPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+// Returns the (possibly non-replicated) sdy sharding carried by a
+// stablehlo.custom_call that encodes a sharding constraint (e.g. @Sharding from
+// xs.mark_sharding, @tt.sharding_constraint, or @xla.sdy.* targets). Returns a
+// null attr if the op does not carry a recoverable sdy sharding.
+static mlir::sdy::TensorShardingAttr
+getCustomCallSdySharding(MLIRContext *context,
+                         mlir::stablehlo::CustomCallOp customCallOp) {
+  llvm::StringRef callTargetName = customCallOp.getCallTargetName();
+  if (callTargetName != gspmd_utils::kShardingCustomCallTargetName &&
+      callTargetName != sharding_utils::kTTShardingConstraintTargetName &&
+      callTargetName != shardy_utils::kFuncResultShardingTargetName) {
+    return {};
+  }
+
+  mlir::DictionaryAttr newAttrDict = shardy_utils::convertXlaSdyToSdyDictionary(
+      context, customCallOp->getAttrDictionary());
+  return mlir::dyn_cast_or_null<mlir::sdy::TensorShardingAttr>(
+      newAttrDict.get(mlir::sdy::TensorShardingAttr::name));
+}
+
+// Hardening heuristic for graphs where the frontend dropped the arg-level
+// sdy.sharding/gspmd.sharding attribute but the body still constrains the
+// argument to be sharded (e.g. torch_xla/Shardy graph-capture sometimes drops
+// arg-level sharding on graphs after the first while keeping in-body
+// sdy.sharding_constraint / @Sharding custom calls intact). If we can find a
+// non-fully-replicated sharding applied to (a transitive forwarding use of) the
+// argument inside the body, the argument is actually pre-sharded and must NOT be
+// re-distributed at runtime. Returns true if such in-body sharding is found.
+//
+// The walk is intentionally conservative: it only follows uses through trivial
+// single-operand "pass-through" ops so that we attribute a constraint to the arg
+// only when it directly (or near-directly) applies to it.
+static bool argHasInBodySharding(MLIRContext *context,
+                                 mlir::BlockArgument arg) {
+  llvm::SmallVector<mlir::Value> worklist;
+  llvm::SmallPtrSet<mlir::Value, 16> visited;
+  worklist.push_back(arg);
+
+  auto shardingIsSharded = [](mlir::sdy::TensorShardingAttr sharding) {
+    return sharding && !shardy_utils::isFullyReplicatedTensor(sharding);
+  };
+
+  while (!worklist.empty()) {
+    mlir::Value val = worklist.pop_back_val();
+    if (!visited.insert(val).second) {
+      continue;
+    }
+
+    for (mlir::OpOperand &use : val.getUses()) {
+      mlir::Operation *user = use.getOwner();
+
+      // Native sdy sharding constraint applied to this value.
+      if (auto constraintOp =
+              llvm::dyn_cast<mlir::sdy::ShardingConstraintOp>(user)) {
+        if (shardingIsSharded(constraintOp.getSharding())) {
+          return true;
+        }
+        continue;
+      }
+
+      // Sharding encoded as a stablehlo.custom_call (not yet lowered to a
+      // sdy.sharding_constraint at this point in the pipeline).
+      if (auto customCallOp =
+              llvm::dyn_cast<mlir::stablehlo::CustomCallOp>(user)) {
+        if (shardingIsSharded(getCustomCallSdySharding(context, customCallOp))) {
+          return true;
+        }
+        continue;
+      }
+
+      // Follow only trivial single-operand forwarding ops so a constraint on a
+      // reshape/convert/transpose of the arg still counts toward the arg.
+      if (user->getNumOperands() == 1 && user->getNumResults() == 1) {
+        worklist.push_back(user->getResult(0));
+      }
+    }
+  }
+
+  return false;
+}
+
 static mlir::LogicalResult
 updateArgumentShardStatus(MLIRContext *context, mlir::ModuleOp &module,
                           mlir::OpBuilder &builder, func::FuncOp &funcOp,
@@ -43,6 +124,19 @@ updateArgumentShardStatus(MLIRContext *context, mlir::ModuleOp &module,
       if (argAttrDict.contains(annotationsKeyWord)) {
         shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
       }
+    }
+
+    // Hardening: if the arg-level sharding annotation is missing (frontend
+    // dropped it) but the body still constrains this argument to be sharded,
+    // treat it as pre-sharded. Otherwise the arg would default to Unsharded and
+    // a spurious replicate DistributeTensorOp would be emitted, which crashes at
+    // runtime when the input is already a multi-buffer mesh tensor.
+    // This only applies to the Shardy path; the GSPMD path threads shard status
+    // into @Sharding custom calls below and is left untouched.
+    if (shardyAnnotationsExist &&
+        shardStatus == mlir::tt::ttcore::ShardStatus::Unsharded &&
+        argHasInBodySharding(context, arg)) {
+      shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
     }
 
     mlir::NamedAttribute shardStatusNamedAttr = {
