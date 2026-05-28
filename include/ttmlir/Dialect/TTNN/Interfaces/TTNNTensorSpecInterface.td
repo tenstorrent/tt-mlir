@@ -26,6 +26,12 @@ def TTNN_DtypeOpInterface : OpInterface<"TTNNDtypeOpInterface"> {
       }]
     >,
   ];
+
+  let verify = [{
+    static_assert(ConcreteOp::template hasTrait<::mlir::OpTrait::OneResult>(),
+                  "TTNNDtypeOpInterface can only be applied to ops with exactly one result");
+    return ::mlir::success();
+  }];
 }
 
 def TTNN_LayoutOpInterface : OpInterface<"TTNNLayoutOpInterface"> {

@@ -24,10 +24,9 @@ module attributes {} {
     func.func @dram_il_rm_bf16_to_dram_il_rm_f32(%arg0: tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #dram_il_rm_f32> {
         // CHECK-LABEL: func.func @dram_il_rm_bf16_to_dram_il_rm_f32
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
         // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[CAST]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #dram_il_rm_f32>
+        %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #dram_il_rm_f32>
         return %0 : tensor<32x128xf32, #dram_il_rm_f32>
     }
 
@@ -36,10 +35,9 @@ module attributes {} {
     func.func @dram_il_rm_f32_to_dram_il_rm_bf16(%arg0: tensor<32x128xf32, #dram_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16> {
         // CHECK-LABEL: func.func @dram_il_rm_f32_to_dram_il_rm_bf16
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-SAME: -> tensor<32x128xbf16, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[CAST]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x128xf32, #dram_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x128xf32, #dram_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
         return %0 : tensor<32x128xbf16, #dram_il_rm_bf16>
     }
 
@@ -48,10 +46,9 @@ module attributes {} {
     func.func @l1_il_rm_bf16_to_l1_il_rm_f32(%arg0: tensor<32x128xbf16, #l1_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32> {
         // CHECK-LABEL: func.func @l1_il_rm_bf16_to_l1_il_rm_f32
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
         // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: return %[[CAST]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#l1, <interleaved>>}> : (tensor<32x128xbf16, #l1_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
+        %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x128xbf16, #l1_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
         return %0 : tensor<32x128xf32, #l1_il_rm_f32>
     }
 
@@ -62,12 +59,11 @@ module attributes {} {
     func.func @dram_il_rm_bf16_to_l1_il_rm_f32(%arg0: tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32> {
         // CHECK-LABEL: func.func @dram_il_rm_bf16_to_l1_il_rm_f32
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
         // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: %[[MEM:.*]] = "ttnn.to_memory_config"(%[[CAST]])
         // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: return %[[MEM]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#l1, <interleaved>>}> : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
+        %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
         return %0 : tensor<32x128xf32, #l1_il_rm_f32>
     }
 
@@ -78,12 +74,11 @@ module attributes {} {
     func.func @l1_il_rm_f32_to_dram_il_rm_bf16(%arg0: tensor<32x128xf32, #l1_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16> {
         // CHECK-LABEL: func.func @l1_il_rm_f32_to_dram_il_rm_bf16
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
-        // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
         // CHECK-SAME: -> tensor<32x128xbf16, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: %[[MEM:.*]] = "ttnn.to_memory_config"(%[[CAST]])
         // CHECK-SAME: -> tensor<32x128xbf16, {{.*}}#ttnn.buffer_type<dram>
         // CHECK-NEXT: return %[[MEM]]
-        %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x128xf32, #l1_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
+        %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x128xf32, #l1_il_rm_f32>) -> tensor<32x128xbf16, #dram_il_rm_bf16>
         return %0 : tensor<32x128xbf16, #dram_il_rm_bf16>
     }
 }
