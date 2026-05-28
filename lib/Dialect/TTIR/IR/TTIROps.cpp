@@ -5588,6 +5588,99 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
   return success();
 }
 
+namespace {
+// Canonicalize mesh_partition into a mesh_shard FullToShard when the input is a
+// creation op, or a model weight block argument.
+// This is desirable because of the core difference between the two ops:
+// - mesh_partition lowers to ttnn.mesh_partition, which executes on the device.
+// - mesh_shard with FullToShard semantics lowers to ttnn.distribute_tensor,
+// which executes on the host.
+//
+// By enforcing host execution for const-evaluatable input partitioning, we're
+// ensuring the device DRAM usage won't explode for the input partitioning.
+class MeshPartitionOfHostInputToMeshShard
+    : public mlir::OpRewritePattern<mlir::tt::ttir::MeshPartitionOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttir::MeshPartitionOp op,
+                  mlir::PatternRewriter &rewriter) const override {
+    if (!op.getClusterAxis().has_value()) {
+      return mlir::failure();
+    }
+    if (!isStaticallyHostResident(op.getInput())) {
+      return mlir::failure();
+    }
+
+    auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
+    if (!moduleOp) {
+      return mlir::failure();
+    }
+    auto meshesAttr = moduleOp->getAttrOfType<mlir::tt::ttcore::MeshesAttr>(
+        mlir::tt::ttcore::MeshesAttr::name);
+    if (!meshesAttr || meshesAttr.getMeshes().empty()) {
+      return mlir::failure();
+    }
+    llvm::ArrayRef<int64_t> meshShape = meshesAttr.getMeshes()[0].getShape();
+    uint32_t clusterAxis = op.getClusterAxis().value();
+    if (clusterAxis >= meshShape.size()) {
+      return mlir::failure();
+    }
+
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    int64_t tensorRank = inputType.getRank();
+    int32_t dim = op.getDim();
+    if (dim < 0) {
+      dim += tensorRank;
+    }
+
+    llvm::SmallVector<int64_t> shardShape(tensorRank, 1);
+    llvm::SmallVector<int64_t> shardDims(meshShape.size(), -1);
+    shardShape[dim] = meshShape[clusterAxis];
+    shardDims[clusterAxis] = dim;
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
+        op, op.getType(), op.getInput(),
+        mlir::tt::ttcore::MeshShardType::Devices,
+        mlir::tt::ttcore::MeshShardDirection::FullToShard,
+        rewriter.getDenseI64ArrayAttr(shardShape),
+        rewriter.getDenseI64ArrayAttr(shardDims));
+    return mlir::success();
+  }
+
+private:
+  static bool isStaticallyHostResident(mlir::Value v) {
+    if (mlir::Operation *def = v.getDefiningOp()) {
+      return def->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>();
+    }
+    auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(v);
+    if (!blockArg) {
+      return false;
+    }
+    auto funcOp =
+        mlir::dyn_cast<mlir::func::FuncOp>(blockArg.getOwner()->getParentOp());
+    if (!funcOp) {
+      return false;
+    }
+    auto argType = funcOp.getArgAttrOfType<mlir::tt::ttcore::ArgumentTypeAttr>(
+        blockArg.getArgNumber(), mlir::tt::ttcore::ArgumentTypeAttr::name);
+    if (!argType) {
+      return false;
+    }
+    auto kind = argType.getValue();
+    return kind == mlir::tt::ttcore::ArgumentType::Parameter ||
+           kind == mlir::tt::ttcore::ArgumentType::Constant;
+  }
+};
+} // namespace
+
+void mlir::tt::ttir::MeshPartitionOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add<MeshPartitionOfHostInputToMeshShard>(context);
+}
+
 //===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
