@@ -178,6 +178,7 @@ std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor);
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
 bool getTensorRetain(::tt::runtime::Tensor tensor);
 void setTensorRetain(::tt::runtime::Tensor tensor, bool retain);
+std::string getTensorTopologyDescription(::tt::runtime::Tensor tensor);
 
 tt::target::Arch getArch();
 

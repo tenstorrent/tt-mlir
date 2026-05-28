@@ -616,6 +616,23 @@ void setTensorRetain(Tensor tensor, bool retain) {
       [&]() { ::tt::runtime::distributed::setTensorRetain(tensor, retain); });
 }
 
+std::string getTensorTopologyDescription(Tensor tensor) {
+  using RetType = std::string;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getTensorTopologyDescription(tensor);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorTopologyDescription",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorTopologyDescription",
+                                    HostRuntime::Distributed);
+      });
+}
+
 tt::target::Arch getArch() {
   using RetType = tt::target::Arch;
   return DISPATCH_TO_CURRENT_RUNTIME(

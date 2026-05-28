@@ -5,6 +5,7 @@
 #include "Constants.h"
 
 #include "operations/cpu/cpu.h"
+#include "tt-metalium/distributed_host_buffer.hpp"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
@@ -23,6 +24,8 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
+#include "ttmlir/Version.h"
+#include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
@@ -316,6 +319,49 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   return tensor;
 }
 
+namespace {
+
+// Build a TensorTopology from the caller-supplied strategy map. Strategy keys
+// follow the convention established by tt-xla's
+// fillStrategyMapFromSharding
+// (pjrt_implementation/.../loaded_executable_instance.cc):
+//   "strategy" -> "replicate" | "identity" | "shard" | "shard_2d"
+//   "replication_factor" -> mesh size (for "replicate")
+//   "shard_dim" -> mesh-axis size (NOT the tensor dim — historical naming)
+// We additionally honor an optional "tensor_shard_dim" key for the actual
+// tensor dim being sharded; defaults to 0 when absent. Empty / unknown
+// strategy falls back to fully-replicated.
+::tt::tt_metal::TensorTopology buildTensorTopologyFromStrategy(
+    const std::unordered_map<std::string, std::string> &strategy,
+    const ::ttnn::MeshShape &meshShape) {
+  auto strategyIt = strategy.find("strategy");
+  if (strategyIt == strategy.end()) {
+    return ::tt::tt_metal::TensorTopology::
+        create_fully_replicated_tensor_topology(meshShape);
+  }
+  const std::string &kind = strategyIt->second;
+  if (kind == "replicate" || kind == "identity") {
+    return ::tt::tt_metal::TensorTopology::
+        create_fully_replicated_tensor_topology(meshShape);
+  }
+  if (kind == "shard") {
+    int shardDim = 0;
+    auto tensorDimIt = strategy.find("tensor_shard_dim");
+    if (tensorDimIt != strategy.end()) {
+      shardDim = std::stoi(tensorDimIt->second);
+    }
+    return ::tt::tt_metal::TensorTopology::create_sharded_tensor_topology(
+        meshShape, shardDim);
+  }
+  // "shard_2d" / unknown: needs richer information than the current map
+  // carries to reconstruct precisely. Fall back to replicated rather than
+  // silently producing a wrong topology.
+  return ::tt::tt_metal::TensorTopology::
+      create_fully_replicated_tensor_topology(meshShape);
+}
+
+} // namespace
+
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
     const std::unordered_map<std::string, std::string> &strategy,
@@ -331,8 +377,50 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   LOG_ASSERT(meshShape.size() == 2, "Only 2D mesh shape supported for now.");
   ::ttnn::MeshShape ttnnMeshShape(meshShape[0], meshShape[1]);
 
-  ::ttnn::Tensor multiDeviceHostTensor =
-      ::ttnn::distributed::from_host_shards(ttnnTensorShards, ttnnMeshShape);
+  // We can't use ttnn::distributed::from_host_shards here: it always builds
+  // a sharded TensorTopology with no replicated path. The canonical
+  // replicated path is
+  //
+  //   auto mapper = replicate_tensor_to_mesh_mapper(*mesh_device);
+  //   Tensor t = distribute_tensor(global_host_tensor, *mapper);
+  //
+  // but that requires a MeshDevice (for the mapper) and a single global host
+  // tensor (for the input) — this createMultiDeviceHostTensor API takes
+  // neither: it operates on per-shard buffers + a bare mesh shape. So we
+  // open-code the construction below, mirroring what TensorToMesh::Impl does
+  // internally (DistributedHostBuffer + Tensor(HostTensor(..., topology))).
+  //
+  // Cleaner upstream fix would be to either extend this API to take a
+  // MeshDevice and use the high-level mapper path, or to expose a public
+  // ttnn API like `from_host_shards_with_topology(shards, mesh, topology)`.
+  TT_FATAL(ttnnTensorShards.size() == ttnnMeshShape.mesh_size(),
+           "Number of tensor shards ({}) must match mesh size ({})",
+           ttnnTensorShards.size(), ttnnMeshShape.mesh_size());
+  const auto &referenceShard = ttnnTensorShards.at(0);
+  for (const auto &shard : ttnnTensorShards) {
+    TT_FATAL(shard.storage_type() == ::tt::tt_metal::StorageType::HOST,
+             "All tensor shards must be on host");
+    TT_FATAL(shard.tensor_spec() == referenceShard.tensor_spec(),
+             "All tensor shards must have the same tensor spec");
+  }
+
+  auto distributedHostBuffer =
+      ::tt::tt_metal::DistributedHostBuffer::create(ttnnMeshShape);
+  auto shardIt = ttnnTensorShards.begin();
+  for (const auto &coord :
+       ::tt::tt_metal::distributed::MeshCoordinateRange(ttnnMeshShape)) {
+    ::tt::tt_metal::HostBuffer buffer =
+        ::tt::tt_metal::host_buffer::get_host_buffer(*(shardIt++));
+    distributedHostBuffer.emplace_shard(
+        coord, [buf = std::move(buffer)]() mutable { return std::move(buf); });
+  }
+
+  ::tt::tt_metal::TensorTopology topology =
+      buildTensorTopologyFromStrategy(strategy, ttnnMeshShape);
+
+  ::ttnn::Tensor multiDeviceHostTensor(::tt::tt_metal::HostTensor::from_buffer(
+      std::move(distributedHostBuffer), referenceShard.tensor_spec(),
+      std::move(topology)));
 
   return utils::createRuntimeTensorFromTTNN(multiDeviceHostTensor);
 }
@@ -573,6 +661,14 @@ void setTensorRetain(::tt::runtime::Tensor tensor, bool retain) {
   ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
   return tensorWrapper.setRetain(retain);
+}
+
+std::string getTensorTopologyDescription(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  std::ostringstream oss;
+  oss << ttnnTensor.tensor_topology();
+  return oss.str();
 }
 
 tt::target::Arch getArch() {
