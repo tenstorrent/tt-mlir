@@ -1229,6 +1229,65 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for tenstorrent.topk* custom_call ops (converted from composite
+// by FlattenOrConvertCompositesPass).
+//
+// Input:  [batch, vocab]   — vocab dim is the topk dimension
+// Output: [batch, k]       — k results per batch item (one or two outputs)
+//
+// Batch dim: kPassThrough — can be sharded freely across devices.
+// Vocab dim: kNeedReplication + isBlocked — topk handles the vocab dim
+//   internally (local topk + all_gather + merge). isBlocked prevents Shardy
+//   from inserting an all_gather before the op.
+// K dim in output: kNeedReplication — output is always replicated.
+static mlir::sdy::OpShardingRuleAttr
+getTopKShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 1) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  if (!inputType || inputType.getRank() != 2) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t numResults = op.getNumResults();
+  if (numResults < 1 || numResults > 2) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto result0Type =
+      llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!result0Type || result0Type.getRank() != 2) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t batchSize = inputType.getShape()[0];
+  int64_t vocabSize = inputType.getShape()[1];
+  int64_t kSize = result0Type.getShape()[1];
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // Batch dim passes through from input to all results.
+  llvm::SmallVector<int64_t> resultBatchDims(numResults, 0);
+  builder.addFactor({0}, resultBatchDims, batchSize,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // Vocab dim: pass-through on input, no corresponding output dim.
+  // This tells Shardy the input can be sharded on vocab and the op handles
+  // the distributed topk internally. Shardy will not insert an all_gather.
+  builder.addFactor({1},
+                    llvm::SmallVector<int64_t>(numResults, mlir::sdy::kNullDim),
+                    vocabSize, mlir::sdy::FactorType::kPassThrough);
+
+  // K dim in output: always replicated, not linked to any input dim.
+  llvm::SmallVector<int64_t> resultKDims(numResults, 1);
+  builder.addFactor({mlir::sdy::kNullDim}, resultKDims, kSize,
+                    mlir::sdy::FactorType::kNeedReplication);
+
+  return builder.build();
+}
+
 // Sharding rule for RMS norm custom_call (converted from composite).
 //
 // Operands:
@@ -1440,6 +1499,9 @@ private:
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
+          {"tenstorrent.topk", getTopKShardingRule},
+          {"tenstorrent.topk_values", getTopKShardingRule},
+          {"tenstorrent.topk_indices", getTopKShardingRule},
           {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
           {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
       };

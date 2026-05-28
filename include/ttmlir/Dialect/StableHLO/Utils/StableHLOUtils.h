@@ -62,8 +62,14 @@ inline constexpr llvm::StringLiteral
 // with ops and sharding (currently these passes are
 // FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass).
 inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
-    kTTRMSNormCustomCallTargetName, kTTSDPACompositeName,
-    kTTGatherCustomCallTargetName, kTTGatherDimCustomCallTargetName};
+    kTTRMSNormCustomCallTargetName,
+    "tenstorrent.topk",
+    "tenstorrent.topk_values",
+    "tenstorrent.topk_indices",
+    kTTSDPACompositeName,
+    kTTGatherCustomCallTargetName,
+    kTTGatherDimCustomCallTargetName,
+};
 
 // Target name for the distributed RMS norm custom_call op.
 inline constexpr llvm::StringLiteral
