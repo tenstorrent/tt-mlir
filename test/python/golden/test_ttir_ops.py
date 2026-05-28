@@ -204,6 +204,81 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, dev
     )
 
 
+@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
+@pytest.mark.parametrize("shard_dims", [(0, 1)])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy" | SkipIf("sim")])
+def test_hoisted_multichip(
+    shape: Shape,
+    shard_dims: Tuple[int, int],
+    mesh_shape: Tuple[int, int],
+    target: str,
+    request,
+    device,
+):
+    # Multi-chip CPU hoisting on a mesh. Inputs are sharded across the mesh, so
+    # each CPU-hoisted op runs shard-by-shard (num_shards == prod(mesh_shape))
+    # inside utils.execute_cpu_hoisted_function. A reduce_scatter CCL sits
+    # between the two hoisted ops, staying on device. reduce_scatter (rather than
+    # all_reduce) keeps the data distributed, so each device holds a distinct
+    # slice for both hoisted ops. This exercises the num_shards > 1 path of the
+    # helper on genuinely distinct shards end-to-end on hardware.
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [torch.float32, torch.float32])
+        def hoisted_multichip(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
+            s0 = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=list(shard_dims),
+            )
+            s1 = builder.mesh_shard(
+                in1,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=list(shard_dims),
+            )
+            # CPU-hoisted, runs on each device's distinct shard.
+            a = builder.add(s0, s1, unit_attrs=["ttir.should_hoist"])
+
+            # CCL barrier: stays on device. Scatters the reduced result along
+            # the sharded dim, so each device keeps a distinct slice.
+            rs = builder.reduce_scatter(
+                a,
+                reduce_type=ReduceType.Sum.value,
+                scatter_dim=1,
+                cluster_axis=1,
+            )
+
+            # CPU-hoisted again, still on distinct per-device shards.
+            m = builder.multiply(rs, rs, unit_attrs=["ttir.should_hoist"])
+
+            return builder.mesh_shard(
+                m,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=list(shard_dims),
+            )
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        target=target,
+        device=device,
+        **get_request_kwargs(request),
+    )
+
+
 @pytest.mark.parametrize("shape", [(1, 1, 32) | SkipIf("sim")], ids=shape_str)
 @pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
 def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, device):

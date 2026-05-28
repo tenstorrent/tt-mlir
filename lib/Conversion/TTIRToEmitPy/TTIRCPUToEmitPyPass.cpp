@@ -16,12 +16,27 @@
 //   Function body (internal ops): torch.Tensor
 //     The ttir_cpu.* implementations are pure torch, so ops use torch tensors.
 //
-// The bridge is explicit:
-//   - FuncOpBoundaryPattern  rewrites signatures to ttnn.Tensor and inserts
-//     ttnn.to_torch at function entry.
-//   - ReturnOpBoundaryPattern inserts ttnn.from_torch before each return.
-//   - All other patterns use the type converter (MLIR tensor -> torch.Tensor)
-//     to produce internal CallOpaqueOp results.
+// Each hoisted function becomes a ttnn-typed wrapper holding a nested
+// torch-typed body, so the pure-torch body can be executed shard-by-shard for
+// multi-chip meshes:
+//
+//   - <name>(ttnn.Tensor...) -> ttnn.Tensor...
+//       Thin wrapper (keeps the original symbol, so callers are unchanged) that
+//       defers to utils.execute_cpu_hoisted_function(inputs, <name>_impl). The
+//       helper brings inputs to host, splits them into per-device shards, runs
+//       <name>_impl once per shard, and reassembles the outputs into a
+//       multi-device tensor. This mirrors runtime runMultiChip in
+//       runtime/lib/ttnn/operations/cpu/cpu.cpp.
+//
+//   - <name>_impl(torch.Tensor...) -> torch.Tensor...
+//       Holds the lowered ttir_cpu.* body (pure torch, one shard's worth of
+//       data). Emitted as a Python `def` nested inside the wrapper.
+//
+// The conversion happens in two steps. First, dialect conversion lowers each
+// hoisted function in place to the torch.Tensor world (stock signature/return
+// type conversion plus the per-op ttir -> ttir_cpu patterns). Then wrapAndNest
+// renames it to <name>_impl, builds the ttnn-typed <name> wrapper, and moves
+// the body into the wrapper as a nested emitpy.func.
 //
 
 #include "ttmlir/Conversion/TTIRToEmitPy/TTIRToEmitPy.h"
@@ -29,6 +44,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -49,13 +65,10 @@ namespace {
 // Type converter
 // ============================================================================
 
-// Converts MLIR tensor types to emitpy::OpaqueType("torch.Tensor").
-// This is the type used by internal ops (CallOpaqueOp results) — it reflects
-// the fact that ttir_cpu.* functions operate on torch tensors at runtime.
-//
-// Function boundaries use ttnn.Tensor instead; that conversion is handled
-// separately by FuncOpBoundaryPattern / ReturnOpBoundaryPattern, which
-// bypass the type converter.
+// Converts MLIR tensor types to emitpy::OpaqueType("torch.Tensor"). The whole
+// hoisted function is lowered to this torch.Tensor world (signature, internal
+// ttir_cpu ops, and return); the ttnn.Tensor boundary is introduced later by
+// wrapAndNest, which wraps the torch body in a ttnn-typed function.
 class EmitPyTypeConverter : public TypeConverter {
 public:
   EmitPyTypeConverter(MLIRContext *ctx) {
@@ -231,81 +244,6 @@ private:
   SmallVector<Value> operands;
   SmallVector<Attribute> args;
   SmallVector<Attribute> kwargNames;
-};
-
-// ============================================================================
-// Function boundary patterns
-// ============================================================================
-
-// Rewrites the function signature to ttnn.Tensor and inserts ttnn.to_torch
-// for each argument so internal ops receive torch tensors.
-class FuncOpBoundaryPattern : public OpConversionPattern<func::FuncOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(func::FuncOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto *ctx = rewriter.getContext();
-    auto ttnnType = emitpy::OpaqueType::get(ctx, "ttnn.Tensor");
-    auto torchType = emitpy::OpaqueType::get(ctx, "torch.Tensor");
-
-    // Build the new signature: all tensor args/results become ttnn.Tensor.
-    auto oldType = op.getFunctionType();
-    SmallVector<Type> newArgTypes(oldType.getNumInputs(), ttnnType);
-    SmallVector<Type> newResultTypes(oldType.getNumResults(), ttnnType);
-    auto newType = FunctionType::get(ctx, newArgTypes, newResultTypes);
-
-    // Create a new function with the ttnn.Tensor signature and move the body.
-    auto newOp =
-        rewriter.create<func::FuncOp>(op.getLoc(), op.getName(), newType);
-    newOp->setAttrs(op->getAttrs());
-    newOp.setFunctionType(newType);
-
-    // Inline the old body into the new function, converting block arg types.
-    Block &oldEntry = op.getBody().front();
-    Block &newEntry = newOp.getBody().emplaceBlock();
-
-    // Add ttnn.Tensor block args and insert to_torch for each.
-    rewriter.setInsertionPointToStart(&newEntry);
-    SmallVector<Value> torchArgs;
-    for (unsigned i = 0; i < oldEntry.getNumArguments(); ++i) {
-      auto newArg = newEntry.addArgument(ttnnType, op.getLoc());
-      auto toTorch = rewriter.create<emitpy::CallOpaqueOp>(
-          op.getLoc(), torchType, "ttnn.to_torch", ValueRange{newArg}, nullptr,
-          nullptr);
-      torchArgs.push_back(toTorch.getResult(0));
-    }
-
-    // Merge the old block, replacing old block args with torch values.
-    rewriter.mergeBlocks(&oldEntry, &newEntry, torchArgs);
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-// Inserts ttnn.from_torch before each return, converting torch.Tensor
-// results back to ttnn.Tensor for the caller.
-class ReturnOpBoundaryPattern : public OpConversionPattern<func::ReturnOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(func::ReturnOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto ttnnType =
-        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor");
-
-    SmallVector<Value> newOperands;
-    for (Value operand : adaptor.getOperands()) {
-      auto fromTorch = rewriter.create<emitpy::CallOpaqueOp>(
-          op.getLoc(), ttnnType, "ttnn.from_torch", ValueRange{operand},
-          nullptr, nullptr);
-      newOperands.push_back(fromTorch.getResult(0));
-    }
-    rewriter.replaceOpWithNewOp<func::ReturnOp>(op, newOperands);
-    return success();
-  }
 };
 
 // ============================================================================
@@ -1102,6 +1040,92 @@ public:
   }
 };
 
+// Wraps each in-place-lowered (now torch-typed) CPU-hoisted function in a
+// ttnn-typed wrapper that defers to utils.execute_cpu_hoisted_function, with
+// the torch body emitted as a nested `<name>_impl` def. Given
+//
+//   func @cpu_hoisted_X(torch...) -> torch... { ...ttir_cpu... }   //
+//   forward_cpu
+//
+// it produces
+//
+//   def cpu_hoisted_X(a, b):                      # ttnn wrapper
+//     def cpu_hoisted_X_impl(a, b): ...ttir_cpu...
+//     return utils.execute_cpu_hoisted_function([a, b], cpu_hoisted_X_impl)
+//
+// Keeping the body nested means the impl is not a module-level symbol (no
+// symbol-DCE concern, nothing for module linking to relocate separately).
+static void wrapAndNest(ModuleOp module) {
+  MLIRContext *ctx = module.getContext();
+  auto ttnnType = emitpy::OpaqueType::get(ctx, "ttnn.Tensor");
+
+  SmallVector<func::FuncOp> impls;
+  for (auto func : module.getOps<func::FuncOp>()) {
+    if (ttmlir::utils::isForwardCPUFunc(func)) {
+      impls.push_back(func);
+    }
+  }
+
+  for (func::FuncOp impl : impls) {
+    auto origName = impl.getSymName().str();
+    auto implName = origName + "_impl";
+    unsigned numInputs = impl.getNumArguments();
+    unsigned numResults = impl.getFunctionType().getNumResults();
+
+    OpBuilder builder(impl);
+
+    // The body lives in a nested function named <name>_impl; the wrapper keeps
+    // the original symbol and a ttnn.Tensor signature so callers are unchanged.
+    impl.setSymName(implName);
+    auto wrapType =
+        FunctionType::get(ctx, SmallVector<Type>(numInputs, ttnnType),
+                          SmallVector<Type>(numResults, ttnnType));
+    auto wrapOp =
+        builder.create<func::FuncOp>(impl.getLoc(), origName, wrapType);
+    wrapOp->setAttrs(impl->getAttrs());
+    wrapOp.setSymName(origName);
+    wrapOp.setFunctionType(wrapType);
+
+    Block &wrapEntry = wrapOp.getBody().emplaceBlock();
+    SmallVector<Value> wrapArgs;
+    for (unsigned i = 0; i < numInputs; ++i) {
+      wrapArgs.push_back(wrapEntry.addArgument(ttnnType, impl.getLoc()));
+    }
+    builder.setInsertionPointToStart(&wrapEntry);
+
+    // Nested torch body: move the impl's body in and swap its terminator for an
+    // emitpy.func_return.
+    auto funcOp = builder.create<emitpy::FuncOp>(impl.getLoc(), implName);
+    funcOp.getBody().takeBody(impl.getBody());
+    auto returnOp =
+        cast<func::ReturnOp>(funcOp.getBody().front().getTerminator());
+    {
+      OpBuilder retBuilder(returnOp);
+      retBuilder.create<emitpy::FuncReturnOp>(returnOp.getLoc(),
+                                              returnOp.getOperands());
+      returnOp.erase();
+    }
+
+    // result = utils.execute_cpu_hoisted_function([arg0, ...], <name>_impl)
+    builder.setInsertionPointToEnd(&wrapEntry);
+    auto listOp = builder.create<emitpy::CallOpaqueOp>(
+        impl.getLoc(), emitpy::OpaqueType::get(ctx, "[ttnn.Tensor]"),
+        "util_create_list", wrapArgs, nullptr, nullptr);
+    SmallVector<Value> callOperands{listOp.getResult(0)};
+    SmallVector<Attribute> callArgs{IntegerAttr::get(IndexType::get(ctx), 0),
+                                    emitpy::OpaqueAttr::get(ctx, implName)};
+    SmallVector<Attribute> callKwargs{StringAttr::get(ctx, ""),
+                                      StringAttr::get(ctx, "")};
+    auto callOp = builder.create<emitpy::CallOpaqueOp>(
+        impl.getLoc(), SmallVector<Type>(numResults, ttnnType),
+        "utils.execute_cpu_hoisted_function", callOperands,
+        ArrayAttr::get(ctx, callArgs), ArrayAttr::get(ctx, callKwargs));
+    builder.create<func::ReturnOp>(impl.getLoc(), callOp.getResults());
+
+    impl.erase();
+  }
+}
+
 // ============================================================================
 // Pass definition
 // ============================================================================
@@ -1130,15 +1154,15 @@ struct ConvertTTIRCPUToEmitPyPass
     EmitPyTypeConverter typeConverter(&getContext());
     RewritePatternSet patterns(&getContext());
 
-    // Function boundary: signature becomes ttnn.Tensor, with to_torch /
-    // from_torch bridging to the torch.Tensor world used by internal ops.
-    patterns.add<FuncOpBoundaryPattern, ReturnOpBoundaryPattern>(typeConverter,
-                                                                 &getContext());
-    target.addDynamicallyLegalOp<func::FuncOp>([](func::FuncOp op) {
-      return llvm::all_of(op.getArgumentTypes(),
-                          llvm::IsaPred<emitpy::OpaqueType>) &&
-             llvm::all_of(op.getResultTypes(),
-                          llvm::IsaPred<emitpy::OpaqueType>);
+    // Lower the hoisted function in place to the torch.Tensor world used by the
+    // internal ttir_cpu ops, using stock signature/return type conversion. The
+    // ttnn-typed wrapper and the nested impl are built afterwards by
+    // wrapAndNest.
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
+    populateReturnOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return typeConverter.isSignatureLegal(op.getFunctionType());
     });
     target.addDynamicallyLegalOp<func::ReturnOp>([](func::ReturnOp op) {
       return llvm::all_of(op.getOperandTypes(),
@@ -1228,6 +1252,8 @@ struct ConvertTTIRCPUToEmitPyPass
       signalPassFailure();
       return;
     }
+
+    wrapAndNest(getOperation());
   }
 };
 

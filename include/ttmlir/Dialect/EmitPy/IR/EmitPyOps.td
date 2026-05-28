@@ -594,6 +594,54 @@ def EmitPy_ExpressionOp : EmitPy_Op<"expression", [
   let hasCustomAssemblyFormat = 1;
 }
 
+def EmitPy_FuncReturnOp : EmitPy_Op<"func_return", [Pure, ReturnLike, Terminator,
+                                                    ParentOneOf<["FuncOp"]>]> {
+  let summary = "Return operation for emitpy.func";
+  let description = [{
+    Terminates an `emitpy.func` body, emitting a Python `return`. Optionally
+    returns one or more values.
+  }];
+
+  let arguments = (ins Variadic<AnyType>:$operands);
+  let assemblyFormat = "($operands^ `:` type($operands))? attr-dict";
+
+  // Zero-argument builder so SingleBlockImplicitTerminator can insert an
+  // empty `return`.
+  let builders = [OpBuilder<(ins), [{ /* no operands */ }]>];
+}
+
+def EmitPy_FuncOp : EmitPy_Op<"func", [
+    AutomaticAllocationScope, IsolatedFromAbove, SingleBlock,
+    SingleBlockImplicitTerminator<"FuncReturnOp">]> {
+  let summary = "Nested (local) Python function definition";
+  let description = [{
+    The `emitpy.func` operation represents a nested Python `def` emitted inside
+    another function body. Its single-block region's arguments are the function
+    parameters, and `emitpy.func_return` terminates it. Unlike `func.func` it is
+    not a module-level symbol, so it can live inside another function's body.
+
+    Example:
+
+    ```mlir
+    emitpy.func "impl" (%a: !emitpy.opaque<"torch.Tensor">) {
+      %0 = emitpy.call_opaque "ttir_cpu.relu"(%a) : (!emitpy.opaque<"torch.Tensor">) -> !emitpy.opaque<"torch.Tensor">
+      emitpy.func_return %0 : !emitpy.opaque<"torch.Tensor">
+    }
+    ```
+
+    emits:
+    ```python
+    def impl(a):
+      return ttir_cpu.relu(a)
+    ```
+  }];
+
+  let arguments = (ins StrAttr:$sym_name);
+  let regions = (region SizedRegion<1>:$body);
+
+  let assemblyFormat = "$sym_name $body attr-dict";
+}
+
 def EmitPy_FileOp
     : EmitPy_Op<"file", [IsolatedFromAbove, NoRegionArguments, SymbolTable,
                         NoTerminator]> {
