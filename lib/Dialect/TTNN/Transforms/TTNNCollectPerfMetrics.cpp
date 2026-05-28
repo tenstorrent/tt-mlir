@@ -25,9 +25,9 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "mlir/IR/Builders.h"
 #include <algorithm>
 #include <cassert>
-#include "mlir/IR/Builders.h"
 #include <string>
 
 namespace mlir::tt::ttnn {
@@ -158,6 +158,14 @@ struct PerfTargets {
   uint64_t computeBoundOps = 0;
   double rooflineTimeUs = 0.0;
 
+  // SDPA-shape matmuls (4D operands: batch × heads × M × K • K × N) are
+  // tracked separately so consumers can see how much of the roofline is
+  // attention-driven (decode-step KV-cache reads, which scale linearly
+  // with context length) vs weight-driven. They are still included in
+  // rooflineTimeUs above; sdpaTimeUs is a subset.
+  uint64_t sdpaOps = 0;
+  double sdpaTimeUs = 0.0;
+
   // Sum of weight (rhs) scalars / bytes across every matmul. Reflects the
   // total weight stream the forward pass reads from DRAM, accumulated
   // alongside rooflineTimeUs in the matmul walk.
@@ -176,6 +184,16 @@ inline uint64_t getBytesPerScalarElement(mlir::Type elementType) {
 }
 
 inline uint64_t getTensorMemoryBytes(mlir::RankedTensorType tt) {
+  // RankedTensorType.getNumElements() returns the logical scalar count even
+  // when the element type is a TileType (the tile-typing only affects how
+  // the data is laid out in memory). For tile-typed tensors compute bytes
+  // from the tile size; for scalar-typed tensors use the dtype byte width.
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(tt.getElementType())) {
+    uint64_t scalarsPerTile = static_cast<uint64_t>(tileType.getHeight()) *
+                              static_cast<uint64_t>(tileType.getWidth());
+    return static_cast<uint64_t>(tt.getNumElements()) / scalarsPerTile *
+           tileType.getSizeBytes();
+  }
   return static_cast<uint64_t>(tt.getNumElements()) *
          getBytesPerScalarElement(tt.getElementType());
 }
@@ -357,6 +375,8 @@ private:
     llvm::json::Object mm;
     mm["dram_bound_ops"] = static_cast<int64_t>(t.dramBoundOps);
     mm["compute_bound_ops"] = static_cast<int64_t>(t.computeBoundOps);
+    mm["sdpa_ops"] = static_cast<int64_t>(t.sdpaOps);
+    mm["sdpa_time_us"] = t.sdpaTimeUs;
     mm["roofline_time_us"] = t.rooflineTimeUs;
     pt["matmul"] = std::move(mm);
 
@@ -497,13 +517,10 @@ public:
         assert(rhsType && lhsType && resultType &&
                "TTNNCollectPerfMetrics: matmul operands and result must be "
                "ranked tensors.");
-        // TTNN forward IR carries scalar element type on tensors; tile/dtype
-        // info lives on the TTNNLayoutAttr encoding.
-        assert(!mlir::isa<ttcore::TileType>(rhsType.getElementType()) &&
-               !mlir::isa<ttcore::TileType>(lhsType.getElementType()) &&
-               !mlir::isa<ttcore::TileType>(resultType.getElementType()) &&
-               "TTNNCollectPerfMetrics: expected scalar element type on "
-               "matmul operands and result.");
+        // Operands may carry either a scalar element type or a
+        // ttcore::TileType<H, W, dtype>. In both cases the shape is the
+        // logical scalar shape — TileType only affects in-memory layout.
+        // getTensorMemoryBytes handles both via the tile.getSizeBytes() path.
 
         ArrayRef<int64_t> lhsShape = lhsType.getShape();
         ArrayRef<int64_t> rhsShape = rhsType.getShape();
@@ -573,12 +590,56 @@ public:
             static_cast<double>(perfTargets.numTensixCores *
                                 perfTargets.aiclkHz);
 
-        perfTargets.rooflineTimeUs += std::max(dramUs, computeUs);
+        double opUs = std::max(dramUs, computeUs);
+        perfTargets.rooflineTimeUs += opUs;
         if (dramUs >= computeUs) {
           perfTargets.dramBoundOps++;
         } else {
           perfTargets.computeBoundOps++;
         }
+        // SDPA shape signature at low opt levels: rank-4 operands of the
+        // form (B1, B2, M, K) × (B1, B2, K, N) → (B1, B2, M, N). At higher
+        // optimization levels SDPA is fused into a dedicated
+        // scaled_dot_product_attention_decode op — handled below.
+        if (lhsShape.size() == 4 && rhsShape.size() == 4) {
+          perfTargets.sdpaOps++;
+          perfTargets.sdpaTimeUs += opUs;
+        }
+      });
+
+      // Fused SDPA decode (emitted at optimization-level >= 1). The op
+      // packages QK^T + softmax + attn@V; for the roofline, the dominant
+      // cost is reading the K and V caches from DRAM (M=1 decode means
+      // the compute math collapses to negligible). Treat compute as 0 and
+      // bill the DRAM stream of both caches at the BFP8 byte rate to stay
+      // consistent with the matmul weight path.
+      auto handleSdpaDecode = [&](Value key, Value value) {
+        if (perfTargets.dramBandwidthBytesPerSec == 0) {
+          return;
+        }
+        auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
+        auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
+        if (!kType || !vType) {
+          return;
+        }
+        auto bytesAtBfp8 = [](RankedTensorType t) {
+          return static_cast<uint64_t>(
+              static_cast<double>(t.getNumElements()) * 1056.0 / 1024.0 + 0.5);
+        };
+        uint64_t kvBytes = bytesAtBfp8(kType) + bytesAtBfp8(vType);
+        double dramUs =
+            static_cast<double>(kvBytes) * 1.0e6 /
+            static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
+        perfTargets.rooflineTimeUs += dramUs;
+        perfTargets.dramBoundOps++;
+        perfTargets.sdpaOps++;
+        perfTargets.sdpaTimeUs += dramUs;
+      };
+      funcOp->walk([&](ScaledDotProductAttentionDecodeOp op) {
+        handleSdpaDecode(op.getKey(), op.getValue());
+      });
+      funcOp->walk([&](PagedScaledDotProductAttentionDecodeOp op) {
+        handleSdpaDecode(op.getKey(), op.getValue());
       });
 
       // First pass: identify DRAM spills
@@ -656,6 +717,7 @@ public:
     // end so the per-op classification still uses the peak numbers.
     constexpr double kUtilizationFactor = 0.7;
     perfTargets.rooflineTimeUs /= kUtilizationFactor;
+    perfTargets.sdpaTimeUs /= kUtilizationFactor;
 
     // Mirror the per-matmul total into the ms-scale roofline fields so the
     // perf_targets.roofline block carries the realistic wall-clock estimate.

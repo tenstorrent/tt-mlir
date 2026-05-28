@@ -52,6 +52,8 @@ module attributes {ttcore.system_desc = #system_desc} {
 // CHECK: "compute_bound_ops": 0
 // CHECK: "dram_bound_ops": 0
 // CHECK: "roofline_time_us": 0
+// CHECK: "sdpa_ops": 0
+// CHECK: "sdpa_time_us": 0
 // CHECK: "num_chips": 1
 // CHECK: "params":
 // CHECK: "count": 0
