@@ -75,6 +75,8 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"add_unary_tile_int32",                           {"api/compute/eltwise_unary/binop_with_scalar.h", ""}},
         {"asin_tile",                                      {"api/compute/eltwise_unary/trigonometry.h", ""}},
         {"asin_tile_init",                                 {"api/compute/eltwise_unary/trigonometry.h", ""}},
+        {"atan2_binary_tile",                              {"api/compute/atan2.h", ""}},
+        {"atan2_binary_tile_init",                         {"api/compute/atan2.h", ""}},
         {"atan_tile",                                      {"api/compute/eltwise_unary/trigonometry.h", ""}},
         {"atan_tile_init",                                 {"api/compute/eltwise_unary/trigonometry.h", ""}},
         {"binary_bitwise_tile_init",                       {"api/compute/binary_bitwise_sfpu.h", ""}},

@@ -3849,6 +3849,13 @@ def ttir_pow_golden(
     return torch.pow(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttir_atan2_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.atan2(input_tensor, other_tensor).to(output_dtype)
+
+
 def ttir_ge_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -8065,7 +8072,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.TruncOp: ttir_trunc_golden,
     # Elementwise binary operations
     ttir.AddOp: ttir_add_golden,
-    ttir.Atan2Op: torch.atan2,
+    ttir.Atan2Op: ttir_atan2_golden,
     ttir.MultiplyOp: ttir_multiply_golden,
     ttir.SubtractOp: ttir_subtract_golden,
     ttir.DivOp: ttir_div_golden,

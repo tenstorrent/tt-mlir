@@ -2041,6 +2041,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AsinTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Atan2BinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Atan2BinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryBitwiseTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryLeftShiftTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryLogicalRightShiftTileOp>,

@@ -16920,46 +16920,122 @@ class TTIRBuilder(Builder):
 
     # class TTIR_GenericElementwiseBinaryOp
 
+    ############### ttir.Atan2Op ###############
+
+    @tag(ttir.Atan2Op)
     def atan2(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.atan2``.
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.atan2)
+        lhs = self._get_golden_tensor(in0)
+        rhs = self._get_golden_tensor(in1)
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(lhs, rhs, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
-        *Elementwise arctangent operation.*
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        Computes the elementwise arctangent of the quotient of its arguments.
-        For each pair of corresponding elements (y, x), returns atan2(y, x).
+        op = ttir_op(result, in0, in1, loc=loc)
+        op_result = op.result
 
-        Mathematical definition: atan2(y, x) = arctan(y / x)
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        .. code-block:: mlir
+        self._set_golden_tensor(op_result, golden_output)
 
-            // Compute arctangent of corresponding elements
-            %result = ttir.atan2(%y, %x, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // y: [1.0, 0.0, -1.0]
-            // x: [1.0, -1.0, -1.0]
-            // Output tensor:
-            // [0.7854, 3.1416, -2.3562]
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor (y)
-        in1 : Operand
-            Second input tensor (x)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise arctangent of the inputs
-        """
-        return self._op_proxy(
-            ttir.Atan2Op,
-            [in0, in1],
-            unit_attrs=unit_attrs,
+        return op_result
+
+    @parse(ttir.Atan2Op)
+    def atan2_parser(
+        self,
+        old_op: ttir.Atan2Op,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.atan2_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
         )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.Atan2Op)
+    def atan2_split(
+        self,
+        old_op: ttir.Atan2Op,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.atan2_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            atan2_module = Module.create()
+            atan2_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.lhs.type, old_op.rhs.type]
+
+            with InsertionPoint(atan2_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="atan2_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, in1, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    atan2_builder._set_golden_tensor(new_op_result, old_op_result)
+                    atan2_builder._set_golden_tensor(in0, input0)
+                    atan2_builder._set_golden_tensor(in1, input1)
+                    atan2_builder._annotate_presharded_arg(in0)
+                    atan2_builder._annotate_presharded_arg(in1)
+                    ordered_inputs.extend([in0, in1])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                atan2_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return atan2_module, atan2_builder
 
     def quantize(
         self,
