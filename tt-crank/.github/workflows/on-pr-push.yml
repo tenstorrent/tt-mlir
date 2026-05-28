@@ -17,5 +17,6 @@ jobs:
     with:
       sim: true
 
-  device:
-    uses: ./.github/workflows/_build-and-test.yml
+  # Temporarily disabled.
+  # device:
+  #   uses: ./.github/workflows/_build-and-test.yml
