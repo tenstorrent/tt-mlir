@@ -9082,17 +9082,6 @@ def chisel_ttnn_batch_norm_inference(op, inputs):
 
 
 def chisel_ttnn_batch_norm_training(op, inputs):
-    # TTNN's BatchNormTrainingOp has one SSA result (`result`) plus two
-    # in-place mutated operands (`running_mean`, `running_var`). The TTIR
-    # golden returns (result, updated_running_mean, updated_running_var) in
-    # that order, which matches the chisel contract of SSA outputs first,
-    # then one tensor per mutated operand in flat operand order. The channel
-    # dimension is hardcoded to 1 in TTNN (no dimension attribute).
-    #
-    # TTNN reshapes the 1D (C,) running stats to [1, C, 1, 1]. The TTIR
-    # golden's running-stat accumulator mixes a 1D `batch_mean` with the
-    # 4D `running_mean`, which broadcasts to the wrong shape. Flatten to 1D
-    # for the TTIR golden and restore the original shape on return.
     output_type = op.results[0].type.element_type
     running_mean = inputs["running_mean"]
     running_var = inputs["running_var"]

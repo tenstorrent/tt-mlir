@@ -192,7 +192,9 @@ def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
 def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     """Run isolation + accumulation goldens; shape/dtype + PCC each output."""
     if config.no_golden:
-        # In case where we dont have golden for the operation we need to remove the golden as it will be giving false errors on this tensor afterward.
+        # Drop pooled goldens for any in-place mutated operand: the device
+        # tensor was just modified but we have no golden to track it, so a
+        # stale pool entry would produce false PCC failures on later ops.
         _evict_inplace_no_golden(ctx)
         return
 
@@ -210,15 +212,16 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     if ctx.checks_config.accumulation:
         modes.append(NumericsMode.ACCUMULATED)
 
-    # Validate SSA outputs and in-place mutated operands with one loop.
+    if len(modes) == 0:
+        return
+
     entries: list[tuple[Value, TensorRef]] = list(
         zip(mlir_op_outputs, ctx.output_refs, strict=True)
     )
     entries.extend(inplace_refs)
 
-    # Pull every entry's device tensor once; the device-side bytes don't
-    # change between iso and accum golden runs (goldens run host-side),
-    # so we share the retrieved tensor across all enabled modes.
+    # Goldens run host-side, so device bytes are identical across iso and
+    # accum runs - retrieve each device tensor once and share across modes.
     device_tensors = [
         _validate_and_retrieve_tensor(ctx, mlir_value, tensor_ref)
         for mlir_value, tensor_ref in entries
@@ -247,7 +250,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
             )
             if mode is NumericsMode.ISOLATED:
                 continue
-            
+
             ctx.golden_tensor_pool[ssa] = golden_out
 
 

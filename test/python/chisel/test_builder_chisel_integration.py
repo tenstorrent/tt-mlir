@@ -448,12 +448,9 @@ def test_chisel_records_matmul_tensor_parallel_multichip(
 def test_chisel_records_update_cache_inplace(request, device, tmp_path):
     # ttir.update_cache canonicalizes to ttir.paged_update_cache (see
     # UpdateCacheOp::getCanonicalizationPatterns in TTIROps.cpp), which lowers
-    # to ttnn.paged_update_cache - an in-place op that mutates `cache`, has no
-    # SSA result, and has a chisel golden registered. The new in-place flow
-    # should: PRE pull all inputs, POST re-pull the mutated cache from
-    # device, and emit a `numerics` record for the in-place cache operand.
-    # The op has no SSA result, so every numerics record on it describes the
-    # in-place cache.
+    # to ttnn.paged_update_cache - an in-place op that mutates `cache` and has
+    # no SSA result, so every numerics record on it describes the in-place
+    # cache operand.
     cache_shape = (1, 32, 64, 512)
     update_shape = (1, 32, 1, 512)
     index_shape = (1,)
@@ -491,9 +488,6 @@ def test_chisel_records_update_cache_inplace(request, device, tmp_path):
 
     assert records, "chisel report is empty"
 
-    # The numerics records for the in-place mutation should pass at both
-    # isolation and accumulation. The op has no SSA result, so every numerics
-    # record on it describes the in-place cache operand.
     cache_numerics = [
         r
         for r in records
@@ -516,8 +510,8 @@ def test_chisel_records_update_cache_inplace(request, device, tmp_path):
                 r.payload.pcc >= PCC_THRESHOLD
             ), f"cache {mode} PCC {r.payload.pcc} below {PCC_THRESHOLD}"
 
-    # No golden_evicted records for the cache SSA - the in-place flow with
-    # a golden refreshes the pool, it does not evict.
+    # When a chisel golden is registered, the pool entry for an in-place
+    # operand is refreshed, not evicted.
     evictions = [
         r
         for r in records
@@ -531,11 +525,9 @@ def test_chisel_records_update_cache_inplace(request, device, tmp_path):
 
 def test_chisel_records_batch_norm_training_inplace(request, device, tmp_path):
     # ttnn.batch_norm_training has one SSA result (the normalized output) plus
-    # two in-place mutated operands (`running_mean`, `running_var`). With a
-    # chisel golden registered, the in-place flow should: PRE pull all inputs,
-    # POST re-pull the mutated running stats from device, and emit `numerics`
-    # records for the SSA result and every in-place operand at both isolation
-    # and accumulation - all of which should pass PCC.
+    # two in-place mutated operands (`running_mean`, `running_var`), so each
+    # mode produces numerics records for the SSA result and both in-place
+    # operands.
     n, c, h, w = 1, 4, 8, 8
     input_shape = (n, c, h, w)
     param_shape = (c,)
@@ -611,8 +603,8 @@ def test_chisel_records_batch_norm_training_inplace(request, device, tmp_path):
                 r.payload.pcc >= PCC_THRESHOLD
             ), f"batch_norm_training {mode} PCC {r.payload.pcc} below {PCC_THRESHOLD}"
 
-    # No golden_evicted records on this op - the in-place flow with a golden
-    # refreshes the pool, it does not evict.
+    # When a chisel golden is registered, the pool entry for an in-place
+    # operand is refreshed, not evicted.
     evictions = [
         r
         for r in records

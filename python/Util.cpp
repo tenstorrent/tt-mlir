@@ -27,8 +27,7 @@ collectWriteEffectOperandIndices(mlir::Operation *op) {
     if (!mlir::isa<mlir::MemoryEffects::Write>(eff.getEffect())) {
       continue;
     }
-    if (mlir::OpOperand *operand =
-            eff.getEffectValue<mlir::OpOperand *>()) {
+    if (mlir::OpOperand *operand = eff.getEffectValue<mlir::OpOperand *>()) {
       indices.push_back(static_cast<int64_t>(operand->getOperandNumber()));
     }
   }
