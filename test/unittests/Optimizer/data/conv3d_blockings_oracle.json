@@ -1,0 +1,22 @@
+{
+  "description": "Oracle blockings lifted from tt-metal models/tt_dit/utils/conv3d.py _BLOCKINGS table. Each row maps a Conv3d shape (kernel, in_channels, out_channels, T_out, H_out, W_out) to the (c_in_block, c_out_block, t_out_block, h_out_block, w_out_block) hand-tuned by the tt-metal team for that shape. The tt-mlir Conv3d optimizer is graded against this oracle: how often does its scoring pick the same (or close-to-same) blocking as the human-tuned one?",
+  "license": "Apache 2.0, Tenstorrent USA Inc., 2025",
+  "source": "https://github.com/tenstorrent/tt-metal/blob/main/models/tt_dit/utils/conv3d.py",
+  "entries": [
+    {"in_channels": 384, "out_channels": 384, "kT": 3, "kH": 3, "kW": 3, "T_out": 23, "H_out": 15, "W_out": 3,   "expected": {"c_in_block": 96,  "c_out_block": 64,  "t_out_block": 6, "h_out_block": 8,  "w_out_block": 4}},
+    {"in_channels": 32,  "out_channels": 384, "kT": 3, "kH": 3, "kW": 3, "T_out": 23, "H_out": 15, "W_out": 3,   "expected": {"c_in_block": 32,  "c_out_block": 64,  "t_out_block": 3, "h_out_block": 16, "w_out_block": 2}},
+    {"in_channels": 192, "out_channels": 384, "kT": 3, "kH": 3, "kW": 3, "T_out": 43, "H_out": 30, "W_out": 6,   "expected": {"c_in_block": 64,  "c_out_block": 128, "t_out_block": 6, "h_out_block": 4,  "w_out_block": 8}},
+    {"in_channels": 384, "out_channels": 384, "kT": 3, "kH": 3, "kW": 3, "T_out": 43, "H_out": 30, "W_out": 6,   "expected": {"c_in_block": 128, "c_out_block": 96,  "t_out_block": 3, "h_out_block": 16, "w_out_block": 2}},
+    {"in_channels": 192, "out_channels": 192, "kT": 3, "kH": 3, "kW": 3, "T_out": 83, "H_out": 60, "W_out": 12,  "expected": {"c_in_block": 96,  "c_out_block": 96,  "t_out_block": 3, "h_out_block": 16, "w_out_block": 2}},
+    {"in_channels": 96,  "out_channels": 96,  "kT": 3, "kH": 3, "kW": 3, "T_out": 83, "H_out": 120, "W_out": 24, "expected": {"c_in_block": 96,  "c_out_block": 96,  "t_out_block": 7, "h_out_block": 4,  "w_out_block": 8}},
+    {"in_channels": 96,  "out_channels": 3,   "kT": 3, "kH": 3, "kW": 3, "T_out": 83, "H_out": 120, "W_out": 24, "expected": {"c_in_block": 96,  "c_out_block": 32,  "t_out_block": 3, "h_out_block": 16, "w_out_block": 2}},
+    {"in_channels": 32,  "out_channels": 384, "kT": 3, "kH": 3, "kW": 3, "T_out": 23, "H_out": 23, "W_out": 5,   "expected": {"c_in_block": 32,  "c_out_block": 128, "t_out_block": 1, "h_out_block": 16, "w_out_block": 2}},
+    {"in_channels": 384, "out_channels": 384, "kT": 3, "kH": 3, "kW": 3, "T_out": 23, "H_out": 23, "W_out": 5,   "expected": {"c_in_block": 96,  "c_out_block": 96,  "t_out_block": 3, "h_out_block": 32, "w_out_block": 1}},
+    {"in_channels": 192, "out_channels": 192, "kT": 3, "kH": 3, "kW": 3, "T_out": 83, "H_out": 92, "W_out": 20,  "expected": {"c_in_block": 96,  "c_out_block": 96,  "t_out_block": 9, "h_out_block": 8,  "w_out_block": 4}},
+    {"in_channels": 96,  "out_channels": 96,  "kT": 3, "kH": 3, "kW": 3, "T_out": 83, "H_out": 184, "W_out": 40, "expected": {"c_in_block": 96,  "c_out_block": 96,  "t_out_block": 6, "h_out_block": 8,  "w_out_block": 4}},
+    {"in_channels": 384, "out_channels": 384, "kT": 3, "kH": 3, "kW": 3, "T_out": 23, "H_out": 23, "W_out": 20,  "expected": {"c_in_block": 96,  "c_out_block": 96,  "t_out_block": 1, "h_out_block": 8,  "w_out_block": 4}},
+    {"in_channels": 192, "out_channels": 384, "kT": 3, "kH": 3, "kW": 3, "T_out": 43, "H_out": 46, "W_out": 40,  "expected": {"c_in_block": 96,  "c_out_block": 128, "t_out_block": 1, "h_out_block": 16, "w_out_block": 2}},
+    {"in_channels": 192, "out_channels": 96,  "kT": 1, "kH": 3, "kW": 3, "T_out": 81, "H_out": 184, "W_out": 160,"expected": {"c_in_block": 192, "c_out_block": 96,  "t_out_block": 1, "h_out_block": 8,  "w_out_block": 4}},
+    {"in_channels": 96,  "out_channels": 96,  "kT": 3, "kH": 3, "kW": 3, "T_out": 83, "H_out": 184, "W_out": 160,"expected": {"c_in_block": 96,  "c_out_block": 96,  "t_out_block": 4, "h_out_block": 4,  "w_out_block": 16}}
+  ]
+}

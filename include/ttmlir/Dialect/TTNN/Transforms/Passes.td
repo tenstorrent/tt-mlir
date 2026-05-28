@@ -312,6 +312,18 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
   }];
 }
 
+def TTNNRefreshConv3dPrepareWeights : Pass<"ttnn-refresh-conv3d-prepare-weights", "::mlir::ModuleOp"> {
+  let summary = "Reconcile PrepareConv3dWeightsOp.c_in_block with the c_in_block chosen by the optimizer.";
+  let description = [{
+    TTIRToTTNN emits a PrepareConv3dWeightsOp eagerly with c_in_block = TILE_WIDTH = 32.
+    After the optimizer attaches a Conv3dConfigAttr (which may pick a different c_in_block),
+    this pass walks every Conv3dOp, reads its conv3d_config.c_in_block, and updates the
+    upstream PrepareConv3dWeightsOp.c_in_block attribute to match. The prepared weight's
+    flat output shape is invariant in c_in_block (numCInBlocks * cInBlock == cInAligned),
+    so only the attribute is mutated — not the SSA value type.
+  }];
+}
+
 def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTNN fusing pass.";

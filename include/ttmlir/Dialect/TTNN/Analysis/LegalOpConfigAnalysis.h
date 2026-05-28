@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALOPCONFIGANALYSIS_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Conv3dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
@@ -20,17 +21,25 @@ struct LegalOpConfigAnalysisInput {
   // Conv2d config overrides.
   llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides;
 
-  LegalOpConfigAnalysisInput() : conv2dConfigOverrides(nullptr) {}
+  // Conv3d config overrides.
+  llvm::StringMap<Conv3dConfigOverrideParams> *conv3dConfigOverrides;
+
+  LegalOpConfigAnalysisInput()
+      : conv2dConfigOverrides(nullptr), conv3dConfigOverrides(nullptr) {}
 
   LegalOpConfigAnalysisInput(
       std::vector<OpConfig> legalConfigs,
-      llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides)
+      llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides,
+      llvm::StringMap<Conv3dConfigOverrideParams> *conv3dConfigOverrides =
+          nullptr)
       : legalConfigs(legalConfigs),
-        conv2dConfigOverrides(conv2dConfigOverrides) {}
+        conv2dConfigOverrides(conv2dConfigOverrides),
+        conv3dConfigOverrides(conv3dConfigOverrides) {}
 
   bool operator==(const LegalOpConfigAnalysisInput &rhs) const {
     return legalConfigs == rhs.legalConfigs &&
-           conv2dConfigOverrides == rhs.conv2dConfigOverrides;
+           conv2dConfigOverrides == rhs.conv2dConfigOverrides &&
+           conv3dConfigOverrides == rhs.conv3dConfigOverrides;
   }
 
   bool operator!=(const LegalOpConfigAnalysisInput &rhs) const {
@@ -59,6 +68,29 @@ struct Conv2dConfigSearchSpaceFactory {
   }
 };
 
+// Default shape-independent Conv3d search space. Empirical candidate sets
+// derived from tt-metal's `bruteforce_conv3d_sweep.py` block enumeration.
+// LegalOpConfigAnalysis is expected to pair this with a shape-specific
+// filterOutFn that rejects candidates failing divisibility against the
+// concrete (T_out, H_out, W_out, C_in_aligned, kernel) of each op.
+struct Conv3dConfigSearchSpaceFactory {
+  static Conv3dConfigSearchSpace get() {
+    static Conv3dConfigSearchSpace searchSpace;
+    // Block sizes step in tile-width units (32). Production blockings in
+    // tt-metal's _BLOCKINGS table top out around 128 for typical 3x3x3 convs.
+    searchSpace.cInBlock = {32, 64, 96, 128};
+    searchSpace.cOutBlock = {32, 64, 96, 128};
+    // T/H/W block candidates cover the common Wan-VAE shapes. Filter must
+    // reject combinations where h*w > 256 (CB cap).
+    searchSpace.tOutBlock = {1, 2, 3, 4};
+    searchSpace.hOutBlock = {1, 2, 4, 8};
+    searchSpace.wOutBlock = {1, 2, 4, 8};
+    // Searching weightsDtype and computeWithStorageGridSize is deferred; pin
+    // to op default for now.
+    return searchSpace;
+  }
+};
+
 // This analysis takes legal configs found by LegalOpLayoutAnalysis and applies
 // op config overrides (such as conv2d config overrides). Also, it searches
 // through all legal op specific attributes and applies cartesian product of
@@ -83,6 +115,10 @@ private:
 
   // Search space for conv2d config. Shared across all conv2d ops.
   Conv2dConfigSearchSpace searchSpace = Conv2dConfigSearchSpaceFactory::get();
+
+  // Search space for conv3d config. Shared across all conv3d ops.
+  Conv3dConfigSearchSpace conv3dSearchSpace =
+      Conv3dConfigSearchSpaceFactory::get();
 };
 
 } // namespace mlir::tt::ttnn

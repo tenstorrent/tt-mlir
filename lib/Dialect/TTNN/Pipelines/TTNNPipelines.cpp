@@ -129,6 +129,8 @@ void createTTNNPipelineAnalysisPasses(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
             innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRefreshConv3dPrepareWeights());
+            innerPm.addPass(
                 mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
           },
           wrapperOptions));
@@ -141,6 +143,7 @@ void createTTNNPipelineAnalysisPasses(
           options.memoryLayoutAnalysisEnabled;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
       propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
+      propagationOptions.overrideConv3dConfig = options.overrideConv3dConfig;
       propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
       propagationOptions.decisionTraceDir = options.decisionTraceDir;
       propagationOptions.enableCompileTimeStats =
@@ -167,6 +170,8 @@ void createTTNNPipelineAnalysisPasses(
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRefreshConv3dPrepareWeights());
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
           },

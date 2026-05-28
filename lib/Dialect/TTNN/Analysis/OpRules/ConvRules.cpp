@@ -133,6 +133,60 @@ void applyConvSliceConfig(ModuleOp moduleOp) {
   });
 }
 
+//===----------------------------------------------------------------------===//
+// Conv3dRuleBook
+//===----------------------------------------------------------------------===//
+
+void Conv3dRuleBook::applyOpSpecificAttrs(
+    Operation *op, const BeamCandidate &candidate) const {
+  auto conv3d = dyn_cast<Conv3dOp>(op);
+  if (!conv3d) {
+    return;
+  }
+  if (!std::holds_alternative<Conv3dAttrs>(
+          candidate.configHint.opSpecificAttrs)) {
+    return;
+  }
+  Conv3dAttrs attrs =
+      std::get<Conv3dAttrs>(candidate.configHint.opSpecificAttrs);
+  if (attrs.conv3dConfig.has_value()) {
+    conv3d.setConv3dConfigAttr(attrs.conv3dConfig.value());
+  }
+  if (attrs.deviceComputeKernelConfig.has_value()) {
+    conv3d.setComputeConfigAttr(attrs.deviceComputeKernelConfig.value());
+  }
+}
+
+namespace {
+// Score = (voxelsPerLaunch=t*h*w, c_in_block, c_out_block). Larger is better.
+// Returns the score tuple, or all-zeros if the candidate doesn't carry
+// Conv3dAttrs (so non-Conv3d candidates sort last).
+std::tuple<uint64_t, uint32_t, uint32_t> conv3dScore(const BeamCandidate &c) {
+  if (auto *attrs = std::get_if<Conv3dAttrs>(&c.configHint.opSpecificAttrs)) {
+    if (attrs->conv3dConfig.has_value() && attrs->conv3dConfig.value()) {
+      auto cfg = attrs->conv3dConfig.value();
+      uint64_t t = cfg.getTOutBlock().value_or(1);
+      uint64_t h = cfg.getHOutBlock().value_or(1);
+      uint64_t w = cfg.getWOutBlock().value_or(1);
+      uint32_t cIn = cfg.getCInBlock().value_or(1);
+      uint32_t cOut = cfg.getCOutBlock().value_or(1);
+      return {t * h * w, cIn, cOut};
+    }
+  }
+  return {0, 0, 0};
+}
+} // namespace
+
+bool Conv3dRuleBook::preferCandidate(Operation *op, const BeamCandidate &a,
+                                     const BeamCandidate &b) const {
+  auto scoreA = conv3dScore(a);
+  auto scoreB = conv3dScore(b);
+  if (scoreA != scoreB) {
+    return scoreA > scoreB; // larger is better
+  }
+  return OpRuleBook::preferCandidate(op, a, b);
+}
+
 void fixupConvDeallocate(func::FuncOp func) {
   func->walk([&](Operation *op) {
     auto disableDeallocIfMultiUser = [](auto convOp) {

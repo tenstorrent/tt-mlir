@@ -33,6 +33,31 @@ namespace mlir::tt::ttnn {
 //   inputs (prevents premature deallocation crashes).
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// Conv3d rules:
+//
+// Output hints:
+//   Default (no shard-layout embedding — Conv3d is interleaved-only today).
+//
+// Op-specific attributes:
+//   Set Conv3dConfig + DeviceComputeKernelConfig from candidate.
+//
+// Candidate tiebreaker:
+//   Mirror the empirical scoring used by LegalOpConfigAnalysis (Phase 5):
+//   prefer larger voxelsPerLaunch = t·h·w, then larger c_in_block, then
+//   larger c_out_block.
+//===----------------------------------------------------------------------===//
+
+struct Conv3dRuleBook : OpRuleBook {
+  /// Apply Conv3dConfig + DeviceComputeKernelConfig from candidate.
+  void applyOpSpecificAttrs(Operation *op,
+                            const BeamCandidate &candidate) const override;
+
+  /// Tiebreaker: prefer larger t*h*w block volume, then larger c_in_block.
+  bool preferCandidate(Operation *op, const BeamCandidate &a,
+                       const BeamCandidate &b) const override;
+};
+
 struct Conv2dRuleBook : OpRuleBook {
   /// Output hints: full legal configs with Conv2dConfig.
   OutputHints

@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Conv3dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
@@ -21,8 +22,8 @@ namespace mlir::tt::ttnn {
 
 static bool isOpEnabledForAnalysis(Operation *op) {
   // Enable only for specific ops.
-  if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::MatmulOp,
-                ttnn::LinearOp>(op)) {
+  if (llvm::isa<ttnn::Conv2dOp, ttnn::Conv3dOp, ttnn::ConvTranspose2dOp,
+                ttnn::MatmulOp, ttnn::LinearOp>(op)) {
     return true;
   }
 
@@ -126,6 +127,57 @@ applyConv2dConfigOverrides(ConvOpT op,
   }
 }
 
+static void
+applyConv3dConfigOverrides(ttnn::Conv3dOp op,
+                           const Conv3dConfigOverrideParams &overrides,
+                           std::vector<OpConfig> &analysisResult) {
+  // Build a Conv3dConfigAttr from the op's current config plus overrides.
+  Conv3dConfigAttr base = op.getConv3dConfigAttr();
+
+  auto pick = [](std::optional<uint32_t> override,
+                 std::optional<uint32_t> existing) -> std::optional<uint32_t> {
+    return override.has_value() ? override : existing;
+  };
+
+  std::optional<ttcore::DataType> weightsDtype = overrides.weightsDtype;
+  std::optional<uint32_t> tOutBlock;
+  std::optional<uint32_t> wOutBlock;
+  std::optional<uint32_t> hOutBlock;
+  std::optional<uint32_t> cOutBlock;
+  std::optional<uint32_t> cInBlock;
+  std::optional<ttcore::GridAttr> gridSize;
+  if (base) {
+    if (!weightsDtype.has_value()) {
+      weightsDtype = base.getWeightsDtype();
+    }
+    tOutBlock = pick(overrides.tOutBlock, base.getTOutBlock());
+    wOutBlock = pick(overrides.wOutBlock, base.getWOutBlock());
+    hOutBlock = pick(overrides.hOutBlock, base.getHOutBlock());
+    cOutBlock = pick(overrides.cOutBlock, base.getCOutBlock());
+    cInBlock = pick(overrides.cInBlock, base.getCInBlock());
+    gridSize = base.getComputeWithStorageGridSize();
+  } else {
+    tOutBlock = overrides.tOutBlock;
+    wOutBlock = overrides.wOutBlock;
+    hOutBlock = overrides.hOutBlock;
+    cOutBlock = overrides.cOutBlock;
+    cInBlock = overrides.cInBlock;
+  }
+
+  auto built =
+      Conv3dConfigAttr::get(op.getContext(), weightsDtype, tOutBlock, wOutBlock,
+                            hOutBlock, cOutBlock, cInBlock, gridSize);
+
+  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+               "Conv3d config after overrides: {}", built);
+
+  for (OpConfig &opConfig : analysisResult) {
+    assert(opConfig.isAttrUninitialized() &&
+           "OpConfig should not have a config set before applying overrides");
+    opConfig.opSpecificAttrs = Conv3dAttrs{built, std::nullopt};
+  }
+}
+
 bool LegalOpConfigAnalysis::applyOverrides() {
   // For now, easiest way to initialize analysisResult is to copy the legal
   // configs here. Proper solution is that init() method is overridden in child
@@ -136,12 +188,11 @@ bool LegalOpConfigAnalysis::applyOverrides() {
     return true;
   }
 
-  if (!analysisInput.conv2dConfigOverrides) {
-    return false;
-  }
-
   return llvm::TypeSwitch<Operation *, bool>(op)
       .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+        if (!analysisInput.conv2dConfigOverrides) {
+          return false;
+        }
         Conv2dConfigOverrideParams conv2dConfigOverrides;
         if (!isa<NameLoc>(op->getLoc())) {
           return false;
@@ -163,6 +214,21 @@ bool LegalOpConfigAnalysis::applyOverrides() {
       .Case<ttnn::MatmulOp, ttnn::LinearOp>([](auto) {
         // Matmul/Linear ops don't use conv2d config overrides.
         return false;
+      })
+      .Case<ttnn::Conv3dOp>([&](ttnn::Conv3dOp convOp) {
+        if (!analysisInput.conv3dConfigOverrides ||
+            !isa<NameLoc>(op->getLoc())) {
+          return false;
+        }
+        StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+        auto it = analysisInput.conv3dConfigOverrides->find(opLocName);
+        if (it == analysisInput.conv3dConfigOverrides->end()) {
+          return false;
+        }
+        const Conv3dConfigOverrideParams &overrides = it->getValue();
+        applyConv3dConfigOverrides(convOp, overrides, analysisResult);
+        // If every searchable field is pinned, skip the search.
+        return overrides.fullConfigOverride();
       })
       .Default([](Operation *op) {
         llvm::llvm_unreachable_internal("Unsupported op type");
@@ -243,6 +309,162 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         TTMLIR_TRACE(
             ttmlir::LogComponent::Optimizer,
             "Filled op specific attrs for conv2d op {}, ending with {} configs",
+            convOp, analysisResult.size());
+      })
+      .Case<ttnn::Conv3dOp>([&](auto convOp) {
+        assert(!analysisResult.empty() &&
+               "Analysis result should not be empty after applying overrides");
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Filling op specific attrs for conv3d op {}, starting "
+                     "with {} configs",
+                     convOp, analysisResult.size());
+
+        // If applyConv3dConfigOverrides ran, the analysisResult's first
+        // entry already carries the override config — use that as the base
+        // so override-pinned fields flow through to the generator (which
+        // skips fields with values already set on the base config).
+        Conv3dConfigAttr baseConfig;
+        if (!analysisResult.begin()->isAttrUninitialized() &&
+            std::holds_alternative<Conv3dAttrs>(
+                analysisResult.begin()->opSpecificAttrs)) {
+          baseConfig =
+              std::get<Conv3dAttrs>(analysisResult.begin()->opSpecificAttrs)
+                  .conv3dConfig.value_or(nullptr);
+        }
+        if (!baseConfig) {
+          baseConfig =
+              convOp.getConv3dConfigAttr()
+                  ? convOp.getConv3dConfigAttr()
+                  : Conv3dConfigAttr::get(
+                        op->getContext(),
+                        /*weights_dtype=*/std::nullopt,
+                        /*t_out_block=*/std::nullopt,
+                        /*w_out_block=*/std::nullopt,
+                        /*h_out_block=*/std::nullopt,
+                        /*c_out_block=*/std::nullopt,
+                        /*c_in_block=*/std::nullopt,
+                        /*compute_with_storage_grid_size=*/std::nullopt);
+        }
+
+        // Shape-specific divisibility filter. The empirical rules:
+        //   c_in_block | (kT * kH * kW * c_in_aligned)
+        //   t/h/w_out_block | T/H/W_out (only for currently-set fields)
+        //   h_out_block * w_out_block <= 256
+        const auto kernelSize = convOp.getKernelSize();
+        const int64_t kT = kernelSize[0];
+        const int64_t kH = kernelSize[1];
+        const int64_t kW = kernelSize[2];
+        constexpr int64_t TILE_WIDTH =
+            mlir::tt::ttcore::TileType::getDefaultShape()[1];
+        // Use op attribute (not the weight tensor) because by this point the
+        // weight has already been collapsed to 2D by PrepareConv3dWeightsOp,
+        // so dim 1 of the weight tensor is out_channels, not c_in_per_group.
+        const int64_t cInPerGroup = convOp.getInChannels() / convOp.getGroups();
+        const int64_t cInAligned =
+            llvm::divideCeil(cInPerGroup, TILE_WIDTH) * TILE_WIDTH;
+        const auto outputShape = convOp.getResult().getType().getShape();
+        // Conv3dOp output is NDHWC (channel last). Drop the batch dim and
+        // channel dim; T, H, W are dims 1, 2, 3.
+        const int64_t tOut = outputShape[1];
+        const int64_t hOut = outputShape[2];
+        const int64_t wOut = outputShape[3];
+        const int64_t cOut = outputShape[4];
+        const int64_t cOutAligned =
+            llvm::divideCeil(cOut, TILE_WIDTH) * TILE_WIDTH;
+
+        auto filterOut = [=](const Conv3dConfigAttr &cfg) {
+          if (auto cIn = cfg.getCInBlock()) {
+            if (cIn.value() == 0 || cIn.value() > cInAligned ||
+                (kT * kH * kW * cInAligned) % cIn.value() != 0) {
+              return true;
+            }
+          }
+          if (auto cOutBlock = cfg.getCOutBlock()) {
+            // c_out_block must be tile-aligned and not exceed c_out_aligned.
+            if (cOutBlock.value() == 0 || cOutBlock.value() > cOutAligned ||
+                cOutAligned % cOutBlock.value() != 0) {
+              return true;
+            }
+          }
+          if (auto t = cfg.getTOutBlock()) {
+            if (t.value() == 0 || tOut % t.value() != 0) {
+              return true;
+            }
+          }
+          if (auto h = cfg.getHOutBlock()) {
+            if (h.value() == 0 || hOut % h.value() != 0) {
+              return true;
+            }
+          }
+          if (auto w = cfg.getWOutBlock()) {
+            if (w.value() == 0 || wOut % w.value() != 0) {
+              return true;
+            }
+          }
+          if (cfg.getHOutBlock() && cfg.getWOutBlock()) {
+            if (cfg.getHOutBlock().value() * cfg.getWOutBlock().value() > 256) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        // Collect generated configs into a vector first so we can rank them
+        // empirically before crossing with output layouts. The non-greedy
+        // OpConfigAnalysis (lib/Dialect/TTNN/Analysis/OpConfigAnalysis.cpp:35)
+        // picks `legalConfigs[0]`, so config order determines what the
+        // optimizer attaches in the non-greedy path. Greedy beam search will
+        // additionally apply Conv3dRuleBook tiebreakers downstream.
+        llvm::SmallVector<Conv3dConfigAttr> generatedConfigs;
+        bool searched = forEachConv3dConfig(
+            &convOp, baseConfig, conv3dSearchSpace, filterOut,
+            [&](Conv3dConfigAttr cfg) { generatedConfigs.push_back(cfg); });
+        if (!searched) {
+          generatedConfigs.push_back(baseConfig);
+        }
+
+        // Empirical scoring rules derived from tt-metal's
+        // `bruteforce_conv3d_sweep.py` and verified against the hand-tuned
+        // `_BLOCKINGS` oracle table (14 of 15 production entries use
+        // h·w == 32):
+        //   1. Prefer h_out_block * w_out_block close to 32 — the matmul
+        //      aspect-ratio sweet spot for the tt-metal Conv3d kernel.
+        //   2. Larger t_out_block — more temporal voxels per launch.
+        //   3. Larger c_in_block — fewer C-in passes per output voxel.
+        //   4. Larger c_out_block — fewer C-out passes.
+        //   5. For T*H*W > 10_000 prefer c_out >= 96; small c_out * large
+        //      spatial never wins.
+        const int64_t spatialVolume = tOut * hOut * wOut;
+        auto score = [&](const Conv3dConfigAttr &c) {
+          uint32_t t = c.getTOutBlock().value_or(1);
+          uint32_t h = c.getHOutBlock().value_or(1);
+          uint32_t w = c.getWOutBlock().value_or(1);
+          uint32_t cIn = c.getCInBlock().value_or(1);
+          uint32_t cOut = c.getCOutBlock().value_or(1);
+          int64_t hwAspect = std::abs(static_cast<int64_t>(h) * w - 32);
+          int64_t largeSpatialBonus =
+              (spatialVolume > 10000 && cOut >= 96) ? 1000 : 0;
+          return std::make_tuple(-hwAspect, static_cast<int64_t>(t),
+                                 static_cast<int64_t>(cIn),
+                                 static_cast<int64_t>(cOut), largeSpatialBonus);
+        };
+        llvm::stable_sort(generatedConfigs, [&](const Conv3dConfigAttr &a,
+                                                const Conv3dConfigAttr &b) {
+          return score(a) > score(b);
+        });
+
+        std::vector<OpConfig> newLegalConfigs;
+        for (Conv3dConfigAttr configAttr : generatedConfigs) {
+          for (const OpConfig &existingOpConfig : analysisResult) {
+            newLegalConfigs.emplace_back(existingOpConfig.outputLayout,
+                                         Conv3dAttrs{configAttr, std::nullopt});
+          }
+        }
+
+        analysisResult = std::move(newLegalConfigs);
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::Optimizer,
+            "Filled op specific attrs for conv3d op {}, ending with {} configs",
             convOp, analysisResult.size());
       })
       .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {

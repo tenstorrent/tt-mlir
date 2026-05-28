@@ -22,6 +22,7 @@ struct OptionNames {
   static constexpr StringRef insertMemReconfig = "insert-memreconfig";
   static constexpr StringRef overrideOutputLayout = "override-output-layout";
   static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
+  static constexpr StringRef overrideConv3dConfig = "override-conv3d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =
       "memory-layout-analysis-enabled";
   static constexpr StringRef l1InterleavedFallbackAnalysisEnabled =
@@ -43,6 +44,43 @@ struct OptionNames {
 };
 
 using Conv2dConfigOverrideParams = Conv2dConfigParams;
+
+// Selective overrides for Conv3dConfigAttr. All fields are std::optional so
+// the user can pin one parameter and leave the rest to the search.
+//
+// Grammar (matches Conv2d's grammar; see Conv3dConfigOverrideParser):
+//   "loc1=weights_dtype#bf16:t_out_block#3:h_out_block#2,loc2=c_in_block#128"
+struct Conv3dConfigOverrideParams {
+  std::optional<ttcore::DataType> weightsDtype = std::nullopt;
+  std::optional<uint32_t> tOutBlock = std::nullopt;
+  std::optional<uint32_t> wOutBlock = std::nullopt;
+  std::optional<uint32_t> hOutBlock = std::nullopt;
+  std::optional<uint32_t> cOutBlock = std::nullopt;
+  std::optional<uint32_t> cInBlock = std::nullopt;
+
+  bool empty() const {
+    return !weightsDtype.has_value() && !tOutBlock.has_value() &&
+           !wOutBlock.has_value() && !hOutBlock.has_value() &&
+           !cOutBlock.has_value() && !cInBlock.has_value();
+  }
+
+  // True when every searchable field has been pinned — analysis can skip
+  // the cartesian search entirely.
+  bool fullConfigOverride() const {
+    return weightsDtype.has_value() && tOutBlock.has_value() &&
+           wOutBlock.has_value() && hOutBlock.has_value() &&
+           cOutBlock.has_value() && cInBlock.has_value();
+  }
+
+  bool operator==(const Conv3dConfigOverrideParams &rhs) const {
+    return weightsDtype == rhs.weightsDtype && tOutBlock == rhs.tOutBlock &&
+           wOutBlock == rhs.wOutBlock && hOutBlock == rhs.hOutBlock &&
+           cOutBlock == rhs.cOutBlock && cInBlock == rhs.cInBlock;
+  }
+  bool operator!=(const Conv3dConfigOverrideParams &rhs) const {
+    return !(*this == rhs);
+  }
+};
 
 struct OutputLayoutOverrideParams {
   std::optional<SmallVector<int64_t, 2>> grid = std::nullopt;
@@ -171,6 +209,26 @@ public:
 
   static void print(llvm::raw_ostream &os,
                     const llvm::StringMap<Conv2dConfigOverrideParams> &value);
+};
+
+struct Conv3dConfigOverrideParser
+    : public llvm::cl::parser<llvm::StringMap<Conv3dConfigOverrideParams>> {
+public:
+  Conv3dConfigOverrideParser(llvm::cl::Option &opt)
+      : llvm::cl::parser<llvm::StringMap<Conv3dConfigOverrideParams>>(opt) {}
+
+  // Parse string in override-conv3d-config format.
+  // Return true on error.
+  // Example:
+  // "conv3d_1=weights_dtype#bf16:t_out_block#3:h_out_block#2:w_out_block#2:c_in_block#128:c_out_block#32"
+  bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
+             llvm::StringMap<Conv3dConfigOverrideParams> &value);
+
+  static std::string
+  toString(const llvm::StringMap<Conv3dConfigOverrideParams> &);
+
+  static void print(llvm::raw_ostream &os,
+                    const llvm::StringMap<Conv3dConfigOverrideParams> &value);
 };
 
 struct OutputLayoutOverrideParser
