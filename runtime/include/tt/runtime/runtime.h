@@ -148,6 +148,12 @@ TensorDesc getTensorDesc(Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
+// Returns a stringified TensorTopology (distribution_shape, placements,
+// mesh_coords) for a multi-device tensor — without copying any data to the
+// host. Useful for verifying that the runtime sees the layout the producer
+// intended (replicated vs sharded along which dim, etc.).
+std::string getTensorTopologyDescription(Tensor tensor);
+
 tt::target::Arch getArch();
 
 size_t getNumAvailableDevices();
