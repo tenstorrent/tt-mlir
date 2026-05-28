@@ -1041,41 +1041,63 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   return operandsWorkaround;
 }
 
-// Create workarounds for flash MLA prefill op: cast f32 inputs to bf16.
-// tt-metal SDPA-family ops only support bf16/bfp8_b/bfp4_b.
+// Create workarounds for flash MLA prefill op: cast inputs to bf16 only when
+// they are not already in a tt-metal SDPA-supported dtype (bf16/bfp8_b/bfp4_b).
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/36717
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createFlashMlaPrefillOpOperandsWorkarounds(
     Operation *op) {
+  auto isSdpaSupportedDtype = [](ttcore::DataType dtype) {
+    return dtype == ttcore::DataType::BFloat16 ||
+           dtype == ttcore::DataType::BFP_BFloat8 ||
+           dtype == ttcore::DataType::BFP_BFloat4;
+  };
+
+  auto getOperandDtype = [](Value v) {
+    return mlir::cast<TTNNLayoutAttr>(
+               mlir::cast<RankedTensorType>(v.getType()).getEncoding())
+        .getDataType();
+  };
+
   TTNNOperandWorkarounds bf16Workaround;
   bf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds emptyWorkaround;
 
   auto flashMlaPrefillOp = cast<FlashMlaPrefillOp>(op);
+
+  // Q/K/V and the output share the same dtype (enforced by the op verifier),
+  // so a single decision applies to all of them.
+  bool qkvNeedsCast =
+      !isSdpaSupportedDtype(getOperandDtype(flashMlaPrefillOp.getQuery()));
+  const TTNNOperandWorkarounds &qkvWorkaround =
+      qkvNeedsCast ? bf16Workaround : emptyWorkaround;
 
   TTNNOperandsWorkarounds operandsWorkaround =
       TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
 
-  // Query, key: cast to bf16 if f32.
+  // Query, key.
   operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+      operandsWorkaround.addInputOperandWorkaround(qkvWorkaround);
   operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+      operandsWorkaround.addInputOperandWorkaround(qkvWorkaround);
 
   // Value (optional).
   if (flashMlaPrefillOp.getValue()) {
     operandsWorkaround =
-        operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+        operandsWorkaround.addInputOperandWorkaround(qkvWorkaround);
   }
 
-  // Attention mask (optional).
+  // Attention mask (optional): independent dtype constraint from Q/K/V.
   if (flashMlaPrefillOp.getAttentionMask()) {
-    operandsWorkaround =
-        operandsWorkaround.addInputOperandWorkaround(bf16Workaround);
+    bool maskNeedsCast = !isSdpaSupportedDtype(
+        getOperandDtype(flashMlaPrefillOp.getAttentionMask()));
+    operandsWorkaround = operandsWorkaround.addInputOperandWorkaround(
+        maskNeedsCast ? bf16Workaround : emptyWorkaround);
   }
 
-  // Output: cast to bf16 if f32.
+  // Output: matches Q/K/V dtype.
   operandsWorkaround =
-      operandsWorkaround.addOutputOperandWorkaround(bf16Workaround);
+      operandsWorkaround.addOutputOperandWorkaround(qkvWorkaround);
 
   return operandsWorkaround;
 }
