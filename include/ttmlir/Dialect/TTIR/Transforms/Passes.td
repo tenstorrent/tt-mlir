@@ -257,25 +257,11 @@ def TTIRDecomposeComposites: Pass<"ttir-decompose-composites", "::mlir::ModuleOp
     - `ttir.softmax` -> max, subtract, exp, sum, div
     - `ttir.repeat` -> nested concat ops (using hierarchical binary decomposition)
 
-    Used by the TTMetal pipeline before `ttir-rank-normalization` so the
-    expanded ops participate in rank normalization like other TTIR ops.
+    Used by the TTMetal pipeline before D2M lowering so the expanded ops
+    participate in the same lowering path as other TTIR ops.
     Backends with native fused ops (e.g. TTNN) do not need this pass.
   }];
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
-}
-
-def TTIRRankNormalization: Pass<"ttir-rank-normalization", "::mlir::ModuleOp"> {
-  let summary = "Normalize tensor ranks by promoting low-rank tensors to 2D.";
-  let description = [{
-    This pass destructively rewrites tensor ranks to ensure all tensors have at
-    least rank 2. This is needed because the device compute kernels work with
-    2D+ tensors.
-
-    The pass directly modifies types in place - no reshape operations are inserted.
-    This is safe because adding 1's to the outer dimensions doesn't change the
-    memory layout in any way; a scalar is packed the same way regardless of rank.
-  }];
-  let dependentDialects = ["::mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRQuantDataTypeConversionPass : Pass<"ttir-quant-data-type-conversion", "::mlir::ModuleOp"> {

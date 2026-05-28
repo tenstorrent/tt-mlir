@@ -251,7 +251,6 @@ void MCQExecutor::execute(const target::metal::Command *command) {
 void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   LOG_ASSERT(command->dst()->address() == 0);
   const auto *bufferDesc = command->dst()->desc();
-  LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
   TensorDesc desc = createTensorDescFromBufferDesc(bufferDesc);
   const size_t size = desc.sizeBytes();

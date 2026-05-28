@@ -38,3 +38,22 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<163
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 }
+
+func.func @rank0_scalar(%arg0: memref<i32>) -> memref<i32> {
+  // CHECK-LABEL: func.func @rank0_scalar
+  // CHECK: %[[LOAD:.*]] = memref.load %arg0[] : memref<i32>
+  %0 = memref.load %arg0[] : memref<i32>
+  // CHECK: %[[ALLOC:.*]] = memref.alloc() : memref<i32>
+  %alloc = memref.alloc() : memref<i32>
+  // CHECK: memref.store %[[LOAD]], %[[ALLOC]][] : memref<i32>
+  memref.store %0, %alloc[] : memref<i32>
+  return %alloc : memref<i32>
+}
+
+func.func @host_memref_not_linearized(%arg0: memref<1x1xi32>) -> i32 {
+  %c0 = arith.constant 0 : index
+  // CHECK-LABEL: func.func @host_memref_not_linearized
+  // CHECK: memref.load %arg0[%{{.*}}, %{{.*}}] : memref<1x1xi32>
+  %0 = memref.load %arg0[%c0, %c0] : memref<1x1xi32>
+  return %0 : i32
+}

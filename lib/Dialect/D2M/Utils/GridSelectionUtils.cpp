@@ -376,8 +376,12 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
     // padding adjustments.
     newDimAlignments.assign(oldLayout.getLogicalShape().size(), 1);
     auto defaultTileShape = ttcore::TileType::getDefaultShape();
-    newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[1];
-    newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[0];
+    if (newDimAlignments.size() == 1) {
+      newDimAlignments[0] = defaultTileShape[1];
+    } else {
+      newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[1];
+      newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[0];
+    }
   } else {
     newDimAlignments =
         computeSelectedGridDimAlignments(oldLayout, selectedGrid, tileShape);
