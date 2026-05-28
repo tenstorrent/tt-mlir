@@ -67,7 +67,8 @@ public:
       }
 
       L1SpillManagement<SumL1MemoryTracker> spill(
-          func, deviceGrid, l1BudgetPerCore, std::move(observer));
+          func, deviceGrid, l1BudgetPerCore, chipDesc.getUsableL1Size(),
+          std::move(observer));
       spill.run();
 
       // run() emits a diagnostic but cannot fail the pass on its own; surface
