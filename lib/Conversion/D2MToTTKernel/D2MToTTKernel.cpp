@@ -26,6 +26,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -305,6 +306,90 @@ static void ensureDominatesInsertionPoint(OpBuilder &rewriter, Value value) {
   }
 
   defOp->moveBefore(insertBlock, rewriter.getInsertionPoint());
+}
+
+static bool valueDependsOn(Value value, Value needle,
+                           llvm::SmallPtrSetImpl<Operation *> &visited) {
+  if (value == needle) {
+    return true;
+  }
+
+  Operation *defOp = value.getDefiningOp();
+  if (!defOp || !visited.insert(defOp).second) {
+    return false;
+  }
+
+  return llvm::any_of(defOp->getOperands(), [&](Value operand) {
+    return valueDependsOn(operand, needle, visited);
+  });
+}
+
+static bool valueDependsOn(Value value, Value needle) {
+  llvm::SmallPtrSet<Operation *, 8> visited;
+  return valueDependsOn(value, needle, visited);
+}
+
+static Value getLoopLowerBoundValue(OpBuilder &rewriter, Location loc,
+                                    Operation *loopOp) {
+  if (auto scfFor = dyn_cast<scf::ForOp>(loopOp)) {
+    return scfFor.getLowerBound();
+  }
+
+  if (auto affineFor = dyn_cast<affine::AffineForOp>(loopOp)) {
+    if (affineFor.hasConstantLowerBound()) {
+      return index(rewriter, loc, affineFor.getConstantLowerBound());
+    }
+
+    AffineMap lowerBoundMap = affineFor.getLowerBoundMap();
+    if (lowerBoundMap.getNumResults() == 1) {
+      return rewriter.create<affine::AffineApplyOp>(
+          loc, lowerBoundMap, affineFor.getLowerBoundOperands());
+    }
+  }
+
+  return index(rewriter, loc, 0);
+}
+
+static SmallVector<Operation *> getEnclosingLoops(Operation *op) {
+  SmallVector<Operation *> loops;
+  for (Operation *parent = op->getParentOp(); parent;
+       parent = parent->getParentOp()) {
+    if (isa<scf::ForOp, affine::AffineForOp>(parent)) {
+      loops.push_back(parent);
+    }
+  }
+  std::reverse(loops.begin(), loops.end());
+  return loops;
+}
+
+static Value getSingleBlockLoopIV(Operation *loopOp) {
+  if (auto scfFor = dyn_cast<scf::ForOp>(loopOp)) {
+    return scfFor.getInductionVar();
+  }
+  if (auto affineFor = dyn_cast<affine::AffineForOp>(loopOp)) {
+    return affineFor.getInductionVar();
+  }
+  return {};
+}
+
+static Value buildFirstReductionIterationGuard(OpBuilder &rewriter,
+                                               Location loc, Operation *op,
+                                               Value dstIndex) {
+  Value guard;
+  for (Operation *loop : getEnclosingLoops(op)) {
+    Value loopIV = getSingleBlockLoopIV(loop);
+    if (!loopIV || valueDependsOn(dstIndex, loopIV)) {
+      continue;
+    }
+
+    Value firstIteration = getLoopLowerBoundValue(rewriter, loc, loop);
+    Value isFirstIteration = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, loopIV, firstIteration);
+    guard = guard ? rewriter.create<arith::AndIOp>(loc, guard, isFirstIteration)
+                        .getResult()
+                  : isFirstIteration;
+  }
+  return guard;
 }
 
 // Remapped L1 CB for a tile loaded from L1; null if the value is not an L1 load
@@ -1109,32 +1194,52 @@ public:
     Value outCB = getOutCB(rewriter, op);
     Value cIdx = adaptor.getC();
 
-    // cIdx is defined inside the scf loops, so re-materialize a constant
-    // copy for use at the hoisted init point.
-    std::optional<int64_t> cIdxVal = getConstantIntValue(cIdx);
-    if (!cIdxVal) {
-      return op->emitOpError(
-          "tile_sfpu_reduce_* expects C operand's DST index to be a "
-          "compile-time constant; got a non-constant value");
-    }
-
     int32_t identityInt = (reduceType == ttkernel::ReduceType::Max)
                               ? std::numeric_limits<int32_t>::min()
                               : 0;
+
+    std::optional<int64_t> cIdxVal = getConstantIntValue(cIdx);
 
     {
       OpBuilder::InsertionGuard guard(rewriter);
       setInsertionPointAfterOperands(rewriter, {cbA, outCB},
                                      /*allowHoisting*/ true);
       rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), cbA, outCB);
-      Value hoistedCIdx =
-          rewriter.create<arith::ConstantIndexOp>(op->getLoc(), *cIdxVal);
-      Value identityVal = rewriter.create<arith::ConstantOp>(
-          op->getLoc(), rewriter.getI32Type(),
-          rewriter.getI32IntegerAttr(identityInt));
-      rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
-      rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), hoistedCIdx,
-                                               identityVal);
+
+      if (cIdxVal) {
+        Value hoistedCIdx =
+            rewriter.create<arith::ConstantIndexOp>(op->getLoc(), *cIdxVal);
+        Value identityVal = rewriter.create<arith::ConstantOp>(
+            op->getLoc(), rewriter.getI32Type(),
+            rewriter.getI32IntegerAttr(identityInt));
+        rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
+        rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), hoistedCIdx,
+                                                 identityVal);
+      }
+    }
+
+    if (!cIdxVal) {
+      ensureDominatesInsertionPoint(rewriter, cIdx);
+      auto emitSeed = [&]() {
+        Value identityVal = rewriter.create<arith::ConstantOp>(
+            op->getLoc(), rewriter.getI32Type(),
+            rewriter.getI32IntegerAttr(identityInt));
+        rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
+        rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), cIdx,
+                                                 identityVal);
+      };
+
+      Value seedGuard =
+          buildFirstReductionIterationGuard(rewriter, op->getLoc(), op, cIdx);
+      if (seedGuard) {
+        auto ifOp = rewriter.create<scf::IfOp>(op->getLoc(), seedGuard,
+                                               /*withElseRegion=*/false);
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        emitSeed();
+      } else {
+        emitSeed();
+      }
     }
 
     int64_t scratchIdxVal = op.getDstScratchIndex();
