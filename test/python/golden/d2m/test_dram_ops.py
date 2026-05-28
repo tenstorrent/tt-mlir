@@ -43,6 +43,12 @@ DRAM_SHAPES = [
     (5, 3, 439, 373),
 ]
 
+DRAM_1D_SHAPES = [
+    (32,),
+    (73,),
+    (128,),
+]
+
 
 def dtype_str(dtype: torch.dtype):
     return {
@@ -64,10 +70,24 @@ DRAM_FLOAT_CASES = [
     for shape, dtype in itertools.product(DRAM_SHAPES, [torch.float32, torch.bfloat16])
 ]
 
+DRAM_1D_FLOAT_CASES = [
+    shape_dtype_param(shape, dtype)
+    for shape, dtype in itertools.product(
+        DRAM_1D_SHAPES, [torch.float32, torch.bfloat16]
+    )
+]
+
 DRAM_NUMERIC_CASES = [
     shape_dtype_param(shape, dtype)
     for shape, dtype in itertools.product(
         DRAM_SHAPES, [torch.float32, torch.bfloat16, torch.int32]
+    )
+]
+
+DRAM_1D_NUMERIC_CASES = [
+    shape_dtype_param(shape, dtype)
+    for shape, dtype in itertools.product(
+        DRAM_1D_SHAPES, [torch.float32, torch.bfloat16, torch.int32]
     )
 ]
 
@@ -121,9 +141,42 @@ def test_dram_unary_neg(shape: Shape, dtype: torch.dtype, target: str, request, 
     compile_and_execute_dram_test(module, request, device, target)
 
 
+@pytest.mark.parametrize("shape,dtype", DRAM_1D_FLOAT_CASES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_1d_unary_neg(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def neg(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.neg(in0, unit_attrs=unit_attrs)
+
+    compile_and_execute_dram_test(module, request, device, target)
+
+
 @pytest.mark.parametrize("shape,dtype", DRAM_FLOAT_CASES)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_dram_binary_add(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def add(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.add(in0, in1, unit_attrs=unit_attrs)
+
+    compile_and_execute_dram_test(module, request, device, target)
+
+
+@pytest.mark.parametrize("shape,dtype", DRAM_1D_NUMERIC_CASES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_1d_binary_add(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     def module(builder: TTIRBuilder):
@@ -184,6 +237,23 @@ def test_dram_fuse_converging_branches(
 @pytest.mark.parametrize("shape,dtype", DRAM_NUMERIC_CASES)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_dram_binary_add_scalar(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def add_scalar(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            scalar_value = get_add_scalar_value(dtype)
+            scalar = builder.full(shape, dtype, scalar_value, unit_attrs=unit_attrs)
+            return builder.add(in0, scalar, unit_attrs=unit_attrs)
+
+    compile_and_execute_dram_test(module, request, device, target)
+
+
+@pytest.mark.parametrize("shape,dtype", DRAM_1D_NUMERIC_CASES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_1d_binary_add_scalar(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     def module(builder: TTIRBuilder):

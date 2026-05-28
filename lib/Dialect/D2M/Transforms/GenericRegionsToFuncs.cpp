@@ -9,6 +9,7 @@
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -121,6 +122,33 @@ static int32_t resolveDmProcessorIndex(ThreadAttr thread,
   return processorIdx;
 }
 
+static void materializeCapturedConstants(func::FuncOp func) {
+  OpBuilder builder(func.getContext());
+  Block &body = func.getBody().front();
+  llvm::DenseMap<Operation *, Value> clonedConstants;
+
+  func.walk([&](Operation *op) {
+    for (OpOperand &operand : op->getOpOperands()) {
+      Operation *definingOp = operand.get().getDefiningOp();
+      if (!definingOp || definingOp->getParentOfType<func::FuncOp>() == func) {
+        continue;
+      }
+
+      if (!mlir::isa<arith::ConstantOp>(definingOp)) {
+        continue;
+      }
+
+      auto [it, inserted] = clonedConstants.try_emplace(definingOp, Value{});
+      if (inserted) {
+        builder.setInsertionPointToStart(&body);
+        Operation *clonedOp = builder.clone(*definingOp);
+        it->second = clonedOp->getResult(0);
+      }
+      operand.set(it->second);
+    }
+  });
+}
+
 class D2MGenericRegionsToFuncs
     : public impl::D2MGenericRegionsToFuncsBase<D2MGenericRegionsToFuncs> {
 public:
@@ -164,6 +192,7 @@ public:
         func.setPrivate();
         func->setAttr(d2m::ThreadAttr::name, threadAttrWithoutSym);
         func.getBody().takeBody(region);
+        materializeCapturedConstants(func);
         ttmlir::utils::setFunctionType(func,
                                        ttmlir::utils::FunctionType::Kernel);
         builder.setInsertionPointToEnd(&func.getBody().front());

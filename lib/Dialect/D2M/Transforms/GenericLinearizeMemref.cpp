@@ -86,8 +86,12 @@ public:
                                 PatternRewriter &rewriter) const final {
     Value val = op.getMemRef();
     auto memref = mlir::cast<MemRefType>(val.getType());
-    if (memref.getRank() == 1) {
+    if (memref.getRank() <= 1) {
       // Already linearized.
+      return failure();
+    }
+
+    if (ttcore::getMemorySpace(memref) != ttcore::MemorySpace::DeviceL1) {
       return failure();
     }
 

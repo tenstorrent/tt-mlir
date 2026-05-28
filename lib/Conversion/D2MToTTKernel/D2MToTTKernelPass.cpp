@@ -91,13 +91,29 @@ struct ConvertD2MToTTKernel
       target.addLegalDialect<ttnn::TTNNDialect>();
     }
 
-    // Allow loads and stores to integer element types.
-    //   i.e. riscv accesses to L1.
+    auto isHostScalarLoadStore = [](Operation *op, MemRefType memrefType) {
+      auto func = op->getParentOfType<func::FuncOp>();
+      if (!func || func->hasAttr(d2m::ThreadAttr::name)) {
+        return false;
+      }
+
+      return ttcore::getMemorySpace(memrefType) ==
+                 ttcore::MemorySpace::System &&
+             memrefType.hasStaticShape() && memrefType.getNumElements() == 1 &&
+             !mlir::isa<ttcore::TileType>(memrefType.getElementType());
+    };
+
+    // Allow loads and stores to integer element types, i.e. riscv accesses to
+    // L1. Host command-function scalar load/stores are also legal; those are
+    // CPU-side buffer operations and must not be lowered as circular-buffer
+    // tile accesses.
     target.addDynamicallyLegalOp<memref::LoadOp>([&](memref::LoadOp op) {
-      return op.getMemRefType().getElementType().isIntOrIndex();
+      return op.getMemRefType().getElementType().isIntOrIndex() ||
+             isHostScalarLoadStore(op, op.getMemRefType());
     });
     target.addDynamicallyLegalOp<memref::StoreOp>([&](memref::StoreOp op) {
-      return op.getMemRefType().getElementType().isIntOrIndex();
+      return op.getMemRefType().getElementType().isIntOrIndex() ||
+             isHostScalarLoadStore(op, op.getMemRefType());
     });
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();

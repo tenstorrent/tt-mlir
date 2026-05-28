@@ -348,8 +348,16 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((3, 11, 13), (33, 13)) | SkipIf("sim"),
     ((33, 13), (3, 11, 13)) | SkipIf("sim"),
     # 1D tensor shapes
-    ((1,), (1, 1, 1)),
-    ((1,), (1, 1, 1, 1)),
+    ((1,), (1, 1, 1))
+    | SkipIf(
+        "sim",
+        reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+    ),
+    ((1,), (1, 1, 1, 1))
+    | SkipIf(
+        "sim",
+        reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+    ),
     ((128,), (1, 128)),
     ((1, 64), (64,)),
     ((1, 1, 128), (128,)),
@@ -968,8 +976,28 @@ def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, de
         # Simple 1D
         ((64,), [0], [32], None),
         # Strided 1D
-        ((70,), [3], [62], [7]),
-        ((2048,), [0], [2048], [3]),
+        pytest.param(
+            (70,),
+            [3],
+            [62],
+            [7],
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                ["ttmetal"],
+                reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
+        ),
+        pytest.param(
+            (2048,),
+            [0],
+            [2048],
+            [3],
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                ["ttmetal"],
+                reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
+        ),
         # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
         # Crop 2D
