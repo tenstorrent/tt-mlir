@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
@@ -554,10 +555,11 @@ collectLayoutOrCastUsersPostOrder(Value value,
       continue;
     }
 
-    collectLayoutOrCastUsersPostOrder(result, ops, seen);
-    if (seen.insert(user).second) {
-      ops.push_back(user);
+    if (!seen.insert(user).second) {
+      continue;
     }
+    collectLayoutOrCastUsersPostOrder(result, ops, seen);
+    ops.push_back(user);
   }
 }
 
@@ -581,7 +583,7 @@ static bool cleanupDeadScalarizedFillChains(ArrayRef<ScalarizationPlan> plans,
   }
 
   for (Operation *op : maybeDeadOps) {
-    if (!op->getBlock() || !hasNoResultUses(op)) {
+    if (!op->getBlock() || !isOpTriviallyDead(op)) {
       continue;
     }
     rewriter.eraseOp(op);
