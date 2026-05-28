@@ -6123,8 +6123,21 @@ public:
     auto cacheUpdateInputType =
         mlir::cast<RankedTensorType>((*CachePositions).getType());
     auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
-    if (cacheUpdateInputShape.size() != 1) {
-      return mlir::failure();
+    if (cacheUpdateInputShape.size() > 1) {
+      return rewriter.notifyMatchFailure(
+          scatterOp,
+          "cache position operand must be rank-0 or rank-1, got rank " +
+              std::to_string(cacheUpdateInputShape.size()));
+    }
+
+    // If the cache position is rank-0 (scalar), reshape it to rank-1 so that
+    // downstream ops (UpdateCacheOp, its canonicalization) can index shape[0].
+    if (cacheUpdateInputShape.empty()) {
+      auto rank1Type =
+          RankedTensorType::get({1}, cacheUpdateInputType.getElementType());
+      *CachePositions = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+          scatterOp.getLoc(), rank1Type, *CachePositions,
+          rewriter.getI32ArrayAttr({1}));
     }
 
     Value cache = scatterOp.getInputs()[0];
