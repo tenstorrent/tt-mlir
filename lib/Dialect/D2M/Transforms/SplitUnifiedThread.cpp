@@ -106,6 +106,11 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     }
   });
 
+  // Early exit if there are no synchronizable ops.
+  if (opsWithSynchronizableOps.empty()) {
+    return success();
+  }
+
   DenseSet<Operation *> outermostOps;
   bool walkFailed = false;
   genericOp.getRegion(0).walk([&](Operation *op) {
@@ -551,9 +556,8 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
         Operation *anchor = synchronizedOp;
         while (anchor->getBlock() != targetBlock) {
           Operation *parent = anchor->getParentOp();
-          if (!parent) {
-            return synchronizedOp;
-          }
+          assert(parent &&
+                 "Unexpected ancestor-less op while looking for anchor");
           anchor = parent;
         }
         return anchor;
