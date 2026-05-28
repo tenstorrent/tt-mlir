@@ -150,6 +150,13 @@ struct SumL1MemoryTracker {
   /// replay (sizes is the original-pass state, addresses is being rebuilt).
   bool hasTensorAddress(Value result) const;
 
+  /// Return all Values whose simulated start address is strictly above
+  /// \p threshold.  Used to identify tensors that are in the CB-zone when the
+  /// simulation's top-down virtual space is inverted w.r.t. TTNN's bottom-up
+  /// physical L1 space.
+  llvm::SmallVector<Value>
+  getValuesAboveVirtualThreshold(uint64_t threshold) const;
+
 private:
   uint64_t currentOccupied = 0;
   llvm::DenseMap<Value, uint64_t> tensorSizes;
@@ -185,7 +192,7 @@ template <typename MemoryTracker = SumL1MemoryTracker>
 class L1SpillManagement {
 public:
   L1SpillManagement(func::FuncOp func, ttcore::GridAttr deviceGrid,
-                    uint64_t l1BudgetPerCore,
+                    uint64_t l1BudgetPerCore, uint64_t usableL1Size,
                     std::unique_ptr<L1SpillObserver> observer = nullptr);
 
   /// Run farthest-last-use eviction with validation-based enforcement and apply
@@ -215,6 +222,13 @@ private:
 
   /// Set when run() emits an error for an unrecoverable condition.
   bool compilationFailed = false;
+
+  /// Dead zone = usableL1Size - l1BudgetPerCore.  This is the gap between the
+  /// simulation's virtual floor (l1_size - l1BudgetPerCore) and the hardware
+  /// l1_unreserved_base where CBs physically start.  If cbPeakUsage exceeds
+  /// this value, the CB region extends below the simulation's range and may
+  /// overlap tensors that spilled out of the budget at runtime.
+  uint64_t l1DeadZone;
 
   /// Observer (NullObject pattern: always non-null).
   std::unique_ptr<L1SpillObserver> observer_;
@@ -375,20 +389,22 @@ private:
   /// Output cannot fit contiguously in the free list. Evict farthest-last-use
   /// tensors until the output fits, then re-validate. Returns L1 bytes to add
   /// to live set (0 if demoted to DRAM).
-  uint64_t handleNoFit(Operation *op, int64_t pos, ScheduleData &data,
-                       uint64_t outputL1Size);
+  uint64_t handleNoFit(Operation *op, int64_t pos, const ScheduleData &data,
+                       uint64_t opL1Usage, uint64_t outputL1Size);
 
   /// CB fragmentation recovery: evict tensors in the CB danger zone,
   /// re-validate, or demote output to DRAM. Returns L1 bytes to add to live
   /// set (0 if demoted).
-  uint64_t handleFragmentation(Operation *op, int64_t pos, ScheduleData &data,
+  uint64_t handleFragmentation(Operation *op, int64_t pos,
+                               const ScheduleData &data, uint64_t opL1Usage,
                                uint64_t cbPeakUsage, uint64_t outputL1Size);
 
   /// Run contiguous-fit and CB-fragmentation checks on a validated op's
   /// output. Returns the (possibly updated) L1 size to add to the live set,
   /// or 0 if the output was demoted to DRAM.
-  uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
-                        uint64_t cbPeakUsage, uint64_t l1Size);
+  uint64_t ensureFitsL1(Operation *op, int64_t pos, const ScheduleData &data,
+                        uint64_t opL1Usage, uint64_t cbPeakUsage,
+                        uint64_t l1Size);
 
   /// True when `op` is a view-eligible reshape whose source operand is still
   /// resident in L1. Its output will alias the source's existing slot
