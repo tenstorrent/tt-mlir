@@ -201,6 +201,17 @@ uint64_t SumL1MemoryTracker::getLowestOccupiedAddress() const {
   return lowest;
 }
 
+llvm::SmallVector<Value>
+SumL1MemoryTracker::getValuesAboveVirtualThreshold(uint64_t threshold) const {
+  llvm::SmallVector<Value> result;
+  for (const auto &[val, addrSize] : tensorAddresses) {
+    if (addrSize.first > threshold) {
+      result.push_back(val);
+    }
+  }
+  return result;
+}
+
 std::optional<uint64_t>
 SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
   if (l1SizePerCore == 0 || l1Budget == 0) {
@@ -224,10 +235,13 @@ SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
 template <typename MemoryTracker>
 L1SpillManagement<MemoryTracker>::L1SpillManagement(
     func::FuncOp func, ttcore::GridAttr deviceGrid, uint64_t l1BudgetPerCore,
-    std::unique_ptr<L1SpillObserver> observer)
+    uint64_t usableL1Size, std::unique_ptr<L1SpillObserver> observer)
     : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore),
       cbFragCushion(
-          static_cast<uint64_t>(kCBFragCushionFraction * l1BudgetPerCore)) {
+          static_cast<uint64_t>(kCBFragCushionFraction * l1BudgetPerCore)),
+      l1DeadZone(usableL1Size > l1BudgetPerCore
+                     ? usableL1Size - l1BudgetPerCore
+                     : 0) {
   if (observer) {
     observer_ = std::move(observer);
   } else {
@@ -531,14 +545,94 @@ template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
     uint64_t cbPeakUsage, uint64_t l1Size) {
+  // For DRAM-output ops (l1Size==0) the simulation allocates no L1 tensor, but
+  // the op's kernel still allocates circular buffers growing upward from
+  // l1_unreserved_base.  With large compute configs (e.g. HiFi2 + fp32_dest_acc)
+  // the CB peak can exceed 600 KB and overlap with live L1 tensors that were
+  // placed by earlier ops.  Without this check the overlap is only detected at
+  // runtime by validate_circular_buffer_region → TT_THROW.
+  // Fix: when the CB (plus fragmentation cushion) would reach an occupied L1
+  // address, evict tensors until there is enough headroom.
+  if (l1Size == 0 && cbPeakUsage > 0) {
+    uint64_t cushionedCB = cbPeakUsage + cbFragCushion;
+    uint64_t lowestExisting = memoryTracker.getLowestOccupiedAddress();
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    DRAM_OP_CB_CHECK: cbPeak={0}, cushion={1}, "
+                 "cushioned={2}, lowestExisting={3}",
+                 cbPeakUsage, cbFragCushion, cushionedCB, lowestExisting);
+    if (cushionedCB > lowestExisting) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    DRAM_OP_CB_EVICT: CB={0}+cushion={1}={2} > "
+                   "lowestExisting={3}, evicting L1 tensors",
+                   cbPeakUsage, cbFragCushion, cushionedCB, lowestExisting);
+      evictForCBOverlap(cushionedCB, pos, data);
+    }
+    // Spill untracked L1 ToLayoutOp inputs; they cannot be evicted by
+    // evictForCBOverlap but may land below cushionedCB at runtime.
+    for (Value operand : op->getOperands()) {
+      auto *defOp = operand.getDefiningOp();
+      if (!defOp || !isa<ToLayoutOp>(defOp)) {
+        continue;
+      }
+      auto resultType = mlir::dyn_cast<RankedTensorType>(operand.getType());
+      if (!resultType) {
+        continue;
+      }
+      auto lo = mlir::dyn_cast<TTNNLayoutAttr>(resultType.getEncoding());
+      if (lo && lo.hasL1BufferType()) {
+        spillToDram(operand);
+      }
+    }
+    return 0;
+  }
   auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   if (!speculativeAddr) {
     l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
     speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   }
-  if (l1Size > 0 && speculativeAddr &&
-      wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr)) {
-    l1Size = handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
+  if (l1Size > 0 && speculativeAddr) {
+    // Evict live tensors whose TTNN physical address falls inside this op's CB
+    // region [l1_unreserved_base, l1_unreserved_base + cbPeakUsage).
+    //
+    // The simulation allocates top-down (high-virtual first) while TTNN
+    // allocates bottom-up (low-physical first).  A tensor at simulation virtual
+    // V > (l1BudgetPerCore - cbPeakUsage) maps to a physical address below
+    // (l1_unreserved_base + cbPeakUsage), i.e. inside the CB zone.
+    // evictForCBOverlap (used by wouldCBsOverlapTensors below) only checks
+    // the lowest virtual address (= most recently allocated = highest physical),
+    // missing tensors allocated earlier that have higher virtual addresses and
+    // lower physical addresses inside the CB zone.  Evict those here.
+    //
+    // Only check when cbPeakUsage > l1DeadZone: below this threshold the CB
+    // region is entirely within the dead zone (below the simulation floor) so
+    // no simulation-tracked tensor can have a conflicting physical address.
+    if (cbPeakUsage > l1DeadZone && cbPeakUsage <= l1BudgetPerCore) {
+      uint64_t cbVT = l1BudgetPerCore - cbPeakUsage;
+      bool anyEvicted = false;
+      for (Value victim : memoryTracker.getValuesAboveVirtualThreshold(cbVT)) {
+        if (!liveValues.count(victim)) {
+          continue;
+        }
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "    CB_ZONE_EVICT: cbPeakUsage={0} cbVT={1}, evicting "
+                     "high-virtual tensor to prevent CB-tensor clash",
+                     cbPeakUsage, cbVT);
+        evictValue(victim, pos, data);
+        anyEvicted = true;
+      }
+      if (anyEvicted) {
+        // Recompute after address rebuild triggered by evictions.
+        speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+        if (!speculativeAddr) {
+          l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
+          speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+        }
+      }
+    }
+    if (wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr)) {
+      l1Size =
+          handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
+    }
   }
   return l1Size;
 }
