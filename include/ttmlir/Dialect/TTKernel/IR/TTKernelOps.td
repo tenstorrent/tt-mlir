@@ -3387,15 +3387,21 @@ def TTKernel_TransposeTileOp : TTKernel_Op<"transpose_wh_tile"> {
 def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
     let summary = "GetNocAddr";
     let description = [{
-      GetNocAddr api including core coordinates
+      GetNocAddr api including core coordinates.
     }];
 
-    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$l1Address);
+    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$l1Address, Optional<I8>:$noc);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 
     let assemblyFormat = [{
-      `(` $x `,` $y `,` $l1Address `)` attr-dict `:` functional-type(operands, results)
+      `(` $x `,` $y `,` $l1Address (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins "Value":$x, "Value":$y, "Value":$l1Address), [{
+        build($_builder, $_state, x, y, l1Address, /*noc=*/Value{});
+      }]>,
+    ];
 }
 
 def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
@@ -3515,12 +3521,20 @@ def TTKernel_NocAsyncReadOnePacketWithStateWithTridOp : TTKernel_Op<"noc_async_r
 def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncReadBarrier";
     let description = [{
-      NocAsyncReadBarrier
+      Waits for all outstanding read transactions on the given NOC.
     }];
 
+    let arguments = (ins Optional<I8>:$noc);
+
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, /*noc=*/Value{});
+      }]>,
+    ];
 
     let hasCanonicalizer = 1;
 }
@@ -3620,12 +3634,20 @@ def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{
-      NocAsyncWriteBarrier
+      Waits for all outstanding write transactions on the given NOC.
     }];
 
+    let arguments = (ins Optional<I8>:$noc);
+
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, /*noc=*/Value{});
+      }]>,
+    ];
 
     let hasCanonicalizer = 1;
 }

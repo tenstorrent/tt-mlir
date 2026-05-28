@@ -67,8 +67,33 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     %noc = arith.constant 1 : i8
     // CHECK: noc_inline_dw_write<InlineWriteDst::L1>([[NOCADDR1]], [[INLINE_VALUE]], [[BE]], [[NOC]])
     ttkernel.noc_inline_dw_write(%4, %inline_value, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+    // CHECK: noc_async_atomic_barrier()
+    ttkernel.noc_async_atomic_barrier() : () -> ()
+    // CHECK: noc_async_atomic_barrier([[NOC]])
+    ttkernel.noc_async_atomic_barrier(%noc) : (i8) -> ()
     // CHECK: [[NOC1]].async_read_barrier<Noc::BarrierMode::FULL>()
     ttkernel.noc_async_read_barrier() : () -> ()
+    // CHECK: return
+    func.return
+}
+
+// CHECK: void kernel_main
+func.func @ttkernel_noc_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-DAG: Noc [[EXPLICIT_NOC:noc1]](1)
+    // CHECK-DAG: size_t [[EXPLICIT_X:.*]] = 1
+    %x = arith.constant 1 : index
+    // CHECK-DAG: size_t [[EXPLICIT_Y:.*]] = 2
+    %y = arith.constant 2 : index
+    // CHECK-DAG: int32_t [[EXPLICIT_ADDR:.*]] = 262400
+    %addr = arith.constant 262400 : i32
+    // CHECK-DAG: int8_t [[EXPLICIT_NOC_ID:.*]] = 1
+    %noc_id = arith.constant 1 : i8
+    // CHECK: int64_t [[EXPLICIT_NOC_ADDR:.*]] = get_noc_addr([[EXPLICIT_X]], [[EXPLICIT_Y]], [[EXPLICIT_ADDR]], [[EXPLICIT_NOC_ID]])
+    %noc_addr = ttkernel.get_noc_addr(%x, %y, %addr, %noc_id) : (index, index, i32, i8) -> !ttkernel.noc_addr
+    // CHECK: [[EXPLICIT_NOC]].async_read_barrier<Noc::BarrierMode::FULL>()
+    ttkernel.noc_async_read_barrier(%noc_id) : (i8) -> ()
+    // CHECK: [[EXPLICIT_NOC]].async_write_barrier<Noc::BarrierMode::FULL>()
+    ttkernel.noc_async_write_barrier(%noc_id) : (i8) -> ()
     // CHECK: return
     func.return
 }
