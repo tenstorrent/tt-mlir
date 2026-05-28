@@ -661,6 +661,18 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
       conversion::getConv2dConfig(conv2dConfig);
 
+  // For ConvTranspose2d, get_cb_info (called from the DRAM slice determination
+  // path) requires conv_config.weights_dtype to already be set. Ensure it here
+  // before the query closure captures conv2dConfigConverted.
+  if (transpose && outputDtype.has_value()) {
+    if (!conv2dConfigConverted.has_value()) {
+      conv2dConfigConverted = ::ttnn::Conv2dConfig{};
+    }
+    if (!conv2dConfigConverted->weights_dtype.has_value()) {
+      conv2dConfigConverted->weights_dtype = *outputDtype;
+    }
+  }
+
   std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
       conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
@@ -5722,6 +5734,20 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
   std::optional<::ttnn::Conv2dSliceConfig> conv2dSliceConfigConverted =
       conversion::getConv2dSliceConfig(conv2dSliceConfig);
 
+  // The tt-metal conv_transpose2d_DRAM path calls get_cb_info which requires
+  // weights_dtype to be set in conv_config before the program factory runs.
+  // The MLIR Conv2dConfigAttr has no weights_dtype field, so derive it from
+  // the prepared weight tensor spec.
+  if (conv2dConfigConverted.has_value()) {
+    if (!conv2dConfigConverted->weights_dtype.has_value()) {
+      conv2dConfigConverted->weights_dtype = weightSpec.data_type();
+    }
+  } else {
+    ::ttnn::Conv2dConfig defaultConfig;
+    defaultConfig.weights_dtype = weightSpec.data_type();
+    conv2dConfigConverted = defaultConfig;
+  }
+
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
@@ -5803,6 +5829,20 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
       conversion::getConv2dConfig(conv2dConfig);
   std::optional<::ttnn::Conv2dSliceConfig> conv2dSliceConfigConverted =
       conversion::getConv2dSliceConfig(conv2dSliceConfig);
+
+  // The tt-metal conv_transpose2d_DRAM path calls get_cb_info which requires
+  // weights_dtype to be set in conv_config before the program factory runs.
+  // The MLIR Conv2dConfigAttr has no weights_dtype field, so derive it from
+  // the prepared weight tensor spec.
+  if (conv2dConfigConverted.has_value()) {
+    if (!conv2dConfigConverted->weights_dtype.has_value()) {
+      conv2dConfigConverted->weights_dtype = weightSpec.data_type();
+    }
+  } else {
+    ::ttnn::Conv2dConfig defaultConfig;
+    defaultConfig.weights_dtype = weightSpec.data_type();
+    conv2dConfigConverted = defaultConfig;
+  }
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
