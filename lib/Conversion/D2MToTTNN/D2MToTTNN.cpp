@@ -228,7 +228,8 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
         additionalArgMapping.at(arg.getOperandIndex()));
   }
   case ttkernel::ArgType::Scalar: {
-    return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
+    return builder.getAttr<ttnn::KernelArgScalarAttr>(
+        additionalArgMapping.at(arg.getOperandIndex()));
   }
   }
   llvm_unreachable("Invalid ArgType");
@@ -695,6 +696,10 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       // Local semaphores are described via createSemaphoreDescriptors; skip.
     } else if (isa<MemRefType>(arg.getType())) {
       // CBs are described via createCBDescriptors; skip.
+    } else if (mlir::isa<IntegerType, IndexType, FloatType>(arg.getType())) {
+      additionalArgMapping[op.getInputsAndOutputs().size() + idx] =
+          op.getInputsAndOutputs().size() + ttnnGenericAdditionalArgs.size();
+      ttnnGenericAdditionalArgs.push_back(arg);
     } else {
       return op.emitOpError(
                  "unexpected operand type in d2m.generic's additionalArgs: ")
