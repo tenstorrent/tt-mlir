@@ -191,7 +191,7 @@ Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
 // attribute for the TTKernel lowering to consume.  Today only supports ops
 // that need exactly one scratch slice.
 void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
-                        int scratchSlice);
+                        int scratchSlice, Operation *linalgRoot);
 
 bool hasAcquireDstOp(Region &region);
 

@@ -24,9 +24,67 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
 
+#include <algorithm>
+#include <type_traits>
+
 #define DEBUG_TYPE "D2MInsertDstRegisterAccess"
 
 namespace mlir::tt::d2m {
+
+namespace {
+
+static std::optional<int64_t>
+tryGetConstantAffineTripCount(affine::AffineForOp affineFor) {
+  if (!affineFor.hasConstantBounds()) {
+    return std::nullopt;
+  }
+
+  int64_t lb = affineFor.getConstantLowerBound();
+  int64_t ub = affineFor.getConstantUpperBound();
+  int64_t step = affineFor.getStepAsInt();
+  if (step <= 0) {
+    return std::nullopt;
+  }
+
+  return llvm::divideCeil(std::max<int64_t>(0, ub - lb), step);
+}
+
+static int64_t getRequiredConstantAffineTripCount(affine::AffineForOp loop) {
+  std::optional<int64_t> tripCount = tryGetConstantAffineTripCount(loop);
+  TT_assertv(tripCount.has_value(),
+             "DST register access linearization requires constant-bounded "
+             "affine.for loops");
+  return tripCount.value_or(1);
+}
+
+static Operation *findEnclosingLinalgRoot(Operation *op) {
+  for (Operation *parent = op->getParentOp(); parent;
+       parent = parent->getParentOp()) {
+    if (parent->hasAttr("d2m.linalg_root")) {
+      return parent;
+    }
+  }
+  return nullptr;
+}
+
+static SmallVector<affine::AffineForOp>
+collectEnclosingAffineLoopsForDstAccess(Operation *op, Operation *linalgRoot) {
+  SmallVector<affine::AffineForOp> enclosingLoops;
+  Operation *current = op->getParentOp();
+  while (current) {
+    if (auto affineFor = dyn_cast<affine::AffineForOp>(current)) {
+      enclosingLoops.push_back(affineFor);
+      if (linalgRoot && current == linalgRoot) {
+        break;
+      }
+    }
+    current = current->getParentOp();
+  }
+  std::reverse(enclosingLoops.begin(), enclosingLoops.end());
+  return enclosingLoops;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Preconditions
@@ -43,6 +101,27 @@ LogicalResult verifyInsertDstRegisterAccessPreconditions(ModuleOp moduleOp) {
               "d2m-insert-dst-register-access-unscheduled / "
               "d2m-insert-dst-register-access-scheduled passes.";
   }
+
+  walkResult = moduleOp->walk(
+      [&](OperandLoadStoreRegisterOpInterface computeOp) -> WalkResult {
+        Operation *op = computeOp.getOperation();
+        Operation *linalgRoot = findEnclosingLinalgRoot(op);
+        for (affine::AffineForOp loop :
+             collectEnclosingAffineLoopsForDstAccess(op, linalgRoot)) {
+          if (!tryGetConstantAffineTripCount(loop)) {
+            op->emitOpError()
+                << "requires constant-bounded affine.for loops for DST "
+                   "register access linearization";
+            return WalkResult::interrupt();
+          }
+        }
+        return WalkResult::advance();
+      });
+
+  if (walkResult.wasInterrupted()) {
+    return failure();
+  }
+
   return success();
 }
 
@@ -402,16 +481,7 @@ static bool anyOutputStoreDependsOnIV(const CopyInfoMap &copyInfos, Value iv) {
 // at runtime, matching legacy behavior for non-constant K loops).
 static std::optional<int64_t> tryGetConstantTripCount(Operation *loopOp) {
   if (auto affineFor = mlir::dyn_cast<affine::AffineForOp>(loopOp)) {
-    if (!affineFor.hasConstantBounds()) {
-      return std::nullopt;
-    }
-    int64_t lb = affineFor.getConstantLowerBound();
-    int64_t ub = affineFor.getConstantUpperBound();
-    int64_t step = affineFor.getStepAsInt();
-    if (step <= 0) {
-      return std::nullopt;
-    }
-    return llvm::divideCeil(std::max<int64_t>(0, ub - lb), step);
+    return tryGetConstantAffineTripCount(affineFor);
   }
   if (auto scfFor = mlir::dyn_cast<scf::ForOp>(loopOp)) {
     auto lbCst = scfFor.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
@@ -464,14 +534,32 @@ Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
   return nullptr;
 }
 
+static int64_t
+computeDstLinearizationFootprint(ArrayRef<affine::AffineForOp> enclosingLoops) {
+  int64_t footprint = 1;
+  for (affine::AffineForOp loop : enclosingLoops) {
+    footprint *= getRequiredConstantAffineTripCount(loop);
+  }
+  return footprint;
+}
+
+static int64_t computeLinearizedDstSliceBaseIndex(Operation *op, int dstSlice,
+                                                  Operation *linalgRoot) {
+  return static_cast<int64_t>(dstSlice) *
+         computeDstLinearizationFootprint(
+             collectEnclosingAffineLoopsForDstAccess(op, linalgRoot));
+}
+
 void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
-                        int scratchSlice) {
+                        int scratchSlice, Operation *linalgRoot) {
   TT_assertv(computeOp.getNumDstScratchSlices() == 1,
              "setDstScratchIndex supports exactly one scratch slice");
   Operation *op = computeOp.getOperation();
+  int64_t dstIndex =
+      computeLinearizedDstSliceBaseIndex(op, scratchSlice, linalgRoot);
   op->setAttr("dst_scratch_index",
               mlir::IntegerAttr::get(
-                  mlir::IntegerType::get(op->getContext(), 64), scratchSlice));
+                  mlir::IntegerType::get(op->getContext(), 64), dstIndex));
 }
 
 static Value getFirstIterationValue(PatternRewriter &rewriter, Location loc,
@@ -1321,38 +1409,36 @@ scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
 std::pair<AffineMap, SmallVector<Value>>
 buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op, int dstSlice,
                          Operation *linalgRoot) {
-  SmallVector<affine::AffineForOp> enclosingLoops;
-  Operation *current = op->getParentOp();
-  while (current) {
-    if (auto affineFor = dyn_cast<affine::AffineForOp>(current)) {
-      enclosingLoops.push_back(affineFor);
-      if (linalgRoot && current == linalgRoot) {
-        break;
-      }
-    }
-    current = current->getParentOp();
-  }
+  SmallVector<affine::AffineForOp> enclosingLoops =
+      collectEnclosingAffineLoopsForDstAccess(op, linalgRoot);
 
   if (enclosingLoops.empty()) {
     return {AffineMap::getConstantMap(dstSlice, rewriter.getContext()), {}};
   }
 
-  std::reverse(enclosingLoops.begin(), enclosingLoops.end());
-
   unsigned numDims = enclosingLoops.size();
   SmallVector<int64_t> strides(numDims, 1);
+  SmallVector<int64_t> lowerBounds(numDims, 0);
+  SmallVector<int64_t> steps(numDims, 1);
   int64_t stride = 1;
   for (int i = numDims - 1; i >= 0; --i) {
+    affine::AffineForOp loop = enclosingLoops[i];
     strides[i] = stride;
-    if (enclosingLoops[i].hasConstantUpperBound()) {
-      stride *= enclosingLoops[i].getConstantUpperBound();
-    }
+    lowerBounds[i] = loop.getConstantLowerBound();
+    steps[i] = loop.getStepAsInt();
+    stride *= getRequiredConstantAffineTripCount(loop);
   }
 
   AffineExpr linearExpr = getAffineConstantExpr(
       static_cast<int64_t>(dstSlice) * stride, rewriter.getContext());
   for (unsigned i = 0; i < numDims; ++i) {
     AffineExpr dimExpr = getAffineDimExpr(i, rewriter.getContext());
+    if (lowerBounds[i] != 0) {
+      dimExpr = dimExpr - lowerBounds[i];
+    }
+    if (steps[i] != 1) {
+      dimExpr = dimExpr.floorDiv(steps[i]);
+    }
     linearExpr = linearExpr + dimExpr * strides[i];
   }
 
