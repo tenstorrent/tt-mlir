@@ -34,19 +34,39 @@ SNIPPETS = [
     "models/gpt_oss_20b/rope_sin_decode",
     "models/gpt_oss_20b/rope_cos_prefill",
     "models/gpt_oss_20b/rope_cos_decode",
+    "models/gpt_oss_120b/compare_eq_multiply",
+    "models/gpt_oss_120b/swiglu_prefill",
+    "models/gpt_oss_120b/attention_mask_ge_prefill",
+    "models/gpt_oss_120b/rope_sin_prefill",
+    "models/gpt_oss_120b/rope_cos_prefill",
+    "models/gpt_oss_120b/rope_cos_sin_concat_prefill",
+    "models/gpt_oss_120b/attention_mask_compare_prefill",
     "ttir/d2m_optimizer_two_d2m_subgraphs/unary_matmul_unary",
     "ttir/d2m_optimizer_two_d2m_subgraphs/eltwise_matmul_eltwise",
 ]
 
+# Cross-type compare D2M subgraphs materialize scratch ttnn.empty buffers during
+# D2MToTTNN lowering. TTNNTraceHoistTransform (enable-trace=true) rejects
+# ttnn.empty ops interleaved with hoistable ops; see issue #8402.
+TRACE_SNIPPETS = [
+    "models/gpt_oss_20b/compare_eq_multiply",
+    "models/gpt_oss_20b/attention_mask_compare_prefill",
+    "models/gpt_oss_20b/attention_mask_compare_decode",
+    "models/gpt_oss_120b/compare_eq_multiply",
+    "models/gpt_oss_120b/attention_mask_ge_prefill",
+    "models/gpt_oss_120b/attention_mask_compare_prefill",
+    "models/gpt_oss_120b/rope_cos_sin_concat_prefill",
+]
 
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("snippet", SNIPPETS)
-def test_d2m_fusion_with_optimizer(request, target, snippet):
-    """E2E: TTIR with D2M fusion (optimization-level=1, enable-create-d2m-subgraphs) -> flatbuffer -> run.
 
-    Compilation runs with no device open so the pipeline can use mock/simulator
-    context for opmodel; device is opened only after compile for execute_fb.
-    """
+def _run_d2m_fusion_with_optimizer_test(
+    request,
+    target,
+    snippet,
+    *,
+    enable_trace,
+    artifact_subdir,
+):
     mlir_path = os.path.join(SNIPPETS_BASE_DIR, f"{snippet}.mlir")
     if not os.path.exists(mlir_path):
         pytest.skip(f"MLIR not found: {mlir_path}")
