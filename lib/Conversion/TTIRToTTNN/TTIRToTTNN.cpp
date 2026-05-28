@@ -32,6 +32,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include <cstdint>
+#include <numeric>
 #include <optional>
 
 using namespace mlir;
@@ -1468,6 +1469,40 @@ public:
       input = rewriter.create<ttnn::ReshapeOp>(
           loc, reshapedType, input, rewriter.getI32ArrayAttr(reshapedShapeI32));
     }
+
+    // TTNN group_norm verifier requires N * (H*W) to be a multiple of
+    // TILE_HEIGHT. If it isn't, pad dim 0 (batch) up to the smallest valid
+    // multiple. This is safe because group_norm normalizes each batch item
+    // independently; padded rows are sliced off after the op.
+    constexpr int64_t TILE_HEIGHT = ttcore::TileType::getDefaultShape()[0];
+    RankedTensorType reshapedInputType =
+        mlir::cast<RankedTensorType>(input.getType());
+    int64_t origN = reshapedInputType.getShape()[0];
+    int64_t hw = reshapedInputType.getShape()[2];
+    int64_t paddedN = origN;
+    if ((origN * hw) % TILE_HEIGHT != 0) {
+      int64_t requiredMultiple =
+          TILE_HEIGHT / std::gcd(hw, static_cast<int64_t>(TILE_HEIGHT));
+      paddedN = llvm::divideCeil(origN, requiredMultiple) * requiredMultiple;
+
+      llvm::SmallVector<int64_t> paddedInputShape(
+          reshapedInputType.getShape().begin(),
+          reshapedInputType.getShape().end());
+      paddedInputShape[0] = paddedN;
+
+      llvm::SmallVector<int32_t> padding(2 * reshapedInputType.getRank(), 0);
+      padding[1] = static_cast<int32_t>(paddedN - origN);
+
+      RankedTensorType paddedInputType =
+          ttnn::utils::RankedTensorTypeFactory::create(reshapedInputType,
+                                                       paddedInputShape);
+      input = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_n_for_group_norm"),
+          paddedInputType, input, rewriter.getDenseI32ArrayAttr(padding),
+          rewriter.getF32FloatAttr(0.0f),
+          /*use_multicore=*/rewriter.getBoolAttr(true));
+    }
+
     // Compute core_grid from the device worker grid and input dimensions.
     // Input is now in [N, 1, H*W, C] form.
 
@@ -1543,6 +1578,30 @@ public:
         loc, this->getTypeConverter()->convertType(groupNormInputType), input,
         adaptor.getInputMask(), weight, bias, adaptor.getNumGroups(),
         adaptor.getEpsilon(), coreGridAttr);
+
+    // If we padded the batch dimension above, slice the padded rows off.
+    if (paddedN != origN) {
+      auto gnResultType =
+          mlir::cast<RankedTensorType>(groupNormResult.getType());
+      llvm::SmallVector<int64_t> slicedShape(gnResultType.getShape().begin(),
+                                             gnResultType.getShape().end());
+      slicedShape[0] = origN;
+      RankedTensorType slicedType =
+          ttnn::utils::RankedTensorTypeFactory::create(gnResultType,
+                                                       slicedShape);
+
+      int64_t gnRank = gnResultType.getRank();
+      llvm::SmallVector<int32_t> begins(gnRank, 0);
+      llvm::SmallVector<int32_t> ends(gnResultType.getShape().begin(),
+                                      gnResultType.getShape().end());
+      ends[0] = static_cast<int32_t>(origN);
+      llvm::SmallVector<int32_t> steps(gnRank, 1);
+
+      groupNormResult = rewriter.create<ttnn::SliceStaticOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_slice_n_for_group_norm"),
+          slicedType, groupNormResult, rewriter.getI32ArrayAttr(begins),
+          rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+    }
 
     // Reshape back to original shape if reshaped.
     if (needsReshape) {

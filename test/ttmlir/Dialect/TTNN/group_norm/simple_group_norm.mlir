@@ -93,4 +93,21 @@ module {
     %1 = "ttir.group_norm"(%arg0, %arg1, %arg2) <{num_groups = 8 : i64, epsilon = 1.000000e-05 : f32, channel_dim = 1 : i64, operandSegmentSizes = array<i32: 1, 0, 1, 1>}> : (tensor<1x480x1x64xbf16>, tensor<480xbf16>, tensor<480xbf16>) -> tensor<1x480x1x64xbf16>
     return %1 : tensor<1x480x1x64xbf16>
   }
+
+  // Test that pads the batch dim when N*(H*W) is not tile-aligned. After
+  // NCHW -> NHWC permute and reshape to [N, 1, H*W, C], the input is
+  // (6, 1, 6360, 768). N*(H*W) = 38160 is NOT a multiple of TILE_HEIGHT (32),
+  // so the conversion pads N from 6 to 8 (smallest multiple s.t. N*6360 % 32
+  // == 0), runs group_norm, and slices the result back. Mirrors the Mochi
+  // VAE decoder failing call.
+  func.func @forward_pad_n_for_tile_align(%arg0: tensor<6x768x60x106xbf16>, %arg1: tensor<768xbf16>, %arg2: tensor<768xbf16>) -> tensor<6x768x60x106xbf16> {
+    // CHECK-LABEL: func.func @forward_pad_n_for_tile_align
+    // CHECK: "ttnn.pad"
+    // CHECK-SAME: padding = array<i32: 0, 2, 0, 0, 0, 0, 0, 0>
+    // CHECK: "ttnn.group_norm"
+    // CHECK: "ttnn.slice_static"
+    // CHECK-SAME: ends = [6 : i32, 1 : i32, 6360 : i32, 768 : i32]
+    %1 = "ttir.group_norm"(%arg0, %arg1, %arg2) <{num_groups = 32 : i64, epsilon = 1.000000e-05 : f32, channel_dim = 1 : i64, operandSegmentSizes = array<i32: 1, 0, 1, 1>}> : (tensor<6x768x60x106xbf16>, tensor<768xbf16>, tensor<768xbf16>) -> tensor<6x768x60x106xbf16>
+    return %1 : tensor<6x768x60x106xbf16>
+  }
 }
