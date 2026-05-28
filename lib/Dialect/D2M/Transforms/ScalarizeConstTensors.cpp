@@ -17,8 +17,8 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 #include <optional>
 
@@ -31,6 +31,13 @@ namespace {
 struct ConstantUseChain {
   GenericOp genericOp;
   unsigned genericInputIdx;
+};
+
+struct ScalarizationPlan {
+  GenericOp fillGenericOp;
+  Location loc;
+  Attribute splatValue;
+  SmallVector<ConstantUseChain> chains;
 };
 
 static Value getLayoutOrCastResult(Operation *op) {
@@ -93,33 +100,24 @@ tryGetSplatAttrFromFillGeneric(GenericOp genericOp) {
   return std::nullopt;
 }
 
-static void
-traceValueToGenericChains(Value producedValue,
-                          SmallVectorImpl<ConstantUseChain> &chains) {
-  for (Operation *user : producedValue.getUsers()) {
-    Value currentValue = producedValue;
-    Operation *currentOp = user;
-
-    while (Value result = getLayoutOrCastResult(currentOp)) {
-      currentValue = result;
-      if (currentValue.getUsers().empty()) {
-        break;
-      }
-      // NOTE: This only follows the first user. If a result has
-      // multiple users, only one path will be traced. This is acceptable for
-      // the current use case but may miss optimization opportunities.
-      for (Operation *user : currentValue.getUsers()) {
-        // RemoteLoadOps are embedded within a GenericOp, so we skip them to try
-        // to find the enclosing GenericOp.
-        if (isa<RemoteLoadOp>(user)) {
-          continue;
-        }
-        currentOp = user;
-        break;
-      }
+static void traceValueToGenericChainsImpl(
+    Value currentValue, SmallVectorImpl<ConstantUseChain> &chains,
+    llvm::SmallPtrSetImpl<Operation *> &visitedLayoutOrCastOps) {
+  for (Operation *user : currentValue.getUsers()) {
+    // RemoteLoadOps are embedded within a GenericOp; the GenericOp itself is
+    // the use chain endpoint we need for operand cleanup.
+    if (isa<RemoteLoadOp>(user)) {
+      continue;
     }
 
-    if (auto genericOp = dyn_cast<GenericOp>(currentOp)) {
+    if (Value result = getLayoutOrCastResult(user)) {
+      if (visitedLayoutOrCastOps.insert(user).second) {
+        traceValueToGenericChainsImpl(result, chains, visitedLayoutOrCastOps);
+      }
+      continue;
+    }
+
+    if (auto genericOp = dyn_cast<GenericOp>(user)) {
       for (auto [idx, input] : llvm::enumerate(genericOp.getInputs())) {
         if (input == currentValue) {
           chains.push_back({genericOp, static_cast<unsigned>(idx)});
@@ -127,6 +125,13 @@ traceValueToGenericChains(Value producedValue,
       }
     }
   }
+}
+
+static void
+traceValueToGenericChains(Value producedValue,
+                          SmallVectorImpl<ConstantUseChain> &chains) {
+  llvm::SmallPtrSet<Operation *, 32> visitedLayoutOrCastOps;
+  traceValueToGenericChainsImpl(producedValue, chains, visitedLayoutOrCastOps);
 }
 
 static void
@@ -227,7 +232,7 @@ static IRMapping buildBlockArgMappingWithoutScalarizedIndices(
 
 static linalg::GenericOp rebuildLinalgGenericWithoutScalarizedInputs(
     linalg::GenericOp linalgOp, ArrayRef<unsigned> scalarizedInputIndices,
-    PatternRewriter &rewriter) {
+    RewriterBase &rewriter) {
   SmallVector<Value> newInputs = buildInputsWithoutScalarizedIndices(
       linalgOp.getInputs(), scalarizedInputIndices);
 
@@ -275,7 +280,7 @@ static linalg::GenericOp rebuildLinalgGenericWithoutScalarizedInputs(
 
 static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
     GenericOp genericOp, ArrayRef<unsigned> scalarizedInputIndices,
-    PatternRewriter &rewriter) {
+    RewriterBase &rewriter) {
   unsigned numInputs = genericOp.getInputs().size();
   unsigned numOutputs = genericOp.getOutputs().size();
 
@@ -345,16 +350,25 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
   return newGenericOp;
 }
 
-/// Replace splat tensor uses (via layout/cast chains) with scalar RHS constants
-/// where supported, then drop now-unused generic inputs.
-static LogicalResult
-scalarizeSplatThroughUseChains(Location loc, Attribute splatValue,
-                               ArrayRef<ConstantUseChain> chains,
-                               PatternRewriter &rewriter) {
-  bool madeChanges = false;
+template <typename OpT>
+static void addUniqueOp(OpT op, SmallVectorImpl<OpT> &ops,
+                        llvm::SmallPtrSetImpl<Operation *> &seen) {
+  if (seen.insert(op.getOperation()).second) {
+    ops.push_back(op);
+  }
+}
 
-  SmallVector<linalg::GenericOp> linalgOpsToCleanup;
-  SmallVector<GenericOp> genericOpsToCleanup;
+/// Replace splat tensor uses (via layout/cast chains) with scalar RHS constants
+/// where supported. Cleanup is batched separately so each affected op is
+/// rebuilt at most once.
+static bool scalarizeSplatThroughUseChains(
+    Location loc, Attribute splatValue, ArrayRef<ConstantUseChain> chains,
+    RewriterBase &rewriter,
+    SmallVectorImpl<linalg::GenericOp> &linalgOpsToCleanup,
+    SmallVectorImpl<GenericOp> &genericOpsToCleanup,
+    llvm::SmallPtrSetImpl<Operation *> &linalgOpsSeen,
+    llvm::SmallPtrSetImpl<Operation *> &genericOpsSeen) {
+  bool madeChanges = false;
 
   for (const auto &chain : chains) {
     SmallVector<BlockArgument> linalgArgs;
@@ -397,19 +411,27 @@ scalarizeSplatThroughUseChains(Location loc, Attribute splatValue,
       if (arg.use_empty()) {
         if (auto linalgOp =
                 dyn_cast<linalg::GenericOp>(linalgBlock->getParentOp())) {
-          if (!llvm::is_contained(linalgOpsToCleanup, linalgOp)) {
-            linalgOpsToCleanup.push_back(linalgOp);
-          }
+          addUniqueOp(linalgOp, linalgOpsToCleanup, linalgOpsSeen);
         }
       }
     }
 
-    if (!llvm::is_contained(genericOpsToCleanup, chain.genericOp)) {
-      genericOpsToCleanup.push_back(chain.genericOp);
-    }
+    addUniqueOp(chain.genericOp, genericOpsToCleanup, genericOpsSeen);
   }
 
+  return madeChanges;
+}
+
+static bool
+cleanupScalarizedLinalgOps(ArrayRef<linalg::GenericOp> linalgOpsToCleanup,
+                           RewriterBase &rewriter) {
+  bool madeChanges = false;
+
   for (linalg::GenericOp linalgOp : linalgOpsToCleanup) {
+    if (!linalgOp->getBlock()) {
+      continue;
+    }
+
     Block *linalgBlock = linalgOp.getBody();
     SmallVector<unsigned> scalarizedInputIndices =
         findScalarizedInputIndices(linalgBlock, linalgOp.getNumDpsInputs());
@@ -442,7 +464,69 @@ scalarizeSplatThroughUseChains(Location loc, Attribute splatValue,
     madeChanges = true;
   }
 
+  return madeChanges;
+}
+
+static bool hasNoResultUses(Operation *op) {
+  return llvm::all_of(op->getResults(),
+                      [](Value result) { return result.use_empty(); });
+}
+
+static bool isDeadScalarizationHelperOp(Operation *op) {
+  return hasNoResultUses(op) &&
+         isa<arith::ConstantOp, tensor::EmptyOp, BlockIndexOp, ToLayoutOp,
+             ViewLayoutOp, ttir::TTNNMetalLayoutCastOp>(op);
+}
+
+static bool cleanupDeadOpsInGenericRegions(ArrayRef<GenericOp> genericOps,
+                                           RewriterBase &rewriter) {
+  bool madeAnyChanges = false;
+  bool madeChanges = false;
+
+  do {
+    madeChanges = false;
+
+    for (GenericOp genericOp : genericOps) {
+      if (!genericOp->getBlock()) {
+        continue;
+      }
+
+      SmallVector<Operation *> deadOps;
+      for (Region &region : genericOp.getRegions()) {
+        region.walk<WalkOrder::PostOrder>([&](Operation *op) {
+          if (op == genericOp.getOperation() ||
+              op->hasTrait<OpTrait::IsTerminator>()) {
+            return;
+          }
+          if (isDeadScalarizationHelperOp(op)) {
+            deadOps.push_back(op);
+          }
+        });
+      }
+
+      for (Operation *op : deadOps) {
+        if (!op->getBlock() || !isDeadScalarizationHelperOp(op)) {
+          continue;
+        }
+        rewriter.eraseOp(op);
+        madeChanges = true;
+        madeAnyChanges = true;
+      }
+    }
+  } while (madeChanges);
+
+  return madeAnyChanges;
+}
+
+static bool cleanupScalarizedGenericOps(ArrayRef<GenericOp> genericOpsToCleanup,
+                                        RewriterBase &rewriter) {
+  bool madeChanges = false;
+
   for (GenericOp genericOp : genericOpsToCleanup) {
+    if (!genericOp->getBlock()) {
+      continue;
+    }
+
     SmallVector<unsigned> unusedInputIndices =
         findUnusedGenericInputIndices(genericOp);
 
@@ -457,32 +541,77 @@ scalarizeSplatThroughUseChains(Location loc, Attribute splatValue,
     madeChanges = true;
   }
 
-  return madeChanges ? success() : failure();
+  return madeChanges;
 }
 
-class ScalarizeGenericFillPattern : public OpRewritePattern<GenericOp> {
-public:
-  using OpRewritePattern<GenericOp>::OpRewritePattern;
+static void
+collectLayoutOrCastUsersPostOrder(Value value,
+                                  SmallVectorImpl<Operation *> &ops,
+                                  llvm::SmallPtrSetImpl<Operation *> &seen) {
+  for (Operation *user : value.getUsers()) {
+    Value result = getLayoutOrCastResult(user);
+    if (!result) {
+      continue;
+    }
 
-  LogicalResult matchAndRewrite(GenericOp genericOp,
-                                PatternRewriter &rewriter) const override {
+    collectLayoutOrCastUsersPostOrder(result, ops, seen);
+    if (seen.insert(user).second) {
+      ops.push_back(user);
+    }
+  }
+}
+
+static bool cleanupDeadScalarizedFillChains(ArrayRef<ScalarizationPlan> plans,
+                                            RewriterBase &rewriter) {
+  bool madeChanges = false;
+  SmallVector<Operation *> maybeDeadOps;
+  llvm::SmallPtrSet<Operation *, 32> seen;
+
+  for (const ScalarizationPlan &plan : plans) {
+    GenericOp fillGenericOp = plan.fillGenericOp;
+    if (!fillGenericOp->getBlock()) {
+      continue;
+    }
+
+    collectLayoutOrCastUsersPostOrder(fillGenericOp.getResult(0), maybeDeadOps,
+                                      seen);
+    if (seen.insert(fillGenericOp).second) {
+      maybeDeadOps.push_back(fillGenericOp);
+    }
+  }
+
+  for (Operation *op : maybeDeadOps) {
+    if (!op->getBlock() || !hasNoResultUses(op)) {
+      continue;
+    }
+    rewriter.eraseOp(op);
+    madeChanges = true;
+  }
+
+  return madeChanges;
+}
+
+static SmallVector<ScalarizationPlan> collectScalarizationPlans(Operation *op) {
+  SmallVector<ScalarizationPlan> plans;
+  op->walk([&](GenericOp genericOp) {
     std::optional<Attribute> splatAttr =
         tryGetSplatAttrFromFillGeneric(genericOp);
     if (!splatAttr) {
-      return failure();
+      return;
     }
 
     SmallVector<ConstantUseChain> chains;
     traceValueToGenericChains(genericOp.getResult(0), chains);
 
     if (chains.empty()) {
-      return failure();
+      return;
     }
 
-    return scalarizeSplatThroughUseChains(genericOp.getLoc(), *splatAttr,
-                                          chains, rewriter);
-  }
-};
+    plans.push_back(
+        {genericOp, genericOp.getLoc(), *splatAttr, std::move(chains)});
+  });
+  return plans;
+}
 
 class D2MScalarizeConstTensors
     : public impl::D2MScalarizeConstTensorsBase<D2MScalarizeConstTensors> {
@@ -491,15 +620,29 @@ public:
 
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
-    RewritePatternSet patterns(ctx);
-    patterns.add<ScalarizeGenericFillPattern>(ctx);
 
-    GreedyRewriteConfig config;
-    config.setMaxIterations(25);
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
-                                     config))) {
-      signalPassFailure();
+    SmallVector<ScalarizationPlan> plans =
+        collectScalarizationPlans(getOperation());
+    if (plans.empty()) {
+      return;
     }
+
+    IRRewriter rewriter(ctx);
+    SmallVector<linalg::GenericOp> linalgOpsToCleanup;
+    SmallVector<GenericOp> genericOpsToCleanup;
+    llvm::SmallPtrSet<Operation *, 32> linalgOpsSeen;
+    llvm::SmallPtrSet<Operation *, 32> genericOpsSeen;
+
+    for (ScalarizationPlan &plan : plans) {
+      scalarizeSplatThroughUseChains(
+          plan.loc, plan.splatValue, plan.chains, rewriter, linalgOpsToCleanup,
+          genericOpsToCleanup, linalgOpsSeen, genericOpsSeen);
+    }
+
+    cleanupScalarizedLinalgOps(linalgOpsToCleanup, rewriter);
+    cleanupDeadOpsInGenericRegions(genericOpsToCleanup, rewriter);
+    cleanupScalarizedGenericOps(genericOpsToCleanup, rewriter);
+    cleanupDeadScalarizedFillChains(plans, rewriter);
   }
 };
 
