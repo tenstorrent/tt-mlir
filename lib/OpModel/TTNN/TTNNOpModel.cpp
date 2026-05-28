@@ -15,6 +15,9 @@
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
+#include "tt-metalium/math.hpp"
+#include "tt-metalium/work_split.hpp"
+
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
@@ -7586,7 +7589,32 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert params
+  // For bilinear upsample, ttnn::upsample internally calls halo exchange which
+  // requires a specific HEIGHT_SHARDED shard height (ceil(N*H*W / num_cores)).
+  // MLA may propose an arbitrary shard height for HEIGHT_SHARDED inputs —
+  // e.g. propagating shard_height=2 from a preceding op where NHW=128 to a
+  // subsequent op where NHW=512, yielding 256 shards > 64 available cores and
+  // a runtime TT_FATAL.  Rather than attempting to correct MLA's proposed shard
+  // spec (the corrected TensorSpec is used only for the query; MLA still stores
+  // its own layout in the compiled graph), reject all sharded L1 layouts here.
+  // ttnn::upsample autoreshards DRAM interleaved → HEIGHT_SHARDED internally
+  // using the correct shard height, so DRAM input is always safe.
+  if (mode == "bilinear" && inputLayout.hasL1BufferType() &&
+      inputLayout.getMemLayout() &&
+      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
+    return llvm::createStringError(
+        "Bilinear upsample does not support sharded L1 input; "
+        "use DRAM interleaved (ttnn::upsample autoreshards internally)");
+  }
+  if (mode == "bilinear" && outputLayout && outputLayout.hasL1BufferType() &&
+      outputLayout.getMemLayout() &&
+      isShardedMemoryLayout(outputLayout.getMemLayout().getValue())) {
+    return llvm::createStringError(
+        "Bilinear upsample does not support sharded L1 output; "
+        "use DRAM interleaved");
+  }
+
+  // Convert scale factor
   std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
       convertedScaleFactor;
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
@@ -7603,18 +7631,19 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     return llvm::createStringError("Invalid scaleFactor");
   }
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  auto inputSpecExp = detail::convertToTensorSpec(device, inputShape, inputLayout);
   if (!inputSpecExp) {
     return inputSpecExp.takeError();
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Create query closure
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
   auto upsampleQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(::ttnn::upsample, device, inputSpec,
                                 convertedScaleFactor, std::string(mode),
-                                detail::getNullableMemoryConfig(outputLayout),
+                                outputMemConfig,
                                 /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -7634,6 +7663,25 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+  // Same rejection as getOpConstraints: reject all sharded L1 for bilinear
+  // upsample.  MLA may propagate an arbitrary shard height from a preceding op
+  // that yields more shards than available cores → runtime TT_FATAL.
+  // ttnn::upsample autoreshards from DRAM interleaved internally.
+  if (mode == "bilinear" && inputLayout.hasL1BufferType() &&
+      inputLayout.getMemLayout() &&
+      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
+    return llvm::createStringError(
+        "Bilinear upsample does not support sharded L1 input; "
+        "use DRAM interleaved");
+  }
+  if (mode == "bilinear" && outputLayout && outputLayout.hasL1BufferType() &&
+      outputLayout.getMemLayout() &&
+      isShardedMemoryLayout(outputLayout.getMemLayout().getValue())) {
+    return llvm::createStringError(
+        "Bilinear upsample does not support sharded L1 output; "
+        "use DRAM interleaved");
+  }
+
   // Convert parameters
   std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
       convertedScaleFactor;
@@ -7651,18 +7699,20 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
     return llvm::createStringError("Invalid scaleFactor");
   }
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  auto inputSpecExp = detail::convertToTensorSpec(device, inputShape, inputLayout);
   if (!inputSpecExp) {
     return inputSpecExp.takeError();
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
   // Create query closure
   auto upsampleQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::upsample, device, inputSpec,
                             convertedScaleFactor, std::string(mode),
-                            detail::getNullableMemoryConfig(outputLayout),
+                            outputMemConfig,
                             /*compute_kernel_config=*/std::nullopt);
   };
 
