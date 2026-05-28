@@ -473,6 +473,66 @@ public:
   }
 };
 
+// Special handling for tenstorrent.grid_sample -> ttir.grid_sample
+// Reads mode/padding_mode/align_corners from the composite attributes dict.
+//
+// NOTE: tt-xla currently emits stablehlo.custom_call (not stablehlo.composite)
+// for grid_sample via torch_xla.experimental.stablehlo_custom_call — see the
+// matching pattern in StableHLOToTTIRPatterns.cpp. This composite pattern is
+// kept for forward compatibility with frontends (e.g. JAX) that may emit a
+// stablehlo.composite directly through StableHLOCompositeBuilder.
+class TenstorrentGridSampleConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentGridSampleConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.grid_sample") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+    if (adaptor.getOperands().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.grid_sample expects exactly two operands (input, grid)");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    StringAttr modeAttr = rewriter.getStringAttr("bilinear");
+    if (auto mode = compositeAttrs.getAs<StringAttr>("mode")) {
+      modeAttr = mode;
+    }
+
+    StringAttr paddingModeAttr = rewriter.getStringAttr("zeros");
+    if (auto paddingMode = compositeAttrs.getAs<StringAttr>("padding_mode")) {
+      paddingModeAttr = paddingMode;
+    }
+
+    BoolAttr alignCornersAttr = rewriter.getBoolAttr(false);
+    if (auto alignCorners = compositeAttrs.getAs<BoolAttr>("align_corners")) {
+      alignCornersAttr = alignCorners;
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::GridSampleOp>(
+        srcOp, outputType, adaptor.getOperands()[0], adaptor.getOperands()[1],
+        modeAttr, paddingModeAttr, alignCornersAttr);
+    return success();
+  }
+};
+
 // Special handling for tenstorrent.layer_norm -> ttir.layer_norm
 // Converts normalized_shape tensor attribute to DenseI64ArrayAttr
 // and sets operandSegmentSizes for AttrSizedOperandSegments
@@ -977,6 +1037,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
+  patterns.add<TenstorrentGridSampleConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);

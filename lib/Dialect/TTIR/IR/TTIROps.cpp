@@ -7567,6 +7567,49 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// GridSampleOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::GridSampleOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType gridType = getGrid().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input must be a 4D tensor (N, C, H_in, W_in)");
+  }
+  if (gridType.getRank() != 4) {
+    return emitOpError("Grid must be a 4D tensor (N, H_out, W_out, 2)");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("Output must be a 4D tensor (N, C, H_out, W_out)");
+  }
+  if (gridType.getDimSize(3) != 2) {
+    return emitOpError(
+        "Grid last dimension must be 2 (x, y normalized coordinates)");
+  }
+  if (inputType.getDimSize(0) != gridType.getDimSize(0)) {
+    return emitOpError("Input and grid must share the same batch dimension");
+  }
+
+  StringRef mode = getMode();
+  if (mode != "bilinear" && mode != "nearest") {
+    return emitOpError("Expected mode to be one of (bilinear, nearest), got \"")
+           << mode << "\"";
+  }
+
+  StringRef paddingMode = getPaddingMode();
+  if (paddingMode != "zeros" && paddingMode != "border" &&
+      paddingMode != "reflection") {
+    return emitOpError("Expected padding_mode to be one of "
+                       "(zeros, border, reflection), got \"")
+           << paddingMode << "\"";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GlobalAvgPool2dOp
 //===----------------------------------------------------------------------===//
 

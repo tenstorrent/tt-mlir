@@ -6189,6 +6189,36 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let hasVerifier = 1;
 }
 
+def TTIR_GridSampleOp : TTIR_NamedOp<"grid_sample"> {
+  let summary = "Grid sample operation for spatial sampling with bilinear interpolation.";
+  let description = [{
+    Samples the input tensor at grid locations using bilinear interpolation.
+    Grid coordinates are expected to be normalized to [-1, 1] range.
+
+    Args:
+        input (Tensor): Input tensor of shape (N, C, H_in, W_in).
+        grid (Tensor): Sampling grid of shape (N, H_out, W_out, 2) with coordinates in [-1, 1].
+        mode (string): Interpolation mode, currently only "bilinear" is supported.
+        padding_mode (string): How to handle out-of-bounds coordinates,
+            currently only "zeros" is supported.
+        align_corners (bool): Whether to align corners when mapping normalized coordinates
+            to pixel indices. Defaults to `false`.
+
+    Returns:
+        Tensor: Output tensor of shape (N, C, H_out, W_out).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$grid,
+                       DefaultValuedStrAttr<StrAttr, "bilinear">:$mode,
+                       DefaultValuedStrAttr<StrAttr, "zeros">:$padding_mode,
+                       DefaultValuedAttr<BoolAttr, "false">:$align_corners);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";
   let description = [{

@@ -1235,6 +1235,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_GlobalAvgPool2dOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::GridSampleOp: {
+    tensorRef = opContext.type_as_GridSampleOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
     tensorRefs = {opContext.type_as_PrepareConv2dWeightsOp()->out()};
     break;
@@ -1747,6 +1751,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     tensorRefs = {opContext.type_as_GlobalAvgPool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GridSampleOp: {
+    tensorRefs = {opContext.type_as_GridSampleOp()->input(),
+                  opContext.type_as_GridSampleOp()->grid()};
     break;
   }
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {

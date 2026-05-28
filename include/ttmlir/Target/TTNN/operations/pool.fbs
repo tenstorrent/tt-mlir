@@ -67,6 +67,16 @@ table UpsampleOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table GridSampleOp {
+  input: tt.target.ttnn.TensorRef;
+  grid: tt.target.ttnn.TensorRef;
+  mode: string;
+  padding_mode: string;
+  align_corners: bool = false;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table MaxPool2dWithIndicesOp {
   in: tt.target.ttnn.TensorRef;
   result: tt.target.ttnn.TensorRef;

@@ -1780,6 +1780,32 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
       *cache.fbb, input, scaleType, scaleFactor, mode, memoryConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::GridSampleOp>
+createOp(FlatbufferObjectCache &cache, GridSampleOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> grid =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getGrid()));
+  flatbuffers::Offset<flatbuffers::String> mode =
+      toFlatbuffer(cache, op.getMode());
+  flatbuffers::Offset<flatbuffers::String> paddingMode =
+      toFlatbuffer(cache, op.getPaddingMode());
+
+  flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      op.getMemoryConfig() ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                           : 0;
+
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateGridSampleOp(
+      *cache.fbb, input, grid, mode, paddingMode, op.getAlignCorners(),
+      memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::UpdateCacheOp>
 createOp(FlatbufferObjectCache &cache, UpdateCacheOp op) {
   auto cacheOperand = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4542,6 +4568,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
     return createOperation(cache, createOp(cache, upsampleOp), debugString,
+                           locInfo);
+  }
+  if (auto gridSampleOp = dyn_cast<GridSampleOp>(op); gridSampleOp) {
+    return createOperation(cache, createOp(cache, gridSampleOp), debugString,
                            locInfo);
   }
   if (auto batchNormOp = dyn_cast<BatchNormInferenceOp>(op); batchNormOp) {

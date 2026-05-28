@@ -2998,6 +2998,24 @@ public:
     return success();
   }
 };
+
+class GridSampleOpConversionPattern
+    : public OpConversionPattern<ttir::GridSampleOp> {
+public:
+  using OpConversionPattern<ttir::GridSampleOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GridSampleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::GridSampleOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getGrid(), adaptor.getModeAttr(),
+        adaptor.getPaddingModeAttr(), adaptor.getAlignCornersAttr(),
+        /*memory_config=*/nullptr);
+
+    return success();
+  }
+};
 } // namespace
 
 // Lowering of TTIR `collective_broadcast` op to a sequence of TTNN
@@ -3671,6 +3689,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GatherOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
+           GridSampleOpConversionPattern,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,

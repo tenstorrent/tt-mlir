@@ -8045,6 +8045,64 @@ public:
 } // namespace
 
 namespace {
+// Recognizes stablehlo.custom_call @tenstorrent.grid_sample emitted by
+// tt_torch.composite_ops.composite_grid_sample (which routes through
+// torch.ops.tt.grid_sample) and lowers it to ttir.grid_sample.
+class StableHLOGridSampleConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tenstorrent.grid_sample") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 2 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.grid_sample expects 2 operands (input, grid) "
+                 "and 1 result");
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+
+    StringAttr modeAttr = rewriter.getStringAttr("bilinear");
+    StringAttr paddingModeAttr = rewriter.getStringAttr("zeros");
+    BoolAttr alignCornersAttr = rewriter.getBoolAttr(false);
+
+    if (frontendAttributes) {
+      if (auto m = frontendAttributes.getAs<mlir::StringAttr>("mode")) {
+        modeAttr = m;
+      }
+      if (auto pm =
+              frontendAttributes.getAs<mlir::StringAttr>("padding_mode")) {
+        paddingModeAttr = pm;
+      }
+      if (auto ac =
+              frontendAttributes.getAs<mlir::StringAttr>("align_corners")) {
+        alignCornersAttr = rewriter.getBoolAttr(ac.getValue() == "true");
+      }
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    rewriter.replaceOpWithNewOp<ttir::GridSampleOp>(
+        srcOp, outputType, adaptor.getOperands()[0], adaptor.getOperands()[1],
+        modeAttr, paddingModeAttr, alignCornersAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOErfOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -9004,6 +9062,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOPagedFillCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOSamplingConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOGridSampleConversionPattern>(typeConverter, ctx);
 }
 
 static void
