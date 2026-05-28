@@ -591,11 +591,9 @@ defvar D2MNumStreamBuffersOption = [
 def D2MReblockGenerics : Pass<"d2m-reblock-generics", "::mlir::ModuleOp"> {
   let summary = "Rebuild d2m.generic ops using block-factor analysis.";
   let description = [{
-    This pass runs after bufferization and before allocation. It uses
+    This pass uses
     BlockFactorAnalysis to select block factors for affine blocked d2m.generic
-    ops, then rebuilds those generics with the selected factors. Any view_layout
-    op introduced by reblocking is intentionally left for
-    d2m-materialize-view-returns to fix up before allocation.
+    ops, then rebuilds those generics with the selected factors.
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
