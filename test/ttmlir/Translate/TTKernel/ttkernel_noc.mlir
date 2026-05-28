@@ -67,9 +67,9 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     %noc = arith.constant 1 : i8
     // CHECK: noc_inline_dw_write<InlineWriteDst::L1>([[NOCADDR1]], [[INLINE_VALUE]], [[BE]], [[NOC]])
     ttkernel.noc_inline_dw_write(%4, %inline_value, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
-    // CHECK: noc_async_atomic_barrier()
+    // CHECK: [[NOC1]].async_atomic_barrier()
     ttkernel.noc_async_atomic_barrier() : () -> ()
-    // CHECK: noc_async_atomic_barrier([[NOC]])
+    // CHECK: noc1.async_atomic_barrier()
     ttkernel.noc_async_atomic_barrier(%noc) : (i8) -> ()
     // CHECK: [[NOC1]].async_read_barrier<Noc::BarrierMode::FULL>()
     ttkernel.noc_async_read_barrier() : () -> ()

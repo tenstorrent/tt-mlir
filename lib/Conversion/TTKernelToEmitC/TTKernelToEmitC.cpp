@@ -1022,13 +1022,9 @@ public:
                   ttkernel::NocAsyncAtomicBarrierOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 1> operands;
-    std::string callStr = "noc_async_atomic_barrier(";
-    Value nocId = adaptor.getNocId();
-    if (nocId) {
-      callStr += "{}";
-      operands.push_back(nocId);
-    }
-    callStr += ");";
+    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
+                                             operands, adaptor.getNocId());
+    std::string callStr = nocName + ".async_atomic_barrier();";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.eraseOp(op);

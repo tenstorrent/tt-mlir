@@ -2254,19 +2254,35 @@ module {
 
     // CHECK-LABEL: func @noc_async_atomic_barrier
     func.func @noc_async_atomic_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK-NOT: emitc.verbatim "Noc noc{{.*}}"
-      // CHECK: emitc.verbatim "noc_async_atomic_barrier();"
+      // CHECK: emitc.verbatim "Noc noc;"
+      // CHECK: emitc.verbatim "noc.async_atomic_barrier();"
       ttkernel.noc_async_atomic_barrier() : () -> ()
       return
     }
 
     // CHECK-LABEL: func @noc_async_atomic_barrier_with_noc_id
     func.func @noc_async_atomic_barrier_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK-NOT: emitc.verbatim "Noc noc{{.*}}"
+      // CHECK: emitc.verbatim "Noc noc1(1);"
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
       %noc_id = arith.constant 1 : i8
-      // CHECK-NOT: emitc.verbatim "Noc noc{{.*}}"
-      // CHECK: emitc.verbatim "noc_async_atomic_barrier({});" args %[[NOC_ID]] : i8
+      // CHECK: emitc.verbatim "noc1.async_atomic_barrier();"
+      ttkernel.noc_async_atomic_barrier(%noc_id) : (i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_async_atomic_barrier_with_dynamic_noc_id
+    func.func @noc_async_atomic_barrier_with_dynamic_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %noc_arg = arith.constant 262400 : i32
+      %noc_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %noc_offset = arith.constant 0 : i32
+      %noc_id = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+      // CHECK: %[[NOC_ARG:.*]] = "emitc.constant"() <{value = 262400 : i32}>
+      // CHECK: %[[NOC_PTR:.*]] = emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint8_t*>"(%[[NOC_ARG]])
+      // CHECK: %[[NOC_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      // CHECK: %[[NOC_SLOT:.*]] = emitc.subscript %[[NOC_PTR]][%[[NOC_OFFSET]]
+      // CHECK: %[[LOADED_NOC:.*]] = emitc.load %[[NOC_SLOT]]
+      // CHECK: %[[DYNAMIC_NOC:.*]] = emitc.cast %[[LOADED_NOC]]
+      // CHECK: emitc.verbatim "Noc({}).async_atomic_barrier();" args %[[DYNAMIC_NOC]] : i8
       ttkernel.noc_async_atomic_barrier(%noc_id) : (i8) -> ()
       return
     }
