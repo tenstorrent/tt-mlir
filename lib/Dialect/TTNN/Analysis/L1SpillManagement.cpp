@@ -249,6 +249,17 @@ uint64_t SumL1MemoryTracker::getLowestOccupiedAddress() const {
   return lowest;
 }
 
+llvm::SmallVector<Value>
+SumL1MemoryTracker::getValuesAboveVirtualThreshold(uint64_t threshold) const {
+  llvm::SmallVector<Value> result;
+  for (const auto &[val, addrSize] : tensorAddresses) {
+    if (addrSize.first > threshold) {
+      result.push_back(val);
+    }
+  }
+  return result;
+}
+
 std::optional<uint64_t>
 SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
   if (l1SizePerCore == 0 || l1Budget == 0) {
@@ -272,10 +283,13 @@ SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
 template <typename MemoryTracker>
 L1SpillManagement<MemoryTracker>::L1SpillManagement(
     func::FuncOp func, ttcore::GridAttr deviceGrid, uint64_t l1BudgetPerCore,
-    std::unique_ptr<L1SpillObserver> observer)
+    uint64_t usableL1Size, std::unique_ptr<L1SpillObserver> observer)
     : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore),
       cbFragCushion(
-          static_cast<uint64_t>(kCBFragCushionFraction * l1BudgetPerCore)) {
+          static_cast<uint64_t>(kCBFragCushionFraction * l1BudgetPerCore)),
+      l1DeadZone(usableL1Size > l1BudgetPerCore
+                     ? usableL1Size - l1BudgetPerCore
+                     : 0) {
   if (observer) {
     observer_ = std::move(observer);
   } else {
@@ -573,44 +587,89 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
 template <typename MemoryTracker>
 bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
     Operation *op) const {
-  // canReshapeBeView already guarantees op is a ReshapeOp with operand(0).
-  // Use hasTensorAddress (not hasTensor): aliasing calls allocateAddressAt,
-  // which requires the source to occupy a simulated address slot. A tensor
-  // can be size-tracked but not address-tracked (e.g. zero-size or no-fit),
-  // in which case it cannot be aliased. This matches the replay path.
   return canReshapeBeView(op) &&
          memoryTracker.hasTensorAddress(op->getOperand(0));
 }
 
 template <typename MemoryTracker>
-uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
-                                                        int64_t pos,
-                                                        ScheduleData &data,
-                                                        uint64_t cbPeakUsage,
-                                                        uint64_t l1Size) {
-  // A view-eligible reshape aliases its source's existing L1 slot
-  // (addResultsToLiveSet uses addTensorAtAddress), so it consumes no fresh
-  // L1. Skip the fit / CB-overlap checks that assume a new allocation —
-  // otherwise wouldAllocateAt(l1Size) can falsely report no-fit and evict
-  // the very source the reshape is about to alias.
+uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
+    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    uint64_t cbPeakUsage, uint64_t l1Size) {
+  // A view-eligible reshape aliases its source's existing L1 slot, so it
+  // consumes no fresh L1. Skip fit/CB-overlap checks that assume new allocation.
   if (willAliasSourceInL1(op)) {
     return l1Size;
   }
 
+  // For DRAM-output ops (l1Size==0) the simulation allocates no L1 tensor, but
+  // the op's kernel still allocates circular buffers growing upward from
+  // l1_unreserved_base.  With large compute configs (e.g. HiFi2 + fp32_dest_acc)
+  // the CB peak can exceed 600 KB and overlap with live L1 tensors that were
+  // placed by earlier ops.  Without this check the overlap is only detected at
+  // runtime by validate_circular_buffer_region → TT_THROW.
+  if (l1Size == 0 && cbPeakUsage > 0) {
+    uint64_t cushionedCB = cbPeakUsage + cbFragCushion;
+    uint64_t lowestExisting = memoryTracker.getLowestOccupiedAddress();
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    DRAM_OP_CB_CHECK: cbPeak={0}, cushion={1}, "
+                 "cushioned={2}, lowestExisting={3}",
+                 cbPeakUsage, cbFragCushion, cushionedCB, lowestExisting);
+    if (cushionedCB > lowestExisting) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    DRAM_OP_CB_EVICT: CB={0}+cushion={1}={2} > "
+                   "lowestExisting={3}, evicting L1 tensors",
+                   cbPeakUsage, cbFragCushion, cushionedCB, lowestExisting);
+      evictForCBOverlap(cushionedCB, pos, data);
+    }
+    for (Value operand : op->getOperands()) {
+      auto *defOp = operand.getDefiningOp();
+      if (!defOp || !isa<ToLayoutOp>(defOp)) {
+        continue;
+      }
+      auto resultType = mlir::dyn_cast<RankedTensorType>(operand.getType());
+      if (!resultType) {
+        continue;
+      }
+      auto lo = mlir::dyn_cast<TTNNLayoutAttr>(resultType.getEncoding());
+      if (lo && lo.hasL1BufferType()) {
+        spillToDram(operand);
+      }
+    }
+    return 0;
+  }
+
   auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   if (!speculativeAddr) {
-    l1Size = handleNoFit(op, pos, data, l1Size);
+    l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
     speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   }
-  // Always run the overlap check when the op declares a non-zero CB peak;
-  // pass UINT64_MAX as the "no L1 output" sentinel so wouldCBsOverlapTensors
-  // compares cushionedCBUsage strictly against the lowest-existing tensor
-  // address.
-  uint64_t addrForCheck =
-      speculativeAddr.value_or(std::numeric_limits<uint64_t>::max());
-  if (cbPeakUsage > 0 &&
-      wouldCBsOverlapTensors(op, pos, cbPeakUsage, addrForCheck)) {
-    l1Size = handleFragmentation(op, pos, data, cbPeakUsage, l1Size);
+  if (l1Size > 0 && speculativeAddr) {
+    if (cbPeakUsage > l1DeadZone && cbPeakUsage <= l1BudgetPerCore) {
+      uint64_t cbVT = l1BudgetPerCore - cbPeakUsage;
+      bool anyEvicted = false;
+      for (Value victim : memoryTracker.getValuesAboveVirtualThreshold(cbVT)) {
+        if (!liveValues.count(victim)) {
+          continue;
+        }
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "    CB_ZONE_EVICT: cbPeakUsage={0} cbVT={1}, evicting "
+                     "high-virtual tensor to prevent CB-tensor clash",
+                     cbPeakUsage, cbVT);
+        evictValue(victim, pos, data);
+        anyEvicted = true;
+      }
+      if (anyEvicted) {
+        speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+        if (!speculativeAddr) {
+          l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
+          speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+        }
+      }
+    }
+    if (wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr)) {
+      l1Size =
+          handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
+    }
   }
   return l1Size;
 }
@@ -651,7 +710,7 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   if (fitsAfterEviction) {
     uint64_t l1Size = result.outputL1Usage;
     if (l1Size > 0) {
-      l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
+      l1Size = ensureFitsL1(op, pos, data, l1Size, result.cbPeakUsage, l1Size);
     } else {
       // DRAM-output op: validate's byte-budget check accounts for CB usage in
       // total but not for CB-vs-tensor address overlap. Evict low-address
@@ -1076,7 +1135,8 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
                                                        int64_t pos,
-                                                       ScheduleData &data,
+                                                       const ScheduleData &data,
+                                                       uint64_t opL1Usage,
                                                        uint64_t outputL1Size) {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    NO_FIT: output {0} bytes can't fit contiguously, evicting",
@@ -1128,8 +1188,8 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
 
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
-    Operation *op, int64_t pos, ScheduleData &data, uint64_t cbPeakUsage,
-    uint64_t outputL1Size) {
+    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    uint64_t cbPeakUsage, uint64_t outputL1Size) {
   // Add the same safety cushion as wouldCBsOverlapTensors to account for
   // unmodeled runtime fragmentation from transient internal op allocations.
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
@@ -1366,7 +1426,7 @@ void L1SpillManagement<MemoryTracker>::run() {
                      memoryTracker.getOccupiedL1(), l1BudgetPerCore);
         // CBPeakUsage fixed to 0 as we have no validation result for ToLayoutOp
         // itself which is yet to be decomposed.
-        ensureFitsL1(op, pos, data, /*cbPeakUsage=*/0, derivedL1);
+        ensureFitsL1(op, pos, data, derivedL1, /*cbPeakUsage=*/0, derivedL1);
       }
 
       // Regardless of whether the ToLayoutOp's output is L1 or DRAM, we have no
@@ -1474,7 +1534,7 @@ void L1SpillManagement<MemoryTracker>::run() {
                    "cbPeakUsage={1}, outputL1={2} bytes",
                    ttmlir::opToString(op), result.cbPeakUsage, l1Size);
 
-      l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
+      l1Size = ensureFitsL1(op, pos, data, l1Size, result.cbPeakUsage, l1Size);
       if (rewindIfScheduleShifted()) {
         continue;
       }
