@@ -14,7 +14,7 @@
 #   tt_kurbla_ttsim_stage      custom target — depend on this from anything that
 #                              needs the staged dir to be populated at build time
 
-set(TT_KURBLA_TTSIM_VERSION "v1.5.1" CACHE STRING
+set(TT_KURBLA_TTSIM_VERSION "v1.6.2" CACHE STRING
     "ttsim release tag (https://github.com/tenstorrent/ttsim/releases)")
 
 set(TT_KURBLA_SIM_ARCH "wh" CACHE STRING "Simulator arch (wh|bh)")
