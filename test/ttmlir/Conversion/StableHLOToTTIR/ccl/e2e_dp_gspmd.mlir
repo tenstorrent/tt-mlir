@@ -115,77 +115,11 @@ module @jit_loss_dp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
   }
 }
 
-// CHECK-LABEL @main
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-LABEL: func.func public @main
+// Replicated args keep their global shape; sharded args (%arg12, %arg13) have
+// their per-device local shape (32 / 8 = 4 on dim 0).
+// CHECK-SAME: %arg12: tensor<4x784xf32>
+// CHECK-SAME: %arg13: tensor<4x8xf32>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>

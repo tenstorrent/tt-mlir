@@ -18,7 +18,6 @@ class ReduceType(Enum):
 
 
 class MeshShardType(Enum):
-    Identity = ttcore.ir.MeshShardType.Identity
     Replicate = ttcore.ir.MeshShardType.Replicate
     Maximal = ttcore.ir.MeshShardType.Maximal
     Devices = ttcore.ir.MeshShardType.Devices
