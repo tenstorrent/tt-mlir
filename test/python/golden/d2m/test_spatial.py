@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import OrderedDict
 from builder.base.builder_enums import MeshShardDirection, MeshShardType
 import pytest
 import torch
-from typing import Callable, List, OrderedDict, Tuple
+from typing import Callable, List, Tuple
 
 from ttmlir.dialects import arith, d2m, tensor
 import _ttmlir_runtime as tt_runtime
