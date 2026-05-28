@@ -292,11 +292,8 @@ public:
     int32_t k = kAttr.getInt();
 
     // Resolve topk dimension (default: last).
-    int64_t topkDim = rank - 1;
-    {
-      int64_t d = dimAttr.getInt();
-      topkDim = (d >= 0) ? d : rank + d;
-    }
+    int64_t d = dimAttr.getInt();
+    int64_t topkDim = (d >= 0) ? d : rank + d;
     int64_t vocabLocal = inputType.getShape()[topkDim];
 
     // Build result types.
@@ -306,7 +303,8 @@ public:
           mlir::cast<RankedTensorType>(srcOp.getResult(0).getType()),
           mlir::cast<RankedTensorType>(srcOp.getResult(1).getType())};
     } else {
-      resultTypes = {mlir::cast<RankedTensorType>(srcOp.getResult(0).getType())};
+      resultTypes = {
+          mlir::cast<RankedTensorType>(srcOp.getResult(0).getType())};
     }
 
     RankedTensorType valuesType, indicesType;
@@ -345,9 +343,8 @@ public:
           unsigned argIdx = blockArg.getArgNumber();
 
           if (argIdx < inShardings.size()) {
-            auto dimShardings =
-                inShardings[argIdx].getDimShardings();
-            if (topkDim < (int64_t)dimShardings.size() &&
+            auto dimShardings = inShardings[argIdx].getDimShardings();
+            if (topkDim < static_cast<int64_t>(dimShardings.size()) &&
                 !dimShardings[topkDim].getAxes().empty()) {
               llvm::StringRef axisName =
                   dimShardings[topkDim].getAxes()[0].getName();
@@ -374,8 +371,8 @@ public:
     if (!isDistributed) {
       // Single-device path.
       auto topKOp = rewriter.create<ttir::TopKOp>(loc, valuesType, indicesType,
-                                                   input, kAttr, dimAttr,
-                                                   largestAttr, sortedAttr);
+                                                  input, kAttr, dimAttr,
+                                                  largestAttr, sortedAttr);
       if (isTopKWithBoth) {
         rewriter.replaceOp(srcOp, {topKOp.getValues(), topKOp.getIndices()});
       } else if (isTopKWithValues) {
@@ -411,10 +408,10 @@ public:
         loc, gatheredIndType, localTopK.getIndices(),
         static_cast<int32_t>(topkDim), clusterAxis);
 
-    // Step 3: add compile-time per-shard offset to convert local → global indices.
-    // After all_gather, block [shard*k : (shard+1)*k] holds chip `shard`'s k
-    // candidates, all with local indices [0, vocabLocal). Adding shard*vocabLocal
-    // makes them global vocab positions.
+    // Step 3: add compile-time per-shard offset to convert local → global
+    // indices. After all_gather, block [shard*k : (shard+1)*k] holds chip
+    // `shard`'s k candidates, all with local indices [0, vocabLocal). Adding
+    // shard*vocabLocal makes them global vocab positions.
     SmallVector<int32_t> offsetValues;
     offsetValues.reserve(batch * totalCandidates);
     for (int64_t b = 0; b < batch; ++b) {
@@ -430,8 +427,8 @@ public:
         offsetType, llvm::ArrayRef<int32_t>(offsetValues));
     Value offsetConst =
         rewriter.create<ttir::ConstantOp>(loc, offsetType, offsetAttr);
-    Value globalInds =
-        rewriter.create<ttir::AddOp>(loc, gatheredIndType, gatheredInds, offsetConst);
+    Value globalInds = rewriter.create<ttir::AddOp>(loc, gatheredIndType,
+                                                    gatheredInds, offsetConst);
 
     // Step 4: merge-sort the k*N candidates back down to k.
     auto mergedValType = RankedTensorType::get({batch, k}, elemType);
@@ -445,13 +442,14 @@ public:
     // merged values. GatherOp requires unsigned indices.
     auto ui32Type =
         RankedTensorType::get({batch, k}, rewriter.getIntegerType(32, false));
-    Value sortOrderUi32 =
-        rewriter.create<ttir::TypecastOp>(loc, ui32Type, mergeTopK.getIndices());
+    Value sortOrderUi32 = rewriter.create<ttir::TypecastOp>(
+        loc, ui32Type, mergeTopK.getIndices());
     Value alignedInds = rewriter.create<ttir::GatherOp>(
         loc, RankedTensorType::get({batch, k}, rewriter.getI32Type()),
         globalInds, sortOrderUi32, dimI32);
 
-    // Emit the requested outputs, converting i32 → declared index type if needed.
+    // Emit the requested outputs, converting i32 → declared index type if
+    // needed.
     auto castIfNeeded = [&](Value inds, RankedTensorType targetType) -> Value {
       if (targetType.getElementType() == rewriter.getI32Type()) {
         return inds;
@@ -460,9 +458,8 @@ public:
     };
 
     if (isTopKWithBoth) {
-      rewriter.replaceOp(
-          srcOp,
-          {mergeTopK.getValues(), castIfNeeded(alignedInds, indicesType)});
+      rewriter.replaceOp(srcOp, {mergeTopK.getValues(),
+                                 castIfNeeded(alignedInds, indicesType)});
     } else if (isTopKWithValues) {
       rewriter.replaceOp(srcOp, {mergeTopK.getValues()});
     } else {
