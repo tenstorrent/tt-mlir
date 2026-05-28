@@ -512,10 +512,19 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
         Value toLayoutResult = toLayoutOp.getResult(0);
         auto inputType =
             mlir::cast<mlir::RankedTensorType>(toLayoutResult.getType());
-        llvm::SmallVector<int64_t> inputPhysShape =
+        llvm::SmallVector<int64_t> gridAwarePhysShape =
             utils::computePhysicalShape(toLayoutResult, targetGrid, ttnnMode);
-        info.viewSourceGrid = utils::computeOptimalGrid(
-            inputType, inputPhysShape, targetGrid, virtualGridMode);
+        llvm::SmallVector<int64_t> tileAlignedPhysShape =
+            utils::computeTileAlignedPhysicalShape(toLayoutResult, ttnnMode);
+        llvm::SmallVector<int64_t> gridAwareGrid = utils::computeOptimalGrid(
+            inputType, gridAwarePhysShape, targetGrid, virtualGridMode);
+        llvm::SmallVector<int64_t> tileAlignedGrid = utils::computeOptimalGrid(
+            inputType, tileAlignedPhysShape, targetGrid, virtualGridMode);
+        info.viewSourceGrid =
+            ttmlir::utils::volume<int64_t>(tileAlignedGrid) >
+                    ttmlir::utils::volume<int64_t>(gridAwareGrid)
+                ? tileAlignedGrid
+                : gridAwareGrid;
       }
     }
 

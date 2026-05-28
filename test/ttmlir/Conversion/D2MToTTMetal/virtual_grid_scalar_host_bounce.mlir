@@ -38,7 +38,7 @@ module {
 
   // CHECK-LABEL: func.func @reduce_min_f32_keep1_block_grid
   // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<20x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<10x1x64x32xf32, #ttcore.shard<128x4, 1>, #l1>
+  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<20x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>
   func.func @reduce_min_f32_keep1_block_grid(%arg0: tensor<512x128xf32>) -> tensor<512x1xf32> {
     %0 = "ttir.min"(%arg0) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<512x128xf32>) -> tensor<512x1xf32>
     return %0 : tensor<512x1xf32>

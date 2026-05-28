@@ -211,15 +211,6 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
 
   VirtualGridCandidate best =
       computeBestFactorProductGrid(physicalShape, targetGrid);
-
-  // Preserve the existing 2D fallback gate: if virtual packing cannot use at
-  // least 25% of the target cores, let block sharding win instead.
-  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
-  if (physicalShape.size() == 2 &&
-      best.volume <= static_cast<int64_t>(0.25 * targetGridVolume)) {
-    return {};
-  }
-
   return best.grid;
 }
 
@@ -254,19 +245,34 @@ llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
                                               ArrayRef<int64_t> physicalShape,
                                               ArrayRef<int64_t> targetGrid,
                                               VirtualGridMode mode) {
+  auto blockShardedGrid =
+      computeOptimalBlockShardedGrid(physicalShape, targetGrid);
   if (shouldImplementAsVirtualGrid(tensorType, physicalShape, targetGrid)) {
     auto virtualGrid =
         computeOptimalVirtualGrid(physicalShape, targetGrid, mode);
-    if (!virtualGrid.empty()) {
+    if (!virtualGrid.empty() &&
+        ttmlir::utils::volume<int64_t>(virtualGrid) >
+            ttmlir::utils::volume<int64_t>(blockShardedGrid)) {
       return virtualGrid;
     }
   }
-  return computeOptimalBlockShardedGrid(physicalShape, targetGrid);
+  return blockShardedGrid;
 }
 
-llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
-                                                ArrayRef<int64_t> targetGrid,
-                                                bool ttnnMode) {
+static llvm::SmallVector<int64_t>
+getTileShapeForPhysicalShape(mlir::RankedTensorType tensorType) {
+  if (auto tileType =
+          mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType())) {
+    return llvm::to_vector(tileType.getShape());
+  }
+
+  // Always tile-align when calculating the physical shape, even in the row
+  // major case.
+  return llvm::to_vector(ttcore::TileType::getDefaultShape());
+}
+
+static llvm::SmallVector<int64_t> computePhysicalShapeWithAlignments(
+    mlir::Value operand, ArrayRef<int64_t> alignments, bool ttnnMode) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
@@ -275,27 +281,36 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
     return layout.getPhysicalShape(ttcore::TileType::getDefaultShape());
   }
 
-  llvm::SmallVector<int64_t> tileShape;
-  if (auto tileType =
-          mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType())) {
-    tileShape = llvm::to_vector(tileType.getShape());
-  } else {
-    // Always tile-align when calculating the physical shape, even in the row
-    // major case.
-    tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
-  }
-
-  llvm::SmallVector<int64_t> alignments =
-      ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
-          layout.getLogicalShape(), targetGrid,
-          layout.getNormalizedIntervals());
-
+  llvm::SmallVector<int64_t> tileShape =
+      getTileShapeForPhysicalShape(tensorType);
   auto tempLayout = ttcore::MetalLayoutAttr::get(
       operand.getContext(), layout.getLogicalShape(), layout.getMemorySpace(),
       layout.getMemoryLayout(), layout.getCollapsedIntervals(), alignments);
 
   return tempLayout.getPhysicalShape(
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
+}
+
+llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
+                                                ArrayRef<int64_t> targetGrid,
+                                                bool ttnnMode) {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  llvm::SmallVector<int64_t> alignments =
+      ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
+          layout.getLogicalShape(), targetGrid,
+          layout.getNormalizedIntervals());
+  return computePhysicalShapeWithAlignments(operand, alignments, ttnnMode);
+}
+
+llvm::SmallVector<int64_t> computeTileAlignedPhysicalShape(mlir::Value operand,
+                                                           bool ttnnMode) {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  llvm::SmallVector<int64_t> alignments =
+      ttcore::MetalLayoutAttr::computeTileAlignments(
+          layout.getLogicalShape(), layout.getNormalizedIntervals());
+  return computePhysicalShapeWithAlignments(operand, alignments, ttnnMode);
 }
 
 int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
