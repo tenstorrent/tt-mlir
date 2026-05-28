@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -38,6 +41,13 @@ static SmallVector<int32_t> expandShape(ArrayRef<int32_t> shape) {
 
 /// Expands a tensor type to minRank by prepending 1s.
 /// Example: tensor<32xf32> -> tensor<1x32xf32>.
+///
+/// For tensors carrying a `ttnn::TTNNLayoutAttr` encoding, defers to
+/// `ttnn::utils::RankedTensorTypeFactory::create` so the layout's affine map
+/// and memref shape are rebuilt for the new rank. A naive
+/// `RankedTensorType::get` would propagate the original rank-1 layout onto
+/// the rank-2 tensor, breaking downstream passes (e.g. TTIRToD2M) that index
+/// into the encoding's shape.
 static RankedTensorType expandRank(RankedTensorType type) {
   if (type.getRank() >= minRank) {
     return type;
@@ -46,6 +56,10 @@ static RankedTensorType expandRank(RankedTensorType type) {
   int64_t numOnesToAdd = minRank - type.getRank();
   SmallVector<int64_t> newShape(numOnesToAdd, 1);
   newShape.append(type.getShape().begin(), type.getShape().end());
+
+  if (isa_and_nonnull<ttnn::TTNNLayoutAttr>(type.getEncoding())) {
+    return ttnn::utils::RankedTensorTypeFactory::create(type, newShape);
+  }
 
   return RankedTensorType::get(newShape, type.getElementType(),
                                type.getEncoding());
@@ -58,17 +72,15 @@ static bool needsRankExpansion(Type type) {
   return false;
 }
 
-/// Collects functions that participate in rank normalization. A function
-/// participates if it is external and its signature needs rank expansion, or
-/// if its body contains at least one TTIR-dialect op.
+/// Collects functions that participate in rank normalization. A non-external
+/// function participates if its body contains at least one TTIR-dialect op.
+/// An external declaration participates only if it is called from a
+/// participating func.
 static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
   DenseSet<func::FuncOp> result;
+
   module.walk([&](func::FuncOp funcOp) {
     if (funcOp.isExternal()) {
-      if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
-          llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
-        result.insert(funcOp);
-      }
       return;
     }
 
@@ -84,6 +96,22 @@ static DenseSet<func::FuncOp> collectParticipatingFuncs(ModuleOp module) {
       result.insert(funcOp);
     }
   });
+
+  // include external declarations that are called from
+  //  participating functions (their signatures must be promoted to match).
+  SmallVector<func::FuncOp> externalCallees;
+  for (func::FuncOp participatingFunc : result) {
+    participatingFunc.walk([&](func::CallOp callOp) {
+      auto callee = module.lookupSymbol<func::FuncOp>(callOp.getCallee());
+      if (callee && callee.isExternal() &&
+          (llvm::any_of(callee.getArgumentTypes(), needsRankExpansion) ||
+           llvm::any_of(callee.getResultTypes(), needsRankExpansion))) {
+        externalCallees.push_back(callee);
+      }
+    });
+  }
+  result.insert(externalCallees.begin(), externalCallees.end());
+
   return result;
 }
 
@@ -95,16 +123,6 @@ public:
     addConversion([](RankedTensorType type) -> RankedTensorType {
       return expandRank(type);
     });
-    addSourceMaterialization(materializeCast);
-    addTargetMaterialization(materializeCast);
-  }
-
-private:
-  static Value materializeCast(OpBuilder &builder, Type type, ValueRange inputs,
-                               Location loc) {
-    assert(inputs.size() == 1 && "Expected single input.");
-    return builder.create<UnrealizedConversionCastOp>(loc, type, inputs.front())
-        .getResult(0);
   }
 };
 
@@ -315,6 +333,107 @@ private:
   }
 };
 
+/// After `applyFullConversion` promotes the signatures of any `func.func`
+/// referenced by a `ttnn.d2m_subgraph` op, the matching call sites keep their
+/// original-rank operand/result types because they live in the (legal) TTNN
+/// dialect and are never visited by the conversion. Walks every
+/// `ttnn.d2m_subgraph` op and rebuilds it so every input, output (DPS
+/// buffer), and result type matches the (possibly-promoted) callee signature,
+/// inserting `ttnn.reshape` ops on each side as needed. This re-establishes
+/// the `D2MSubgraphOp::verify()` invariant and also restores the global
+/// rank >= minRank invariant inside TTIR (so downstream passes such as
+/// TTIRToD2M never see rank-1 tensors).
+static void insertCallsiteReshapesForD2MSubgraphs(ModuleOp module) {
+  SmallVector<ttnn::D2MSubgraphOp> ops;
+  module.walk([&](ttnn::D2MSubgraphOp op) { ops.push_back(op); });
+
+  for (ttnn::D2MSubgraphOp op : ops) {
+    func::FuncOp callee = op.getD2MMainFunc();
+    if (!callee) {
+      continue;
+    }
+
+    auto calleeArgTypes = callee.getArgumentTypes();
+    auto calleeResultTypes = callee.getResultTypes();
+
+    bool changed = false;
+    for (auto [in, exp] :
+         llvm::zip_equal(op.getInputs().getTypes(), calleeArgTypes)) {
+      if (in != exp) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) {
+      for (auto [out, exp] :
+           llvm::zip_equal(op.getOutputs().getTypes(), calleeResultTypes)) {
+        if (out != exp) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) {
+      for (auto [res, exp] :
+           llvm::zip_equal(op.getResults().getTypes(), calleeResultTypes)) {
+        if (res != exp) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) {
+      continue;
+    }
+
+    OpBuilder builder(op);
+    auto buildReshape = [&](Value v, Type targetType) -> Value {
+      if (v.getType() == targetType) {
+        return v;
+      }
+      auto target = cast<RankedTensorType>(targetType);
+      SmallVector<int32_t> shape;
+      shape.reserve(target.getRank());
+      for (int64_t d : target.getShape()) {
+        shape.push_back(static_cast<int32_t>(d));
+      }
+      return builder.create<ttnn::ReshapeOp>(op.getLoc(), target, v,
+                                             builder.getI32ArrayAttr(shape));
+    };
+
+    SmallVector<Value> newInputs;
+    newInputs.reserve(op.getInputs().size());
+    for (auto [input, expected] :
+         llvm::zip_equal(op.getInputs(), calleeArgTypes)) {
+      newInputs.push_back(buildReshape(input, expected));
+    }
+
+    SmallVector<Value> newOutputs;
+    newOutputs.reserve(op.getOutputs().size());
+    for (auto [output, expected] :
+         llvm::zip_equal(op.getOutputs(), calleeResultTypes)) {
+      newOutputs.push_back(buildReshape(output, expected));
+    }
+
+    SmallVector<Type> newResultTypes(calleeResultTypes.begin(),
+                                     calleeResultTypes.end());
+    auto newOp = builder.create<ttnn::D2MSubgraphOp>(
+        op.getLoc(), newResultTypes, newInputs, newOutputs,
+        op.getD2mFuncAttr());
+
+    builder.setInsertionPointAfter(newOp);
+    SmallVector<Value> finalResults;
+    finalResults.reserve(op.getNumResults());
+    for (auto [oldResult, newResult] :
+         llvm::zip_equal(op.getResults(), newOp.getResults())) {
+      finalResults.push_back(buildReshape(newResult, oldResult.getType()));
+    }
+
+    op.replaceAllUsesWith(finalResults);
+    op.erase();
+  }
+}
+
 /// Converts external CPU-hoisted function declarations.
 /// Lower benefit ensures this pattern runs after the standard function
 /// conversion pattern, which handles non-external functions.
@@ -364,6 +483,7 @@ public:
     RankNormalizationTypeConverter typeConverter;
     ConversionTarget target(*ctx);
     target.addLegalDialect<ttnn::TTNNDialect>();
+    target.addLegalDialect<ttcore::TTCoreDialect>();
 
     auto participatingFuncs = collectParticipatingFuncs(module);
 
@@ -401,7 +521,10 @@ public:
 
     if (failed(applyFullConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
+      return;
     }
+
+    insertCallsiteReshapesForD2MSubgraphs(module);
   }
 };
 
