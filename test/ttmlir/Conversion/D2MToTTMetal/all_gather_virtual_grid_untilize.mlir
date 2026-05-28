@@ -5,7 +5,8 @@ module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x8>]>} {
   // CHECK-LABEL: func.func @all_gather_virtual_grid_untilize
   // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<16x1x128x256xf32
   // CHECK: #ttmetal.core_range<0x0, 4x4>
-  // CHECK-NOT: #ttmetal.core_range<0x0, 16x1>
+  // Untilize on the virtual-grid buffer is reblocked to a 16x1 worker grid.
+  // CHECK: #ttmetal.core_range<0x0, 16x1>
   func.func @all_gather_virtual_grid_untilize(%arg0: tensor<256x2048xf32>) -> tensor<2048x2048xf32> {
     %0 = "ttir.mesh_shard"(%arg0) <{
       shard_dims = array<i64: 0, 1>,

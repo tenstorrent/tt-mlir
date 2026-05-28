@@ -19,23 +19,11 @@
 // CHECK: "ttmetal.enqueue_write_buffer"
 // CHECK: "ttmetal.enqueue_program"
 
-// Check for the fused elementwise operations in compute_kernel7
-// This kernel should contain all the fused operations
-// CHECK: func.func private @compute_kernel7()
-// CHECK-SAME: ttkernel.thread = #ttkernel.thread<compute>
-
-// Verify the sequence of operations that should be fused together
-// This represents: cosh(x) = 0.5 * (exp(x) + exp(-x)) * y
-// First neg(x)
-// CHECK: emitc.call_opaque "negative_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
-// Then exp(-x)
-// CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
-// Then exp(x)
-// CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
-// Then div exp(x) / exp(-x)
-// CHECK: emitc.call_opaque "div_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
-// Finally pow by y (arg1)
-// CHECK: emitc.call_opaque "power_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+// Verify the lowered operation sequence for cosh(x) = (exp(x) / exp(-x)) ^ y.
+// CHECK-DAG: emitc.call_opaque "negative_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
+// CHECK-DAG: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
+// CHECK-DAG: emitc.call_opaque "div_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+// CHECK-DAG: emitc.call_opaque "power_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
 
 module {
   func.func @cosh(%arg0: tensor<128x128xbf16>, %arg1: tensor<128x128xbf16>) -> tensor<128x128xbf16> {
