@@ -158,15 +158,62 @@ TEST(ComputeMeshFabricConfig, ReversedChannelOrder) {
 }
 
 // --- 1x4 ring: all adjacent + wraparound ---
-
+//
+// Even though a physical wraparound link (0<->3) exists, a 4-wide ring
+// reduce_scatter / all_gather currently hangs the CCL ethernet workers on
+// Blackhole QuietBox2. classifyLine therefore caps ring promotion to lines of
+// length <= kMaxRingLineLength (2), so a 1x4 axis with wraparound is reported
+// as FABRIC_1D (linear) rather than FABRIC_1D_RING.
 TEST(ComputeMeshFabricConfig, FourDevices1x4Ring) {
   auto result = computeMeshFabricConfig({makeChannel(0, 1), makeChannel(1, 2),
                                          makeChannel(2, 3), makeChannel(0, 3)},
                                         {1, 4}, {0, 1, 2, 3});
 
   ASSERT_EQ(result.perAxisConfig.size(), 2u);
-  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D_RING);
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
   EXPECT_EQ(result.perAxisConfig[1], FabricConfig::DISABLED);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
+}
+
+// --- 1x3 ring downgraded to linear (wraparound but width > 2) ---
+
+TEST(ComputeMeshFabricConfig, ThreeDevices1x3RingDowngradedToLinear) {
+  auto result = computeMeshFabricConfig(
+      {makeChannel(0, 1), makeChannel(1, 2), makeChannel(0, 2)}, {1, 3},
+      {0, 1, 2});
+
+  ASSERT_EQ(result.perAxisConfig.size(), 2u);
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
+  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::DISABLED);
+  EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D);
+}
+
+// --- 2x4: row axis (4-wide ring) downgraded, col axis (2-wide) stays ring ---
+
+TEST(ComputeMeshFabricConfig, EightDevices2x4MixedRingDowngrade) {
+  // Mesh layout (logical):
+  //   0  1  2  3
+  //   4  5  6  7
+  // Row wraparound (4-wide): downgraded to FABRIC_1D.
+  // Col wraparound (2-wide): kept as FABRIC_1D_RING.
+  auto result = computeMeshFabricConfig(
+      {// Row 0 ring: 0-1-2-3-0
+       makeChannel(0, 1), makeChannel(1, 2), makeChannel(2, 3),
+       makeChannel(0, 3),
+       // Row 1 ring: 4-5-6-7-4
+       makeChannel(4, 5), makeChannel(5, 6), makeChannel(6, 7),
+       makeChannel(4, 7),
+       // Columns (2-wide): 0-4, 1-5, 2-6, 3-7
+       makeChannel(0, 4), makeChannel(1, 5), makeChannel(2, 6),
+       makeChannel(3, 7)},
+      {2, 4}, {0, 1, 2, 3, 4, 5, 6, 7});
+
+  ASSERT_EQ(result.perAxisConfig.size(), 2u);
+  // Row axis (4-wide) downgraded to linear.
+  EXPECT_EQ(result.perAxisConfig[0], FabricConfig::FABRIC_1D);
+  // Col axis (2-wide) stays a ring.
+  EXPECT_EQ(result.perAxisConfig[1], FabricConfig::FABRIC_1D_RING);
+  // Best of the two -> RING.
   EXPECT_EQ(result.globalConfig, FabricConfig::FABRIC_1D_RING);
 }
 

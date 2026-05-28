@@ -13,10 +13,34 @@ namespace tt::runtime::common {
 
 namespace {
 
+// Maximum line length for which a wraparound link is promoted to a true
+// FABRIC_1D_RING topology. Lines longer than this are kept at FABRIC_1D
+// (linear) even when a physical wraparound link exists.
+//
+// Rationale (see https://github.com/tenstorrent/tt-mlir bug: 1x4 reduce_scatter
+// hang): on Blackhole QuietBox2 a 4-chip "ring" reduce_scatter / all_gather
+// deadlocks the ethernet data-movement workers, while the exact same op on a
+// 2-chip axis (e.g. a 2x2 mesh) completes. Runtime evidence:
+//   * 2x2 mesh: every collective is a 2-wide ring -> works (a 2-device ring is
+//     degenerate: forward == backward over a single bidirectional link).
+//   * 1x4 mesh: 4-wide ring reduce_scatter hangs on cores 14-3/14-2, even
+//     though an identical OUTPUT-size reduce_scatter on the 2x2 (2-wide) axis
+//     completes. The distinguishing factor is the ring WIDTH (>= 3 devices),
+//     not the tensor size.
+// The 4+-device ring reduce_scatter kernel (reduce_scatter_minimal_async ring
+// program factory) relies on the bisection algorithm (N/2 hops, bidirectional)
+// which is currently unreliable on this board. Falling back to the linear
+// program factory (FABRIC_1D) avoids the hang at a modest latency cost
+// (N-1 hops instead of N/2). 2-wide rings are unaffected, preserving the
+// working 2x2 / per-axis-pair-of-2 paths.
+constexpr size_t kMaxRingLineLength = 2;
+
 // Classify a line of devices based on their connectivity:
 //   DISABLED       — fewer than 2 devices, or any adjacent link is missing.
-//   FABRIC_1D      — all adjacent pairs connected, no wraparound.
-//   FABRIC_1D_RING — all adjacent pairs connected AND last wraps to first.
+//   FABRIC_1D      — all adjacent pairs connected, no usable wraparound.
+//   FABRIC_1D_RING — all adjacent pairs connected, last wraps to first, AND the
+//                    line is short enough (<= kMaxRingLineLength) for the ring
+//                    CCL kernels to be reliable.
 //
 // If any adjacent link is broken the line cannot form even a linear topology.
 FabricConfig
@@ -42,6 +66,19 @@ classifyLine(const std::vector<uint32_t> &line,
   }
 
   if (!areConnected(line.front(), line.back())) {
+    return FabricConfig::FABRIC_1D;
+  }
+
+  // A physical wraparound link exists. Only promote to a ring topology for
+  // short lines; wider rings currently hang the reduce_scatter / all_gather
+  // CCL kernels on Blackhole, so fall back to a linear topology.
+  if (line.size() > kMaxRingLineLength) {
+    LOG_WARNING("Line of ", line.size(),
+                " devices has a wraparound link but exceeds the reliable ring "
+                "size (",
+                kMaxRingLineLength,
+                "); falling back to FABRIC_1D (linear) topology to avoid CCL "
+                "hangs.");
     return FabricConfig::FABRIC_1D;
   }
 
