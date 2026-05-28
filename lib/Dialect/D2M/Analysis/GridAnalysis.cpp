@@ -16,6 +16,7 @@
 #include "mlir/IR/BuiltinOps.h"
 
 #include <algorithm>
+#include <optional>
 
 namespace mlir::tt::d2m {
 
@@ -42,6 +43,22 @@ static utils::VirtualGridMode getVirtualGridMode(GenericOp genericOp,
   return (ttnnMode || isMatmulGeneric(genericOp))
              ? utils::VirtualGridMode::SingleAxis2D
              : utils::VirtualGridMode::General;
+}
+
+static int64_t getShardWidthAlignmentElements(Operation *op,
+                                              RankedTensorType tensorType) {
+  if (mlir::isa<ttcore::TileType>(tensorType.getElementType())) {
+    return 1;
+  }
+
+  int64_t elementSizeBytes = static_cast<int64_t>(
+      ttcore::getElementSizeBytes(tensorType.getElementType()));
+  int64_t nocAlignmentBytes = static_cast<int64_t>(
+      ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes());
+  TT_assert(nocAlignmentBytes > 0);
+  TT_assert(elementSizeBytes > 0);
+  TT_assert(nocAlignmentBytes % elementSizeBytes == 0);
+  return nocAlignmentBytes / elementSizeBytes;
 }
 
 // Find the largest value <= maxFactor that divides all the given physical
@@ -485,8 +502,11 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     llvm::SmallVector<int64_t> physShape =
         utils::computePhysicalShape(operand, targetGrid, ttnnMode);
     physicalShapes.push_back(physShape);
-    auto optimalGrid = utils::computeOptimalGrid(operandType, physShape,
-                                                 targetGrid, virtualGridMode);
+    int64_t shardWidthAlignment =
+        getShardWidthAlignmentElements(genericOp, operandType);
+    auto optimalGrid =
+        utils::computeOptimalGrid(operandType, physShape, targetGrid,
+                                  virtualGridMode, shardWidthAlignment);
     optimalOperandGrids.push_back(optimalGrid);
 
     OperandGridInfo info;
@@ -514,17 +534,16 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
             mlir::cast<mlir::RankedTensorType>(toLayoutResult.getType());
         llvm::SmallVector<int64_t> gridAwarePhysShape =
             utils::computePhysicalShape(toLayoutResult, targetGrid, ttnnMode);
-        llvm::SmallVector<int64_t> tileAlignedPhysShape =
-            utils::computeTileAlignedPhysicalShape(toLayoutResult, ttnnMode);
+        int64_t inputShardWidthAlignment =
+            getShardWidthAlignmentElements(genericOp, inputType);
         llvm::SmallVector<int64_t> gridAwareGrid = utils::computeOptimalGrid(
-            inputType, gridAwarePhysShape, targetGrid, virtualGridMode);
-        llvm::SmallVector<int64_t> tileAlignedGrid = utils::computeOptimalGrid(
-            inputType, tileAlignedPhysShape, targetGrid, virtualGridMode);
-        info.viewSourceGrid =
-            ttmlir::utils::volume<int64_t>(tileAlignedGrid) >
-                    ttmlir::utils::volume<int64_t>(gridAwareGrid)
-                ? tileAlignedGrid
-                : gridAwareGrid;
+            inputType, gridAwarePhysShape, targetGrid, virtualGridMode,
+            inputShardWidthAlignment);
+
+        // A materialized view may copy its padded physical domain. Keep the
+        // producer grid tied to the view consumer's grid-aware shape; the exact
+        // source-domain coverage is computed after the consumer grid is final.
+        info.viewSourceGrid = gridAwareGrid;
       }
     }
 

@@ -25,6 +25,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
@@ -130,6 +131,101 @@ static void verifySingleGenericConsumerThroughViewsAndMasks(Value root) {
   }
 }
 
+static mlir::AffineMap
+deriveMaterializedViewRemapping(d2m::ViewLayoutOp viewOp,
+                                RankedTensorType newResultType,
+                                OpBuilder &builder) {
+  auto oldResultType =
+      mlir::cast<RankedTensorType>(viewOp.getResult().getType());
+  auto oldLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
+
+  // Compose the original remapping with a reblock map that maps from the
+  // old output shape to the new output shape.
+  llvm::SmallVector<int64_t> oldShape(oldResultType.getShape());
+  llvm::SmallVector<int64_t> newShape(newResultType.getShape());
+
+  // If dim alignments changed, align-up the old shape to match.
+  auto newLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
+  if (!llvm::equal(oldLayout.getDimAlignments(),
+                   newLayout.getDimAlignments())) {
+    llvm::SmallVector<int64_t> tileShape;
+    if (auto tileType =
+            mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
+      tileShape = llvm::to_vector(tileType.getShape());
+    }
+    oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
+                                        tileShape);
+  }
+
+  mlir::AffineMap newRemapping = viewOp.getRemapping();
+  if (!llvm::equal(oldShape, newShape)) {
+    TT_assert(ttmlir::utils::volume<int64_t>(oldShape) ==
+              ttmlir::utils::volume<int64_t>(newShape));
+    mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
+        oldShape, newShape, builder.getContext());
+    newRemapping = newRemapping.compose(reblockMap);
+  }
+  return newRemapping;
+}
+
+static std::optional<AffineMap>
+composeViewRemappingsToBase(d2m::ViewLayoutOp leafView, Value expectedBase,
+                            AffineMap leafRemapping) {
+  AffineMap composed = leafRemapping;
+  Value current = leafView.getInput();
+  while (auto view = current.getDefiningOp<d2m::ViewLayoutOp>()) {
+    composed = view.getRemapping().compose(composed);
+    current = view.getInput();
+  }
+
+  if (current != expectedBase) {
+    return std::nullopt;
+  }
+  return composed;
+}
+
+static llvm::SmallVector<int64_t>
+computeViewRequiredPhysicalShape(RankedTensorType materializedViewType,
+                                 Value baseValue, AffineMap viewToBase) {
+  auto baseType = mlir::cast<RankedTensorType>(baseValue.getType());
+  if (materializedViewType.getRank() != viewToBase.getNumDims()) {
+    return {};
+  }
+
+  utils::BoundingBox viewDomain;
+  viewDomain.start.resize(materializedViewType.getRank(), 0);
+  viewDomain.end.reserve(materializedViewType.getRank());
+  for (int64_t dim : materializedViewType.getShape()) {
+    viewDomain.end.push_back(dim - 1);
+  }
+
+  utils::BoundingBox baseDomain =
+      utils::getProjectedBoundingBox(viewDomain, viewToBase);
+
+  llvm::SmallVector<int64_t> requiredDeviceShape =
+      llvm::to_vector(baseType.getShape());
+  if (requiredDeviceShape.size() != baseDomain.end.size() ||
+      requiredDeviceShape.size() % 2 != 0) {
+    return {};
+  }
+
+  for (auto [requiredDim, projectedEnd] :
+       llvm::zip_equal(requiredDeviceShape, baseDomain.end)) {
+    requiredDim = std::max(requiredDim, projectedEnd + 1);
+  }
+
+  const size_t gridRank = requiredDeviceShape.size() / 2;
+  llvm::SmallVector<int64_t> requiredPhysicalShape;
+  requiredPhysicalShape.reserve(gridRank);
+  for (size_t idx = 0; idx < gridRank; ++idx) {
+    requiredPhysicalShape.push_back(requiredDeviceShape[idx] *
+                                    requiredDeviceShape[idx + gridRank]);
+  }
+  return requiredPhysicalShape;
+}
+
 static llvm::SmallVector<int64_t>
 getScalarBridgePaddingTileShape(d2m::ToLayoutOp toLayoutOp,
                                 RankedTensorType outputType) {
@@ -150,15 +246,18 @@ static void
 optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
                      const EffectiveTargetGridRange &effectiveTargetGridRange,
                      bool ttnnMode, ArrayRef<int64_t> optimalGrid,
-                     OpBuilder &builder) {
+                     OpBuilder &builder,
+                     ArrayRef<int64_t> minPhysicalShape = {}) {
   auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
   if (!emptyOp) {
     return;
   }
 
-  // Check if we're already at the target grid.
+  // Check if we're already at the target grid. A view-source producer may
+  // still need to grow its physical domain without changing grid shape.
   auto emptyType = mlir::cast<mlir::RankedTensorType>(emptyOp.getType());
-  if (emptyType.getShape().take_front(2) == llvm::ArrayRef(optimalGrid)) {
+  if (minPhysicalShape.empty() &&
+      emptyType.getShape().take_front(2) == llvm::ArrayRef(optimalGrid)) {
     return;
   }
 
@@ -177,7 +276,7 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
     }
   }
 
-  if (!needsOptimization) {
+  if (!needsOptimization && minPhysicalShape.empty()) {
     // A selected 1x1 grid does not require producer-side redistribution.
     // In non-origin spatial regions, offset-aware mapping is materialized on
     // the output path: applyEmptyOpUpdate updates the outs EmptyOp VGM, and
@@ -188,7 +287,7 @@ optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> targetGrid,
   llvm::SmallVector<int64_t> paddingTileShape =
       getScalarBridgePaddingTileShape(toLayoutOp, outputType);
   RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
-      outputType, ttnnMode, optimalGrid, paddingTileShape);
+      outputType, ttnnMode, optimalGrid, paddingTileShape, minPhysicalShape);
   builder.setInsertionPoint(emptyOp);
 
   // VGM is NOT propagated from the to_layout's input here — the output EmptyOp
@@ -349,8 +448,24 @@ static void applyBehindViewToLayoutUpdate(
     OpBuilder &builder) {
   auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
   TT_assert(toLayoutOp);
+
+  auto viewOp = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
+  TT_assert(viewOp);
+  auto viewType = mlir::cast<RankedTensorType>(info.operand.getType());
+  RankedTensorType materializedViewType = utils::tensorWithOptimalGrid(
+      viewType, ttnnMode, info.selectedGrid, info.paddingTileShape);
+  AffineMap materializedRemapping =
+      deriveMaterializedViewRemapping(viewOp, materializedViewType, builder);
+  std::optional<AffineMap> viewToBase = composeViewRemappingsToBase(
+      viewOp, toLayoutOp.getResult(0), materializedRemapping);
+  llvm::SmallVector<int64_t> minPhysicalShape =
+      viewToBase ? computeViewRequiredPhysicalShape(materializedViewType,
+                                                    toLayoutOp.getResult(0),
+                                                    *viewToBase)
+                 : llvm::SmallVector<int64_t>{};
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
-                       ttnnMode, info.viewSourceGrid, builder);
+                       ttnnMode, info.viewSourceGrid, builder,
+                       minPhysicalShape);
 }
 
 static void
@@ -610,38 +725,10 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
   d2m::ViewLayoutOp viewOp = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
   auto oldResultType =
       mlir::cast<RankedTensorType>(viewOp.getResult().getType());
-  auto oldLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
   RankedTensorType newResultType = utils::tensorWithOptimalGrid(
       oldResultType, ttnnMode, info.selectedGrid, info.paddingTileShape);
-
-  // Compose the original remapping with a reblock map that maps from the
-  // old output shape to the new output shape.
-  llvm::SmallVector<int64_t> oldShape(oldResultType.getShape());
-  llvm::SmallVector<int64_t> newShape(newResultType.getShape());
-
-  // If dim alignments changed, align-up the old shape to match.
-  auto newLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
-  if (!llvm::equal(oldLayout.getDimAlignments(),
-                   newLayout.getDimAlignments())) {
-    llvm::SmallVector<int64_t> tileShape;
-    if (auto tileType =
-            mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
-      tileShape = llvm::to_vector(tileType.getShape());
-    }
-    oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
-                                        tileShape);
-  }
-
-  mlir::AffineMap newRemapping = viewOp.getRemapping();
-  if (!llvm::equal(oldShape, newShape)) {
-    TT_assert(ttmlir::utils::volume<int64_t>(oldShape) ==
-              ttmlir::utils::volume<int64_t>(newShape));
-    mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
-        oldShape, newShape, builder.getContext());
-    newRemapping = newRemapping.compose(reblockMap);
-  }
+  mlir::AffineMap newRemapping =
+      deriveMaterializedViewRemapping(viewOp, newResultType, builder);
 
   builder.setInsertionPoint(viewOp);
   auto newViewOp = builder.create<d2m::ViewLayoutOp>(

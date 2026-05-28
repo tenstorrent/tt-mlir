@@ -64,7 +64,8 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
 // (signals fallback to block sharding).
 llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
-                          ArrayRef<int64_t> targetGrid, VirtualGridMode mode);
+                          ArrayRef<int64_t> targetGrid, VirtualGridMode mode,
+                          int64_t shardWidthAlignment = 1);
 
 // Determine whether a tensor should use a virtual grid based on its physical
 // shape and the target grid. Returns true when block sharding yields low grid
@@ -78,7 +79,8 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
 llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
                                               ArrayRef<int64_t> physicalShape,
                                               ArrayRef<int64_t> targetGrid,
-                                              VirtualGridMode mode);
+                                              VirtualGridMode mode,
+                                              int64_t shardWidthAlignment = 1);
 
 // Compute physical shape for a MetalLayoutAttr. In TTNN mode, returns the raw
 // physical shape without alignment adjustments. Otherwise, computes grid-aware
@@ -92,17 +94,19 @@ llvm::SmallVector<int64_t> computeTileAlignedPhysicalShape(mlir::Value operand,
 
 // Create a new MetalLayoutAttr with grid-aware dimension alignments for the
 // given selected grid. The tile shape is empty for row-major tensors.
-ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
-                                              ArrayRef<int64_t> selectedGrid,
-                                              bool ttnnMode,
-                                              ArrayRef<int64_t> tileShape);
+ttcore::MetalLayoutAttr
+layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
+                      ArrayRef<int64_t> selectedGrid, bool ttnnMode,
+                      ArrayRef<int64_t> tileShape,
+                      ArrayRef<int64_t> minPhysicalShape = {});
 
 // Create a new RankedTensorType with the given optimal grid, recomputing the
 // device shape and layout accordingly.
 mlir::RankedTensorType
 tensorWithOptimalGrid(mlir::RankedTensorType oldTensor, bool ttnnMode,
                       ArrayRef<int64_t> optimalGrid,
-                      ArrayRef<int64_t> paddingTileShape = {});
+                      ArrayRef<int64_t> paddingTileShape = {},
+                      ArrayRef<int64_t> minPhysicalShape = {});
 
 } // namespace utils
 } // namespace mlir::tt::d2m
