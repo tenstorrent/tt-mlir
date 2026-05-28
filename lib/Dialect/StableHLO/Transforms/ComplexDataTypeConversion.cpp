@@ -297,10 +297,10 @@ class ComplexGatherOpConversionPattern
   using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
 
 public:
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::GatherOp op,
-                  OpConversionPattern<mlir::stablehlo::GatherOp>::OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::GatherOp op,
+      OpConversionPattern<mlir::stablehlo::GatherOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
     auto origResultType =
         mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
     if (!origResultType ||
@@ -328,10 +328,9 @@ public:
                                        dimNums.getOffsetDims().end());
     newOffsetDims.push_back(trailingDim);
     auto newDimNums = mlir::stablehlo::GatherDimensionNumbersAttr::get(
-        rewriter.getContext(), newOffsetDims,
-        dimNums.getCollapsedSliceDims(), dimNums.getOperandBatchingDims(),
-        dimNums.getStartIndicesBatchingDims(), dimNums.getStartIndexMap(),
-        dimNums.getIndexVectorDim());
+        rewriter.getContext(), newOffsetDims, dimNums.getCollapsedSliceDims(),
+        dimNums.getOperandBatchingDims(), dimNums.getStartIndicesBatchingDims(),
+        dimNums.getStartIndexMap(), dimNums.getIndexVectorDim());
 
     rewriter.replaceOpWithNewOp<mlir::stablehlo::GatherOp>(
         op, newResultType, adaptor.getOperand(), adaptor.getStartIndices(),
