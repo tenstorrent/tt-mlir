@@ -5723,6 +5723,7 @@ def TTIR_MeshPartitionOp: TTIR_NamedOp<"mesh_partition"> {
                        OptionalAttr<UI32Attr>:$cluster_axis);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
