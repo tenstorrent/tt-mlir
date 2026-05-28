@@ -620,8 +620,13 @@ class D2MBuilder(Builder):
             grid_attr = ArrayAttr.get(range_attrs)
             if loc is not None:
                 loc = Location.name(loc, context=self._ctx)
+            resolved_result_types = (
+                list(result_types)
+                if result_types is not None
+                else [output.type for output in outputs]
+            )
             spatial_op = d2m.SpatialOp(
-                list(result_types),
+                resolved_result_types,
                 list(inputs),
                 list(outputs),
                 grid_attr,
