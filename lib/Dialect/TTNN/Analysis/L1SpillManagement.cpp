@@ -593,7 +593,7 @@ bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
 
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
-    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t opL1Usage,
     uint64_t cbPeakUsage, uint64_t l1Size) {
   // A view-eligible reshape aliases its source's existing L1 slot, so it
   // consumes no fresh L1. Skip fit/CB-overlap checks that assume new allocation.
@@ -651,11 +651,21 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
         if (!liveValues.count(victim)) {
           continue;
         }
+        // Never evict an already-inserted reshard: it exists specifically to
+        // supply an L1-sharded input to its consumer. Evicting it would trigger
+        // inserting another reshard for the same consumer, creating an
+        // unbounded chain of reshards (infinite loop / O(n^2) positionMap
+        // iteration). evictUntil / evictFarthestUse already honour this guard;
+        // apply the same rule here in the direct CB-zone eviction path.
+        if (insertedReshardValues.count(victim)) {
+          continue;
+        }
         TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                      "    CB_ZONE_EVICT: cbPeakUsage={0} cbVT={1}, evicting "
                      "high-virtual tensor to prevent CB-tensor clash",
                      cbPeakUsage, cbVT);
-        evictValue(victim, pos, data);
+        size_t cbZoneCampaignMin = SIZE_MAX;
+        evictValue(victim, pos, data, cbZoneCampaignMin);
         anyEvicted = true;
       }
       if (anyEvicted) {
@@ -665,6 +675,42 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
           speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
         }
       }
+    }
+    // Large-tensor fragmentation guard: if a single tensor exceeds ~40% of
+    // the L1 budget, runtime fragmentation from untracked L1 allocations
+    // (e.g. ToLayoutOp outputs that are excluded from liveValues by design)
+    // can leave insufficient contiguous space even when the simulation's free
+    // list shows a fit. For example, in Block A the conv2d outputs
+    // 589,824 B/core but is immediately followed by to_memory_config → DRAM;
+    // at runtime three prior ToLayoutOp outputs of 303,104 B each have been
+    // allocated, the middle one freed, leaving only 420,576 B contiguous
+    // (OOM). The simulation sees none of this because ToLayoutOp results are
+    // deliberately not added to liveValues. Unconditionally sending any tensor
+    // above this threshold to DRAM is conservative but correct: such tensors
+    // are always close to half the budget and provide no net benefit when the
+    // risk of fragmentation-induced OOM outweighs L1 savings.
+    // Threshold = 40% × budget (530,261 B on WH N150) rejects the 589,824 B
+    // Block A conv2d output while leaving smaller tensors (≤303,104 B) in L1.
+    static constexpr double kMaxSingleTensorFraction = 0.40;
+    if (l1Size > static_cast<uint64_t>(kMaxSingleTensorFraction *
+                                       static_cast<double>(l1BudgetPerCore))) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    LARGE_TENSOR_FRAG: l1Size={0} > 40%% budget={1}, "
+                   "forcing DRAM to prevent fragmentation OOM",
+                   l1Size, l1BudgetPerCore);
+      llvm::SmallVector<Value> toEvict;
+      for (Value operand : op->getOperands()) {
+        if (liveValues.count(operand) && !insertedReshardValues.count(operand)) {
+          toEvict.push_back(operand);
+        }
+      }
+      size_t largeTensorCampaignMin = SIZE_MAX;
+      for (Value victim : toEvict) {
+        evictValue(victim, pos, data, largeTensorCampaignMin);
+      }
+      demoteToDram(op);
+      evictForDramCBGrowth(op, pos, data, cbPeakUsage);
+      return 0;
     }
     if (wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr)) {
       l1Size =
@@ -1135,7 +1181,7 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
                                                        int64_t pos,
-                                                       const ScheduleData &data,
+                                                       ScheduleData &data,
                                                        uint64_t opL1Usage,
                                                        uint64_t outputL1Size) {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1188,7 +1234,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
 
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
-    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t opL1Usage,
     uint64_t cbPeakUsage, uint64_t outputL1Size) {
   // Add the same safety cushion as wouldCBsOverlapTensors to account for
   // unmodeled runtime fragmentation from transient internal op allocations.
@@ -1713,12 +1759,16 @@ void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
 
 template <typename MemoryTracker>
 void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
-    Operation *op, int64_t pos, ScheduleData &data) {
+    Operation *op, int64_t pos, ScheduleData &data,
+    uint64_t knownCBPeak) {
 
   auto inputLayouts = utils::extractInputLayouts(op);
   auto config = extractOpConfigFromIR(op);
-  auto result = memoryTracker.validateBackendDirect(op, inputLayouts, config,
-                                                    /*additionalL1Usage=*/0);
+  auto result =
+      op_constraint_validation::validateOperation(op, inputLayouts, config,
+                                                  /*additionalL1Usage=*/0);
+
+
   if (!result.isSuccess()) {
     op->emitError("L1SpillManagement: DRAM output config failed validation "
                   "after demotion (")
@@ -1726,34 +1776,59 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
     compilationFailed = true;
     return;
   }
-  if (result.cbPeakUsage == 0) {
+
+  // Use the larger of the fresh query result and the known CB peak from before
+  // demotion. The fresh query may return cbPeakUsage=0 if the DRAM-output
+  // path doesn't model internal sub-operation CBs (e.g., conv2d_L1 uses a
+  // block_sharded L1 reshard internally even when the output is DRAM).
+  uint64_t effectiveCBPeak = std::max(result.cbPeakUsage, knownCBPeak);
+  if (effectiveCBPeak == 0) {
     return;
   }
 
-  uint64_t dramCBCushioned = result.cbPeakUsage + cbFragCushion;
+  uint64_t dramCBCushioned = effectiveCBPeak + cbFragCushion;
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-               "    DRAM_CB_CHECK: dramCBPeak={0}, cushion={1}, "
-               "cushionedDramCB={2}, lowestExisting={3}",
-               result.cbPeakUsage, cbFragCushion, dramCBCushioned,
-               memoryTracker.getLowestOccupiedAddress());
+               "    DRAM_CB_CHECK: effectiveCBPeak={0} (fresh={1}, known={2}), "
+               "cushion={3}, cushionedDramCB={4}, lowestExisting={5}",
+               effectiveCBPeak, result.cbPeakUsage, knownCBPeak, cbFragCushion,
+               dramCBCushioned, memoryTracker.getLowestOccupiedAddress());
 
   evictForCBOverlap(dramCBCushioned, pos, data);
 
-  // If the CB region still overlaps a live tensor after eviction, that tensor
-  // is an inserted reshard we cannot evict (it restores a required L1 input).
-  // Demotion freed the output but not this input, so the op cannot be placed:
-  // its CBs would clobber an L1 input it requires. Fail with a clear error
-  // rather than emit IR that overflows L1 at runtime.
-  if (!liveValues.empty() &&
-      dramCBCushioned > memoryTracker.getLowestOccupiedAddress()) {
-    op->emitError("L1SpillManagement: ")
-        << op->getName()
-        << " requires an L1 input restored by an inserted reshard, but its "
-           "circular-buffer region overlaps that reshard's L1 slot and the "
-           "reshard cannot be evicted or relocated; the op cannot be placed "
-           "within the L1 budget";
-    compilationFailed = true;
+  // ToLayoutOp outputs are deliberately excluded from liveValues and
+  // tensorAddresses, so evictForCBOverlap cannot reach them.  However, they
+  // occupy real hardware L1 addresses at runtime and can land within the op's
+  // CB region, causing validate_circular_buffer_region to throw.
+  for (auto &[val, lastUse] : data.lastUsePositions) {
+    if (lastUse < pos) {
+      continue;
+    }
+
+    auto *defOp = val.getDefiningOp();
+    if (!defOp || !isa<ToLayoutOp>(defOp)) {
+      continue;
+    }
+
+    auto posIt = data.positionMap.find(defOp);
+    if (posIt == data.positionMap.end() || posIt->second >= pos) {
+      continue;
+    }
+
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(val.getType());
+    if (!tensorType) {
+      continue;
+    }
+    auto lo = mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding());
+    if (!lo || !lo.hasL1BufferType()) {
+      continue;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    DRAM_CB_LIVE_TOLAYOUT_SPILL: spilling live untracked L1 "
+                 "ToLayoutOp output at pos={0} (cbPeak={1})",
+                 pos, effectiveCBPeak);
+    spillToDram(val);
   }
 }
 
