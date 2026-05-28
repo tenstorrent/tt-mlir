@@ -112,38 +112,32 @@ module {
     // named elementwise op, binary comparison:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: "d2m.tile_sub"(%{{.*}}, %{{.*}})
-    // CHECK: d2m.tile_eqz
+    // CHECK: "d2m.tile_eq"(%{{.*}}, %{{.*}})
     %19 = "ttir.eq"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
     // named elementwise op, binary comparison:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: "d2m.tile_sub"(%{{.*}}, %{{.*}})
-    // CHECK: d2m.tile_nez
+    // CHECK: "d2m.tile_ne"(%{{.*}}, %{{.*}})
     %20 = "ttir.ne"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
     // named elementwise op, binary comparison:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: "d2m.tile_sub"(%{{.*}}, %{{.*}})
-    // CHECK: d2m.tile_ltz
+    // CHECK: "d2m.tile_lt"(%{{.*}}, %{{.*}})
     %21 = "ttir.lt"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
     // named elementwise op, binary comparison:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: "d2m.tile_sub"(%{{.*}}, %{{.*}})
-    // CHECK: d2m.tile_lez
+    // CHECK: "d2m.tile_le"(%{{.*}}, %{{.*}})
     %22 = "ttir.le"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
     // named elementwise op, binary comparison:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: "d2m.tile_sub"(%{{.*}}, %{{.*}})
-    // CHECK: d2m.tile_gtz
+    // CHECK: "d2m.tile_gt"(%{{.*}}, %{{.*}})
     %23 = "ttir.gt"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
     // named elementwise op, binary comparison:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: "d2m.tile_sub"(%{{.*}}, %{{.*}})
-    // CHECK: d2m.tile_gez
+    // CHECK: "d2m.tile_ge"(%{{.*}}, %{{.*}})
     %24 = "ttir.ge"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
