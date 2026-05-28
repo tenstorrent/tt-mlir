@@ -5097,6 +5097,43 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
 }
 
 
+def TTIR_GridSampleOp : TTIR_NamedOp<"grid_sample"> {
+    let summary = "Grid sample operation.";
+
+    let description = [{
+      Samples an input tensor at grid locations.
+
+      Input tensor has shape (N, C, H_in, W_in).
+      Grid tensor has shape (N, 2, H_out, W_out) with coordinates normalized to [-1, 1].
+      This format matches the TVM relay image.grid_sample convention.
+      Output tensor has shape (N, C, H_out, W_out).
+
+      Attributes:
+      - `mode` (str): Interpolation mode. Supported: "bilinear", "nearest". Default is "bilinear".
+      - `padding_mode` (str): Padding mode for out-of-bounds coordinates. Supported: "zeros". Default is "zeros".
+      - `align_corners` (bool): If true, grid coordinates of -1 and 1 map to the corners of the input.
+
+      Example:
+      ```mlir
+      %input = ... : tensor<1x64x80x144xbf16>  // (N, C, H_in, W_in)
+      %grid  = ... : tensor<1x2x128x64xbf16>   // (N, 2, H_out, W_out)
+      %result = ttir.grid_sample(%input, %grid) {
+          mode = "nearest", padding_mode = "zeros", align_corners = true
+      } : (tensor<1x64x80x144xbf16>, tensor<1x2x128x64xbf16>) -> tensor<1x64x128x64xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$grid,
+                         DefaultValuedAttr<StrAttr, "\"bilinear\"">:$mode,
+                         DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
+                         DefaultValuedAttr<BoolAttr, "false">:$align_corners);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation with simplified dimension attributes";
   let description = [{

@@ -4668,6 +4668,61 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// GridSampleOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::GridSampleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType gridType = getGrid().getType();
+  ::mlir::RankedTensorType outputType = getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input tensor must be 4D, got rank ")
+           << inputType.getRank();
+  }
+  if (gridType.getRank() != 4) {
+    return emitOpError("grid tensor must be 4D (N,2,H_out,W_out), got rank ")
+           << gridType.getRank();
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("output tensor must be 4D, got rank ")
+           << outputType.getRank();
+  }
+  // Grid is in TVM relay format: (N, 2, H_out, W_out) where dim 1 is the
+  // coordinate dimension.
+  if (gridType.getShape()[1] != 2) {
+    return emitOpError("grid coordinate dimension (dim 1) must be 2, got ")
+           << gridType.getShape()[1];
+  }
+
+  llvm::SmallVector<llvm::StringRef> legalModes = {"bilinear", "nearest"};
+  if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
+      legalModes.end()) {
+    return emitOpError("mode must be one of (")
+           << llvm::join(legalModes, ", ") << "), got \"" << getMode() << "\"";
+  }
+
+  llvm::SmallVector<llvm::StringRef> legalPaddingModes = {"zeros"};
+  if (std::find(legalPaddingModes.begin(), legalPaddingModes.end(),
+                getPaddingMode()) == legalPaddingModes.end()) {
+    return emitOpError("padding_mode must be one of (")
+           << llvm::join(legalPaddingModes, ", ") << "), got \""
+           << getPaddingMode() << "\"";
+  }
+
+  if (inputType.getShape()[0] != outputType.getShape()[0]) {
+    return emitOpError("input and output batch dimension must match: ")
+           << inputType.getShape()[0] << " vs " << outputType.getShape()[0];
+  }
+  if (gridType.getShape()[0] != outputType.getShape()[0]) {
+    return emitOpError("grid and output batch dimension must match: ")
+           << gridType.getShape()[0] << " vs " << outputType.getShape()[0];
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 

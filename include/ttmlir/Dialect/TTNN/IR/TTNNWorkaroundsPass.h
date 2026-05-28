@@ -247,6 +247,12 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
+  // Create workarounds for grid_sample op operands.
+  // Grid is kept float32 when precomputed grid path will be used (nearest or
+  // bilinear+align_corners=True) to preserve coordinate precision.
+  static TTNNOperandsWorkarounds
+  createGridSampleOpOperandsWorkarounds(mlir::Operation *op);
+
   // Create workarounds for mesh shard op operands.
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
