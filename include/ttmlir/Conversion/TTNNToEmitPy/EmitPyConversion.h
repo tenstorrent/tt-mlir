@@ -2314,9 +2314,9 @@ public:
     } else if (convertedValue) {
       return rewriter.getType<emitpy::OpaqueAttr>(*convertedValue);
     }
-    // It's assumed that the conversion might fail, in which case the result
-    // will be `emitpy::OpaqueAttr("::std::nullopt")`.
-    return emit(std::nullopt, attrName);
+    // Conversion failed (e.g., null optional attribute): emit
+    // `std::nullopt`.
+    return rewriter.getType<emitpy::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
   // This is a special handling for cases when there is a many-to-many
@@ -2333,9 +2333,9 @@ public:
     } else if (convertedValue) {
       return rewriter.getType<emitpy::OpaqueAttr>(*convertedValue);
     }
-    // It's assumed that the conversion might fail, in which case the result
-    // will be `emitpy::OpaqueAttr("::std::nullopt")`.
-    return emit(std::nullopt, attrName);
+    // Conversion failed (e.g., null optional attribute): emit
+    // `std::nullopt`.
+    return rewriter.getType<emitpy::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
   // Handles the case when a source type is not convertible to
