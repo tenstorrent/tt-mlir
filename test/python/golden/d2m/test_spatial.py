@@ -35,21 +35,21 @@ def _build_virtual_grid_attrs(
 ) -> Tuple[AffineMapAttr, AffineMapAttr]:
     assert tensor_rank >= 2, f"Expected tensor rank >= 2, got {tensor_rank}"
 
-    start_x, start_y = core_start
+    start_y, start_x = core_start
     d0 = AffineDimExpr.get(0, ctx)
     d1 = AffineDimExpr.get(1, ctx)
     c0 = AffineConstantExpr.get(0, ctx)
-    cx = AffineConstantExpr.get(start_x, ctx)
-    cy = AffineConstantExpr.get(start_y, ctx)
+    c_start_y = AffineConstantExpr.get(start_y, ctx)
+    c_start_x = AffineConstantExpr.get(start_x, ctx)
 
     # Offset only the virtual-grid axes; pass remaining axes through unchanged.
-    vgm_fwd_results = [d0 + cx, d1 + cy]
+    vgm_fwd_results = [d0 + c_start_y, d1 + c_start_x]
     for i in range(2, tensor_rank):
         vgm_fwd_results.append(AffineDimExpr.get(i, ctx))
     vgm_fwd = AffineMap.get(tensor_rank, 0, vgm_fwd_results, ctx)
 
     # Physical -> virtual mapping for 2D core coordinates.
-    vgm_inv = AffineMap.get(2, 0, [c0, d0 - cx, d1 - cy], ctx)
+    vgm_inv = AffineMap.get(2, 0, [c0, d0 - c_start_y, d1 - c_start_x], ctx)
     return AffineMapAttr.get(vgm_inv), AffineMapAttr.get(vgm_fwd)
 
 
