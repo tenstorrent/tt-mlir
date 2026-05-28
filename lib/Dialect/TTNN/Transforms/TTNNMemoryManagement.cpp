@@ -1149,7 +1149,7 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    if (enableAllPatterns) {
+    if (aggressiveMemorySaving) {
       patterns.add<PropagateSliceThroughEltwise<ttnn::AddOp>,
                    PropagateSliceThroughEltwise<ttnn::MultiplyOp>,
                    PropagateSliceThroughEltwise<ttnn::SubtractOp>,

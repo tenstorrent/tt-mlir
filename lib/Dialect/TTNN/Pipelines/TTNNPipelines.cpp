@@ -359,7 +359,7 @@ void createTTIRToTTNNCommonPipeline(
     }
 
     TTNNMemoryManagementOptions memoryManagementOptions;
-    memoryManagementOptions.enableAllPatterns =
+    memoryManagementOptions.aggressiveMemorySaving =
         options.dramSpaceSavingOptimizationEnabled;
     devicePm.addPass(createTTNNMemoryManagement(memoryManagementOptions));
     createTTNNPipelineWorkaroundPass(devicePm, options);

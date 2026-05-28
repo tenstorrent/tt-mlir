@@ -753,10 +753,10 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
     This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
   }];
   let options = [
-    Option<"enableAllPatterns",
-           "enable-all-patterns",
+    Option<"aggressiveMemorySaving",
+           "aggressive-memory-saving",
            "bool", /*default=*/"true",
-           "Opt-in: enable all patterns to reduce DRAM usage.">,
+           "Opt-out: disable aggressive memory saving patterns to reduce DRAM usage.">,
   ];
 }
 
