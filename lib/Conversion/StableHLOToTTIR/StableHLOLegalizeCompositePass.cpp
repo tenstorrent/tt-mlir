@@ -215,6 +215,270 @@ private:
   };
 };
 
+// Lowers tenstorrent.topk* custom_call ops that were converted from composites
+// by FlattenOrConvertCompositesPass (kCompositesWithCustomSharding path).
+//
+// Two execution paths:
+//   Single-device (not inside sdy.manual_computation, or vocab dim replicated):
+//     → plain ttir.topk, same as TenstorrentTopKConversionPattern.
+//
+//   Distributed (inside sdy.manual_computation with vocab dim sharded):
+//     Each chip holds a local vocab shard. The distributed sequence is:
+//       1. ttir.topk locally  → [batch, k] values + local indices
+//       2. ttir.all_gather    → [batch, k*N] values + local indices
+//       3. add compile-time shard offset → [batch, k*N] global indices
+//       4. ttir.topk (merge)  → [batch, k] merged values + sort order
+//       5. ttir.gather        → [batch, k] aligned global indices
+class CustomCallTopKConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+public:
+  CustomCallTopKConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!supportedOpNames.contains(srcOp.getCallTargetName()) ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
+      return failure();
+    }
+    if (adaptor.getOperands().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "topk custom_call must have exactly one input operand.");
+    }
+
+    bool isTopKWithBoth = srcOp.getCallTargetName() == "tenstorrent.topk";
+    bool isTopKWithValues =
+        srcOp.getCallTargetName() == "tenstorrent.topk_values";
+
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(srcOp, "missing composite attributes");
+    }
+
+    IntegerAttr kAttr = rewriter.getI32IntegerAttr(1);
+    IntegerAttr dimAttr = rewriter.getI32IntegerAttr(-1);
+    BoolAttr sortedAttr = BoolAttr::get(rewriter.getContext(), true);
+    BoolAttr largestAttr = BoolAttr::get(rewriter.getContext(), true);
+
+    if (auto attr = compositeAttrs.getAs<IntegerAttr>("k")) {
+      int64_t val = attr.getInt();
+      if (!llvm::isInt<32>(val)) {
+        return rewriter.notifyMatchFailure(srcOp, "k too large for i32");
+      }
+      kAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(val));
+    }
+    if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
+      int64_t val = attr.getInt();
+      if (!llvm::isInt<32>(val)) {
+        return rewriter.notifyMatchFailure(srcOp, "dim too large for i32");
+      }
+      dimAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(val));
+    }
+    if (auto attr = compositeAttrs.getAs<BoolAttr>("sorted")) {
+      sortedAttr = attr;
+    }
+    if (auto attr = compositeAttrs.getAs<BoolAttr>("largest")) {
+      largestAttr = attr;
+    }
+
+    Value input = adaptor.getOperands()[0];
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
+    int64_t batch = inputType.getShape()[0];
+    mlir::Type elemType = inputType.getElementType();
+    int32_t k = kAttr.getInt();
+
+    // Resolve topk dimension (default: last).
+    int64_t topkDim = rank - 1;
+    {
+      int64_t d = dimAttr.getInt();
+      topkDim = (d >= 0) ? d : rank + d;
+    }
+    int64_t vocabLocal = inputType.getShape()[topkDim];
+
+    // Build result types.
+    SmallVector<RankedTensorType, 2> resultTypes;
+    if (isTopKWithBoth) {
+      resultTypes = {
+          mlir::cast<RankedTensorType>(srcOp.getResult(0).getType()),
+          mlir::cast<RankedTensorType>(srcOp.getResult(1).getType())};
+    } else {
+      resultTypes = {mlir::cast<RankedTensorType>(srcOp.getResult(0).getType())};
+    }
+
+    RankedTensorType valuesType, indicesType;
+    if (isTopKWithBoth) {
+      valuesType = resultTypes[0];
+      indicesType = resultTypes[1];
+    } else if (isTopKWithValues) {
+      valuesType = resultTypes[0];
+      indicesType =
+          RankedTensorType::get(valuesType.getShape(), rewriter.getI32Type());
+    } else {
+      valuesType = RankedTensorType::get(resultTypes[0].getShape(), elemType);
+      indicesType = resultTypes[0];
+    }
+
+    auto loc = srcOp.getLoc();
+
+    // Determine if we're in the distributed case.
+    // We are if: (a) inside sdy.manual_computation AND (b) the topk dim of the
+    // input is sharded on some mesh axis.
+    int64_t numShards = 0;
+    uint32_t clusterAxis = 0;
+
+    if (auto manualComp =
+            srcOp->getParentOfType<mlir::sdy::ManualComputationOp>()) {
+      // Trace through reshards to find the source block arg.
+      Value traced = input;
+      while (auto reshardOp = dyn_cast_if_present<mlir::sdy::ReshardOp>(
+                 traced.getDefiningOp())) {
+        traced = reshardOp.getInput();
+      }
+
+      if (auto blockArg = dyn_cast<BlockArgument>(traced)) {
+        if (blockArg.getOwner() == &manualComp.getBody().front()) {
+          auto inShardings = manualComp.getInShardings().getShardings();
+          unsigned argIdx = blockArg.getArgNumber();
+
+          if (argIdx < inShardings.size()) {
+            auto dimShardings =
+                inShardings[argIdx].getDimShardings();
+            if (topkDim < (int64_t)dimShardings.size() &&
+                !dimShardings[topkDim].getAxes().empty()) {
+              llvm::StringRef axisName =
+                  dimShardings[topkDim].getAxes()[0].getName();
+              auto moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
+              auto meshOps = shardy_utils::getMeshOps(moduleOp);
+              if (!meshOps.empty()) {
+                for (auto [idx, axis] :
+                     llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
+                  if (axis.getName() == axisName) {
+                    numShards = axis.getSize();
+                    clusterAxis = static_cast<uint32_t>(idx);
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    bool isDistributed = numShards > 1;
+
+    if (!isDistributed) {
+      // Single-device path.
+      auto topKOp = rewriter.create<ttir::TopKOp>(loc, valuesType, indicesType,
+                                                   input, kAttr, dimAttr,
+                                                   largestAttr, sortedAttr);
+      if (isTopKWithBoth) {
+        rewriter.replaceOp(srcOp, {topKOp.getValues(), topKOp.getIndices()});
+      } else if (isTopKWithValues) {
+        rewriter.replaceOp(srcOp, {topKOp.getValues()});
+      } else {
+        rewriter.replaceOp(srcOp, {topKOp.getIndices()});
+      }
+      return success();
+    }
+
+    // --- Distributed path ---
+    int64_t totalCandidates = k * numShards;
+    auto dimI32 = rewriter.getI32IntegerAttr(static_cast<int32_t>(topkDim));
+
+    // Step 1: local topk on this chip's vocab shard.
+    auto localValType = RankedTensorType::get({batch, k}, elemType);
+    auto localIndType =
+        RankedTensorType::get({batch, k}, rewriter.getI32Type());
+    auto localTopK = rewriter.create<ttir::TopKOp>(
+        loc, localValType, localIndType, input, kAttr, dimI32, largestAttr,
+        BoolAttr::get(rewriter.getContext(), false));
+
+    // Step 2: all-gather the tiny results across the vocab mesh axis.
+    auto gatheredValType =
+        RankedTensorType::get({batch, totalCandidates}, elemType);
+    auto gatheredIndType =
+        RankedTensorType::get({batch, totalCandidates}, rewriter.getI32Type());
+
+    Value gatheredVals = rewriter.create<ttir::AllGatherOp>(
+        loc, gatheredValType, localTopK.getValues(),
+        static_cast<int32_t>(topkDim), clusterAxis);
+    Value gatheredInds = rewriter.create<ttir::AllGatherOp>(
+        loc, gatheredIndType, localTopK.getIndices(),
+        static_cast<int32_t>(topkDim), clusterAxis);
+
+    // Step 3: add compile-time per-shard offset to convert local → global indices.
+    // After all_gather, block [shard*k : (shard+1)*k] holds chip `shard`'s k
+    // candidates, all with local indices [0, vocabLocal). Adding shard*vocabLocal
+    // makes them global vocab positions.
+    SmallVector<int32_t> offsetValues;
+    offsetValues.reserve(batch * totalCandidates);
+    for (int64_t b = 0; b < batch; ++b) {
+      for (int64_t shard = 0; shard < numShards; ++shard) {
+        int32_t shardOffset = static_cast<int32_t>(shard * vocabLocal);
+        for (int32_t j = 0; j < k; ++j) {
+          offsetValues.push_back(shardOffset);
+        }
+      }
+    }
+    auto offsetType = gatheredIndType;
+    auto offsetAttr = DenseElementsAttr::get(
+        offsetType, llvm::ArrayRef<int32_t>(offsetValues));
+    Value offsetConst =
+        rewriter.create<ttir::ConstantOp>(loc, offsetType, offsetAttr);
+    Value globalInds =
+        rewriter.create<ttir::AddOp>(loc, gatheredIndType, gatheredInds, offsetConst);
+
+    // Step 4: merge-sort the k*N candidates back down to k.
+    auto mergedValType = RankedTensorType::get({batch, k}, elemType);
+    auto sortOrderType =
+        RankedTensorType::get({batch, k}, rewriter.getI32Type());
+    auto mergeTopK = rewriter.create<ttir::TopKOp>(
+        loc, mergedValType, sortOrderType, gatheredVals, kAttr, dimI32,
+        largestAttr, BoolAttr::get(rewriter.getContext(), true));
+
+    // Step 5: gather global indices using the sort order to align them with the
+    // merged values. GatherOp requires unsigned indices.
+    auto ui32Type =
+        RankedTensorType::get({batch, k}, rewriter.getIntegerType(32, false));
+    Value sortOrderUi32 =
+        rewriter.create<ttir::TypecastOp>(loc, ui32Type, mergeTopK.getIndices());
+    Value alignedInds = rewriter.create<ttir::GatherOp>(
+        loc, RankedTensorType::get({batch, k}, rewriter.getI32Type()),
+        globalInds, sortOrderUi32, dimI32);
+
+    // Emit the requested outputs, converting i32 → declared index type if needed.
+    auto castIfNeeded = [&](Value inds, RankedTensorType targetType) -> Value {
+      if (targetType.getElementType() == rewriter.getI32Type()) {
+        return inds;
+      }
+      return rewriter.create<ttir::TypecastOp>(loc, targetType, inds);
+    };
+
+    if (isTopKWithBoth) {
+      rewriter.replaceOp(
+          srcOp,
+          {mergeTopK.getValues(), castIfNeeded(alignedInds, indicesType)});
+    } else if (isTopKWithValues) {
+      rewriter.replaceOp(srcOp, {mergeTopK.getValues()});
+    } else {
+      rewriter.replaceOp(srcOp, {castIfNeeded(alignedInds, indicesType)});
+    }
+    return success();
+  }
+
+private:
+  llvm::SmallSet<llvm::StringRef, 3> supportedOpNames = {
+      "tenstorrent.topk",
+      "tenstorrent.topk_values",
+      "tenstorrent.topk_indices",
+  };
+};
+
 // Special handling for tenstorrent.uniform -> ttir.rand, as
 // it requires extracting values from operands and translating them to
 // attributes, and because ttir.rand is a non-DPS op.
@@ -980,6 +1244,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);
+  patterns.add<CustomCallTopKConversionPattern>(context);
   patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
   patterns.add<TenstorrentGatherConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
