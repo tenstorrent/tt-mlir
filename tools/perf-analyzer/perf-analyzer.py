@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--by_kernel', action='store_true', help='split ops up by kernel for detailed view (applies to all other options)')
     parser.add_argument('--op_times', action='store_true', help='displays a table of all captured ops along with their associated data')
     parser.add_argument('--op_graph', metavar='PATH', default=None, help='plots a bar graph of each op\'s total duration to PATH')
-    parser.add_argument('--timeline', action='store_true', help='prints the timeline of every op call in every kernel')
+    parser.add_argument('--timeline', action='store_true', help='prints the timeline of every op call in chronological order')
     parser.add_argument('--runtimes', action='store_true', help='shows how long the program took to run')
     # parser.add_argument('--stats', action='store_true', help='performs statistical analysis of the perf output (NOT IMPLEMENTED)')
     args = parser.parse_args()
@@ -176,7 +176,7 @@ def plot_histogram(rows: dict[str, tuple[int, int]], output_file: str) -> None:
     ax_cnt.barh(labels, counts)
     ax_cnt.set_xlabel('Number of calls')
 
-    fig.suptitle('Kernel runtime breakdown :]')
+    fig.suptitle('Kernel runtime breakdown')
     fig.tight_layout()
     fig.savefig(output_file)
     plt.close(fig)
