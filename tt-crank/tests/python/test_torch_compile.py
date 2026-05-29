@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 
 from tt_kurbla.torch.testing import DeviceType
+from _models import MNISTLinear
 
 
 # Tile-aligned bf16 shapes only - same constraints as the eager elementwise
@@ -160,6 +161,28 @@ def test_compile_add_broadcast(lhs_shape: tuple[int, ...], rhs_shape: tuple[int,
     _assert_compile_matches_eager(_Add(), a, b)
 
 
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_relu(shape: tuple[int, ...]) -> None:
+    """Single aten::relu in a compiled graph."""
+    class _ReLU(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.relu(x)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_ReLU(), x)
+
+
+@pytest.mark.parametrize("m,n", [(32, 64), (64, 32)])
+def test_compile_t(m: int, n: int) -> None:
+    """Single aten::t in a compiled graph."""
+    class _T(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.t(x)
+
+    x = torch.randn((m, n), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_T(), x)
+
+
 @pytest.mark.parametrize(
     "m,k,n",
     [(32, 64, 32), (64, 64, 64)],
@@ -194,6 +217,19 @@ def test_compile_addmm(beta: float, alpha: float) -> None:
     mat1 = torch.randn((32, 64), dtype=torch.bfloat16)
     mat2 = torch.randn((64, 32), dtype=torch.bfloat16)
     _assert_compile_matches_eager(_AddMM(beta, alpha), bias, mat1, mat2, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
+    "batch,feat,hidden,classes",
+    [(32, 32 * 32, 128, 32), (32, 28 * 28, 128, 10)],
+    ids=["tile_aligned", "real_mnist"],
+)
+def test_compile_mnist(batch: int, feat: int, hidden: int, classes: int) -> None:
+    """MNISTLinear (two fc layers + relu) compiled end-to-end — exercises
+    aten.t, aten.addmm, and aten.relu in a single TTIR module."""
+    model = MNISTLinear(feat, hidden, classes).to(torch.bfloat16)
+    x = torch.randn(batch, feat, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.1)
 
 
 def test_compile_add_dtype_promotion(device_type: DeviceType) -> None:

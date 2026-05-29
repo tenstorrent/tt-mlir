@@ -14,6 +14,22 @@ namespace tt::kurbla::torch_backend {
 
 namespace {
 
+at::Tensor tt_t(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::t: tensor must be on tt backend");
+    if (self.dim() < 2) {
+        return self;
+    }
+    TORCH_CHECK(self.dim() == 2, "tt-kurbla aten::t: input must be 0-D, 1-D, or 2-D");
+
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_t(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+
+    std::vector<int64_t> out_shape{self.size(1), self.size(0)};
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type());
+}
+
 at::Tensor tt_mm(const at::Tensor &self, const at::Tensor &mat2) {
     const auto [a_in, b_in] = align_on_tt(self, mat2);
     TORCH_CHECK(a_in.dim() == 2 && b_in.dim() == 2, "tt-kurbla aten::mm: inputs must be 2D");
@@ -50,6 +66,14 @@ at::Tensor tt_addmm(const at::Tensor &self, const at::Tensor &mat1, const at::Te
 }
 
 } // namespace
+
+mlir::Value build_t(ModuleBuilder &mb, mlir::Value input) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    TORCH_INTERNAL_ASSERT(input_type.getRank() == 2, "tt-kurbla build_t: input must be 2D");
+    auto shape = input_type.getShape();
+    auto result_type = mlir::RankedTensorType::get({shape[1], shape[0]}, input_type.getElementType());
+    return mb.create<mlir::tt::ttir::TransposeOp>(result_type, input, 0, 1).getResult();
+}
 
 mlir::Value build_mm(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
@@ -89,6 +113,7 @@ mlir::Value build_addmm(ModuleBuilder &mb, mlir::Value bias, mlir::Value mat1, m
 }
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
+    m.impl("t", TORCH_FN(tt_t));
     m.impl("mm", TORCH_FN(tt_mm));
     m.impl("addmm", TORCH_FN(tt_addmm));
 }
