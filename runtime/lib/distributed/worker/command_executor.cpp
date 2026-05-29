@@ -11,11 +11,89 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <thread>
+#include <unistd.h>
+#include <unordered_map>
 
 namespace tt::runtime::distributed::worker {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
+
+// Memory-tracing instrumentation for the distributed worker process.
+//
+// Enabled by setting TT_RUNTIME_DISTRIBUTED_MEM_TRACE to a non-empty,
+// non-"0" value. When enabled, the worker logs (at INFO level) the size and
+// logical byte footprint of its tensor pool together with the worker process
+// resident set size (RSS) after tensor-mutating commands. This makes it
+// possible to observe that host input tensors created via
+// CreateHostTensor / CreateMultiDeviceHostTensorFromShards remain resident in
+// the pool after ToLayout migrates them to device (i.e. they are not freed
+// until an explicit DeallocateTensor command, which tt-xla never sends).
+static bool memTraceEnabled() {
+  static const bool enabled = [] {
+    const char *env = std::getenv("TT_RUNTIME_DISTRIBUTED_MEM_TRACE");
+    return env != nullptr && env[0] != '\0' && std::string(env) != "0";
+  }();
+  return enabled;
+}
+
+// Reads the worker process resident set size in bytes from /proc/self/statm.
+// Returns 0 if the value cannot be read. The second field of statm is the
+// resident set size expressed in pages.
+static size_t readProcSelfRssBytes() {
+  std::FILE *f = std::fopen("/proc/self/statm", "r");
+  if (f == nullptr) {
+    return 0;
+  }
+  long totalPages = 0;
+  long residentPages = 0;
+  const int matched = std::fscanf(f, "%ld %ld", &totalPages, &residentPages);
+  std::fclose(f);
+  if (matched != 2) {
+    return 0;
+  }
+  static const long pageSize = ::sysconf(_SC_PAGESIZE);
+  return static_cast<size_t>(residentPages) * static_cast<size_t>(pageSize);
+}
+
+// Logs the current tensor-pool footprint and worker RSS. No-op unless
+// TT_RUNTIME_DISTRIBUTED_MEM_TRACE is enabled.
+static void
+logPoolFootprint(const char *tag, uint64_t commandId,
+                 const std::unordered_map<uint64_t, ::tt::runtime::Tensor>
+                     &tensorPool) {
+  if (!memTraceEnabled()) {
+    return;
+  }
+
+  size_t totalLogicalBytes = 0;
+  size_t allocatedCount = 0;
+  for (const auto &entry : tensorPool) {
+    const ::tt::runtime::Tensor &tensor = entry.second;
+    try {
+      if (::tt::runtime::isTensorAllocated(tensor)) {
+        ++allocatedCount;
+      }
+    } catch (...) {
+      // Best-effort: ignore tensors that cannot report allocation state.
+    }
+    try {
+      totalLogicalBytes += ::tt::runtime::getTensorDesc(tensor).sizeBytes();
+    } catch (...) {
+      // Best-effort: some tensors may not support a desc query.
+    }
+  }
+
+  const size_t rssBytes = readProcSelfRssBytes();
+  constexpr double kMiB = 1024.0 * 1024.0;
+  LOG_INFO("[MEM_TRACE] after ", tag, " cmd=", commandId,
+           " pool_size=", tensorPool.size(), " allocated=", allocatedCount,
+           " pool_logical_MB=", static_cast<double>(totalLogicalBytes) / kMiB,
+           " worker_rss_MB=", static_cast<double>(rssBytes) / kMiB);
+}
 
 template <typename Builder, typename... Args>
 static std::unique_ptr<::flatbuffers::FlatBufferBuilder>
@@ -348,6 +426,8 @@ void CommandExecutor::execute(uint64_t commandId,
 
   tensorPool_.insert_or_assign(tensorGlobalId, tensor);
 
+  logPoolFootprint("CreateHostTensor", commandId, tensorPool_);
+
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildCreateHostTensorResponse, commandId);
 
@@ -446,6 +526,9 @@ void CommandExecutor::execute(
   tensorPool_.insert_or_assign(command->output_global_id(),
                                multiDeviceHostTensor);
 
+  logPoolFootprint("CreateMultiDeviceHostTensorFromShards", commandId,
+                   tensorPool_);
+
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(
           ResponseFactory::buildCreateMultiDeviceHostTensorFromShardsResponse,
@@ -469,6 +552,8 @@ void CommandExecutor::execute(
       ::tt::runtime::createUnsafeBorrowedHostTensor(sourceTensor);
   borrowedTensor.setGlobalId(outputGlobalId);
   tensorPool_.insert_or_assign(outputGlobalId, borrowedTensor);
+
+  logPoolFootprint("CreateUnsafeBorrowedHostTensor", commandId, tensorPool_);
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(
@@ -577,6 +662,30 @@ void CommandExecutor::execute(uint64_t commandId,
 
   tensorPool_.insert_or_assign(outputGlobalId, resultTensor);
 
+  if (memTraceEnabled()) {
+    const bool inputStillInPool = tensorPool_.contains(inputGlobalId);
+    bool inputAllocated = false;
+    bool inputRetain = false;
+    if (inputStillInPool) {
+      const ::tt::runtime::Tensor &pooledInput = tensorPool_.at(inputGlobalId);
+      try {
+        inputAllocated = ::tt::runtime::isTensorAllocated(pooledInput);
+      } catch (...) {
+      }
+      try {
+        inputRetain = ::tt::runtime::getTensorRetain(pooledInput);
+      } catch (...) {
+      }
+    }
+    LOG_INFO("[MEM_TRACE] ToLayout input_global_id=", inputGlobalId,
+             " still_in_pool=", inputStillInPool,
+             " input_allocated=", inputAllocated,
+             " input_retain=", inputRetain,
+             " output_global_id=", outputGlobalId);
+  }
+
+  logPoolFootprint("ToLayout", commandId, tensorPool_);
+
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildToLayoutResponse, commandId);
 
@@ -614,6 +723,8 @@ void CommandExecutor::execute(uint64_t commandId,
     tensorPool_.insert_or_assign(command->output_global_ids()->Get(i),
                                  outputTensors[i]);
   }
+
+  logPoolFootprint("Submit", commandId, tensorPool_);
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildSubmitResponse, commandId);
@@ -713,6 +824,8 @@ void CommandExecutor::execute(uint64_t commandId,
     ::tt::runtime::deallocateTensor(tensor, command->force());
     tensorPool_.erase(tensorGlobalId);
   }
+
+  logPoolFootprint("DeallocateTensor", commandId, tensorPool_);
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildDeallocateTensorResponse, commandId);
