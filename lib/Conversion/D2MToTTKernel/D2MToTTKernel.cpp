@@ -888,6 +888,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::BinaryMaxTileInitOp,       ttkernel::BinaryMaxTileOp>>,
   std::pair<d2m::TileMinimumOp,     std::pair<ttkernel::BinaryMinTileInitOp,       ttkernel::BinaryMinTileOp>>,
   std::pair<d2m::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
+  std::pair<d2m::TileAtan2Op,       std::pair<ttkernel::Atan2BinaryTilesInitOp,    ttkernel::Atan2BinaryTilesOp>>,
 
   // Elementwise SFPU Ternary.
   std::pair<d2m::TileWhereOp,       std::pair<ttkernel::WhereTileInitOp,           ttkernel::WhereTileOp>>
@@ -3404,6 +3405,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMinimumOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TilePowOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileAtan2Op>,
 
                // Elementwise SFPU Ternary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileWhereOp>,
