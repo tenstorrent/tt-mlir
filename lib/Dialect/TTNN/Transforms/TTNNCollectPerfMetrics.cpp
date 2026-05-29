@@ -507,13 +507,13 @@ public:
         }
       }
 
-      funcOp->walk([&](MatmulOp op) {
-        // For each matmul calculate the number of bytes read from the weight
-        // (rhs) and the number of 32x32x32 tile-multiply units of work.
-        auto rhsType = mlir::dyn_cast<RankedTensorType>(op.getB().getType());
-        auto lhsType = mlir::dyn_cast<RankedTensorType>(op.getA().getType());
-        auto resultType =
-            mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
+      // Shared body for ttnn.matmul and ttnn.linear — both compute
+      // result = a · b (linear additionally adds a bias). For the roofline
+      // only the matmul work counts; the bias add is negligible.
+      auto handleMatmul = [&](Value a, Value b, Value result) {
+        auto rhsType = mlir::dyn_cast<RankedTensorType>(b.getType());
+        auto lhsType = mlir::dyn_cast<RankedTensorType>(a.getType());
+        auto resultType = mlir::dyn_cast<RankedTensorType>(result.getType());
         assert(rhsType && lhsType && resultType &&
                "TTNNCollectPerfMetrics: matmul operands and result must be "
                "ranked tensors.");
@@ -605,6 +605,12 @@ public:
           perfTargets.sdpaOps++;
           perfTargets.sdpaTimeUs += opUs;
         }
+      };
+      funcOp->walk([&](MatmulOp op) {
+        handleMatmul(op.getA(), op.getB(), op.getResult());
+      });
+      funcOp->walk([&](LinearOp op) {
+        handleMatmul(op.getA(), op.getB(), op.getResult());
       });
 
       // Fused SDPA decode (emitted at optimization-level >= 1). The op
@@ -640,6 +646,71 @@ public:
       });
       funcOp->walk([&](PagedScaledDotProductAttentionDecodeOp op) {
         handleSdpaDecode(op.getKey(), op.getValue());
+      });
+
+      // SDPA prefill (FlashAttention-2). Unlike decode, Sq can be large
+      // (the whole prompt), so the QK^T / attn@V compute scales as
+      // O(B·Hq·Sq·D·Sk) per matmul and can dominate over the K+V DRAM
+      // stream. Roofline := max(dram_us, compute_us) as everywhere else.
+      // Shapes per the op spec: query [B, Hq, Sq, D], key/value
+      // [B, Hkv, Sk, D].
+      auto handleSdpaPrefill = [&](Value query, Value key, Value value) {
+        if (perfTargets.dramBandwidthBytesPerSec == 0 ||
+            perfTargets.aiclkHz == 0 || perfTargets.numTensixCores == 0) {
+          return;
+        }
+        auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
+        auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
+        auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
+        if (!qType || !kType || !vType) {
+          return;
+        }
+        auto bytesAtBfp8 = [](RankedTensorType t) {
+          return static_cast<uint64_t>(
+              static_cast<double>(t.getNumElements()) * 1056.0 / 1024.0 + 0.5);
+        };
+        uint64_t kvBytes = bytesAtBfp8(kType) + bytesAtBfp8(vType);
+        double dramUs =
+            static_cast<double>(kvBytes) * 1.0e6 /
+            static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
+
+        ArrayRef<int64_t> qShape = qType.getShape();
+        ArrayRef<int64_t> kShape = kType.getShape();
+        if (qShape.size() != 4 || kShape.size() != 4) {
+          // Unexpected rank — fall back to dram-only accounting.
+          perfTargets.rooflineTimeUs += dramUs;
+          perfTargets.dramBoundOps++;
+          perfTargets.sdpaOps++;
+          perfTargets.sdpaTimeUs += dramUs;
+          return;
+        }
+        // QK^T and attn@V are both (B·Hq, Sq, D, Sk) tile-mul shape (K is
+        // broadcast from Hkv → Hq in L1; doesn't affect compute count).
+        uint64_t B = static_cast<uint64_t>(qShape[0]);
+        uint64_t Hq = static_cast<uint64_t>(qShape[1]);
+        uint64_t Sq = static_cast<uint64_t>(qShape[2]);
+        uint64_t D = static_cast<uint64_t>(qShape[3]);
+        uint64_t Sk = static_cast<uint64_t>(kShape[2]);
+        auto up32 = [](uint64_t x) { return (x + 31) / 32; };
+        uint64_t tileMuls = 2 * B * Hq * up32(Sq) * up32(D) * up32(Sk);
+        constexpr uint64_t kCyclesPerTileMatmulHiFi2 = 32;
+        double computeUs =
+            static_cast<double>(tileMuls * kCyclesPerTileMatmulHiFi2) * 1.0e6 /
+            static_cast<double>(perfTargets.numTensixCores *
+                                perfTargets.aiclkHz);
+
+        double opUs = std::max(dramUs, computeUs);
+        perfTargets.rooflineTimeUs += opUs;
+        if (dramUs >= computeUs) {
+          perfTargets.dramBoundOps++;
+        } else {
+          perfTargets.computeBoundOps++;
+        }
+        perfTargets.sdpaOps++;
+        perfTargets.sdpaTimeUs += opUs;
+      };
+      funcOp->walk([&](ScaledDotProductAttentionOp op) {
+        handleSdpaPrefill(op.getQuery(), op.getKey(), op.getValue());
       });
 
       // First pass: identify DRAM spills
