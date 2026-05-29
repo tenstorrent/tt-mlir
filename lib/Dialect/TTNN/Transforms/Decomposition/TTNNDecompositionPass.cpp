@@ -7,6 +7,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/GroupNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/RotaryEmbeddingDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/SDPADecodeDecompositionPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/SDPADecompositionPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/TopKDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -42,6 +44,10 @@ public:
           &getContext(), validationConfig);
       patterns.add<decomposition::RotaryEmbeddingDecompositionRewritePattern>(
           &getContext(), validationConfig);
+      patterns.add<decomposition::SDPADecompositionPattern>(&getContext(),
+                                                            validationConfig);
+      patterns.add<decomposition::SDPADecodeDecompositionPattern>(
+          &getContext(), validationConfig);
     } else {
       patterns.add<decomposition::TopKDecompositionRewritePattern>(
           &getContext());
@@ -50,6 +56,9 @@ public:
       patterns.add<decomposition::GroupNormDecompositionRewritePattern>(
           &getContext());
       patterns.add<decomposition::RotaryEmbeddingDecompositionRewritePattern>(
+          &getContext());
+      patterns.add<decomposition::SDPADecompositionPattern>(&getContext());
+      patterns.add<decomposition::SDPADecodeDecompositionPattern>(
           &getContext());
     }
 
