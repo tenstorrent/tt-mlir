@@ -396,8 +396,8 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
       %output_l1 = ttir.ttnn_metal_layout_cast
 
     Output IR (post canonicalization):
-      %1 = "ttnn.to_memory_config"(%arg0) <{layout = #ttnn.layout<tile>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>, <physical>>>}> : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
-      %2 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>, <physical>>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout1>
+      %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+      %2 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout1>
       "ttnn.generic"(%1, %2) ...
   }];
   let constructor = "createConvertD2MToTTNNPass()";

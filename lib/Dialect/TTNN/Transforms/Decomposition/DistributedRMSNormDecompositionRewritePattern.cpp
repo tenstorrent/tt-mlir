@@ -225,17 +225,12 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   RankedTensorType statsType = RankedTensorType::get(
       statsShape, inputType.getElementType(), statsEncoding);
 
-  auto dtypeAttr = ttcore::DataTypeAttr::get(
-      rewriter.getContext(),
-      ttcore::elementTypeToDataType(inputType.getElementType()));
-
   auto preAllGatherOp = rewriter.create<ttnn::RMSNormPreAllGatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_pre_all_gather"), statsType,
       /*input*/ x,
       /*residual_input=*/mlir::Value{},
       /*compute_config=*/nullptr,
       /*program_config=*/nullptr,
-      /*dtype=*/dtypeAttr,
       /*use_2d_core_grid*/ nullptr);
 
   // --- All-gather: gather local stats across devices ---

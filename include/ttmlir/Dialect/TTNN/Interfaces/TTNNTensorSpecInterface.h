@@ -63,20 +63,20 @@ inline ttcore::DataTypeAttr getDtypeFromValue(mlir::Value value) {
   // Fall back to deriving from the tensor's element type.
   std::optional<ttcore::DataType> dataType =
       ttcore::elementTypeToDataTypeImpl(tensor.getElementType());
-  if (!dataType) {
-    return nullptr;
-  }
+  assert(dataType && "element type must be a recognized TTMLIR data type");
   return ttcore::DataTypeAttr::get(ctx, *dataType);
 }
 
-// Derives the output data type from the first result. Returns a null
+// Derives the output data type from the targeted result. Returns a null
 // DataTypeAttr if the op has no result, otherwise delegates to
-// getDtypeFromValue on the first result.
-inline ttcore::DataTypeAttr getDtypeFromResult(mlir::Operation *op) {
-  if (op->getNumResults() == 0) {
+// getDtypeFromValue on the targeted result.
+inline ttcore::DataTypeAttr getDtypeFromResult(mlir::Operation *op,
+                                               unsigned int resultIndex) {
+  if (op->getNumResults() == 0 && resultIndex == 0) {
     return nullptr;
   }
-  return getDtypeFromValue(op->getResult(0));
+  assert(resultIndex < op->getNumResults() && "result index out of bounds");
+  return getDtypeFromValue(op->getResult(resultIndex));
 }
 
 // Convenience wrapper to convert a (possibly null) DataTypeAttr into the

@@ -15,6 +15,19 @@ def TTNN_DtypeOpInterface : OpInterface<"TTNNDtypeOpInterface"> {
     InterfaceMethod<
       /*desc=*/[{
         Returns the output data type as a DataTypeAttr, derived from the
+        targeted result's TTNNLayoutAttr encoding.
+        }],
+      /*retTy=*/"mlir::tt::ttcore::DataTypeAttr",
+      /*methodName=*/"getDtypeFromResult",
+      /*args=*/(ins "unsigned": $resultIndex),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return ::mlir::tt::ttnn::getDtypeFromResult($_op.getOperation(), resultIndex);
+      }]
+    >,
+        InterfaceMethod<
+      /*desc=*/[{
+        Returns the output data type as a DataTypeAttr, derived from the
         first result's TTNNLayoutAttr encoding.
         }],
       /*retTy=*/"mlir::tt::ttcore::DataTypeAttr",
@@ -22,16 +35,10 @@ def TTNN_DtypeOpInterface : OpInterface<"TTNNDtypeOpInterface"> {
       /*args=*/(ins),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
-        return getDtypeFromResult($_op.getOperation());
+        return $_op.getDtypeFromResult(0u);
       }]
     >,
   ];
-
-  let verify = [{
-    static_assert(ConcreteOp::template hasTrait<::mlir::OpTrait::OneResult>(),
-                  "TTNNDtypeOpInterface can only be applied to ops with exactly one result");
-    return ::mlir::success();
-  }];
 }
 
 def TTNN_LayoutOpInterface : OpInterface<"TTNNLayoutOpInterface"> {

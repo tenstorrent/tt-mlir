@@ -55,7 +55,7 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ToLayoutOp : TTNN_Op<"to_layout", [TTNN_DtypeOpInterface]> {
+def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     let summary = "ToLayout op.";
     let description = [{
       This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
@@ -83,7 +83,7 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout", [TTNN_DtypeOpInterface]> {
     }];
 }
 
-def TTNN_TypecastOp : TTNN_Op<"typecast", [TTNN_DtypeOpInterface]> {
+def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let summary = "Typecast op.";
     let description = [{
       This op converts the data type of the input tensor based on the given data type.
@@ -101,7 +101,7 @@ def TTNN_TypecastOp : TTNN_Op<"typecast", [TTNN_DtypeOpInterface]> {
     let hasCanonicalizeMethod = 1;
 }
 
-def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert", [TTNN_DtypeOpInterface]> {
+def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
     let summary = "Bitcast_convert op.";
     let description = [{
       This op reinterprets the bits of each element in
@@ -156,7 +156,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_DtypeOpInterface, TTNN_ElementwiseBinary] # traits> {
+    TTNN_Op<mnemonic, [TTNN_ElementwiseBinary] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -1096,7 +1096,7 @@ def TTNN_PagedFillCacheOp : TTNN_InplaceOp<"paged_fill_cache"> {
   let hasVerifier = 1;
 }
 
-def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface]> {
+def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw"> {
     let summary = "Embedding backward op.";
     let description = [{
       Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
@@ -1117,7 +1117,7 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw", [TTNN_DtypeOpInterface]> 
     let hasVerifier = 1;
 }
 
-def TTNN_CumSumOp : TTNN_Op<"cumsum", [TTNN_DtypeOpInterface]> {
+def TTNN_CumSumOp : TTNN_Op<"cumsum"> {
   let summary = "Cumulative sum op.";
   let description = [{
     Computes the cumulative sum of elements of a tensor along specified dimension.
@@ -1514,7 +1514,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul", [OpModelExempt, TTNN_DtypeOpInterface]> {
+def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul", [OpModelExempt]> {
     let summary = "Sparse block matrix multiplication with sparsity mask.";
     let description = [{
       The `sparse_matmul` operation performs batched matrix multiplication where
@@ -1843,7 +1843,7 @@ def TTNN_PrepareConvTranspose2dBiasOp : TTNN_Op<"prepare_conv_transpose2d_bias",
     let hasVerifier = 1;
 }
 
-def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Conv2d operation.";
     let description = [{
       Applies a 2D convolution over an input image composed of several input planes.
@@ -1933,7 +1933,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface, TTNN_ComputeKernel
     }];
 }
 
-def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Conv3d operation.";
     let description = [{
       Applies a 3D convolution over an input volume composed of several input planes.
@@ -2026,7 +2026,7 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface, TTNN_ComputeKernel
     }];
 }
 
-def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "ConvTranspose2d operation.";
     let description = [{
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
@@ -2394,7 +2394,7 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
 }
 
 def TTNN_RMSNormPreAllGatherOp :  TTNN_Op<"rms_norm_pre_all_gather",
-    [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Pre all-gather RMS normalization op.";
     let description = [{
       Computes local partial statistics for distributed RMS normalization across mesh devices.
@@ -2505,7 +2505,7 @@ def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments]> {
 }
 
 def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layer_norm_pre_all_gather",
-    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Layer normalization pre-all-gather op.";
     let description = [{
       Computes local partial statistics (Welford) for distributed layer
@@ -2536,7 +2536,7 @@ def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layer_norm_pre_all_gather",
 }
 
 def TTNN_LayerNormPostAllGatherOp : TTNN_Op<"layer_norm_post_all_gather",
-    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Layer normalization post-all-gather op.";
     let description = [{
       Applies normalization using gathered statistics from a distributed
@@ -3720,9 +3720,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
 }
 
 
-def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
-    TTNN_DtypeOpInterface
-]>{
+def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";
   let description = [{
     The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions
@@ -3755,7 +3753,7 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
   let hasVerifier = 1;
 }
 
-def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_DtypeOpInterface]> {
+def TTNN_AssignOp : TTNN_Op<"assign"> {
     let summary = "Assign Tensor";
     let description = [{
       Returns a new tensor which is a new copy of input tensor.

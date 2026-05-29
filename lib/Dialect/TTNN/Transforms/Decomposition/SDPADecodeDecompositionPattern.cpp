@@ -141,11 +141,8 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
     // 2. Cast cur_pos from int32 to Q's dtype so comparison with arange works.
     auto castedCurPosType = ttnn::utils::RankedTensorTypeFactory::create(
         reshapedCurPosType, qDataType);
-    curPos = rewriter
-                 .create<TypecastOp>(loc, castedCurPosType, curPos,
-                                     ttcore::DataTypeAttr::get(
-                                         rewriter.getContext(), qDataType))
-                 .getResult();
+    curPos =
+        rewriter.create<TypecastOp>(loc, castedCurPosType, curPos).getResult();
 
     // 3. Arange [0..Sk) -> rank-1 [Sk] in Q's dtype (ttnn.arange verifier
     // requires rank-1 output), then reshape to [1, 1, 1, Sk] for broadcast.
@@ -153,14 +150,11 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
         qType, llvm::SmallVector<int64_t>{seqLenKV});
     ttnn::LayoutAttr tileLayoutAttr =
         ttnn::LayoutAttr::get(rewriter.getContext(), ttnn::Layout::Tile);
-    auto qDtypeAttr =
-        ttcore::DataTypeAttr::get(rewriter.getContext(), qDataType);
-    Value indices =
-        rewriter
-            .create<ttnn::ArangeOp>(loc, arange1dType, device, /*start=*/0,
-                                    /*end=*/seqLenKV, /*step=*/1, qDtypeAttr,
-                                    tileLayoutAttr)
-            .getResult();
+    Value indices = rewriter
+                        .create<ttnn::ArangeOp>(
+                            loc, arange1dType, device, /*start=*/0,
+                            /*end=*/seqLenKV, /*step=*/1, tileLayoutAttr)
+                        .getResult();
 
     auto arange4dType = ttnn::utils::RankedTensorTypeFactory::create(
         qType, llvm::SmallVector<int64_t>{1, 1, 1, seqLenKV});
