@@ -53,6 +53,11 @@ public:
         return tk::build_add(*mb_, lhs, rhs, alpha);
     }
 
+    mlir::Value mm(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_mm(*mb_, lhs, rhs);
+    }
+
     // Lift a Python scalar to a broadcastable `ttir.constant` at `dtype`.
     mlir::Value scalar(::tt::target::DataType dtype, double value) {
         assert_builder();
@@ -186,6 +191,7 @@ NB_MODULE(_native, m) {
         .def(nb::init<std::vector<tk::TensorTypeSpec>>(), "input_specs"_a)
         .def("arg", &PyModuleBuilder::arg, "index"_a)
         .def("add", &PyModuleBuilder::add, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
+        .def("mm", &PyModuleBuilder::mm, "lhs"_a, "rhs"_a)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         // Consumes the builder. Subsequent calls on `self` raise.
