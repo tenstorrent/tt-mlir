@@ -281,7 +281,7 @@ unary_ops = [
     neg,
     reciprocal,
     relu,
-    relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    relu6,
     rsqrt,
     sigmoid,
     sign,
@@ -327,6 +327,7 @@ def test_unary_ops(
         "logical_not",
         "neg",
         "relu",
+        "relu6",
         "sign",
     }:
         pytest.skip("int32 unary op is not in the allowlist for this test")
