@@ -21,6 +21,46 @@ func.func @test_consecutive_write_barriers() {
   return
 }
 
+// CHECK-LABEL: func.func @test_consecutive_read_barriers_same_noc
+func.func @test_consecutive_read_barriers_same_noc(%noc: i8) {
+  // CHECK: ttkernel.noc_async_read_barrier(%{{.*}})
+  ttkernel.noc_async_read_barrier(%noc) : (i8) -> ()
+  // CHECK-NOT: ttkernel.noc_async_read_barrier
+  ttkernel.noc_async_read_barrier(%noc) : (i8) -> ()
+  // CHECK: return
+  return
+}
+
+// CHECK-LABEL: func.func @test_consecutive_read_barriers_different_noc
+func.func @test_consecutive_read_barriers_different_noc(%noc0: i8, %noc1: i8) {
+  // CHECK: ttkernel.noc_async_read_barrier(%{{.*}})
+  ttkernel.noc_async_read_barrier(%noc0) : (i8) -> ()
+  // CHECK: ttkernel.noc_async_read_barrier(%{{.*}})
+  ttkernel.noc_async_read_barrier(%noc1) : (i8) -> ()
+  // CHECK: return
+  return
+}
+
+// CHECK-LABEL: func.func @test_consecutive_write_barriers_same_noc
+func.func @test_consecutive_write_barriers_same_noc(%noc: i8) {
+  // CHECK: ttkernel.noc_async_write_barrier(%{{.*}})
+  ttkernel.noc_async_write_barrier(%noc) : (i8) -> ()
+  // CHECK-NOT: ttkernel.noc_async_write_barrier
+  ttkernel.noc_async_write_barrier(%noc) : (i8) -> ()
+  // CHECK: return
+  return
+}
+
+// CHECK-LABEL: func.func @test_consecutive_write_barriers_different_noc
+func.func @test_consecutive_write_barriers_different_noc(%noc0: i8, %noc1: i8) {
+  // CHECK: ttkernel.noc_async_write_barrier(%{{.*}})
+  ttkernel.noc_async_write_barrier(%noc0) : (i8) -> ()
+  // CHECK: ttkernel.noc_async_write_barrier(%{{.*}})
+  ttkernel.noc_async_write_barrier(%noc1) : (i8) -> ()
+  // CHECK: return
+  return
+}
+
 // CHECK-LABEL: func.func @test_consecutive_unpack_stall_on_pack
 func.func @test_consecutive_unpack_stall_on_pack() {
   // CHECK: ttkernel.experimental::unpack_stall_on_pack
