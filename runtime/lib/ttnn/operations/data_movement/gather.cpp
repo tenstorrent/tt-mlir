@@ -56,7 +56,8 @@ void run(const ::tt::target::ttnn::GatherOp *op, ProgramContext &context) {
     for (size_t i = 0; i < indexRank; ++i) {
       outShape.push_back(static_cast<int32_t>(index.logical_shape()[i]));
     }
-    ::ttnn::Tensor out = ::ttnn::reshape(outReshaped, outShape);
+    ::ttnn::Tensor out =
+        ::ttnn::reshape(outReshaped, outShape, outputMemoryConfig);
     tensorPool.insertTTNNTensorAndValidate(op->out(), out);
     return;
   }
