@@ -21,11 +21,12 @@ resolveSplitQueryKeyValueAndSplitHeadsParams(
     const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT,
     CallType callType) {
   SplitQueryKeyValueAndSplitHeadsResolvedParams params;
-  if(opT.num_kv_heads.has_value()) {
+  if (opT.num_kv_heads.has_value()) {
     params.numKVHeads = *opT.num_kv_heads;
   }
 
-  // The output memory config is passed through q_out, but both OpModel and runtime always set it to 0. 
+  // The output memory config is passed through q_out, but both OpModel and
+  // runtime always set it to 0.
   if (opT.q_out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(*opT.q_out), callType);
@@ -38,15 +39,15 @@ resolveSplitQueryKeyValueAndSplitHeadsParams(
 
 template <typename Tag>
 auto createSplitQueryKeyValueAndSplitHeadsTuple(
-    Tag tag,
-    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT,
+    Tag tag, const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT,
     TensorArg input, std::optional<TensorArg> kvInput,
     const SplitQueryKeyValueAndSplitHeadsResolvedParams &params) {
   return std::make_tuple(
       resolveTensorArg(input, tag),
       kvInput ? std::make_optional(resolveTensorArg(*kvInput, tag))
               : std::nullopt,
-      opT.num_heads, params.numKVHeads, opT.transpose_key, params.outputMemoryConfig);
+      opT.num_heads, params.numKVHeads, opT.transpose_key,
+      params.outputMemoryConfig);
 }
 
 SplitQueryKeyValueAndSplitHeadsOpResult callSplitQueryKeyValueAndSplitHeads(

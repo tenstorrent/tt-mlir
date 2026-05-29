@@ -33,7 +33,7 @@ ScaledDotProductAttentionResolvedParams resolveScaledDotProductAttentionParams(
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
-  
+
   return params;
 }
 
@@ -67,9 +67,8 @@ ScaledDotProductAttentionOpResult callScaledDotProductAttention(
       resolveScaledDotProductAttentionParams(opT, callType);
 
   auto makeTuple = [&](auto tag) {
-    return createScaledDotProductAttentionTuple(tag, opT, query, key, value,
-                                                attentionMask, attentionSink,
-                                                params);
+    return createScaledDotProductAttentionTuple(
+        tag, opT, query, key, value, attentionMask, attentionSink, params);
   };
 
   switch (callType) {

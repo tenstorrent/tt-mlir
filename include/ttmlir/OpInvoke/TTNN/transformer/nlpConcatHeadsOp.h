@@ -27,8 +27,9 @@ struct NLPConcatHeadsResolvedParams {
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
 };
 
-NLPConcatHeadsResolvedParams resolveNLPConcatHeadsParams(
-    const ::tt::target::ttnn::NLPConcatHeadsOpT &opT, CallType callType);
+NLPConcatHeadsResolvedParams
+resolveNLPConcatHeadsParams(const ::tt::target::ttnn::NLPConcatHeadsOpT &opT,
+                            CallType callType);
 
 NLPConcatHeadsOpResult
 callNLPConcatHeads(CallType callType,

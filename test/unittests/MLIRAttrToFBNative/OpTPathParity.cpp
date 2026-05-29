@@ -4232,9 +4232,10 @@ void resetUnusedFields(
 }
 
 mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp
-buildTestSplitQueryKeyValueAndSplitHeadsOp(
-    bool withKvInputTensor = false, uint32_t numHeads = 4u,
-    mlir::IntegerAttr numKvHeads = {}, bool transposeKey = false) {
+buildTestSplitQueryKeyValueAndSplitHeadsOp(bool withKvInputTensor = false,
+                                           uint32_t numHeads = 4u,
+                                           mlir::IntegerAttr numKvHeads = {},
+                                           bool transposeKey = false) {
   auto &e = env();
   auto loc = e.builder.getUnknownLoc();
 
@@ -4248,9 +4249,8 @@ buildTestSplitQueryKeyValueAndSplitHeadsOp(
   mlir::Value kvInputTensor =
       withKvInputTensor
           ? e.builder
-                .create<mlir::tt::ttnn::OnesOp>(loc,
-                                                mlir::TypeRange{tensorType},
-                                                mlir::ValueRange{})
+                .create<mlir::tt::ttnn::OnesOp>(
+                    loc, mlir::TypeRange{tensorType}, mlir::ValueRange{})
                 .getResult()
           : mlir::Value();
 
@@ -4274,8 +4274,8 @@ TEST_P(SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
           .getEncoding());
   ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opTOpModel =
       mlir::tt::ttnn::op_model::buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
-          sqkvOp.getNumHeads(), sqkvOp.getNumKvHeads(), sqkvOp.getTransposeKey(),
-          queryLayout);
+          sqkvOp.getNumHeads(), sqkvOp.getNumKvHeads(),
+          sqkvOp.getTransposeKey(), queryLayout);
 
   // Path B: FB serialization round-trip (what runtime sees).
   ::flatbuffers::FlatBufferBuilder fbb;
