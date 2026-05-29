@@ -5676,6 +5676,12 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
            << ", index rank = " << indexRank;
   }
 
+  if (inputRank < 1) {
+    return emitOpError()
+           << "Input tensor and index tensor must have rank >= 1. "
+           << "Got rank = " << inputRank;
+  }
+
   int32_t dim = getDim();
   if (dim >= inputRank || dim < -inputRank) {
     return emitOpError() << "Dimension must be in the range [-" << inputRank
