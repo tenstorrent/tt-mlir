@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 EXCLUDED_ZONES: frozenset[str] = frozenset({
     'BRISC-FW',
     'NCRISC-FW',
-    'TRISC-FW',
     'TRISC_0-FW',
     'TRISC_1-FW',
     'TRISC_2-FW',
@@ -43,7 +42,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--timeline', action='store_true', help='prints the timeline of every op call in chronological order')
     parser.add_argument('--runtimes', action='store_true', help='shows how long the program took to run')
     parser.add_argument('--waits', action='store_true', help='prints information about stalls in the program (needs to be instrumented with device_zone)')
-    # parser.add_argument('--stats', action='store_true', help='performs statistical analysis of the perf output (NOT IMPLEMENTED)')
     args = parser.parse_args()
 
     if not args.path_to_perf_dir.is_dir():
@@ -74,8 +72,15 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
         open_zones: dict[tuple, int] = {}
         kernel_name: str = ''
         min_cycle, max_cycle = float('inf'), 0
+        IDLE_ZONES = {'IDLE_ERISC-FW', 'SUBORDINATE_IDLE_ERISC-FW'}
+
         for row in reader:
             row = {k.strip().lower(): v for k, v in row.items()}
+
+            cycles = int(row['time[cycles since reset]'])
+            if row['zone name'] not in IDLE_ZONES:
+                min_cycle = min(min_cycle, cycles)
+                max_cycle = max(max_cycle, cycles)
 
             if row['zone name'].startswith('kernel_outer'):
                 kernel_name = row['zone name'][13:]
@@ -85,11 +90,7 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
                 continue
 
             key = (row['core_x'], row['core_y'], row['risc processor type'], row['timer_id'], row['run host id'], row['zone name'])
-            cycles = int(row['time[cycles since reset]'])
-            
-            min_cycle = min(min_cycle, cycles)
-            max_cycle = max(max_cycle, cycles)
-            
+
             if row['type'] == 'ZONE_START':
                 open_zones[key] = cycles
             elif row['type'] == 'ZONE_END':
@@ -117,7 +118,7 @@ def aggregate_by_zone(rows: list[dict], split_by_kernel: bool) -> dict[str, tupl
     result: dict[str, tuple[int, int]] = defaultdict(lambda: (0, 0))
 
     for row in rows:
-        if row['name'].startswith('TRISC-KERNEL'):
+        if row['name'] in ('TRISC-KERNEL', 'TRISC-FW'):
             continue
 
         if split_by_kernel:
@@ -133,7 +134,7 @@ def aggregate_by_zone(rows: list[dict], split_by_kernel: bool) -> dict[str, tupl
 def get_wait_share(rows: list[dict]) -> float:
     ''' fraction of inner-zone cycles spent in CB / tile-reg waits '''
 
-    inner = [r for r in rows if not r['name'].endswith('-KERNEL')]
+    inner = [r for r in rows if not r['name'].endswith('-KERNEL') and not r['name'].endswith('-FW')]
     total = sum(r['duration'] for r in inner)
     wait = sum(r['duration'] for r in inner if r['name'] in WAIT_ZONES)
     return wait / total if total else 0.0
@@ -142,12 +143,12 @@ def get_wait_share(rows: list[dict]) -> float:
 def get_runtimes(rows: list[dict], wall_cycles: int) -> dict[str, float]:
     ''' returns a dict with fields "device wall time", "device kernel time", "compute share", "wait share" '''
 
-    # count up trisc kernel envelopes
+    trisc_fw_cycles = sum(r['duration'] for r in rows if r['name'] == 'TRISC-FW')
     kernel_cycles = sum(r['duration'] for r in rows if r['name'] == 'TRISC-KERNEL')
     return {
         'device wall time': wall_cycles,
         'device kernel time': kernel_cycles,
-        'compute share': kernel_cycles / wall_cycles if wall_cycles else 0.0,
+        'compute share': kernel_cycles / trisc_fw_cycles if trisc_fw_cycles else 0.0,
         'wait share': get_wait_share(rows),
     }
 
@@ -175,7 +176,7 @@ def print_runtimes(rows: list[dict], wall_cycles: int, freq_mhz: float) -> None:
     for k, v in formatted.items():
         print(f'{k:<{label_w}}\t{v:>{val_w}}')
 
-    print(f'\nNote:\ncompute share = time spent in TRISC-KERNEL\nwait share = time spent in any of the following: {', '.join(z for z in WAIT_ZONES)}')
+    print(f'\nNote:\ndevice wall time = max - min timestamp across the trace (includes host-side gaps between dispatches)\ncompute share = sum(TRISC-KERNEL) / sum(TRISC-FW) — fraction of firmware-active time the math units were inside a kernel\nwait share = time spent in any of the following: {', '.join(z for z in WAIT_ZONES)} / kernel_main')
 
 
 def plot_histogram(rows: dict[str, tuple[int, int]], output_file: str) -> None:
@@ -206,11 +207,11 @@ def print_op_times(rows: dict[str, tuple[int, int]], freq_mhz: float) -> None:
     total_cycles = sum(v[0] for v in rows.values())
 
     headers = ('Op', 'Calls', 'Total time', 'Cycles/call', '%')
+    sorted_rows = sorted(rows.items(), key=lambda kv: kv[1][0], reverse=True)
     table = [
         (k, str(count), time_formatter(total, freq_mhz), f'{total / count:.3f}', f'{total / total_cycles * 100:.2f}%')
-        for k, (total, count) in rows.items()
+        for k, (total, count) in sorted_rows
     ]
-    table = sorted(table, key=lambda t: float(t[4][:-1]), reverse=True)
     widths = [max(len(row[i]) for row in (*table, headers)) for i in range(5)]
 
 
@@ -248,8 +249,12 @@ def print_waits(rows: list[dict], freq_mhz: float) -> None:
         max_width = max(max_width, len(row['name']))
 
     total_waits: dict[str, int] = defaultdict(int)
+    total_compute: dict[str, int] = defaultdict(int)
     print('\n===== WAITS ACROSS KERNELS =====')
     for row in rows:
+        if row['name'] == 'TRISC-KERNEL':
+            total_compute[row['kernel']] += row['duration']
+
         if row['name'] not in WAIT_ZONES:
             continue
 
@@ -261,15 +266,19 @@ def print_waits(rows: list[dict], freq_mhz: float) -> None:
         print(f'\t{row['name']:<{max_width + 3}}\t[core:{row["core"]}, RISC: {row["risc"]}]\t{time_formatter(row['duration'], freq_mhz)}')
 
     print('\n=== TOTALS ===\n')
+    kernel_width = max((len(k) for k in total_waits), default=0)
     longest_kernel, longest_wait = None, 0
     sum_waits = 0
     for kernel, wait in total_waits.items():
-        print(f'{kernel:<{max_width + 3}}\t{time_formatter(wait, freq_mhz)}')
+        print(f'{kernel:<{kernel_width + 3}}\t{time_formatter(wait, freq_mhz)}')
         sum_waits += wait
         if wait > longest_wait:
             longest_kernel, longest_wait = kernel, wait
 
-    print(f'\nLongest wait: {longest_kernel:<{max_width + 3}}\t{time_formatter(longest_wait, freq_mhz)}\t{longest_wait / sum_waits * 100:.2f}% of total')
+    share_of_waits = longest_wait / sum_waits * 100 if sum_waits else 0.0
+    envelope = total_compute[longest_kernel]
+    share_of_envelope = longest_wait / envelope * 100 if envelope else 0.0
+    print(f'\nLongest wait: {longest_kernel:<{kernel_width + 3}}\t{time_formatter(longest_wait, freq_mhz)}\t{share_of_waits:.2f}% of total wait, {share_of_envelope:.2f}% of kernel envelope')
 
 
 def main() -> None:
@@ -278,14 +287,17 @@ def main() -> None:
     profile_log = perf_dir / 'profile_log_device.csv'
     # ops_perf = perf_dir / 'ops_perf_results.csv'
 
+
     for file in [profile_log]:
         if not file.is_file():
             raise FileNotFoundError(f'missing: {file}')
 
+    print(f'Reading from {profile_log}...')
+
     freq = read_chip_freq_mhz(profile_log)
     raw_timeline, wall_time = collect_device_timeline(profile_log)
     zone_grouped_rows = aggregate_by_zone(raw_timeline, args.by_kernel)
-
+    # print(raw_timeline)
     if args.op_graph:
         plot_histogram(zone_grouped_rows, args.op_graph)
         print()
