@@ -6,7 +6,49 @@ if (TTMLIR_ENABLE_OPMODEL)
                 Fusing/SplitQKVFusingPatterns.cpp)
 endif()
 
+# Optional embedded-Python tt-lang resolver. The pass class itself
+# (TTNNResolveTtLangKernels.cpp) always builds and is `-fno-rtti
+# -fno-exceptions` like the rest of MLIR. The pybind11 call surface
+# is split out into TTNNResolveTtLangKernelsPython.cpp (the "real"
+# resolver) or TTNNResolveTtLangKernelsPythonStub.cpp (a
+# build-config-error stub), with exactly one chosen at configure time
+# based on the `TTMLIR_ENABLE_TT_LANG_PYBIND_RESOLVER` flag.
+#
+# Splitting the pybind11 calls into a separate TU lets that single
+# file be compiled `-frtti -fexceptions` (required by pybind11)
+# without leaking RTTI into the `mlir::Pass` hierarchy, which would
+# trip `undefined typeinfo for mlir::Pass` at link time because the
+# rest of MLIR is `-fno-rtti`.
+set(_TT_LANG_RESOLVER_SRCS "")
+if(TTMLIR_ENABLE_TT_LANG_PYBIND_RESOLVER)
+    # `Development` (a superset of Development.Module + Development.Embed)
+    # is required for the libpython link so `Py_*` symbols resolve when
+    # this pass is loaded into a binary that didn't bring its own
+    # libpython (e.g. `ttmlir-opt`).
+    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+
+    # Locate pybind11 in the active Python environment unless the caller
+    # has already pointed CMake at one. Matches the discovery pattern
+    # used by the tt-xla PJRT plugin.
+    if(NOT pybind11_DIR)
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" -m pybind11 --cmakedir
+            OUTPUT_VARIABLE _ttmlir_pybind11_cmakedir
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _ttmlir_pybind11_rc
+        )
+        if(_ttmlir_pybind11_rc EQUAL 0 AND _ttmlir_pybind11_cmakedir)
+            set(pybind11_DIR "${_ttmlir_pybind11_cmakedir}" CACHE PATH "pybind11 CMake config dir")
+        endif()
+    endif()
+    find_package(pybind11 CONFIG REQUIRED)
+    set(_TT_LANG_RESOLVER_SRCS TTNNResolveTtLangKernelsPython.cpp)
+else()
+    set(_TT_LANG_RESOLVER_SRCS TTNNResolveTtLangKernelsPythonStub.cpp)
+endif()
+
 add_mlir_dialect_library(MLIRTTNNTransforms
+        PARTIAL_SOURCES_INTENDED
         Passes.cpp
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
@@ -43,6 +85,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNConfigureCCLOps.cpp
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp
+        TTNNResolveTtLangKernels.cpp
+        ${_TT_LANG_RESOLVER_SRCS}
         TTNNSetComputeKernelConfig.cpp
         TTNNMemoryManagement.cpp
         TTNNToCpp.cpp
@@ -102,3 +146,36 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTMLIRTTIRToEmitPy
         TTMLIRTTNNToEmitPy
         )
+
+if(TTMLIR_ENABLE_TT_LANG_PYBIND_RESOLVER)
+    # `add_mlir_dialect_library` wraps the source list in an
+    # `obj.MLIRTTNNTransforms` internal target, so a plain
+    # `target_compile_options` on `MLIRTTNNTransforms` doesn't reach
+    # the underlying compile rule. Stamp the flags directly on the
+    # source file instead -- this also keeps the carve-out local: the
+    # rest of `MLIRTTNNTransforms` (including the pass class itself,
+    # which inherits from the no-RTTI `mlir::Pass`) stays
+    # `-fno-rtti -fno-exceptions` and unaware of pybind11.
+    #
+    #   * `-frtti`        -- pybind11 uses `typeid` pervasively.
+    #   * `-fexceptions`  -- pybind11's `error_already_set` propagates
+    #                        via `throw`; LLVM/MLIR libraries default
+    #                        to `-fno-exceptions`.
+    set_source_files_properties(
+        "TTNNResolveTtLangKernelsPython.cpp"
+        PROPERTIES
+            COMPILE_OPTIONS "-frtti;-fexceptions"
+    )
+
+    # `add_mlir_dialect_library` doesn't expose its created `obj.`
+    # target in a way that we can attach include dirs via the public
+    # CMake LINK_LIBS knob without also dragging the link library
+    # into every downstream consumer. Use a direct include-only
+    # attachment for this single TU so the pybind11 / Python headers
+    # are visible without making `pybind11::embed` a public lib
+    # interface (the libpython link is added explicitly to
+    # `TTMLIRCompiler` / `TTMLIRCompilerStatic` in `lib/CMakeLists.txt`,
+    # which is where downstream tools actually pick it up).
+    target_include_directories(obj.MLIRTTNNTransforms PRIVATE
+        $<TARGET_PROPERTY:pybind11::pybind11,INTERFACE_INCLUDE_DIRECTORIES>)
+endif()

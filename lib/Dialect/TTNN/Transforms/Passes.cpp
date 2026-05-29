@@ -40,6 +40,9 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSPLITFORWARDFUNCARGSBYTYPE
 #define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
 #define GEN_PASS_DEF_TTNNPREPAREMODULEFOREXPORT
+// Note: `TTNNResolveTtLangKernels` is implemented in its own translation
+// unit (TTNNResolveTtLangKernels.cpp) so that the optional pybind11
+// dependency is contained there.
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {

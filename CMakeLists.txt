@@ -46,6 +46,13 @@ option(TTMLIR_ENABLE_TESTS "Enable building all tests" ON)
 option(TTMLIR_ENABLE_TOOLS "Enable building core tools (ttmlir-opt, ttmlir-lsp-server, ttmlir-translate, ttnn-standalone)" ON)
 option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist lib" ON)
 option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensive to build
+# When ON, build the embedded-Python tt-lang kernel resolver into the
+# TTNN transforms library (the `--ttnn-resolve-tt-lang-kernels` pass).
+# Off by default so generic tt-mlir consumers don't inherit a libpython
+# dependency. tt-xla flips this ON to keep its `@tt_torch.kernel` path
+# working without owning a bridge translation unit itself.
+option(TTMLIR_ENABLE_TT_LANG_PYBIND_RESOLVER
+       "Build the embedded-Python tt-lang kernel resolver pass." OFF)
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 option(TT_USE_SYSTEM_SFPI "Use system path for SFPI. SFPI is used to compile firmware." OFF)
 

@@ -775,6 +775,52 @@ def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mli
   ];
 }
 
+def TTNNResolveTtLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::ModuleOp"> {
+  let summary = "Resolve deferred ttnn.tt_lang_op kernels via the tt-lang Python compiler.";
+  let description = [{
+    Walks the module for `ttnn.tt_lang_op` operations with an empty
+    `kernel_artifact` attribute and resolves each one by invoking
+    `tt_torch.tt_lang.resolve_kernel` through an embedded Python
+    interpreter, passing the (now-final, post-TTIR->TTNN) shard-local
+    operand types and `arg_roles` / `shard_spec`. The resolver returns
+    a `CompiledTTNNKernel` JSON artifact which the pass attaches back
+    onto the op as the `kernel_artifact` `DenseI8ArrayAttr`. The
+    downstream TTNN-to-flatbuffer emitter then reads that attribute to
+    materialise a `ttnn.generic_op` descriptor.
+
+    Must run **after** all TTNN layout-decomposition and workaround
+    passes (so each operand carries its final `#ttnn.ttnn_layout`
+    encoding) and **before** flatbuffer emission. Ops whose
+    `kernel_artifact` is already populated (e.g. by a pre-bake step)
+    are skipped, so the pass is composable with future ahead-of-time
+    artifact paths.
+
+    The Python interpreter is acquired via `pybind11::gil_scoped_acquire`
+    -- this pass does NOT call `Py_Initialize`. The host process is
+    expected to already be running CPython (typical when this pass
+    runs inside `pjrt_plugin_tt.so`, loaded from a `jax` / `torch_xla`
+    Python program). When `ttmlir-translate` or `ttmlir-opt` is
+    invoked from a non-Python parent (or when tt-mlir was built with
+    `TTMLIR_ENABLE_TT_LANG_PYBIND_RESOLVER=OFF`) the pass emits a
+    diagnostic explaining how to enable the resolver. A module with
+    no `ttnn.tt_lang_op` is unaffected either way.
+  }];
+
+  let options = [
+    Option<"meshShape", "mesh-shape", "std::string",
+           /*default=*/"\"\"",
+           "Comma-separated mesh shape (e.g. 1,1 or 2,4) "
+           "forwarded to `resolve_kernel` so the Python compiler sees "
+           "the active mesh. Empty defaults to [1].">,
+    Option<"pythonModule", "python-module", "std::string",
+           /*default=*/"\"tt_torch.tt_lang\"",
+           "Python module exposing the resolver entry point.">,
+    Option<"pythonFunction", "python-function", "std::string",
+           /*default=*/"\"resolve_kernel\"",
+           "Function in `python-module` to invoke per op.">,
+  ];
+}
+
 def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagation", "::mlir::ModuleOp"> {
   let summary = "Greedy edge-based memory layout propagation for all operands.";
   let description = [{

@@ -117,6 +117,28 @@ target_link_libraries(TTMLIRCompiler PUBLIC coverage_config)
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
+# When the tt-lang pybind resolver is enabled, MLIRTTNNTransforms
+# emits unresolved `Py_*` symbols (libpython). The link dep on
+# `pybind11::embed` inside MLIRTTNNTransforms does NOT reliably
+# propagate through MLIR's `obj.${name}` aggregation to the aggregate
+# compiler libraries (`TTMLIRCompilerStatic`, linked by `ttmlir-opt`
+# and downstream tools), so we attach libpython directly to the
+# aggregate targets here. We link the underlying `Python3::Python`
+# target rather than `pybind11::embed` because `pybind11::embed` is a
+# transitive IMPORTED INTERFACE whose link to `Python3::Python` is
+# itself gated on whether `Development.Embed` was found by pybind11's
+# `find_package(Python ...)` call -- depending on consumer ordering
+# this gate can drop the libpython link silently. The
+# `Python3::Python` target is created here via
+# `find_package(Python3 ... Development REQUIRED)` so we're sure of it.
+if(TTMLIR_ENABLE_TT_LANG_PYBIND_RESOLVER)
+  if(NOT TARGET Python3::Python)
+    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+  endif()
+  target_link_libraries(TTMLIRCompiler PRIVATE Python3::Python)
+  target_link_libraries(TTMLIRCompilerStatic PUBLIC Python3::Python)
+endif()
+
 install(TARGETS TTMLIRCompiler DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
 
 if(NOT TTMLIR_ENABLE_STABLEHLO)
