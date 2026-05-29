@@ -2129,6 +2129,35 @@ def TTKernel_AtanTileOp : TTKernel_SFPUOp<"atan_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
+def TTKernel_Atan2BinaryTilesInitOp : TTKernel_InitOp<"atan2_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before atan2_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_Atan2BinaryTilesOp : TTKernel_SFPUOp<"atan2_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise atan2 operation between two tiles";
+    let description = [{
+      Performs element-wise computation of atan2 operation
+      DST[odst_index] <- atan2(DST[dst0_index], DST[dst1_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *acquire_dst* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_RoundingTileInitOp : TTKernel_InitOp<"rounding_op_tile_init"> {
     let summary = "Init function for ceil/floor/round_tile operation. Refer to documentation for any init function.";
     let description = [{

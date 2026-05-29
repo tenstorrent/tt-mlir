@@ -773,6 +773,16 @@ def D2M_TileMinimumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_minimum", D2M_
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileAtan2Op : D2M_GenericRegionComputeBinaryDstOp<"tile_atan2", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Atan2 Op";
+    let description = [{
+        The `tile_atan2` operation computes the element-wise arctangent of `lhs` over `rhs`.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileClampScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_clamp_scalar", D2M_TileComputeOpTraitBundle>{
     let summary = "D2M Tile Clamp Scalar Op";
     let description = [{
