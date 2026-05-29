@@ -104,12 +104,13 @@ struct AggregatedMetrics {
 //          (HiFi2 baseline: 32 cycles per 32×32×32 tile-mul on one Tensix
 //           matrix engine; full-grid parallelism).
 //        - bound = dram_us ≥ compute_us ? DRAM : COMPUTE.
-//        - Accumulate max(dram_us, compute_us) into rooflineTimeUs,
-//          and rhs scalars / bytes into paramCount / paramMemoryBytes.
-//   4. After the walk, divide rooflineTimeUs by kUtilizationFactor
-//      (0.7 — conservative end of the 83–90 % measured range in
-//       tt-metal/tech_reports/Saturating_DRAM_bandwidth.md). Mirror into
-//      topPerfTimeMs / topPerfSamplesPerSec.
+//        - Accumulate max(dram_us, compute_us) (converted to ms) into
+//          rooflineMs, and rhs scalars / bytes into paramCount /
+//          paramMemoryBytes.
+//   4. After the walk, divide rooflineMs by kUtilizationFactor (0.7 —
+//      conservative end of the 83–90 % measured range in
+//      tt-metal/tech_reports/Saturating_DRAM_bandwidth.md). Mirror into
+//      topPerfEstimateMs.
 //
 // Assumptions
 //   - DRAM-bound regime is typical (and is observed on LLM decode), but the
@@ -148,32 +149,21 @@ struct PerfTargets {
   // comparison.
   uint64_t numTensixCores = 0;
 
-  // Per-matmul roofline classification, summed across all matmuls in the
-  // forward function. rooflineTimeUs is the sum of per-matmul
-  // max(dram_us, compute_us) — the simplest single-op roofline — divided
-  // by a fixed utilization factor (see kUtilizationFactor in
-  // runOnOperation). The bound counts are classified against the peak
-  // numbers, before the derate.
+  // Per-op classification across every weight matmul / linear / SDPA op
+  // in the forward function. Counts use peak numbers before the
+  // utilization derate.
   uint64_t dramBoundOps = 0;
   uint64_t computeBoundOps = 0;
-  double rooflineTimeUs = 0.0;
 
-  // SDPA-shape matmuls (4D operands: batch × heads × M × K • K × N) are
-  // tracked separately so consumers can see how much of the roofline is
-  // attention-driven (decode-step KV-cache reads, which scale linearly
-  // with context length) vs weight-driven. They are still included in
-  // rooflineTimeUs above; sdpaTimeUs is a subset.
-  uint64_t sdpaOps = 0;
-  double sdpaTimeUs = 0.0;
-
-  // Sum of weight (rhs) scalars / bytes across every matmul. Reflects the
-  // total weight stream the forward pass reads from DRAM, accumulated
-  // alongside rooflineTimeUs in the matmul walk.
+  // Sum of weight (rhs) scalars / bytes across every counted op.
   uint64_t paramCount = 0;
   uint64_t paramMemoryBytes = 0;
 
-  double topPerfTimeMs = 0.0;
-  double topPerfSamplesPerSec = 0.0;
+  // Sum of per-op max(dram_us, compute_us), in milliseconds, derated by
+  // kUtilizationFactor. rooflineMs and topPerfEstimateMs carry the same
+  // single-step wall-clock estimate.
+  double rooflineMs = 0.0;
+  double topPerfEstimateMs = 0.0;
 };
 
 // Bytes per scalar element. Caller must ensure elementType is a plain
@@ -361,24 +351,17 @@ private:
     pt["num_chips"] = static_cast<int64_t>(t.numChips);
     pt["dram_bandwidth_bytes_per_sec"] =
         static_cast<int64_t>(t.dramBandwidthBytesPerSec);
+    pt["aiclk_hz"] = static_cast<int64_t>(t.aiclkHz);
+    pt["num_tensix_cores"] = static_cast<int64_t>(t.numTensixCores);
 
-    llvm::json::Object params;
-    params["count"] = static_cast<int64_t>(t.paramCount);
-    params["memory_bytes"] = static_cast<int64_t>(t.paramMemoryBytes);
-    pt["params"] = std::move(params);
+    pt["params_count"] = static_cast<int64_t>(t.paramCount);
+    pt["params_memory_bytes"] = static_cast<int64_t>(t.paramMemoryBytes);
 
-    llvm::json::Object rl;
-    rl["top_perf_time_ms"] = t.topPerfTimeMs;
-    rl["top_perf_samples_per_sec"] = t.topPerfSamplesPerSec;
-    pt["roofline"] = std::move(rl);
+    pt["dram_bound_ops"] = static_cast<int64_t>(t.dramBoundOps);
+    pt["compute_bound_ops"] = static_cast<int64_t>(t.computeBoundOps);
 
-    llvm::json::Object mm;
-    mm["dram_bound_ops"] = static_cast<int64_t>(t.dramBoundOps);
-    mm["compute_bound_ops"] = static_cast<int64_t>(t.computeBoundOps);
-    mm["sdpa_ops"] = static_cast<int64_t>(t.sdpaOps);
-    mm["sdpa_time_us"] = t.sdpaTimeUs;
-    mm["roofline_time_us"] = t.rooflineTimeUs;
-    pt["matmul"] = std::move(mm);
+    pt["roofline_ms"] = t.rooflineMs;
+    pt["top_perf_estimate_ms"] = t.topPerfEstimateMs;
 
     jsonOutput["perf_targets"] = std::move(pt);
   }
@@ -591,19 +574,11 @@ public:
                                 perfTargets.aiclkHz);
 
         double opUs = std::max(dramUs, computeUs);
-        perfTargets.rooflineTimeUs += opUs;
+        perfTargets.rooflineMs += opUs / 1000.0;
         if (dramUs >= computeUs) {
           perfTargets.dramBoundOps++;
         } else {
           perfTargets.computeBoundOps++;
-        }
-        // SDPA shape signature at low opt levels: rank-4 operands of the
-        // form (B1, B2, M, K) × (B1, B2, K, N) → (B1, B2, M, N). At higher
-        // optimization levels SDPA is fused into a dedicated
-        // scaled_dot_product_attention_decode op — handled below.
-        if (lhsShape.size() == 4 && rhsShape.size() == 4) {
-          perfTargets.sdpaOps++;
-          perfTargets.sdpaTimeUs += opUs;
         }
       };
       funcOp->walk([&](MatmulOp op) {
@@ -636,10 +611,8 @@ public:
         double dramUs =
             static_cast<double>(kvBytes) * 1.0e6 /
             static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
-        perfTargets.rooflineTimeUs += dramUs;
+        perfTargets.rooflineMs += dramUs / 1000.0;
         perfTargets.dramBoundOps++;
-        perfTargets.sdpaOps++;
-        perfTargets.sdpaTimeUs += dramUs;
       };
       funcOp->walk([&](ScaledDotProductAttentionDecodeOp op) {
         handleSdpaDecode(op.getKey(), op.getValue());
@@ -678,10 +651,8 @@ public:
         ArrayRef<int64_t> kShape = kType.getShape();
         if (qShape.size() != 4 || kShape.size() != 4) {
           // Unexpected rank — fall back to dram-only accounting.
-          perfTargets.rooflineTimeUs += dramUs;
+          perfTargets.rooflineMs += dramUs / 1000.0;
           perfTargets.dramBoundOps++;
-          perfTargets.sdpaOps++;
-          perfTargets.sdpaTimeUs += dramUs;
           return;
         }
         // QK^T and attn@V are both (B·Hq, Sq, D, Sk) tile-mul shape (K is
@@ -700,14 +671,12 @@ public:
                                 perfTargets.aiclkHz);
 
         double opUs = std::max(dramUs, computeUs);
-        perfTargets.rooflineTimeUs += opUs;
+        perfTargets.rooflineMs += opUs / 1000.0;
         if (dramUs >= computeUs) {
           perfTargets.dramBoundOps++;
         } else {
           perfTargets.computeBoundOps++;
         }
-        perfTargets.sdpaOps++;
-        perfTargets.sdpaTimeUs += opUs;
       };
       funcOp->walk([&](ScaledDotProductAttentionOp op) {
         handleSdpaPrefill(op.getQuery(), op.getKey(), op.getValue());
@@ -787,15 +756,8 @@ public:
     // with published Llama 3 8B decode tok/sec on n150. Apply once at the
     // end so the per-op classification still uses the peak numbers.
     constexpr double kUtilizationFactor = 0.7;
-    perfTargets.rooflineTimeUs /= kUtilizationFactor;
-    perfTargets.sdpaTimeUs /= kUtilizationFactor;
-
-    // Mirror the per-matmul total into the ms-scale roofline fields so the
-    // perf_targets.roofline block carries the realistic wall-clock estimate.
-    perfTargets.topPerfTimeMs = perfTargets.rooflineTimeUs / 1000.0;
-    perfTargets.topPerfSamplesPerSec = perfTargets.topPerfTimeMs > 0.0
-                                           ? 1000.0 / perfTargets.topPerfTimeMs
-                                           : 0.0;
+    perfTargets.rooflineMs /= kUtilizationFactor;
+    perfTargets.topPerfEstimateMs = perfTargets.rooflineMs;
 
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);
