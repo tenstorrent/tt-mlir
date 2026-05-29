@@ -3173,4 +3173,158 @@ INSTANTIATE_TEST_SUITE_P(NLPConcatHeadsOpTPathParityTest,
                          NLPConcatHeadsOpTPathParityTest,
                          ::testing::ValuesIn(nlpConcatHeadsOpList));
 
+//===----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         NLPCreateQKVHeadsDecodeOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT
+buildNLPCreateQKVHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                        std::optional<uint32_t> numKVHeads,
+                                        std::optional<bool> overlapQKCoregrid,
+                                        std::optional<uint32_t> sliceSize,
+                                        TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opTOpModel,
+    ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opT) {
+    opT.input.reset();
+    opT.batch_offset.reset();
+    resetOutputTensorRefT(opT.q_out);
+    opT.k_out.reset();
+    opT.v_out.reset();
+  };
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp buildTestNLPCreateQKVHeadsDecodeOp(
+    bool withBatchOffset = false, uint32_t numHeads = 8,
+    std::optional<uint32_t> numKVHeads = std::nullopt,
+    std::optional<bool> overlapQKCoregrid = std::nullopt,
+    std::optional<uint32_t> sliceSize = std::nullopt) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value batchOffset = nullptr;
+  if (withBatchOffset) {
+    auto batchOffsetType = tiledL1BF16Type(defaultShape);
+    batchOffset =
+        e.builder
+            .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{batchOffsetType},
+                                            mlir::ValueRange{})
+            .getResult();
+  }
+
+  mlir::IntegerAttr numKVHeadsAttr;
+  if (numKVHeads.has_value()) {
+    numKVHeadsAttr = mlir::IntegerAttr::get(
+        mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Unsigned),
+        *numKVHeads);
+  }
+  mlir::BoolAttr overlapQKCoregridAttr;
+  if (overlapQKCoregrid.has_value()) {
+    overlapQKCoregridAttr =
+        mlir::BoolAttr::get(getContext(), *overlapQKCoregrid);
+  }
+  mlir::IntegerAttr sliceSizeAttr;
+  if (sliceSize.has_value()) {
+    sliceSizeAttr = mlir::IntegerAttr::get(
+        mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Unsigned),
+        *sliceSize);
+  }
+
+  return e.builder.create<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>(
+      loc, /*query=*/outputType, /*key=*/outputType, /*value=*/outputType,
+      input, batchOffset, numHeads, numKVHeadsAttr, overlapQKCoregridAttr,
+      sliceSizeAttr);
+}
+
+} // namespace
+
+using NLPCreateQKVHeadsDecodeOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>;
+
+TEST_P(NLPCreateQKVHeadsDecodeOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp qkvOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildNLPCreateQKVHeadsDecodeOpTFromMLIR(
+          qkvOp.getNumHeads(), qkvOp.getNumKvHeads(),
+          qkvOp.getOverlapQkCoregrid(), qkvOp.getSliceSize(),
+          mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+              mlir::cast<mlir::RankedTensorType>(qkvOp.getQuery().getType())
+                  .getEncoding()));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, qkvOp.getInput());
+  if (qkvOp.getBatchOffset()) {
+    prepopulateOperandTensorRefs(cache, qkvOp.getBatchOffset());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, qkvOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
+    nlpCreateQKVHeadsDecodeOpList = {
+        buildTestNLPCreateQKVHeadsDecodeOp(),
+        buildTestNLPCreateQKVHeadsDecodeOp(/*withBatchOffset=*/true),
+        buildTestNLPCreateQKVHeadsDecodeOp(/*withBatchOffset=*/false,
+                                           /*numHeads=*/16u),
+        buildTestNLPCreateQKVHeadsDecodeOp(
+            /*withBatchOffset=*/false, /*numHeads=*/8u,
+            /*numKVHeads=*/std::optional<uint32_t>(4u)),
+        buildTestNLPCreateQKVHeadsDecodeOp(
+            /*withBatchOffset=*/false, /*numHeads=*/8u,
+            /*numKVHeads=*/std::nullopt,
+            /*overlapQKCoregrid=*/std::optional<bool>(true)),
+        buildTestNLPCreateQKVHeadsDecodeOp(
+            /*withBatchOffset=*/false, /*numHeads=*/8u,
+            /*numKVHeads=*/std::nullopt,
+            /*overlapQKCoregrid=*/std::nullopt,
+            /*sliceSize=*/std::optional<uint32_t>(32u)),
+        buildTestNLPCreateQKVHeadsDecodeOp(
+            /*withBatchOffset=*/true, /*numHeads=*/16u,
+            /*numKVHeads=*/std::optional<uint32_t>(4u),
+            /*overlapQKCoregrid=*/std::optional<bool>(false),
+            /*sliceSize=*/std::optional<uint32_t>(64u)),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    NLPCreateQKVHeadsDecodeOpTPathParityTest,
+    NLPCreateQKVHeadsDecodeOpTPathParityTest,
+    ::testing::ValuesIn(nlpCreateQKVHeadsDecodeOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
