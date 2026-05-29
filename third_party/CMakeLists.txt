@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "5beed318d0f0d1c6212e605947fb0be80c9e0a1d")
+set(TT_METAL_VERSION "fcb4c896491a74e40faab1db3a3f3d68acdabf07")
 
 set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
     "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
@@ -10,9 +10,6 @@ if (TTMLIR_TTMETAL_SOURCE_DIR)
   message(STATUS "Using user-managed tt-metal source: ${TTMETAL_SOURCE_DIR}")
   message(STATUS "  TT_METAL_VERSION (${TT_METAL_VERSION}) is NOT enforced for user-managed checkouts")
 
-  # Many scripts (env/activate, tools/ttrt, tools/profiler, alchemist, CI workflows,
-  # BUILD_RPATH in lib/CMakeLists.txt) hardcode third_party/tt-metal/src/tt-metal.
-  # Symlink the canonical location to the override so those continue to work.
   set(TTMETAL_CANONICAL_LINK "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src/tt-metal")
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src")
   if(IS_SYMLINK "${TTMETAL_CANONICAL_LINK}")
