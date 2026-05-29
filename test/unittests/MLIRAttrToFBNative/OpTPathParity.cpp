@@ -3908,4 +3908,149 @@ INSTANTIATE_TEST_SUITE_P(RotaryEmbeddingOpTPathParityTest,
                          RotaryEmbeddingOpTPathParityTest,
                          ::testing::ValuesIn(rotaryEmbeddingOpList));
 
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         ScaledDotProductAttentionDecodeOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+buildScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opTOpModel,
+    ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opTFB) {
+  auto helper =
+      [](::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opT) {
+        opT.query.reset();
+        opT.key.reset();
+        opT.value.reset();
+        opT.attention_mask.reset();
+        opT.cur_pos_tensor.reset();
+        opT.attention_sink.reset();
+        resetOutputTensorRefT(opT.out);
+        opT.memcfg.reset();
+      };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp
+buildTestScaledDotProductAttentionDecodeOp(
+    bool isCausal = true, bool withAttentionMask = false,
+    bool withCurPosTensor = false, bool withAttentionSink = false,
+    mlir::FloatAttr scale = {},
+    mlir::tt::ttnn::SDPAProgramConfigAttr programConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value query = makeOnes();
+  mlir::Value key = makeOnes();
+  mlir::Value value = makeOnes();
+  mlir::Value attentionMask = withAttentionMask ? makeOnes() : mlir::Value();
+  mlir::Value curPosTensor = withCurPosTensor ? makeOnes() : mlir::Value();
+  mlir::Value attentionSink = withAttentionSink ? makeOnes() : mlir::Value();
+
+  return e.builder.create<mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>(
+      loc, tensorType, query, key, value, isCausal, attentionMask, curPosTensor,
+      attentionSink, scale, programConfig);
+}
+
+} // namespace
+
+using ScaledDotProductAttentionDecodeOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>;
+
+TEST_P(ScaledDotProductAttentionDecodeOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp sdpaOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildScaledDotProductAttentionDecodeOpTFromMLIR(
+          sdpaOp.getIsCausal(), sdpaOp.getScale(), sdpaOp.getProgramConfigAttr(),
+          resolveOutputLayout(sdpaOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sdpaOp.getQuery(), sdpaOp.getKey(),
+                               sdpaOp.getValue());
+  if (sdpaOp.getAttentionMask()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionMask());
+  }
+  if (sdpaOp.getCurPosTensor()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getCurPosTensor());
+  }
+  if (sdpaOp.getAttentionSink()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionSink());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, sdpaOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
+    scaledDotProductAttentionDecodeOpList = {
+        buildTestScaledDotProductAttentionDecodeOp(),
+        buildTestScaledDotProductAttentionDecodeOp(/*isCausal=*/false),
+        buildTestScaledDotProductAttentionDecodeOp(/*isCausal=*/true,
+                                                   /*withAttentionMask=*/true),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/true),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/true),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f)),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/{},
+            /*programConfig=*/nonDefaultSDPAProgramConfigAttr),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/false, /*withAttentionMask=*/true,
+            /*withCurPosTensor=*/true, /*withAttentionSink=*/true,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f),
+            /*programConfig=*/nonDefaultSDPAProgramConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ScaledDotProductAttentionDecodeOpTPathParityTest,
+    ScaledDotProductAttentionDecodeOpTPathParityTest,
+    ::testing::ValuesIn(scaledDotProductAttentionDecodeOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
