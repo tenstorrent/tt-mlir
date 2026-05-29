@@ -666,3 +666,48 @@ INSTANTIATE_TEST_SUITE_P(
     MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigTest,
     MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigTest,
     ::testing::ValuesIn(matmulDRAMShardedAttrList));
+
+//===----------------------------------------------------------------------===//
+// SDPAProgramConfig
+//===----------------------------------------------------------------------===//
+
+class SDPAProgramConfigTest
+    : public ToNativeConsistencyTest<mlir::tt::ttnn::SDPAProgramConfigAttr,
+                                     ::tt::target::ttnn::SDPAConfigT> {};
+
+TEST_P(SDPAProgramConfigTest, SDPAProgramConfig) { RunTest(GetParam()); }
+
+const std::initializer_list<mlir::tt::ttnn::SDPAProgramConfigAttr>
+    sdpaProgramConfigAttrList = {
+        mlir::tt::ttnn::SDPAProgramConfigAttr::get(
+            SDPAProgramConfigTest::getContext(),
+            mlir::tt::ttnn::CoreCoordAttr::get(
+                SDPAProgramConfigTest::getContext(), 8, 8),
+            mlir::tt::ttnn::CoreRangeSetAttr(), 128, 128,
+            mlir::BoolAttr::get(SDPAProgramConfigTest::getContext(), true),
+            std::nullopt),
+        mlir::tt::ttnn::SDPAProgramConfigAttr::get(
+            SDPAProgramConfigTest::getContext(),
+            mlir::tt::ttnn::CoreCoordAttr::get(
+                SDPAProgramConfigTest::getContext(), 4, 8),
+            mlir::tt::ttnn::CoreRangeSetAttr::get(
+                SDPAProgramConfigTest::getContext(),
+                llvm::ArrayRef<mlir::tt::ttnn::CoreRangeAttr>(
+                    {mlir::tt::ttnn::CoreRangeAttr::get(
+                        SDPAProgramConfigTest::getContext(),
+                        mlir::tt::ttnn::CoreCoordAttr::get(
+                            SDPAProgramConfigTest::getContext(), 0, 0),
+                        mlir::tt::ttnn::CoreCoordAttr::get(
+                            SDPAProgramConfigTest::getContext(), 3, 7))})),
+            64, 64,
+            mlir::BoolAttr::get(SDPAProgramConfigTest::getContext(), false),
+            16u),
+        mlir::tt::ttnn::SDPAProgramConfigAttr::get(
+            SDPAProgramConfigTest::getContext(),
+            mlir::tt::ttnn::CoreCoordAttr::get(
+                SDPAProgramConfigTest::getContext(), 8, 8),
+            mlir::tt::ttnn::CoreRangeSetAttr(), 32, 64, mlir::BoolAttr(),
+            std::nullopt)};
+
+INSTANTIATE_TEST_SUITE_P(SDPAProgramConfigTest, SDPAProgramConfigTest,
+                         ::testing::ValuesIn(sdpaProgramConfigAttrList));

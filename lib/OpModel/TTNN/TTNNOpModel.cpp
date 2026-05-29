@@ -30,6 +30,7 @@
 #include "ttmlir/OpInvoke/TTNN/transformer/nlpConcatHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/transformer/nlpCreateQKVHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/transformer/pagedFlashMultiLatentAttentionDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/transformer/pagedScaledDotProductAttentionDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -3214,6 +3215,30 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 // PagedScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT opT;
+  opT.is_causal = isCausal;
+  if (scale.has_value()) {
+    opT.scale = scale.value().convertToFloat();
+  }
+  if (slidingWindowSize.has_value()) {
+    opT.sliding_window_size = *slidingWindowSize;
+  }
+  if (programConfig.has_value() && *programConfig) {
+    opT.program_config = std::make_unique<::tt::target::ttnn::SDPAConfigT>(
+        toNative(*programConfig));
+  }
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
@@ -3258,19 +3283,31 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT opT =
+      buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+          isCausal, scale, slidingWindowSize, programConfig, outputLayout);
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
-        querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
-        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfig,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::PagedScaledDotProductAttentionDecodeOpResult result =
+        ttnn_op_invoke::callPagedScaledDotProductAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, querySpec,
+            keySpec, valueSpec, pageTableSpec,
+            attentionMaskSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionMaskSpec)
+                : std::nullopt,
+            curPosTensorSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*curPosTensorSpec)
+                : std::nullopt,
+            attentionSinkSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionSinkSpec)
+                : std::nullopt,
+            *device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected PagedScaledDotProductAttentionDecodeOp constraints query "
+           "to return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(
@@ -3325,20 +3362,31 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-
-  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT opT =
+      buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+          isCausal, scale, slidingWindowSize, programConfig, outputLayout);
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
-        querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
-        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfig,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::PagedScaledDotProductAttentionDecodeOpResult result =
+        ttnn_op_invoke::callPagedScaledDotProductAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, querySpec, keySpec,
+            valueSpec, pageTableSpec,
+            attentionMaskSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionMaskSpec)
+                : std::nullopt,
+            curPosTensorSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*curPosTensorSpec)
+                : std::nullopt,
+            attentionSinkSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionSinkSpec)
+                : std::nullopt,
+            *device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected PagedScaledDotProductAttentionDecodeOp runtime query to "
+        "return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(pagedScaledDotProductAttentionDecodeOpQuery);

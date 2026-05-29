@@ -13,6 +13,7 @@
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/matmul/device/config/matmul_program_config_types.hpp"
+#include "ttnn/operations/transformer/sdpa_config.hpp"
 
 // Macros to wrap overloaded functions for use with
 // query_op_constraints/runtime. These create a generic lambda that forwards
@@ -113,6 +114,9 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfigT &config);
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfigT &config);
+
+::ttnn::operations::transformer::SDPAProgramConfig
+createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfigT &config);
 
 } // namespace ttnn_op_invoke::operations::utils
 

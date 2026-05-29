@@ -945,20 +945,31 @@ inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
   return toNative(attr);
 }
 
+inline ::tt::target::ttnn::SDPAConfigT
+toNative(ttnn::SDPAProgramConfigAttr sdpaConfigAttr) {
+  ::tt::target::ttnn::SDPAConfigT sdpaConfigT;
+  sdpaConfigT.compute_with_storage_grid_size =
+      std::make_unique<::tt::target::ttnn::CoreCoord>(
+          toNative(sdpaConfigAttr.getComputeWithStorageGridSize()));
+  if (sdpaConfigAttr.getSubCoreGrids()) {
+    sdpaConfigT.sub_core_grids =
+        std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+            toNative(sdpaConfigAttr.getSubCoreGrids()));
+  }
+  sdpaConfigT.q_chunk_size = sdpaConfigAttr.getQChunkSize();
+  sdpaConfigT.k_chunk_size = sdpaConfigAttr.getKChunkSize();
+  sdpaConfigT.exp_approx_mode = toNative(sdpaConfigAttr.getExpApproxMode());
+  if (auto maxCores = sdpaConfigAttr.getMaxCoresPerHeadBatch()) {
+    sdpaConfigT.max_cores_per_head_batch = *maxCores;
+  }
+  return sdpaConfigT;
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::SDPAProgramConfigAttr sdpaConfigAttr) {
-  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
-      toFlatbuffer(cache, sdpaConfigAttr.getComputeWithStorageGridSize());
-  ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> subCoreGrids;
-  if (sdpaConfigAttr.getSubCoreGrids()) {
-    subCoreGrids = toFlatbuffer(cache, sdpaConfigAttr.getSubCoreGrids());
-  }
-  return ::tt::target::ttnn::CreateSDPAConfig(
-      *cache.fbb, &computeWithStorageGridSize, subCoreGrids,
-      sdpaConfigAttr.getQChunkSize(), sdpaConfigAttr.getKChunkSize(),
-      toFlatbuffer(cache, sdpaConfigAttr.getExpApproxMode()),
-      toFlatbuffer(cache, sdpaConfigAttr.getMaxCoresPerHeadBatch()));
+  auto t = toNative(sdpaConfigAttr);
+  return ::tt::target::ttnn::SDPAConfig::Pack(*cache.fbb, &t);
 }
 
 inline ::flatbuffers::Offset<
