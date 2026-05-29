@@ -67,3 +67,36 @@ func.func @trid_write_path() -> () attributes {ttkernel.thread = #ttkernel.threa
   "ttkernel.reset_noc_trid_barrier_counter"(%mask, %noc_idx) : (i32, i8) -> ()
   return
 }
+
+// -----
+
+// A TRID barrier with no NOC operand uses the default `noc` object. The trid is
+// the sole verbatim argument.
+// CHECK-LABEL: func @trid_barrier_default_noc
+// CHECK: emitc.verbatim "Noc noc;"
+// CHECK: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
+// CHECK: emitc.verbatim "noc.async_write_barrier<Noc::BarrierMode::TXN_ID>({});" args %[[TRID]] : i32
+func.func @trid_barrier_default_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+  %trid = arith.constant 3 : i32
+  "ttkernel.noc_async_write_barrier_with_trid"(%trid) : (i32) -> ()
+  return
+}
+
+// -----
+
+// A TRID barrier with a dynamic (non-constant) NOC id emits a temporary
+// `Noc({})`. The NOC id fills the `Noc({})` placeholder and the trid fills the
+// barrier-call placeholder, so both must appear as verbatim args in that order.
+// CHECK-LABEL: func @trid_barrier_dynamic_noc
+// CHECK: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
+// CHECK: %[[NOC:.*]] = emitc.cast
+// CHECK: emitc.verbatim "Noc({}).async_read_barrier<Noc::BarrierMode::TXN_ID>({});" args %[[NOC]], %[[TRID]] : i8, i32
+func.func @trid_barrier_dynamic_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+  %trid = arith.constant 3 : i32
+  %noc_arg = arith.constant 262400 : i32
+  %noc_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+  %noc_offset = arith.constant 0 : i32
+  %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+  "ttkernel.noc_async_read_barrier_with_trid"(%trid, %noc) : (i32, i8) -> ()
+  return
+}
