@@ -282,6 +282,9 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
   // Verify that the grid shape of the input tensor matches the device grid
   // shape.
   auto deviceOp = ttcore::lookupDeviceOp(getOperation());
+  // This op may be verified before an enclosing device has been registered.
+  // In that case, intentionally defer the device-dependent grid-shape check
+  // until a device op is available rather than failing verification here.
   if (deviceOp) {
     ttcore::DeviceAttr device = deviceOp.getDeviceAttr();
     auto deviceGridShape = device.getWorkerGrid().getShape();
