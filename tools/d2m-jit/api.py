@@ -35,6 +35,42 @@ from ._src.rewrite import (
     apply_patterns,
 )
 
+TileBcastType = d2m.TileBcastType
+
+
+def _parse_tile_bcast_type(value):
+    if isinstance(value, Attribute):
+        return value
+    if isinstance(value, d2m.TileBcastType):
+        value = int(value)
+    if isinstance(value, str):
+        key = value.lower()
+        if key in {"none", "no_bcast"}:
+            return Attribute.parse("#d2m<tile_bcast_type none>")
+        if key in {"col", "column"}:
+            return Attribute.parse("#d2m<tile_bcast_type col>")
+        if key == "row":
+            return Attribute.parse("#d2m<tile_bcast_type row>")
+        if key == "scalar":
+            return Attribute.parse("#d2m<tile_bcast_type scalar>")
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value == int(d2m.TileBcastType.None_):
+            return Attribute.parse("#d2m<tile_bcast_type none>")
+        if value == int(d2m.TileBcastType.Col):
+            return Attribute.parse("#d2m<tile_bcast_type col>")
+        if value == int(d2m.TileBcastType.Row):
+            return Attribute.parse("#d2m<tile_bcast_type row>")
+        if value == int(d2m.TileBcastType.Scalar):
+            return Attribute.parse("#d2m<tile_bcast_type scalar>")
+    raise ValueError(
+        "tile broadcast type must be one of 'row', 'col', 'scalar', 'none', "
+        f"or a d2m.TileBcastType, got {value!r}"
+    )
+
+
+def _tile_bcast_type_attr(node):
+    return _parse_tile_bcast_type(node.value)
+
 
 @syntax("remote_load")
 def remote_load(
@@ -420,6 +456,36 @@ def right_shift(lhs, rhs):
     return _eltwise_block(lambda l, r: d2m.tile_right_shift(l.type, l, r), lhs, rhs)
 
 
+@syntax("bcast", args_as_attr=[False, _tile_bcast_type_attr])
+def bcast(input, bcast_type):
+    """Block-level tile broadcast.
+
+    `bcast_type` matches the D2M tile-broadcast enum: `row` broadcasts the
+    tile's 0-row, `col` broadcasts the tile's 0-column, and `scalar`
+    broadcasts element (0, 0).
+    """
+    tile_bcast_type = _parse_tile_bcast_type(bcast_type)
+    return _eltwise_block(lambda t: d2m.tile_bcast(t.type, t, tile_bcast_type), input)
+
+
+@syntax("bcast_row")
+def bcast_row(input):
+    """Block-level tile broadcast of the tile's 0-row."""
+    return bcast(input, d2m.TileBcastType.Row)
+
+
+@syntax("bcast_col")
+def bcast_col(input):
+    """Block-level tile broadcast of the tile's 0-column."""
+    return bcast(input, d2m.TileBcastType.Col)
+
+
+@syntax("bcast_scalar")
+def bcast_scalar(input):
+    """Block-level tile broadcast of element (0, 0)."""
+    return bcast(input, d2m.TileBcastType.Scalar)
+
+
 @syntax("where")
 def where(cond, true_value, false_value):
     """Block-level elementwise select: `cond ? true_value : false_value`.
@@ -695,6 +761,18 @@ class TensorBlock:
     def right_shift(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         """Same as `d2m.right_shift(self, rhs)`."""
         return right_shift(ast_self, rhs)
+
+    def bcast_row(ast_self: TensorBlock) -> TensorBlock:
+        """Same as `d2m.bcast_row(self)`."""
+        return bcast_row(ast_self)
+
+    def bcast_col(ast_self: TensorBlock) -> TensorBlock:
+        """Same as `d2m.bcast_col(self)`."""
+        return bcast_col(ast_self)
+
+    def bcast_scalar(ast_self: TensorBlock) -> TensorBlock:
+        """Same as `d2m.bcast_scalar(self)`."""
+        return bcast_scalar(ast_self)
 
     def where(ast_self: TensorBlock, true_value, false_value) -> TensorBlock:
         """Same as `d2m.where(self, true_value, false_value)` -- `self` is

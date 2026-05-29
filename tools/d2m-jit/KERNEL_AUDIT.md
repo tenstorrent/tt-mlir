@@ -25,7 +25,7 @@ Status legend matches [TODO.md](TODO.md): 🔴 blocker · 🟡 missing surface
 | `tilize` / `untilize` / `to_layout` | ✅ | Layout conversions |
 | `zeros`, `full`, `empty` | ✅ | Host-side fill + `to_layout` |
 | Reductions (`tile_reduce_*`) | 🔴 | Not exposed in `api.py` |
-| Broadcast (`tile_bcast`) | 🔴 | Not exposed |
+| Broadcast (`tile_bcast`) | ✅ | `d2m.bcast`, row/col/scalar shorthands, method forms; lit + pytest coverage |
 | In-kernel typecast (`tile_typecast`) | 🔴 | Host-side only via `tilize(dtype=...)` |
 | Per-tile transpose (`tile_transpose`) | 🔴 | Not exposed — but logical permute via views is free |
 | Row/col mask helpers | 🔴 | Causal-mask building block missing |
@@ -88,7 +88,7 @@ qk_matmul_kernel(Q, K_T, qk, ..., grid=g)   # Q @ K_T, no DMA between
 
 - **SDPA at 1-tile granularity** (S ≤ 32, single head): Q×Kᵀ via
   permute-view + zeros-prefilled matmul + softmax… stops at softmax
-  because reduce/bcast are missing.
+  because reductions are missing.
 - **Multi-head attention scaffolding:** per-head views are free; the
   *compute* hits the reduction wall.
 - **MoE expert MLP body** (linear + GELU + linear): chained via views,
@@ -98,9 +98,10 @@ qk_matmul_kernel(Q, K_T, qk, ..., grid=g)   # Q @ K_T, no DMA between
 
 ### 🔴 Blocked on missing pieces
 
-- **Softmax** — needs reduce + bcast. Blocks every attention,
-  MoE-gating, and cross-entropy-loss kernel.
-- **LayerNorm / RMSNorm / GroupNorm** — same: reductions + broadcast.
+- **Softmax** — needs reductions; broadcast is available. Blocks every
+  attention, MoE-gating, and cross-entropy-loss kernel.
+- **LayerNorm / RMSNorm / GroupNorm** — same: reductions are the
+  remaining blocker; broadcast is available.
 - **Flash Attention** — needs softmax + multi-K matmul accumulation
   ([TODO §1](TODO.md)) + multicast on real grids
   ([TODO §2](TODO.md)) + online-softmax state across blocks.
@@ -113,9 +114,9 @@ qk_matmul_kernel(Q, K_T, qk, ..., grid=g)   # Q @ K_T, no DMA between
 
 ---
 
-## 4. Concrete kernel sketches with a proposed reduce + bcast surface
+## 4. Concrete kernel sketches with available bcast + proposed reductions
 
-These sketches assume a small, named-keyword API along these lines:
+These sketches assume reductions with this shape, plus the existing bcast API:
 
 ```python
 # Per-tile reductions: reduce over the tile's row or col axis. The
@@ -125,12 +126,13 @@ d2m.reduce_sum(x, dim)     # dim in {"row", "col"}
 d2m.reduce_max(x, dim)
 d2m.reduce_mean(x, dim)
 
-# Broadcast a partial tile back to a full 32x32 tile.
-d2m.bcast(x, dim)          # dim in {"row", "col", "scalar"}
+# Broadcast a partial tile back to a full 32x32 tile. This is available today.
+d2m.bcast(x, bcast_type)   # bcast_type in {"row", "col", "scalar"}
 ```
 
-The exact spelling is a placeholder; the point of the sketches is the
-**kernel shape**, not the bikeshed.
+The reduction spelling is a placeholder; the bcast spelling shown here is
+available today. The point of the sketches is the **kernel shape**, not the
+bikeshed.
 
 ### 4.1 Row-wise softmax (within-tile)
 
@@ -148,10 +150,10 @@ def softmax_row(x, out, m_blocks, n_blocks):
 
             # Numerically-stable softmax: subtract row max, exp, divide.
             row_max = reduce_max(t, dim="row")           # 32x1
-            t_shift = t - bcast(row_max, dim="row")      # 32x32
+            t_shift = t - bcast(row_max, "row")          # 32x32
             t_exp   = exp(t_shift)
             row_sum = reduce_sum(t_exp, dim="row")       # 32x1
-            t_out   = t_exp * bcast(recip(row_sum), dim="row")
+            t_out   = t_exp * bcast(recip(row_sum), "row")
 
             remote_store(out, [m_off + m, n_off + n], t_out)
 ```
@@ -175,7 +177,7 @@ def softmax_row_wide(x, out, m_blocks, n_blocks):
         for n in range(n_blocks):
             t = remote_load(x, [m_off + m, n_off + n])
             row_max = maximum(row_max, bcast(reduce_max(t, dim="row"),
-                                             dim="row"))
+                                             "row"))
 
         # Pass 2: row sum of shifted exp.
         row_sum = full_tile(value=0.0)
@@ -183,7 +185,7 @@ def softmax_row_wide(x, out, m_blocks, n_blocks):
             t = remote_load(x, [m_off + m, n_off + n])
             t_exp = exp(t - row_max)
             row_sum = row_sum + bcast(reduce_sum(t_exp, dim="row"),
-                                      dim="row")
+                                      "row")
         row_inv = recip(row_sum)
 
         # Pass 3: normalise and write back.
@@ -219,7 +221,7 @@ def rmsnorm(x, gamma, out, m_blocks, n_blocks, eps_tile):
         for n in range(n_blocks):
             t = remote_load(x, [m_off + m, n_off + n])
             sum_sq = sum_sq + bcast(reduce_sum(t * t, dim="row"),
-                                    dim="row")
+                                    "row")
         inv_rms = rsqrt(sum_sq * INV_N + eps_tile)
 
         # Pass 2: scale and write.
@@ -229,9 +231,10 @@ def rmsnorm(x, gamma, out, m_blocks, n_blocks, eps_tile):
             remote_store(out, [m_off + m, n_off + n], t * g * inv_rms)
 ```
 
-This is the cleanest end-to-end demo of the reduce+bcast pair: one
-small kernel that exercises both, in a pattern that immediately
-generalises to LayerNorm (add a mean reduction) and GroupNorm.
+This is the cleanest end-to-end demo of reductions plus the available
+bcast primitive: one small kernel that exercises both, in a pattern
+that immediately generalises to LayerNorm (add a mean reduction) and
+GroupNorm.
 
 ### 4.4 Single-head SDPA, chained via views
 
@@ -294,7 +297,7 @@ def flash_attn_inner(Q, K, V, O, l_state, m_state, S_q, S_kv, D):
         # 2. running max
         m_prev = m_state
         m_cur  = maximum(m_prev, bcast(reduce_max(s, dim="row"),
-                                       dim="row"))
+                                       "row"))
 
         # 3. correction factor for previous accumulator
         alpha  = exp(m_prev - m_cur)
@@ -302,7 +305,7 @@ def flash_attn_inner(Q, K, V, O, l_state, m_state, S_q, S_kv, D):
         # 4. exp of shifted scores, partial sum
         p      = exp(s - m_cur)
         l_cur  = alpha * l_state + bcast(reduce_sum(p, dim="row"),
-                                         dim="row")
+                                         "row")
 
         # 5. update O: O = alpha * O + p @ V
         O      = alpha * O + (p @ V_blk)
@@ -314,8 +317,8 @@ def flash_attn_inner(Q, K, V, O, l_state, m_state, S_q, S_kv, D):
     remote_store(out, [block_q_idx, 0], O * recip(l_state))
 ```
 
-Blockers beyond reduce/bcast: per-tile `tile_transpose` (or
-pre-permuted K, which views already give us), multi-K matmul
+Blockers beyond reductions: per-tile `tile_transpose` (or pre-permuted
+K, which views already give us), multi-K matmul
 accumulation, multi-output kernels (we'd want `m_state` / `l_state` as
 state we can read back for debugging).
 
@@ -355,9 +358,9 @@ nothing else does:
 ## 5. Critical-path unlocks, ranked
 
 1. **Expose reductions (`tile_reduce_sum`, `tile_reduce_max`,
-   `tile_reduce_mean`) + `tile_bcast`.** Unlocks softmax → unlocks
-   LayerNorm, RMSNorm, attention, MoE gating. Single biggest fan-out
-   for the surface we're missing.
+   `tile_reduce_mean`).** `tile_bcast` is already exposed. Unlocks
+   softmax → unlocks LayerNorm, RMSNorm, attention, MoE gating. Single
+   biggest fan-out for the surface we're missing.
 2. **Fix matmul accumulator init** ([TODO §1](TODO.md) —
    `D2MToTTKernel` fill-pattern handling). Unlocks multi-K matmul →
    real GEMM, real attention Q×Kᵀ across K, FFN.

@@ -80,19 +80,24 @@ in the same scope (or split them into separate synchronized scopes).
 
 ## Missing API surface
 
+`tile_bcast` is exposed today via `d2m.bcast(x, bcast_type)` for
+`"row"`, `"col"`, or `"scalar"`, the `bcast_row` / `bcast_col` /
+`bcast_scalar` shorthands, and matching `TensorBlock` methods. It has
+both lit IR-shape coverage and pytest end-to-end coverage, so it is no
+longer tracked as missing surface.
+
 These ops live in `D2MGenericRegionOps.td` but are not yet exposed in
 `api.py`. Each is a "wait for a use case" item — the DSL is a testbed,
 so we add ops when we have something to test against rather than
 speculatively.
 
-### 🟡 Bespoke-signature ops (need design)
+### 🟡 Remaining bespoke-signature ops (need design)
 
 | op | why it's interesting | what's blocking |
 | --- | --- | --- |
 | `tile_clamp_scalar(x, min, max)` | clamp with attribute (not operand) bounds | needs `FloatAttr` / `IntegerAttr` threading through `_eltwise_block`, plus a wrapper that picks the attr type from the tile's underlying dtype |
 | `tile_typecast(x)` | in-kernel dtype conversion (host-side already covered by `tilize(dtype=...)`) | needs an `_eltwise_block` variant that takes a target element type different from the input |
 | `tile_transpose(x)` | per-tile (32×32) element transpose -- distinct from logical `permute` / `view` | naming question — collides with `permute` / `view` semantics if called `transpose` |
-| `tile_bcast(x, bcast_type)` | broadcast row / col / scalar tile to full tile | needs a `BcastTypeAttr` argument; small but bespoke |
 
 ### 🟡 Reductions (scoped — float blocked, int viable)
 
@@ -220,11 +225,11 @@ debugging kernel bodies; would need a thin wrapper that emits
 
 ### 🟢 Lit-side IR-shape FileCheck tests
 
-`test/d2m-jit/lit/` only has `captures.py` (AST inspection). Worth
-adding lit + FileCheck tests that dump pre-pipeline IR (the builder
-already supports `print_ir_before_pipeline`) and check the shape of
-what each DSL primitive emits — would lock down the IR contract
-without going to silicon.
+`test/d2m-jit/lit/` now has coverage for captures, error paths,
+pattern rewrites, and broadcast lowering. Worth expanding that into
+lit + FileCheck tests that dump pre-pipeline IR (the builder already
+supports `print_ir_before_pipeline`) and check the shape of more DSL
+primitives — this locks down the IR contract without going to silicon.
 
 Sketch:
 
