@@ -826,7 +826,15 @@ public:
     }
 
     // Float types: bit-cast via __builtin_memcpy (well-defined, avoids UB).
-    std::string varName = getResultVariableName(op.getResult(), "_rc");
+    // Derive a unique variable name from the SSA result number.
+    std::string ssaName;
+    {
+      llvm::raw_string_ostream os(ssaName);
+      mlir::OpPrintingFlags flags;
+      op.getResult().printAsOperand(os, flags);
+      os.flush();
+    }
+    std::string varName = "_rc" + ssaName.substr(1);
 
     // Emits: uint32_t <var>_src = <srcInit>; float <var>;
     //        __builtin_memcpy(&<var>, &<var>_src, sizeof(<var>));
