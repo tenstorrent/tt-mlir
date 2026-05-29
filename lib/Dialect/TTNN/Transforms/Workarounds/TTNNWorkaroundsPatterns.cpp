@@ -369,6 +369,30 @@ public:
     // cluster axis on which we are performing the all reduce.
     // For tiled layout, this divisibility check is done on per-dim tile counts.
     auto sizeOfDevices = meshShape[clusterAxis];
+
+    // The reduce_scatter + all_gather breakdown HANGS the device on cluster
+    // axes wider than 2 chips: the ttnn reduce_scatter kernel deadlocks
+    // (cores never finish) regardless of ring vs linear topology. This was
+    // observed on a 1x4 (4 Blackhole chip) mesh running Qwen3-32B vLLM TP
+    // where an all_reduce(sum) on tensor<32x25600> was lowered to
+    // reduce_scatter + all_gather and the reduce_scatter deadlocked, while
+    // plain all_gather completes fine on the same mesh.
+    //
+    // For these wider axes, prefer the all_gather + local reduce breakdown,
+    // which is semantically identical to all_reduce(sum) (gather the per-chip
+    // partials along a new leading device axis, then locally reduce over it)
+    // but only relies on the working all_gather collective plus local compute.
+    //
+    // We keep the reduce_scatter path for 2-chip axes (e.g. n300 / llmbox),
+    // which is the validated, lower-memory path and does not hang there.
+    // rewriteAsAllGatherLocalReduce only handles sum/mean/max/min; for other
+    // reduce types we fall through to the existing reduce_scatter breakdown.
+    constexpr int64_t kReduceScatterSafeAxisSize = 2;
+    if (sizeOfDevices > kReduceScatterSafeAxisSize &&
+        isSupportedByAllGatherLocalReduce(op.getReduceType())) {
+      return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
+    }
+
     auto inputShape = inputType.getShape();
     auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
     llvm::SmallVector<int64_t> shapeInTileCounts(inputShape.begin(),
@@ -475,6 +499,22 @@ public:
   }
 
 private:
+  // Reduce types that rewriteAsAllGatherLocalReduce can lower to a local
+  // reduce op. std/var/prod/invalid are not supported and must keep using the
+  // reduce_scatter breakdown (or fail there) rather than silently changing
+  // behavior here.
+  static bool isSupportedByAllGatherLocalReduce(ttcore::ReduceType reduceType) {
+    switch (reduceType) {
+    case ttcore::ReduceType::Sum:
+    case ttcore::ReduceType::Mean:
+    case ttcore::ReduceType::Max:
+    case ttcore::ReduceType::Min:
+      return true;
+    default:
+      return false;
+    }
+  }
+
   LogicalResult
   rewriteAsAllGatherLocalReduce(ttnn::AllReduceOp op,
                                 ::llvm::ArrayRef<int64_t> meshShape,
