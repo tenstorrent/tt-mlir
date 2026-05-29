@@ -456,34 +456,35 @@ def right_shift(lhs, rhs):
     return _eltwise_block(lambda l, r: d2m.tile_right_shift(l.type, l, r), lhs, rhs)
 
 
-@syntax("bcast", args_as_attr=[False, _tile_bcast_type_attr])
-def bcast(input, bcast_type):
+@syntax("tile_bcast", args_as_attr=[False, _tile_bcast_type_attr])
+def tile_bcast(input, bcast_type):
     """Block-level tile broadcast.
 
     `bcast_type` matches the D2M tile-broadcast enum: `row` broadcasts the
     tile's 0-row, `col` broadcasts the tile's 0-column, and `scalar`
-    broadcasts element (0, 0).
+    broadcasts element (0, 0). The result has the same block shape as the
+    input, with each tile expanded according to `bcast_type`.
     """
     tile_bcast_type = _parse_tile_bcast_type(bcast_type)
     return _eltwise_block(lambda t: d2m.tile_bcast(t.type, t, tile_bcast_type), input)
 
 
-@syntax("bcast_row")
-def bcast_row(input):
+@syntax("tile_bcast_row")
+def tile_bcast_row(input):
     """Block-level tile broadcast of the tile's 0-row."""
-    return bcast(input, d2m.TileBcastType.Row)
+    return tile_bcast(input, d2m.TileBcastType.Row)
 
 
-@syntax("bcast_col")
-def bcast_col(input):
+@syntax("tile_bcast_col")
+def tile_bcast_col(input):
     """Block-level tile broadcast of the tile's 0-column."""
-    return bcast(input, d2m.TileBcastType.Col)
+    return tile_bcast(input, d2m.TileBcastType.Col)
 
 
-@syntax("bcast_scalar")
-def bcast_scalar(input):
+@syntax("tile_bcast_scalar")
+def tile_bcast_scalar(input):
     """Block-level tile broadcast of element (0, 0)."""
-    return bcast(input, d2m.TileBcastType.Scalar)
+    return tile_bcast(input, d2m.TileBcastType.Scalar)
 
 
 @syntax("where")
@@ -762,17 +763,17 @@ class TensorBlock:
         """Same as `d2m.right_shift(self, rhs)`."""
         return right_shift(ast_self, rhs)
 
-    def bcast_row(ast_self: TensorBlock) -> TensorBlock:
-        """Same as `d2m.bcast_row(self)`."""
-        return bcast_row(ast_self)
+    def tile_bcast_row(ast_self: TensorBlock) -> TensorBlock:
+        """Same as `d2m.tile_bcast_row(self)`."""
+        return tile_bcast_row(ast_self)
 
-    def bcast_col(ast_self: TensorBlock) -> TensorBlock:
-        """Same as `d2m.bcast_col(self)`."""
-        return bcast_col(ast_self)
+    def tile_bcast_col(ast_self: TensorBlock) -> TensorBlock:
+        """Same as `d2m.tile_bcast_col(self)`."""
+        return tile_bcast_col(ast_self)
 
-    def bcast_scalar(ast_self: TensorBlock) -> TensorBlock:
-        """Same as `d2m.bcast_scalar(self)`."""
-        return bcast_scalar(ast_self)
+    def tile_bcast_scalar(ast_self: TensorBlock) -> TensorBlock:
+        """Same as `d2m.tile_bcast_scalar(self)`."""
+        return tile_bcast_scalar(ast_self)
 
     def where(ast_self: TensorBlock, true_value, false_value) -> TensorBlock:
         """Same as `d2m.where(self, true_value, false_value)` -- `self` is

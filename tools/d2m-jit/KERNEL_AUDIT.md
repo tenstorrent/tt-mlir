@@ -25,7 +25,7 @@ Status legend matches [TODO.md](TODO.md): 🔴 blocker · 🟡 missing surface
 | `tilize` / `untilize` / `to_layout` | ✅ | Layout conversions |
 | `zeros`, `full`, `empty` | ✅ | Host-side fill + `to_layout` |
 | Reductions (`tile_reduce_*`) | 🔴 | Not exposed in `api.py` |
-| Broadcast (`tile_bcast`) | ✅ | `d2m.bcast`, row/col/scalar shorthands, method forms; lit + pytest coverage |
+| Broadcast (`tile_bcast`) | ✅ | `d2m.tile_bcast`, row/col/scalar shorthands, method forms; lit + pytest coverage |
 | In-kernel typecast (`tile_typecast`) | 🔴 | Host-side only via `tilize(dtype=...)` |
 | Per-tile transpose (`tile_transpose`) | 🔴 | Not exposed — but logical permute via views is free |
 | Row/col mask helpers | 🔴 | Causal-mask building block missing |
@@ -114,9 +114,9 @@ qk_matmul_kernel(Q, K_T, qk, ..., grid=g)   # Q @ K_T, no DMA between
 
 ---
 
-## 4. Concrete kernel sketches with available bcast + proposed reductions
+## 4. Concrete kernel sketches with available tile_bcast + proposed reductions
 
-These sketches assume reductions with this shape, plus the existing bcast API:
+These sketches assume reductions with this shape, plus the existing tile_bcast API:
 
 ```python
 # Per-tile reductions: reduce over the tile's row or col axis. The
@@ -127,10 +127,10 @@ d2m.reduce_max(x, dim)
 d2m.reduce_mean(x, dim)
 
 # Broadcast a partial tile back to a full 32x32 tile. This is available today.
-d2m.bcast(x, bcast_type)   # bcast_type in {"row", "col", "scalar"}
+d2m.tile_bcast(x, bcast_type)  # bcast_type in {"row", "col", "scalar"}
 ```
 
-The reduction spelling is a placeholder; the bcast spelling shown here is
+The reduction spelling is a placeholder; the tile_bcast spelling shown here is
 available today. The point of the sketches is the **kernel shape**, not the
 bikeshed.
 
@@ -150,10 +150,10 @@ def softmax_row(x, out, m_blocks, n_blocks):
 
             # Numerically-stable softmax: subtract row max, exp, divide.
             row_max = reduce_max(t, dim="row")           # 32x1
-            t_shift = t - bcast(row_max, "row")          # 32x32
+            t_shift = t - tile_bcast(row_max, "row")     # 32x32
             t_exp   = exp(t_shift)
             row_sum = reduce_sum(t_exp, dim="row")       # 32x1
-            t_out   = t_exp * bcast(recip(row_sum), "row")
+            t_out   = t_exp * tile_bcast(recip(row_sum), "row")
 
             remote_store(out, [m_off + m, n_off + n], t_out)
 ```
@@ -176,7 +176,7 @@ def softmax_row_wide(x, out, m_blocks, n_blocks):
         row_max = NEG_INF
         for n in range(n_blocks):
             t = remote_load(x, [m_off + m, n_off + n])
-            row_max = maximum(row_max, bcast(reduce_max(t, dim="row"),
+            row_max = maximum(row_max, tile_bcast(reduce_max(t, dim="row"),
                                              "row"))
 
         # Pass 2: row sum of shifted exp.
@@ -184,7 +184,7 @@ def softmax_row_wide(x, out, m_blocks, n_blocks):
         for n in range(n_blocks):
             t = remote_load(x, [m_off + m, n_off + n])
             t_exp = exp(t - row_max)
-            row_sum = row_sum + bcast(reduce_sum(t_exp, dim="row"),
+            row_sum = row_sum + tile_bcast(reduce_sum(t_exp, dim="row"),
                                       "row")
         row_inv = recip(row_sum)
 
@@ -220,7 +220,7 @@ def rmsnorm(x, gamma, out, m_blocks, n_blocks, eps_tile):
         sum_sq = full_tile(value=0.0)
         for n in range(n_blocks):
             t = remote_load(x, [m_off + m, n_off + n])
-            sum_sq = sum_sq + bcast(reduce_sum(t * t, dim="row"),
+            sum_sq = sum_sq + tile_bcast(reduce_sum(t * t, dim="row"),
                                     "row")
         inv_rms = rsqrt(sum_sq * INV_N + eps_tile)
 
@@ -232,7 +232,7 @@ def rmsnorm(x, gamma, out, m_blocks, n_blocks, eps_tile):
 ```
 
 This is the cleanest end-to-end demo of reductions plus the available
-bcast primitive: one small kernel that exercises both, in a pattern
+tile_bcast primitive: one small kernel that exercises both, in a pattern
 that immediately generalises to LayerNorm (add a mean reduction) and
 GroupNorm.
 
@@ -296,7 +296,7 @@ def flash_attn_inner(Q, K, V, O, l_state, m_state, S_q, S_kv, D):
 
         # 2. running max
         m_prev = m_state
-        m_cur  = maximum(m_prev, bcast(reduce_max(s, dim="row"),
+        m_cur  = maximum(m_prev, tile_bcast(reduce_max(s, dim="row"),
                                        "row"))
 
         # 3. correction factor for previous accumulator
@@ -304,7 +304,7 @@ def flash_attn_inner(Q, K, V, O, l_state, m_state, S_q, S_kv, D):
 
         # 4. exp of shifted scores, partial sum
         p      = exp(s - m_cur)
-        l_cur  = alpha * l_state + bcast(reduce_sum(p, dim="row"),
+        l_cur  = alpha * l_state + tile_bcast(reduce_sum(p, dim="row"),
                                          "row")
 
         # 5. update O: O = alpha * O + p @ V

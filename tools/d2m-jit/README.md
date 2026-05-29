@@ -242,12 +242,12 @@ Tile broadcast:
 
 | Symbol | What |
 | --- | --- |
-| `d2m.bcast(x, "row")` | Broadcast the tile's 0-row across each tile. |
-| `d2m.bcast(x, "col")` | Broadcast the tile's 0-column across each tile. |
-| `d2m.bcast(x, "scalar")` | Broadcast element (0, 0) across each tile. |
-| `d2m.bcast_row(x)` / `x.bcast_row()` | No-argument row-broadcast shorthand. |
-| `d2m.bcast_col(x)` / `x.bcast_col()` | No-argument column-broadcast shorthand. |
-| `d2m.bcast_scalar(x)` / `x.bcast_scalar()` | No-argument scalar-broadcast shorthand. |
+| `d2m.tile_bcast(x, "row")` | Broadcast the tile's 0-row across each tile. |
+| `d2m.tile_bcast(x, "col")` | Broadcast the tile's 0-column across each tile. |
+| `d2m.tile_bcast(x, "scalar")` | Broadcast element (0, 0) across each tile. |
+| `d2m.tile_bcast_row(x)` / `x.tile_bcast_row()` | No-argument row-broadcast shorthand. |
+| `d2m.tile_bcast_col(x)` / `x.tile_bcast_col()` | No-argument column-broadcast shorthand. |
+| `d2m.tile_bcast_scalar(x)` / `x.tile_bcast_scalar()` | No-argument scalar-broadcast shorthand. |
 
 ### Python operators on `TensorBlock`
 

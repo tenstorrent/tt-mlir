@@ -11,33 +11,33 @@ from d2m_jit.api import _parse_tile_bcast_type
 
 
 @d2m.kernel
-def k_bcast_row(in_t, out_t, m_blocks, n_blocks):
+def k_tile_bcast_row(in_t, out_t, m_blocks, n_blocks):
     m_off = core_index(0) * m_blocks
     n_off = core_index(1) * n_blocks
     for m in range(m_blocks):
         for n in range(n_blocks):
             x = remote_load(in_t, [m_off + m, n_off + n])
-            remote_store(out_t, [m_off + m, n_off + n], bcast(x, "row"))
+            remote_store(out_t, [m_off + m, n_off + n], tile_bcast(x, "row"))
 
 
 @d2m.kernel
-def k_bcast_col(in_t, out_t, m_blocks, n_blocks):
+def k_tile_bcast_col(in_t, out_t, m_blocks, n_blocks):
     m_off = core_index(0) * m_blocks
     n_off = core_index(1) * n_blocks
     for m in range(m_blocks):
         for n in range(n_blocks):
             x = remote_load(in_t, [m_off + m, n_off + n])
-            remote_store(out_t, [m_off + m, n_off + n], x.bcast_col())
+            remote_store(out_t, [m_off + m, n_off + n], x.tile_bcast_col())
 
 
 @d2m.kernel
-def k_bcast_scalar(in_t, out_t, m_blocks, n_blocks):
+def k_tile_bcast_scalar(in_t, out_t, m_blocks, n_blocks):
     m_off = core_index(0) * m_blocks
     n_off = core_index(1) * n_blocks
     for m in range(m_blocks):
         for n in range(n_blocks):
             x = remote_load(in_t, [m_off + m, n_off + n])
-            remote_store(out_t, [m_off + m, n_off + n], bcast_scalar(x))
+            remote_store(out_t, [m_off + m, n_off + n], tile_bcast_scalar(x))
 
 
 def make_layout():
@@ -103,9 +103,9 @@ def test_tile_broadcasts():
     out_col = d2m.empty(L)
     out_scalar = d2m.empty(L)
     in_d = d2m.to_layout(host, L)
-    k_bcast_row(in_d, out_row, 1, 1, grid=(2, 2))
-    k_bcast_col(in_d, out_col, 1, 1, grid=(2, 2))
-    k_bcast_scalar(in_d, out_scalar, 1, 1, grid=(2, 2))
+    k_tile_bcast_row(in_d, out_row, 1, 1, grid=(2, 2))
+    k_tile_bcast_col(in_d, out_col, 1, 1, grid=(2, 2))
+    k_tile_bcast_scalar(in_d, out_scalar, 1, 1, grid=(2, 2))
 
     row, col, scalar = d2m.to_host(out_row, out_col, out_scalar)
     assert torch.allclose(row, expected_tile_bcast(host, "row"))
