@@ -127,6 +127,7 @@ class Builder(metaclass=BuilderMeta):
         self._hoisted_cpu_functions: List[str] = []
         self._nested_funcs: List[str] = []
         self._func_name_to_op: Dict[str, func.FuncOp] = {}
+        self._parsed_root_module = None
 
     # ----- Class helper methods -----
 
@@ -1138,6 +1139,9 @@ class Builder(metaclass=BuilderMeta):
         parsed_root_module: Module,
         golden_inputs: Dict[str, [List[Dict[int, torch.tensor]]]],
     ):
+        # Keep parsed module alive; its FuncOps are stored as non-owning views.
+        self._parsed_root_module = parsed_root_module
+
         found_cpu_module = False
 
         for entry in parsed_root_module.body.operations:
