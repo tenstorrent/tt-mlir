@@ -17,6 +17,7 @@ add_library(TTNNOpInvokeLib STATIC
   transformer/concatenateHeadsOp.cpp
   transformer/nlpConcatHeadsOp.cpp
   transformer/nlpCreateQKVHeadsDecodeOp.cpp
+  transformer/pagedFlashMultiLatentAttentionDecodeOp.cpp
 )
 
 set_property(TARGET TTNNOpInvokeLib PROPERTY CXX_STANDARD 20)

@@ -29,6 +29,7 @@
 #include "ttmlir/OpInvoke/TTNN/transformer/concatenateHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/transformer/nlpConcatHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/transformer/nlpCreateQKVHeadsDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/transformer/pagedFlashMultiLatentAttentionDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -3350,6 +3351,22 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
 // PagedFlashMultiLatentAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+    uint32_t headDimV, bool isCausal, std::optional<llvm::APFloat> scale,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT opT;
+  opT.head_dim_v = headDimV;
+  opT.is_causal = isCausal;
+  if (scale.has_value()) {
+    opT.scale = scale.value().convertToFloat();
+  }
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
@@ -3389,18 +3406,35 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT opT =
+      buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(headDimV, isCausal,
+                                                           scale, outputLayout);
 
   auto pagedFlashMlaDecodeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::paged_flash_multi_latent_attention_decode, device,
-        querySpec, keySpec, valueSpec, headDimV, pageTableSpec, isCausal,
-        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::PagedFlashMultiLatentAttentionDecodeOpResult result =
+        ttnn_op_invoke::callPagedFlashMultiLatentAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, querySpec,
+            keySpec,
+            valueSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*valueSpec)
+                : std::nullopt,
+            pageTableSpec,
+            attentionMaskSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionMaskSpec)
+                : std::nullopt,
+            curPosTensorSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*curPosTensorSpec)
+                : std::nullopt,
+            attentionSinkSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionSinkSpec)
+                : std::nullopt,
+            *device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected PagedFlashMultiLatentAttentionDecodeOp constraints query "
+           "to return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(queryLayout.getContext(), deviceGrid,
@@ -3449,18 +3483,34 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT opT =
+      buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(headDimV, isCausal,
+                                                           scale, outputLayout);
 
   auto pagedFlashMlaDecodeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::paged_flash_multi_latent_attention_decode, device,
-        querySpec, keySpec, valueSpec, headDimV, pageTableSpec, isCausal,
-        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::PagedFlashMultiLatentAttentionDecodeOpResult result =
+        ttnn_op_invoke::callPagedFlashMultiLatentAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, querySpec, keySpec,
+            valueSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*valueSpec)
+                : std::nullopt,
+            pageTableSpec,
+            attentionMaskSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionMaskSpec)
+                : std::nullopt,
+            curPosTensorSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*curPosTensorSpec)
+                : std::nullopt,
+            attentionSinkSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionSinkSpec)
+                : std::nullopt,
+            *device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected PagedFlashMultiLatentAttentionDecodeOp runtime query to "
+        "return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(pagedFlashMlaDecodeOpQuery);
