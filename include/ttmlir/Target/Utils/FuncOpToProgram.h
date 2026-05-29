@@ -82,7 +82,37 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
     }
 
     if (!isa<RankedTensorType>(input.getType())) {
-      continue; // skip non-tensor inputs
+      assert((mlir::isa<mlir::IntegerType, mlir::IndexType, mlir::FloatType>(input.getType())) && "expected supported scalar type");
+
+      program.inputs.push_back(cache.getOrCreate(input, [](FlatbufferObjectCache &c, mlir::Value value) {
+        // Scalars are always represented as 1-element UInt32 tensors at the
+        // runtime layer (see runtime/lib/ttnn/runtime.cpp createScalarTensor
+        // and the UINT32 assert in runtime/lib/ttnn/types/types.cpp:128).
+        // The original scalar type doesn't matter — the runtime memcpys the
+        // raw bytes into a uint32 buffer regardless.
+        ttcore::DataType dtype = ttcore::DataType::UInt32;
+        std::vector<int32_t> shape = {1};
+        std::vector<int32_t> meshShape = {1, 1};
+
+        ::tt::target::Dim2d tileShape(1, 1);
+        auto memoryDesc = ::tt::target::ttnn::CreateMemoryDesc(
+            *c.fbb,
+            ::tt::target::ttnn::StorageType::Host,    
+            &tileShape,
+            toFlatbuffer(c, dtype),                   
+            /* memory_config=*/0);                   
+        auto layoutDesc = ::tt::target::ttnn::CreateLayoutDesc(
+            *c.fbb,
+            ::tt::target::OOBVal::Undef,        
+            memoryDesc);
+        auto tensorDesc = ::tt::target::ttnn::CreateTensorDescDirect(
+            *c.fbb, &shape, &meshShape, layoutDesc,
+            ::tt::target::ttnn::ShardStatus::Unsharded,
+            /* local_shape */ nullptr);
+        return ::tt::target::ttnn::CreateTensorRef(
+            *c.fbb, c.nextGlobalId(), tensorDesc);
+      }));
+      continue;
     }
 
     // Get argument encoding to determine sharding status.

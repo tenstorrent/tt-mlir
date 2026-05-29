@@ -3800,6 +3800,9 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
           ::tt::target::ttnn::ArgRef::GlobalSemaphoreRef);
       additional_args.push_back(
           cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(arg).Union());
+    } else if (mlir::isa<mlir::IntegerType, mlir::IndexType, mlir::FloatType>(arg.getType())) {
+      additional_args_types.push_back(::tt::target::ttnn::ArgRef::TensorRef);
+      additional_args.push_back(cache.at<::tt::target::ttnn::TensorRef>(arg).Union());
     }
   }
 
