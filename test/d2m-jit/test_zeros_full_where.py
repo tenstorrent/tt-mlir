@@ -20,10 +20,15 @@ def test_zeros():
 
 
 def test_full():
+    # full() lowers to d2m.tile_fill, which routes the scalar through the
+    # SFPU's vFloat (fp19: 1 sign + 8 exp + 10 mantissa) on Wormhole. Values
+    # whose lower 13 mantissa bits are non-zero (e.g. 3.14) get truncated.
+    # Other d2m fill tests dodge this by picking fp19-exact values
+    # (test/python/golden/d2m/test_constants.py uses 0, 1, 1.25).
     out = d2m.full(_make_layout(), 3.14).to_host()
     expected = torch.full((64, 64), 3.14, dtype=torch.float32)
     diff = (expected - out).abs().max().item()
-    assert diff < 1e-4, f"full(3.14) max diff {diff}"
+    assert diff < 0.01, f"full(3.14) max diff {diff}"
 
 
 @d2m.kernel
