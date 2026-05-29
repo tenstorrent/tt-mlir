@@ -107,10 +107,11 @@ struct AggregatedMetrics {
 //        - Accumulate max(dram_us, compute_us) (converted to ms) into
 //          rooflineMs, and rhs scalars / bytes into paramCount /
 //          paramMemoryBytes.
-//   4. After the walk, divide rooflineMs by kUtilizationFactor (0.7 —
+//   4. After the walk, rooflineMs is the pure theoretical ceiling.
+//      topPerfEstimateMs = rooflineMs / kUtilizationFactor (0.7 —
 //      conservative end of the 83–90 % measured range in
-//      tt-metal/tech_reports/Saturating_DRAM_bandwidth.md). Mirror into
-//      topPerfEstimateMs.
+//      tt-metal/tech_reports/Saturating_DRAM_bandwidth.md) is the
+//      realistic single-step wall-clock estimate.
 //
 // Assumptions
 //   - DRAM-bound regime is typical (and is observed on LLM decode), but the
@@ -148,6 +149,10 @@ struct PerfTargets {
   // to convert serial compute cycles into chip-level cycles for the bound
   // comparison.
   uint64_t numTensixCores = 0;
+  // Cycles per 32x32x32 tile-mul on one Tensix matrix engine. HiFi2 baseline
+  // = 32 cycles (LoFi 16, HiFi3 48, HiFi4 64; see
+  // tt-metal/tech_reports/GEMM_FLOPS/GEMM_FLOPS.md:101).
+  uint64_t cyclesPerTileMatmul = 0;
 
   // Per-op classification across every weight matmul / linear / SDPA op
   // in the forward function. Counts use peak numbers before the
@@ -159,33 +164,47 @@ struct PerfTargets {
   uint64_t paramCount = 0;
   uint64_t paramMemoryBytes = 0;
 
-  // Sum of per-op max(dram_us, compute_us), in milliseconds, derated by
-  // kUtilizationFactor. rooflineMs and topPerfEstimateMs carry the same
-  // single-step wall-clock estimate.
+  // Ops dropped because their DRAM-stream source couldn't be verified —
+  // see isDramResidentSource. Mirrored to JSON so silent skips remain
+  // auditable.
+  uint64_t skippedOps = 0;
+
+  // rooflineMs is the pure theoretical ceiling — sum of per-op
+  // max(dram_us, compute_us) at peak hardware, in milliseconds.
+  // topPerfEstimateMs = rooflineMs / kUtilizationFactor is the
+  // realistic single-step wall-clock estimate.
   double rooflineMs = 0.0;
   double topPerfEstimateMs = 0.0;
 };
 
-// Bytes per scalar element. Caller must ensure elementType is a plain
-// scalar (non-TileType); TTNN forward args reach this pass with scalar
-// element type and TTNNLayoutAttr encoding carrying the tile/dtype layout.
-inline uint64_t getBytesPerScalarElement(mlir::Type elementType) {
-  return elementType.getIntOrFloatBitWidth() / 8;
-}
-
-inline uint64_t getTensorMemoryBytes(mlir::RankedTensorType tt) {
-  // RankedTensorType.getNumElements() returns the logical scalar count even
-  // when the element type is a TileType (the tile-typing only affects how
-  // the data is laid out in memory). For tile-typed tensors compute bytes
-  // from the tile size; for scalar-typed tensors use the dtype byte width.
-  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(tt.getElementType())) {
-    uint64_t scalarsPerTile = static_cast<uint64_t>(tileType.getHeight()) *
-                              static_cast<uint64_t>(tileType.getWidth());
-    return static_cast<uint64_t>(tt.getNumElements()) / scalarsPerTile *
-           tileType.getSizeBytes();
+// Strict check: is `v` a DRAM-resident weight that the roofline can
+// honestly charge against? Two accepted cases:
+//   1. A direct function argument of a forward-device function whose
+//      ttcore.argument_type is Parameter or Constant, or that carries
+//      the ttcore.kv_cache attribute.
+//   2. A result of `ttcore.load_cached` (the canonical op that loads a
+//      const-evaluated weight into DRAM once at compile/load time).
+//
+// Anything else — a `repeat_interleave`, `typecast`, intermediate
+// activation, etc. — fails the check and the caller must skip the op
+// (and bump skippedOps so the drop is auditable in the JSON).
+inline bool isDramResidentSource(mlir::Value v) {
+  if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(v)) {
+    auto funcOp =
+        mlir::dyn_cast<mlir::func::FuncOp>(blockArg.getOwner()->getParentOp());
+    if (!funcOp || !ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+      return false;
+    }
+    unsigned idx = blockArg.getArgNumber();
+    ttcore::ArgumentType argType = ttcore::getFunctionArgumentType(funcOp, idx);
+    return argType == ttcore::ArgumentType::Parameter ||
+           argType == ttcore::ArgumentType::Constant ||
+           ttcore::isKVCacheArgument(funcOp, idx);
   }
-  return static_cast<uint64_t>(tt.getNumElements()) *
-         getBytesPerScalarElement(tt.getElementType());
+  if (mlir::Operation *def = v.getDefiningOp()) {
+    return mlir::isa<ttcore::LoadCachedOp>(def);
+  }
+  return false;
 }
 
 class TTNNCollectPerfMetrics
@@ -302,6 +321,9 @@ private:
     for (int64_t d : chipDesc.getGrid()) {
       t.numTensixCores *= static_cast<uint64_t>(d);
     }
+    // HiFi2 = 32 cycles / 32x32x32 tile-mul. Same on WH and BH per
+    // tech_reports/matrix_engine/matrix_engine.md.
+    t.cyclesPerTileMatmul = 32;
     switch (t.arch) {
     case ttcore::Arch::WormholeB0:
       t.dramBandwidthBytesPerSec = 288ULL * 1000ULL * 1000ULL * 1000ULL;
@@ -353,12 +375,14 @@ private:
         static_cast<int64_t>(t.dramBandwidthBytesPerSec);
     pt["aiclk_hz"] = static_cast<int64_t>(t.aiclkHz);
     pt["num_tensix_cores"] = static_cast<int64_t>(t.numTensixCores);
+    pt["cycles_per_tile_matmul"] = static_cast<int64_t>(t.cyclesPerTileMatmul);
 
     pt["params_count"] = static_cast<int64_t>(t.paramCount);
     pt["params_memory_bytes"] = static_cast<int64_t>(t.paramMemoryBytes);
 
     pt["dram_bound_ops"] = static_cast<int64_t>(t.dramBoundOps);
     pt["compute_bound_ops"] = static_cast<int64_t>(t.computeBoundOps);
+    pt["skipped_ops"] = static_cast<int64_t>(t.skippedOps);
 
     pt["roofline_ms"] = t.rooflineMs;
     pt["top_perf_estimate_ms"] = t.topPerfEstimateMs;
@@ -493,7 +517,21 @@ public:
       // Shared body for ttnn.matmul and ttnn.linear — both compute
       // result = a · b (linear additionally adds a bias). For the roofline
       // only the matmul work counts; the bias add is negligible.
-      auto handleMatmul = [&](Value a, Value b, Value result) {
+      auto handleMatmul = [&](Operation *op, Value a, Value b, Value result) {
+        // Skip ops whose rhs isn't an honest DRAM-resident weight (e.g.,
+        // SDPA matmuls whose rhs is a repeat_interleave broadcast — the
+        // matmul reads from L1, not from a 4x-larger DRAM tensor).
+        if (!isDramResidentSource(b)) {
+          perfTargets.skippedOps++;
+          llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
+                       << " — rhs is not a DRAM weight "
+                       << "(producer: "
+                       << (b.getDefiningOp()
+                               ? b.getDefiningOp()->getName().getStringRef()
+                               : "<block-arg>")
+                       << ")\n";
+          return;
+        }
         auto rhsType = mlir::dyn_cast<RankedTensorType>(b.getType());
         auto lhsType = mlir::dyn_cast<RankedTensorType>(a.getType());
         auto resultType = mlir::dyn_cast<RankedTensorType>(result.getType());
@@ -501,9 +539,9 @@ public:
                "TTNNCollectPerfMetrics: matmul operands and result must be "
                "ranked tensors.");
         // Operands may carry either a scalar element type or a
-        // ttcore::TileType<H, W, dtype>. In both cases the shape is the
-        // logical scalar shape — TileType only affects in-memory layout.
-        // getTensorMemoryBytes handles both via the tile.getSizeBytes() path.
+        // ttcore::TileType<H, W, dtype>. In both cases getNumElements()
+        // returns the logical scalar count — TileType only affects
+        // in-memory layout, not the shape semantics.
 
         ArrayRef<int64_t> lhsShape = lhsType.getShape();
         ArrayRef<int64_t> rhsShape = rhsType.getShape();
@@ -543,9 +581,10 @@ public:
             static_cast<double>(rhsScalars) * 1056.0 / 1024.0 + 0.5);
 
         // Accumulate the rhs weight stream — useful as a sanity-check
-        // alongside the time-based roofline.
+        // alongside the time-based roofline. Use rhsBytes (BFP8) so the
+        // memory total matches what the dramUs calculation above charges.
         perfTargets.paramCount += rhsScalars;
-        perfTargets.paramMemoryBytes += getTensorMemoryBytes(rhsType);
+        perfTargets.paramMemoryBytes += rhsBytes;
 
         // Compute vs DRAM-bound classification, directly in us.
         //
@@ -567,9 +606,9 @@ public:
         // Tensix matrix engine; the chip runs numTensixCores tile-muls in
         // parallel at AICLK. Assumes the matmul parallelizes across the full
         // worker grid (best-case roofline).
-        constexpr uint64_t kCyclesPerTileMatmulHiFi2 = 32;
         double computeUs =
-            static_cast<double>(tileMuls * kCyclesPerTileMatmulHiFi2) * 1.0e6 /
+            static_cast<double>(tileMuls * perfTargets.cyclesPerTileMatmul) *
+            1.0e6 /
             static_cast<double>(perfTargets.numTensixCores *
                                 perfTargets.aiclkHz);
 
@@ -582,10 +621,10 @@ public:
         }
       };
       funcOp->walk([&](MatmulOp op) {
-        handleMatmul(op.getA(), op.getB(), op.getResult());
+        handleMatmul(op, op.getA(), op.getB(), op.getResult());
       });
       funcOp->walk([&](LinearOp op) {
-        handleMatmul(op.getA(), op.getB(), op.getResult());
+        handleMatmul(op, op.getA(), op.getB(), op.getResult());
       });
 
       // Fused SDPA decode (emitted at optimization-level >= 1). The op
@@ -594,8 +633,14 @@ public:
       // the compute math collapses to negligible). Treat compute as 0 and
       // bill the DRAM stream of both caches at the BFP8 byte rate to stay
       // consistent with the matmul weight path.
-      auto handleSdpaDecode = [&](Value key, Value value) {
+      auto handleSdpaDecode = [&](Operation *op, Value key, Value value) {
         if (perfTargets.dramBandwidthBytesPerSec == 0) {
+          return;
+        }
+        if (!isDramResidentSource(key) || !isDramResidentSource(value)) {
+          perfTargets.skippedOps++;
+          llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
+                       << " — K or V is not a DRAM cache source.\n";
           return;
         }
         auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
@@ -615,10 +660,10 @@ public:
         perfTargets.dramBoundOps++;
       };
       funcOp->walk([&](ScaledDotProductAttentionDecodeOp op) {
-        handleSdpaDecode(op.getKey(), op.getValue());
+        handleSdpaDecode(op, op.getKey(), op.getValue());
       });
       funcOp->walk([&](PagedScaledDotProductAttentionDecodeOp op) {
-        handleSdpaDecode(op.getKey(), op.getValue());
+        handleSdpaDecode(op, op.getKey(), op.getValue());
       });
 
       // SDPA prefill (FlashAttention-2). Unlike decode, Sq can be large
@@ -627,9 +672,16 @@ public:
       // stream. Roofline := max(dram_us, compute_us) as everywhere else.
       // Shapes per the op spec: query [B, Hq, Sq, D], key/value
       // [B, Hkv, Sk, D].
-      auto handleSdpaPrefill = [&](Value query, Value key, Value value) {
+      auto handleSdpaPrefill = [&](Operation *op, Value query, Value key,
+                                   Value value) {
         if (perfTargets.dramBandwidthBytesPerSec == 0 ||
             perfTargets.aiclkHz == 0 || perfTargets.numTensixCores == 0) {
+          return;
+        }
+        if (!isDramResidentSource(key) || !isDramResidentSource(value)) {
+          perfTargets.skippedOps++;
+          llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
+                       << " — K or V is not a DRAM cache source.\n";
           return;
         }
         auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
@@ -664,9 +716,9 @@ public:
         uint64_t Sk = static_cast<uint64_t>(kShape[2]);
         auto up32 = [](uint64_t x) { return (x + 31) / 32; };
         uint64_t tileMuls = 2 * B * Hq * up32(Sq) * up32(D) * up32(Sk);
-        constexpr uint64_t kCyclesPerTileMatmulHiFi2 = 32;
         double computeUs =
-            static_cast<double>(tileMuls * kCyclesPerTileMatmulHiFi2) * 1.0e6 /
+            static_cast<double>(tileMuls * perfTargets.cyclesPerTileMatmul) *
+            1.0e6 /
             static_cast<double>(perfTargets.numTensixCores *
                                 perfTargets.aiclkHz);
 
@@ -679,7 +731,7 @@ public:
         }
       };
       funcOp->walk([&](ScaledDotProductAttentionOp op) {
-        handleSdpaPrefill(op.getQuery(), op.getKey(), op.getValue());
+        handleSdpaPrefill(op, op.getQuery(), op.getKey(), op.getValue());
       });
 
       // First pass: identify DRAM spills
@@ -755,9 +807,12 @@ public:
     // ~83-90% of peak; 0.7 is the conservative end of that range and lines up
     // with published Llama 3 8B decode tok/sec on n150. Apply once at the
     // end so the per-op classification still uses the peak numbers.
+    // rooflineMs stays as the pure theoretical ceiling — sum of per-op
+    // max(dram_us, compute_us) at peak hardware. topPerfEstimateMs is
+    // the realistic estimate derated by kUtilizationFactor, where peak
+    // is rarely achievable.
     constexpr double kUtilizationFactor = 0.7;
-    perfTargets.rooflineMs /= kUtilizationFactor;
-    perfTargets.topPerfEstimateMs = perfTargets.rooflineMs;
+    perfTargets.topPerfEstimateMs = perfTargets.rooflineMs / kUtilizationFactor;
 
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);

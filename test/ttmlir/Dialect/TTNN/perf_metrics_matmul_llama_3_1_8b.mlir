@@ -17,7 +17,8 @@
 
 // CHECK: "perf_targets":
 // CHECK: "arch": "wormhole_b0"
-// CHECK: "compute_bound_ops": 1
-// CHECK: "dram_bound_ops": 8
+// CHECK: "compute_bound_ops": 0
+// CHECK: "dram_bound_ops": 6
 // CHECK: "roofline_ms":
+// CHECK: "skipped_ops": 3
 // CHECK: "top_perf_estimate_ms":

@@ -55,6 +55,7 @@ module attributes {ttcore.system_desc = #system_desc} {
 // CHECK: "params_count": 0
 // CHECK: "params_memory_bytes": 0
 // CHECK: "roofline_ms": 0
+// CHECK: "skipped_ops": 0
 // CHECK: "top_perf_estimate_ms": 0
 // CHECK-NOT: "kv_cache":
 // CHECK-NOT: "matmul":
