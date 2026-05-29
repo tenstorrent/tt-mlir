@@ -8,7 +8,6 @@ import pytest
 import torch
 from typing import Callable, List, Tuple
 
-from ttmlir.dialects import arith, d2m, tensor
 import _ttmlir_runtime as tt_runtime
 from ttmlir.ir import (
     Attribute,
