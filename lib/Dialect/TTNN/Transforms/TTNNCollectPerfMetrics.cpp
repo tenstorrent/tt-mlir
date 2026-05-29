@@ -192,9 +192,13 @@ inline bool isDramResidentSource(mlir::Value v) {
   if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(v)) {
     auto funcOp =
         mlir::dyn_cast<mlir::func::FuncOp>(blockArg.getOwner()->getParentOp());
-    if (!funcOp || !ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+    if (!funcOp) {
       return false;
     }
+    // No function-type check here: the caller's outer walk has already
+    // restricted us to either a forward-device func (no trace) or a
+    // trace-main func (trace enabled). Both carry the same
+    // ttcore.argument_type metadata on their block args.
     unsigned idx = blockArg.getArgNumber();
     ttcore::ArgumentType argType = ttcore::getFunctionArgumentType(funcOp, idx);
     return argType == ttcore::ArgumentType::Parameter ||
