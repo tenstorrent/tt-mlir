@@ -25,7 +25,7 @@ Status legend matches [TODO.md](TODO.md): 🔴 blocker · 🟡 missing surface
 | `tilize` / `untilize` / `to_layout` | ✅ | Layout conversions |
 | `zeros`, `full`, `empty` | ✅ | Host-side fill + `to_layout` |
 | Reductions (`tile_reduce_*`) | 🔴 | Not exposed in `api.py` |
-| Broadcast (`tile_bcast`) | ✅ | `d2m.tile_bcast`, row/col/scalar shorthands, method forms; lit + pytest coverage |
+| Broadcast (`tile_bcast`) | ✅ | `d2m.tile_bcast`, row/col/2d shorthands, method forms; lit + pytest coverage |
 | In-kernel typecast (`tile_typecast`) | 🔴 | Host-side only via `tilize(dtype=...)` |
 | Per-tile transpose (`tile_transpose`) | 🔴 | Not exposed — but logical permute via views is free |
 | Row/col mask helpers | 🔴 | Causal-mask building block missing |
@@ -127,7 +127,7 @@ d2m.reduce_max(x, dim)
 d2m.reduce_mean(x, dim)
 
 # Broadcast a partial tile back to a full 32x32 tile. This is available today.
-d2m.tile_bcast(x, bcast_type)  # bcast_type in {"row", "col", "scalar"}
+d2m.tile_bcast(x, bcast_type)  # bcast_type in {"row", "col", "2d"}
 ```
 
 The reduction spelling is a placeholder; the tile_bcast spelling shown here is

@@ -51,7 +51,7 @@ def _parse_tile_bcast_type(value):
             return Attribute.parse("#d2m<tile_bcast_type col>")
         if key == "row":
             return Attribute.parse("#d2m<tile_bcast_type row>")
-        if key == "scalar":
+        if key == "2d":
             return Attribute.parse("#d2m<tile_bcast_type scalar>")
     if isinstance(value, int) and not isinstance(value, bool):
         if value == int(d2m.TileBcastType.None_):
@@ -63,7 +63,7 @@ def _parse_tile_bcast_type(value):
         if value == int(d2m.TileBcastType.Scalar):
             return Attribute.parse("#d2m<tile_bcast_type scalar>")
     raise ValueError(
-        "tile broadcast type must be one of 'row', 'col', 'scalar', 'none', "
+        "tile broadcast type must be one of 'row', 'col', '2d', 'none', "
         f"or a d2m.TileBcastType, got {value!r}"
     )
 
@@ -481,9 +481,9 @@ def tile_bcast_col(input):
     return tile_bcast(input, d2m.TileBcastType.Col)
 
 
-@syntax("tile_bcast_scalar")
-def tile_bcast_scalar(input):
-    """Block-level tile broadcast of element (0, 0)."""
+@syntax("tile_bcast_2d")
+def tile_bcast_2d(input):
+    """Block-level tile broadcast of element (0, 0) across rows and columns."""
     return tile_bcast(input, d2m.TileBcastType.Scalar)
 
 
@@ -771,9 +771,9 @@ class TensorBlock:
         """Same as `d2m.tile_bcast_col(self)`."""
         return tile_bcast_col(ast_self)
 
-    def tile_bcast_scalar(ast_self: TensorBlock) -> TensorBlock:
-        """Same as `d2m.tile_bcast_scalar(self)`."""
-        return tile_bcast_scalar(ast_self)
+    def tile_bcast_2d(ast_self: TensorBlock) -> TensorBlock:
+        """Same as `d2m.tile_bcast_2d(self)`."""
+        return tile_bcast_2d(ast_self)
 
     def where(ast_self: TensorBlock, true_value, false_value) -> TensorBlock:
         """Same as `d2m.where(self, true_value, false_value)` -- `self` is

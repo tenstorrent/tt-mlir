@@ -24,8 +24,8 @@ def k_tile_bcast(in_t, out_t, m_blocks, n_blocks):
             x = remote_load(in_t, [m_off + m, n_off + n])
             row = tile_bcast(x, "row")
             col = x.tile_bcast_col()
-            scalar = tile_bcast_scalar(x)
-            remote_store(out_t, [m_off + m, n_off + n], row + col + scalar)
+            bcast_2d = x.tile_bcast_2d()
+            remote_store(out_t, [m_off + m, n_off + n], row + col + bcast_2d)
 
 
 L = d2m.Layout(shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1])

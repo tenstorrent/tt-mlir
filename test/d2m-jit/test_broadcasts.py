@@ -31,13 +31,13 @@ def k_tile_bcast_col(in_t, out_t, m_blocks, n_blocks):
 
 
 @d2m.kernel
-def k_tile_bcast_scalar(in_t, out_t, m_blocks, n_blocks):
+def k_tile_bcast_2d(in_t, out_t, m_blocks, n_blocks):
     m_off = core_index(0) * m_blocks
     n_off = core_index(1) * n_blocks
     for m in range(m_blocks):
         for n in range(n_blocks):
             x = remote_load(in_t, [m_off + m, n_off + n])
-            remote_store(out_t, [m_off + m, n_off + n], tile_bcast_scalar(x))
+            remote_store(out_t, [m_off + m, n_off + n], tile_bcast_2d(x))
 
 
 def make_layout():
@@ -58,7 +58,7 @@ def expected_tile_bcast(t, bcast_type):
                 bcast_tile = tile[:1, :].expand(32, 32)
             elif bcast_type == "col":
                 bcast_tile = tile[:, :1].expand(32, 32)
-            elif bcast_type == "scalar":
+            elif bcast_type == "2d":
                 bcast_tile = tile[:1, :1].expand(32, 32)
             else:
                 raise ValueError(f"unknown bcast type {bcast_type}")
@@ -72,7 +72,7 @@ def expected_tile_bcast(t, bcast_type):
         ("row", "row"),
         ("COL", "col"),
         ("column", "col"),
-        ("scalar", "scalar"),
+        ("2d", "scalar"),
         ("none", "none"),
         ("no_bcast", "none"),
         (d2m.TileBcastType.Row, "row"),
@@ -101,13 +101,13 @@ def test_tile_broadcasts():
 
     out_row = d2m.empty(L)
     out_col = d2m.empty(L)
-    out_scalar = d2m.empty(L)
+    out_2d = d2m.empty(L)
     in_d = d2m.to_layout(host, L)
     k_tile_bcast_row(in_d, out_row, 1, 1, grid=(2, 2))
     k_tile_bcast_col(in_d, out_col, 1, 1, grid=(2, 2))
-    k_tile_bcast_scalar(in_d, out_scalar, 1, 1, grid=(2, 2))
+    k_tile_bcast_2d(in_d, out_2d, 1, 1, grid=(2, 2))
 
-    row, col, scalar = d2m.to_host(out_row, out_col, out_scalar)
+    row, col, bcast_2d = d2m.to_host(out_row, out_col, out_2d)
     assert torch.allclose(row, expected_tile_bcast(host, "row"))
     assert torch.allclose(col, expected_tile_bcast(host, "col"))
-    assert torch.allclose(scalar, expected_tile_bcast(host, "scalar"))
+    assert torch.allclose(bcast_2d, expected_tile_bcast(host, "2d"))
