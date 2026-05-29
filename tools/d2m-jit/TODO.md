@@ -80,18 +80,12 @@ in the same scope (or split them into separate synchronized scopes).
 
 ## Missing API surface
 
-`tile_bcast` is exposed today via `d2m.bcast(x, bcast_type)` for
-`"row"`, `"col"`, or `"scalar"`, the `bcast_row` / `bcast_col` /
-`bcast_scalar` shorthands, and matching `TensorBlock` methods. It has
-both lit IR-shape coverage and pytest end-to-end coverage, so it is no
-longer tracked as missing surface.
-
 These ops live in `D2MGenericRegionOps.td` but are not yet exposed in
 `api.py`. Each is a "wait for a use case" item — the DSL is a testbed,
 so we add ops when we have something to test against rather than
 speculatively.
 
-### 🟡 Remaining bespoke-signature ops (need design)
+### 🟡 Bespoke-signature ops (need design)
 
 | op | why it's interesting | what's blocking |
 | --- | --- | --- |
