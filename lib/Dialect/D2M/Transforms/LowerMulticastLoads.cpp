@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallBitVector.h"
@@ -260,25 +261,9 @@ public:
       D2MLowerMulticastLoads>::D2MLowerMulticastLoadsBase;
 
   void runOnOperation() final {
-    LowerMulticastLoadsRewriter pattern(&getContext());
-
-    SmallVector<RemoteLoadOp> remoteLoadOps;
-    getOperation().walk([&](RemoteLoadOp op) {
-      if (op.isHighLevelMcast()) {
-        remoteLoadOps.push_back(op);
-      }
-    });
-
-    for (RemoteLoadOp op : remoteLoadOps) {
-      PatternRewriter rewriter(&getContext());
-      rewriter.setInsertionPoint(op);
-      if (failed(pattern.matchAndRewrite(op, rewriter))) {
-        op.emitOpError("failed to lower high-level multicast form; expected "
-                       "a non-explicit GenericOp parent");
-        signalPassFailure();
-        return;
-      }
-    }
+    RewritePatternSet patterns(&getContext());
+    patterns.add<LowerMulticastLoadsRewriter>(&getContext());
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
 

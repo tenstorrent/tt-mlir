@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERATEOUTERLOOPS
@@ -186,17 +187,9 @@ public:
       D2MGenerateOuterLoops>::D2MGenerateOuterLoopsBase;
 
   void runOnOperation() final {
-    D2MGenerateOuterLoopsRewriter pattern(&getContext());
-
-    SmallVector<GenericOp> genericOps;
-    getOperation().walk(
-        [&](GenericOp generic) { genericOps.push_back(generic); });
-
-    for (GenericOp generic : genericOps) {
-      PatternRewriter rewriter(&getContext());
-      rewriter.setInsertionPoint(generic);
-      (void)pattern.matchAndRewrite(generic, rewriter);
-    }
+    RewritePatternSet patterns(&getContext());
+    patterns.add<D2MGenerateOuterLoopsRewriter>(&getContext());
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
 } // namespace
