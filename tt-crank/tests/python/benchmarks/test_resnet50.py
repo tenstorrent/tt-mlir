@@ -13,7 +13,6 @@ _DTYPE = torch.bfloat16
 
 
 def _build_inputs(device: torch.device | str) -> tuple[torch.nn.Module, tuple[torch.Tensor]]:
-    torch.manual_seed(0)
     model = resnet50(weights=None).to(_DTYPE).eval().to(device)
     x = torch.randn(1, 3, 224, 224, dtype=_DTYPE).to(device)
     return model, (x,)
