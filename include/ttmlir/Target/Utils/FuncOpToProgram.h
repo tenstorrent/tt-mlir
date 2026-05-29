@@ -81,6 +81,10 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
       continue;
     }
 
+    if (!isa<RankedTensorType>(input.getType())) {
+      continue; // skip non-tensor inputs
+    }
+
     // Get argument encoding to determine sharding status.
     mlir::DictionaryAttr argAttrDict =
         entry.getArgAttrDict(input.getArgNumber());
