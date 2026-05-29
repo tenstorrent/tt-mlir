@@ -41,25 +41,10 @@ at::Tensor tt_addmm(const at::Tensor &self, const at::Tensor &mat1, const at::Te
 
     auto mb = ModuleBuilder::init({spec_for(a_in), spec_for(b_in), spec_for(bias_in)});
     auto [promoted, a, b, bias] = promote_inputs(mb, a_in, b_in, bias_in);
+    auto result = build_addmm(mb, bias, a, b, beta.toDouble(), alpha.toDouble());
+    auto module_op = std::move(mb).finalize({result});
 
     std::vector<int64_t> out_shape{mat1.size(0), mat2.size(1)};
-    auto result_type = mlir::RankedTensorType::get(out_shape, mlir_element_type_for(promoted));
-
-    mlir::Value result;
-    if (beta.toDouble() == 1.0 && alpha.toDouble() == 1.0) {
-        result = mb.create<mlir::tt::ttir::LinearOp>(result_type, a, b, bias, false, false).getResult();
-    } else {
-        result = build_mm(mb, a, b);
-        if (alpha.toDouble() != 1.0) {
-            result = scale_tensor(mb, result, alpha.toDouble());
-        }
-        if (beta.toDouble() != 0.0) {
-            mlir::Value scaled_bias = beta.toDouble() == 1.0 ? bias : scale_tensor(mb, bias, beta.toDouble());
-            result = mb.create<mlir::tt::ttir::AddOp>(result_type, result, scaled_bias).getResult();
-        }
-    }
-
-    auto module_op = std::move(mb).finalize({result});
     auto outputs = compile_and_run(std::move(module_op), {a_in, b_in, bias_in});
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
 }
@@ -74,6 +59,33 @@ mlir::Value build_mm(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     auto result_type =
         mlir::RankedTensorType::get({lhs_type.getShape()[0], rhs_type.getShape()[1]}, lhs_type.getElementType());
     return mb.create<mlir::tt::ttir::MatmulOp>(result_type, lhs, rhs, false, false).getResult();
+}
+
+mlir::Value build_addmm(ModuleBuilder &mb, mlir::Value bias, mlir::Value mat1, mlir::Value mat2, double beta,
+                        double alpha) {
+    auto mat1_type = mlir::cast<mlir::RankedTensorType>(mat1.getType());
+    auto mat2_type = mlir::cast<mlir::RankedTensorType>(mat2.getType());
+    TORCH_INTERNAL_ASSERT(mat1_type.getElementType() == mat2_type.getElementType() &&
+                              mat1_type.getElementType() ==
+                                  mlir::cast<mlir::RankedTensorType>(bias.getType()).getElementType(),
+                          "tt-kurbla build_addmm: all inputs must share element type — callers must promote first");
+
+    auto result_type =
+        mlir::RankedTensorType::get({mat1_type.getShape()[0], mat2_type.getShape()[1]}, mat1_type.getElementType());
+
+    if (beta == 1.0 && alpha == 1.0) {
+        return mb.create<mlir::tt::ttir::LinearOp>(result_type, mat1, mat2, bias, false, false).getResult();
+    }
+
+    mlir::Value result = build_mm(mb, mat1, mat2);
+    if (alpha != 1.0) {
+        result = scale_tensor(mb, result, alpha);
+    }
+    if (beta != 0.0) {
+        mlir::Value scaled_bias = beta == 1.0 ? bias : scale_tensor(mb, bias, beta);
+        result = mb.create<mlir::tt::ttir::AddOp>(result_type, result, scaled_bias).getResult();
+    }
+    return result;
 }
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
