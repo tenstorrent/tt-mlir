@@ -22,12 +22,10 @@ at::Tensor tt_mm(const at::Tensor &self, const at::Tensor &mat2) {
 
     auto mb = ModuleBuilder::init({spec_for(a_in), spec_for(b_in)});
     auto [promoted, a, b] = promote_inputs(mb, a_in, b_in);
+    auto result = build_mm(mb, a, b);
+    auto module_op = std::move(mb).finalize({result});
 
     std::vector<int64_t> out_shape{a_in.size(0), b_in.size(1)};
-    auto result_type = mlir::RankedTensorType::get(out_shape, mlir_element_type_for(promoted));
-    auto mm = mb.create<mlir::tt::ttir::MatmulOp>(result_type, a, b, false, false);
-    auto module_op = std::move(mb).finalize({mm.getResult()});
-
     auto outputs = compile_and_run(std::move(module_op), {a_in, b_in});
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
 }
@@ -51,7 +49,7 @@ at::Tensor tt_addmm(const at::Tensor &self, const at::Tensor &mat1, const at::Te
     if (beta.toDouble() == 1.0 && alpha.toDouble() == 1.0) {
         result = mb.create<mlir::tt::ttir::LinearOp>(result_type, a, b, bias, false, false).getResult();
     } else {
-        result = mb.create<mlir::tt::ttir::MatmulOp>(result_type, a, b, false, false).getResult();
+        result = build_mm(mb, a, b);
         if (alpha.toDouble() != 1.0) {
             result = scale_tensor(mb, result, alpha.toDouble());
         }
@@ -67,6 +65,16 @@ at::Tensor tt_addmm(const at::Tensor &self, const at::Tensor &mat1, const at::Te
 }
 
 } // namespace
+
+mlir::Value build_mm(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    TORCH_INTERNAL_ASSERT(lhs_type.getElementType() == rhs_type.getElementType(),
+                          "tt-kurbla build_mm: lhs and rhs must share element type — callers must promote first");
+    auto result_type =
+        mlir::RankedTensorType::get({lhs_type.getShape()[0], rhs_type.getShape()[1]}, lhs_type.getElementType());
+    return mb.create<mlir::tt::ttir::MatmulOp>(result_type, lhs, rhs, false, false).getResult();
+}
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("mm", TORCH_FN(tt_mm));

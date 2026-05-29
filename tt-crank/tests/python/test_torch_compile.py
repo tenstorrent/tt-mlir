@@ -160,6 +160,23 @@ def test_compile_add_broadcast(lhs_shape: tuple[int, ...], rhs_shape: tuple[int,
     _assert_compile_matches_eager(_Add(), a, b)
 
 
+@pytest.mark.parametrize(
+    "m,k,n",
+    [(32, 64, 32), (64, 64, 64)],
+    ids=["32x64x32", "64x64x64"],
+)
+def test_compile_mm(m: int, k: int, n: int) -> None:
+    """Single aten::mm in a compiled graph — exercises the FX lowering,
+    TTIR MatmulOp emission, and runner round-trip for matrix multiply."""
+    class _MM(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.mm(a, b)
+
+    a = torch.randn((m, k), dtype=torch.bfloat16)
+    b = torch.randn((k, n), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_MM(), a, b, atol=0.05, rtol=0.05)
+
+
 def test_compile_add_dtype_promotion(device_type: DeviceType) -> None:
     """bf16 + f32 must promote to f32 - same `at::promote_types` semantics
     the eager kernel applies. Validates that the compile path's MLIR-level

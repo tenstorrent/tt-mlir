@@ -23,6 +23,10 @@ namespace tt::kurbla::torch_backend {
 // compile via the FX walker's `_prepare_op_args`).
 mlir::Value build_add(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, double alpha = 1.0);
 
+// Emit TTIR for `lhs @ rhs` (2D matrix multiply). `lhs` and `rhs` must
+// already share an element type and be 2D ranked tensors.
+mlir::Value build_mm(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
 // Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
 // broadcasts against any tensor in downstream elementwise ops.
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);
