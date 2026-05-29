@@ -23,6 +23,7 @@ add_library(TTNNOpInvokeLib STATIC
   transformer/rotaryEmbeddingOp.cpp
   transformer/scaledDotProductAttentionDecodeOp.cpp
   transformer/scaledDotProductAttentionOp.cpp
+  transformer/splitQueryKeyValueAndSplitHeadsOp.cpp
 )
 
 set_property(TARGET TTNNOpInvokeLib PROPERTY CXX_STANDARD 20)
