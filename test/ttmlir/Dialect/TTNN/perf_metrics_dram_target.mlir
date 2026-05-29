@@ -45,21 +45,18 @@ module attributes {ttcore.system_desc = #system_desc} {
 }
 
 // CHECK: "perf_targets":
+// CHECK: "aiclk_hz":
 // CHECK: "arch": "wormhole_b0"
-// CHECK: "dram_bandwidth_bytes_per_sec": 288000000000
-// CHECK-NOT: "kv_cache":
-// CHECK: "matmul":
 // CHECK: "compute_bound_ops": 0
+// CHECK: "dram_bandwidth_bytes_per_sec": 288000000000
 // CHECK: "dram_bound_ops": 0
-// CHECK: "roofline_time_us": 0
-// CHECK: "sdpa_ops": 0
-// CHECK: "sdpa_time_us": 0
 // CHECK: "num_chips": 1
-// CHECK: "params":
-// CHECK: "count": 0
-// CHECK: "memory_bytes": 0
-// CHECK-NOT: "memory_bytes_bfp8":
-// CHECK: "roofline":
-// CHECK-NOT: "dram_time_ms":
-// CHECK: "top_perf_samples_per_sec": 0
-// CHECK: "top_perf_time_ms": 0
+// CHECK: "num_tensix_cores":
+// CHECK: "params_count": 0
+// CHECK: "params_memory_bytes": 0
+// CHECK: "roofline_ms": 0
+// CHECK: "top_perf_estimate_ms": 0
+// CHECK-NOT: "kv_cache":
+// CHECK-NOT: "matmul":
+// CHECK-NOT: "sdpa_ops":
+// CHECK-NOT: "roofline":
