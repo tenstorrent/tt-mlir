@@ -9,6 +9,9 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
+#include "llvm/ADT/Twine.h"
+#include "llvm/Support/ErrorHandling.h"
+
 #include <cstdlib>
 #include <string>
 
@@ -27,6 +30,43 @@ SingletonDeviceContext &SingletonDeviceContext::getInstance() {
   return instance;
 }
 
+void SingletonDeviceContext::refreshComputeGridShape() {
+  assert(m_device != nullptr && "Device must be initialized to query grid");
+  const ::tt::tt_metal::CoreCoord grid =
+      m_device->compute_with_storage_grid_size();
+  // CoreCoord holds (x, y); GridAttr/layout convention is {y, x}.
+  m_computeGridShape = {static_cast<int64_t>(grid.y),
+                        static_cast<int64_t>(grid.x)};
+  validateComputeGridAgainstSystemDesc();
+}
+
+void SingletonDeviceContext::validateComputeGridAgainstSystemDesc() const {
+  if (!m_systemDesc) {
+    return;
+  }
+  llvm::ArrayRef<ttcore::ChipDescAttr> chipDescs = m_systemDesc.getChipDescs();
+  if (chipDescs.empty()) {
+    return;
+  }
+
+  // All chips on a given (multi-chip) system are assumed identical, so the
+  // first chip's grid is representative. Both the chip grid and
+  // m_computeGridShape use the {y, x} convention.
+  llvm::ArrayRef<int64_t> expected = chipDescs.front().getGrid();
+  assert(expected.size() == 2 && "expected 2D chip grid");
+
+  if (expected != llvm::ArrayRef<int64_t>(m_computeGridShape)) {
+    llvm::report_fatal_error(
+        llvm::Twine(
+            "OpModel device worker grid does not match the registered system "
+            "descriptor: device compute-with-storage grid {y=") +
+        llvm::Twine(m_computeGridShape[0]) +
+        ", x=" + llvm::Twine(m_computeGridShape[1]) +
+        "}, system desc grid {y=" + llvm::Twine(expected[0]) +
+        ", x=" + llvm::Twine(expected[1]) + "}.");
+  }
+}
+
 void SingletonDeviceContext::resetInstance() {
   SingletonDeviceContext &instance = getInstance();
   assert(!instance.m_isExternalDevice &&
@@ -42,6 +82,7 @@ void SingletonDeviceContext::closeInstance() {
   bool wasExternalDevice = instance.m_isExternalDevice;
   bool wasMockDevice = instance.m_isMockDevice;
   instance.m_device.reset();
+  instance.m_computeGridShape.clear();
   instance.m_isMockDevice = false;
   if (!wasExternalDevice && wasMockDevice) {
     ::tt::tt_metal::experimental::disable_mock_mode();
@@ -56,6 +97,7 @@ void SingletonDeviceContext::setExternalDevice(
          "Device is already initialized. Cannot set external device.");
   instance.m_device = std::move(device);
   instance.m_isExternalDevice = true;
+  instance.refreshComputeGridShape();
 }
 
 void SingletonDeviceContext::setSystemDesc(ttcore::SystemDescAttr systemDesc) {
@@ -121,6 +163,8 @@ void SingletonDeviceContext::openDevice(
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();
+
+  refreshComputeGridShape();
 }
 
 void SingletonDeviceContext::reshapeMeshDevice(
@@ -145,6 +189,8 @@ void SingletonDeviceContext::reshapeMeshDevice(
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();
+
+  refreshComputeGridShape();
 }
 
 } // namespace mlir::tt::ttnn::op_model

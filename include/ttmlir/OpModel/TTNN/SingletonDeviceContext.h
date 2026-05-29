@@ -11,8 +11,12 @@
 
 #include "Constants.h"
 
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -110,6 +114,15 @@ public:
     return m_device.get();
   }
 
+  // Returns the device's compute-with-storage grid as a {y, x} shape (the
+  // worker-grid convention used by GridAttr and the output-layout builders).
+  // The value is cached when the device is opened/reset/reshaped, so callers do
+  // not re-query the device on every use. Asserts that a device is active.
+  llvm::ArrayRef<int64_t> getComputeGridShape() const {
+    assert(m_device != nullptr && "Device is not initialized.");
+    return m_computeGridShape;
+  }
+
   // Returns true if the device is initialized.
   bool isDeviceInitialized() const { return m_device != nullptr; }
 
@@ -124,8 +137,25 @@ private:
   SingletonDeviceContext(const SingletonDeviceContext &) = delete;
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
+  // Caches the current device's compute-with-storage grid into
+  // m_computeGridShape (as {y, x}). Must be called whenever m_device is
+  // (re)assigned.
+  void refreshComputeGridShape();
+
+  // If a system descriptor is registered, verifies that the opened device's
+  // compute-with-storage grid matches the grid the system descriptor describes
+  // (the logical worker grid, i.e. the per-dimension min across chips). A
+  // mismatch means the device was configured from a system desc that does not
+  // describe it (e.g. a differently-harvested system desc used in mock mode),
+  // which would silently produce wrong output layouts; this is fatal.
+  void validateComputeGridAgainstSystemDesc() const;
+
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
   ttcore::SystemDescAttr m_systemDesc;
+
+  // Device compute-with-storage grid as a {y, x} shape, refreshed on every
+  // device (re)assignment. Empty when no device is active.
+  llvm::SmallVector<int64_t, 2> m_computeGridShape;
 
   // This field is technically not needed, but is there to assert that
   // `resetInstance()` is legal. If we are using an external device, we cannot
