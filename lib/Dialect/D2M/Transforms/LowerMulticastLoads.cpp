@@ -273,6 +273,8 @@ public:
       PatternRewriter rewriter(&getContext());
       rewriter.setInsertionPoint(op);
       if (failed(pattern.matchAndRewrite(op, rewriter))) {
+        op.emitOpError("failed to lower high-level multicast form; expected "
+                       "a non-explicit GenericOp parent");
         signalPassFailure();
         return;
       }
