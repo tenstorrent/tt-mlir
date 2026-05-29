@@ -206,8 +206,25 @@ computeViewRequiredPhysicalShape(RankedTensorType materializedViewType,
 
   // Sparse projections, such as strided slices, should keep their
   // producer layout and let the view remapping express the sparse access.
-  int64_t viewVolume =
-      ttmlir::utils::volume<int64_t>(materializedViewType.getShape());
+  llvm::SmallVector<char> usedViewDims(materializedViewType.getRank(), 0);
+  for (AffineExpr expr : viewToBase.getResults()) {
+    expr.walk([&](AffineExpr subExpr) {
+      if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(subExpr)) {
+        usedViewDims[dimExpr.getPosition()] = 1;
+      }
+    });
+  }
+
+  // Dimensions projected away by the view should not make sparse accesses look
+  // dense. This matters for rank-1 tensors, where a synthetic tile row may map
+  // to a constant while the logical dimension is strided.
+  int64_t viewVolume = 1;
+  for (auto [dim, isUsed] :
+       llvm::zip_equal(materializedViewType.getShape(), usedViewDims)) {
+    if (isUsed) {
+      viewVolume *= dim;
+    }
+  }
   int64_t baseDomainVolume = 1;
   for (auto [start, end] : llvm::zip_equal(baseDomain.start, baseDomain.end)) {
     baseDomainVolume *= end - start + 1;

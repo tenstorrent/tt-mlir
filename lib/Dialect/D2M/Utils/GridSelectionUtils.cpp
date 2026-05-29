@@ -385,10 +385,26 @@ static llvm::SmallVector<int64_t> computeSelectedGridDimAlignments(
 
   for (int64_t intervalIdx = 0; intervalIdx < tensorGridRank; ++intervalIdx) {
     const int64_t gridDim = selectedGrid[intervalIdx];
-    const bool isTileInterval = intervalIdx >= tensorGridRank - 2;
-    const int64_t tileIdx = intervalIdx - (tensorGridRank - 2);
     const int64_t intervalStart = normalizedIntervals[intervalIdx * 2];
     const int64_t intervalEnd = normalizedIntervals[intervalIdx * 2 + 1];
+    if (intervalStart == intervalEnd) {
+      TT_assertv(gridDim == 1,
+                 "Cannot shard empty collapsed interval {} with grid dim {}.",
+                 intervalIdx, gridDim);
+      // Rank-1 tensors have a synthetic leading tile row. There is no
+      // logical dim alignment to update, but the default row can satisfy
+      // view-source coverage.
+      if (!minPhysicalShape.empty()) {
+        TT_assertv(minPhysicalShape[intervalIdx] <= defaultTileShape[0],
+                   "Cannot force empty collapsed interval {} to physical "
+                   "dimension {}.",
+                   intervalIdx, minPhysicalShape[intervalIdx]);
+      }
+      continue;
+    }
+
+    const bool isTileInterval = intervalIdx >= tensorGridRank - 2;
+    const int64_t tileIdx = intervalIdx - (tensorGridRank - 2);
     const int64_t alignmentDim =
         (intervalStart + 1 == intervalEnd) ? intervalEnd - 1 : intervalStart;
 
