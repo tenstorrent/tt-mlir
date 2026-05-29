@@ -1770,6 +1770,147 @@ void TileMatmulBlockOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
+mlir::LogicalResult TopKValuesOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(getOperation());
+
+  mlir::Value in = getInput();
+  mlir::Value scratch = getScratch();
+  mlir::Value out = getOutput();
+  if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
+    // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    in = *maybe;
+  }
+  if (mlir::isa<mlir::RankedTensorType>(scratch.getType())) {
+    // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+    auto maybe =
+        mlir::bufferization::getBuffer(rewriter, scratch, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    scratch = *maybe;
+  }
+  if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
+    // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    out = *maybe;
+  }
+
+  if (auto allocOp = scratch.getDefiningOp<mlir::memref::AllocOp>()) {
+    allocOp->setAttr("d2m.synchronized_buffer", rewriter.getI32IntegerAttr(2));
+  }
+
+  rewriter.create<mlir::tt::d2m::TopKValuesOp>(
+      getLoc(), mlir::TypeRange{}, in, scratch, out, getKAttr(),
+      getLargestAttr(), getStableSortAttr());
+  rewriter.replaceAllUsesWith(getResult(), out);
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+
+bool TopKValuesOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInput();
+}
+
+bool TopKValuesOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getScratch() || operand.get() == getOutput();
+}
+
+mlir::bufferization::AliasingValueList
+TopKValuesOp::getAliasingValues(mlir::OpOperand &operand,
+                                const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  if (operand.get() == getOutput()) {
+    aliasList.addAlias(
+        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+TopKValuesOp::getBufferType(mlir::Value,
+                            const mlir::bufferization::BufferizationOptions &,
+                            const mlir::bufferization::BufferizationState &,
+                            ::llvm::SmallVector<mlir::Value> &) {
+  assert(false && "should already have bufferized types via parent generic op "
+                  "bufferization");
+  return mlir::failure();
+}
+
+mlir::LogicalResult TopKValuesOp::verify() {
+  auto inputType = mlir::cast<mlir::ShapedType>(getInput().getType());
+  auto scratchType = mlir::cast<mlir::ShapedType>(getScratch().getType());
+  auto outputType = mlir::cast<mlir::ShapedType>(getOutput().getType());
+  Type inputElemType = getElemType(inputType);
+  Type scratchElemType = getElemType(scratchType);
+  Type outputElemType = getElemType(outputType);
+
+  if (!llvm::isa<mlir::tt::ttcore::TileType>(inputElemType) ||
+      !llvm::isa<mlir::tt::ttcore::TileType>(scratchElemType) ||
+      !llvm::isa<mlir::tt::ttcore::TileType>(outputElemType)) {
+    return emitOpError(
+        "input, scratch, and output must have ttcore.tile element type");
+  }
+  if (inputElemType != scratchElemType || inputElemType != outputElemType) {
+    return emitOpError("input, scratch, and output tile types must match");
+  }
+  if (getResult() && getResult().getType() != getOutput().getType()) {
+    return emitOpError("result type must match output parameter type");
+  }
+  if (getK() != 32) {
+    return emitOpError("currently supports only k = 32");
+  }
+  if (!getLargest()) {
+    return emitOpError("currently supports only largest = true");
+  }
+  if (getStableSort()) {
+    return emitOpError("currently supports only stable_sort = false");
+  }
+
+  auto inputShape = inputType.getShape();
+  auto scratchShape = scratchType.getShape();
+  auto outputShape = outputType.getShape();
+  if (inputShape != scratchShape) {
+    return emitOpError("scratch shape must match input shape");
+  }
+  const bool shape2D = inputShape.size() == 2 && outputShape.size() == 2 &&
+                       inputShape[0] == 1 && inputShape[1] == 64 &&
+                       outputShape[0] == 1 && outputShape[1] == 1;
+  const bool shape1D = inputShape.size() == 1 && outputShape.size() == 1 &&
+                       inputShape[0] == 64 && outputShape[0] == 1;
+  if (!shape2D && !shape1D) {
+    return emitOpError(
+        "currently supports input block shape 1x64 tiles and output block "
+        "shape 1x1 tile");
+  }
+
+  return mlir::success();
+}
+
+void TopKValuesOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getScratchMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
 mlir::LogicalResult TileTilizeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,

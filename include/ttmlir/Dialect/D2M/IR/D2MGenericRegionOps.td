@@ -950,6 +950,111 @@ def D2M_TileSFPUReduceMaxOp : D2M_GenericRegionComputeOp<"tile_sfpu_reduce_max",
   let hasVerifier = 1;
 }
 
+def D2M_TopKLocalSortOp : D2M_GenericRegionComputeOp<"topk_local_sort", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "D2M TopK Local Sort Op";
+  let description = [{
+        The `topk_local_sort` operation sorts TopK values and indices staged
+        in DST. The data tiles are expected at `dst_index` and `dst_index + 1`;
+        the corresponding index tiles are expected at `dst_index + 2` and
+        `dst_index + 3`.
+    }];
+
+  let arguments = (ins Index:$dst_index,
+                       Index:$sort_direction,
+                       Index:$end_phase,
+                       Index:$start_phase,
+                       Index:$end_step,
+                       Index:$start_step,
+                       DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+  let assemblyFormat = [{
+    `(` $dst_index `,` $sort_direction `,` $end_phase `,` $start_phase `,` $end_step `,` $start_step `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def D2M_TopKMergeOp : D2M_GenericRegionComputeOp<"topk_merge", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "D2M TopK Merge Op";
+  let description = [{
+        The `topk_merge` operation merges TopK values and indices staged in
+        DST. The `sort_direction` and `stable_sort` attributes lower to
+        tt-metal template parameters.
+    }];
+
+  let arguments = (ins Index:$dst_index,
+                       Index:$merge_iteration,
+                       Index:$k,
+                       DefaultValuedAttr<BoolAttr, "false">:$sort_direction,
+                       DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+  let assemblyFormat = [{
+    `(` $dst_index `,` $merge_iteration `,` $k `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def D2M_TopKRebuildOp : D2M_GenericRegionComputeOp<"topk_rebuild", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "D2M TopK Rebuild Op";
+  let description = [{
+        The `topk_rebuild` operation rebuilds TopK values and indices staged in
+        DST after merge stages.
+    }];
+
+  let arguments = (ins Index:$dst_index,
+                       Index:$sort_direction,
+                       Index:$merge_iteration,
+                       Index:$k,
+                       Index:$logk,
+                       Index:$skip_second,
+                       DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+  let assemblyFormat = [{
+    `(` $dst_index `,` $sort_direction `,` $merge_iteration `,` $k `,` $logk `,` $skip_second `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def D2M_TopKValuesOp : D2M_GenericRegionComputeOp<"topk_values",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SynchronizableOpInterface
+  ]> {
+    let summary = "D2M TopK values op";
+    let description = [{
+        The `topk_values` operation computes values-only TopK over a local
+        tensor block. It lowers directly to the TTKernel TopK SFPU sequence
+        and does not expose the TopK init call in D2M.
+
+        This operation currently supports the D2M JIT row case needed by the
+        Python e2e test: input block `1x64` tiles, scratch block `1x64` tiles,
+        output block `1x1` tile, `k = 32`, and `largest = true`.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$scratch,
+                         AnyRankedTensorOrMemRef:$output,
+                         I64Attr:$k,
+                         DefaultValuedAttr<BoolAttr, "true">:$largest,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutputMutable() == &operand;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getInputMutable() == &operand;
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast"> {
   let summary = "D2M Tile Broadcast Op";
   let description = [{

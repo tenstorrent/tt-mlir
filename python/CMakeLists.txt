@@ -53,6 +53,7 @@ declare_mlir_dialect_python_bindings(
   SOURCES dialects/d2m.py
   DIALECT_NAME d2m
   DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/D2M/IR/D2MOps.td
+          ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.td
 )
 
 declare_mlir_dialect_python_bindings(

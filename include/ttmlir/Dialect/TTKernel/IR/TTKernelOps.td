@@ -714,6 +714,94 @@ def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_TopKTileInitOp : TTKernel_InitOp<"topk_tile_init"> {
+    let summary = "Initialize TopK SFPU operations.";
+    let description = [{
+      Initializes the SFPU TopK kernels. Must be called before the TopK SFPU
+      operations below.
+
+      Lowers to: topk_tile_init().
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopKLocalSortOp : TTKernel_SFPUOp<"topk_local_sort"> {
+    let summary = "TopK local sort operation on tiles in DST.";
+    let description = [{
+      Sorts the TopK values and indices already staged in DST. The data tiles
+      are expected at `dst_index` and `dst_index + 1`; the corresponding index
+      tiles are expected at `dst_index + 2` and `dst_index + 3`.
+
+      Lowers to:
+      topk_local_sort<stable_sort>(dst_index, sort_direction, end_phase,
+                                   start_phase, end_step, start_step).
+    }];
+
+    let arguments = (ins IndexLike:$dst_index,
+                         IndexLike:$sort_direction,
+                         IndexLike:$end_phase,
+                         IndexLike:$start_phase,
+                         IndexLike:$end_step,
+                         IndexLike:$start_step,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $sort_direction `,` $end_phase `,` $start_phase `,` $end_step `,` $start_step `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopKMergeOp : TTKernel_SFPUOp<"topk_merge"> {
+    let summary = "TopK merge operation on tiles in DST.";
+    let description = [{
+      Merges the TopK values and indices already staged in DST. The template
+      `sort_direction` controls whether the merge keeps the ascending or
+      descending side, and `stable_sort` preserves relative order for equal
+      values.
+
+      Lowers to:
+      topk_merge<sort_direction, stable_sort>(dst_index, merge_iteration, k).
+    }];
+
+    let arguments = (ins IndexLike:$dst_index,
+                         IndexLike:$merge_iteration,
+                         IndexLike:$k,
+                         DefaultValuedAttr<BoolAttr, "false">:$sort_direction,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $merge_iteration `,` $k `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopKRebuildOp : TTKernel_SFPUOp<"topk_rebuild"> {
+    let summary = "TopK rebuild operation on tiles in DST.";
+    let description = [{
+      Rebuilds TopK values and indices after merge stages. The data and index
+      tiles must already be staged in DST.
+
+      Lowers to:
+      topk_rebuild<stable_sort>(dst_index, sort_direction, merge_iteration, k,
+                                logk, skip_second).
+    }];
+
+    let arguments = (ins IndexLike:$dst_index,
+                         IndexLike:$sort_direction,
+                         IndexLike:$merge_iteration,
+                         IndexLike:$k,
+                         IndexLike:$logk,
+                         IndexLike:$skip_second,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $sort_direction `,` $merge_iteration `,` $k `,` $logk `,` $skip_second `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel SFPU operations
 //===----------------------------------------------------------------------===//

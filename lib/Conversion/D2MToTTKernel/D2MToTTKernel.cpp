@@ -1244,8 +1244,9 @@ public:
 
     int64_t scratchIdxVal = op.getDstScratchIndex();
     if (scratchIdxVal < 0) {
-      return op->emitOpError("dst_scratch_index must be set by "
-                             "d2m-insert-dst-register-access before lowering");
+      return rewriter.notifyMatchFailure(
+          op, "dst_scratch_index must be set by "
+              "d2m-insert-dst-register-access before lowering");
     }
     Value tempIdx =
         rewriter.create<arith::ConstantIndexOp>(op->getLoc(), scratchIdxVal);
@@ -1274,6 +1275,248 @@ public:
       rewriter.create<ttkernel::BinaryMaxInt32TileOp>(op->getLoc(), tempIdx,
                                                       cIdx, cIdx);
     }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+static LogicalResult replaceTopKSFPUOp(d2m::TopKLocalSortOp op,
+                                       d2m::TopKLocalSortOpAdaptor adaptor,
+                                       ConversionPatternRewriter &rewriter) {
+  rewriter.replaceOpWithNewOp<ttkernel::TopKLocalSortOp>(
+      op, adaptor.getDstIndex(), adaptor.getSortDirection(),
+      adaptor.getEndPhase(), adaptor.getStartPhase(), adaptor.getEndStep(),
+      adaptor.getStartStep(), op.getStableSort());
+  return success();
+}
+
+static LogicalResult replaceTopKSFPUOp(d2m::TopKMergeOp op,
+                                       d2m::TopKMergeOpAdaptor adaptor,
+                                       ConversionPatternRewriter &rewriter) {
+  rewriter.replaceOpWithNewOp<ttkernel::TopKMergeOp>(
+      op, adaptor.getDstIndex(), adaptor.getMergeIteration(), adaptor.getK(),
+      op.getSortDirection(), op.getStableSort());
+  return success();
+}
+
+static LogicalResult replaceTopKSFPUOp(d2m::TopKRebuildOp op,
+                                       d2m::TopKRebuildOpAdaptor adaptor,
+                                       ConversionPatternRewriter &rewriter) {
+  rewriter.replaceOpWithNewOp<ttkernel::TopKRebuildOp>(
+      op, adaptor.getDstIndex(), adaptor.getSortDirection(),
+      adaptor.getMergeIteration(), adaptor.getK(), adaptor.getLogk(),
+      adaptor.getSkipSecond(), op.getStableSort());
+  return success();
+}
+
+template <typename ConcreteOp>
+class D2MTopKSFPURewriter : public OpConversionPattern<ConcreteOp> {
+public:
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<ttkernel::TopKTileInitOp>(op->getLoc());
+    return replaceTopKSFPUOp(op, adaptor, rewriter);
+  }
+};
+
+template <typename ComputeFn, typename PackFn>
+static void emitTileRegsSection(ConversionPatternRewriter &rewriter,
+                                Location loc, ComputeFn computeFn,
+                                PackFn packFn) {
+  rewriter.create<ttkernel::TileRegsAcquireOp>(loc);
+  computeFn();
+  rewriter.create<ttkernel::TileRegsCommitOp>(loc);
+  rewriter.create<ttkernel::TileRegsWaitOp>(loc);
+  packFn();
+  rewriter.create<ttkernel::TileRegsReleaseOp>(loc);
+}
+
+class D2MTopKValuesRewriter : public OpConversionPattern<d2m::TopKValuesOp> {
+public:
+  using OpConversionPattern<d2m::TopKValuesOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TopKValuesOp op, d2m::TopKValuesOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.getK() != 32 || !op.getLargest() || op.getStableSort()) {
+      return rewriter.notifyMatchFailure(
+          op, "topk_values lowering supports only k=32, largest=true, "
+              "stable_sort=false");
+    }
+
+    Location loc = op->getLoc();
+    Value inputCB = adaptor.getInput();
+    Value scratchCB = adaptor.getScratch();
+    Value outputCB = adaptor.getOutput();
+
+    auto c = [&](int64_t value) { return index(rewriter, loc, value); };
+    Value c0 = c(0);
+    Value c1 = c(1);
+    Value c2 = c(2);
+    Value c3 = c(3);
+    Value c5 = c(5);
+    Value c32 = c(32);
+    Value sortDirection = c(0);
+    Value numInputTilesI32 = intConstant<int32_t>(rewriter, loc, 64);
+    Value zeroI32 = intConstant<int32_t>(rewriter, loc, 0);
+
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(loc, inputCB, scratchCB,
+                                                        outputCB);
+    rewriter.create<ttkernel::TopKTileInitOp>(loc);
+    rewriter.create<ttkernel::TransposeInitOp>(loc, inputCB, scratchCB);
+
+    auto fillIndexTiles = [&]() {
+      rewriter.create<ttkernel::FillTileInitOp>(loc);
+      rewriter.create<ttkernel::FillTileIntOp>(loc, c2, zeroI32);
+      rewriter.create<ttkernel::FillTileIntOp>(loc, c3, zeroI32);
+    };
+
+    auto packTile = [&](Value dstIndex, Value outCB, Value outIndex,
+                        bool outOfOrder) {
+      rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, outCB);
+      rewriter.create<ttkernel::PackTileOp>(loc, dstIndex, outCB, outIndex,
+                                            rewriter.getBoolAttr(outOfOrder));
+    };
+    auto emitFor = [&](int64_t upperBound, auto bodyFn) {
+      auto forOp = rewriter.create<scf::ForOp>(loc, c0, c(upperBound), c1);
+      {
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(forOp.getBody());
+        bodyFn(forOp.getInductionVar());
+      }
+      rewriter.setInsertionPointAfter(forOp);
+    };
+    auto reserveInputScratch = [&]() {
+      rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCB,
+                                                 numInputTilesI32);
+    };
+    auto publishInputScratch = [&]() {
+      rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCB, numInputTilesI32);
+      rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCB, numInputTilesI32);
+    };
+    auto waitAndReserveScratch = [&]() {
+      rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCB,
+                                               numInputTilesI32);
+      reserveInputScratch();
+    };
+    auto pushInitialScratch = [&]() {
+      rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCB, numInputTilesI32);
+    };
+
+    // TopK SFPU compares down columns. First transpose and locally sort every
+    // adjacent tile pair into the in-place scratch buffer.
+    reserveInputScratch();
+    emitFor(32, [&](Value pairIndex) {
+      Value leftIndex = rewriter.create<arith::MulIOp>(loc, pairIndex, c(2));
+      Value rightIndex = rewriter.create<arith::AddIOp>(loc, leftIndex, c1);
+
+      emitTileRegsSection(
+          rewriter, loc,
+          [&]() {
+            rewriter.create<ttkernel::TransposeTileOp>(loc, inputCB, leftIndex,
+                                                       c0);
+            rewriter.create<ttkernel::TransposeTileOp>(loc, inputCB, rightIndex,
+                                                       c1);
+            fillIndexTiles();
+            rewriter.create<ttkernel::TopKLocalSortOp>(
+                loc, c0, sortDirection, c5, c0, c0, c0, op.getStableSort());
+          },
+          [&]() {
+            packTile(c0, scratchCB, leftIndex, /*outOfOrder=*/true);
+            packTile(c1, scratchCB, rightIndex, /*outOfOrder=*/true);
+          });
+    });
+    pushInitialScratch();
+
+    auto emitMergeStage = [&](Value leftIndex, Value rightIndex,
+                              Value iterationIndex) {
+      emitTileRegsSection(
+          rewriter, loc,
+          [&]() {
+            rewriter.create<ttkernel::CopyTileInitOp>(loc, scratchCB);
+            rewriter.create<ttkernel::CopyTileOp>(loc, scratchCB, leftIndex,
+                                                  c0);
+            rewriter.create<ttkernel::CopyTileOp>(loc, scratchCB, rightIndex,
+                                                  c1);
+            fillIndexTiles();
+            rewriter.create<ttkernel::TopKMergeOp>(loc, c0, iterationIndex, c32,
+                                                   /*sort_direction=*/false,
+                                                   op.getStableSort());
+          },
+          [&]() {
+            packTile(c0, scratchCB, leftIndex, /*outOfOrder=*/true);
+            packTile(c1, scratchCB, rightIndex, /*outOfOrder=*/true);
+          });
+    };
+
+    auto emitRebuildStage = [&](Value leftIndex, Value rightIndex,
+                                Value iterationIndex, bool skipSecond) {
+      emitTileRegsSection(
+          rewriter, loc,
+          [&]() {
+            rewriter.create<ttkernel::CopyTileInitOp>(loc, scratchCB);
+            rewriter.create<ttkernel::CopyTileOp>(loc, scratchCB, leftIndex,
+                                                  c0);
+            if (!skipSecond) {
+              rewriter.create<ttkernel::CopyTileOp>(loc, scratchCB, rightIndex,
+                                                    c1);
+            }
+            fillIndexTiles();
+            rewriter.create<ttkernel::TopKRebuildOp>(
+                loc, c0, sortDirection, iterationIndex, c32, c5,
+                skipSecond ? c1 : c0, op.getStableSort());
+          },
+          [&]() {
+            packTile(c0, scratchCB, leftIndex, /*outOfOrder=*/true);
+            if (!skipSecond) {
+              packTile(c1, scratchCB, rightIndex, /*outOfOrder=*/true);
+            }
+          });
+    };
+
+    for (int64_t iteration = 0; iteration < 6; ++iteration) {
+      int64_t distance = 1 << iteration;
+      int64_t pairs = 64 / (distance * 2);
+      waitAndReserveScratch();
+      emitFor(pairs, [&](Value pairIndex) {
+        Value leftIndex =
+            rewriter.create<arith::MulIOp>(loc, pairIndex, c(distance * 2));
+        Value rightIndex =
+            rewriter.create<arith::AddIOp>(loc, leftIndex, c(distance));
+        emitMergeStage(leftIndex, rightIndex, c(iteration));
+      });
+      publishInputScratch();
+
+      int64_t numKSequences = 64 >> (iteration + 1);
+      bool skipSecond = numKSequences == 1;
+      int64_t step = 1 << (iteration + 1);
+      int64_t rebuildPairs = skipSecond ? numKSequences : numKSequences / 2;
+      waitAndReserveScratch();
+      emitFor(rebuildPairs, [&](Value pairIndex) {
+        Value leftIndex = rewriter.create<arith::MulIOp>(
+            loc, pairIndex, c(skipSecond ? step : 2 * step));
+        Value rightIndex =
+            skipSecond
+                ? c0
+                : rewriter.create<arith::AddIOp>(loc, leftIndex, c(step));
+        emitRebuildStage(leftIndex, rightIndex, c(iteration), skipSecond);
+      });
+      publishInputScratch();
+    }
+
+    rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCB, numInputTilesI32);
+    rewriter.create<ttkernel::TransposeInitOp>(loc, scratchCB, outputCB);
+    emitTileRegsSection(
+        rewriter, loc,
+        [&]() {
+          rewriter.create<ttkernel::TransposeTileOp>(loc, scratchCB, c0, c0);
+        },
+        [&]() { packTile(c0, outputCB, c0, /*outOfOrder=*/false); });
+    rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCB, numInputTilesI32);
 
     rewriter.eraseOp(op);
     return success();
@@ -3335,6 +3578,12 @@ void populateD2MToTTKernelPatterns(
                // Reductions SFPU (integer).
                ttkernel::D2MSFPUReduceRewriter<d2m::TileSFPUReduceSumOp>,
                ttkernel::D2MSFPUReduceRewriter<d2m::TileSFPUReduceMaxOp>,
+
+               // TopK SFPU primitives.
+               ttkernel::D2MTopKSFPURewriter<d2m::TopKLocalSortOp>,
+               ttkernel::D2MTopKSFPURewriter<d2m::TopKMergeOp>,
+               ttkernel::D2MTopKSFPURewriter<d2m::TopKRebuildOp>,
+               ttkernel::D2MTopKValuesRewriter,
 
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,

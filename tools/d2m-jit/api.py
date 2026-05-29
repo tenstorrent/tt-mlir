@@ -85,6 +85,112 @@ def core_index(index):
     return d2m.core_index(index)
 
 
+def _bool_attr(node):
+    return BoolAttr.get(node.value)
+
+
+@syntax(
+    "topk_local_sort",
+    args_as_attr=[False, False, False, False, False, False, _bool_attr],
+)
+def topk_local_sort(
+    dst_index,
+    sort_direction,
+    end_phase,
+    start_phase,
+    end_step,
+    start_step,
+    stable_sort,
+):
+    return d2m.topk_local_sort(
+        _asindex(dst_index),
+        _asindex(sort_direction),
+        _asindex(end_phase),
+        _asindex(start_phase),
+        _asindex(end_step),
+        _asindex(start_step),
+        stable_sort=stable_sort,
+    )
+
+
+@syntax(
+    "topk_merge",
+    args_as_attr=[False, False, False, _bool_attr, _bool_attr],
+)
+def topk_merge(dst_index, merge_iteration, k, sort_direction, stable_sort):
+    return d2m.topk_merge(
+        _asindex(dst_index),
+        _asindex(merge_iteration),
+        _asindex(k),
+        sort_direction=sort_direction,
+        stable_sort=stable_sort,
+    )
+
+
+@syntax(
+    "topk_rebuild",
+    args_as_attr=[False, False, False, False, False, False, _bool_attr],
+)
+def topk_rebuild(
+    dst_index,
+    sort_direction,
+    merge_iteration,
+    k,
+    logk,
+    skip_second,
+    stable_sort,
+):
+    return d2m.topk_rebuild(
+        _asindex(dst_index),
+        _asindex(sort_direction),
+        _asindex(merge_iteration),
+        _asindex(k),
+        _asindex(logk),
+        _asindex(skip_second),
+        stable_sort=stable_sort,
+    )
+
+
+def _i64_attr(node):
+    return IntegerAttr.get(IntegerType.get_signless(64), node.value)
+
+
+@syntax("topk_values", args_as_attr=[False, _i64_attr, _bool_attr, _bool_attr])
+def topk_values(input, k, largest, stable_sort):
+    k_value = int(k.value)
+    largest_value = bool(largest.value)
+    stable_sort_value = bool(stable_sort.value)
+    if k_value != 32:
+        raise ValueError("topk_values currently supports only k=32")
+    if not largest_value:
+        raise ValueError("topk_values currently supports only largest=True")
+    if stable_sort_value:
+        raise ValueError("topk_values currently supports only stable_sort=False")
+    if not isinstance(input.type, RankedTensorType):
+        raise TypeError(f"topk_values input must be a ranked tensor, got {input.type}")
+    if input.type.rank not in (1, 2):
+        raise ValueError(f"topk_values input must be rank 1 or 2, got {input.type}")
+    if input.type.shape[-1] != 64:
+        raise ValueError(
+            f"topk_values input must have 64 tiles in the last dim, got {input.type}"
+        )
+
+    output_shape = list(input.type.shape)
+    output_shape[-1] = 1
+    output_type = RankedTensorType.get(output_shape, input.type.element_type)
+    scratch = d2m.empty(input.type)
+    output = d2m.empty(output_type)
+    return d2m.topk_values(
+        output_type,
+        input,
+        scratch,
+        output,
+        k=k,
+        largest=largest,
+        stable_sort=stable_sort,
+    )
+
+
 # --- Block-level elementwise free functions ---------------------------------
 #
 # Each op wraps the per-tile d2m.tile_* builder in a linalg.generic over a
