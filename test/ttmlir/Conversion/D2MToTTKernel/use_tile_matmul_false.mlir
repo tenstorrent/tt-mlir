@@ -12,9 +12,12 @@ module {
   func.func @test_block_matmul(%lhs: !lhs, %rhs: !rhs) -> (!matmul_result) {
     // CHECK-NOT: ttir.matmul
     // CHECK-NOT: matmul_tiles
-    // CHECK: emitc.verbatim "Noc noc(0);"
-    // CHECK: noc.async_write_multicast
-    // CHECK: emitc.verbatim "Noc noc(1);"
+    // CHECK-DAG: emitc.verbatim "Noc noc0(0);"
+    // CHECK-DAG: emitc.verbatim "Noc noc(0);"
+    // CHECK: noc0.async_write_multicast
+    // CHECK-DAG: emitc.verbatim "Noc noc1(1);"
+    // CHECK-DAG: emitc.verbatim "Noc noc(1);"
+    // CHECK: noc1.async_write_multicast
     // CHECK-NOT: noc_async_write_barrier
     // CHECK: mm_block_init
     // CHECK: mm_block_init_short
