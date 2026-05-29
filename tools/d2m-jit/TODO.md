@@ -92,7 +92,6 @@ speculatively.
 | `tile_clamp_scalar(x, min, max)` | clamp with attribute (not operand) bounds | needs `FloatAttr` / `IntegerAttr` threading through `_eltwise_block`, plus a wrapper that picks the attr type from the tile's underlying dtype |
 | `tile_typecast(x)` | in-kernel dtype conversion (host-side already covered by `tilize(dtype=...)`) | needs an `_eltwise_block` variant that takes a target element type different from the input |
 | `tile_transpose(x)` | per-tile (32×32) element transpose -- distinct from logical `permute` / `view` | naming question — collides with `permute` / `view` semantics if called `transpose` |
-| `tile_bcast(x, bcast_type)` | broadcast row / col / scalar tile to full tile | needs a `BcastTypeAttr` argument; small but bespoke |
 
 ### 🟡 Reductions (scoped — float blocked, int viable)
 
@@ -220,11 +219,11 @@ debugging kernel bodies; would need a thin wrapper that emits
 
 ### 🟢 Lit-side IR-shape FileCheck tests
 
-`test/d2m-jit/lit/` only has `captures.py` (AST inspection). Worth
-adding lit + FileCheck tests that dump pre-pipeline IR (the builder
-already supports `print_ir_before_pipeline`) and check the shape of
-what each DSL primitive emits — would lock down the IR contract
-without going to silicon.
+`test/d2m-jit/lit/` now has coverage for captures, error paths,
+pattern rewrites, and broadcast lowering. Worth expanding that into
+lit + FileCheck tests that dump pre-pipeline IR (the builder already
+supports `print_ir_before_pipeline`) and check the shape of more DSL
+primitives — this locks down the IR contract without going to silicon.
 
 Sketch:
 
