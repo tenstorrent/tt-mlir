@@ -1704,10 +1704,7 @@ BitcastConvertOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   ttcore::DataTypeAttr dtype =
       detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
-  if (!dtype) {
-    return issueErrorForGetOpConstraints(
-        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-  }
+  assert(dtype && "BitcastConvertOp requires output dtype");
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<BitcastConvertOp>::getOpConstraints, *this, deviceGrid,
@@ -1723,10 +1720,7 @@ BitcastConvertOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   ttcore::DataTypeAttr dtype =
       detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
-  if (!dtype) {
-    return issueErrorForGetOpRuntime(
-        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-  }
+  assert(dtype && "BitcastConvertOp requires output dtype");
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<BitcastConvertOp>::getOpRuntime, *this, inputShape,
@@ -1754,10 +1748,7 @@ TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   ttcore::DataTypeAttr dtype =
       detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
-  if (!dtype) {
-    return issueErrorForGetOpConstraints(
-        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-  }
+  assert(dtype && "TypecastOp requires output dtype");
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<TypecastOp>::getOpConstraints, *this, deviceGrid,
@@ -1778,10 +1769,7 @@ TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   ttcore::DataTypeAttr dtype =
       detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
-  if (!dtype) {
-    return issueErrorForGetOpRuntime(
-        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-  }
+  assert(dtype && "TypecastOp requires output dtype");
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<TypecastOp>::getOpRuntime, *this, inputShape, inputs[0],
@@ -4513,10 +4501,7 @@ EmptyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const llvm::ArrayRef<int64_t> shape = getShape().getShape();
   ttcore::DataTypeAttr dtype =
       detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
-  if (!dtype) {
-    return issueErrorForGetOpConstraints(
-        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-  }
+  assert(dtype && "EmptyOp requires output dtype");
   const mlir::tt::ttnn::Layout layout = getLayoutAttr().getValue();
 
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
@@ -4697,10 +4682,7 @@ RandOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   ttcore::DataTypeAttr dtype =
       detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
-  if (!dtype) {
-    return issueErrorForGetOpConstraints(
-        getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-  }
+  assert(dtype && "RandOp requires output dtype");
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints, *this,
