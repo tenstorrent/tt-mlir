@@ -11,9 +11,52 @@
 #include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
+
+// Memory-tracing instrumentation for the distributed controller process.
+//
+// Shares the TT_RUNTIME_DISTRIBUTED_MEM_TRACE switch with the worker-side
+// tracing. When enabled, the controller logs (at INFO level) the creation and
+// destruction of its tensor *handles*. A controller tensor handle is just a
+// globalId carrier whose data/handle members are otherwise null and never
+// dereferenced on the controller, so we attach a sentinel with a logging
+// deleter to the handle's `data` member. The deleter fires when the last
+// controller-side copy of the handle is destroyed (e.g. when tt-xla's
+// ensure_layout swaps m_runtime_tensor after a host->device toLayout),
+// proving that the controller releases its (empty) shell by refcount while the
+// worker keeps the corresponding tensor resident in its pool (no
+// DeallocateTensorCommand is ever sent).
+static bool ctrlMemTraceEnabled() {
+  static const bool enabled = [] {
+    const char *env = std::getenv("TT_RUNTIME_DISTRIBUTED_MEM_TRACE");
+    return env != nullptr && env[0] != '\0' && std::strcmp(env, "0") != 0;
+  }();
+  return enabled;
+}
+
+static void trackControllerTensorHandle(::tt::runtime::Tensor &handle,
+                                        const char *origin) {
+  if (!ctrlMemTraceEnabled()) {
+    return;
+  }
+  const uint64_t globalId = handle.getGlobalId();
+  LOG_INFO("[CTRL_MEM_TRACE] CREATE controller tensor globalId=", globalId,
+           " origin=", origin);
+  handle.data = std::shared_ptr<void>(
+      reinterpret_cast<void *>(static_cast<uintptr_t>(globalId)),
+      [globalId](void *) {
+        LOG_INFO("[CTRL_MEM_TRACE] DESTROY controller tensor globalId=",
+                 globalId,
+                 " (handle refcount hit 0 on controller; NO "
+                 "DeallocateTensorCommand sent to worker)");
+      });
+}
 
 static const fb::Response *getResponse(const SizedBuffer &response) {
   bool isDistributedResponse = fb::ResponseBufferHasIdentifier(response.data());
@@ -408,6 +451,8 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
                                  fb::CommandType::CreateHostTensorCommand,
                                  std::move(commandBuilder));
 
+  trackControllerTensorHandle(outputTensorHandle, "createOwnedHostTensor");
+
   return outputTensorHandle;
 }
 
@@ -428,6 +473,9 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
       commandId, fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand,
       std::move(commandBuilder));
 
+  trackControllerTensorHandle(outputTensorHandle,
+                              "createMultiDeviceHostTensor");
+
   return outputTensorHandle;
 }
 
@@ -445,6 +493,9 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   pushToCommandAndResponseQueues(
       commandId, fb::CommandType::CreateUnsafeBorrowedHostTensorCommand,
       std::move(commandBuilder));
+
+  trackControllerTensorHandle(outputTensorHandle,
+                              "createUnsafeBorrowedHostTensor");
 
   return outputTensorHandle;
 }
@@ -568,6 +619,8 @@ Controller::toLayout(const ::tt::runtime::Tensor &tensorHandle,
   pushToCommandAndResponseQueues(commandId, fb::CommandType::ToLayoutCommand,
                                  std::move(commandBuilder));
 
+  trackControllerTensorHandle(outputTensorHandle, "toLayout");
+
   return outputTensorHandle;
 }
 
@@ -689,6 +742,11 @@ void Controller::memcpy(const ::tt::runtime::Tensor &dstHandle,
 
 void Controller::deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                                   bool force) {
+
+  if (ctrlMemTraceEnabled()) {
+    LOG_INFO("[CTRL_MEM_TRACE] SEND DeallocateTensorCommand globalId=",
+             tensorHandle.getGlobalId(), " force=", force);
+  }
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 

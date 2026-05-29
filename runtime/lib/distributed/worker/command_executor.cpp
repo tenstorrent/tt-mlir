@@ -13,7 +13,7 @@
 #include "tt/runtime/utils.h"
 #include <cstdio>
 #include <cstdlib>
-#include <string>
+#include <cstring>
 #include <thread>
 #include <unistd.h>
 #include <unordered_map>
@@ -35,7 +35,7 @@ namespace fb = ::tt::runtime::distributed::flatbuffer;
 static bool memTraceEnabled() {
   static const bool enabled = [] {
     const char *env = std::getenv("TT_RUNTIME_DISTRIBUTED_MEM_TRACE");
-    return env != nullptr && env[0] != '\0' && std::string(env) != "0";
+    return env != nullptr && env[0] != '\0' && std::strcmp(env, "0") != 0;
   }();
   return enabled;
 }
