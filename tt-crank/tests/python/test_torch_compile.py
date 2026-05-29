@@ -177,6 +177,25 @@ def test_compile_mm(m: int, k: int, n: int) -> None:
     _assert_compile_matches_eager(_MM(), a, b, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize("beta,alpha", [(1.0, 1.0), (0.5, 2.0), (0.0, 1.0)], ids=["default", "scaled", "no_bias"])
+def test_compile_addmm(beta: float, alpha: float) -> None:
+    """aten::addmm with varying beta/alpha — covers the LinearOp fast path
+    (beta==alpha==1), the scaled matmul+add path, and the zero-bias path."""
+    class _AddMM(nn.Module):
+        def __init__(self, b: float, a: float) -> None:
+            super().__init__()
+            self.b = b
+            self.a = a
+
+        def forward(self, bias: torch.Tensor, mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
+            return torch.addmm(bias, mat1, mat2, beta=self.b, alpha=self.a)
+
+    bias = torch.randn((32, 32), dtype=torch.bfloat16)
+    mat1 = torch.randn((32, 64), dtype=torch.bfloat16)
+    mat2 = torch.randn((64, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_AddMM(beta, alpha), bias, mat1, mat2, atol=0.05, rtol=0.05)
+
+
 def test_compile_add_dtype_promotion(device_type: DeviceType) -> None:
     """bf16 + f32 must promote to f32 - same `at::promote_types` semantics
     the eager kernel applies. Validates that the compile path's MLIR-level

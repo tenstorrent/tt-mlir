@@ -77,6 +77,11 @@ def _(mb, a, b):
     return mb.mm(a, b)
 
 
+@_lowering(_aten.addmm.default)
+def _(mb, bias, mat1, mat2, *, beta=1, alpha=1):
+    return mb.addmm(bias, mat1, mat2, float(beta), float(alpha))
+
+
 def _prepare_op_args(
     mb: "_native.ModuleBuilder",
     args: tuple,

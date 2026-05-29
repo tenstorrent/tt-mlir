@@ -58,6 +58,11 @@ public:
         return tk::build_mm(*mb_, lhs, rhs);
     }
 
+    mlir::Value addmm(mlir::Value bias, mlir::Value mat1, mlir::Value mat2, double beta, double alpha) {
+        assert_builder();
+        return tk::build_addmm(*mb_, bias, mat1, mat2, beta, alpha);
+    }
+
     // Lift a Python scalar to a broadcastable `ttir.constant` at `dtype`.
     mlir::Value scalar(::tt::target::DataType dtype, double value) {
         assert_builder();
@@ -192,6 +197,7 @@ NB_MODULE(_native, m) {
         .def("arg", &PyModuleBuilder::arg, "index"_a)
         .def("add", &PyModuleBuilder::add, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
         .def("mm", &PyModuleBuilder::mm, "lhs"_a, "rhs"_a)
+        .def("addmm", &PyModuleBuilder::addmm, "bias"_a, "mat1"_a, "mat2"_a, "beta"_a = 1.0, "alpha"_a = 1.0)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         // Consumes the builder. Subsequent calls on `self` raise.

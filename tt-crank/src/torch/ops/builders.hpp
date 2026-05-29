@@ -27,6 +27,11 @@ mlir::Value build_add(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, doubl
 // already share an element type and be 2D ranked tensors.
 mlir::Value build_mm(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 
+// Emit TTIR for `beta*bias + alpha*(mat1 @ mat2)`. All inputs must already
+// share an element type. Uses LinearOp for the beta==alpha==1 fast path.
+mlir::Value build_addmm(ModuleBuilder &mb, mlir::Value bias, mlir::Value mat1, mlir::Value mat2, double beta = 1.0,
+                        double alpha = 1.0);
+
 // Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
 // broadcasts against any tensor in downstream elementwise ops.
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);
