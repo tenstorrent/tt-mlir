@@ -293,6 +293,15 @@ void updateTensorInPool(CallbackContext programContextHandle,
 
 size_t getProgramIndex(CallbackContext programContextHandle);
 
+// Invoke a sequence of CPU-hoisted ops (represented through a CpuOp)
+// with custom caller-supplied host inputs.
+//
+// Useful for scenarios where a CPU-hoisted sequence of operations needs to be
+// invoked externally, out of the context of TTNN program execution.
+std::vector<::tt::runtime::Tensor>
+invokeCpuOp(CallbackContext programContextHandle, OpContext opContextHandle,
+            const std::vector<::tt::runtime::Tensor> &inputs);
+
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);

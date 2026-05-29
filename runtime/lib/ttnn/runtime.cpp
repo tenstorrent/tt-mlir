@@ -4,6 +4,7 @@
 
 #include "Constants.h"
 
+#include "operations/cpu/cpu.h"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
@@ -2294,6 +2295,21 @@ size_t getProgramIndex(CallbackContext programContextHandle) {
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
   return programContext.getProgramIndex();
+}
+
+std::vector<::tt::runtime::Tensor>
+invokeCpuOp(CallbackContext programContextHandle, OpContext opContextHandle,
+            const std::vector<::tt::runtime::Tensor> &inputs) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const auto &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  LOG_ASSERT(opContext.type_type() == ::tt::target::ttnn::OpType::CpuOp,
+             "invokeCpuOp: opContext must wrap a CpuOp, got ",
+             ::tt::target::ttnn::EnumNameOpType(opContext.type_type()));
+  return operations::cpu::invokeCpuOp(programContext, opContext.type_as_CpuOp(),
+                                      inputs);
 }
 
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
