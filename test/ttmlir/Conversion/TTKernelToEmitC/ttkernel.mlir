@@ -1859,20 +1859,24 @@ module {
 
     // CHECK-LABEL: func @get_noc_addr
     func.func @get_noc_addr() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK: emitc.verbatim "Noc noc;"
       // CHECK: %[[X:.*]] = "emitc.constant"
       %x = arith.constant 1 : index
       // CHECK: %[[Y:.*]] = "emitc.constant"
       %y = arith.constant 2 : index
       // CHECK: %[[ADDR:.*]] = "emitc.constant"
       %addr = arith.constant 262400 : i32
-      // note: ttkernel.get_noc_addr() converts to one of metallium get_noc_addr() overloads
-      // CHECK: emitc.call_opaque "get_noc_addr"(%[[X]], %[[Y]], %[[ADDR]])
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc.get_noc_id());" args %[[X]], %[[Y]], %[[ADDR]]
+      // CHECK: emitc.literal "noc_addr_{{[0-9]+}}" : i64
       "ttkernel.get_noc_addr"(%x, %y, %addr) : (index, index, i32) -> (!ttkernel.noc_addr)
       return
     }
 
     // CHECK-LABEL: func @get_noc_addr_with_noc_id
     func.func @get_noc_addr_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      // CHECK: emitc.verbatim "Noc noc1(1);"
       // CHECK: %[[X:.*]] = "emitc.constant"
       %x = arith.constant 1 : index
       // CHECK: %[[Y:.*]] = "emitc.constant"
@@ -1881,7 +1885,33 @@ module {
       %addr = arith.constant 262400 : i32
       // CHECK: %[[NOC:.*]] = "emitc.constant"
       %noc = arith.constant 1 : i8
-      // CHECK: emitc.call_opaque "get_noc_addr"(%[[X]], %[[Y]], %[[ADDR]], %[[NOC]])
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc1.get_noc_id());" args %[[X]], %[[Y]], %[[ADDR]]
+      // CHECK: emitc.literal "noc_addr_{{[0-9]+}}" : i64
+      "ttkernel.get_noc_addr"(%x, %y, %addr, %noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
+      return
+    }
+
+    // CHECK-LABEL: func @get_noc_addr_with_dynamic_noc_id
+    func.func @get_noc_addr_with_dynamic_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+      %noc_arg = arith.constant 262400 : i32
+      %noc_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+      %noc_offset = arith.constant 0 : i32
+      %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+      // CHECK: %[[NOC_ARG:.*]] = "emitc.constant"() <{value = 262400 : i32}>
+      // CHECK: %[[NOC_PTR:.*]] = emitc.call_opaque "reinterpret_cast<tt_l1_ptr uint8_t*>"(%[[NOC_ARG]])
+      // CHECK: %[[NOC_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
+      // CHECK: %[[NOC_SLOT:.*]] = emitc.subscript %[[NOC_PTR]][%[[NOC_OFFSET]]
+      // CHECK: %[[LOADED_NOC:.*]] = emitc.load %[[NOC_SLOT]]
+      // CHECK: %[[DYNAMIC_NOC:.*]] = emitc.cast %[[LOADED_NOC]]
+      // CHECK: %[[X:.*]] = "emitc.constant"
+      %x = arith.constant 1 : index
+      // CHECK: %[[Y:.*]] = "emitc.constant"
+      %y = arith.constant 2 : index
+      // CHECK: %[[ADDR:.*]] = "emitc.constant"
+      %addr = arith.constant 262400 : i32
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), Noc({}).get_noc_id());" args %[[X]], %[[Y]], %[[ADDR]], %[[DYNAMIC_NOC]]
+      // CHECK: emitc.literal "noc_addr_{{[0-9]+}}" : i64
       "ttkernel.get_noc_addr"(%x, %y, %addr, %noc) : (index, index, i32, i8) -> (!ttkernel.noc_addr)
       return
     }
@@ -1932,11 +1962,11 @@ module {
 
     // CHECK-LABEL: func @noc_async_read_one_packet_set_state
     func.func @noc_async_read_one_packet_set_state() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
       %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %size = arith.constant 2048 : i32
       // CHECK: emitc.call_opaque "noc_async_read_one_packet_set_state"(%[[SRC_ADDR]], %[[SIZE]])
@@ -1946,11 +1976,11 @@ module {
 
     // CHECK-LABEL: func @noc_async_read_one_packet_with_state
     func.func @noc_async_read_one_packet_with_state() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
       %src_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[SRC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       // CHECK: %[[DST_ADDR:.*]] = "emitc.constant"
       %dst_addr = arith.constant 327680 : i32
       // CHECK: emitc.call_opaque "noc_async_read_one_packet_with_state"(%[[SRC_ADDR]], %[[DST_ADDR]])
@@ -2122,7 +2152,7 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc
     func.func @noc_semaphore_inc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2138,7 +2168,7 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc_posted
     func.func @noc_semaphore_inc_posted() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2152,7 +2182,7 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast
     func.func @noc_semaphore_inc_multicast() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2168,7 +2198,7 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast_with_noc_id
     func.func @noc_semaphore_inc_multicast_with_noc_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2186,7 +2216,7 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast_posted
     func.func @noc_semaphore_inc_multicast_posted() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2204,7 +2234,7 @@ module {
     // Verify explicit `posted = false` round-trips and emits no template args
     // (must match the unset case byte-for-byte).
     func.func @noc_semaphore_inc_posted_false() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2219,7 +2249,7 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast_posted_false
     func.func @noc_semaphore_inc_multicast_posted_false() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2236,7 +2266,7 @@ module {
 
     // CHECK-LABEL: func @noc_semaphore_inc_multicast_with_noc_id_posted
     func.func @noc_semaphore_inc_multicast_with_noc_id_posted() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
-      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2303,7 +2333,7 @@ module {
     func.func @remote_sram_write_u32_sram_addr() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = buffer_address, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %src_addr = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !ttkernel.l1_addr
-      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %noc_x = arith.constant 1 : index
       %noc_y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2346,7 +2376,8 @@ module {
       %remote_table_addr = arith.addi %table_base, %table_offset : i32
       %noc_x = arith.constant 1 : index
       %noc_y = arith.constant 2 : index
-      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"(%{{.*}}, %{{.*}}, %[[REMOTE_TABLE_ADDR]])
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc.get_noc_id());" args %{{.*}}, %{{.*}}, %[[REMOTE_TABLE_ADDR]]
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %remote_table_addr) : (index, index, i32) -> !ttkernel.noc_addr
       // CHECK: emitc.call_opaque "noc_semaphore_set_remote"(%[[STAGING_ADDR]], %[[DST_NOC_ADDR]])
       "ttkernel.remote_sram_write_u32"(%staging_addr, %dst_noc_addr) : (i32, !ttkernel.noc_addr) -> ()
@@ -2362,7 +2393,8 @@ module {
       %noc_x = arith.constant 1 : index
       %noc_y = arith.constant 1 : index
       %dst_addr = arith.constant 262400 : i32
-      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"(%[[NOC_X]], %[[NOC_Y]], %[[DST_ADDR]])
+      // CHECK: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc.get_noc_id());" args %[[NOC_X]], %[[NOC_Y]], %[[DST_ADDR]]
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %dst_noc_addr = "ttkernel.get_noc_addr"(%noc_x, %noc_y, %dst_addr) : (index, index, i32) -> !ttkernel.noc_addr
       // CHECK-DAG: %[[VAL:.*]] = "emitc.constant"() <{value = 7 : i32}> : () -> i32
       // CHECK-DAG: %[[BE:.*]] = "emitc.constant"() <{value = 15 : i8}> : () -> i8
@@ -2380,7 +2412,7 @@ module {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %sem_idx = arith.constant 2 : i32
       %src_addr = "ttkernel.get_semaphore"(%sem_idx) : (i32) -> (!ttkernel.local_semaphore)
-      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[DST_NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %noc_x = arith.constant 1 : index
       %noc_y = arith.constant 1 : index
       %temp = arith.constant 262400 : i32
@@ -2421,7 +2453,7 @@ module {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %temp1 = arith.constant 2 : i32
       %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.local_semaphore) // a dummy l1 addr
-      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp2 = arith.constant 262400 : i32
@@ -2440,7 +2472,7 @@ module {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %temp1 = arith.constant 2 : i32
       %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.local_semaphore) // a dummy l1 addr
-      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
       %temp2 = arith.constant 303104 : i32

@@ -326,6 +326,15 @@ static std::string ensureFunctionScopedDeclaration(
   return name.str();
 }
 
+static std::string getResultVariableName(Value result, llvm::StringRef prefix) {
+  std::string ssaName;
+  llvm::raw_string_ostream os(ssaName);
+  mlir::OpPrintingFlags flags;
+  result.printAsOperand(os, flags);
+  os.flush();
+  return (prefix + ssaName.substr(1)).str();
+}
+
 static std::string ensureNocDeclaration(Operation *useOp,
                                         ConversionPatternRewriter &rewriter) {
   constexpr llvm::StringLiteral nocName = "noc";
@@ -817,15 +826,7 @@ public:
     }
 
     // Float types: bit-cast via __builtin_memcpy (well-defined, avoids UB).
-    // Derive a unique variable name from the SSA result number.
-    std::string ssaName;
-    {
-      llvm::raw_string_ostream os(ssaName);
-      mlir::OpPrintingFlags flags;
-      op.getResult().printAsOperand(os, flags);
-      os.flush();
-    }
-    std::string varName = "_rc" + ssaName.substr(1);
+    std::string varName = getResultVariableName(op.getResult(), "_rc");
 
     // Emits: uint32_t <var>_src = <srcInit>; float <var>;
     //        __builtin_memcpy(&<var>, &<var>_src, sizeof(<var>));
@@ -1011,6 +1012,43 @@ private:
 } // namespace
 
 namespace {
+class TTKernelToEmitCGetNocAddrRewriter
+    : public OpConversionPattern<ttkernel::GetNocAddrOp> {
+public:
+  using OpConversionPattern<ttkernel::GetNocAddrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::GetNocAddrOp op,
+                  ttkernel::GetNocAddrOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType =
+        this->getTypeConverter()->convertType(op->getResult(0).getType());
+    TT_assert(resultType);
+
+    SmallVector<Value, 1> nocOperands;
+    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
+                                             nocOperands, adaptor.getNoc());
+    std::string endpoint = ensureEndpointDeclaration(
+        op.getOperation(), rewriter, "UnicastEndpoint", "unicast_ep");
+    SmallVector<Value, 4> operands = {adaptor.getX(), adaptor.getY(),
+                                      adaptor.getL1Address()};
+    operands.append(nocOperands);
+
+    std::string varName = getResultVariableName(op->getResult(0), "noc_addr_");
+    std::string callStr =
+        "uint64_t " + varName + " = " + endpoint +
+        ".get_noc_unicast_addr(static_cast<uint32_t>({}), "
+        "static_cast<uint32_t>({}), static_cast<uint32_t>({}), " +
+        nocName + ".get_noc_id());";
+
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
+    rewriter.replaceOp(
+        op, rewriter.create<emitc::LiteralOp>(op.getLoc(), resultType, varName)
+                .getResult());
+    return success();
+  }
+};
+
 class TTKernelToEmitCNocAtomicBarrierRewriter
     : public OpConversionPattern<ttkernel::NocAsyncAtomicBarrierOp> {
 public:
@@ -1524,14 +1562,8 @@ public:
       return success();
     }
 
-    // Generate unique variable name from SSA number (pattern from
-    // TTKernelClassMethodRewriter).
-    std::string ssaName;
-    llvm::raw_string_ostream os(ssaName);
-    mlir::OpPrintingFlags flags;
-    op->getResult(0).printAsOperand(os, flags);
-    os.flush();
-    std::string varName = "tensor_accessor_args_" + ssaName.substr(1);
+    std::string varName =
+        getResultVariableName(op->getResult(0), "tensor_accessor_args_");
 
     // Build CTA/CRTA expression with priority: expr attr > chaining > literal.
     auto buildArgExpr = [&](StringAttr exprAttr, Value baseValue,
@@ -1566,8 +1598,6 @@ public:
                        ", " + crtaArg + ">();";
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), code);
 
-    // Create literal to reference the variable (pattern from
-    // TTKernelClassMethodRewriter).
     auto resultType =
         this->getTypeConverter()->convertType(op->getResultTypes()[0]);
     auto literalOp =
@@ -1676,14 +1706,8 @@ public:
       resultTypes.push_back(convertedType);
     }
 
-    // Calling class/struct member function is difficult to do in EmitC..
-    // Create a unique variable name based on SSA number.
-    std::string ssaName;
-    llvm::raw_string_ostream os(ssaName);
-    mlir::OpPrintingFlags flags;
-    op->getResult(0).printAsOperand(os, flags);
-    os.flush();
-    std::string varName = "temp_" + ssaName.substr(1);
+    // Calling class/struct member function is difficult to do in EmitC.
+    std::string varName = getResultVariableName(op->getResult(0), "temp_");
 
     // Call the member function using verbatim with placeholders {} for args.
     TT_assert(resultTypes.size() == 1u);
@@ -2236,7 +2260,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInt32Op>,
 
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadTileOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncReadOnePacketSetStateOp>,
@@ -2290,11 +2313,9 @@ public:
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::NocInlineDwWriteOp>>(
         typeConverter, funcOp.getContext());
 
-    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
-        typeConverter, funcOp.getContext(), "get_noc_addr");
-
     patterns
-        .add<TTKernelToEmitCNocAtomicBarrierRewriter,
+        .add<TTKernelToEmitCGetNocAddrRewriter,
+             TTKernelToEmitCNocAtomicBarrierRewriter,
              TTKernelToEmitCNocAsyncTransferRewriter<ttkernel::NocAsyncReadOp>,
              TTKernelToEmitCNocAsyncTransferRewriter<ttkernel::NocAsyncWriteOp>,
              TTKernelToEmitCNocAsyncWriteMulticastRewriter<

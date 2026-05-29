@@ -4,6 +4,8 @@
 
 // CHECK-LABEL: func @trid_read_path
 // CHECK: emitc.verbatim "Noc noc0(0);"
+// CHECK-NEXT: emitc.verbatim "UnicastEndpoint unicast_ep;"
+// CHECK-NEXT: emitc.verbatim "Noc noc;"
 // CHECK-NEXT: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
 // CHECK-NEXT: %[[NOC_IDX:.*]] = "emitc.constant"() <{value = 0 : i8}> : () -> i8
 // CHECK-NEXT: %[[X:.*]] = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
@@ -11,7 +13,8 @@
 // CHECK-NEXT: %[[DST_L1:.*]] = "emitc.constant"() <{value = 256 : i32}> : () -> i32
 // CHECK-NEXT: %[[SRC_BASE:.*]] = "emitc.constant"() <{value = 1024 : i32}> : () -> i32
 // CHECK-NEXT: %[[SRC_ADDR:.*]] = "emitc.constant"() <{value = 64 : i32}> : () -> i32
-// CHECK-NEXT: %[[NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"(%[[X]], %[[Y]], %[[DST_L1]]) : (!emitc.size_t, !emitc.size_t, i32) -> i64
+// CHECK-NEXT: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc.get_noc_id());" args %[[X]], %[[Y]], %[[DST_L1]] : !emitc.size_t, !emitc.size_t, i32
+// CHECK-NEXT: %[[NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
 // CHECK-NEXT: emitc.call_opaque "noc_async_read_set_trid"(%[[TRID]], %[[NOC_IDX]]) : (i32, i8) -> ()
 // CHECK-NEXT: emitc.call_opaque "noc_async_read_one_packet_with_state_with_trid"(%[[SRC_BASE]], %[[SRC_ADDR]], %[[DST_L1]], %[[TRID]], %[[NOC_IDX]]) : (i32, i32, i32, i32, i8) -> ()
 // CHECK-NEXT: emitc.verbatim "noc0.async_read_barrier<Noc::BarrierMode::TXN_ID>({});" args %[[TRID]] : i32
@@ -34,6 +37,8 @@ func.func @trid_read_path() -> () attributes {ttkernel.thread = #ttkernel.thread
 
 // CHECK-LABEL: func @trid_write_path
 // CHECK: emitc.verbatim "Noc noc0(0);"
+// CHECK-NEXT: emitc.verbatim "UnicastEndpoint unicast_ep;"
+// CHECK-NEXT: emitc.verbatim "Noc noc;"
 // CHECK-NEXT: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
 // CHECK-NEXT: %[[MASK:.*]] = "emitc.constant"() <{value = -1 : i32}> : () -> i32
 // CHECK-NEXT: %[[NOC_IDX:.*]] = "emitc.constant"() <{value = 0 : i8}> : () -> i8
@@ -41,7 +46,8 @@ func.func @trid_read_path() -> () attributes {ttkernel.thread = #ttkernel.thread
 // CHECK-NEXT: %[[Y:.*]] = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
 // CHECK-NEXT: %[[DST:.*]] = "emitc.constant"() <{value = 512 : i32}> : () -> i32
 // CHECK-NEXT: %[[SIZE:.*]] = "emitc.constant"() <{value = 128 : i32}> : () -> i32
-// CHECK-NEXT: %[[NOC_ADDR:.*]] = emitc.call_opaque "get_noc_addr"(%[[X]], %[[Y]], %[[DST]]) : (!emitc.size_t, !emitc.size_t, i32) -> i64
+// CHECK-NEXT: emitc.verbatim "uint64_t noc_addr_{{[0-9]+}} = unicast_ep.get_noc_unicast_addr(static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}), noc.get_noc_id());" args %[[X]], %[[Y]], %[[DST]] : !emitc.size_t, !emitc.size_t, i32
+// CHECK-NEXT: %[[NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
 // CHECK-NEXT: emitc.call_opaque "noc_async_write_set_trid"(%[[TRID]], %[[NOC_IDX]]) : (i32, i8) -> ()
 // CHECK-NEXT: emitc.call_opaque "noc_async_write_one_packet_with_trid"(%[[DST]], %[[NOC_ADDR]], %[[SIZE]], %[[TRID]], %[[NOC_IDX]]) : (i32, i64, i32, i32, i8) -> ()
 // CHECK-NEXT: emitc.verbatim "noc0.async_write_barrier<Noc::BarrierMode::TXN_ID>({});" args %[[TRID]] : i32
