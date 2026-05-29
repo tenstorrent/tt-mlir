@@ -3,40 +3,46 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/transformer/rotary_embedding_llama.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "ttmlir/OpInvoke/TTNN/transformer/rotaryEmbeddingLlamaOp.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
 static void
 runRotaryEmbeddingLlama(const ::tt::target::ttnn::RotaryEmbeddingLlamaOp *op,
-                        ProgramTensorPool &tensorPool) {
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
-
-  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->input());
+                        ProgramTensorPool &tensorPool, ProgramContext &context) {
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->input());
   const ::ttnn::Tensor &cosCache =
       tensorPool.getTTNNTensorAndValidate(op->cos_cache());
   const ::ttnn::Tensor &sinCache =
       tensorPool.getTTNNTensorAndValidate(op->sin_cache());
   const ::ttnn::Tensor &transMat =
       tensorPool.getTTNNTensorAndValidate(op->trans_mat());
-  bool isDecodeMode = op->is_decode_mode();
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
-  ::ttnn::Tensor out = ::ttnn::experimental::rotary_embedding_llama(
-      in, cosCache, sinCache, transMat, isDecodeMode, outputMemoryConfig,
-      computeConfig);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opT;
+  op->UnPackTo(&opT);
+
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::RotaryEmbeddingLlamaOpResult result =
+      ttnn_op_invoke::callRotaryEmbeddingLlama(
+          ttnn_op_invoke::CallType::EXECUTE, opT, &input, &cosCache, &sinCache,
+          &transMat, targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callRotaryEmbeddingLlama execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::RotaryEmbeddingLlamaOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runRotaryEmbeddingLlama(op, tensorPool);
+  runRotaryEmbeddingLlama(op, tensorPool, context);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer
