@@ -32,6 +32,12 @@ mlir::Value build_mm(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 mlir::Value build_addmm(ModuleBuilder &mb, mlir::Value bias, mlir::Value mat1, mlir::Value mat2, double beta = 1.0,
                         double alpha = 1.0);
 
+// Emit TTIR for 2D transpose (aten::t): swaps dim 0 and dim 1.
+mlir::Value build_t(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for element-wise ReLU.
+mlir::Value build_relu(ModuleBuilder &mb, mlir::Value input);
+
 // Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
 // broadcasts against any tensor in downstream elementwise ops.
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);

@@ -42,15 +42,18 @@ at::Tensor tt_add(const at::Tensor &a_in, const at::Tensor &b_in, const at::Scal
 at::Tensor tt_relu(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::relu: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
-    auto input = mb.args()[0];
-    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
-    auto relu = mb.create<mlir::tt::ttir::ReluOp>(result_type, input);
-    auto module_op = std::move(mb).finalize({relu.getResult()});
+    auto result = build_relu(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
     auto outputs = compile_and_run(std::move(module_op), {self});
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
 } // namespace
+
+mlir::Value build_relu(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::ReluOp>(result_type, input).getResult();
+}
 
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value) {
     // Shape `[1]` broadcasts against any rank via numpy-style prepend-1 rules.

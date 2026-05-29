@@ -4,6 +4,12 @@ import torch
 from tt_kurbla.torch.testing import assert_close_cpu_vs_tt
 
 
+@pytest.mark.parametrize("m,n", [(32, 64), (64, 32), (32, 32)])
+def test_t(m: int, n: int) -> None:
+    a = torch.randn((m, n), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(torch.t, a)
+
+
 @pytest.mark.parametrize(
     "m,k,n",
     [(32, 64, 32), (64, 128, 64), (32, 32, 32)],
