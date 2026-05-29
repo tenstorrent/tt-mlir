@@ -43,7 +43,6 @@ def _load_model(model_id: str) -> torch.nn.Module:
 def _build_inputs(
     model_id: str, device: torch.device | str
 ) -> tuple[torch.nn.Module, torch.Tensor]:
-    torch.manual_seed(0)
     model = _load_model(model_id).to(device)
     vocab = int(model.config.vocab_size)
     input_ids = torch.randint(0, vocab, (1, _PROMPT_LEN), dtype=torch.long).to(device)

@@ -16,7 +16,6 @@ _DTYPE = torch.bfloat16
 
 
 def _build_inputs(device: torch.device | str) -> tuple[torch.nn.Module, tuple[torch.Tensor]]:
-    torch.manual_seed(0)
     model = MNISTLinear(_FEAT, _HIDDEN, _CLASSES).to(_DTYPE).eval().to(device)
     x = torch.randn(_BATCH, _FEAT, dtype=_DTYPE).to(device)
     return model, (x,)

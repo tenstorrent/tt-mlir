@@ -35,6 +35,11 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def fixed_seed() -> None:
+    torch.manual_seed(0)
+
+
 @pytest.fixture(scope="session")
 def tt_device() -> torch.device:
     return torch.device("tt:0")

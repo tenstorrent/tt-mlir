@@ -19,7 +19,6 @@ from _models import MNISTLinear
 def test_mnist_forward(
     batch: int, feat: int, hidden: int, classes: int, dtype: torch.dtype
 ) -> None:
-    torch.manual_seed(0)
     model = MNISTLinear(feat, hidden, classes).to(dtype)
     x = torch.randn(batch, feat, dtype=dtype)
     assert_close_cpu_vs_tt(model, x, atol=0.02, rtol=0.1)

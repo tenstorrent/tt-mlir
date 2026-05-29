@@ -81,8 +81,6 @@ class _AddWithParam(nn.Module):
 def test_compile_single_add(shape: tuple[int, ...]) -> None:
     """The minimal compile graph: one add. Smoke-tests that the FX walker,
     builder, compile, and run plumbing all line up end-to-end."""
-    torch.manual_seed(0)
-
     class _Add(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return a + b
@@ -102,7 +100,6 @@ def test_compile_chain_add(shape: tuple[int, ...]) -> None:
     drifts up to one ULP per add at the operands' magnitude (~0.05 absolute
     at randn() scale), which is well beyond the default bf16 atol of 1e-5.
     """
-    torch.manual_seed(0)
     a = torch.randn(shape, dtype=torch.bfloat16)
     b = torch.randn(shape, dtype=torch.bfloat16)
     c = torch.randn(shape, dtype=torch.bfloat16)
@@ -114,7 +111,6 @@ def test_compile_add_with_parameter(shape: tuple[int, ...]) -> None:
     """nn.Parameter as the second operand. aot lifts module parameters into
     the graph's argument list, so the runner closure receives them alongside
     the user's input."""
-    torch.manual_seed(0)
     model = _AddWithParam(shape)
     x = torch.randn(shape, dtype=torch.bfloat16)
     _assert_compile_matches_eager(model, x)
@@ -125,8 +121,6 @@ def test_compile_add_alpha(alpha: float) -> None:
     """`torch.add(a, b, alpha=k)` - the alpha scale must travel from the FX
     kwarg through the lowering into the same `scale_tensor` subgraph the
     eager kernel emits. Mirror of the eager `test_add_alpha`."""
-    torch.manual_seed(0)
-
     class _AddAlpha(nn.Module):
         def __init__(self, k: float) -> None:
             super().__init__()
@@ -157,8 +151,6 @@ def test_compile_add_broadcast(lhs_shape: tuple[int, ...], rhs_shape: tuple[int,
     compile lowering must compute the broadcasted result shape via
     `at::infer_size` - same path the eager kernel takes - instead of
     assuming shapes match."""
-    torch.manual_seed(0)
-
     class _Add(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return a + b
@@ -173,8 +165,6 @@ def test_compile_add_dtype_promotion(device_type: DeviceType) -> None:
     the eager kernel applies. Validates that the compile path's MLIR-level
     promotion matches the torch-level promotion."""
     _skip_if_sim(device_type)
-    torch.manual_seed(0)
-
     class _Add(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return a + b
