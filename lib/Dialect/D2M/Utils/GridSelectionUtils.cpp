@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
@@ -342,6 +343,111 @@ llvm::SmallVector<int64_t> computeTileAlignedPhysicalShape(mlir::Value operand,
       ttcore::MetalLayoutAttr::computeTileAlignments(
           layout.getLogicalShape(), layout.getNormalizedIntervals());
   return computePhysicalShapeWithAlignments(operand, alignments, ttnnMode);
+}
+
+mlir::AffineMap
+deriveMaterializedViewRemapping(d2m::ViewLayoutOp viewOp,
+                                mlir::RankedTensorType newResultType) {
+  auto oldResultType =
+      mlir::cast<RankedTensorType>(viewOp.getResult().getType());
+  auto oldLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
+
+  // Compose the original remapping with a reblock map that maps from the
+  // old output shape to the new output shape.
+  llvm::SmallVector<int64_t> oldShape(oldResultType.getShape());
+  llvm::SmallVector<int64_t> newShape(newResultType.getShape());
+
+  // If dim alignments changed, align-up the old shape to match.
+  auto newLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
+  if (!llvm::equal(oldLayout.getDimAlignments(),
+                   newLayout.getDimAlignments())) {
+    llvm::SmallVector<int64_t> tileShape;
+    if (auto tileType =
+            mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
+      tileShape = llvm::to_vector(tileType.getShape());
+    }
+    oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
+                                        tileShape);
+  }
+
+  mlir::AffineMap newRemapping = viewOp.getRemapping();
+  if (!llvm::equal(oldShape, newShape)) {
+    TT_assert(ttmlir::utils::volume<int64_t>(oldShape) ==
+              ttmlir::utils::volume<int64_t>(newShape));
+    mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
+        oldShape, newShape, viewOp.getContext());
+    newRemapping = newRemapping.compose(reblockMap);
+  }
+  return newRemapping;
+}
+
+std::optional<mlir::AffineMap>
+composeViewRemappingsToBase(d2m::ViewLayoutOp leafView,
+                            mlir::Value expectedBase,
+                            mlir::AffineMap leafRemapping) {
+  mlir::AffineMap composed = leafRemapping;
+  mlir::Value current = leafView.getInput();
+  while (auto view = current.getDefiningOp<d2m::ViewLayoutOp>()) {
+    composed = view.getRemapping().compose(composed);
+    current = view.getInput();
+  }
+
+  if (current != expectedBase) {
+    return std::nullopt;
+  }
+  return composed;
+}
+
+static bool affineExprDependsOnDim(mlir::AffineExpr expr, unsigned dim) {
+  bool depends = false;
+  expr.walk([&](mlir::AffineExpr subExpr) {
+    if (auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(subExpr)) {
+      depends |= dimExpr.getPosition() == dim;
+    }
+  });
+  return depends;
+}
+
+llvm::SmallVector<int64_t>
+projectViewGridToBaseGrid(mlir::AffineMap viewToBase,
+                          ArrayRef<int64_t> selectedGrid) {
+  const unsigned gridRank = selectedGrid.size();
+  if (viewToBase.getNumDims() != gridRank * 2 ||
+      viewToBase.getNumResults() != gridRank * 2) {
+    return {};
+  }
+
+  llvm::SmallVector<int64_t> baseGrid(gridRank, 1);
+  bool sawProjectedGridDim = false;
+  for (auto [viewGridDim, gridFactor] : llvm::enumerate(selectedGrid)) {
+    if (gridFactor <= 1) {
+      continue;
+    }
+
+    std::optional<unsigned> baseDim;
+    for (auto [baseResultDim, resultExpr] :
+         llvm::enumerate(viewToBase.getResults())) {
+      if (!affineExprDependsOnDim(resultExpr, viewGridDim)) {
+        continue;
+      }
+
+      unsigned candidateBaseDim = baseResultDim % gridRank;
+      if (baseDim && *baseDim != candidateBaseDim) {
+        return {};
+      }
+      baseDim = candidateBaseDim;
+    }
+
+    if (!baseDim) {
+      continue;
+    }
+    sawProjectedGridDim = true;
+    baseGrid[*baseDim] *= gridFactor;
+  }
+
+  return sawProjectedGridDim ? baseGrid : llvm::SmallVector<int64_t>{};
 }
 
 int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,

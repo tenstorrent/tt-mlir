@@ -131,61 +131,6 @@ static void verifySingleGenericConsumerThroughViewsAndMasks(Value root) {
   }
 }
 
-static mlir::AffineMap
-deriveMaterializedViewRemapping(d2m::ViewLayoutOp viewOp,
-                                RankedTensorType newResultType,
-                                OpBuilder &builder) {
-  auto oldResultType =
-      mlir::cast<RankedTensorType>(viewOp.getResult().getType());
-  auto oldLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
-
-  // Compose the original remapping with a reblock map that maps from the
-  // old output shape to the new output shape.
-  llvm::SmallVector<int64_t> oldShape(oldResultType.getShape());
-  llvm::SmallVector<int64_t> newShape(newResultType.getShape());
-
-  // If dim alignments changed, align-up the old shape to match.
-  auto newLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
-  if (!llvm::equal(oldLayout.getDimAlignments(),
-                   newLayout.getDimAlignments())) {
-    llvm::SmallVector<int64_t> tileShape;
-    if (auto tileType =
-            mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
-      tileShape = llvm::to_vector(tileType.getShape());
-    }
-    oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
-                                        tileShape);
-  }
-
-  mlir::AffineMap newRemapping = viewOp.getRemapping();
-  if (!llvm::equal(oldShape, newShape)) {
-    TT_assert(ttmlir::utils::volume<int64_t>(oldShape) ==
-              ttmlir::utils::volume<int64_t>(newShape));
-    mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
-        oldShape, newShape, builder.getContext());
-    newRemapping = newRemapping.compose(reblockMap);
-  }
-  return newRemapping;
-}
-
-static std::optional<AffineMap>
-composeViewRemappingsToBase(d2m::ViewLayoutOp leafView, Value expectedBase,
-                            AffineMap leafRemapping) {
-  AffineMap composed = leafRemapping;
-  Value current = leafView.getInput();
-  while (auto view = current.getDefiningOp<d2m::ViewLayoutOp>()) {
-    composed = view.getRemapping().compose(composed);
-    current = view.getInput();
-  }
-
-  if (current != expectedBase) {
-    return std::nullopt;
-  }
-  return composed;
-}
-
 static llvm::SmallVector<int64_t>
 computeViewRequiredPhysicalShape(RankedTensorType materializedViewType,
                                  Value baseValue, AffineMap viewToBase) {
@@ -230,6 +175,15 @@ computeViewRequiredPhysicalShape(RankedTensorType materializedViewType,
     baseDomainVolume *= end - start + 1;
   }
   if (baseDomainVolume > viewVolume) {
+    return {};
+  }
+
+  // A zero-based dense projection can be handled by reblocking the producer;
+  // forcing per-dim coverage here overpads flattened rank-1 layout bridges.
+  int64_t baseTypeVolume = ttmlir::utils::volume<int64_t>(baseType.getShape());
+  bool isZeroBasedProjection =
+      llvm::all_of(baseDomain.start, [](int64_t start) { return start == 0; });
+  if (isZeroBasedProjection && baseDomainVolume <= baseTypeVolume) {
     return {};
   }
 
@@ -484,8 +438,8 @@ static void applyBehindViewToLayoutUpdate(
   RankedTensorType materializedViewType = utils::tensorWithOptimalGrid(
       viewType, ttnnMode, info.selectedGrid, info.paddingTileShape);
   AffineMap materializedRemapping =
-      deriveMaterializedViewRemapping(viewOp, materializedViewType, builder);
-  std::optional<AffineMap> viewToBase = composeViewRemappingsToBase(
+      utils::deriveMaterializedViewRemapping(viewOp, materializedViewType);
+  std::optional<AffineMap> viewToBase = utils::composeViewRemappingsToBase(
       viewOp, toLayoutOp.getResult(0), materializedRemapping);
   llvm::SmallVector<int64_t> minPhysicalShape =
       viewToBase ? computeViewRequiredPhysicalShape(materializedViewType,
@@ -757,7 +711,7 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
   RankedTensorType newResultType = utils::tensorWithOptimalGrid(
       oldResultType, ttnnMode, info.selectedGrid, info.paddingTileShape);
   mlir::AffineMap newRemapping =
-      deriveMaterializedViewRemapping(viewOp, newResultType, builder);
+      utils::deriveMaterializedViewRemapping(viewOp, newResultType);
 
   builder.setInsertionPoint(viewOp);
   auto newViewOp = builder.create<d2m::ViewLayoutOp>(

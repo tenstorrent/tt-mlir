@@ -61,6 +61,47 @@ static int64_t getShardWidthAlignmentElements(Operation *op,
   return nocAlignmentBytes / elementSizeBytes;
 }
 
+static bool isProjectedSourceGridUsable(ArrayRef<int64_t> projectedGrid,
+                                        ArrayRef<int64_t> targetGrid) {
+  if (projectedGrid.empty() || projectedGrid.size() != targetGrid.size()) {
+    return false;
+  }
+  if (llvm::any_of(projectedGrid, [](int64_t dim) { return dim <= 0; })) {
+    return false;
+  }
+  return ttmlir::utils::volume<int64_t>(projectedGrid) <=
+         ttmlir::utils::volume<int64_t>(targetGrid);
+}
+
+static SmallVector<int64_t>
+computeProjectedViewSourceGrid(Value operand, d2m::ToLayoutOp toLayoutOp,
+                               ArrayRef<int64_t> selectedGrid,
+                               ArrayRef<int64_t> targetGrid, bool ttnnMode,
+                               ArrayRef<int64_t> paddingTileShape) {
+  auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>();
+  if (!viewOp) {
+    return {};
+  }
+
+  auto viewType = mlir::cast<RankedTensorType>(operand.getType());
+  RankedTensorType materializedViewType = utils::tensorWithOptimalGrid(
+      viewType, ttnnMode, selectedGrid, paddingTileShape);
+  AffineMap materializedRemapping =
+      utils::deriveMaterializedViewRemapping(viewOp, materializedViewType);
+  std::optional<AffineMap> viewToBase = utils::composeViewRemappingsToBase(
+      viewOp, toLayoutOp.getResult(0), materializedRemapping);
+  if (!viewToBase) {
+    return {};
+  }
+
+  SmallVector<int64_t> projectedGrid =
+      utils::projectViewGridToBaseGrid(*viewToBase, selectedGrid);
+  if (!isProjectedSourceGridUsable(projectedGrid, targetGrid)) {
+    return {};
+  }
+  return projectedGrid;
+}
+
 // Find the largest value <= maxFactor that divides all the given physical
 // dimensions. Returns 1 if no better common factor exists.
 static int64_t findLargestCommonFactor(int64_t maxFactor,
@@ -599,6 +640,27 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
     if (view && !view.getReinterpretLayout()) {
       info.selectedGrid = result.normalizedOperandGrids[idx];
+    }
+  }
+
+  // Must run after normalization above has finalized `info.selectedGrid`:
+  // view-source grids are the producer-side companion of the final consumer
+  // grid, projected through the view remapping when that is more parallel than
+  // the independent source-grid fallback.
+  for (OperandGridInfo &info : result.operandInfos) {
+    auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
+    if (!toLayoutOp ||
+        toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      continue;
+    }
+
+    SmallVector<int64_t> projectedGrid = computeProjectedViewSourceGrid(
+        info.operand, toLayoutOp, info.selectedGrid, info.targetGrid, ttnnMode,
+        info.paddingTileShape);
+    if (!projectedGrid.empty() &&
+        ttmlir::utils::volume<int64_t>(projectedGrid) >
+            ttmlir::utils::volume<int64_t>(info.viewSourceGrid)) {
+      info.viewSourceGrid = projectedGrid;
     }
   }
 

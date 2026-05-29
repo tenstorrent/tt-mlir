@@ -14,6 +14,8 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 namespace mlir::tt::d2m {
 
 namespace utils {
@@ -91,6 +93,24 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
 
 llvm::SmallVector<int64_t> computeTileAlignedPhysicalShape(mlir::Value operand,
                                                            bool ttnnMode);
+
+// Compose a ViewLayoutOp remapping with the reblock map implied by
+// newResultType.
+mlir::AffineMap
+deriveMaterializedViewRemapping(d2m::ViewLayoutOp viewOp,
+                                mlir::RankedTensorType newResultType);
+
+// Compose a chain of ViewLayoutOp remappings back to expectedBase.
+std::optional<mlir::AffineMap>
+composeViewRemappingsToBase(d2m::ViewLayoutOp leafView,
+                            mlir::Value expectedBase,
+                            mlir::AffineMap leafRemapping);
+
+// Project a selected view grid through a view-to-base map. This is used for
+// layout bridges whose source and consumer grids are related by a TM.
+llvm::SmallVector<int64_t>
+projectViewGridToBaseGrid(mlir::AffineMap viewToBase,
+                          ArrayRef<int64_t> selectedGrid);
 
 // Create a new MetalLayoutAttr with grid-aware dimension alignments for the
 // given selected grid. The tile shape is empty for row-major tensors.
