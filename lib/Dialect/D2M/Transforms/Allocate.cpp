@@ -146,6 +146,12 @@ struct MemrefValueContext {
   // `true` iff this value acts as the output of at least one
   // generic op.
   bool usedForOutput = false;
+  // `true` iff this value is a compiler-generated L1 staging output that can be
+  // remapped to DRAM even when generic outputs are otherwise pinned.
+  bool allowL1OutputSpill = false;
+  // `true` iff this value is produced by a DMA/layout-conversion generic that
+  // can be remapped without enabling spilling for ordinary compute outputs.
+  bool allowGenericOutputSpill = false;
   // `Planner`s spill outcome for this decision variable.
   // TODO(vroubtsov) replace with PlannerSpace var?
   std::optional<MemorySpace> remappedMemSpace;
@@ -744,6 +750,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       memrefCtx.type = memrefType;
       memrefCtx.allocSize =
           getAlignedAllocSizes(rewriter, memrefType, memSpaces, device);
+      if (auto allocOp = root.getDefiningOp<memref::AllocOp>()) {
+        memrefCtx.allowL1OutputSpill =
+            allocOp->hasAttr("d2m.allow_l1_output_spill");
+      }
     } else {
       TT_debug(memrefCtx.type == memrefType);
       TT_debug(llvm::all_of(memrefCtx.allocSize,
@@ -766,6 +776,27 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     genericCtx.isExplicitDatamovement = genericOp.isExplicitDatamovementForm();
 
     return genericCtx;
+  }
+
+  static bool isSpillableGenericOutput(d2m::GenericOp genericOp) {
+    if (genericOp.isDMAOnlyForm()) {
+      return true;
+    }
+    if (genericOp.getInputs().size() != 1 || !genericOp.isAllParallel()) {
+      return false;
+    }
+
+    bool hasTile = false;
+    bool hasNonTile = false;
+    for (Value operand : genericOp.getInputsAndOutputs()) {
+      auto shapedTy = mlir::cast<ShapedType>(operand.getType());
+      if (mlir::isa<ttcore::TileType>(shapedTy.getElementType())) {
+        hasTile = true;
+      } else {
+        hasNonTile = true;
+      }
+    }
+    return hasTile && hasNonTile;
   }
 
   // Internal helper used by `analyzeGenericOps()` to create analysis entries
@@ -861,6 +892,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         rootMemrefCtx.genericUsers.insert(genericOp);
         rootMemrefCtx.isMemspaceBound |= genericCtx.isExplicitDatamovement;
         rootMemrefCtx.usedForOutput |= operandCtx.isOutput;
+        rootMemrefCtx.allowGenericOutputSpill |=
+            operandCtx.isOutput && isSpillableGenericOutput(genericOp);
 
         if (memref::AllocOp allocOp =
                 chainRoot.root.getDefiningOp<memref::AllocOp>()) {
@@ -1003,7 +1036,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             //  - if it is placed in DRAM *explicitly*;
             //  - if the incoming IR indicates that this alloc should be pinned
             //    to its current memspace in any other explicit way (aggregated
-            //    into `isMemspaceBound`);
+            //    into `isMemspaceBound`), unless it is a compiler-generated
+            //    output explicitly marked spillable;
             //  - if it is a generic output and output spilling is disabled, or
             //    if it is a terminal generic output. When output spilling is
             //    enabled, only outputs with downstream generic users remain
@@ -1012,11 +1046,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             //  - (edge case) if it has zero generic op users;
             const bool isIntermediateMemref =
                 memrefCtx.usedForOutput && memrefCtx.genericUsers.size() > 1;
+            const bool hasOutputSpillOverride =
+                memrefCtx.allowL1OutputSpill ||
+                memrefCtx.allowGenericOutputSpill;
             const bool bindOutputToL1 =
-                memrefCtx.usedForOutput &&
+                memrefCtx.usedForOutput && !hasOutputSpillOverride &&
                 (!allowL1OutputSpilling || !isIntermediateMemref);
             const bool bound = (memspace == MemorySpace::DeviceDRAM) ||
-                               memrefCtx.isMemspaceBound || bindOutputToL1 ||
+                               (memrefCtx.isMemspaceBound &&
+                                !hasOutputSpillOverride) ||
+                               bindOutputToL1 ||
                                memrefCtx.genericUsers.empty();
             const bool forceSpillToDram = forceSpillToDramIfLegal && !bound;
             if (bound) {

@@ -223,6 +223,9 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
           getOperation()->getAttr(utils::kReductionScalerAttr)) {
     allocOp->setAttr(utils::kReductionScalerAttr, reductionScaler);
   }
+  if (Attribute attr = getOperation()->getAttr("d2m.allow_l1_output_spill")) {
+    allocOp->setAttr("d2m.allow_l1_output_spill", attr);
+  }
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      allocOp.getResult());

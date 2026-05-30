@@ -14,8 +14,9 @@ namespace mlir::tt::d2m {
 
 static OutputBufferSpec makeOutputSpec(RankedTensorType type,
                                        AffineMap vgmForward = AffineMap(),
-                                       AffineMap vgmInverse = AffineMap()) {
-  return {type, vgmForward, vgmInverse};
+                                       AffineMap vgmInverse = AffineMap(),
+                                       bool allowL1OutputSpill = false) {
+  return {type, vgmForward, vgmInverse, allowL1OutputSpill};
 }
 
 static void updateStateFromOutput(PlanState &state,
@@ -341,6 +342,36 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     updateStateFromOutput(current, output);
   }
 
+  // DRAM → DRAM format conversion: keep tilize/untilize outputs in DRAM when
+  // the source and final target are both DRAM. Any remaining grid/layout
+  // materialization can still insert a separate L1 bounce below.
+  if (current.hasLayout() && current.isDRAM() && tgt.hasLayout() &&
+      tgt.isDRAM() &&
+      (ttcore::isTiled(current.type) != ttcore::isTiled(tgt.type))) {
+    if (!ttcore::isTiled(current.type) && ttcore::isTiled(tgt.type)) {
+      ArrayRef<int64_t> tileShape = ttcore::getTensorTileShape(tgt.type);
+      auto tiledType = RankedTensorType::get(
+          current.getLayout()->getDeviceShape(current.getGridShape(),
+                                              tileShape),
+          tgt.type.getElementType(), *current.getLayout());
+      auto output =
+          makeOutputSpec(tiledType, current.vgmForward, current.vgmInverse);
+      plan.push_back(
+          TilizeStep{llvm::to_vector(tileShape), current.type, output});
+      updateStateFromOutput(current, output, current.remapping);
+    } else {
+      Type scalarType = tgt.type.getElementType();
+      auto scalarTypeRanked = modifyDeviceType(
+          ctx, current.type, *current.getLayout(), targetGridShape,
+          current.remapping, /*memSpace=*/{}, /*newTensorGrid=*/{}, scalarType,
+          /*newTileShape=*/std::nullopt, /*reblockVirtualGridShapes=*/false);
+      auto output = makeOutputSpec(scalarTypeRanked, current.vgmForward,
+                                   current.vgmInverse);
+      plan.push_back(UntilizeStep{current.type, output});
+      updateStateFromOutput(current, output, current.remapping);
+    }
+  }
+
   // DRAM → DRAM materialization: stage through an equivalent L1 buffer before
   // doing format/grid/VGM changes, then let the normal L1 → DRAM rule below
   // write into the final target buffer.
@@ -349,8 +380,9 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
         ctx, current.type, *current.getLayout(), targetGridShape,
         current.remapping, ttcore::MemorySpace::DeviceL1,
         llvm::to_vector(current.getGridShape()), current.type.getElementType());
-    auto output =
-        makeOutputSpec(l1Type, current.vgmForward, current.vgmInverse);
+    auto output = makeOutputSpec(l1Type, current.vgmForward,
+                                 current.vgmInverse,
+                                 /*allowL1OutputSpill=*/true);
     plan.push_back(DRAMToL1Step{output, AffineMap()});
     updateStateFromOutput(current, output, current.remapping);
   }

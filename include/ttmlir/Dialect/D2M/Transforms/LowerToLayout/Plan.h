@@ -40,6 +40,7 @@ struct OutputBufferSpec {
   RankedTensorType type = {};
   AffineMap vgmForward = {};
   AffineMap vgmInverse = {};
+  bool allowL1OutputSpill = false;
 };
 
 struct HostToDeviceStep {
