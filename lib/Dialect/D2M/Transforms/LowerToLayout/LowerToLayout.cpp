@@ -28,6 +28,10 @@ namespace mlir::tt::d2m {
 // Helper struct to encapsulate tensor info; this allows us to package
 // MetalLayoutAttr as optional gracefully.
 namespace {
+
+constexpr llvm::StringLiteral kAllowL1OutputSpillAttr =
+    "d2m.allow_l1_output_spill";
+
 struct TensorInfo {
   RankedTensorType type;
   std::optional<ttcore::MetalLayoutAttr> layout;
@@ -485,16 +489,21 @@ public:
     if (!invAttr && !fwdAttr) {
       if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
               spec.type.getEncoding())) {
-        return rewriter
-            .create<d2m::EmptyOp>(loc, spec.type.getShape(),
-                                  spec.type.getElementType(), layout,
-                                  targetGridShape)
-            .getResult();
+        auto empty = rewriter.create<d2m::EmptyOp>(
+            loc, spec.type.getShape(), spec.type.getElementType(), layout,
+            targetGridShape);
+        if (spec.allowL1OutputSpill) {
+          empty->setAttr(kAllowL1OutputSpillAttr, rewriter.getUnitAttr());
+        }
+        return empty.getResult();
       }
     }
 
-    return rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr)
-        .getResult();
+    auto empty = rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr);
+    if (spec.allowL1OutputSpill) {
+      empty->setAttr(kAllowL1OutputSpillAttr, rewriter.getUnitAttr());
+    }
+    return empty.getResult();
   }
 
   // `d2m.mask` is created before LowerToLayout, so its input and output types

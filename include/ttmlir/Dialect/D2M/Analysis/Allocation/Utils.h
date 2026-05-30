@@ -497,16 +497,6 @@ getOperandGridAndShardExtents(d2m::GenericOp genericOp, uint32_t operandIndex,
   const SmallVector<int64_t> gridShape = canonicalMap.compose(gridExtents);
   SmallVector<int64_t> shardShape = canonicalMap.compose(shardExtents);
 
-  if (genericOp.isOutputOperandIdx(operandIndex) && shardShape.size() >= 2) {
-    auto [inputTileFactors, outputTileFactors] =
-        getGenericInputAndOutputTileShapes(genericOp);
-    for (std::size_t t = 0; t < 2; ++t) {
-      const std::size_t d = shardShape.size() - 2 + t;
-      shardShape[d] =
-          (shardShape[d] * inputTileFactors[t]) / outputTileFactors[t];
-    }
-  }
-
   return {gridShape, shardShape};
 }
 

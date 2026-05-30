@@ -477,9 +477,8 @@ static SmallVector<int64_t> applyMinPolicy(GenericOp genericOp,
 
 // The auto policy currently has three cases:
 // 1. Single reduction: aggressively reduce the block factor of the reduction
-// dim.  M/N widening for matmul is available only through the non-default
-// auto-mn policy until issues #8346/#8369 model loop-carried output
-// accumulation explicitly.
+// dim, and include participating M/N dims when they can legally shrink large
+// operand CBs.
 // 2. All parallel eltwise: aggressively reduce the block factor of all
 // participating dims.
 // 3. Unsupported: in all other cases, return the original block factors.
@@ -634,7 +633,7 @@ static SmallVector<int64_t> chooseReblockedFactors(
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
                            numBuffers, /*useBoundedEltwiseSearch=*/false,
-                           /*allowMNReblocking=*/false);
+                           /*allowMNReblocking=*/true);
   case BlockFactorAnalysis::BufferSizePolicy::Bounded:
     return applyAutoPolicy(genericOp, indexingMaps, iteratorTypes, gridExtents,
                            shardExtents, shardFactors, device, l1Attr,
