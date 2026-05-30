@@ -316,3 +316,56 @@ module {
     return %3 : tensor<1x32x128x64xbf16>
   }
 }
+
+// ----------------------------------------------------------------------------
+// NaN-safe softmax (where(row_all_masked, 0, softmax))
+// ----------------------------------------------------------------------------
+
+// A fully-masked query row makes softmax produce NaN; models wrap the softmax
+// in where(row_all_masked, 0, softmax) to scrub it. SDPA itself is NOT NaN-safe
+// (matches PyTorch / tt-metal), so the matcher fuses the core and re-applies the
+// row-zeroing where to the SDPA output: zeroing whole rows of the attention
+// weights == zeroing the same output rows (the matmul contracts over the kv
+// axis). The row predicate is broadcast across the kv axis, so it is sound to
+// move it past the matmul onto the output head dim.
+module {
+  func.func @sdpa_mha_nan_safe_where(
+      %q: tensor<1x8x128x64xbf16>,
+      %k: tensor<1x8x128x64xbf16>,
+      %v: tensor<1x8x128x64xbf16>,
+      %rowcond: tensor<1x8x128x1xi1>) -> tensor<1x8x128x64xbf16> {
+    // CHECK-LABEL: @sdpa_mha_nan_safe_where
+    // CHECK: %[[SDPA:[0-9a-z_]+]] = "ttir.scaled_dot_product_attention"
+    // CHECK: "ttir.where"(%{{.*}}, %{{.*}}, %[[SDPA]])
+    // CHECK-NOT: ttir.matmul
+    %0 = "ttir.transpose"(%k) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x8x64x128xbf16>
+    %1 = "ttir.matmul"(%q, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x64xbf16>, tensor<1x8x64x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %2 = "ttir.softmax"(%1) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x8x128x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %cond = "ttir.broadcast"(%rowcond) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<1x8x128x1xi1>) -> tensor<1x8x128x128xi1>
+    %zeros = "ttir.zeros"() <{shape = array<i32: 1, 8, 128, 128>}> : () -> tensor<1x8x128x128xbf16>
+    %safe = "ttir.where"(%cond, %zeros, %2) : (tensor<1x8x128x128xi1>, tensor<1x8x128x128xbf16>, tensor<1x8x128x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %3 = "ttir.matmul"(%safe, %v) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x128xbf16>, tensor<1x8x128x64xbf16>) -> tensor<1x8x128x64xbf16>
+    return %3 : tensor<1x8x128x64xbf16>
+  }
+}
+
+// Soundness guard: a where whose condition varies across the kv (last) axis
+// does NOT zero whole query rows, so it cannot be moved past the matmul. The
+// matcher must decline (leave it for the TTNN fallback) rather than fuse.
+module {
+  func.func @sdpa_where_not_row_uniform_rejected(
+      %q: tensor<1x8x128x64xbf16>,
+      %k: tensor<1x8x128x64xbf16>,
+      %v: tensor<1x8x128x64xbf16>,
+      %cond: tensor<1x8x128x128xi1>) -> tensor<1x8x128x64xbf16> {
+    // CHECK-LABEL: @sdpa_where_not_row_uniform_rejected
+    // CHECK-NOT: ttir.scaled_dot_product_attention
+    %0 = "ttir.transpose"(%k) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x8x64x128xbf16>
+    %1 = "ttir.matmul"(%q, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x64xbf16>, tensor<1x8x64x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %2 = "ttir.softmax"(%1) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x8x128x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %zeros = "ttir.zeros"() <{shape = array<i32: 1, 8, 128, 128>}> : () -> tensor<1x8x128x128xbf16>
+    %safe = "ttir.where"(%cond, %zeros, %2) : (tensor<1x8x128x128xi1>, tensor<1x8x128x128xbf16>, tensor<1x8x128x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %3 = "ttir.matmul"(%safe, %v) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x128xbf16>, tensor<1x8x128x64xbf16>) -> tensor<1x8x128x64xbf16>
+    return %3 : tensor<1x8x128x64xbf16>
+  }
+}
