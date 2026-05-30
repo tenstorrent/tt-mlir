@@ -20,6 +20,9 @@ module {
       %v: tensor<1x32x128x64xbf16>) -> tensor<1x32x128x64xbf16> {
     // CHECK-LABEL: @sdpa_mha_no_scale_no_mask
     // CHECK: "ttir.scaled_dot_product_attention"
+    // An unscaled source must emit an explicit scale = 1.0, NOT an omitted
+    // scale (which the op would interpret as the default 1/sqrt(D)).
+    // CHECK-SAME: scale = 1.000000e+00
     // CHECK-NOT: ttir.matmul
     %0 = "ttir.transpose"(%k) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x128x64xbf16>) -> tensor<1x32x64x128xbf16>
     %1 = "ttir.matmul"(%q, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x64xbf16>, tensor<1x32x64x128xbf16>) -> tensor<1x32x128x128xbf16>
@@ -38,6 +41,7 @@ module {
       %mask: tensor<1x1x128x128xbf16>) -> tensor<1x32x128x64xbf16> {
     // CHECK-LABEL: @sdpa_mha_with_mask
     // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: scale = 1.000000e+00
     %0 = "ttir.transpose"(%k) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x128x64xbf16>) -> tensor<1x32x64x128xbf16>
     %1 = "ttir.matmul"(%q, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x64xbf16>, tensor<1x32x64x128xbf16>) -> tensor<1x32x128x128xbf16>
     %2 = "ttir.add"(%1, %mask) : (tensor<1x32x128x128xbf16>, tensor<1x1x128x128xbf16>) -> tensor<1x32x128x128xbf16>
@@ -225,6 +229,7 @@ module {
       %mask: tensor<1x1x128x128xbf16>) -> tensor<1x32x128x64xbf16> {
     // CHECK-LABEL: @sdpa_mqa
     // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: scale = 1.000000e+00
     %0 = "ttir.transpose"(%k) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x1x128x64xbf16>) -> tensor<1x1x64x128xbf16>
     %1 = "ttir.matmul"(%q, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x64xbf16>, tensor<1x1x64x128xbf16>) -> tensor<1x32x128x128xbf16>
     %2 = "ttir.add"(%1, %mask) : (tensor<1x32x128x128xbf16>, tensor<1x1x128x128xbf16>) -> tensor<1x32x128x128xbf16>
@@ -249,6 +254,7 @@ module {
       %mask: tensor<1x1x1x128xbf16>) -> tensor<1x32x1x64xbf16> {
     // CHECK-LABEL: @sdpa_decode_shape_sq1
     // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: scale = 1.000000e+00
     // CHECK-NOT: ttir.permute
     %0 = "ttir.transpose"(%k) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x32x128x64xbf16>) -> tensor<1x32x64x128xbf16>
     %1 = "ttir.matmul"(%q, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x1x64xbf16>, tensor<1x32x64x128xbf16>) -> tensor<1x32x1x128xbf16>
