@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/SDPAFusingPattern.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/PatternMatch.h"
 
@@ -41,6 +42,33 @@ Value peelOneCast(Value v) {
     return cast.getInput();
   }
   return v;
+}
+
+// Strips at most one BroadcastOp. Used to recover the per-row predicate a
+// NaN-safety select was broadcast from.
+Value peelBroadcast(Value v) {
+  if (auto bcast = v.getDefiningOp<BroadcastOp>()) {
+    return bcast.getInput();
+  }
+  return v;
+}
+
+// True if v is a constant all-zeros tensor (ttir.zeros, or ttir.full with a
+// zero fill), looking through a broadcast.
+bool isZerosConstant(Value v) {
+  v = peelBroadcast(v);
+  if (v.getDefiningOp<ZerosOp>()) {
+    return true;
+  }
+  if (auto full = v.getDefiningOp<FullOp>()) {
+    if (auto f = mlir::dyn_cast<FloatAttr>(full.getFillValue())) {
+      return f.getValue().isZero();
+    }
+    if (auto i = mlir::dyn_cast<IntegerAttr>(full.getFillValue())) {
+      return i.getValue().isZero();
+    }
+  }
+  return false;
 }
 
 // Walk through BroadcastOp, ReshapeOp, and TypecastOp to find a scalar
@@ -188,6 +216,26 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
 
   // Softmax-precision-out boundary.
   Value softmaxOut = peelOneCast(srcOp.getA());
+
+  // Optional NaN-safety select: where(rowCond, 0, softmax). A fully-masked
+  // query row makes softmax produce NaN; models scrub it with this select.
+  // SDPA itself is not NaN-safe (matches PyTorch / tt-metal), so instead of
+  // dropping the select we re-apply it to the fused op's output (see below).
+  // Sound only when it zeros whole query rows — i.e. the predicate is broadcast
+  // across the kv (last) axis, so zeroing weight rows equals zeroing the
+  // matmul's output rows.
+  Value nanSafeRowCond;
+  if (auto whereOp = softmaxOut.getDefiningOp<WhereOp>()) {
+    Value rowCond = peelBroadcast(whereOp.getFirst());
+    auto condType = mlir::dyn_cast<RankedTensorType>(rowCond.getType());
+    bool rowUniform = condType && condType.getRank() == kSdpaRank &&
+                      condType.getShape().back() == 1;
+    if (rowUniform && isZerosConstant(whereOp.getSecond())) {
+      nanSafeRowCond = rowCond;
+      softmaxOut = peelOneCast(whereOp.getThird());
+    }
+  }
+
   auto softmax = softmaxOut.getDefiningOp<SoftmaxOp>();
   if (!softmax) {
     return failure();
@@ -325,7 +373,28 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
       /*sliding_window_size=*/IntegerAttr(),
       /*attention_sink=*/Value());
 
-  rewriter.replaceOp(c.attentionMatmul, newOp.getResult());
+  Value result = newOp.getResult();
+  if (nanSafeRowCond) {
+    // Re-apply the NaN-safety select on the SDPA output. Zeroing whole rows of
+    // the attention weights equals zeroing the same output rows (the matmul
+    // contracts over the kv axis), so
+    //   matmul(where(rowCond, 0, softmax), V) == where(rowCond, 0, sdpa).
+    // rowCond is [B, H, Sq, 1]; broadcast it across the output head dim.
+    auto loc = c.attentionMatmul.getLoc();
+    auto outType = mlir::cast<RankedTensorType>(resultType);
+    auto condType = mlir::cast<RankedTensorType>(nanSafeRowCond.getType());
+    auto condOutType =
+        RankedTensorType::get(outType.getShape(), condType.getElementType());
+    Value condBcast = rewriter.create<BroadcastOp>(
+        loc, condOutType, nanSafeRowCond,
+        ttmlir::utils::getBroadcastDimensions<int64_t>(condType.getShape(),
+                                                       outType.getShape()));
+    Value zeros = rewriter.create<ZerosOp>(
+        loc, outType, llvm::to_vector_of<int32_t>(outType.getShape()));
+    result = rewriter.create<WhereOp>(loc, outType, condBcast, zeros, result);
+  }
+
+  rewriter.replaceOp(c.attentionMatmul, result);
   return success();
 }
 
