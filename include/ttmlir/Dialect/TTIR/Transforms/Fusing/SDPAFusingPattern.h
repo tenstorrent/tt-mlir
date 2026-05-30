@@ -21,8 +21,10 @@ namespace mlir::tt::ttir::fusing {
 //   where score_chain carries Q·Kᵀ (K transposed via ttir.transpose) plus an
 //   optional additive mask, in one of these forms:
 //     - linear([scale_op?](Q), transpose([scale_op?](K)), bias = mask)
-//     - add([scale_op]([matmul]([scale_op?](Q), transpose([scale_op?](K)))), mask)
-//     - [scale_op]([matmul]([scale_op?](Q), transpose([scale_op?](K))))   // no mask
+//     - add([scale_op]([matmul]([scale_op?](Q), transpose([scale_op?](K)))),
+//     mask)
+//     - [scale_op]([matmul]([scale_op?](Q), transpose([scale_op?](K))))   // no
+//     mask
 //   and scale_op is multiply-or-divide with a `ttir.full` constant.
 //
 //   The masked form normally arrives as a `ttir.linear`: an earlier sub-phase

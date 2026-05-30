@@ -193,8 +193,7 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
     return failure();
   }
   // Softmax dimension must be the last (kv seq len) axis.
-  auto smInputType =
-      mlir::cast<RankedTensorType>(softmax.getInput().getType());
+  auto smInputType = mlir::cast<RankedTensorType>(softmax.getInput().getType());
   int64_t smDim = softmax.getDimension();
   int64_t smRank = smInputType.getRank();
   int64_t normalizedDim = smDim < 0 ? smRank + smDim : smDim;
@@ -304,8 +303,7 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   // Q-vs-output) paths makes the matcher decline rather than emit an op that
   // fails its own verifier.
   mlir::Type resultType = c.attentionMatmul.getResult().getType();
-  if (c.key.getType() != c.value.getType() ||
-      c.query.getType() != resultType) {
+  if (c.key.getType() != c.value.getType() || c.query.getType() != resultType) {
     return failure();
   }
 
