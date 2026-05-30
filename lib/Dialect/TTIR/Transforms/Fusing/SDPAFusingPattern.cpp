@@ -298,14 +298,26 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
     return failure();
   }
 
-  // Emit ttir.scaled_dot_product_attention.
-  FloatAttr scaleAttr;
-  if (c.scale.has_value()) {
-    scaleAttr = rewriter.getF32FloatAttr(*c.scale);
+  // The op verifier requires full-type equality (element type + encoding),
+  // not just the matching shapes validateShapes checked: key == value and
+  // query == result. Guard here so an asymmetric typecast on the K-vs-V (or
+  // Q-vs-output) paths makes the matcher decline rather than emit an op that
+  // fails its own verifier.
+  mlir::Type resultType = c.attentionMatmul.getResult().getType();
+  if (c.key.getType() != c.value.getType() ||
+      c.query.getType() != resultType) {
+    return failure();
   }
+
+  // Emit ttir.scaled_dot_product_attention.
+  // A matched score chain with no scale op computed unscaled softmax(QKᵀ),
+  // i.e. an identity (1.0) scale. The op interprets an *omitted* scale
+  // attribute as the default 1/sqrt(D), so always emit an explicit scale to
+  // preserve the source semantics: the matched scale when present, else 1.0.
+  FloatAttr scaleAttr = rewriter.getF32FloatAttr(c.scale.value_or(1.0f));
   auto newOp = rewriter.create<ScaledDotProductAttentionOp>(
       c.attentionMatmul.getLoc(),
-      /*resultType=*/c.attentionMatmul.getResult().getType(),
+      /*resultType=*/resultType,
       /*query=*/c.query,
       /*key=*/c.key,
       /*value=*/c.value,

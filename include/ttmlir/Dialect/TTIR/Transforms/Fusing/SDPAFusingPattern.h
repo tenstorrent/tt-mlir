@@ -18,9 +18,18 @@ namespace mlir::tt::ttir::fusing {
 // to the TTNN-level matcher (which remains as a fallback).
 //
 // Matches:  matmul(typecast?(softmax(typecast?(score_chain))), V)
-//   where score_chain is:
-//     [add]([scale_op]([matmul]([scale_op?](Q), transpose([scale_op?](K)))), mask)
+//   where score_chain carries Q·Kᵀ (K transposed via ttir.transpose) plus an
+//   optional additive mask, in one of these forms:
+//     - linear([scale_op?](Q), transpose([scale_op?](K)), bias = mask)
+//     - add([scale_op]([matmul]([scale_op?](Q), transpose([scale_op?](K)))), mask)
+//     - [scale_op]([matmul]([scale_op?](Q), transpose([scale_op?](K))))   // no mask
 //   and scale_op is multiply-or-divide with a `ttir.full` constant.
+//
+//   The masked form normally arrives as a `ttir.linear`: an earlier sub-phase
+//   of TTIRFusing (MatmulWithBiasFusionPattern) folds `add(matmul, mask)` into
+//   `linear(Q, Kᵀ, bias = mask)` before this pattern runs. The `add` form is
+//   only reached when that fold declines (e.g. a post-scale multiply sits
+//   between the matmul and the add, which it does not look through).
 //
 // Produces: ttir.scaled_dot_product_attention(Q, K, V, mask?, scale?)
 //
@@ -30,7 +39,6 @@ namespace mlir::tt::ttir::fusing {
 //
 // Out of scope (intentionally — handled by the TTNN matcher today):
 //   - generic typecast look-through, NaN-safety slice/concat/where
-//   - LinearOp form for the score matmul
 //   - repeat_interleave-based GQA expansion (SDPA handles Hkv < Hq natively)
 //   - 3D Q/K/V (must be rank 4)
 //   - attention_sink, sliding_window_size
