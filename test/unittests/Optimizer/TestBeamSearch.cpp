@@ -478,3 +478,55 @@ TEST_F(BeamSearchTest, NoValidCandidateFallbackToDRAM) {
     }
   }
 }
+
+//===----------------------------------------------------------------------===//
+// Regression: sink-op consumer with empty beam must not OOB consolidateBeam
+//===----------------------------------------------------------------------===//
+
+// A cache-write sink op (FillCacheOp/PagedUpdateCacheOp/PagedFillCacheOp) is a
+// beam-search target via isSinkOp, but it has no tensor result, so its beam
+// candidate list comes out empty and it is skipped in the backward pass (no
+// finalChoice entry). When such a sink op is the single consumer of a producer,
+// consolidateBeam() used to index beamState[consumer][finalChoice[consumer]] on
+// an empty vector and abort
+// (SmallVector<BeamCandidate>::operator[]: idx < size()).
+// Regression for the sink-op beam-target change in #8278.
+TEST_F(BeamSearchTest, BackwardPassSinkOpConsumerEmptyBeamNoCrash) {
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  auto inputLayout = createDRAMInterleavedLayout(inputShape);
+  auto inputType = mlir::RankedTensorType::get(
+      inputShape, builder.getBF16Type(), inputLayout);
+  auto cacheLayout = createDRAMInterleavedLayout(cacheShape);
+  auto cacheType = mlir::RankedTensorType::get(
+      cacheShape, builder.getBF16Type(), cacheLayout);
+
+  // func(cache, in0, in1) -> cache.
+  // add(in0, in1)'s only consumer is a FillCacheOp sink (no tensor result).
+  createFuncOp({cacheType, inputType, inputType}, {cacheType});
+  mlir::Value cache = func.getBody().front().getArgument(0);
+  mlir::Value in0 = func.getBody().front().getArgument(1);
+  mlir::Value in1 = func.getBody().front().getArgument(2);
+
+  auto addOp =
+      builder.create<AddOp>(builder.getUnknownLoc(), inputType, in0, in1);
+  auto fillCache = builder.create<FillCacheOp>(builder.getUnknownLoc(), cache,
+                                               addOp.getResult(),
+                                               builder.getI32IntegerAttr(0));
+  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(), cache);
+
+  // Both add and the sink op are beam-search targets; only add has a normal
+  // (non-empty) beam, so add's single consumer is the empty-beam sink op.
+  llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
+  legalConfigs[addOp.getOperation()] =
+      createElementwiseLegalConfigs(inputShape);
+  legalConfigs[fillCache.getOperation()] =
+      createElementwiseLegalConfigs(inputShape);
+
+  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/8);
+
+  // Before the fix this aborted in consolidateBeam on the empty-beam consumer.
+  EXPECT_NO_FATAL_FAILURE(propagation.run());
+}

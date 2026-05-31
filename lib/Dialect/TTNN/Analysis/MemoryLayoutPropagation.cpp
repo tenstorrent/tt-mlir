@@ -1153,7 +1153,14 @@ void MemoryLayoutPropagation::consolidateBeam() {
     } else if (consumers.size() == 1) {
       // Single consumer: follow its back-pointer for this producer.
       Operation *consumer = consumers[0];
-      size_t consumerIdx = finalChoice[consumer];
+      // The consumer may have been skipped in the backward pass (e.g. a sink
+      // op with an empty beam) and have no resolved candidate; fall back to
+      // this op's best forward-pass candidate, as the fork paths below do.
+      size_t consumerIdx = finalChoice.lookup(consumer);
+      if (consumerIdx >= beamState[consumer].size()) {
+        finalChoice[op] = 0;
+        continue;
+      }
       const BeamCandidate &consumerChosen = beamState[consumer][consumerIdx];
 
       // Find which tensor operand of consumer connects to this op.
