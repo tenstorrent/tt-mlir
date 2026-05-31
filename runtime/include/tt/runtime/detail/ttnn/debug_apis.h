@@ -47,6 +47,8 @@ inline std::string toString(const ::ttnn::DataType &dtype) {
     return "UINT8";
   case ::ttnn::DataType::INT32:
     return "INT32";
+  case ::ttnn::DataType::FP8_E4M3:
+    return "FP8_E4M3";
   case ::ttnn::DataType::INVALID:
     return "INVALID";
   }
