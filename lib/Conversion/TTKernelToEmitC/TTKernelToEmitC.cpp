@@ -550,13 +550,13 @@ public:
       StringRef eltwiseType;
       switch (op.getEltwiseBinaryType()) {
       case ttkernel::EltwiseBinaryType::Add:
-        eltwiseType = "ELWADD";
+        eltwiseType = "EltwiseBinaryType::ELWADD";
         break;
       case ttkernel::EltwiseBinaryType::Sub:
-        eltwiseType = "ELWSUB";
+        eltwiseType = "EltwiseBinaryType::ELWSUB";
         break;
       case ttkernel::EltwiseBinaryType::Mul:
-        eltwiseType = "ELWMUL";
+        eltwiseType = "EltwiseBinaryType::ELWMUL";
         break;
       }
       template_args.push_back(
