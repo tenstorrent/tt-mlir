@@ -1112,9 +1112,9 @@ def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
     number of datamovement regions are emitted.
   }];
   list<Option> options = [
-    Option<"numDatamovementProcessors", "num-datamovement-processors",
+    Option<"numDmCores", "num-dm-cores",
            "unsigned", "0",
-           "Override the available datamovement processor count. 0 means use the system descriptor.">,
+           "Override the available DM core count. 0 means use the system descriptor.">,
   ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }

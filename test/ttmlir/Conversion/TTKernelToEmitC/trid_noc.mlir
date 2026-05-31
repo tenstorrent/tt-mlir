@@ -5,7 +5,7 @@
 // CHECK-LABEL: func @trid_read_path
 // CHECK: emitc.verbatim "Noc noc0(0);"
 // CHECK-NEXT: emitc.verbatim "UnicastEndpoint unicast_ep;"
-// CHECK-NEXT: emitc.verbatim "Noc noc;"
+// CHECK-NEXT: emitc.verbatim "Noc noc(noc_index);"
 // CHECK-NEXT: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
 // CHECK-NEXT: %[[NOC_IDX:.*]] = "emitc.constant"() <{value = 0 : i8}> : () -> i8
 // CHECK-NEXT: %[[X:.*]] = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
@@ -38,7 +38,7 @@ func.func @trid_read_path() -> () attributes {ttkernel.thread = #ttkernel.thread
 // CHECK-LABEL: func @trid_write_path
 // CHECK: emitc.verbatim "Noc noc0(0);"
 // CHECK-NEXT: emitc.verbatim "UnicastEndpoint unicast_ep;"
-// CHECK-NEXT: emitc.verbatim "Noc noc;"
+// CHECK-NEXT: emitc.verbatim "Noc noc(noc_index);"
 // CHECK-NEXT: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
 // CHECK-NEXT: %[[MASK:.*]] = "emitc.constant"() <{value = -1 : i32}> : () -> i32
 // CHECK-NEXT: %[[NOC_IDX:.*]] = "emitc.constant"() <{value = 0 : i8}> : () -> i8
@@ -73,7 +73,7 @@ func.func @trid_write_path() -> () attributes {ttkernel.thread = #ttkernel.threa
 // A TRID barrier with no NOC operand uses the default `noc` object. The trid is
 // the sole verbatim argument.
 // CHECK-LABEL: func @trid_barrier_default_noc
-// CHECK: emitc.verbatim "Noc noc;"
+// CHECK: emitc.verbatim "Noc noc(noc_index);"
 // CHECK: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
 // CHECK: emitc.verbatim "noc.async_write_barrier<NocOptions::TXN_ID>(NocOptVals{{[{][{]}}.trid = {}{{[}][}]}});" args %[[TRID]] : i32
 func.func @trid_barrier_default_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {

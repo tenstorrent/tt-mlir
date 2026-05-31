@@ -30,7 +30,7 @@ module {
         ins(%arg0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_single, processor = 1>, #d2m.thread<compute, @cp_single>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_single, dm_core = 1>, #d2m.thread<compute, @cp_single>]}
             ins(%arg0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%cb_0, %cb_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
@@ -55,9 +55,9 @@ module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK-LABEL: func.func @spatial_two_regions_global_semaphore_arg_remap
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
-  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <global_semaphore[2]>]>, noc0>
+  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <global_semaphore[2]>]>, dm_core = 1, noc0>
   // CHECK-SAME: #ttmetal.compute_config<@cp_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <global_semaphore[2]>]>, hifi4, true, false, false, [default]>
-  // CHECK-SAME: #ttmetal.noc_config<@dm_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>, <global_semaphore[5]>]>, noc0>
+  // CHECK-SAME: #ttmetal.noc_config<@dm_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>, <global_semaphore[5]>]>, dm_core = 1, noc0>
   // CHECK-SAME: #ttmetal.compute_config<@cp_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>, <global_semaphore[5]>]>, hifi4, true, false, false, [default]>]
   // CHECK-NOT: d2m.spatial
   func.func @spatial_two_regions_global_semaphore_arg_remap(
@@ -80,13 +80,13 @@ module {
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_r0, processor = 1>, #d2m.thread<compute, @cp_r0>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_r0, dm_core = 1>, #d2m.thread<compute, @cp_r0>]}
             ins(%arg0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%sem0, %cb_r0_0, %cb_r0_1 : !d2m.global_semaphore, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_r1, processor = 1>, #d2m.thread<compute, @cp_r1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_r1, dm_core = 1>, #d2m.thread<compute, @cp_r1>]}
             ins(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%sem1, %cb_r1_0, %cb_r1_1 : !d2m.global_semaphore, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
@@ -123,9 +123,9 @@ module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK-LABEL: func.func @spatial_two_regions_non_origin_core_range_from_grid_map
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
-  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_core_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>
+  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_core_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, dm_core = 1, noc0>
   // CHECK-SAME: #ttmetal.compute_config<@cp_core_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, hifi4, true, false, false, [default]>
-  // CHECK-SAME: #ttmetal.noc_config<@dm_core_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>]>, noc0>
+  // CHECK-SAME: #ttmetal.noc_config<@dm_core_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>]>, dm_core = 1, noc0>
   // CHECK-SAME: #ttmetal.compute_config<@cp_core_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>]>, hifi4, true, false, false, [default]>]
   // CHECK-NOT: d2m.spatial
   func.func @spatial_two_regions_non_origin_core_range_from_grid_map(
@@ -143,13 +143,13 @@ module {
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_core_r0, processor = 1>, #d2m.thread<compute, @cp_core_r0>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_core_r0, dm_core = 1>, #d2m.thread<compute, @cp_core_r0>]}
             ins(%arg0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%cb_core_r0_0, %cb_core_r0_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_core_r1, processor = 1>, #d2m.thread<compute, @cp_core_r1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_core_r1, dm_core = 1>, #d2m.thread<compute, @cp_core_r1>]}
             ins(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%cb_core_r1_0, %cb_core_r1_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
@@ -181,8 +181,8 @@ module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK-LABEL: func.func @spatial_two_regions_buffer_address_remap
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
-  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_b0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args<rt_args = [<buffer_address[0]>] ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>
-  // CHECK-SAME: #ttmetal.noc_config<@dm_b1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args<rt_args = [<buffer_address[2]>] ct_args = [<cb_port[2]>, <cb_port[3]>]>, noc0>]
+  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_b0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args<rt_args = [<buffer_address[0]>] ct_args = [<cb_port[0]>, <cb_port[1]>]>, dm_core = 1, noc0>
+  // CHECK-SAME: #ttmetal.noc_config<@dm_b1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args<rt_args = [<buffer_address[2]>] ct_args = [<cb_port[2]>, <cb_port[3]>]>, dm_core = 1, noc0>]
   // CHECK-NOT: d2m.spatial
   func.func @spatial_two_regions_buffer_address_remap(
       %arg0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>,
@@ -199,13 +199,13 @@ module {
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_b0, processor = 1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_b0, dm_core = 1>]}
             ins(%arg0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%cb_b0_0, %cb_b0_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_b1, processor = 1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_b1, dm_core = 1>]}
             ins(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%cb_b1_0, %cb_b1_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
@@ -233,8 +233,8 @@ module {
   // CHECK-LABEL: func.func @spatial_two_regions_cb_port_remap
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
   // CHECK: cb_ports = array<i64: 0, 1, 2, 3>
-  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_cbport_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>
-  // CHECK-SAME: #ttmetal.noc_config<@dm_cbport_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>]>, noc0>]
+  // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_cbport_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, dm_core = 1, noc0>
+  // CHECK-SAME: #ttmetal.noc_config<@dm_cbport_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>]>, dm_core = 1, noc0>]
   // CHECK: operandSegmentSizes = array<i32: 4, 4>
   // CHECK-NOT: @dm_cbport_r1{{.*}}cb_port[0]
   // CHECK-NOT: d2m.spatial
@@ -253,13 +253,13 @@ module {
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_cbport_r0, processor = 1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_cbport_r0, dm_core = 1>]}
             ins(%arg0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%cb_cbp_r0_0, %cb_cbp_r0_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_cbport_r1, processor = 1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_cbport_r1, dm_core = 1>]}
             ins(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%cb_cbp_r1_0, %cb_cbp_r1_1 : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
@@ -311,13 +311,13 @@ module {
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_ls_r0, processor = 1>, #d2m.thread<compute, @cp_ls_r0>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_ls_r0, dm_core = 1>, #d2m.thread<compute, @cp_ls_r0>]}
             ins(%arg0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%ls_r0_0, %ls_r0_1, %cb_ls_r0_0, %cb_ls_r0_1 : !d2m.local_semaphore, !d2m.local_semaphore, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
       }, {
       ^region_1:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_ls_r1, processor = 1>, #d2m.thread<compute, @cp_ls_r1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 1, d1 + 1), physical_to_virt_map = (d0, d1) -> (0, d0 - 1, d1 - 1)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_ls_r1, dm_core = 1>, #d2m.thread<compute, @cp_ls_r1>]}
             ins(%arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             outs(%out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
             additionalArgs(%ls_r1_0, %ls_r1_1, %cb_ls_r1_0, %cb_ls_r1_1 : !d2m.local_semaphore, !d2m.local_semaphore, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>, memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>)
@@ -361,7 +361,7 @@ module {
         ins(%view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
         outs(%out_view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>) {
       ^region_0:
-        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_spatial_view, processor = 1>]}
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_spatial_view, dm_core = 1>]}
             ins(%view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
             outs(%out_view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
     }
