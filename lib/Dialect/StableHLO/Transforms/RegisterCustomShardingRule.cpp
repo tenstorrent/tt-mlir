@@ -418,6 +418,14 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
+  if (kvHeads == 1) {
+    op.getOperation()->emitError()
+        << "flash_mla_prefill (MLA prefill) expects MHA inputs but got "
+           "num_kv_heads == 1 (MQA); MQA is the decode form and must not reach "
+           "the prefill op";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
   int64_t maskBatch = sdy::kNullDim;
   if (hasAttentionMask) {
     ArrayRef<int64_t> mShape = mType.getShape();
