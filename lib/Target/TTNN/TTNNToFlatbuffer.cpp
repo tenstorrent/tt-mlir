@@ -496,9 +496,15 @@ createOp(FlatbufferObjectCache &cache, LinearOp op) {
   }
 
   auto activation = toFlatbuffer(cache, op.getActivation()).value_or(0);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreateLinearOp(
       *cache.fbb, a, b, bias, output, op.getTransposeA(), op.getTransposeB(),
-      matmulProgramConfigType, matmulProgramConfigDesc, activation);
+      matmulProgramConfigType, matmulProgramConfigDesc, activation,
+      computeConfig.value_or(0));
 }
 
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
