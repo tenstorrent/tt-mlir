@@ -796,7 +796,8 @@ void MemoryLayoutPropagation::addReshardCandidates(
     auto outputLayout =
         mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
     if (outputLayout &&
-        mlir::isa<ttcore::TileType>(outputLayout.getElementType())) {
+        mlir::isa<ttcore::TileType>(outputLayout.getElementType()) &&
+        outputType.getRank() > 0) {
       auto shape = outputType.getShape();
       int64_t cols = (shape.back() + TILE_WIDTH - 1) / TILE_WIDTH;
       int64_t rows =
