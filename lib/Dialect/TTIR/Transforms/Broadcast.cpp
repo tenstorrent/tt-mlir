@@ -96,70 +96,69 @@ public:
   }
 };
 
-// Drop a `ttir.broadcast` feeding a `ttir.matmul` operand when it only
-// expands batch (leading) dims and the other operand already supplies the
-// expanded size at those positions.
+// Drop a `ttir.broadcast` feeding the RHS of a `ttir.matmul` when it only
+// expands the second batch dim and the LHS already supplies the expanded size.
 class FoldBroadcastIntoMatmul : public OpRewritePattern<ttir::MatmulOp> {
 public:
   using OpRewritePattern<ttir::MatmulOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ttir::MatmulOp op,
                                 PatternRewriter &rewriter) const override {
-    Value newA = op.getA();
-    Value newB = op.getB();
-    bool changed = false;
-    if (Value dropped = tryDropBroadcast(newA, newB)) {
-      newA = dropped;
-      changed = true;
-    }
-    if (Value dropped = tryDropBroadcast(newB, newA)) {
-      newB = dropped;
-      changed = true;
-    }
-    if (!changed) {
+    Value newB = tryDropBroadcast(op.getB(), op.getA());
+    if (!newB) {
       return failure();
     }
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.setOperand(0, newA);
-      op.setOperand(1, newB);
-    });
+    rewriter.modifyOpInPlace(op, [&]() { op.setOperand(1, newB); });
     return success();
   }
 
 private:
-  // If `operand` is a ttir.broadcast that expanded only batch (leading-but-
-  // not-last-two) dims, and `other` already has the expanded size at every
-  // such position, return the broadcast's input. Otherwise return a null
-  // Value.
+  // TTNN's matmul documentation mentions that broadcasting is in general
+  // basically unsupported, albeit a few cases might work. This code only checks
+  // one case: With 4Dx4D operands, dim 1(second batch dimension) on the RHS can
+  // be broadcast to match the LHS. Other cases are explicitly out of scope for
+  // now. This *is* basically hardcoding the current details of metal behavior
+  // on the TTIR level, just like isImplicitBroadcastSupported does for
+  // elementwise ops.
+  //
+  // `operand` is the RHS (the potentially-broadcast input), `other` the LHS.
   static Value tryDropBroadcast(Value operand, Value other) {
     auto bcast = operand.getDefiningOp<ttir::BroadcastOp>();
-    if (!bcast || !ttir::utils::isImplicitBroadcastSupported(bcast)) {
+    if (!bcast) {
       return {};
     }
     auto inShape =
         mlir::cast<RankedTensorType>(bcast.getInput().getType()).getShape();
     auto outShape = mlir::cast<RankedTensorType>(operand.getType()).getShape();
     auto otherShape = mlir::cast<RankedTensorType>(other.getType()).getShape();
-    int64_t rank = outShape.size();
-    // Require ≥3D and equal ranks: matmul aligns batch dims by position when
-    // ranks match; differing ranks complicate the safety check.
-    if (rank < 3 || static_cast<int64_t>(otherShape.size()) != rank) {
+
+    constexpr int64_t kMatmulRank = 4;
+    constexpr int64_t kBroadcastableBatchDim = 1;
+    if (static_cast<int64_t>(inShape.size()) != kMatmulRank ||
+        static_cast<int64_t>(otherShape.size()) != kMatmulRank) {
       return {};
     }
-    // Inner two dims (M/K or K/N) are matmul-inner; broadcasting them would
-    // change semantics — in particular expanding K changes the contract size.
-    for (int64_t i = rank - 2; i < rank; ++i) {
-      if (inShape[i] != outShape[i]) {
+
+    // Validate the fold dim by dim:
+    //  - The broadcast must expand exactly dim 1 and leave every other dim
+    //    untouched -- the inner two dims (M/K, K/N) carry matmul semantics, and
+    //    the kernel cannot broadcast dim 0.
+    //  - On the batch dims, the LHS must already carry the matmul's batch size,
+    //    so dropping the broadcast leaves the result unchanged and the kernel
+    //    only has to implicitly broadcast a size-1 RHS dim 1 against a matching
+    //    dim 0.
+    constexpr int64_t kNumBatchDims = kMatmulRank - 2;
+    for (int64_t i = 0; i < kMatmulRank; ++i) {
+      bool expanded = inShape[i] != outShape[i];
+      if (expanded != (i == kBroadcastableBatchDim)) {
+        return {};
+      }
+      bool isBatchDim = i < kNumBatchDims;
+      if (isBatchDim && otherShape[i] != outShape[i]) {
         return {};
       }
     }
-    // For each expanded batch dim, the other operand must already supply the
-    // expanded size — otherwise dropping the broadcast shrinks the result.
-    for (int64_t i = 0; i < rank - 2; ++i) {
-      if (inShape[i] != outShape[i] && otherShape[i] != outShape[i]) {
-        return {};
-      }
-    }
+
     return bcast.getInput();
   }
 };
