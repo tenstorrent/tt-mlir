@@ -183,6 +183,36 @@ GqaExpansion detectGqaExpansion(Value v) {
   return {repeatOp.getInput(), cast, repeatOp.getRepeats()};
 }
 
+// True if the slice keeps [0 : lastDim-1] of the last dim and is otherwise a
+// full, unit-step slice — i.e. it drops exactly the last column. Used to peel
+// the attention-sink softmax-padding slice.
+bool isDropLastColumnSlice(SliceStaticOp sliceOp) {
+  auto inType = mlir::dyn_cast<RankedTensorType>(sliceOp.getInput().getType());
+  if (!inType) {
+    return false;
+  }
+  ArrayAttr begins = sliceOp.getBeginsAttr();
+  ArrayAttr ends = sliceOp.getEndsAttr();
+  ArrayAttr steps = sliceOp.getStepAttr();
+  int64_t rank = inType.getRank();
+  if (static_cast<int64_t>(begins.size()) != rank ||
+      static_cast<int64_t>(ends.size()) != rank ||
+      static_cast<int64_t>(steps.size()) != rank) {
+    return false;
+  }
+  ArrayRef<int64_t> shape = inType.getShape();
+  for (int64_t i = 0; i < rank; ++i) {
+    int64_t b = mlir::cast<IntegerAttr>(begins[i]).getInt();
+    int64_t e = mlir::cast<IntegerAttr>(ends[i]).getInt();
+    int64_t s = mlir::cast<IntegerAttr>(steps[i]).getInt();
+    int64_t expectedEnd = (i == rank - 1) ? shape[i] - 1 : shape[i];
+    if (b != 0 || s != 1 || e != expectedEnd) {
+      return false;
+    }
+  }
+  return rank >= 1;
+}
+
 // Validate Q, K, V have compatible 4D SDPA shapes:
 //   Q [B, Hq, Sq, D], K/V [B, Hkv, Sk, D].
 bool validateShapes(Value query, Value key, Value value) {
@@ -266,6 +296,19 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   // Softmax-precision-out boundary.
   Value softmaxOut = peelOneCast(srcOp.getA());
 
+  // Optional attention-sink "softmax padding column": the sink logit is
+  // concat'd as an extra score column before softmax, then the column is
+  // sliced off after. Peel the trailing slice here; the matching concat at the
+  // softmax input is peeled below and the sink fed to the op.
+  Value attentionSink;
+  bool expectSinkConcat = false;
+  if (auto sliceOp = softmaxOut.getDefiningOp<SliceStaticOp>()) {
+    if (isDropLastColumnSlice(sliceOp)) {
+      softmaxOut = peelOneCast(sliceOp.getInput());
+      expectSinkConcat = true;
+    }
+  }
+
   // Optional NaN-safety select: where(rowCond, 0, softmax). A fully-masked
   // query row makes softmax produce NaN; models scrub it with this select.
   // SDPA itself is not NaN-safe (matches PyTorch / tt-metal), so instead of
@@ -311,6 +354,44 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   // wrapped in post-scale). LinearOp is produced by the first sub-phase
   // of TTIRFusing (MatmulWithBiasFusionPattern), which runs before us.
   Value chain = peelOneCast(softmax.getInput());
+
+  // For the attention-sink pattern the softmax input is concat(scores, sink),
+  // appended along the kv axis. Peel the concat to recover the real score chain
+  // and extract the sink (broadcast back to [1, Hq, 1, 1], which is what the op
+  // expects — a head-granular scalar that the GQA repeat_interleave already
+  // produced).
+  if (expectSinkConcat) {
+    auto concatOp = chain.getDefiningOp<ConcatOp>();
+    if (!concatOp || concatOp.getInputs().size() != 2) {
+      return failure();
+    }
+    auto concatType =
+        mlir::cast<RankedTensorType>(concatOp.getResult().getType());
+    int64_t concatRank = concatType.getRank();
+    int64_t concatDim = concatOp.getDim() < 0 ? concatRank + concatOp.getDim()
+                                              : concatOp.getDim();
+    if (concatDim != concatRank - 1) {
+      return failure();
+    }
+    Value sinkCol = concatOp.getInputs()[1];
+    auto sinkColType = mlir::dyn_cast<RankedTensorType>(sinkCol.getType());
+    if (!sinkColType || sinkColType.getRank() != kSdpaRank ||
+        sinkColType.getShape().back() != 1) {
+      return failure();
+    }
+    attentionSink = peelBroadcast(sinkCol);
+    auto sinkType = mlir::dyn_cast<RankedTensorType>(attentionSink.getType());
+    // The op expects a [1, Hq, 1, 1] sink (one scalar per query head).
+    if (!sinkType || sinkType.getRank() != kSdpaRank ||
+        sinkType.getShape()[0] != 1 ||
+        sinkType.getShape()[kNumHeadsDim] !=
+            concatType.getShape()[kNumHeadsDim] ||
+        sinkType.getShape()[kSeqLenDim] != 1 ||
+        sinkType.getShape()[kHeadDim] != 1) {
+      return failure();
+    }
+    chain = peelOneCast(concatOp.getInputs()[0]);
+  }
 
   if (auto linearOp = chain.getDefiningOp<LinearOp>()) {
     if (linearOp.getTransposeA() || linearOp.getTransposeB()) {
@@ -467,7 +548,7 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
       /*is_causal=*/rewriter.getBoolAttr(false),
       /*scale=*/scaleAttr,
       /*sliding_window_size=*/IntegerAttr(),
-      /*attention_sink=*/Value());
+      /*attention_sink=*/attentionSink);
 
   Value result = newOp.getResult();
   if (nanSafeRowCond) {

@@ -44,10 +44,15 @@ namespace mlir::tt::ttir::fusing {
 // (through an optional typecast) is peeled from both K and V so the un-expanded
 // tensors feed the op, which handles Hkv < Hq natively.
 //
+// Attention sink ("softmax padding column"): a sink logit concat'd as an extra
+// score column before softmax and sliced off after is recognised — the trailing
+// slice and the concat are peeled, and the sink (broadcast back to [1, Hq, 1,
+// 1]) is fed to the op's attention_sink operand.
+//
 // Out of scope (intentionally — handled by the TTNN matcher today):
-//   - generic typecast look-through, NaN-safety slice/concat
+//   - generic typecast look-through
 //   - 3D Q/K/V (must be rank 4)
-//   - attention_sink, sliding_window_size
+//   - sliding_window_size
 class SDPAFusingPattern : public mlir::OpRewritePattern<MatmulOp> {
 public:
   using OpRewritePattern<MatmulOp>::OpRewritePattern;
