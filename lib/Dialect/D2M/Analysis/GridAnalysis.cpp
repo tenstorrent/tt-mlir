@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/SmallSet.h"
 
 #include <algorithm>
 #include <optional>
@@ -61,8 +62,8 @@ static int64_t getShardWidthAlignmentElements(Operation *op,
   return nocAlignmentBytes / elementSizeBytes;
 }
 
-static bool isProjectedSourceGridUsable(ArrayRef<int64_t> projectedGrid,
-                                        ArrayRef<int64_t> targetGrid) {
+static bool isProjectedGridUsable(ArrayRef<int64_t> projectedGrid,
+                                  ArrayRef<int64_t> targetGrid) {
   if (projectedGrid.empty() || projectedGrid.size() != targetGrid.size()) {
     return false;
   }
@@ -71,6 +72,62 @@ static bool isProjectedSourceGridUsable(ArrayRef<int64_t> projectedGrid,
   }
   return ttmlir::utils::volume<int64_t>(projectedGrid) <=
          ttmlir::utils::volume<int64_t>(targetGrid);
+}
+
+static void collectGridDimDeps(AffineExpr expr, unsigned gridRank,
+                               llvm::SmallDenseSet<unsigned> &deps) {
+  expr.walk([&](AffineExpr subExpr) {
+    auto dimExpr = mlir::dyn_cast<AffineDimExpr>(subExpr);
+    if (!dimExpr) {
+      return;
+    }
+    unsigned dim = dimExpr.getPosition();
+    if (dim < gridRank) {
+      deps.insert(dim);
+    }
+  });
+}
+
+static SmallVector<int64_t>
+projectBaseGridToViewGrid(AffineMap viewToBase, ArrayRef<int64_t> baseGrid) {
+  const unsigned gridRank = baseGrid.size();
+  if (viewToBase.getNumDims() != gridRank * 2 ||
+      viewToBase.getNumResults() != gridRank * 2) {
+    return {};
+  }
+
+  SmallVector<int64_t> viewGrid(gridRank, 1);
+  bool sawProjectedGridDim = false;
+  for (auto [baseDim, gridFactor] : llvm::enumerate(baseGrid)) {
+    if (gridFactor <= 1) {
+      continue;
+    }
+
+    std::optional<unsigned> viewDim;
+    for (auto [baseResultDim, resultExpr] :
+         llvm::enumerate(viewToBase.getResults())) {
+      if (baseResultDim % gridRank != baseDim) {
+        continue;
+      }
+
+      llvm::SmallDenseSet<unsigned> deps;
+      collectGridDimDeps(resultExpr, gridRank, deps);
+      for (unsigned dep : deps) {
+        if (viewDim && *viewDim != dep) {
+          return {};
+        }
+        viewDim = dep;
+      }
+    }
+
+    if (!viewDim) {
+      continue;
+    }
+    sawProjectedGridDim = true;
+    viewGrid[*viewDim] *= gridFactor;
+  }
+
+  return sawProjectedGridDim ? viewGrid : SmallVector<int64_t>{};
 }
 
 static SmallVector<int64_t>
@@ -96,7 +153,43 @@ computeProjectedViewSourceGrid(Value operand, d2m::ToLayoutOp toLayoutOp,
 
   SmallVector<int64_t> projectedGrid =
       utils::projectViewGridToBaseGrid(*viewToBase, selectedGrid);
-  if (!isProjectedSourceGridUsable(projectedGrid, targetGrid)) {
+  if (!isProjectedGridUsable(projectedGrid, targetGrid)) {
+    return {};
+  }
+  return projectedGrid;
+}
+
+static std::optional<AffineMap>
+computeMaterializedViewToBaseMap(Value operand, d2m::ToLayoutOp toLayoutOp,
+                                 ArrayRef<int64_t> selectedGrid, bool ttnnMode,
+                                 ArrayRef<int64_t> paddingTileShape) {
+  auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>();
+  if (!viewOp) {
+    return std::nullopt;
+  }
+
+  auto viewType = mlir::cast<RankedTensorType>(operand.getType());
+  RankedTensorType materializedViewType = utils::tensorWithOptimalGrid(
+      viewType, ttnnMode, selectedGrid, paddingTileShape);
+  AffineMap materializedRemapping =
+      utils::deriveMaterializedViewRemapping(viewOp, materializedViewType);
+  return utils::composeViewRemappingsToBase(viewOp, toLayoutOp.getResult(0),
+                                            materializedRemapping);
+}
+
+static SmallVector<int64_t> computeProjectedViewConsumerGrid(
+    Value operand, d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> sourceGrid,
+    ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> targetGrid, bool ttnnMode,
+    ArrayRef<int64_t> paddingTileShape) {
+  std::optional<AffineMap> viewToBase = computeMaterializedViewToBaseMap(
+      operand, toLayoutOp, selectedGrid, ttnnMode, paddingTileShape);
+  if (!viewToBase) {
+    return {};
+  }
+
+  SmallVector<int64_t> projectedGrid =
+      projectBaseGridToViewGrid(*viewToBase, sourceGrid);
+  if (!isProjectedGridUsable(projectedGrid, targetGrid)) {
     return {};
   }
   return projectedGrid;
@@ -647,6 +740,58 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   // view-source grids are the producer-side companion of the final consumer
   // grid, projected through the view remapping when that is more parallel than
   // the independent source-grid fallback.
+  for (OperandGridInfo &info : result.operandInfos) {
+    auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
+    if (!toLayoutOp ||
+        toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      continue;
+    }
+
+    SmallVector<int64_t> projectedGrid = computeProjectedViewSourceGrid(
+        info.operand, toLayoutOp, info.selectedGrid, info.targetGrid, ttnnMode,
+        info.paddingTileShape);
+    if (!projectedGrid.empty() &&
+        ttmlir::utils::volume<int64_t>(projectedGrid) >
+            ttmlir::utils::volume<int64_t>(info.viewSourceGrid)) {
+      info.viewSourceGrid = projectedGrid;
+    }
+  }
+
+  // A view may expose a producer that already has a better virtual grid than
+  // the independently selected consumer grid. Project that producer grid
+  // through the materialized view and share it with operands that iterate over
+  // the same loop space.
+  for (auto [idx, info] : llvm::enumerate(result.operandInfos)) {
+    auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
+    if (!toLayoutOp || info.viewSourceGrid.empty() ||
+        toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      continue;
+    }
+
+    SmallVector<int64_t> projectedGrid = computeProjectedViewConsumerGrid(
+        info.operand, toLayoutOp, info.viewSourceGrid, info.selectedGrid,
+        info.targetGrid, ttnnMode, info.paddingTileShape);
+    if (projectedGrid.empty() ||
+        ttmlir::utils::volume<int64_t>(projectedGrid) <=
+            ttmlir::utils::volume<int64_t>(info.selectedGrid)) {
+      continue;
+    }
+
+    AffineMap indexingMap = genericOp.getIndexingMap(idx);
+    for (auto [otherIdx, otherInfo] : llvm::enumerate(result.operandInfos)) {
+      if (genericOp.getIndexingMap(otherIdx) != indexingMap ||
+          ttmlir::utils::volume<int64_t>(projectedGrid) <=
+              ttmlir::utils::volume<int64_t>(
+                  result.normalizedOperandGrids[otherIdx])) {
+        continue;
+      }
+      otherInfo.selectedGrid = projectedGrid;
+      result.normalizedOperandGrids[otherIdx] = projectedGrid;
+    }
+  }
+
+  // If consumer projection changed selected grids, refresh the producer-side
+  // companion grids from the final view grids.
   for (OperandGridInfo &info : result.operandInfos) {
     auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
     if (!toLayoutOp ||

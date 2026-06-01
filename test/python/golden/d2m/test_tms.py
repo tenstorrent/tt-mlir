@@ -49,14 +49,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
     "shape, permutation",
     [
         # 2d transpose
-        pytest.param(
-            (32, 128 * 500),
-            [1, 0],
-            marks=pytest.mark.skip_config(
-                ["sim"],
-                reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
-            ),
-        ),
+        [(32, 128 * 500), [1, 0]],
         pytest.param(
             (32, 128 * 501),
             [1, 0],
