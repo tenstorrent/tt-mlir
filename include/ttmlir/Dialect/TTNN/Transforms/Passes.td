@@ -366,7 +366,13 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-rope-fusion",
             "bool", /*default=*/"false",
             "Enable RoPE fusion patterns at the TTNN level. Disabled by "
-            "default since RoPE fusion is handled at the TTIR level.">
+            "default since RoPE fusion is handled at the TTIR level.">,
+    Option<"enableUnvalidatedSDPAFusion",
+            "enable-unvalidated-sdpa-fusion",
+            "bool", /*default=*/"false",
+            "Enable SDPA fusion without op-model validation. Useful when "
+            "enable-op-constraints is false but SDPA fusion is still "
+            "desired (e.g. to avoid OOM from large attention score tensors).">
   ];
 }
 

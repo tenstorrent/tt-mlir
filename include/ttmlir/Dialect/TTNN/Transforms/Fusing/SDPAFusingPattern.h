@@ -23,9 +23,11 @@ namespace mlir::tt::ttnn::fusing {
 class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
 public:
   SDPAFusing(mlir::MLIRContext *context,
-             const OpValidationConfig &validationConfig = {})
+             const OpValidationConfig &validationConfig = {},
+             bool enableValidation = true)
       : OpRewritePattern<MatmulOp>(context),
-        validationConfig(validationConfig) {}
+        validationConfig(validationConfig),
+        enableValidation(enableValidation) {}
 
   mlir::LogicalResult
   matchAndRewrite(MatmulOp srcOp,
@@ -33,6 +35,7 @@ public:
 
 private:
   OpValidationConfig validationConfig;
+  bool enableValidation = true;
 
   struct SDPAComponents;
 

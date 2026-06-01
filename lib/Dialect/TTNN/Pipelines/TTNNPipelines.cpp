@@ -221,7 +221,12 @@ void createTTNNFusingPass(OpPassManager &pm,
           "TTNNOptimizer passes require OpModel support to be enabled.");
 #endif
     } else {
-      pm.addPass(mlir::tt::ttnn::createTTNNFusing());
+      // Optimizer is disabled, but still fuse SDPA without opmodel validation
+      // so large-sequence models (e.g. Pixtral 12100-token vision encoder) get
+      // flash-attention instead of the quadratic QK^T materialization that OOMs.
+      TTNNFusingOptions fusingOptions;
+      fusingOptions.enableUnvalidatedSDPAFusion = true;
+      pm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
     }
   }
 }

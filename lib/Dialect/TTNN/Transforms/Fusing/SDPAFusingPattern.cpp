@@ -678,6 +678,19 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
   auto originalOutputType =
       mlir::cast<RankedTensorType>(c.attentionMatmul.getResult().getType());
 
+  // Drop all-zeros attention mask — zero bias has no effect on softmax output
+  // but for long sequences (e.g. Pixtral 12100-token vision encoder) the
+  // [B, H, S, S] f32 tensor can exceed chip DRAM capacity (9.4 GB for S=12100
+  // across 8 chips with per-bank limits). Stripping it lets DCE remove the
+  // ZerosOp entirely and the SDPA kernel runs as full bidirectional attention.
+  if (c.mask) {
+    Value innerMask =
+        ttmlir::utils::lookThrough<TypecastOp, ToLayoutOp, ToDeviceOp>(c.mask);
+    if (mlir::isa_and_present<ZerosOp>(innerMask.getDefiningOp())) {
+      c.mask = Value();
+    }
+  }
+
   // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470:
   // tt-metal's SDPA kernel computes exp((sink - max) * scale), applying scale
   // to the attention sink. But the sink is already in scaled score space, so
@@ -698,9 +711,6 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
   auto qShape = qType.getShape();
 
-  IsolatedIRValidationWrapper validator(rewriter.getContext(),
-                                        validationConfig);
-
   bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
   if (isDecode) {
     Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
@@ -716,19 +726,23 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
           c.attentionMatmul.getLoc());
     }
 
-    auto validationResult =
-        validator.validateOp<ScaledDotProductAttentionDecodeOp>(
-            c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
-            {permutedQuery.getType()}, permutedQuery, c.key, c.value,
-            /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
-            /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
-            /*program_config=*/SDPAProgramConfigAttr());
+    if (enableValidation) {
+      IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                            validationConfig);
+      auto validationResult =
+          validator.validateOp<ScaledDotProductAttentionDecodeOp>(
+              c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
+              {permutedQuery.getType()}, permutedQuery, c.key, c.value,
+              /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
+              /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
+              /*program_config=*/SDPAProgramConfigAttr());
 
-    if (!validationResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
-                   "SDPA decode fusion validation failed: {0}",
-                   validationResult.errorMessage);
-      return failure();
+      if (!validationResult.isSuccess()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
+                     "SDPA decode fusion validation failed: {0}",
+                     validationResult.errorMessage);
+        return failure();
+      }
     }
 
     auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
@@ -748,17 +762,21 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
-    auto validationResult = validator.validateOp<ScaledDotProductAttentionOp>(
-        c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
-        {c.query.getType()}, c.query, c.key, c.value, c.mask,
-        /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
+    if (enableValidation) {
+      IsolatedIRValidationWrapper validator(rewriter.getContext(),
+                                            validationConfig);
+      auto validationResult = validator.validateOp<ScaledDotProductAttentionOp>(
+          c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
+          {c.query.getType()}, c.query, c.key, c.value, c.mask,
+          /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
+          /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
 
-    if (!validationResult.isSuccess()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
-                   "SDPA fusion validation failed: {0}",
-                   validationResult.errorMessage);
-      return failure();
+      if (!validationResult.isSuccess()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::IsolatedIRValidationWrapper,
+                     "SDPA fusion validation failed: {0}",
+                     validationResult.errorMessage);
+        return failure();
+      }
     }
 
     auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(

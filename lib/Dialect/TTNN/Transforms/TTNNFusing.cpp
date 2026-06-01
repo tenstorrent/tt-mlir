@@ -328,6 +328,13 @@ public:
         patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       }
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
+      // Fallback: if opmodel validation fails for the SDPA (e.g. large-sequence
+      // vision encoders like Pixtral 12100-token), fuse without validation so
+      // the flash-attention kernel replaces the unfused QK^T + mask + softmax
+      // path. The zeros-mask elimination in SDPAFusingPattern::createSDPAOp
+      // then removes the [B,H,S,S] bias tensor that would otherwise OOM.
+      patterns.add<fusing::SDPAFusing>(&getContext(), OpValidationConfig{},
+                                       /*enableValidation=*/false);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
           &getContext(), validationConfig);
@@ -335,6 +342,16 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
                                                           validationConfig);
+    } else if (enableUnvalidatedSDPAFusion) {
+      // No op-model available (e.g. optimization_level 0). Still fuse eager
+      // attention into ttnn.scaled_dot_product_attention, but skip op-model
+      // validation so we don't touch the process-global GraphTracker. This
+      // turns the quadratic [B,H,S,S] score/mask materialization (which OOMs
+      // for large sequences such as the Pixtral vision encoder) into flash
+      // attention without the graph-capture/runtime concurrency segfault that
+      // the validated path triggers.
+      patterns.add<fusing::SDPAFusing>(&getContext(), OpValidationConfig{},
+                                       /*enableValidation=*/false);
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
