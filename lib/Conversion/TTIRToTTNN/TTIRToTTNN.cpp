@@ -387,12 +387,7 @@ public:
       indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
     }
 
-    // tt-metal reshapes indices from (batch, seq_len) to (batch, 1, 1, seq_len)
-    // and asserts batch * seq_len == number of gradient vectors which are
-    // further embedded into the weight tensor. For 1D indices (N,) it takes
-    // first_dim == last_dim == N, producing (N, 1, 1, N) and the assert fails
-    // (N*N != N). Unsqueeze to 2D: (N,) -> (1, N) so tt-metal sees
-    // (1, 1, 1, N).
+    // Unsqueeze 1D tensor to 2D tensor: (N,) -> (1, N).
     if (indicesType.getRank() == 1) {
       llvm::SmallVector<int64_t, 2> unsqueezedShape{1,
                                                     indicesType.getDimSize(0)};
@@ -471,6 +466,20 @@ public:
     // Get data type, tensor layout, buffer type and memory config.
     ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
         rewriter.getContext(), layoutAttr.getDataType());
+
+    // tt-metal requires 4D indices tensor:
+    // [batch_size, seq_len] --> [batch_size, 1, 1, seq_len].
+    auto currentIndicesType =
+        mlir::cast<RankedTensorType>(inputIndices.getType());
+    if (currentIndicesType.getRank() == 2) {
+      llvm::SmallVector<int64_t, 4> fourDShape{
+          currentIndicesType.getDimSize(0), 1, 1,
+          currentIndicesType.getDimSize(1)};
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices), fourDShape,
+          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_4d_indices"));
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
         op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
         adaptor.getWeight(), reshapedGrad, dTypeAttr);
