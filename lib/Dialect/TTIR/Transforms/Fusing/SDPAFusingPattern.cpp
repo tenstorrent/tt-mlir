@@ -134,6 +134,55 @@ bool isLastTwoDimsTranspose(TransposeOp transposeOp) {
   return d0 == rank - 2 && d1 == rank - 1;
 }
 
+// Match a ttir.permute that swaps only the last two dimensions (identity on all
+// leading dims). This is the form Kᵀ takes after dot_general decomposition,
+// which real models lower to instead of ttir.transpose.
+bool isLastTwoDimsPermute(PermuteOp permuteOp) {
+  ArrayRef<int64_t> perm = permuteOp.getPermutation();
+  int64_t rank = static_cast<int64_t>(perm.size());
+  if (rank < 2) {
+    return false;
+  }
+  for (int64_t i = 0; i < rank - 2; ++i) {
+    if (perm[i] != i) {
+      return false;
+    }
+  }
+  return perm[rank - 2] == rank - 1 && perm[rank - 1] == rank - 2;
+}
+
+// A GQA head-expansion: a ttir.repeat_interleave on the num-heads dim,
+// optionally wrapped in one element-type typecast. Real models expand K/V from
+// Hkv to Hq heads with this before the score matmul; SDPA does GQA natively, so
+// it is peeled.
+struct GqaExpansion {
+  Value native;    // the un-expanded (Hkv-head) tensor
+  TypecastOp cast; // the surrounding cast, or null
+  std::optional<uint32_t> repeats;
+};
+
+// Detect (without mutating IR) whether v is a head-dim repeat_interleave,
+// optionally under a single typecast. Returns repeats == nullopt if not.
+GqaExpansion detectGqaExpansion(Value v) {
+  TypecastOp cast = v.getDefiningOp<TypecastOp>();
+  Value underCast = cast ? cast.getInput() : v;
+  auto repeatOp = underCast.getDefiningOp<RepeatInterleaveOp>();
+  if (!repeatOp) {
+    return {v, nullptr, std::nullopt};
+  }
+  auto inType = mlir::dyn_cast<RankedTensorType>(repeatOp.getInput().getType());
+  if (!inType) {
+    return {v, nullptr, std::nullopt};
+  }
+  int64_t dim = repeatOp.getDim();
+  int64_t rank = inType.getRank();
+  int64_t normDim = dim < 0 ? rank + dim : dim;
+  if (normDim != kNumHeadsDim) {
+    return {v, nullptr, std::nullopt};
+  }
+  return {repeatOp.getInput(), cast, repeatOp.getRepeats()};
+}
+
 // Validate Q, K, V have compatible 4D SDPA shapes:
 //   Q [B, Hq, Sq, D], K/V [B, Hkv, Sk, D].
 bool validateShapes(Value query, Value key, Value value) {
@@ -315,13 +364,34 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   auto [qStripped, qPreScale] = peelScale(c.scoreQRaw);
   c.query = qStripped;
 
-  // K via transpose with optional pre-scale before the transpose.
-  auto kTranspose = c.scoreKRaw.getDefiningOp<TransposeOp>();
-  if (!kTranspose || !isLastTwoDimsTranspose(kTranspose)) {
+  // K via a last-two-dims transpose, expressed either as ttir.transpose or as
+  // ttir.permute (the form dot_general decomposition produces). A K scale may
+  // sit on either side of the transpose: multiply(transpose(K)) (post — the
+  // real-model form) or transpose(multiply(K)) (pre).
+  auto [kOuterStripped, kScaleAfter] = peelScale(c.scoreKRaw);
+  Value kTransposedInput;
+  if (auto kTranspose = kOuterStripped.getDefiningOp<TransposeOp>()) {
+    if (!isLastTwoDimsTranspose(kTranspose)) {
+      return failure();
+    }
+    kTransposedInput = kTranspose.getInput();
+  } else if (auto kPermute = kOuterStripped.getDefiningOp<PermuteOp>()) {
+    if (!isLastTwoDimsPermute(kPermute)) {
+      return failure();
+    }
+    kTransposedInput = kPermute.getInput();
+  } else {
     return failure();
   }
-  auto [kStripped, kPreScale] = peelScale(kTranspose.getInput());
+  auto [kStripped, kScaleBefore] = peelScale(kTransposedInput);
   c.key = kStripped;
+
+  // A K scale may appear before and/or after the transpose; both are equivalent
+  // K-side pre-scales, so fold them into one.
+  std::optional<float> kPreScale;
+  if (kScaleAfter.has_value() || kScaleBefore.has_value()) {
+    kPreScale = kScaleAfter.value_or(1.0f) * kScaleBefore.value_or(1.0f);
+  }
 
   // Combine scales, reject double-scaling.
   bool hasPostScale = c.scale.has_value();
@@ -331,6 +401,32 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   }
   if (hasPreScale) {
     c.scale = qPreScale.value_or(1.0f) * kPreScale.value_or(1.0f);
+  }
+
+  // GQA: models expand K/V from Hkv to Hq heads with a head-dim
+  // repeat_interleave before the score matmul. SDPA handles Hkv < Hq natively,
+  // so peel a matching expansion from both K and V (only when both match, to
+  // keep their head counts equal) and feed the un-expanded tensors. Any
+  // element-type cast that sat outside the expansion is re-applied on the
+  // smaller native tensor so K/V keep the element type they had post-expansion.
+  GqaExpansion kGqa = detectGqaExpansion(c.key);
+  GqaExpansion vGqa = detectGqaExpansion(c.value);
+  if (kGqa.repeats.has_value() && vGqa.repeats.has_value() &&
+      *kGqa.repeats == *vGqa.repeats) {
+    auto reapplyCast = [&](GqaExpansion g) -> Value {
+      if (!g.cast) {
+        return g.native;
+      }
+      auto nativeType = mlir::cast<RankedTensorType>(g.native.getType());
+      auto castElemType =
+          mlir::cast<RankedTensorType>(g.cast.getType()).getElementType();
+      auto nativeCastType = RankedTensorType::get(
+          nativeType.getShape(), castElemType, nativeType.getEncoding());
+      return rewriter.create<TypecastOp>(g.cast.getLoc(), nativeCastType,
+                                         g.native);
+    };
+    c.key = reapplyCast(kGqa);
+    c.value = reapplyCast(vGqa);
   }
 
   // Shape validation (strict 4D, no unsqueezing).
