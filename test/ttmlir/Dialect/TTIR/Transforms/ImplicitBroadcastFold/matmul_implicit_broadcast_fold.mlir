@@ -37,8 +37,8 @@ module {
     return %1 : tensor<4x544x5760xf32>
   }
 
-  // Negative: rank-4 broadcast on dim 0. The kernel requires a_shape[0] ==
-  // b_shape[0], so dim-0 broadcasts cannot be folded either.
+  // Negative: a rank-4 broadcast on dim 0. The fold only targets dim 1, so a
+  // broadcast that touches any other dim must be kept.
   func.func @no_fold_rank4_batch_dim0(%arg0: tensor<4x256x128x128xf32>, %arg1: tensor<1x256x128x128xf32>) -> tensor<4x256x128x128xf32> {
     %0 = "ttir.broadcast"(%arg1) <{broadcast_dimensions = array<i64: 4, 1, 1, 1>}> : (tensor<1x256x128x128xf32>) -> tensor<4x256x128x128xf32>
     %1 = "ttir.matmul"(%arg0, %0) <{transpose_a = false, transpose_b = false}> : (tensor<4x256x128x128xf32>, tensor<4x256x128x128xf32>) -> tensor<4x256x128x128xf32>
@@ -46,5 +46,18 @@ module {
     // CHECK: "ttir.broadcast"
     // CHECK: "ttir.matmul"
     return %1 : tensor<4x256x128x128xf32>
+  }
+
+  // Negative: the broadcast is on dim 1 of the RHS, but the LHS dim 1 is itself
+  // size 1 -- so the matmul's dim-1 output comes entirely from the RHS
+  // broadcast. Dropping it would shrink the result from 256 to 1, so it must be
+  // kept. This is why "broadcast on dim 1 of the RHS" alone is not sufficient.
+  func.func @no_fold_lhs_dim1_is_one(%arg0: tensor<1x1x128x128xf32>, %arg1: tensor<1x1x128x128xf32>) -> tensor<1x256x128x128xf32> {
+    %0 = "ttir.broadcast"(%arg1) <{broadcast_dimensions = array<i64: 1, 256, 1, 1>}> : (tensor<1x1x128x128xf32>) -> tensor<1x256x128x128xf32>
+    %1 = "ttir.matmul"(%arg0, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x1x128x128xf32>, tensor<1x256x128x128xf32>) -> tensor<1x256x128x128xf32>
+    // CHECK-LABEL: func.func @no_fold_lhs_dim1_is_one
+    // CHECK: "ttir.broadcast"
+    // CHECK: "ttir.matmul"
+    return %1 : tensor<1x256x128x128xf32>
   }
 }

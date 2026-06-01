@@ -104,11 +104,11 @@ public:
 
   LogicalResult matchAndRewrite(ttir::MatmulOp op,
                                 PatternRewriter &rewriter) const override {
-    Value newB = tryDropBroadcast(op.getB(), op.getA());
-    if (!newB) {
+    Value newRhs = tryDropBroadcast(op.getB(), op.getA());
+    if (!newRhs) {
       return failure();
     }
-    rewriter.modifyOpInPlace(op, [&]() { op.setOperand(1, newB); });
+    rewriter.modifyOpInPlace(op, [&]() { op.setOperand(1, newRhs); });
     return success();
   }
 
@@ -120,43 +120,40 @@ private:
   // now. This *is* basically hardcoding the current details of metal behavior
   // on the TTIR level, just like isImplicitBroadcastSupported does for
   // elementwise ops.
-  //
-  // `operand` is the RHS (the potentially-broadcast input), `other` the LHS.
-  static Value tryDropBroadcast(Value operand, Value other) {
-    auto bcast = operand.getDefiningOp<ttir::BroadcastOp>();
+  static Value tryDropBroadcast(Value rhs, Value lhs) {
+    auto bcast = rhs.getDefiningOp<ttir::BroadcastOp>();
     if (!bcast) {
       return {};
     }
-    auto inShape =
+    // `foldedRhsShape` is what the RHS would become if we drop the broadcast.
+    auto foldedRhsShape =
         mlir::cast<RankedTensorType>(bcast.getInput().getType()).getShape();
-    auto outShape = mlir::cast<RankedTensorType>(operand.getType()).getShape();
-    auto otherShape = mlir::cast<RankedTensorType>(other.getType()).getShape();
+    auto rhsShape = mlir::cast<RankedTensorType>(rhs.getType()).getShape();
+    auto lhsShape = mlir::cast<RankedTensorType>(lhs.getType()).getShape();
 
     constexpr int64_t kMatmulRank = 4;
     constexpr int64_t kBroadcastableBatchDim = 1;
-    if (static_cast<int64_t>(inShape.size()) != kMatmulRank ||
-        static_cast<int64_t>(otherShape.size()) != kMatmulRank) {
+    if (static_cast<int64_t>(foldedRhsShape.size()) != kMatmulRank ||
+        static_cast<int64_t>(lhsShape.size()) != kMatmulRank) {
       return {};
     }
 
-    // Validate the fold dim by dim:
-    //  - The broadcast must expand exactly dim 1 and leave every other dim
-    //    untouched -- the inner two dims (M/K, K/N) carry matmul semantics, and
-    //    the kernel cannot broadcast dim 0.
-    //  - On the batch dims, the LHS must already carry the matmul's batch size,
-    //    so dropping the broadcast leaves the result unchanged and the kernel
-    //    only has to implicitly broadcast a size-1 RHS dim 1 against a matching
-    //    dim 0.
-    constexpr int64_t kNumBatchDims = kMatmulRank - 2;
+    // The broadcast must expand exactly dim 1 and leave every other dim
+    // untouched: the inner two dims (M/K, K/N) carry matmul semantics, and dim
+    // 0 is only sometimes broadcastable, so the safe default is to keep it
+    // untouched.
     for (int64_t i = 0; i < kMatmulRank; ++i) {
-      bool expanded = inShape[i] != outShape[i];
+      bool expanded = foldedRhsShape[i] != rhsShape[i];
       if (expanded != (i == kBroadcastableBatchDim)) {
         return {};
       }
-      bool isBatchDim = i < kNumBatchDims;
-      if (isBatchDim && otherShape[i] != outShape[i]) {
-        return {};
-      }
+    }
+
+    // The LHS must already supply the broadcast dim's full size, so dropping
+    // the broadcast leaves the result unchanged and the kernel only has to
+    // implicitly broadcast a size-1 RHS dim 1.
+    if (lhsShape[kBroadcastableBatchDim] != rhsShape[kBroadcastableBatchDim]) {
+      return {};
     }
 
     return bcast.getInput();
