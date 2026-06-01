@@ -394,16 +394,6 @@ private:
     if (!info.opsToCreate.createDataTypeCastOp) {
       return currentInput;
     }
-
-    RankedTensorType currentInputType =
-        mlir::cast<RankedTensorType>(currentInput.getType());
-
-    TTNNLayoutAttr inputLayout =
-        mlir::cast<TTNNLayoutAttr>(currentInputType.getEncoding());
-    if (!inputLayout.isSystemBufferType()) {
-      assert(inputLayout.getLayout() == Layout::Tile &&
-             "Only tilized tensors are supported for device typecast");
-    }
     return this->createDataTypeCastingOp(op, rewriter, currentInput, info);
   }
 
@@ -1081,28 +1071,8 @@ private:
       return;
     }
 
-    // If the output is tilized, typecast directly on device
-    if (output.isTilized()) {
-      // If the input is sharded, typecast should happen after converting to
-      // memory.
-      if (input.isSharded()) {
-        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                            currentInput, info);
-        currentInput = this->createDataTypeCastingOpIfNeeded(
-            op, rewriter, currentInput, info);
-      } else {
-        currentInput = this->createDataTypeCastingOpIfNeeded(
-            op, rewriter, currentInput, info);
-        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                            currentInput, info);
-      }
-      currentInput =
-          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
-      op.getResult().replaceAllUsesWith(currentInput);
-      return;
-    }
-
-    // If the output is not tilized, typecast on host
+    // If the output is not tilized and we're moving to host anyway, typecast
+    // on host to avoid a redundant on-device typecast.
     if (!output.isTilized() && opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
@@ -1112,24 +1082,24 @@ private:
       return;
     }
 
-    // Device to device untilized typecast, need to move to host first
-    if (!output.isTilized() && !opsToCreate.createFromDeviceOp) {
-      // Force-create a FromDeviceOp
-      currentInput = this->createFromDeviceOpIfNeeded(
-          op, rewriter, currentInput, info, /*forceCreate=*/true);
-      // typecast on host
-      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
-                                                           currentInput, info);
-      // move back to device and convert memory config if needed
-      currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
-                                                    info, /*forceCreate=*/true);
+    // Otherwise typecast directly on device. This covers both the tilized case
+    // and the device-to-device untilized case.
+    // If the input is sharded, typecast should happen after converting to
+    // memory.
+    if (input.isSharded()) {
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
-      op.getResult().replaceAllUsesWith(currentInput);
-      return;
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+    } else {
+      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
+                                                           currentInput, info);
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
     }
-
-    llvm_unreachable("Unreachable code path");
+    currentInput =
+        this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+    op.getResult().replaceAllUsesWith(currentInput);
   }
 
   void handleDeviceInputLayoutTypecast(ttnn::ToLayoutOp op,

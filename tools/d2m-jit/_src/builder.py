@@ -15,9 +15,11 @@ no Python-side graph — the MLIR module IS the graph.
 """
 
 import ast as _ast
+import contextlib
 import functools
 import inspect
 import os
+import threading
 from typing import Optional
 
 try:
@@ -33,7 +35,7 @@ except (ModuleNotFoundError, ImportError):
 
 from ttmlir.ir import *
 from ttmlir.passmanager import PassManager
-from ttmlir.dialects import d2m, func, arith, ttcore
+from ttmlir.dialects import d2m, func, arith, linalg, ttcore
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
 from .ast import D2MCompiler
@@ -134,8 +136,59 @@ _PIPELINE = ",".join(
 )
 
 
+# --- Scope abstraction ------------------------------------------------------
+#
+# A "scope" is the build context that the lazy-emission helpers
+# (`to_layout`, `empty`, `view_layout`, `_emit_kernel_generic`, …) target.
+# The default scope is `_Builder` — a process-level singleton that owns its
+# own `Context`/`Module`/open `func.func` and accumulates MLIR ops there
+# until `to_host` runs the pipeline and resets it.
+#
+# A `RewriteScope` (defined alongside the pattern-rewrite framework) plugs
+# in a `PatternRewriter`'s context + insertion point so that calling a
+# `@d2m.kernel` from inside a rewrite emits the GenericOp at the matched
+# op's site rather than into a fresh module. From the perspective of the
+# emission helpers, all scopes quack the same: they expose `ctx`, `loc`,
+# `insert_point`, `generation`, `add_host_input`, `add_scalar_input`.
+#
+# `_get_scope()` returns the top of a thread-local stack, falling back to
+# the lazy `_Builder` singleton when nothing is pushed. Push/pop is done
+# via the `_push_scope()` context manager — patterns frameworks (and tests)
+# use it; user code never does.
+
+_scope_local = threading.local()
+
+
+def _get_scope():
+    """Return the active build scope. Defaults to the lazy `_Builder` singleton."""
+    stack = getattr(_scope_local, "stack", None)
+    if stack:
+        return stack[-1]
+    return _Builder.get()
+
+
+@contextlib.contextmanager
+def _push_scope(scope):
+    """Push `scope` as the active build scope for the duration of the block."""
+    stack = getattr(_scope_local, "stack", None)
+    if stack is None:
+        stack = []
+        _scope_local.stack = stack
+    stack.append(scope)
+    try:
+        yield scope
+    finally:
+        popped = stack.pop()
+        assert popped is scope, "scope stack out of sync"
+
+
 class _Builder:
-    """Process-level singleton accumulating MLIR ops for the current lazy graph."""
+    """Process-level singleton accumulating MLIR ops for the current lazy graph.
+
+    This is one concrete `Scope` implementation; see `_get_scope` for the
+    abstraction. Owns its own `Context`/`Module`/open `func.func`. Reset by
+    `to_host` once the pipeline has run.
+    """
 
     _instance: Optional["_Builder"] = None
     _next_generation: int = 1  # monotonic; id() can be reused after GC
@@ -200,6 +253,53 @@ class _Builder:
         return list(self._input_tensors)
 
 
+class RewriteScope:
+    """Build-scope view onto an MLIR `PatternRewriter` insertion point.
+
+    Pushed by the d2m-jit rewrite framework so that calling a `@d2m.kernel`
+    from inside a pattern body emits the `d2m.GenericOp` (and any supporting
+    `to_layout`/`view_layout`/`empty` ops) at the rewriter's IP rather than
+    into a fresh host func.
+
+    Quacks like `_Builder` for the emission helpers: exposes `ctx`, `loc`,
+    `insert_point`, `generation`. `add_host_input` raises (no host I/O from
+    a rewrite). `add_scalar_input` emits an `arith.constant ... : index` at
+    the rewriter's IP and returns the resulting Value.
+
+    Has no `module` attribute — the surrounding module is the one being
+    mutated, not something this scope owns.
+    """
+
+    def __init__(self, rewriter, op, loc=None):
+        self.rewriter = rewriter
+        # Derive ctx from the matched op (rewriter doesn't bind it directly).
+        self.ctx = op.context
+        self.loc = loc if loc is not None else op.location
+        # InsertionPoint pointing at the rewriter's current insertion point.
+        # The PDL driver sets this to "before the matched op" before invoking
+        # the native rewrite, which is exactly where we want new IR to land.
+        self.insert_point = rewriter.ip
+        # Unique non-reusable id, distinct from any _Builder generation.
+        self.generation = _Builder._next_generation
+        _Builder._next_generation += 1
+
+    def add_host_input(self, layout, host_tensor):
+        raise RuntimeError(
+            "Cannot lift a host tensor from inside a pattern rewrite. The "
+            "graph being built is part of an existing module; use "
+            "d2m.from_value(ir.Value) to wrap an SSA value already present in "
+            "that module."
+        )
+
+    def add_scalar_input(self, value: int):
+        # Emit an arith.constant of index type at the rewriter's IP.
+        # This is the rewrite-mode analog of _Builder.add_scalar_input, which
+        # would have added a func arg in lazy mode.
+        with self.ctx, self.loc, self.insert_point:
+            idx_ty = IndexType.get(self.ctx)
+            return arith.ConstantOp(idx_ty, IntegerAttr.get(idx_ty, int(value))).result
+
+
 # --- LazyTensor --------------------------------------------------------------
 
 
@@ -241,7 +341,7 @@ class LazyTensor:
         - Materialised (different generation): auto-re-enter via to_layout.
         - Stale (different generation, not materialised): raise.
         """
-        b = _Builder.get()
+        b = _get_scope()
         if self.generation == b.generation:
             return self
         if self.materialized is not None:
@@ -267,7 +367,7 @@ def to_layout(input_, layout: Layout) -> LazyTensor:
 
     Returns a LazyTensor at the layout's *blocked* grid.
     """
-    b = _Builder.get()
+    b = _get_scope()
 
     if isinstance(input_, LazyTensor):
         src = input_._resolve()
@@ -338,7 +438,7 @@ def empty(layout: Layout) -> LazyTensor:
     This mirrors the old eager flow so d2m-allocate can plan the
     physical placement from the unblocked breadcrumb.
     """
-    b = _Builder.get()
+    b = _get_scope()
     with b.ctx, b.loc, b.insert_point:
         unblocked_ty = layout.build_device_tensor_type(b.ctx, blocked=False)
         raw = d2m.empty(unblocked_ty)
@@ -349,21 +449,124 @@ def empty(layout: Layout) -> LazyTensor:
 def full(layout: Layout, value) -> LazyTensor:
     """Allocate a device tensor initialised to `value` (a Python scalar).
 
-    Implemented as a host-side `torch.full` followed by `to_layout`. This
-    is a copy rather than a device-side fill; a true device-side
-    `d2m.tile_fill` + `linalg.fill` path runs into pipeline materialisation
-    issues at host-func scope today.
+    Tiled layouts: emits a `d2m.generic` wrapping
+    `linalg.generic { d2m.tile_fill }` + `d2m.remote_store`, mirroring
+    `lowerRankedTensorFillViaGeneric` in `TTIRToD2M.cpp`. No host roundtrip.
+
+    Non-tiled layouts: falls back to a host-side `torch.full` + `to_layout`
+    copy, since `d2m.tile_fill` is a tile-typed op.
+
+    Note: on Wormhole, `d2m.tile_fill` for f32 routes through the SFPU's
+    vFloat (fp19: 1+8+10), so values with non-zero lower-13 mantissa bits
+    (e.g. 3.14) are truncated. 0.0, 1.0, and other fp19-exact values are
+    bit-perfect; arbitrary f32 values are not.
     """
-    if torch is None:
-        raise RuntimeError("torch is required for d2m_jit.full()")
-    torch_dtype = _ttcore_to_torch_dtype(layout.dtype)
-    host = torch.full(list(layout.logical_shape), value, dtype=torch_dtype)
-    return to_layout(host, layout)
+    if not layout.tiled:
+        if torch is None:
+            raise RuntimeError(
+                "torch is required for d2m_jit.full() on non-tiled layouts"
+            )
+        torch_dtype = _ttcore_to_torch_dtype(layout.dtype)
+        host = torch.full(list(layout.logical_shape), value, dtype=torch_dtype)
+        return to_layout(host, layout)
+
+    b = _get_scope()
+    with b.ctx, b.loc, b.insert_point:
+        # Allocate the output device tensor (mirror empty()).
+        unblocked_ty = layout.build_device_tensor_type(b.ctx, blocked=False)
+        raw = d2m.empty(unblocked_ty)
+        out_blocked = layout.build_blocked_view(b.ctx, raw)
+        outer_ty = out_blocked.type
+        outer_rt = RankedTensorType(outer_ty)
+
+        # Outer blocked rank is 2N: grid dims (first N) + shard dims (last N).
+        # The per-shard tensor type drops the grid dims and the encoding.
+        outer_rank = outer_rt.rank
+        assert (
+            outer_rank % 2 == 0
+        ), f"expected blocked tensor rank to be even, got {outer_rank}"
+        physical_rank = outer_rank // 2
+        tile_ty = outer_rt.element_type
+        shard_shape = list(outer_rt.shape)[physical_rank:]
+        shard_ty = RankedTensorType.get(shard_shape, tile_ty)
+
+        # Outer d2m.generic attrs: identity affine map and parallel iterators
+        # over the user grid; one compute thread.
+        identity = AffineMap.get_identity(physical_rank)
+        indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)])
+        parallel_iter = ttcore.ir.IteratorTypeAttr.get(
+            b.ctx, ttcore.IteratorType.Parallel.value
+        )
+        iterator_types = ArrayAttr.get([parallel_iter] * physical_rank)
+        # Unified, not Compute: remote_store can only live in a
+        # datamovement or unified region.
+        threads = ArrayAttr.get(
+            [d2m.ir.ThreadAttr.get(b.ctx, str(d2m.ThreadType.Unified))]
+        )
+        grid_attr = ttcore.ir.GridAttr.get(b.ctx, list(layout.grid_shape))
+
+        generic = d2m.GenericOp(
+            [outer_ty],
+            [],  # inputs
+            [out_blocked],  # outputs
+            [],  # additionalArgs
+            grid_attr,
+            [1] * physical_rank,  # block_factors: one block per grid cell
+            indexing_maps,
+            iterator_types,
+            threads,
+            1,  # num_regions
+        )
+
+        body = Block.create_at_start(generic.regions[0], [], [])
+        with InsertionPoint(body):
+            # Per-shard buffer that the inner linalg.generic fills.
+            shard_buf = d2m.empty(shard_ty)
+
+            # Inner linalg.generic { arith.constant + d2m.tile_fill }.
+            linalg_indexing = ArrayAttr.get([AffineMapAttr.get(identity)])
+            linalg_parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+            linalg_iter = ArrayAttr.get([linalg_parallel] * physical_rank)
+
+            inner_generic = linalg.GenericOp(
+                [shard_ty],
+                [],  # no inputs
+                [shard_buf],
+                linalg_indexing,
+                linalg_iter,
+            )
+            inner_body = Block.create_at_start(
+                inner_generic.regions[0], [tile_ty], [Location.unknown()]
+            )
+            with InsertionPoint(inner_body):
+                scalar_ty = layout.get_scalar_type(b.ctx)
+                if FloatType.isinstance(scalar_ty):
+                    scalar_attr = FloatAttr.get(scalar_ty, float(value))
+                else:
+                    scalar_attr = IntegerAttr.get(scalar_ty, int(value))
+                scalar = arith.ConstantOp(scalar_ty, scalar_attr).result
+                filled_tile = d2m.TileFillOp(tile_ty, scalar).result
+                linalg.yield_([filled_tile])
+
+            # Grid indices for remote_store: d2m.block_index(d) per dim.
+            indices = [d2m.block_index(d) for d in range(physical_rank)]
+            stored = d2m.remote_store(
+                outer_ty,
+                out_blocked,
+                indices,
+                start_device=[],
+                device_mcast_shape=[],
+                semaphore_indices=[],
+                local_buffer=inner_generic.result,
+            )
+            d2m.yield_([stored])
+
+    return LazyTensor(layout, generic.results[0], b.generation)
 
 
 def zeros(layout: Layout) -> LazyTensor:
-    """`d2m.full(layout, 0.0)` -- allocate a zero-initialised device tensor."""
-    return full(layout, 0.0)
+    """`d2m.full(layout, 0)` -- allocate a zero-initialised device tensor."""
+    return full(layout, 0)
 
 
 def _derive_perm_layout(src_layout: Layout, spec):
@@ -401,7 +604,7 @@ def _emit_view_layout(lt: LazyTensor, affine_map, spec) -> LazyTensor:
     """Lower form: take an already-built AffineMap + spec and emit
     `d2m.view_layout`. Used by both view_layout (with a user lambda)
     and view (with a lifted blocked-rank spec built in Python)."""
-    b = _Builder.get()
+    b = _get_scope()
     with b.ctx, b.loc, b.insert_point:
         src_type = lt.value.type
         src_shape = list(src_type.shape)
@@ -438,7 +641,7 @@ def view_layout(lt: LazyTensor, remapping_fn) -> LazyTensor:
     permutation.
     """
     lt = lt._resolve()
-    b = _Builder.get()
+    b = _get_scope()
     with b.ctx, b.loc:
         affine_map, spec = _affine_map_from_lambda(remapping_fn)
     return _emit_view_layout(lt, affine_map, spec)
@@ -458,7 +661,7 @@ def _emit_perm_view(lt: LazyTensor, perm) -> LazyTensor:
         )
     lifted_perm = list(perm) + [p + n_logical for p in perm]
     lifted_spec = [("dim", p) for p in lifted_perm]
-    b = _Builder.get()
+    b = _get_scope()
     with b.ctx, b.loc:
         lifted_map = AffineMap.get(
             2 * n_logical, 0, [AffineDimExpr.get(p) for p in lifted_perm]
@@ -477,7 +680,7 @@ def view(lt: LazyTensor, remapping_fn) -> LazyTensor:
     for richer remappings.
     """
     lt = lt._resolve()
-    b = _Builder.get()
+    b = _get_scope()
     with b.ctx, b.loc:
         _, logical_spec = _affine_map_from_lambda(remapping_fn)
     n_logical = len(lt.layout.logical_shape)
@@ -629,6 +832,15 @@ def to_host(*lts: LazyTensor):
     if not lts:
         raise ValueError("to_host requires at least one LazyTensor")
 
+    b = _get_scope()
+    if not isinstance(b, _Builder):
+        raise RuntimeError(
+            "to_host() cannot be called from inside a non-lazy scope (e.g. a "
+            "pattern-rewrite scope). The graph being built is part of the host "
+            "module; its pipeline/execution is the host compiler's job, not the "
+            "rewrite's."
+        )
+
     resolved = [lt._resolve() for lt in lts]
     for i, lt in enumerate(resolved):
         if lt.is_view:
@@ -639,7 +851,6 @@ def to_host(*lts: LazyTensor):
                 f"directly. Convert to a concrete layout first, e.g. "
                 f"to_layout(v, v.layout)."
             )
-    b = _Builder.get()
     # All resolved tensors must belong to this builder (resolve guarantees that).
     assert all(lt.generation == b.generation for lt in resolved)
 
@@ -719,7 +930,7 @@ def _emit_kernel_generic(
     iterator_types,
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
-    b = _Builder.get()
+    b = _get_scope()
 
     def _call_error(msg, hint=None, cause=None):
         # Pin call-site errors to the kernel's `def` line. The user's actual

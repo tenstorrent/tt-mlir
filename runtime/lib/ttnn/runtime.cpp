@@ -4,6 +4,7 @@
 
 #include "Constants.h"
 
+#include "operations/cpu/cpu.h"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
@@ -1243,6 +1244,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv3dWeightsOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
     tensorRefs = {opContext.type_as_PrepareConvTranspose2dWeightsOp()->out()};
     break;
@@ -1297,10 +1302,6 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->out()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRefs = {opContext.type_as_MeshShardOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
@@ -1757,6 +1758,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv3dWeightsOp()->weight_tensor()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
     tensorRefs = {
         opContext.type_as_PrepareConvTranspose2dWeightsOp()->weight_tensor()};
@@ -1874,10 +1879,6 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRefs = {opContext.type_as_MeshShardOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
@@ -2294,6 +2295,21 @@ size_t getProgramIndex(CallbackContext programContextHandle) {
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
   return programContext.getProgramIndex();
+}
+
+std::vector<::tt::runtime::Tensor>
+invokeCpuOp(CallbackContext programContextHandle, OpContext opContextHandle,
+            const std::vector<::tt::runtime::Tensor> &inputs) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const auto &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  LOG_ASSERT(opContext.type_type() == ::tt::target::ttnn::OpType::CpuOp,
+             "invokeCpuOp: opContext must wrap a CpuOp, got ",
+             ::tt::target::ttnn::EnumNameOpType(opContext.type_type()));
+  return operations::cpu::invokeCpuOp(programContext, opContext.type_as_CpuOp(),
+                                      inputs);
 }
 
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {

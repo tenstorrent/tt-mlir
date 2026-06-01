@@ -44,6 +44,7 @@ class D2M_Op<string mnemonic, list<Trait> traits = []> :
 
 // Common type shortcuts used across D2M ops
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
+def AnyRankedTensorOrAnyMemRef: AnyTypeOf<[AnyRankedTensor, AnyMemRef]>;
 
 //===----------------------------------------------------------------------===//
 // D2M traits definition.

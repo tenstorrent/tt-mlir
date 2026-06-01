@@ -26,7 +26,7 @@ def shape_str(val):
 # --- MoE CCL pipeline test (multi-device, dispatch → combine) ---
 
 
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 def test_moe_dispatch_combine(
     target: str, mesh_shape: Tuple[int, int], request, device

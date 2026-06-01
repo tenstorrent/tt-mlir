@@ -3556,6 +3556,25 @@ PrepareConv2dBiasOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// PrepareConv3dWeightsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv3dWeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+PrepareConv3dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // PrepareConvTranspose2dWeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -4186,7 +4205,7 @@ GroupNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.inputMaskLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
       optionalArgs.biasLayout, getNumGroups(), getEpsilon(),
-      opConfig.outputLayout, getCoreGrid());
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4203,7 +4222,7 @@ GroupNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], optionalArgs.inputMaskShape, optionalArgs.inputMaskLayout,
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getNumGroups(),
-      getEpsilon(), opConfig.outputLayout, getCoreGrid());
+      getEpsilon(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

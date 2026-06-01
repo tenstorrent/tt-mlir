@@ -9,6 +9,7 @@
 // 4) BufferAddress arg index remap.
 // 5) CBPort remap into merged cbs list (and sequential hardware cb_ports).
 // 6) LocalSemaphore arg index remap during spatial merge.
+// 7) Handle input of the spatial when remove view_layout.
 
 // Single-region merge smoke test.
 #l1 = #ttcore.memory_space<l1>
@@ -335,6 +336,39 @@ module {
     return
   }
   func.func private @cp_ls_r1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = cb_port, operand_index = 4>, <arg_type = cb_port, operand_index = 5>, <arg_type = local_semaphore, operand_index = 2>, <arg_type = local_semaphore, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    return
+  }
+}
+
+// -----
+
+// Regression: d2m.view_layout feeding d2m.spatial ins/outs should not leave
+// unresolved unrealized_conversion_cast after d2m.generic bypasses view types.
+#l1 = #ttcore.memory_space<l1>
+module {
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+  // CHECK-LABEL: func.func @spatial_view_layout_inout_type_bridge
+  // CHECK: "ttmetal.enqueue_program"
+  // CHECK-NOT: builtin.unrealized_conversion_cast
+  // CHECK-NOT: d2m.view_layout
+  func.func @spatial_view_layout_inout_type_bridge(
+      %arg0: memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1>)
+      -> memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1> {
+    %view = d2m.view_layout %arg0 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1> -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %out = memref.alloc() {alignment = 64 : i64, address = 0x2400} : memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1>
+    %out_view = d2m.view_layout %out remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1> -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>]}
+        ins(%view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
+        outs(%out_view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>) {
+      ^region_0:
+        d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_spatial_view, processor = 1>]}
+            ins(%view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
+            outs(%out_view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
+    }
+    return %out : memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1>
+  }
+
+  func.func private @dm_spatial_view() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
 }

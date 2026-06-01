@@ -519,6 +519,9 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
   c.query = unsqueezeTo4D(c.query);
   c.key = unsqueezeTo4D(c.key);
   c.value = unsqueezeTo4D(c.value);
+  if (c.attentionSink) {
+    c.attentionSink = unsqueezeTo4D(c.attentionSink);
+  }
 
   return true;
 }

@@ -93,9 +93,8 @@ public:
       CoreRangeAttr coreRange, const SymbolTable &symbolTable,
       ttmetal::MathFidelity mathFidelity,
       const DenseMap<size_t, size_t> &cbOperandIndexToPort,
-      const DenseMap<uint32_t, uint32_t> &argMapping) {
+      const DenseMap<uint32_t, uint32_t> &argMapping, const ttcore::Arch arch) {
     SmallVector<Attribute> kernelConfigs;
-    int unassignedNocCounter = 0;
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
@@ -130,18 +129,13 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        int32_t processorIdx = thread.getProcessorIndex();
-        ttcore::NocIndex nocIndex;
-        if (processorIdx < 0) {
-          int32_t index = unassignedNocCounter++ % 2;
-          nocIndex =
-              index == 0 ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-        } else {
-          nocIndex = processorIdx == 1 ? ttcore::NocIndex::Noc0
-                                       : ttcore::NocIndex::Noc1;
-        }
+        const int32_t processorIdx = thread.getProcessorIndex();
+        TT_assert(processorIdx >= 0);
+        const auto nocIdx = (arch == ttcore::Arch::Quasar || processorIdx == 1)
+                                ? ttcore::NocIndex::Noc0
+                                : ttcore::NocIndex::Noc1;
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs, nocIndex);
+            thread.getKernelSymbol(), coreRange, kernelArgs, nocIdx);
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -235,9 +229,10 @@ public:
 
     ArrayAttr threads = op.getThreads();
     CoreRangeAttr coreRange = coreRangeAttrFromOp(rewriter, op);
+    const auto arch = ttcore::getOpChipDescAttr(op).getArch().getValue();
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
-        mathFidelity_, cbOperandIndexToPort, argMapping);
+        mathFidelity_, cbOperandIndexToPort, argMapping, arch);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, args, cbs, cbPorts, kernelConfigs,
         op.getFabricConnectionConfigAttr());
@@ -534,8 +529,20 @@ public:
   LogicalResult
   matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    Value sourceInput = adaptor.getInput();
+
+    // When d2m.spatial consumes the view result, pre-update that use to the
+    // view input so the spatial operand type tracks the underlying memref type.
+    for (OpOperand &use :
+         llvm::make_early_inc_range(op.getResult().getUses())) {
+      if (mlir::isa<d2m::SpatialOp>(use.getOwner())) {
+        use.set(sourceInput);
+        continue;
+      }
+    }
+
     // Erase views.
-    rewriter.replaceOp(op, adaptor.getInput());
+    rewriter.replaceOp(op, sourceInput);
     return success();
   }
 };

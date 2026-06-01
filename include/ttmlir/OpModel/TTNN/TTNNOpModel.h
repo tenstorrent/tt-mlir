@@ -1720,8 +1720,7 @@ struct OpModel<GroupNormOp> {
                    std::optional<TTNNLayoutAttr> weightLayout,
                    std::optional<llvm::ArrayRef<int64_t>> biasShape,
                    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
-                   std::optional<CoreCoordAttr> coreGrid = std::nullopt);
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1731,8 +1730,7 @@ struct OpModel<GroupNormOp> {
                std::optional<TTNNLayoutAttr> weightLayout,
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-               llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
-               std::optional<CoreCoordAttr> coreGrid = std::nullopt);
+               llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

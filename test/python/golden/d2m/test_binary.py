@@ -166,7 +166,7 @@ def gelu_backward_tanh(
 
 binary_ops = [
     add,
-    atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    atan2,
     div,
     gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
     gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -215,6 +215,8 @@ def test_binary_ops(
         pytest.xfail(
             "TODO(dloke): int32 div is not supported on ttmetal yet, need to support floor or truncate division"
         )
+    if test_fn.__name__ == "atan2" and (dtype == torch.int32 or dtype == torch.int64):
+        pytest.skip("atan2 with integer inputs is not supported on ttmetal")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])

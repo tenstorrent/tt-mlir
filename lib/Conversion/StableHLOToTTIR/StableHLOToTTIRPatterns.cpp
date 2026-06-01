@@ -49,6 +49,45 @@
 using namespace mlir;
 using namespace mlir::tt;
 
+void mlir::tt::retypeFuncArg(ConversionPatternRewriter &rewriter, Value value,
+                             Type newType) {
+  auto blockArg = mlir::dyn_cast<BlockArgument>(value);
+  if (!blockArg) {
+    return;
+  }
+  auto funcOp = dyn_cast<func::FuncOp>(blockArg.getOwner()->getParentOp());
+  if (!funcOp) {
+    return;
+  }
+  blockArg.setType(newType);
+  llvm::SmallVector<Type> argTypes(funcOp.getArgumentTypes());
+  argTypes[blockArg.getArgNumber()] = newType;
+  rewriter.modifyOpInPlace(funcOp, [&]() {
+    funcOp.setType(FunctionType::get(rewriter.getContext(), argTypes,
+                                     funcOp.getResultTypes()));
+  });
+}
+
+void mlir::tt::rewireFuncReturns(ConversionPatternRewriter &rewriter,
+                                 Value oldValue, Value newValue) {
+  for (mlir::OpOperand &use : llvm::make_early_inc_range(oldValue.getUses())) {
+    auto returnOp = mlir::dyn_cast<func::ReturnOp>(use.getOwner());
+    if (!returnOp) {
+      continue;
+    }
+    auto funcOp = returnOp->getParentOfType<func::FuncOp>();
+    unsigned resultIdx = use.getOperandNumber();
+    rewriter.modifyOpInPlace(
+        returnOp, [&]() { returnOp.setOperand(resultIdx, newValue); });
+    llvm::SmallVector<Type> resultTypes(funcOp.getResultTypes());
+    resultTypes[resultIdx] = newValue.getType();
+    rewriter.modifyOpInPlace(funcOp, [&]() {
+      funcOp.setType(FunctionType::get(rewriter.getContext(),
+                                       funcOp.getArgumentTypes(), resultTypes));
+    });
+  }
+}
+
 // Helper to extract values from optional StableHLO attributes with defaults.
 // StableHLO convolution attributes like window_strides, lhs_dilation, etc.
 // are optional and default to 1 (or 0 for padding) when not specified.
@@ -2530,8 +2569,9 @@ public:
       }
     }
 
-    // Handle 5D input (3D pooling) by decomposing into two 2D pooling passes.
-    // This works because max is associative: max(i,j,k) = max_i(max(j,k)).
+    // Handle 5D input (3D max pooling) by decomposing into two 2D max pooling
+    // passes.
+    // This works because max is associative: max(d,h,w) = max_d(max(h,w)).
     if (inputRank == 5) {
       return lowerReduceWindow5D(srcOp, adaptor, rewriter, *initValues,
                                  reductionOps, windowDimensions, windowStrides,
@@ -2760,9 +2800,9 @@ public:
 private:
   // Decompose a 5D reduce_window (3D pooling) into two sequential 2D max pool
   // operations. The 3D pooling window [kD, kH, kW] is factored as:
-  //   Pass 1: MaxPool2d over (H, W) with kernel [kH, kW]
-  //   Pass 2: MaxPool2d over (D)    with kernel [kD, 1]
-  // This is valid because max is associative: max(i,j,k) = max_i(max(j,k)).
+  //   Pass 1: Permute to [N,D,H,W,C], reshape to [N*D,H,W,C], MaxPool2d [kH,kW]
+  //   Pass 2: Reshape to [N,D,Hout*Wout,C], MaxPool2d [kD,1]
+  // This is valid because max is associative: max(d,h,w) = max_d(max(h,w)).
   LogicalResult
   lowerReduceWindow5D(mlir::stablehlo::ReduceWindowOp srcOp,
                       mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
@@ -2800,9 +2840,9 @@ private:
       }
     }
 
-    // Non-spatial dimensions are folded into batch, so they must have trivial
-    // window attributes. Stride > 1 would subsample, padding would change the
-    // output size - neither is handled by the batch-folding reshapes.
+    // Non-spatial dimensions (N and C) must use trivial windowing: stride 1 and
+    // no padding. Stride > 1 or non-zero padding on N or C would subsample or
+    // resize those axes; this decomposition only pools over D, H, and W.
     for (size_t dim : nonSpatialDims) {
       if (windowStrides[dim] != 1 || padding[dim * 2] != 0 ||
           padding[dim * 2 + 1] != 0) {
@@ -2880,15 +2920,22 @@ private:
       RankedTensorType originalResultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
 
+      // NDHWC input is already in the layout used for pooling; canonicalizing
+      // to NCDHW and permuting back would be a no-op transpose pair.
+      SmallVector<int64_t> permNDHWCToNCDHW = {0, 4, 1, 2, 3};
+      bool inputIsNDHWC = needsPermute && permToCanonical == permNDHWCToNCDHW;
+
       // Permute to canonical NCDHW layout if needed.
       SmallVector<int64_t> canonShape;
       if (needsPermute) {
         canonShape = ttmlir::utils::applyPermutation(inputType.getShape(),
                                                      permToCanonical);
-        input = rewriter.create<ttir::PermuteOp>(
-            srcOp.getLoc(),
-            RankedTensorType::get(canonShape, elemType, encoding), input,
-            permToCanonical);
+        if (!inputIsNDHWC) {
+          input = rewriter.create<ttir::PermuteOp>(
+              srcOp.getLoc(),
+              RankedTensorType::get(canonShape, elemType, encoding), input,
+              permToCanonical);
+        }
       } else {
         canonShape = SmallVector<int64_t>(inputType.getShape());
       }
@@ -2912,17 +2959,27 @@ private:
       int64_t Hout = canonResultShape[3];
       int64_t Wout = canonResultShape[4];
 
-      // Pass 1: Pool over H, W.
-      // Reshape [N, C, D, H, W] -> [N*C*D, H, W, 1].
-      int64_t batchHW = N * C * D;
-      SmallVector<int64_t> shapeForHW = {batchHW, H, W, 1};
-      SmallVector<int32_t> shapeForHW32(shapeForHW.begin(), shapeForHW.end());
+      // Pass 1: Pool over H, W with channels preserved (NHWC).
+      // [N, C, D, H, W] -> permute -> [N, D, H, W, C] -> reshape ->
+      // [N*D, H, W, C].
+      SmallVector<int64_t> permNCDHWToNDHWC = {0, 2, 3, 4, 1};
+      Value ndhwc = input;
+      if (!inputIsNDHWC) {
+        SmallVector<int64_t> shapeNDHWC = {N, D, H, W, C};
+        ndhwc = rewriter.create<ttir::PermuteOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(shapeNDHWC, elemType, encoding), input,
+            permNCDHWToNDHWC);
+      }
 
+      int64_t batchND = N * D;
+      SmallVector<int64_t> shapeForHW = {batchND, H, W, C};
+      SmallVector<int32_t> shapeForHW32(shapeForHW.begin(), shapeForHW.end());
       Value reshapedHW = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(), RankedTensorType::get(shapeForHW, elemType, encoding),
-          input, rewriter.getI32ArrayAttr(shapeForHW32));
+          ndhwc, rewriter.getI32ArrayAttr(shapeForHW32));
 
-      SmallVector<int64_t> resultShapeHW = {batchHW, Hout, Wout, 1};
+      SmallVector<int64_t> resultShapeHW = {batchND, Hout, Wout, C};
       Value pooledHW =
           rewriter
               .create<ttir::MaxPool2dOp>(
@@ -2933,17 +2990,15 @@ private:
               .getResult();
 
       // Pass 2: Pool over D.
-      // Reshape [N*C*D, Hout, Wout, 1] -> [N*C, D, Hout*Wout, 1].
-      int64_t batchD = N * C;
+      // [N*D, Hout, Wout, C] -> [N, D, Hout*Wout, C].
       int64_t flatHW = Hout * Wout;
-      SmallVector<int64_t> shapeForD = {batchD, D, flatHW, 1};
+      SmallVector<int64_t> shapeForD = {N, D, flatHW, C};
       SmallVector<int32_t> shapeForD32(shapeForD.begin(), shapeForD.end());
-
       Value reshapedD = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(), RankedTensorType::get(shapeForD, elemType, encoding),
           pooledHW, rewriter.getI32ArrayAttr(shapeForD32));
 
-      SmallVector<int64_t> resultShapeD = {batchD, Dout, flatHW, 1};
+      SmallVector<int64_t> resultShapeD = {N, Dout, flatHW, C};
       Value pooledD =
           rewriter
               .create<ttir::MaxPool2dOp>(
@@ -2952,13 +3007,19 @@ private:
                   reshapedD, kernelD, strideD, dilationD, paddingD, ceilMode)
               .getResult();
 
-      // Reshape back to canonical 5D: [N*C, Dout, Hout*Wout, 1] ->
-      //                                [N, C, Dout, Hout, Wout].
+      // [N, Dout, Hout*Wout, C] (NHWC) -> permute -> [N, C, Dout, Hout*Wout] ->
+      // reshape -> canonical [N, C, Dout, Hout, Wout].
+      SmallVector<int64_t> permNHWCToNCDF = {0, 3, 1, 2};
+      SmallVector<int64_t> shapeNCDF = {N, C, Dout, flatHW};
+      Value ncdf = rewriter.create<ttir::PermuteOp>(
+          srcOp.getLoc(), RankedTensorType::get(shapeNCDF, elemType, encoding),
+          pooledD, permNHWCToNCDF);
+
       SmallVector<int32_t> canonResultShape32(canonResultShape.begin(),
                                               canonResultShape.end());
       Value result = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(),
-          RankedTensorType::get(canonResultShape, elemType, encoding), pooledD,
+          RankedTensorType::get(canonResultShape, elemType, encoding), ncdf,
           rewriter.getI32ArrayAttr(canonResultShape32));
 
       // Permute back to original layout if needed.
@@ -4468,6 +4529,21 @@ public:
           getContext(), mlir::tt::ttcore::ShardStatus::Unsharded);
     }
 
+    // Presharded: no mesh_shard needed. Forward the original value and
+    // update the func signature so arg/result types use local shapes.
+    if (shardStatusAttr.getValue() ==
+        mlir::tt::ttcore::ShardStatus::Presharded) {
+      mlir::Value input = definingOp.getInputs().front();
+      if (shardDirection == mlir::tt::ttcore::MeshShardDirection::FullToShard) {
+        mlir::tt::retypeFuncArg(rewriter, input, srcOp->getResult(0).getType());
+      } else {
+        mlir::tt::rewireFuncReturns(rewriter, srcOp->getResult(0), input);
+      }
+      rewriter.replaceOp(srcOp, input);
+      rewriter.eraseOp(definingOp);
+      return success();
+    }
+
     // Once extracted, we can generate the GSPMDMeshSharding object.
     llvm::Expected<mlir::tt::gspmd_utils::GSPMDMeshSharding> gspmdMeshSharding =
         mlir::tt::gspmd_utils::GSPMDMeshSharding::generate(
@@ -4667,6 +4743,20 @@ class StableHLOGatherToEmbeddingPattern
     // Get attributes needed for embedding op pattern matching checks.
     auto sliceSizes = srcOp.getSliceSizes();
     auto startIndexMap = dimensionNumbers.getStartIndexMap();
+
+    // ttir.embedding casts its weight to bf16, whose 8-bit mantissa
+    // exactly represents integers only in [-256, 256] (e.g. 1900 -> 1904).
+    // Wider integer / index operands silently round, so reject them here.
+    if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(
+            srcOp.getOperand().getType().getElementType())) {
+      if (intTy.getWidth() > 8) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "unsupported integer operand element type");
+      }
+    } else if (mlir::isa<mlir::IndexType>(
+                   srcOp.getOperand().getType().getElementType())) {
+      return rewriter.notifyMatchFailure(srcOp, "index-typed operand");
+    }
 
     // Check if start indices tensor isn't 1D when we are indexing multiple
     // dimensions because of matmul restrictions.
@@ -5258,15 +5348,18 @@ public:
   }
 };
 
-// Converts batched StableHLO gather into ttir.gather when the gather is a
-// simple batched index-select along a single dimension.
-// This handles the common case where:
-// - operand_batching_dims and start_indices_batching_dims are present
-// - start_index_map has size 1 (indexing a single non-batch dimension)
-// - slice sizes are 1 for the indexed dimension and full for all other
-//   non-batch dimensions
+// Converts a StableHLO gather into ttir.gather for a simple index-select
+// along a single dimension. Accepts two forms:
+//   1. Batched form: operand/start_indices batching dims present.
+//   2. Non-batched form: only when the operand is integer/index typed.
+//      Float operands without batching dims continue to lower through
+//      StableHLOGatherToEmbeddingPattern; integer operands cannot use that
+//      path because the embedding kernel casts its weight to bf16 and
+//      silently rounds wide integers (see the guard at the top of
+//      StableHLOGatherToEmbeddingPattern). torch.repeat_interleave
+//      decomposes into exactly this form on integer data.
 //
-// Example:
+// Example (batched):
 //   operand: tensor<256x24x3xf32>, indices: tensor<256x1x1xi32>
 //   batching_dims = [0], start_index_map = [1], collapsed_slice_dims = [1]
 //   -> ttir.gather(%operand, %reshaped_indices) {dim = 1}
@@ -5301,9 +5394,14 @@ public:
     auto startIndicesShape = startIndicesType.getShape();
     auto sliceSizes = srcOp.getSliceSizes();
 
-    // Must have batching dims - otherwise other patterns handle it.
-    if (operandBatchingDims.empty() || startIndicesBatchingDims.empty()) {
-      return rewriter.notifyMatchFailure(srcOp, "No batching dims present");
+    // Non-batched form is gated to integer/index operands; float gathers
+    // without batching dims keep using the embedding path. See class
+    // comment.
+    bool hasBatchingDims =
+        !operandBatchingDims.empty() && !startIndicesBatchingDims.empty();
+    if (!hasBatchingDims && !operandType.getElementType().isIntOrIndex()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "non-batched gather requires integer/index operand");
     }
 
     // Must index exactly one dimension.
@@ -5419,7 +5517,87 @@ public:
       }
     }
 
-    // Step 3: Create gather_dim with the appropriate dimension.
+    // Workarounds for two tt-metal ttnn.gather bugs that fire when an
+    // input has logical shape ttnn::Shape{1}:
+    //   (a) pre_gather_transform_tensor early-exits and the device op
+    //       then indexes dim 3 of a still-rank-1 tensor (out-of-range).
+    //       Issue: https://github.com/tenstorrent/tt-metal/issues/45225
+    //   (b) post_gather_transform_tensor squeezes the rank-4 device
+    //       output back to the index rank and asserts when a non-1 dim
+    //       sits in a position that would be squeezed.
+    //       Issue: https://github.com/tenstorrent/tt-metal/issues/45233
+    //
+    // Operand singleton: gather of a 1-element operand is mathematically
+    // a broadcast (the only legal index is 0), so emit reshape+repeat and
+    // skip the device op entirely. Avoids (a) and (b).
+    // Indices singleton with non-singleton operand: wrap with a leading-1
+    // reshape so the indices' logical shape becomes {1,1}, sidestepping
+    // (a). (b) does not fire because the operand is non-singleton.
+    auto operandRttType = mlir::cast<RankedTensorType>(operand.getType());
+    auto indicesRttType = mlir::cast<RankedTensorType>(indices.getType());
+    bool operandIsSingleton =
+        operandRttType.getRank() == 1 && operandRttType.getDimSize(0) == 1;
+    bool indicesIsSingleton =
+        indicesRttType.getRank() == 1 && indicesRttType.getDimSize(0) == 1;
+    bool operandIsRank1 = operandRttType.getRank() == 1;
+
+    if (operandIsSingleton) {
+      SmallVector<int64_t> onesShape(outputShape.size(), 1);
+      SmallVector<int32_t> onesShapeI32(outputShape.size(), 1);
+      auto onesType = RankedTensorType::get(
+          onesShape, outputType.getElementType(), outputType.getEncoding());
+      Value reshapedOperand = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), onesType, operand,
+          rewriter.getI32ArrayAttr(onesShapeI32));
+
+      bool outputIsSingleton =
+          llvm::all_of(outputShape, [](int64_t d) { return d == 1; });
+      if (outputIsSingleton) {
+        rewriter.replaceOp(srcOp, reshapedOperand);
+        return success();
+      }
+
+      SmallVector<int64_t> repeatDims;
+      repeatDims.reserve(outputShape.size());
+      for (int64_t d : outputShape) {
+        repeatDims.push_back(d);
+      }
+      rewriter.replaceOpWithNewOp<ttir::RepeatOp>(
+          srcOp, outputType, reshapedOperand,
+          rewriter.getDenseI64ArrayAttr(repeatDims));
+      return success();
+    }
+
+    if (indicesIsSingleton || operandIsRank1) {
+      auto padLeading = [&](Value v) -> Value {
+        auto t = mlir::cast<RankedTensorType>(v.getType());
+        SmallVector<int64_t> paddedShape{1};
+        paddedShape.append(t.getShape().begin(), t.getShape().end());
+        auto paddedType = RankedTensorType::get(paddedShape, t.getElementType(),
+                                                t.getEncoding());
+        return rewriter.create<ttir::ReshapeOp>(
+            srcOp.getLoc(), paddedType, v,
+            rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
+      };
+      Value paddedOperand = padLeading(operand);
+      Value paddedIndices = padLeading(indices);
+
+      SmallVector<int64_t> paddedOutShape{1};
+      paddedOutShape.append(outputShape.begin(), outputShape.end());
+      auto paddedOutType =
+          RankedTensorType::get(paddedOutShape, outputType.getElementType(),
+                                outputType.getEncoding());
+
+      auto paddedGather = rewriter.create<ttir::GatherOp>(
+          srcOp.getLoc(), paddedOutType, paddedOperand, paddedIndices,
+          rewriter.getI32IntegerAttr(static_cast<int32_t>(indexedDim + 1)));
+
+      rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+          srcOp, outputType, paddedGather.getResult(),
+          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(outputShape)));
+      return success();
+    }
+
     rewriter.replaceOpWithNewOp<ttir::GatherOp>(
         srcOp, outputType, operand, indices,
         rewriter.getI32IntegerAttr(static_cast<int32_t>(indexedDim)));
@@ -5673,10 +5851,11 @@ public:
 
     auto slicedIndices = indices.getValue();
     for (auto index : slicedIndices.getValues<llvm::APInt>()) {
+      // When maxIndex == 0, 0 and maxIndex collapse to the same value; count
+      // such indices only as starts to avoid double-counting them as ends.
       if (index == 0) {
         starts++;
-      }
-      if (index == maxIndex) {
+      } else if (index == maxIndex) {
         ends++;
       }
       if (!((index - lastIndex == 1) || (index == lastIndex && index == 0) ||
@@ -5693,13 +5872,17 @@ public:
 
     // Body [0, 1, ..., maxIndex] must be present, i.e. at least one 0 and one
     // maxIndex. Rejects constant-uniform indices like [1, 1, ..., 1].
-    if (starts == 0 || ends == 0) {
+    // When maxIndex == 0 the body is just [0]; only starts is meaningful, and
+    // all surplus indices become front padding.
+    if (starts == 0 || (maxIndex != 0 && ends == 0)) {
       return rewriter.notifyMatchFailure(
           srcOp, "Indices do not contain the body [0, 1, ..., maxIndex]");
     }
 
     starts--;
-    ends--;
+    if (maxIndex != 0) {
+      ends--;
+    }
 
     SmallVector<Value> slicesToConcat;
 
@@ -6123,8 +6306,21 @@ public:
     auto cacheUpdateInputType =
         mlir::cast<RankedTensorType>((*CachePositions).getType());
     auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
-    if (cacheUpdateInputShape.size() != 1) {
-      return mlir::failure();
+    if (cacheUpdateInputShape.size() > 1) {
+      return rewriter.notifyMatchFailure(
+          scatterOp,
+          "cache position operand must be rank-0 or rank-1, got rank " +
+              std::to_string(cacheUpdateInputShape.size()));
+    }
+
+    // If the cache position is rank-0 (scalar), reshape it to rank-1 so that
+    // downstream ops (UpdateCacheOp, its canonicalization) can index shape[0].
+    if (cacheUpdateInputShape.empty()) {
+      auto rank1Type =
+          RankedTensorType::get({1}, cacheUpdateInputType.getElementType());
+      *CachePositions = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+          scatterOp.getLoc(), rank1Type, *CachePositions,
+          rewriter.getI32ArrayAttr({1}));
     }
 
     Value cache = scatterOp.getInputs()[0];
@@ -6887,36 +7083,59 @@ private:
 
   Value extractElementWiseScatterIndices(mlir::stablehlo::ScatterOp op,
                                          PatternRewriter &rewriter) const {
-    // Indices need to match updates tensor.
+    // Build an index tensor shape-aligned with the update tensor: size-1 at
+    // each update_window_dim, and the index batch dims (all dims except
+    // index_vector_dim) at the remaining positions. Window axes are then
+    // expanded via repeat.
     TypedValue<RankedTensorType> indexTensor = op.getScatterIndices();
     RankedTensorType updateType =
         mlir::cast<RankedTensorType>(op.getUpdates()[0].getType());
     RankedTensorType indexType = indexTensor.getType();
-    llvm::SmallVector<int64_t> indexShape(indexType.getShape());
+    ArrayRef<int64_t> origIndexShape = indexType.getShape();
     ArrayRef<int64_t> updateShape = updateType.getShape();
 
-    if (indexShape.size() < updateShape.size()) {
-      // Need to reshape indices by appending 1s to the shape.
-      llvm::SmallVector<int64_t> newShape(indexShape.begin(), indexShape.end());
-      newShape.resize(updateShape.size(), 1);
-
-      indexTensor = ttir::utils::createReshapeOp(rewriter, op.getLoc(),
-                                                 indexTensor, newShape);
-      indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
-      indexShape = newShape;
-    }
-
-    // Repeat along update_window_dims to match update tensor shape.
+    int64_t indexVectorDim =
+        op.getScatterDimensionNumbers().getIndexVectorDim();
     ArrayRef<int64_t> updateWindowDims =
         op.getScatterDimensionNumbers().getUpdateWindowDims();
-    llvm::SmallVector<int64_t> repeatDims(indexShape.size(), 1);
-    bool needsRepeat = false;
 
-    // For each update_window_dim, set repeat factor to match update tensor
-    // size.
-    for (auto dimAttr : updateWindowDims) {
-      int64_t dim = dimAttr;
-      if (indexShape[dim] != updateShape[dim]) {
+    // Collect the scatter-batch dims of the original index tensor (all dims
+    // except index_vector_dim). For implicit index_vector_dim (== rank), no
+    // dim is excluded.
+    llvm::SmallVector<int64_t> indexBatchShape;
+    indexBatchShape.reserve(origIndexShape.size());
+    for (int64_t i = 0; i < static_cast<int64_t>(origIndexShape.size()); ++i) {
+      if (i != indexVectorDim) {
+        indexBatchShape.push_back(origIndexShape[i]);
+      }
+    }
+
+    // Compose the reshape target: size-1 at each update_window_dim, and the
+    // index batch dims at the remaining positions.
+    llvm::DenseSet<int64_t> windowDimSet(updateWindowDims.begin(),
+                                         updateWindowDims.end());
+    llvm::SmallVector<int64_t> reshapedIndexShape(updateShape.size(), 1);
+    size_t batchIdx = 0;
+    for (size_t i = 0; i < updateShape.size(); ++i) {
+      if (windowDimSet.contains(static_cast<int64_t>(i))) {
+        continue;
+      }
+      if (batchIdx < indexBatchShape.size()) {
+        reshapedIndexShape[i] = indexBatchShape[batchIdx++];
+      }
+    }
+
+    if (origIndexShape != ArrayRef<int64_t>(reshapedIndexShape)) {
+      indexTensor = ttir::utils::createReshapeOp(
+          rewriter, op.getLoc(), indexTensor, reshapedIndexShape);
+      indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
+    }
+
+    // Repeat each update_window_dim from 1 up to updateShape[dim].
+    llvm::SmallVector<int64_t> repeatDims(updateShape.size(), 1);
+    bool needsRepeat = false;
+    for (int64_t dim : updateWindowDims) {
+      if (reshapedIndexShape[dim] != updateShape[dim]) {
         repeatDims[dim] = updateShape[dim];
         needsRepeat = true;
       }

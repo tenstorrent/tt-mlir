@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 
+#include "mlir/IR/BuiltinTypes.h"
+
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
@@ -99,15 +101,30 @@ OutputHints SplitQKVRuleBook::getOutputHints(
 //===----------------------------------------------------------------------===//
 
 LayoutFilterFn
-PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
-  // Operand 1 (fill value) must be L1 height-sharded.
-  // Reject interleaved and all other sharding types so the beam search
-  // is forced to explore HeightSharded reshard candidates.
+PagedUpdateCacheRuleBook::getInputLayoutFilter(RankedTensorType inputType,
+                                               unsigned operandIdx) const {
+  // Operand 1 (fill value): L1 height-sharded with virtual grid
+  // {numUsers, 1}, where numUsers = input1.shape[1].  Any other grid
+  // silently produced PCC=0 for upper users
+  // (https://github.com/tenstorrent/tt-metal/issues/44923).  HS in tt-mlir
+  // IR is pinned to {M, 1}, so this is the canonical (and only) HS grid
+  // shape with num_cores == numUsers.
+  //
+  // TODO(bmalesevic): once tt-metal PR #45016 is uplifted, metal enforces
+  // `grid.num_cores() == padded_shape()[1]` from its side and this rule
+  // can be removed; the tripwire at
+  // test/unittests/OpModel/TTNN/Lib/TestOpModelLibTripwires.cpp will fail
+  // and signal the point.
   if (operandIdx == 1) {
-    return [](TTNNLayoutAttr layout) -> bool {
+    int64_t numUsers = inputType.getShape()[1];
+    return [numUsers](TTNNLayoutAttr layout) -> bool {
       auto ml = layout.getMemLayout();
-      return layout.hasL1BufferType() && ml &&
-             ml.getValue() == TensorMemoryLayout::HeightSharded;
+      assert(ml && "expected non-null memory layout");
+      auto gridShape = layout.getGridShape();
+      assert(gridShape.size() == 2 && "expected 2D grid shape");
+      return layout.hasL1BufferType() &&
+             ml.getValue() == TensorMemoryLayout::HeightSharded &&
+             gridShape[0] == numUsers && gridShape[1] == 1;
     };
   }
   return nullptr;

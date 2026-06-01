@@ -869,6 +869,8 @@ class TTKernelCompiler(TTCompilerBase):
         # TODO: Change noc_async_read_tile to use IndexLike for consistency
         self._fn_map["noc_async_read_tile"] = self._wrap_noc_async_read_tile
         self._fn_map["noc_async_write_tile"] = self._wrap_noc_async_write_tile
+        self._fn_map["noc_async_read"] = self._wrap_noc_async_read
+        self._fn_map["noc_async_write"] = self._wrap_noc_async_write
 
     def _wrap_noc_async_read_tile(self, tile_id, addr_gen, dst_addr):
         """Cast tile_id to i32 for noc_async_read_tile operation."""
@@ -886,6 +888,47 @@ class TTKernelCompiler(TTCompilerBase):
             tile_id = tile_id.result
 
         return ttkernel.noc_async_write_tile(tile_id, addr_gen, src_addr)
+
+    def _as_operand_list(self, operand_or_operands):
+        if operand_or_operands is None:
+            return []
+        if isinstance(operand_or_operands, (list, tuple)):
+            return list(operand_or_operands)
+        return [operand_or_operands]
+
+    def _wrap_noc_async_read(
+        self, src_address, dst_local_l1_addr, size, src_bank_id=None, src_core=None
+    ):
+        """Build modal noc_async_read using either a DRAM bank or L1 core."""
+        if (src_bank_id is None) == (src_core is None):
+            raise ValueError(
+                "noc_async_read requires exactly one of src_bank_id or src_core"
+            )
+
+        return ttkernel.noc_async_read(
+            self._as_operand_list(src_core),
+            self._as_operand_list(src_bank_id),
+            src_address,
+            dst_local_l1_addr,
+            size,
+        )
+
+    def _wrap_noc_async_write(
+        self, src_local_l1_addr, dst_address, size, dst_bank_id=None, dst_core=None
+    ):
+        """Build modal noc_async_write using either a DRAM bank or L1 core."""
+        if (dst_bank_id is None) == (dst_core is None):
+            raise ValueError(
+                "noc_async_write requires exactly one of dst_bank_id or dst_core"
+            )
+
+        return ttkernel.noc_async_write(
+            src_local_l1_addr,
+            self._as_operand_list(dst_core),
+            self._as_operand_list(dst_bank_id),
+            dst_address,
+            size,
+        )
 
     # Root Nodes
     def visit_FunctionDef(self, node):

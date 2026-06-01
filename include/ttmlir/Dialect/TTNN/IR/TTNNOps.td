@@ -7,6 +7,7 @@
 
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 include "ttmlir/Dialect/TTNN/Interfaces/TTNNDeviceOperandInterface.td"
+include "ttmlir/Dialect/TTNN/Interfaces/TTNNDistributedOpInterface.td"
 include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
@@ -1771,6 +1772,27 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias", [TTNN_ComputeKerne
     let hasVerifier = 1;
 }
 
+def TTNN_PrepareConv3dWeightsOp : TTNN_Op<"prepare_conv3d_weights"> {
+    let summary = "Prepares conv3d weights so that they can be consumed by the conv3d op.";
+
+    let arguments = (ins AnyRankedTensor:$weight_tensor,
+                         I32Attr:$groups,
+                         I32Attr:$c_in_block,
+                         I32Attr:$alignment,
+                         TTNN_Device:$device);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createPrepareConv3dWeightsOpOperandsWorkarounds();
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv_transpose2d weights so that they can be consumed by the conv_transpose2d op.";
 
@@ -2311,7 +2333,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
 }
 
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
-    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
+    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";
     let description = [{
       Fused distributed RMS normalization operation across mesh devices.
@@ -2361,6 +2383,7 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$residual,
                          Optional<AnyRankedTensor>:$stats,
+                         Optional<TTNN_GlobalSemaphore>:$semaphore,
                          TTNN_Device:$device,
                          UI32Attr:$cluster_axis,
                          DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
@@ -2371,6 +2394,13 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
                          OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
+    }];
 
     let hasVerifier = 1;
 }
@@ -2572,8 +2602,7 @@ def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments]> {
                        Optional<AnyRankedTensor>:$weight,
                        Optional<AnyRankedTensor>:$bias,
                        I64Attr:$num_groups,
-                       DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
-                       OptionalAttr<TTNN_CoreCoordAttr>:$core_grid);
+                       DefaultValuedAttr<F32Attr, "1e-12">:$epsilon);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -3013,30 +3042,6 @@ def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
-def TTNN_MeshShardOp: TTNN_Op<"mesh_shard", [OpModelExempt]> {
-    let summary = "Mesh shard op.";
-    let description = [{
-        Tensor Mesh Shard operation
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_Device:$device,
-                         TTCore_MeshShardDirectionAttr:$shard_direction,
-                         TTCore_MeshShardTypeAttr:$shard_type,
-                         DenseI64ArrayAttr:$shard_shape,
-                         DenseI64ArrayAttr:$shard_dims);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(getShardType());
-      }
-    }];
-
-    let hasVerifier = 1;
-}
-
 def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition"> {
   let summary = "Mesh partition operation.";
   let description = [{
@@ -3334,7 +3339,8 @@ def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace", [OpModelExempt]> 
   let hasVerifier = 1;
 }
 
-def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace", [OpModelExempt]> {
+def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace",
+    [AttrSizedOperandSegments, OpModelExempt]> {
   let summary = "Capture or execute trace.";
   let description = [{
     Captures or executes the trace. Will have read/write memory effects on the cached trace data.
@@ -3346,6 +3352,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
       - `capture_callee` FlatSymbolRefAttr: The symbol of the capture trace function.
       - `execute_callee` FlatSymbolRefAttr: The symbol of the execute trace function.
       - `inputs` Variadic<AnyRankedTensor>: The input tensors to the trace function.
+      - `semaphore_inputs` Variadic<TTNN_GlobalSemaphore>: Global semaphores forwarded into the capture/execute programs.
     Outputs:
       - `results` Variadic<AnyRankedTensor>: The output tensors from the trace function.
   }];
@@ -3353,7 +3360,8 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let arguments = (ins TTNN_Device:$device,
                        FlatSymbolRefAttr:$capture_callee,
                        FlatSymbolRefAttr:$execute_callee,
-                       Variadic<AnyRankedTensor>:$inputs);
+                       Variadic<AnyRankedTensor>:$inputs,
+                       Variadic<TTNN_GlobalSemaphore>:$semaphore_inputs);
 
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
@@ -3972,7 +3980,7 @@ def TTNN_TopKRouterGptOp : TTNN_Op<"topk_router_gpt"> {
   let hasVerifier = 1;
 }
 
-def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [OpModelExempt]> {
+def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [TTCore_CreationOpTrait, TTCore_NonCacheableTrait, OpModelExempt]> {
     let summary = "Create global semaphore op.";
     let description = [{
       Creates a global semaphore with the specified core range and initial value.
@@ -3994,11 +4002,13 @@ def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [OpModelEx
 
       Example:
       ```mlir
-      %semaphore = "ttnn.create_global_semaphore"() <{initial_value = 0 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : () -> !ttnn.global_semaphore
+      %semaphore = "ttnn.create_global_semaphore"(%device) <{core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,7)>]>, initial_value = 0 : ui32}> : (!ttnn.device) -> !ttnn.global_semaphore
       ```
     }];
 
-    let arguments = (ins OptionalAttr<UI32Attr>:$initial_value, TTNN_CoreRangeAttr:$core_range);
+    let arguments = (ins TTNN_Device:$device,
+                         OptionalAttr<UI32Attr>:$initial_value,
+                         TTNN_CoreRangeSetAttr:$core_range_set);
     let results = (outs TTNN_GlobalSemaphore:$result);
 }
 
@@ -4013,7 +4023,8 @@ def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExem
       ```
     }];
 
-    let arguments = (ins TTNN_GlobalSemaphore:$semaphore, UI32Attr:$value);
+    let arguments = (ins TTNN_GlobalSemaphore:$semaphore,
+                         UI32Attr:$value);
 }
 
 #endif

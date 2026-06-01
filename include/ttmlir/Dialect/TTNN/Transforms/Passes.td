@@ -693,6 +693,22 @@ def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> {
+  let summary = "Resolve composite ops into typed ops or inline decompositions.";
+  let description = [{
+    This pass resolves `ttcore.composite` ops by attempting to replace each one
+    with a dedicated typed TTNN op (e.g. `ttnn.topk_router_gpt`). If the typed
+    op fails verification or OpModel validation, the decomposition function body
+    is inlined as a fallback.
+
+    Typed op promotion requires OpModel validation. If OpModel is not available
+    all composites are unconditionally decomposed into their primitive equivalents.
+
+    After resolution, decomposition functions that are no longer referenced are
+    erased from the module.
+  }];
+}
+
 def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
   let summary = "Collapse D2M subgraph modules(s) back into original module.";
   let description = [{
@@ -709,18 +725,46 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNAllocateDistributedOpBuffers
+    : Pass<"ttnn-allocate-distributed-op-buffers", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit scratch buffers for distributed ops.";
+  let description = [{
+    Walks every op implementing `DistributedOpInterface` and invokes
+    `allocateBuffers` on it. See `DistributedOpInterface` for the rationale
+    behind splitting buffer and semaphore allocation into separate passes
+    and for the prelude placement contract.
+  }];
+}
+
+def TTNNAllocateDistributedOpSemaphores
+    : Pass<"ttnn-allocate-distributed-op-semaphores", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit global semaphores for distributed ops.";
+  let description = [{
+    Walks every op implementing `DistributedOpInterface` and invokes
+    `allocateSemaphores` on it. See `DistributedOpInterface` for the
+    rationale behind splitting buffer and semaphore allocation into
+    separate passes and for the prelude placement contract.
+  }];
+}
+
 def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   let summary = "Memory usage optimization pass.";
   let description = [{
     This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
   }];
+  let options = [
+    Option<"aggressiveMemorySaving",
+           "aggressive-memory-saving",
+           "bool", /*default=*/"true",
+           "Opt-out: disable aggressive memory saving patterns to reduce DRAM usage.">,
+  ];
 }
 
 def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
-  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let summary = "Farthest-last-use eviction for L1 budget enforcement.";
   let description = [{
-    This pass uses Belady's optimal page replacement algorithm to enforce L1
-    memory budgets by spilling tensors to DRAM when necessary.
+    This pass enforces L1 memory budgets by spilling tensors to DRAM using a
+    farthest-last-use eviction strategy.
   }];
   let options = [
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",

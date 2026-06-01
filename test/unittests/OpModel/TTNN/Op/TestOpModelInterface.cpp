@@ -4973,12 +4973,9 @@ TEST_F(OpModelBase, groupNormOp) {
   int64_t numGroups = 8;
   llvm::APFloat epsilon(1e-12f);
 
-  // group_norm requires explicit core_grid; use a fixed test value.
-  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
-
   GroupNormOp groupNormOp = builder.create<GroupNormOp>(
       builder.getUnknownLoc(), outputType, input,
-      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon, coreGrid);
+      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
@@ -5028,12 +5025,9 @@ TEST_F(OpModelBase, groupNormOpL1Memory) {
   int64_t numGroups = 8;
   llvm::APFloat epsilon(1e-12f);
 
-  // group_norm requires explicit core_grid; use a fixed test value.
-  auto coreGrid = CoreCoordAttr::get(&context, 1, 1);
-
   GroupNormOp groupNormOp = builder.create<GroupNormOp>(
       builder.getUnknownLoc(), outputType, input,
-      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon, coreGrid);
+      /*input_mask=*/inputMask, weight, bias, numGroups, epsilon);
   groupNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(groupNormOp.getOperation());
