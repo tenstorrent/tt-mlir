@@ -13,13 +13,13 @@ from ttmlir.ir import (
     BlockArgument,
     Context,
     Module,
-    OpOperandList,
     OpResult,
     Operation,
     Value,
     WalkOrder,
     WalkResult,
 )
+from ttmlir.util import get_write_effect_operand_indices
 
 
 # MLIR SSA value name as printed in the IR (e.g. "%0", "%arg1"). Produced by
@@ -27,31 +27,9 @@ from ttmlir.ir import (
 SSAName = NewType("SSAName", str)
 
 # Operand role name on an OpView (e.g. "lhs", "rhs", "input"). Sourced from
-# `OpView.OPERAND_NAMES` and CHISEL_INPLACE_OPS; used to dispatch goldens by
-# their declared keyword arguments.
+# `OpView.OPERAND_NAMES`; used to dispatch goldens by their declared keyword
+# arguments.
 RoleName = NewType("RoleName", str)
-
-
-# Op class -> operand role names mutated via `Arg<..., [MemWrite]>` in ODS.
-# Goldens return SSA results first, then one tensor per *provided* memwrite
-# operand (absent Optional operands are skipped - see get_flat_inplace_vals).
-# Hand-maintained;
-# TODO(ndrakulic, #8385): derive from ODS via python_op_schema_codegen.py.
-_CHISEL_INPLACE_OPS: dict[type, tuple[str, ...]] = {
-    ttnn.UpdateCacheOp: ("cache",),
-    ttnn.PagedUpdateCacheOp: ("cache",),
-    ttnn.FillCacheOp: ("cache",),
-    ttnn.PagedFillCacheOp: ("cache",),
-    ttnn.WriteTensorOp: ("device_tensor",),
-    ttnn.DumpTensorOp: (),
-    ttnn.DeallocateOp: (),
-    ttnn.BatchNormTrainingOp: ("running_mean", "running_var"),
-    ttnn.PointToPointOp: ("optional_output_tensor",),
-}
-
-
-def get_inplace_operands(op_class: type) -> tuple[RoleName, ...]:
-    return _CHISEL_INPLACE_OPS.get(op_class, ())
 
 
 def is_tensor_value(val: Value) -> bool:
@@ -69,21 +47,26 @@ def get_op_inputs(op: Operation) -> list[Value]:
     return [operand for operand in op.operands if is_tensor_value(operand)]
 
 
-def get_flat_inplace_vals(op: Operation) -> list[tuple[str, Value]]:
-    """Return (role, value) pairs for in-place operands present on `op`.
+def get_inplace_vals(op) -> list[Value]:
+    """Return tensor operands `op` declares MemWrite on, in flat operand order.
 
-    Absent Optional operands are skipped; OpOperandList is expanded.
+    Driven by MemoryEffectOpInterface via
+    `ttmlir.util.get_write_effect_operand_indices`, which returns flat
+    operand indices (variadics already expanded), or an empty list if the
+    op doesn't implement the interface. Returns [] when:
+      - the op doesn't implement MemoryEffectOpInterface (effects unknown),
+      - the op writes to no operand, or
+      - all write-effect operands are non-tensor (e.g. device handles).
+
+    Accepts either an MLIR `Operation` or an `OpView`. The C++ binding takes
+    `MlirOperation`, so we normalize via `op.operation` when present.
     """
-    vals: list[tuple[str, Value]] = []
-    for role in get_inplace_operands(type(op)):
-        accessor = getattr(op, role, None)
-        if accessor is None:
-            continue
-        if isinstance(accessor, OpOperandList):
-            vals.extend((role, v) for v in accessor)
-        else:
-            vals.append((role, accessor))
-    return vals
+    mlir_op = getattr(op, "operation", op)
+    indices = get_write_effect_operand_indices(mlir_op)
+    if not indices:
+        return []
+    operands = list(mlir_op.operands)
+    return [operands[i] for i in indices if is_tensor_value(operands[i])]
 
 
 class IRModule:
