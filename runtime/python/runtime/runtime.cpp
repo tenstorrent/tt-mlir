@@ -626,6 +626,22 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
         "Get the location info of the op");
   m.def(
+      "invoke_cpu_op",
+      [](tt::runtime::CallbackContext program_context_handle,
+         tt::runtime::OpContext op_context_handle,
+         const std::vector<tt::runtime::Tensor> &inputs) {
+        return tt::runtime::invokeCpuOp(program_context_handle,
+                                        op_context_handle, inputs);
+      },
+      nb::arg("program_context_handle"), nb::arg("op_context_handle"),
+      nb::arg("inputs"),
+      R"(
+    Invoke the sequence of CPU-hoisted ops wrapped by a CpuOp behind `op_context_handle`
+    with caller-supplied host inputs.
+
+    Inputs must match the CpuOp's `ins[]` shapes/dtypes.
+    )");
+  m.def(
       "memcpy",
       [](std::uintptr_t dst, ::tt::runtime::Tensor src,
          std::optional<::tt::target::DataType> dstDataType) {

@@ -1235,6 +1235,24 @@ size_t getProgramIndex(CallbackContext programContextHandle) {
       });
 }
 
+std::vector<Tensor> invokeCpuOp(CallbackContext programContextHandle,
+                                OpContext opContextHandle,
+                                const std::vector<Tensor> &inputs) {
+  using RetType = std::vector<Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::invokeCpuOp(programContextHandle,
+                                                opContextHandle, inputs);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("invokeCpuOp", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("invokeCpuOp", HostRuntime::Distributed);
+      });
+}
+
 void setFabricConfig(tt::runtime::FabricConfig config) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(

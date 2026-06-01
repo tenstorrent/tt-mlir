@@ -290,6 +290,53 @@ public:
   }
 };
 
+// Rewrites stablehlo::GatherOp on complex tensors: operand/result become
+// ...x2xf32 and slice_sizes gains a trailing 2 (gather full real+imag pair).
+class ComplexGatherOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::GatherOp> {
+  using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::GatherOp op,
+      OpConversionPattern<mlir::stablehlo::GatherOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    auto origResultType =
+        mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
+    if (!origResultType ||
+        !mlir::isa<mlir::ComplexType>(origResultType.getElementType())) {
+      return failure();
+    }
+
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    auto origOperandType =
+        mlir::cast<RankedTensorType>(op.getOperand().getType());
+
+    SmallVector<int64_t> newSliceSizes(op.getSliceSizes().begin(),
+                                       op.getSliceSizes().end());
+    newSliceSizes.push_back(2);
+
+    auto dimNums = op.getDimensionNumbersAttr();
+    SmallVector<int64_t> newOffsetDims(dimNums.getOffsetDims().begin(),
+                                       dimNums.getOffsetDims().end());
+    // Pre-conversion rank indexes the trailing real/imag dim (size 2) appended
+    // after lowering (e.g. 512x24 complex -> 512x24x2xf32).
+    newOffsetDims.push_back(origOperandType.getRank());
+    auto newDimNums = mlir::stablehlo::GatherDimensionNumbersAttr::get(
+        rewriter.getContext(), newOffsetDims, dimNums.getCollapsedSliceDims(),
+        dimNums.getOperandBatchingDims(), dimNums.getStartIndicesBatchingDims(),
+        dimNums.getStartIndexMap(), dimNums.getIndexVectorDim());
+
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::GatherOp>(
+        op, newResultType, adaptor.getOperand(), adaptor.getStartIndices(),
+        newDimNums, rewriter.getDenseI64ArrayAttr(newSliceSizes),
+        op.getIndicesAreSortedAttr());
+    return success();
+  }
+};
+
 // Rewrites stablehlo::SliceOp with complex-typed tensor results by appending
 // a full-range slice (0:2:1) for the trailing real/imag dimension.
 class ComplexSliceOpConversionPattern
@@ -458,8 +505,9 @@ struct StableHLOComplexDataTypeConversionPass
 
     target.addDynamicallyLegalOp<
         mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
-        mlir::stablehlo::SliceOp, mlir::stablehlo::ConcatenateOp,
-        mlir::stablehlo::BroadcastInDimOp>(isNotComplexType);
+        mlir::stablehlo::SliceOp, mlir::stablehlo::GatherOp,
+        mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp>(
+        isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
@@ -499,7 +547,8 @@ struct StableHLOComplexDataTypeConversionPass
     RewritePatternSet patterns(&getContext());
     patterns.add<
         ComplexBroadcastInDimOpConversionPattern,
-        ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
+        ComplexConstantOpConversionPattern, ComplexGatherOpConversionPattern,
+        ComplexSliceOpConversionPattern,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
         ShardyManualComputationComplexConversionPattern,

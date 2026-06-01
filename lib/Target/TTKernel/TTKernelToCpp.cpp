@@ -175,7 +175,7 @@ public:
         headers.insert("api/dataflow/circular_buffer.h");
       }
 
-      if (value.starts_with("Noc ")) {
+      if (value.starts_with("Noc ") || value.starts_with("Noc(")) {
         headers.insert("api/core_local_mem.h");
         headers.insert("api/dataflow/endpoints.h");
         headers.insert("api/dataflow/noc.h");

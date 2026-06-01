@@ -64,6 +64,7 @@ try:
         get_program_index,
         walk_program,
         get_op_debug_str,
+        invoke_cpu_op,
         memcpy,
         deallocate_tensor,
         WorkaroundEnv,

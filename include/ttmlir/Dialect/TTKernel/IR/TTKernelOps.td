@@ -2129,6 +2129,35 @@ def TTKernel_AtanTileOp : TTKernel_SFPUOp<"atan_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
+def TTKernel_Atan2BinaryTilesInitOp : TTKernel_InitOp<"atan2_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before atan2_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_Atan2BinaryTilesOp : TTKernel_SFPUOp<"atan2_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise atan2 operation between two tiles";
+    let description = [{
+      Performs element-wise computation of atan2 operation
+      DST[odst_index] <- atan2(DST[dst0_index], DST[dst1_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *acquire_dst* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_RoundingTileInitOp : TTKernel_InitOp<"rounding_op_tile_init"> {
     let summary = "Init function for ceil/floor/round_tile operation. Refer to documentation for any init function.";
     let description = [{
@@ -3387,15 +3416,21 @@ def TTKernel_TransposeTileOp : TTKernel_Op<"transpose_wh_tile"> {
 def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
     let summary = "GetNocAddr";
     let description = [{
-      GetNocAddr api including core coordinates
+      GetNocAddr api including core coordinates.
     }];
 
-    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$l1Address);
+    let arguments = (ins IndexLike:$x, IndexLike:$y, AnyTypeOf<[I32, TTKernel_L1Addr, TTKernel_LocalSemaphore]>:$l1Address, Optional<I8>:$noc);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 
     let assemblyFormat = [{
-      `(` $x `,` $y `,` $l1Address `)` attr-dict `:` functional-type(operands, results)
+      `(` $x `,` $y `,` $l1Address (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins "Value":$x, "Value":$y, "Value":$l1Address), [{
+        build($_builder, $_state, x, y, l1Address, /*noc=*/Value{});
+      }]>,
+    ];
 }
 
 def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
@@ -3515,12 +3550,20 @@ def TTKernel_NocAsyncReadOnePacketWithStateWithTridOp : TTKernel_Op<"noc_async_r
 def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncReadBarrier";
     let description = [{
-      NocAsyncReadBarrier
+      Waits for all outstanding read transactions on the given NOC.
     }];
 
+    let arguments = (ins Optional<I8>:$noc);
+
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, /*noc=*/Value{});
+      }]>,
+    ];
 
     let hasCanonicalizer = 1;
 }
@@ -3620,12 +3663,20 @@ def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{
-      NocAsyncWriteBarrier
+      Waits for all outstanding write transactions on the given NOC.
     }];
 
+    let arguments = (ins Optional<I8>:$noc);
+
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, /*noc=*/Value{});
+      }]>,
+    ];
 
     let hasCanonicalizer = 1;
 }

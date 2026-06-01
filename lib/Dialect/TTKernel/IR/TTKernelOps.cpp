@@ -528,8 +528,11 @@ void NocAsyncReadBarrierOp::getCanonicalizationPatterns(
     for (Operation *it = op->getPrevNode(); it != nullptr;
          it = it->getPrevNode()) {
       if (mlir::isa<NocAsyncReadBarrierOp>(it)) {
-        rewriter.eraseOp(op);
-        return success();
+        auto previousBarrier = mlir::cast<NocAsyncReadBarrierOp>(it);
+        if (previousBarrier.getNoc() == op.getNoc()) {
+          rewriter.eraseOp(op);
+          return success();
+        }
       }
       if (mlir::isa<NocAsyncReadOp, NocAsyncReadTileOp,
                     NocAsyncReadOnePacketSetStateOp,
@@ -550,8 +553,11 @@ void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
     for (Operation *it = op->getPrevNode(); it != nullptr;
          it = it->getPrevNode()) {
       if (mlir::isa<NocAsyncWriteBarrierOp>(it)) {
-        rewriter.eraseOp(op);
-        return success();
+        auto previousBarrier = mlir::cast<NocAsyncWriteBarrierOp>(it);
+        if (previousBarrier.getNoc() == op.getNoc()) {
+          rewriter.eraseOp(op);
+          return success();
+        }
       }
       if (mlir::isa<NocAsyncWriteOp, NocAsyncWriteTileOp,
                     NocAsyncWriteSetTridOp, NocAsyncWriteOnePacketWithTridOp,
