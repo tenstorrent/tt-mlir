@@ -1053,9 +1053,12 @@ TTNNOperandsWorkaroundsFactory::createFlashMlaPrefillOpOperandsWorkarounds(
   };
 
   auto getOperandDtype = [](Value v) {
-    return mlir::cast<TTNNLayoutAttr>(
-               mlir::cast<RankedTensorType>(v.getType()).getEncoding())
-        .getDataType();
+    auto tensorType = mlir::cast<RankedTensorType>(v.getType());
+    if (auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+            tensorType.getEncoding())) {
+      return layout.getDataType();
+    }
+    return ttcore::elementTypeToDataType(tensorType.getElementType());
   };
 
   TTNNOperandWorkarounds bf16Workaround;
