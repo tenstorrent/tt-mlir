@@ -31,7 +31,7 @@ module attributes {} {
     // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<1x1x32x128xbf16
     // Check that the data type of the output operand is transformed in bf16.
-    %4 = "ttnn.embedding_bw"(%0, %1, %3) <{dtype = #ttcore.supportedDataTypes<f32>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x1x1x32xf32, #ttnn_layout3>, tensor<512x128xf32, #ttnn_layout4>, tensor<1x1x32x128xf32, #ttnn_layout5>) -> tensor<512x128xf32, #ttnn_layout4>
+    %4 = "ttnn.embedding_bw"(%0, %1, %3) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<1x1x1x32xf32, #ttnn_layout3>, tensor<512x128xf32, #ttnn_layout4>, tensor<1x1x32x128xf32, #ttnn_layout5>) -> tensor<512x128xf32, #ttnn_layout4>
     // CHECK-NEXT: %[[EMBEDDING_BW_OP:.*]] = "ttnn.embedding_bw"(%[[TO_LAYOUT_INPUT]], %[[TO_LAYOUT_WEIGHTS]], %[[TO_LAYOUT_IN_GRADIENT]])
     // Check that the output operand is transformed back into the f32 data type.
     // CHECK-NEXT: "ttnn.to_layout"(%[[EMBEDDING_BW_OP]])
