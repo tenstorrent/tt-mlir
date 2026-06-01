@@ -428,15 +428,9 @@ void createTTIRToTTNNCommonPipeline(
     if (options.enableConstEval) {
       devicePm.addPass(transforms::createConstEvalHoistTransform());
 
-      // Now that all const-eval passes have run, we can force the const-eval
-      // function inputs to system memory.
-      if (options.enableConstEvalInputsToSystemMemory) {
-        devicePm.addPass(createTTNNConstEvalInputsToSystemMemory());
-
-        // Clean up any redundant to_layout ops that may have been introduced
-        // previously.
-        devicePm.addPass(mlir::createCanonicalizerPass());
-      }
+      // Clean up any redundant to_layout ops introduced when forcing const-eval
+      // inputs to system memory.
+      devicePm.addPass(mlir::createCanonicalizerPass());
     }
 
     // Bind distributed-op semaphores after the optimizer (core range derives
