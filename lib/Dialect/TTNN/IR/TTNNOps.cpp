@@ -5716,14 +5716,12 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   auto numKVHeads = keyShape[1];
   auto blockSize = keyShape[2];
 
-  // Verify element types.
-  if (queryType.getElementType() != keyType.getElementType() ||
-      queryType.getElementType() != valueType.getElementType()) {
-    return emitOpError(
-        "Query, key, and value must have the same element type.");
-  }
-
-  if (!queryType.getElementType().isFloat()) {
+  // The query may be higher precision than the key/value: the decode kernel
+  // reads a BFP8/BFP4 cache with a BF16 query. Require float here; key/value
+  // dtype equality is enforced separately below.
+  if (!queryType.getElementType().isFloat() ||
+      !keyType.getElementType().isFloat() ||
+      !valueType.getElementType().isFloat()) {
     return emitOpError("Query, key, and value must be float tensors.");
   }
 
