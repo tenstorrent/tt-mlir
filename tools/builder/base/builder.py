@@ -25,6 +25,7 @@ from builder.base.builder_utils import (
     split,
     derive_canonical_core_range_set,
 )
+from builder.base.input_range_constraints import infer_arg_ranges
 
 
 class BuilderMeta(type):
@@ -1076,12 +1077,73 @@ class Builder(metaclass=BuilderMeta):
     ) -> List[Dict[int, torch.Tensor]]:
         golden_inputs = []
 
+        arg_ranges = infer_arg_ranges(parsed_func)
+
+        # EXPERIMENT (env-gated): force selected constrained args to all-zeros.
+        # ZERO_CONSTRAINED_ARGS="" / unset -> none; "all" -> every constrained
+        # arg; comma list of arg numbers -> just those. Used to study argmax PCC.
+        _zero_spec = os.environ.get("ZERO_CONSTRAINED_ARGS", "").strip()
+        if _zero_spec == "all":
+            _zero_args = set(arg_ranges.keys())
+        elif _zero_spec:
+            _zero_args = {int(x) for x in _zero_spec.split(",") if x.strip() != ""}
+        else:
+            _zero_args = set()
+        # ZERO_ROWS=N -> instead of fully zeroing, zero only the first N rows
+        # (dim 0) of every constrained arg; the rest stay random. Lets us sweep
+        # none(0) -> some -> all(batch) and watch argmax PCC climb.
+        _zero_rows = os.environ.get("ZERO_ROWS", "").strip()
+        _zero_rows = int(_zero_rows) if _zero_rows else None
+        if _zero_rows is not None:
+            _zero_args = set(arg_ranges.keys())
+
+        def _apply_zero(arg_number, t):
+            if arg_number not in _zero_args:
+                return t
+            if _zero_rows is None:
+                return torch.zeros_like(t)
+            t = t.clone()
+            n = min(_zero_rows, t.shape[0]) if t.dim() >= 1 else 0
+            t[:n] = 0
+            return t
+
+        print(
+            f"\n[GOLDEN-DEBUG] ===== generate_golden_tensors for "
+            f"{parsed_func.name.value} =====",
+            flush=True,
+        )
+        print(
+            f"[GOLDEN-DEBUG] inferred constrained arg_ranges "
+            f"(arg_number -> [low, high)): {arg_ranges}",
+            flush=True,
+        )
+
+        def _arg_name(attrs):
+            for na in attrs:
+                if na.name == "ttir.name":
+                    return str(na.attr)
+            return "<unnamed>"
+
+        def _summarize(t: torch.Tensor) -> str:
+            flat = t.flatten()
+            preview = flat[: min(16, flat.numel())].tolist()
+            try:
+                tmin = t.min().item()
+                tmax = t.max().item()
+            except Exception:
+                tmin = tmax = "n/a"
+            return (
+                f"shape={tuple(t.shape)} dtype={t.dtype} "
+                f"min={tmin} max={tmax} first<=16={preview}"
+            )
+
         arg_attr_list = parsed_func.arg_attrs
         for arg_number, arg_attrs in enumerate(arg_attr_list):
             arg = parsed_func.arguments[arg_number]
             ranked_tensor_type = arg.type
             is_presharded = False
             local_shape = ranked_tensor_type.shape
+            value_range = arg_ranges.get(arg_number)
 
             for named_attr in arg_attrs:
                 if named_attr.name == "ttcore.shard_status":
@@ -1103,19 +1165,73 @@ class Builder(metaclass=BuilderMeta):
 
                 device_golden_info = {}
                 for device_id in range(self._mesh_shape[0] * self._mesh_shape[1]):
-                    device_golden_info[device_id] = self.generate_random_tensor(
-                        local_shape, ranked_tensor_type.element_type
+                    _t = self.generate_random_tensor(
+                        local_shape,
+                        ranked_tensor_type.element_type,
+                        value_range=value_range,
                     )
+                    _t = _apply_zero(arg_number, _t)
+                    device_golden_info[device_id] = _t
                 golden_inputs.append(device_golden_info)
+                print(
+                    f"[GOLDEN-DEBUG] arg{arg_number} name={_arg_name(arg_attrs)} "
+                    f"CONSTRAINED={value_range is not None} "
+                    f"value_range={value_range} presharded=True "
+                    f"per-device[0]: {_summarize(device_golden_info[0])}",
+                    flush=True,
+                )
             else:
                 golden_input = self.generate_random_tensor(
-                    local_shape, ranked_tensor_type.element_type
+                    local_shape,
+                    ranked_tensor_type.element_type,
+                    value_range=value_range,
                 )
+                golden_input = _apply_zero(arg_number, golden_input)
                 golden_inputs.append({0: golden_input})
+                print(
+                    f"[GOLDEN-DEBUG] arg{arg_number} name={_arg_name(arg_attrs)} "
+                    f"CONSTRAINED={value_range is not None} "
+                    f"value_range={value_range} presharded=False "
+                    f"{_summarize(golden_input)}",
+                    flush=True,
+                )
 
+        print("[GOLDEN-DEBUG] ===== end generate_golden_tensors =====\n", flush=True)
         return golden_inputs
 
-    def generate_random_tensor(self, shape: Shape, dtype: Type) -> torch.Tensor:
+    def _warn_if_outside_arg_ranges(
+        self,
+        parsed_func: func.FuncOp,
+        supplied_inputs: List[Dict[int, torch.Tensor]],
+    ) -> None:
+        arg_ranges = infer_arg_ranges(parsed_func)
+        if not arg_ranges:
+            return
+        for arg_number, shard_map in enumerate(supplied_inputs):
+            value_range = arg_ranges.get(arg_number)
+            if value_range is None:
+                continue
+            low, high = value_range
+            for shard_tensor in shard_map.values():
+                if shard_tensor.numel() == 0:
+                    continue
+                t_min = int(shard_tensor.min())
+                t_max = int(shard_tensor.max())
+                if t_min < low or t_max >= high:
+                    print(
+                        f"WARNING: caller-supplied golden for "
+                        f"{parsed_func.name.value} arg{arg_number} has values "
+                        f"in [{t_min}, {t_max}] but the consumer op requires "
+                        f"[{low}, {high})."
+                    )
+                    break
+
+    def generate_random_tensor(
+        self,
+        shape: Shape,
+        dtype: Type,
+        value_range: Optional[Tuple[int, int]] = None,
+    ) -> torch.Tensor:
         torch_dtype = self._get_torch_dtype_from_type(dtype)
 
         if torch_dtype.is_floating_point or torch_dtype.is_complex:
@@ -1129,10 +1245,11 @@ class Builder(metaclass=BuilderMeta):
             else:
                 return torch.randint(0, 2, shape, dtype=torch.bool)
         else:
+            low, high = value_range if value_range is not None else (0, 256)
             if len(shape) == 0:
-                return torch.randint(0, 256, (), dtype=torch_dtype)
+                return torch.randint(low, high, (), dtype=torch_dtype)
             else:
-                return torch.randint(0, 256, shape, dtype=torch_dtype)
+                return torch.randint(low, high, shape, dtype=torch_dtype)
 
     def parse_root_module(
         self,
@@ -1235,6 +1352,7 @@ class Builder(metaclass=BuilderMeta):
         parsed_func_golden_inputs = []
         if parsed_func.name.value in golden_inputs.keys():
             parsed_func_golden_inputs.extend(golden_inputs[parsed_func.name.value])
+            self._warn_if_outside_arg_ranges(parsed_func, parsed_func_golden_inputs)
         else:
             parsed_func_golden_inputs.extend(self.generate_golden_tensors(parsed_func))
 
