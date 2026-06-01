@@ -5,22 +5,21 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include <nanobind/stl/vector.h>
-#include <optional>
 #include <variant>
 
 namespace mlir::ttmlir::python {
 
-static std::optional<std::vector<int64_t>>
+static std::vector<int64_t>
 collectWriteEffectOperandIndices(mlir::Operation *op) {
+  std::vector<int64_t> indices;
   auto iface = mlir::dyn_cast<mlir::MemoryEffectOpInterface>(op);
   if (!iface) {
-    return std::nullopt;
+    return indices;
   }
 
   llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
   iface.getEffects(effects);
 
-  std::vector<int64_t> indices;
   for (const auto &eff : effects) {
     if (!mlir::isa<mlir::MemoryEffects::Write>(eff.getEffect())) {
       continue;
@@ -35,16 +34,13 @@ collectWriteEffectOperandIndices(mlir::Operation *op) {
 void populateUtilModule(nb::module_ &m) {
   m.def(
       "get_write_effect_operand_indices",
-      [](MlirOperation op) -> nb::object {
-        auto indices = collectWriteEffectOperandIndices(unwrap(op));
-        if (!indices) {
-          return nb::none();
-        }
-        return nb::cast(*indices);
+      [](MlirOperation op) {
+        return collectWriteEffectOperandIndices(unwrap(op));
       },
       nb::arg("op"),
       "Operand indices that the op declares MemoryEffects::Write on. "
-      "Returns None if the op does not implement MemoryEffectOpInterface.");
+      "Returns an empty list if the op does not implement "
+      "MemoryEffectOpInterface or declares no write effects.");
 
   m.def("debug_print_module", [](MlirModule module) {
     std::string source;

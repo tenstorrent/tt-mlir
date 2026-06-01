@@ -52,7 +52,8 @@ def get_inplace_vals(op) -> list[Value]:
 
     Driven by MemoryEffectOpInterface via
     `ttmlir.util.get_write_effect_operand_indices`, which returns flat
-    operand indices (variadics already expanded). Returns [] when:
+    operand indices (variadics already expanded), or an empty list if the
+    op doesn't implement the interface. Returns [] when:
       - the op doesn't implement MemoryEffectOpInterface (effects unknown),
       - the op writes to no operand, or
       - all write-effect operands are non-tensor (e.g. device handles).

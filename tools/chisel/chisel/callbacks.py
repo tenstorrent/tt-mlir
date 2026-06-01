@@ -198,6 +198,9 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         _evict_inplace_no_golden(ctx)
         return
 
+    if not (ctx.checks_config.isolation or ctx.checks_config.accumulation):
+        return
+
     op = ctx.op
     asm_state = ctx.asm_state
 
@@ -211,9 +214,6 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         modes.append(NumericsMode.ISOLATED)
     if ctx.checks_config.accumulation:
         modes.append(NumericsMode.ACCUMULATED)
-
-    if len(modes) == 0:
-        return
 
     entries: list[tuple[Value, TensorRef]] = list(
         zip(mlir_op_outputs, ctx.output_refs, strict=True)
