@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 #include <array>
@@ -139,11 +140,6 @@ static unsigned findShardedDimIndex(ArrayRef<int64_t> physicalShape) {
   return bestIndex;
 }
 
-struct VirtualGridCandidate {
-  llvm::SmallVector<int64_t> grid;
-  int64_t volume = 0;
-};
-
 static bool hasAlignedShardWidth(ArrayRef<int64_t> physicalShape,
                                  ArrayRef<int64_t> grid,
                                  int64_t shardWidthAlignment) {
@@ -162,7 +158,7 @@ static bool hasAlignedShardWidth(ArrayRef<int64_t> physicalShape,
   return (physicalShape.back() / gridDim) % shardWidthAlignment == 0;
 }
 
-static VirtualGridCandidate
+static llvm::SmallVector<int64_t>
 computeBestFactorProductGrid(ArrayRef<int64_t> physicalShape,
                              ArrayRef<int64_t> targetGrid,
                              int64_t shardWidthAlignment) {
@@ -175,10 +171,11 @@ computeBestFactorProductGrid(ArrayRef<int64_t> physicalShape,
   auto factorCombinations =
       ttmlir::utils::computeCartesianProduct<int64_t>(factors);
 
-  VirtualGridCandidate best;
+  llvm::SmallVector<int64_t> bestGrid;
+  int64_t bestVolume = 0;
   for (const auto &grid : factorCombinations) {
     int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
-    if (gridVolume > targetGridVolume || gridVolume <= best.volume) {
+    if (gridVolume > targetGridVolume || gridVolume <= bestVolume) {
       continue;
     }
     if (!hasAlignedShardWidth(physicalShape, grid, shardWidthAlignment)) {
@@ -187,10 +184,10 @@ computeBestFactorProductGrid(ArrayRef<int64_t> physicalShape,
     if (utils::findLegalPhysicalGridForVolume(gridVolume, targetGrid).empty()) {
       continue;
     }
-    best.grid = grid;
-    best.volume = gridVolume;
+    bestGrid = grid;
+    bestVolume = gridVolume;
   }
-  return best;
+  return bestGrid;
 }
 
 static llvm::SmallVector<int64_t>
@@ -240,9 +237,8 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                                           shardWidthAlignment);
   }
 
-  VirtualGridCandidate best = computeBestFactorProductGrid(
-      physicalShape, targetGrid, shardWidthAlignment);
-  return best.grid;
+  return computeBestFactorProductGrid(physicalShape, targetGrid,
+                                      shardWidthAlignment);
 }
 
 bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
@@ -335,16 +331,6 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
   return computePhysicalShapeWithAlignments(operand, alignments, ttnnMode);
 }
 
-llvm::SmallVector<int64_t> computeTileAlignedPhysicalShape(mlir::Value operand,
-                                                           bool ttnnMode) {
-  auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
-  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-  llvm::SmallVector<int64_t> alignments =
-      ttcore::MetalLayoutAttr::computeTileAlignments(
-          layout.getLogicalShape(), layout.getNormalizedIntervals());
-  return computePhysicalShapeWithAlignments(operand, alignments, ttnnMode);
-}
-
 mlir::AffineMap
 deriveMaterializedViewRemapping(d2m::ViewLayoutOp viewOp,
                                 mlir::RankedTensorType newResultType) {
@@ -400,14 +386,35 @@ composeViewRemappingsToBase(d2m::ViewLayoutOp leafView,
   return composed;
 }
 
-static bool affineExprDependsOnDim(mlir::AffineExpr expr, unsigned dim) {
-  bool depends = false;
+std::optional<MaterializedViewLayoutBridge> computeMaterializedViewLayoutBridge(
+    d2m::ViewLayoutOp viewOp, d2m::ToLayoutOp toLayoutOp, bool ttnnMode,
+    ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> paddingTileShape) {
+  auto viewType =
+      mlir::cast<mlir::RankedTensorType>(viewOp.getResult().getType());
+  mlir::RankedTensorType materializedViewType =
+      tensorWithOptimalGrid(viewType, ttnnMode, selectedGrid, paddingTileShape);
+  mlir::AffineMap materializedRemapping =
+      deriveMaterializedViewRemapping(viewOp, materializedViewType);
+  std::optional<mlir::AffineMap> viewToBase = composeViewRemappingsToBase(
+      viewOp, toLayoutOp.getResult(0), materializedRemapping);
+  if (!viewToBase) {
+    return std::nullopt;
+  }
+
+  return MaterializedViewLayoutBridge{materializedViewType, *viewToBase};
+}
+
+static llvm::SmallDenseSet<unsigned> collectAffineDimDeps(mlir::AffineExpr expr,
+                                                          unsigned maxDim) {
+  llvm::SmallDenseSet<unsigned> deps;
   expr.walk([&](mlir::AffineExpr subExpr) {
-    if (auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(subExpr)) {
-      depends |= dimExpr.getPosition() == dim;
+    auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(subExpr);
+    if (!dimExpr || dimExpr.getPosition() >= maxDim) {
+      return;
     }
+    deps.insert(dimExpr.getPosition());
   });
-  return depends;
+  return deps;
 }
 
 llvm::SmallVector<int64_t>
@@ -429,7 +436,7 @@ projectViewGridToBaseGrid(mlir::AffineMap viewToBase,
     std::optional<unsigned> baseDim;
     for (auto [baseResultDim, resultExpr] :
          llvm::enumerate(viewToBase.getResults())) {
-      if (!affineExprDependsOnDim(resultExpr, viewGridDim)) {
+      if (!collectAffineDimDeps(resultExpr, gridRank).contains(viewGridDim)) {
         continue;
       }
 
@@ -448,6 +455,47 @@ projectViewGridToBaseGrid(mlir::AffineMap viewToBase,
   }
 
   return sawProjectedGridDim ? baseGrid : llvm::SmallVector<int64_t>{};
+}
+
+llvm::SmallVector<int64_t>
+projectBaseGridToViewGrid(mlir::AffineMap viewToBase,
+                          ArrayRef<int64_t> baseGrid) {
+  const unsigned gridRank = baseGrid.size();
+  if (viewToBase.getNumDims() != gridRank * 2 ||
+      viewToBase.getNumResults() != gridRank * 2) {
+    return {};
+  }
+
+  llvm::SmallVector<int64_t> viewGrid(gridRank, 1);
+  bool sawProjectedGridDim = false;
+  for (auto [baseDim, gridFactor] : llvm::enumerate(baseGrid)) {
+    if (gridFactor <= 1) {
+      continue;
+    }
+
+    std::optional<unsigned> viewDim;
+    for (auto [baseResultDim, resultExpr] :
+         llvm::enumerate(viewToBase.getResults())) {
+      if (baseResultDim % gridRank != baseDim) {
+        continue;
+      }
+
+      for (unsigned dep : collectAffineDimDeps(resultExpr, gridRank)) {
+        if (viewDim && *viewDim != dep) {
+          return {};
+        }
+        viewDim = dep;
+      }
+    }
+
+    if (!viewDim) {
+      continue;
+    }
+    sawProjectedGridDim = true;
+    viewGrid[*viewDim] *= gridFactor;
+  }
+
+  return sawProjectedGridDim ? viewGrid : llvm::SmallVector<int64_t>{};
 }
 
 int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,

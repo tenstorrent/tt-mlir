@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="mock-system-desc-arch=blackhole" --ttir-to-ttmetal-pipeline="test-assume-l1-capacity=8388608" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="mock-system-desc-arch=blackhole" --ttir-to-ttmetal-pipeline -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 module {

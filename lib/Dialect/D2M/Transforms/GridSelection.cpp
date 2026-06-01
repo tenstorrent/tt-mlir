@@ -434,18 +434,15 @@ static void applyBehindViewToLayoutUpdate(
 
   auto viewOp = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
   TT_assert(viewOp);
-  auto viewType = mlir::cast<RankedTensorType>(info.operand.getType());
-  RankedTensorType materializedViewType = utils::tensorWithOptimalGrid(
-      viewType, ttnnMode, info.selectedGrid, info.paddingTileShape);
-  AffineMap materializedRemapping =
-      utils::deriveMaterializedViewRemapping(viewOp, materializedViewType);
-  std::optional<AffineMap> viewToBase = utils::composeViewRemappingsToBase(
-      viewOp, toLayoutOp.getResult(0), materializedRemapping);
+  std::optional<utils::MaterializedViewLayoutBridge> bridge =
+      utils::computeMaterializedViewLayoutBridge(viewOp, toLayoutOp, ttnnMode,
+                                                 info.selectedGrid,
+                                                 info.paddingTileShape);
   llvm::SmallVector<int64_t> minPhysicalShape =
-      viewToBase ? computeViewRequiredPhysicalShape(materializedViewType,
-                                                    toLayoutOp.getResult(0),
-                                                    *viewToBase)
-                 : llvm::SmallVector<int64_t>{};
+      bridge ? computeViewRequiredPhysicalShape(bridge->materializedViewType,
+                                                toLayoutOp.getResult(0),
+                                                bridge->viewToBase)
+             : llvm::SmallVector<int64_t>{};
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
                        ttnnMode, info.viewSourceGrid, builder,
                        minPhysicalShape);

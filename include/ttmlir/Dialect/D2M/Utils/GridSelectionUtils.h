@@ -91,9 +91,6 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
                                                 ArrayRef<int64_t> targetGrid,
                                                 bool ttnnMode);
 
-llvm::SmallVector<int64_t> computeTileAlignedPhysicalShape(mlir::Value operand,
-                                                           bool ttnnMode);
-
 // Compose a ViewLayoutOp remapping with the reblock map implied by
 // newResultType.
 mlir::AffineMap
@@ -106,11 +103,27 @@ composeViewRemappingsToBase(d2m::ViewLayoutOp leafView,
                             mlir::Value expectedBase,
                             mlir::AffineMap leafRemapping);
 
+struct MaterializedViewLayoutBridge {
+  mlir::RankedTensorType materializedViewType;
+  mlir::AffineMap viewToBase;
+};
+
+// Materialize a view with a selected consumer grid and compose its remapping
+// back to the producing ToLayoutOp.
+std::optional<MaterializedViewLayoutBridge> computeMaterializedViewLayoutBridge(
+    d2m::ViewLayoutOp viewOp, d2m::ToLayoutOp toLayoutOp, bool ttnnMode,
+    ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> paddingTileShape);
+
 // Project a selected view grid through a view-to-base map. This is used for
 // layout bridges whose source and consumer grids are related by a TM.
 llvm::SmallVector<int64_t>
 projectViewGridToBaseGrid(mlir::AffineMap viewToBase,
                           ArrayRef<int64_t> selectedGrid);
+
+// Project a selected base grid through a view-to-base map.
+llvm::SmallVector<int64_t>
+projectBaseGridToViewGrid(mlir::AffineMap viewToBase,
+                          ArrayRef<int64_t> baseGrid);
 
 // Create a new MetalLayoutAttr with grid-aware dimension alignments for the
 // given selected grid. The tile shape is empty for row-major tensors.
