@@ -507,6 +507,7 @@ void populateTTModule(nb::module_ &m) {
       });
 
   nb::enum_<tt::ttcore::MeshShardType>(m, "MeshShardType")
+      .value("Identity", tt::ttcore::MeshShardType::Identity)
       .value("Replicate", tt::ttcore::MeshShardType::Replicate)
       .value("Maximal", tt::ttcore::MeshShardType::Maximal)
       .value("Devices", tt::ttcore::MeshShardType::Devices);

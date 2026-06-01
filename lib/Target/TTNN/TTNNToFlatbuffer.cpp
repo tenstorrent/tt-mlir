@@ -1315,6 +1315,47 @@ createOp(FlatbufferObjectCache &cache, GatherOp op) {
                                             op.getDim(), memoryConfig);
 }
 
+// NOTE: This legacy mesh_shard path only handles the "identity" variant.
+// All non-identity behavior has been split out to distribute_tensor /
+// aggregate_tensor. It remains because current TTIR lowering still generates
+// identity mesh_shard for shape tracking.
+::flatbuffers::Offset<::tt::target::ttnn::MeshShardOp>
+createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  const mlir::tt::ttcore::MeshShardDirection shardDirection =
+      op.getShardDirection();
+  const mlir::tt::ttcore::MeshShardType shardType = op.getShardType();
+  llvm::ArrayRef<int64_t> shardShape = op.getShardShape();
+  llvm::ArrayRef<int64_t> shardDims = op.getShardDims();
+
+  ::tt::target::MeshShardDirection meshShardDirection;
+  if (shardDirection == mlir::tt::ttcore::MeshShardDirection::FullToShard) {
+    meshShardDirection = ::tt::target::MeshShardDirection::FullToShardShape;
+  } else if (shardDirection ==
+             mlir::tt::ttcore::MeshShardDirection::ShardToFull) {
+    meshShardDirection = ::tt::target::MeshShardDirection::ShardToFullShape;
+  } else {
+    llvm_unreachable("unhandled mesh_shard direction");
+  }
+
+  assert(shardType == mlir::tt::ttcore::MeshShardType::Identity &&
+         "mesh_shard type must be Identity");
+  ::tt::target::MeshShardType meshShardType =
+      ::tt::target::MeshShardType::Identity;
+
+  return ::tt::target::ttnn::CreateMeshShardOp(
+      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
+      meshShardDirection, meshShardType,
+      cache.fbb->CreateVector<int64_t>(shardShape),
+      cache.fbb->CreateVector<int64_t>(shardDims));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
 createOp(FlatbufferObjectCache &cache, PermuteOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4407,6 +4448,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto gatherOp = dyn_cast<GatherOp>(op); gatherOp) {
     return createOperation(cache, createOp(cache, gatherOp), debugString,
+                           locInfo);
+  }
+  if (auto meshShardOp = dyn_cast<MeshShardOp>(op); meshShardOp) {
+    return createOperation(cache, createOp(cache, meshShardOp), debugString,
                            locInfo);
   }
   if (auto concatOp = dyn_cast<ConcatOp>(op); concatOp) {

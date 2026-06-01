@@ -59,6 +59,7 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttcore::LoadCachedOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::CaptureOrExecuteTraceOp>(op);
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::GetDeviceOp>(op);
+    shouldHoist &= !::mlir::isa<mlir::tt::ttnn::MeshShardOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
     return shouldHoist;
@@ -106,10 +107,11 @@ private:
   }
 
   // Check if a value should remain on device during trace capture.
-  // Handles three cases:
+  // Handles four cases:
   // 1. Direct BlockArgument → checks shouldKeepArgOnDevice
   // 2. LoadCachedOp result → always device-resident (consteval)
-  // 3. ttnn.empty / ttnn.alloc result → prelude-allocated device scratch
+  // 3. MeshShardOp result → traces through to the input and recurses
+  // 4. ttnn.empty / ttnn.alloc result → prelude-allocated device scratch
   //    buffer (e.g. stats scratch for distributed_rms_norm) that must be
   //    passed through, not host-staged.
   bool isDeviceResidentValue(mlir::Value value) {
@@ -129,6 +131,10 @@ private:
 
     if (mlir::isa<mlir::tt::ttcore::LoadCachedOp>(defOp)) {
       return true;
+    }
+
+    if (auto meshShardOp = mlir::dyn_cast<ttnn::MeshShardOp>(defOp)) {
+      return isDeviceResidentValue(meshShardOp.getInput());
     }
 
     if (mlir::isa<ttnn::EmptyOp, ttnn::AllocOp>(defOp)) {
@@ -237,6 +243,17 @@ private:
               ttcore::ArgumentTypeAttr::get(context,
                                             ttcore::ArgumentType::Constant));
           attrs = mlir::DictionaryAttr::get(context, namedAttrs);
+        }
+        // Propagate attributes through MeshShardOp to inherit kv_cache and
+        // other attributes from the originating BlockArgument.
+        else if (auto meshShardOp = mlir::dyn_cast<ttnn::MeshShardOp>(defOp)) {
+          mlir::Value meshInput = meshShardOp.getInput();
+          if (auto blockArg = mlir::dyn_cast<BlockArgument>(meshInput)) {
+            if (auto funcOp = mlir::dyn_cast<func::FuncOp>(
+                    blockArg.getOwner()->getParentOp())) {
+              attrs = funcOp.getArgAttrDict(blockArg.getArgNumber());
+            }
+          }
         }
       }
       inputAttrs.push_back(attrs);
@@ -617,8 +634,9 @@ private:
   // different layouts (e.g., from system memory to device memory layouts) via
   // ToLayoutOp operations that were inserted during earlier passes.
   //
-  // This optimization identifies such patterns where a function argument is
-  // immediately converted via ToLayoutOp.
+  // This optimization identifies such patterns where:
+  // 1. A function argument is immediately converted via ToLayoutOp
+  // 2. A function argument goes through MeshShardOp then ToLayoutOp
   //
   // By updating the function signature to accept the target layout directly,
   // we:
@@ -643,20 +661,34 @@ private:
     llvm::SmallVector<mlir::Operation *> opsToErase;
 
     // Scan each function argument to find layout conversion patterns that can
-    // be optimized. We look for arguments that are immediately used by a
-    // ToLayoutOp.
+    // be optimized. We look for arguments that are immediately used by
+    // ToLayoutOp (directly or via MeshShardOp).
     for (size_t argIdx = 0; argIdx < funcOp.getNumArguments(); argIdx++) {
       BlockArgument arg = funcOp.getArgument(argIdx);
       RankedTensorType currentTensorType =
           mlir::cast<RankedTensorType>(arg.getType());
 
       ttnn::ToLayoutOp layoutOp = nullptr;
+      ttnn::MeshShardOp meshShardOp = nullptr;
 
-      // Check if argument has only one use and it's a ToLayoutOp.
+      // Check if argument has only one use.
       if (arg.hasOneUse()) {
         auto *user = *arg.getUsers().begin();
+
+        // Check if it's a direct ToLayoutOp.
         if (auto directLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(user)) {
           layoutOp = directLayoutOp;
+        }
+        // Check if it's a MeshShardOp that leads to ToLayoutOp.
+        else if (auto meshShard = mlir::dyn_cast<ttnn::MeshShardOp>(user)) {
+          meshShardOp = meshShard;
+          // Check if mesh_shard has a single use and it's a ToLayoutOp.
+          if (meshShard.getResult().hasOneUse()) {
+            auto *meshUser = *meshShard.getResult().getUsers().begin();
+            if (auto toLayout = mlir::dyn_cast<ttnn::ToLayoutOp>(meshUser)) {
+              layoutOp = toLayout;
+            }
+          }
         }
       }
 
@@ -666,22 +698,56 @@ private:
         continue;
       }
 
-      // Get the target type from the ToLayoutOp and update the function
-      // argument type directly.
+      // Get the target type from the ToLayoutOp.
       RankedTensorType targetTensorType = layoutOp.getResult().getType();
-      TTNNLayoutAttr targetLayoutAttr =
-          utils::getLayoutAttrFromTensor(targetTensorType);
-      TTNNLayoutAttr currentLayoutAttr =
-          utils::getLayoutAttrFromTensor(currentTensorType);
-      if (targetLayoutAttr.getDataType() != currentLayoutAttr.getDataType()) {
-        return funcOp.emitError("ToLayoutOp changed data type for argument ")
-               << argIdx << ", expected only buffer type change";
-      }
-      newInputTypes.push_back(targetTensorType);
 
-      // Replace all uses of ToLayoutOp with the function argument.
-      layoutOp.getResult().replaceAllUsesWith(arg);
-      opsToErase.push_back(layoutOp);
+      if (meshShardOp) {
+        // Case 1: Argument -> MeshShardOp -> ToLayoutOp
+        // We need to update the function argument type and the mesh_shard
+        // operation. The new input type should match the layout after
+        // ToLayoutOp.
+
+        // Create new type for function argument with the target layout
+        // but keeping the original shape (before mesh_shard).
+        TTNNLayoutAttr targetLayoutAttr =
+            utils::getLayoutAttrFromTensor(targetTensorType);
+        TTNNLayoutAttr currentLayoutAttr =
+            utils::getLayoutAttrFromTensor(currentTensorType);
+        if (targetLayoutAttr.getDataType() != currentLayoutAttr.getDataType()) {
+          return funcOp.emitError("ToLayoutOp changed data type for argument ")
+                 << argIdx << ", expected only buffer type change";
+        }
+        auto newArgType = utils::RankedTensorTypeFactory::create(
+            currentTensorType, targetLayoutAttr.getBufferType());
+        newArgType = utils::RankedTensorTypeFactory::create(
+            newArgType, targetLayoutAttr.getLayout());
+
+        newInputTypes.push_back(newArgType);
+
+        // Update mesh_shard's result type to match the target layout.
+        // This must be done before replacing uses to maintain type consistency.
+        meshShardOp.getResult().setType(targetTensorType);
+
+        // Now we can safely replace ToLayoutOp uses with mesh_shard output.
+        layoutOp.getResult().replaceAllUsesWith(meshShardOp.getResult());
+        opsToErase.push_back(layoutOp);
+      } else {
+        // Case 2: Argument -> ToLayoutOp
+        // We can directly update the function argument type to the target type.
+        TTNNLayoutAttr targetLayoutAttr =
+            utils::getLayoutAttrFromTensor(targetTensorType);
+        TTNNLayoutAttr currentLayoutAttr =
+            utils::getLayoutAttrFromTensor(currentTensorType);
+        if (targetLayoutAttr.getDataType() != currentLayoutAttr.getDataType()) {
+          return funcOp.emitError("ToLayoutOp changed data type for argument ")
+                 << argIdx << ", expected only buffer type change";
+        }
+        newInputTypes.push_back(targetTensorType);
+
+        // Replace all uses of ToLayoutOp with the function argument
+        layoutOp.getResult().replaceAllUsesWith(arg);
+        opsToErase.push_back(layoutOp);
+      }
 
       hasChanges = true;
     }
@@ -775,7 +841,8 @@ private:
       }
 
       // Check if this value should remain on device during trace capture.
-      // Handles direct BlockArguments and LoadCachedOp results.
+      // Handles direct BlockArguments, LoadCachedOp results, and values
+      // flowing through MeshShardOp (multichip workloads).
       bool keepOnDevice = isDeviceResidentValue(input);
 
       RankedTensorType tensorType =

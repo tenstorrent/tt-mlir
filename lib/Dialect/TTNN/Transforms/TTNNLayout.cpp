@@ -107,6 +107,12 @@ static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx, RankedTensorType type,
       .build();
 }
 
+static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
+  auto meshShardOp = mlir::dyn_cast_if_present<ttir::MeshShardOp>(srcOp);
+  return meshShardOp && meshShardOp.getShardType() !=
+                            mlir::tt::ttcore::MeshShardType::Identity;
+}
+
 //===----------------------------------------------------------------------===//
 // To layout pass
 //===----------------------------------------------------------------------===//
@@ -417,17 +423,64 @@ namespace {
 
 // Rewriter which handles layouts of ttir::MeshShardOp.
 //
-// MeshShardOp (Replicate, Maximal, Devices) gets mapped to
+// ttir::MeshShardOp comes in two flavors, depending on the MeshShardTypeAttr:
+// - Identity - gets mapped to ttnn::MeshShardOp. This is purely a semantic
+// decorator to preserve mapping between global and local shapes for pre-sharded
+// tensors, and is a no-op from the runtime perspective.
+// - Non-identity (Replicate, Maximal, Devices) - gets mapped to
 // ttnn::AggregateTensorOp or ttnn::DistributeTensorOp, which must execute on
-// host. This rewriter forces inputs and outputs to system memory.
+// host.
+//
+// Rewrites applied in this pattern:
+// - Non-identity MeshShard ops need inputs and outputs to be in the host
+// memory.
+// - Identity MeshShard ops are a no-op from the runtime perspective, meaning
+// that they can't change the tensor layouts, so we need to make sure that the
+// output layout matches the input layout.
 //
 class TTNNLayoutMeshShardRewriter : public OpRewritePattern<ttir::MeshShardOp> {
 public:
   TTNNLayoutMeshShardRewriter(MLIRContext *ctx)
       : OpRewritePattern<ttir::MeshShardOp>(ctx) {}
-
+  // Match and rewrite the MeshShardOp.
   LogicalResult matchAndRewrite(ttir::MeshShardOp op,
                                 PatternRewriter &rewriter) const override {
+    if (shouldMeshShardOpForceSystemMemory(op.getOperation())) {
+      return forceSystemMemory(op, rewriter);
+    }
+
+    return forceSameInputOutputLayout(op, rewriter);
+  }
+
+private:
+  LogicalResult forceSameInputOutputLayout(ttir::MeshShardOp op,
+                                           PatternRewriter &rewriter) const {
+    // Identity MeshShard cannot perform implicit tilization/untilization.
+    // Its output layout must match its input layout.
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(op.getOperand().getType());
+    RankedTensorType resultType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto inputLayout =
+        mlir::dyn_cast_if_present<TTNNLayoutAttr>(inputType.getEncoding());
+    auto resultLayout =
+        mlir::dyn_cast_if_present<TTNNLayoutAttr>(resultType.getEncoding());
+    if (!inputLayout || !resultLayout ||
+        inputLayout.getLayout() == resultLayout.getLayout()) {
+      return failure();
+    }
+    TTNNLayoutAttr newLayout =
+        TTNNLayoutAttr::Builder(resultLayout, resultType.getShape())
+            .setLayout(inputLayout.getLayout());
+    rewriter.modifyOpInPlace(op, [&]() {
+      op->getResult(0).setType(RankedTensorType::get(
+          resultType.getShape(), resultType.getElementType(), newLayout));
+    });
+    return success();
+  }
+
+  LogicalResult forceSystemMemory(ttir::MeshShardOp op,
+                                  PatternRewriter &rewriter) const {
     bool modified = false;
     Value input = op.getOperand();
     Location newLoc = appendInputSuffix(op.getLoc(), 0);
@@ -578,8 +631,7 @@ private:
       for (auto [type, operand] :
            llvm::zip_equal(funcOp.getResultTypes(), returnOp->getOperands())) {
         if (!mlir::isa<RankedTensorType>(type) ||
-            !mlir::isa_and_present<ttir::MeshShardOp>(
-                operand.getDefiningOp())) {
+            !shouldMeshShardOpForceSystemMemory(operand.getDefiningOp())) {
           outputTypes.push_back(type);
           continue;
         }
@@ -626,7 +678,7 @@ private:
     }
 
     for (Operation *user : arg.getUsers()) {
-      if (mlir::isa<ttir::MeshShardOp>(user)) {
+      if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
       }
     }
@@ -712,8 +764,10 @@ public:
 private:
   // Return op output should be on host if it's a result of a mesh shard op
   bool shouldForceSystemMemory(Value operandValue) const {
-    return mlir::isa_and_present<ttir::MeshShardOp>(
-        operandValue.getDefiningOp());
+    if (shouldMeshShardOpForceSystemMemory(operandValue.getDefiningOp())) {
+      return true;
+    }
+    return false;
   }
 };
 } // namespace

@@ -618,6 +618,12 @@ void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
     LOG_ASSERT(inserted);
   };
 
+  if (meshShardType == target::MeshShardType::Identity) {
+    // Identity: copy from src tensor to dst tensor
+    putHostTensor(input);
+    return;
+  }
+
   if (command->shard_direction() ==
       target::MeshShardDirection::FullToShardShape) {
     auto distributedHostBufferPtr = meshshard_utils::tensorFullToShard(

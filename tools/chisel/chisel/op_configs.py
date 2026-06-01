@@ -73,6 +73,7 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         ttnn.RotaryEmbeddingLlamaOp: ChiselOpConfig(no_golden=True),
         ttnn.RotaryEmbeddingOp: ChiselOpConfig(no_golden=True),
         ttnn.ConstantOp: ChiselOpConfig(no_golden=True),
+        ttnn.MeshShardOp: ChiselOpConfig(no_golden=True),
         ttnn.MeshPartitionOp: ChiselOpConfig(no_golden=True),
         ttnn.NLPConcatHeadsOp: ChiselOpConfig(no_golden=True),
         ttnn.NLPConcatHeadsDecodeOp: ChiselOpConfig(no_golden=True),

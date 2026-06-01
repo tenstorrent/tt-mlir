@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
@@ -103,31 +102,29 @@ public:
           continue;
         }
 
-        // Find the operand index that matches this specific result, and read
-        // the shard status from the corresponding func result attr. Iterating
-        // over every return operand and overwriting on each step would let
-        // sibling results (with a different status) clobber this one.
+        // Find the operand index in the return
         mlir::func::ReturnOp returnOp = mlir::cast<mlir::func::ReturnOp>(user);
-        auto funcOp = returnOp->getParentOfType<mlir::FunctionOpInterface>();
-        if (!funcOp) {
-          continue;
-        }
         for (auto [i, operand] : llvm::enumerate(returnOp.getOperands())) {
-          if (operand != result) {
+          // Go up to the parent function
+          auto funcOp = returnOp->getParentOfType<mlir::FunctionOpInterface>();
+          if (!funcOp) {
             continue;
           }
+
+          // Get the result attributes for that return index
           auto resultAttrs = mlir::DictionaryAttr::get(
               op.getContext(), funcOp.getResultAttrs(i));
           if (!resultAttrs) {
-            break;
+            continue;
           }
-          if (auto shardStatusAttr =
-                  resultAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name)) {
-            shardStatus =
-                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr)
-                    .getValue();
+
+          auto shardStatusAttr =
+              resultAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
+          if (shardStatusAttr) {
+            auto ssAttr =
+                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
+            shardStatus = ssAttr.getValue();
           }
-          break;
         }
 
         shardStatusMap[result] = shardStatus;
@@ -183,17 +180,7 @@ public:
              adaptor.getOperands(), srcOp.getInShardings().getShardings(),
              srcOp.getBody().getArgumentTypes())) {
 
-      auto outputType = mlir::cast<mlir::RankedTensorType>(
-          getTypeConverter()->convertType(localArgType));
-
-      // Presharded: update arg type to local and skip mesh_shard.
-      if (cache.getShardStatus(globalOperand) ==
-          mlir::tt::ttcore::ShardStatus::Presharded) {
-        retypeFuncArg(rewriter, globalOperand, outputType);
-        fullToShardResults.push_back(globalOperand);
-        continue;
-      }
-
+      // Once extracted, we can generate the ShardyMeshSharding object.
       llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>
           shardyMeshSharding =
               mlir::tt::shardy_utils::ShardyMeshSharding::generate(
@@ -206,6 +193,8 @@ public:
       }
 
       // Create a new mesh shard op.
+      auto outputType = mlir::cast<mlir::RankedTensorType>(
+          getTypeConverter()->convertType(localArgType));
       auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
           loc, outputType, globalOperand, shardyMeshSharding->getShardType(),
           shardyMeshSharding->getShardDirection(),
@@ -222,15 +211,6 @@ public:
              sdyReturn->getOpOperands(), srcOp.getOutShardings().getShardings(),
              srcOp.getResults()))) {
       auto [returnOperand, outSharding, opResult] = args;
-
-      // Presharded: forward the local value and update func result type.
-      if (cache.getShardStatus(opResult) ==
-          mlir::tt::ttcore::ShardStatus::Presharded) {
-        mlir::Value localValue = returnOperand.get();
-        rewireFuncReturns(rewriter, opResult, localValue);
-        shardToFullResults.push_back(localValue);
-        continue;
-      }
 
       // Once extracted, we can generate the ShardyMeshSharding object.
       llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>

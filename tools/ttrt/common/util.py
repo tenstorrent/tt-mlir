@@ -1007,46 +1007,54 @@ class Binary(Flatbuffer):
             return len(self.outputs)
 
         def populate_inputs(self, init_fn, golden_inputs=[]):
-            # For a Presharded input, callers must supply per-device data
-            # (golden tensor reshaped to local_shape); the same buffer is then
-            # cloned for every device in the mesh. The global shape is not
-            # encoded post-identity-mesh-shard-removal and ttrt has no way to
-            # split a global tensor across devices.
-            use_goldens = len(golden_inputs) > 0
-            if use_goldens:
+            if len(golden_inputs) > 0:
                 assert len(golden_inputs) == len(self.inputs)
+                for index, input_fb in enumerate(self.inputs):
+                    reshaped = torch.reshape(
+                        golden_inputs[index], input_fb["desc"]["shape"]
+                    )
+                    self.input_tensors.append(reshaped)
+            else:
+                for i in self.inputs:
+                    tensor_shards = []
 
-            for index, i in enumerate(self.inputs):
-                tensor_shards = []
-                dtype = Binary.Program.from_data_type(
-                    i["desc"]["layout"]["memory_desc"]["data_type"]
-                )
-
-                shard_status = i["desc"].get("shard_status")
-                if shard_status == "Presharded":
-                    local_shape = i["desc"]["local_shape"]
-                    mesh_shape = i["desc"]["mesh_shape"]
-                    num_devices = 1
-                    for dim in mesh_shape:
-                        num_devices *= dim
-
-                    if use_goldens:
-                        torch_tensor = torch.reshape(golden_inputs[index], local_shape)
-                    else:
-                        torch_tensor = init_fn(local_shape, dtype=dtype)
-
-                    for _ in range(num_devices):
-                        tensor_shards.append(torch_tensor.clone())
-                else:
-                    if use_goldens:
-                        torch_tensor = torch.reshape(
-                            golden_inputs[index], i["desc"]["shape"]
+                    if "shard_status" not in i["desc"]:
+                        torch_tensor = init_fn(
+                            i["desc"]["shape"],
+                            dtype=Binary.Program.from_data_type(
+                                i["desc"]["layout"]["memory_desc"]["data_type"]
+                            ),
                         )
-                    else:
-                        torch_tensor = init_fn(i["desc"]["shape"], dtype=dtype)
-                    tensor_shards.append(torch_tensor)
+                        tensor_shards.append(torch_tensor)
+                        self.input_tensors.append(tensor_shards)
+                        continue
 
-                self.input_tensors.append(tensor_shards)
+                    shard_status = i["desc"]["shard_status"]
+                    if shard_status == "Presharded":
+                        local_shape = i["desc"]["local_shape"]
+                        mesh_shape = i["desc"]["mesh_shape"]
+                        num_devices = 1
+                        for dim in mesh_shape:
+                            num_devices *= dim
+
+                        torch_tensor = init_fn(
+                            local_shape,
+                            dtype=Binary.Program.from_data_type(
+                                i["desc"]["layout"]["memory_desc"]["data_type"]
+                            ),
+                        )
+                        for shard_index in range(num_devices):
+                            tensor_shard = torch_tensor.clone()
+                            tensor_shards.append(tensor_shard)
+                    else:
+                        torch_tensor = init_fn(
+                            i["desc"]["shape"],
+                            dtype=Binary.Program.from_data_type(
+                                i["desc"]["layout"]["memory_desc"]["data_type"]
+                            ),
+                        )
+                        tensor_shards.append(torch_tensor)
+                    self.input_tensors.append(tensor_shards)
 
         def populate_outputs(self, init_fn):
             for i in self.outputs:

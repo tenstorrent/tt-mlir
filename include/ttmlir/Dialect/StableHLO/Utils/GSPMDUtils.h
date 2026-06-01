@@ -58,6 +58,8 @@ mlir::LogicalResult parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
 
 class GSPMDMeshSharding : public sharding_utils::MeshSharding {
 public:
+  // Static factory methods.
+  static llvm::Expected<GSPMDMeshSharding> generateDefault();
   static llvm::Expected<GSPMDMeshSharding>
   generate(llvm::StringRef opShardingStr, llvm::StringRef operandShardingStr,
            mlir::tt::ttcore::ShardStatus shardStatus,

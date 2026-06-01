@@ -11,16 +11,6 @@
 
 namespace mlir::tt {
 
-// If value is a func block arg, retype it and the function signature to
-// newType. No-op otherwise.
-void retypeFuncArg(ConversionPatternRewriter &rewriter, Value value,
-                   Type newType);
-
-// Rewire any func.return operand that consumes oldValue to newValue and
-// update the matching func result type.
-void rewireFuncReturns(ConversionPatternRewriter &rewriter, Value oldValue,
-                       Value newValue);
-
 #ifdef TTMLIR_ENABLE_STABLEHLO
 namespace ttir {
 

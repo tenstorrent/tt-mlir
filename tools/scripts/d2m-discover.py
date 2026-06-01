@@ -41,6 +41,7 @@ OP_IGNORELIST = [
     "ttnn.all_gather",
     "ttnn.reduce_scatter",
     "ttnn.all_reduce",
+    "ttnn.mesh_shard",
     "ttnn.point_to_point",
     # ttir
     "ttir.mesh_shard",
