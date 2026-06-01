@@ -65,6 +65,17 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
     inputs.emplace_back(tensor);
   }
 
+  // Allow consteval inputs to be deallocated if TT_EVICT_CE_INPUTS is set
+  static const bool evictCeInputs =
+      std::getenv("TT_EVICT_CE_INPUTS") != nullptr;
+  if (evictCeInputs) {
+    for (::tt::runtime::Tensor &input : inputs) {
+      ::tt::runtime::ttnn::TTNNTensorWrapper &inputWrapper =
+          input.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+      inputWrapper.setRetain(false);
+    }
+  }
+
   // Execute the function
   const size_t programIndex = op->program_idx();
   ProgramExecutor exec(context.getDeviceHandle(), context.getExecutableHandle(),
