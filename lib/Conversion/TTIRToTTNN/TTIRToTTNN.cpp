@@ -3343,8 +3343,8 @@ private:
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
         adaptor.getValue(), op.getIsCausal(), attentionMask,
-        /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
-        adaptor.getScaleAttr(),
+        /*cur_pos_tensor=*/Value(),
+        /*attention_sink=*/adaptor.getAttentionSink(), adaptor.getScaleAttr(),
         /*program_config=*/nullptr);
 
     // Permute result back: [1, B, H, D] -> [B, H, 1, D].
