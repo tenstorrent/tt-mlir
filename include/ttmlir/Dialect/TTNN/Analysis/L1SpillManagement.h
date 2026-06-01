@@ -328,8 +328,7 @@ private:
 
   /// OOM recovery: evict farthest-last-use tensors or demote self to DRAM.
   void handleOOM(Operation *op, int64_t pos,
-                 llvm::ArrayRef<OpResult> tensorResults,
-                 ScheduleData &data,
+                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
                  std::function<void(uint64_t)> addResultsToLiveSet);
 
   /// Evict all live L1 tensors. Used when encountering ops without OpModel
@@ -353,10 +352,14 @@ private:
   bool evictUntil(int64_t pos, ScheduleData &data,
                   std::function<bool()> shouldStop);
 
-  /// Evict a specific live value: spill to DRAM, update tracker, insert
-  /// reshards for already-processed consumers. Used by evictUntil and by
-  /// sibling-operand eviction paths.
-  void evictValue(Value victim, int64_t pos, ScheduleData &data);
+  /// Evict a specific live value: spill to DRAM, update tracker, and insert
+  /// reshards for consumers that still require the L1 layout. Sibling-operand
+  /// eviction passes skipReshardConsumer=op: it spills all operands of that op
+  /// to give it homogeneous DRAM inputs, so resharding one back to L1 would
+  /// defeat the purpose. The op's other (past/future) consumers are still
+  /// restored.
+  void evictValue(Value victim, int64_t pos, ScheduleData &data,
+                  Operation *skipReshardConsumer = nullptr);
 
   /// Insert a ToMemoryConfigOp before an already-processed consumer to
   /// convert the DRAM spill output back to the consumer's expected L1 layout.
