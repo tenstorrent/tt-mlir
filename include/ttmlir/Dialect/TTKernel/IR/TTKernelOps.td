@@ -2981,7 +2981,7 @@ def TTKernel_TilizeInitOp : TTKernel_InitOp<"tilize_init", [TTKernel_LayoutOpTra
     }];
 }
 
-def TTKernel_TilizeUninitOp : TTKernel_InitOp<"tilize_uninit", [TTKernel_LayoutOpTrait]> {
+def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "TilizeUninitOp call.";
     let description = [{
       Uninitialize tilize operation before re-initializing for another operation.
@@ -3052,7 +3052,7 @@ def TTKernel_PackUntilizeInitOp : TTKernel_InitOp<"pack_untilize_init", [TTKerne
     }];
 }
 
-def TTKernel_PackUntilizeUninitOp : TTKernel_InitOp<"pack_untilize_uninit", [TTKernel_LayoutOpTrait]> {
+def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "PackUntilizeUninitOp call.";
     let description = [{
       Uninitializes the pack untilize operation.  Maps to the official tt-metal
@@ -3160,7 +3160,7 @@ def TTKernel_UntilizeInitOp : TTKernel_InitOp<"untilize_init", [TTKernel_LayoutO
     }];
 }
 
-def TTKernel_UntilizeUninitOp : TTKernel_InitOp<"untilize_uninit", [TTKernel_LayoutOpTrait]> {
+def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "UntilizeUninitOp call.";
     let description = [{
       Uninitialize untilize operation, to allow initializing another operation.

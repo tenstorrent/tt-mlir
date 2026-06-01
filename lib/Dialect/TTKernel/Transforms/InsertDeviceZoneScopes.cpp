@@ -10,7 +10,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include <llvm/ADT/STLExtras.h>
+#include "llvm/ADT/STLExtras.h"
 
 namespace mlir::tt::ttkernel {
 #define GEN_PASS_DEF_TTKERNELINSERTDEVICEZONESCOPES
@@ -20,16 +20,16 @@ namespace {
 
 static bool opHasTraitNamed(Operation *op, StringRef traitName) {
   return llvm::StringSwitch<bool>(traitName)
-      .Case("fpu",         op->hasTrait<TTKernelFPUOpTrait>())
-      .Case("sfpu",        op->hasTrait<TTKernelSFPUOpTrait>())
-      .Case("init",        op->hasTrait<TTKernelInitOpTrait>())
-      .Case("unary",       op->hasTrait<TTKernelUnaryOpTrait>())
-      .Case("binary",      op->hasTrait<TTKernelBinaryOpTrait>())
-      .Case("ternary",     op->hasTrait<TTKernelTernaryOpTrait>())
+      .Case("fpu", op->hasTrait<TTKernelFPUOpTrait>())
+      .Case("sfpu", op->hasTrait<TTKernelSFPUOpTrait>())
+      .Case("init", op->hasTrait<TTKernelInitOpTrait>())
+      .Case("unary", op->hasTrait<TTKernelUnaryOpTrait>())
+      .Case("binary", op->hasTrait<TTKernelBinaryOpTrait>())
+      .Case("ternary", op->hasTrait<TTKernelTernaryOpTrait>())
       .Case("device-zone", op->hasTrait<TTKernelDeviceZoneOpTrait>())
-      .Case("trid-noc",    op->hasTrait<TTKernelTridNocOpTrait>())
-      .Case("layout",      op->hasTrait<TTKernelLayoutOpTrait>())
-      .Case("all", true)  // will probably result in hash collisions, will try to fix
+      .Case("trid-noc", op->hasTrait<TTKernelTridNocOpTrait>())
+      .Case("layout", op->hasTrait<TTKernelLayoutOpTrait>())
+      .Case("all", true)
       .Default(false);
 }
 
@@ -42,17 +42,14 @@ public:
 
   void runOnOperation() final {
     llvm::SmallVector<std::string> selectedTraits;
-    for (const std::string& s : traitNames) {
+    for (const std::string &s : traitNames) {
       selectedTraits.push_back(s);
     }
 
     ModuleOp module = getOperation();
-    // llvm::errs() << "looking at module: ";
-    // module.print(llvm::errs());
-    // llvm::errs() << "\n";
 
-    // wraps each kernel function body with a DeviceZoneScopedN labeled by the
-    // function's symbol name (e.g. "compute_kernel1", "datamovement_kernel0")
+    // Wrap each kernel function body with a DeviceZoneScopedN labeled by the
+    // function's symbol name (e.g., "compute_kernel1", "datamovement_kernel0").
     module.walk([&](mlir::func::FuncOp func) {
       if (!func->hasAttr("ttkernel.thread")) {
         return;
@@ -64,22 +61,23 @@ public:
       OpBuilder builder(&entry, entry.begin());
       builder.create<emitc::VerbatimOp>(
           func.getLoc(),
-          ("DeviceZoneScopedN(\"kernel_outer_" + func.getName() + "\");").str());
+          ("DeviceZoneScopedN(\"kernel_outer_" + func.getName() + "\");")
+              .str());
     });
 
-    // adds {DeviceZoneScopedN(name) } around selected traits
+    // Wrap each op with a selected trait in a "{ DeviceZoneScopedN(name); }"
+    // scope.
     module.walk([&](Operation *op) {
-      // llvm::errs() << "Visiting: " << op->getName() << " from dialect " << op->getDialect()->getNamespace() << "\n";
-      if (op->getDialect() != getContext().getLoadedDialect<ttkernel::TTKernelDialect>()) {
+      if (op->getDialect() !=
+          getContext().getLoadedDialect<ttkernel::TTKernelDialect>()) {
         return;
       }
       if (!llvm::any_of(selectedTraits, [&](std::string t) {
-              return opHasTraitNamed(op, t);
-          })
-      ) {
+            return opHasTraitNamed(op, t);
+          })) {
         return;
       }
-      // skips ops whose results are used downstream to avoid scoping issues
+      // Skip ops whose results are used downstream to avoid scoping issues.
       if (llvm::any_of(op->getResults(),
                        [](Value v) { return !v.use_empty(); })) {
         return;

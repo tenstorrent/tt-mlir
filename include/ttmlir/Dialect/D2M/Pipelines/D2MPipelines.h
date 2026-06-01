@@ -123,8 +123,9 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::init(false)};
 
   ListOption<std::string> profilerTraits{
-    *this, "profiler-traits", llvm::cl::desc("TTKernel op mnemonics to instrument with DeviceZoneScopedN.")
-  };
+      *this, "profiler-traits",
+      llvm::cl::desc(
+          "TTKernel op traits to instrument with DeviceZoneScopedN.")};
 
   // Option to set  math fidelity
   Option<mlir::tt::ttmetal::MathFidelity> mathFidelity{

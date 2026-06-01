@@ -308,8 +308,12 @@ void createD2MToTTKernelPipeline(OpPassManager &pm,
   pm.addPass(ttkernel::createTTKernelHoistInits());
   if (options.insertProfilerTraces) {
     ttkernel::TTKernelInsertDeviceZoneScopesOptions passOpts;
-    for (const std::string &n : options.profilerTraits) {
-      passOpts.traitNames.push_back(n);
+    if (options.profilerTraits.empty()) {
+      passOpts.traitNames.push_back("device-zone");
+    } else {
+      for (const std::string &n : options.profilerTraits) {
+        passOpts.traitNames.push_back(n);
+      }
     }
     pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes(passOpts));
   }
@@ -352,8 +356,12 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   devicePm.addPass(ttkernel::createTTKernelHoistInits());
   if (options.insertProfilerTraces) {
     ttkernel::TTKernelInsertDeviceZoneScopesOptions passOpts;
-    for (const std::string &n : options.profilerTraits) {
-      passOpts.traitNames.push_back(n);
+    if (options.profilerTraits.empty()) {
+      passOpts.traitNames.push_back("device-zone");
+    } else {
+      for (const std::string &n : options.profilerTraits) {
+        passOpts.traitNames.push_back(n);
+      }
     }
     devicePm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes(passOpts));
   }
