@@ -537,3 +537,69 @@ module {
     return %o : tensor<1x32x128x64xf32>
   }
 }
+
+// ----------------------------------------------------------------------------
+// Attention sink (softmax padding column)
+//
+// The sink logit is concat'd as an extra score column before softmax, then the
+// column is sliced off after — a NaN-safety pattern that doubles as the sink.
+// The sink (broadcast back to [1, Hq, 1, 1]) is fed to the op's attention_sink
+// operand. Shape: QKᵀ -> scale -> add(mask) -> concat(sink) -> softmax ->
+// slice(drop last col) -> matmul(V).
+// ----------------------------------------------------------------------------
+
+// gpt-oss decode form: sink param at KV-head granularity [1,Hkv,1,1] is
+// GQA-expanded via repeat_interleave to [1,Hq,1,1] then batch-broadcast.
+module {
+  func.func @sdpa_attention_sink(
+      %q: tensor<2x8x1x64xf32>,
+      %k: tensor<2x8x128x64xf32>,
+      %v: tensor<2x8x128x64xf32>,
+      %mask: tensor<2x1x1x128xf32>,
+      %sink: tensor<1x2x1x1xf32>) -> tensor<2x8x1x64xf32> {
+    // CHECK-LABEL: @sdpa_attention_sink
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>
+    // CHECK-SAME: scale = 1.250000e-01
+    // The sink reaches the op as [1, Hq, 1, 1].
+    // CHECK-SAME: tensor<1x8x1x1xf32>) -> tensor<2x8x1x64xf32>
+    // CHECK-NOT: ttir.concat
+    // CHECK-NOT: ttir.slice_static
+    // CHECK-NOT: ttir.matmul
+    %kt = "ttir.permute"(%k) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<2x8x128x64xf32>) -> tensor<2x8x64x128xf32>
+    %qk = "ttir.matmul"(%q, %kt) <{transpose_a = false, transpose_b = false}> : (tensor<2x8x1x64xf32>, tensor<2x8x64x128xf32>) -> tensor<2x8x1x128xf32>
+    %sc = "ttir.full"() <{fill_value = 1.250000e-01 : f32, shape = array<i32: 2, 8, 1, 128>}> : () -> tensor<2x8x1x128xf32>
+    %qks = "ttir.multiply"(%qk, %sc) : (tensor<2x8x1x128xf32>, tensor<2x8x1x128xf32>) -> tensor<2x8x1x128xf32>
+    %maskb = "ttir.broadcast"(%mask) <{broadcast_dimensions = array<i64: 1, 8, 1, 1>}> : (tensor<2x1x1x128xf32>) -> tensor<2x8x1x128xf32>
+    %qkm = "ttir.add"(%qks, %maskb) : (tensor<2x8x1x128xf32>, tensor<2x8x1x128xf32>) -> tensor<2x8x1x128xf32>
+    %sink_exp = "ttir.repeat_interleave"(%sink) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x2x1x1xf32>) -> tensor<1x8x1x1xf32>
+    %sinkb = "ttir.broadcast"(%sink_exp) <{broadcast_dimensions = array<i64: 2, 1, 1, 1>}> : (tensor<1x8x1x1xf32>) -> tensor<2x8x1x1xf32>
+    %padded = "ttir.concat"(%qkm, %sinkb) <{dim = 3 : si32}> : (tensor<2x8x1x128xf32>, tensor<2x8x1x1xf32>) -> tensor<2x8x1x129xf32>
+    %smx = "ttir.softmax"(%padded) <{dimension = 3 : si32, numericStable = false}> : (tensor<2x8x1x129xf32>) -> tensor<2x8x1x129xf32>
+    %trim = "ttir.slice_static"(%smx) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 8 : i32, 1 : i32, 128 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x8x1x129xf32>) -> tensor<2x8x1x128xf32>
+    %o = "ttir.matmul"(%trim, %v) <{transpose_a = false, transpose_b = false}> : (tensor<2x8x1x128xf32>, tensor<2x8x128x64xf32>) -> tensor<2x8x1x64xf32>
+    return %o : tensor<2x8x1x64xf32>
+  }
+}
+
+// Negative: a slice that does not drop exactly the last column (here it drops
+// the FIRST column) is not a sink-padding trim, so it must not fuse.
+module {
+  func.func @sdpa_sink_wrong_slice_rejected(
+      %q: tensor<2x8x1x64xf32>,
+      %k: tensor<2x8x128x64xf32>,
+      %v: tensor<2x8x128x64xf32>,
+      %sink: tensor<1x8x1x1xf32>) -> tensor<2x8x1x64xf32> {
+    // CHECK-LABEL: @sdpa_sink_wrong_slice_rejected
+    // CHECK-NOT: "ttir.scaled_dot_product_attention"
+    // CHECK: ttir.concat
+    %kt = "ttir.permute"(%k) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<2x8x128x64xf32>) -> tensor<2x8x64x128xf32>
+    %qk = "ttir.matmul"(%q, %kt) <{transpose_a = false, transpose_b = false}> : (tensor<2x8x1x64xf32>, tensor<2x8x64x128xf32>) -> tensor<2x8x1x128xf32>
+    %sinkb = "ttir.broadcast"(%sink) <{broadcast_dimensions = array<i64: 2, 1, 1, 1>}> : (tensor<1x8x1x1xf32>) -> tensor<2x8x1x1xf32>
+    %padded = "ttir.concat"(%qk, %sinkb) <{dim = 3 : si32}> : (tensor<2x8x1x128xf32>, tensor<2x8x1x1xf32>) -> tensor<2x8x1x129xf32>
+    %smx = "ttir.softmax"(%padded) <{dimension = 3 : si32, numericStable = false}> : (tensor<2x8x1x129xf32>) -> tensor<2x8x1x129xf32>
+    %trim = "ttir.slice_static"(%smx) <{begins = [0 : i32, 0 : i32, 0 : i32, 1 : i32], ends = [2 : i32, 8 : i32, 1 : i32, 129 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x8x1x129xf32>) -> tensor<2x8x1x128xf32>
+    %o = "ttir.matmul"(%trim, %v) <{transpose_a = false, transpose_b = false}> : (tensor<2x8x1x128xf32>, tensor<2x8x128x64xf32>) -> tensor<2x8x1x64xf32>
+    return %o : tensor<2x8x1x64xf32>
+  }
+}
