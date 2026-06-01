@@ -604,11 +604,15 @@ MemoryLayoutPropagation::processOp(Operation *op) {
                  op->getName(), op->getLoc());
 
     TTNNLayoutAttr dramLayout = getDRAMInterleavedFallback(op);
-    if (dramLayout) {
+    bool isSink = optimizer_utils::isSinkOp(op);
+    if (dramLayout || isSink) {
       BeamCandidate fallback;
-      fallback.configHint = OpConfig(dramLayout);
-      fallback.score = LayoutScore(); // Lowest possible score.
-      fallback.outputLayouts.assign(op->getNumResults(), dramLayout);
+      fallback.configHint =
+          dramLayout ? OpConfig(dramLayout) : OpConfig(TTNNLayoutAttr());
+      fallback.score = LayoutScore();
+      if (dramLayout) {
+        fallback.outputLayouts.assign(op->getNumResults(), dramLayout);
+      }
       // When all tryHint calls fail (e.g. op model unavailable in NO_DISPATCH
       // mode) we fall through to this synthetic candidate. It carries no
       // producerCandidateIndices, so downstream phases implicitly assume the
@@ -1265,9 +1269,11 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   }
   auto currentLayout =
       mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
-  if (!currentLayout) {
-    return nullptr;
-  }
+  // A ranked tensor result always carries a TTNNLayoutAttr encoding by the
+  // time layout propagation runs (defaulted to DRAM-interleaved by the
+  // TTNNLayout pass), so a non-sink beam target always gets a fallback.
+  assert(currentLayout &&
+         "ranked tensor result must have a TTNNLayoutAttr encoding");
 
   // If the op already has an L1 layout it was pinned by an earlier pass
   // (workaround or lowering) that knows what the backend kernel requires.
