@@ -123,6 +123,11 @@ public:
     return m_computeGridShape;
   }
 
+  // Monotonic counter bumped whenever the device's compute grid changes. Lets
+  // device-dependent caches detect staleness without this class needing to know
+  // anything about them. Safe to call with no active device (returns 0).
+  uint64_t getDeviceGeneration() const { return m_deviceGeneration; }
+
   // Returns true if the device is initialized.
   bool isDeviceInitialized() const { return m_device != nullptr; }
 
@@ -143,19 +148,23 @@ private:
   void refreshComputeGridShape();
 
   // If a system descriptor is registered, verifies that the opened device's
-  // compute-with-storage grid matches the grid the system descriptor describes
-  // (the logical worker grid, i.e. the per-dimension min across chips). A
-  // mismatch means the device was configured from a system desc that does not
-  // describe it (e.g. a differently-harvested system desc used in mock mode),
-  // which would silently produce wrong output layouts; this is fatal.
+  // compute-with-storage grid matches the system desc's chip grid (the first
+  // chip's grid; all chips on a system are assumed identical). A mismatch means
+  // the device was configured from a system desc that does not describe it
+  // (e.g. a differently-harvested system desc used in mock mode), which would
+  // silently produce wrong output layouts; this is fatal.
   void validateComputeGridAgainstSystemDesc() const;
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
   ttcore::SystemDescAttr m_systemDesc;
 
   // Device compute-with-storage grid as a {y, x} shape, refreshed on every
-  // device (re)assignment. Empty when no device is active.
+  // device (re)assignment. Empty until the first device is opened; retained
+  // across close so a reset to the same grid does not bump m_deviceGeneration.
   llvm::SmallVector<int64_t, 2> m_computeGridShape;
+
+  // Bumped whenever m_computeGridShape changes; see getDeviceGeneration().
+  uint64_t m_deviceGeneration = 0;
 
   // This field is technically not needed, but is there to assert that
   // `resetInstance()` is legal. If we are using an external device, we cannot
