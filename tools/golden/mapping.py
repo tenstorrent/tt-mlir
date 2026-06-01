@@ -9141,6 +9141,32 @@ def chisel_ttnn_batch_norm_inference(op, inputs):
     )
 
 
+def chisel_ttnn_batch_norm_training(op, inputs):
+    output_type = op.results[0].type.element_type
+    running_mean = inputs["running_mean"]
+    running_var = inputs["running_var"]
+    rm_shape = list(running_mean.shape)
+    rv_shape = list(running_var.shape)
+    result, updated_running_mean, updated_running_var = ttir_batch_norm_training_golden(
+        input_tensor=inputs["input"],
+        scale=inputs["weight"],
+        offset=inputs["bias"],
+        running_mean=torch.reshape(running_mean, [-1]),
+        running_variance=torch.reshape(running_var, [-1]),
+        epsilon_attr=op.attributes["epsilon"],
+        dimension_attr=1,
+        momentum_attr=op.attributes["momentum"],
+        output_type_mlir=output_type,
+        mean_output_type_mlir=output_type,
+        variance_output_type_mlir=output_type,
+    )
+    return (
+        result,
+        torch.reshape(updated_running_mean, rm_shape),
+        torch.reshape(updated_running_var, rv_shape),
+    )
+
+
 def chisel_ttnn_distributed_rms_norm(op, inputs):
     return ttir_distributed_rms_norm_golden(
         input=inputs["input"],
@@ -9225,7 +9251,7 @@ def chisel_ttnn_paged_fill_cache(op, inputs):
         input_tensor=inputs["input"],
         page_table_tensor=inputs["page_table"],
         batch_idx_tensor=inputs["batch_idx_tensor"],
-        output_type_mlir=op.results[0].type.element_type,
+        output_type_mlir=op.operands[0].type.element_type,
     )
 
 
@@ -9239,7 +9265,7 @@ def chisel_ttnn_paged_update_cache(op, inputs):
         update_index_tensor=inputs["update_index"],
         share_cache_attr=_attr_get(op.attributes, "share_cache", default=False),
         page_table_tensor=inputs["page_table"],
-        output_type_mlir=op.results[0].type.element_type,
+        output_type_mlir=op.operands[0].type.element_type,
     )
 
 
@@ -9573,6 +9599,7 @@ CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.PrepareConvTranspose2dBiasOp: chisel_ttnn_prepare_conv_transpose2d_bias,
     # BatchNorm / DistRMSNorm / Scatter
     ttnn.BatchNormInferenceOp: chisel_ttnn_batch_norm_inference,
+    ttnn.BatchNormTrainingOp: chisel_ttnn_batch_norm_training,
     ttnn.DistributedRMSNormOp: chisel_ttnn_distributed_rms_norm,
     ttnn.ScatterOp: chisel_ttnn_scatter,
     # SDPA / Attention ops
