@@ -18,8 +18,9 @@ namespace mlir::tt::ttir::fusing {
 // to the TTNN-level matcher (which remains as a fallback).
 //
 // Matches:  matmul(typecast?(softmax(typecast?(score_chain))), V)
-//   where score_chain carries Q·Kᵀ (K transposed via ttir.transpose) plus an
-//   optional additive mask, in one of these forms:
+//   where score_chain carries Q·Kᵀ (K transposed via ttir.transpose or a
+//   last-two-dims ttir.permute, the form dot_general decomposition produces)
+//   plus an optional additive mask, in one of these forms:
 //     - linear([scale_op?](Q), transpose([scale_op?](K)), bias = mask)
 //     - add([scale_op]([matmul]([scale_op?](Q), transpose([scale_op?](K)))),
 //     mask)
@@ -36,12 +37,15 @@ namespace mlir::tt::ttir::fusing {
 // Produces: ttir.scaled_dot_product_attention(Q, K, V, mask?, scale?)
 //
 // Pre/post scaling is supported in three positions: on Q (pre-matmul),
-// on K (before the transpose), and on the score tensor (post-matmul).
+// on K (either side of the transpose), and on the score tensor (post-matmul).
 // Double-scaling (both pre- and post-) is rejected as ambiguous.
 //
+// GQA: a head-dim ttir.repeat_interleave that expands K/V from Hkv to Hq heads
+// (through an optional typecast) is peeled from both K and V so the un-expanded
+// tensors feed the op, which handles Hkv < Hq natively.
+//
 // Out of scope (intentionally — handled by the TTNN matcher today):
-//   - generic typecast look-through, NaN-safety slice/concat/where
-//   - repeat_interleave-based GQA expansion (SDPA handles Hkv < Hq natively)
+//   - generic typecast look-through, NaN-safety slice/concat
 //   - 3D Q/K/V (must be rank 4)
 //   - attention_sink, sliding_window_size
 class SDPAFusingPattern : public mlir::OpRewritePattern<MatmulOp> {

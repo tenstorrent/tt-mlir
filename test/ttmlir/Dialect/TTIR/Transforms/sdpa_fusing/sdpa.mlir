@@ -369,3 +369,171 @@ module {
     return %3 : tensor<1x8x128x64xbf16>
   }
 }
+
+// ----------------------------------------------------------------------------
+// Kᵀ via ttir.permute (dot_general decomposition form)
+//
+// Real models lower the score matmul from stablehlo.dot_general, whose
+// decomposition expresses Kᵀ as a last-two-dims ttir.permute (not ttir.transpose)
+// and applies the K scale *after* the permute. These cases exercise that form.
+// ----------------------------------------------------------------------------
+
+// Kᵀ via permute, no scale, no mask.
+module {
+  func.func @sdpa_kt_via_permute(
+      %q: tensor<1x8x128x64xbf16>,
+      %k: tensor<1x8x128x64xbf16>,
+      %v: tensor<1x8x128x64xbf16>) -> tensor<1x8x128x64xbf16> {
+    // CHECK-LABEL: @sdpa_kt_via_permute
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-NOT: ttir.matmul
+    %kt = "ttir.permute"(%k) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x8x128x64xbf16>) -> tensor<1x8x64x128xbf16>
+    %s = "ttir.matmul"(%q, %kt) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x64xbf16>, tensor<1x8x64x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %sm = "ttir.softmax"(%s) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x8x128x128xbf16>) -> tensor<1x8x128x128xbf16>
+    %o = "ttir.matmul"(%sm, %v) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x128xbf16>, tensor<1x8x128x64xbf16>) -> tensor<1x8x128x64xbf16>
+    return %o : tensor<1x8x128x64xbf16>
+  }
+}
+
+// Kᵀ via permute with the K scale applied AFTER the permute
+// (multiply(permute(K), scale)) — the real-model form.
+module {
+  func.func @sdpa_kt_via_permute_scale_after(
+      %q: tensor<1x8x128x64xf32>,
+      %k: tensor<1x8x128x64xf32>,
+      %v: tensor<1x8x128x64xf32>) -> tensor<1x8x128x64xf32> {
+    // CHECK-LABEL: @sdpa_kt_via_permute_scale_after
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: scale = 1.250000e-01
+    // CHECK-NOT: ttir.matmul
+    %kt = "ttir.permute"(%k) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x8x128x64xf32>) -> tensor<1x8x64x128xf32>
+    %sc = "ttir.full"() <{fill_value = 1.250000e-01 : f32, shape = array<i32: 1, 8, 64, 128>}> : () -> tensor<1x8x64x128xf32>
+    %kts = "ttir.multiply"(%kt, %sc) : (tensor<1x8x64x128xf32>, tensor<1x8x64x128xf32>) -> tensor<1x8x64x128xf32>
+    %s = "ttir.matmul"(%q, %kts) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x64xf32>, tensor<1x8x64x128xf32>) -> tensor<1x8x128x128xf32>
+    %sm = "ttir.softmax"(%s) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32>
+    %o = "ttir.matmul"(%sm, %v) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x128xf32>, tensor<1x8x128x64xf32>) -> tensor<1x8x128x64xf32>
+    return %o : tensor<1x8x128x64xf32>
+  }
+}
+
+// Full real-model replica: Kᵀ via permute, scale-after-permute, add(mask), and
+// the NaN-safe where(rowCond, full(0), softmax) scrub. The scrub must be
+// re-applied on the SDPA output.
+module {
+  func.func @sdpa_real_form_permute_nan_safe(
+      %q: tensor<1x8x128x64xf32>,
+      %k: tensor<1x8x128x64xf32>,
+      %v: tensor<1x8x128x64xf32>,
+      %mask: tensor<1x1x128x128xf32>,
+      %cond: tensor<1x8x128x1xi1>) -> tensor<1x8x128x64xf32> {
+    // CHECK-LABEL: @sdpa_real_form_permute_nan_safe
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: scale = 1.250000e-01
+    // The NaN-safe select is re-applied on the SDPA output.
+    // CHECK: "ttir.where"
+    // CHECK-NOT: ttir.matmul
+    %kt = "ttir.permute"(%k) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x8x128x64xf32>) -> tensor<1x8x64x128xf32>
+    %sc = "ttir.full"() <{fill_value = 1.250000e-01 : f32, shape = array<i32: 1, 8, 64, 128>}> : () -> tensor<1x8x64x128xf32>
+    %kts = "ttir.multiply"(%kt, %sc) : (tensor<1x8x64x128xf32>, tensor<1x8x64x128xf32>) -> tensor<1x8x64x128xf32>
+    %s = "ttir.matmul"(%q, %kts) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x64xf32>, tensor<1x8x64x128xf32>) -> tensor<1x8x128x128xf32>
+    %m = "ttir.add"(%s, %mask) : (tensor<1x8x128x128xf32>, tensor<1x1x128x128xf32>) -> tensor<1x8x128x128xf32>
+    %sm = "ttir.softmax"(%m) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32>
+    %z = "ttir.full"() <{fill_value = 0.000000e+00 : f32, shape = array<i32: 1, 8, 128, 128>}> : () -> tensor<1x8x128x128xf32>
+    %cb = "ttir.broadcast"(%cond) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<1x8x128x1xi1>) -> tensor<1x8x128x128xi1>
+    %scrub = "ttir.where"(%cb, %z, %sm) : (tensor<1x8x128x128xi1>, tensor<1x8x128x128xf32>, tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32>
+    %o = "ttir.matmul"(%scrub, %v) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x128xf32>, tensor<1x8x128x64xf32>) -> tensor<1x8x128x64xf32>
+    return %o : tensor<1x8x128x64xf32>
+  }
+}
+
+// Negative: an identity permute is not a last-two-dims transpose, so the score
+// is Q·K (not Q·Kᵀ) and must not fuse. Square seq==head_dim keeps the matmul
+// valid so only the permute check distinguishes it.
+module {
+  func.func @sdpa_identity_permute_rejected(
+      %q: tensor<1x8x128x128xf32>,
+      %k: tensor<1x8x128x128xf32>,
+      %v: tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32> {
+    // CHECK-LABEL: @sdpa_identity_permute_rejected
+    // CHECK-NOT: "ttir.scaled_dot_product_attention"
+    // CHECK: ttir.matmul
+    %kt = "ttir.permute"(%k) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32>
+    %s = "ttir.matmul"(%q, %kt) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x128xf32>, tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32>
+    %sm = "ttir.softmax"(%s) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32>
+    %o = "ttir.matmul"(%sm, %v) <{transpose_a = false, transpose_b = false}> : (tensor<1x8x128x128xf32>, tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32>
+    return %o : tensor<1x8x128x128xf32>
+  }
+}
+
+// ----------------------------------------------------------------------------
+// GQA via ttir.repeat_interleave (head-dim expansion)
+//
+// Models expand K/V from Hkv to Hq heads with a head-dim repeat_interleave
+// before the score matmul. SDPA does GQA natively, so the expansion is peeled
+// from both K and V and the un-expanded (Hkv-head) tensors feed the op.
+// ----------------------------------------------------------------------------
+
+// GQA (Hkv=8, Hq=32, G=4): the native 8-head K/V must reach the op.
+module {
+  func.func @sdpa_gqa_repeat_interleave(
+      %q: tensor<1x32x128x64xf32>,
+      %k: tensor<1x8x128x64xf32>,
+      %v: tensor<1x8x128x64xf32>) -> tensor<1x32x128x64xf32> {
+    // CHECK-LABEL: @sdpa_gqa_repeat_interleave
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: tensor<1x8x128x64xf32>, tensor<1x8x128x64xf32>
+    // CHECK-NOT: ttir.repeat_interleave
+    // CHECK-NOT: ttir.matmul
+    %ke = "ttir.repeat_interleave"(%k) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xf32>) -> tensor<1x32x128x64xf32>
+    %kt = "ttir.permute"(%ke) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x32x128x64xf32>) -> tensor<1x32x64x128xf32>
+    %s = "ttir.matmul"(%q, %kt) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x64xf32>, tensor<1x32x64x128xf32>) -> tensor<1x32x128x128xf32>
+    %sm = "ttir.softmax"(%s) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32>
+    %ve = "ttir.repeat_interleave"(%v) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xf32>) -> tensor<1x32x128x64xf32>
+    %o = "ttir.matmul"(%sm, %ve) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x128xf32>, tensor<1x32x128x64xf32>) -> tensor<1x32x128x64xf32>
+    return %o : tensor<1x32x128x64xf32>
+  }
+}
+
+// Real-model form: repeat_interleave produces bf16, then a typecast upcasts to
+// f32 before the score matmul. The head-dim repeat is peeled through the
+// typecast, which is re-applied on the native tensor (so K/V stay f32).
+module {
+  func.func @sdpa_gqa_repeat_interleave_typecast(
+      %q: tensor<1x32x128x64xf32>,
+      %k: tensor<1x8x128x64xbf16>,
+      %v: tensor<1x8x128x64xbf16>) -> tensor<1x32x128x64xf32> {
+    // CHECK-LABEL: @sdpa_gqa_repeat_interleave_typecast
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: tensor<1x8x128x64xf32>, tensor<1x8x128x64xf32>
+    // CHECK-NOT: ttir.repeat_interleave
+    // CHECK-NOT: ttir.matmul
+    %ke = "ttir.repeat_interleave"(%k) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x32x128x64xbf16>
+    %kef = "ttir.typecast"(%ke) <{conservative_folding = false}> : (tensor<1x32x128x64xbf16>) -> tensor<1x32x128x64xf32>
+    %kt = "ttir.permute"(%kef) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x32x128x64xf32>) -> tensor<1x32x64x128xf32>
+    %s = "ttir.matmul"(%q, %kt) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x64xf32>, tensor<1x32x64x128xf32>) -> tensor<1x32x128x128xf32>
+    %sm = "ttir.softmax"(%s) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32>
+    %ve = "ttir.repeat_interleave"(%v) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x32x128x64xbf16>
+    %vef = "ttir.typecast"(%ve) <{conservative_folding = false}> : (tensor<1x32x128x64xbf16>) -> tensor<1x32x128x64xf32>
+    %o = "ttir.matmul"(%sm, %vef) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x128xf32>, tensor<1x32x128x64xf32>) -> tensor<1x32x128x64xf32>
+    return %o : tensor<1x32x128x64xf32>
+  }
+}
+
+// Negative: repeat_interleave on K but not V would make Hkv inconsistent; the
+// expansion must NOT be peeled (K stays expanded to 32 to match V).
+module {
+  func.func @sdpa_gqa_repeat_only_k_not_peeled(
+      %q: tensor<1x32x128x64xf32>,
+      %k: tensor<1x8x128x64xf32>,
+      %v: tensor<1x32x128x64xf32>) -> tensor<1x32x128x64xf32> {
+    // CHECK-LABEL: @sdpa_gqa_repeat_only_k_not_peeled
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: tensor<1x32x128x64xf32>, tensor<1x32x128x64xf32>
+    %ke = "ttir.repeat_interleave"(%k) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xf32>) -> tensor<1x32x128x64xf32>
+    %kt = "ttir.permute"(%ke) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x32x128x64xf32>) -> tensor<1x32x64x128xf32>
+    %s = "ttir.matmul"(%q, %kt) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x64xf32>, tensor<1x32x64x128xf32>) -> tensor<1x32x128x128xf32>
+    %sm = "ttir.softmax"(%s) <{dimension = -1 : si32, numericStable = false}> : (tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32>
+    %o = "ttir.matmul"(%sm, %v) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x128x128xf32>, tensor<1x32x128x64xf32>) -> tensor<1x32x128x64xf32>
+    return %o : tensor<1x32x128x64xf32>
+  }
+}
