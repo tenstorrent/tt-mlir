@@ -9022,8 +9022,7 @@ public:
           "tt.tt_lang_op custom call must have mhlo.frontend_attributes.");
     }
 
-    auto kernelIdAttr =
-        frontendAttributes.getAs<mlir::StringAttr>("kernel_id");
+    auto kernelIdAttr = frontendAttributes.getAs<mlir::StringAttr>("kernel_id");
     if (!kernelIdAttr || kernelIdAttr.getValue().empty()) {
       return rewriter.notifyMatchFailure(
           srcOp, "tt.tt_lang_op requires a non-empty `kernel_id` frontend "
@@ -9038,8 +9037,7 @@ public:
                  "attribute.");
     }
 
-    auto argRolesAttr =
-        frontendAttributes.getAs<mlir::StringAttr>("arg_roles");
+    auto argRolesAttr = frontendAttributes.getAs<mlir::StringAttr>("arg_roles");
     if (!argRolesAttr || argRolesAttr.getValue().empty()) {
       return rewriter.notifyMatchFailure(
           srcOp, "tt.tt_lang_op requires a non-empty `arg_roles` frontend "
@@ -9049,11 +9047,9 @@ public:
     // `shard_spec` is optional; default to "" if absent.
     auto shardSpecAttr =
         frontendAttributes.getAs<mlir::StringAttr>("shard_spec");
-    StringAttr shardSpec = shardSpecAttr ? shardSpecAttr
-                                         : rewriter.getStringAttr("");
+    StringAttr shardSpec =
+        shardSpecAttr ? shardSpecAttr : rewriter.getStringAttr("");
 
-    // Convert result types through the dialect's type converter so layout /
-    // dtype conversions land on the new op's results.
     SmallVector<Type> resultTypes;
     resultTypes.reserve(srcOp.getNumResults());
     for (Type resultType : srcOp.getResultTypes()) {
@@ -9065,21 +9061,21 @@ public:
       resultTypes.push_back(converted);
     }
 
-    rewriter.replaceOpWithNewOp<ttir::TtLangOp>(
-        srcOp, resultTypes, adaptor.getOperands(),
-        /*kernel_id=*/kernelIdAttr,
-        /*version_tag=*/versionTagAttr,
-        /*arg_roles=*/argRolesAttr,
-        /*shard_spec=*/shardSpec);
+    rewriter.replaceOpWithNewOp<ttir::TtLangOp>(srcOp, resultTypes,
+                                                adaptor.getOperands(),
+                                                /*kernel_id=*/kernelIdAttr,
+                                                /*version_tag=*/versionTagAttr,
+                                                /*arg_roles=*/argRolesAttr,
+                                                /*shard_spec=*/shardSpec);
 
     return success();
   }
 };
 } // namespace
 
-static void
-addTtLangOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                             TypeConverter &typeConverter) {
+static void addTtLangOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
   patterns.add<StableHLOTtLangOpConversionPattern>(typeConverter, ctx);
 }
 

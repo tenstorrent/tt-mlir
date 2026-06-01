@@ -6207,20 +6207,9 @@ void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
 
 // Publish per-operand side effects derived from the `arg_roles` attribute.
 //
-// `arg_roles` is a comma-separated string with one token per operand
-// (e.g. `"in,out,in"`). For each operand we emit either
-// `MemoryEffects::Read` (token = "in") or `MemoryEffects::Write`
-// (token = "out") against the specific `OpOperand &`, so generic MLIR
-// analyses (deallocate pass, LICM, etc.) can reason about the op's
-// aliasing without name-matching it. Operand ordering inside `arg_roles`
-// is intentionally free-form: the kernel author's signature ordering is
-// preserved end-to-end and the only structural invariant is the verifier
-// constraint that `# of "out" tokens == # of results`.
-//
-// If the attribute happens to be malformed (verifier should have caught
-// this already, but `getEffects()` is allowed to run on unverified IR),
-// we silently skip the malformed operand. The verifier emits the
-// user-facing diagnostic.
+// `arg_roles` is a user specified comma-separated string attribute that
+// describes the roles of the kernel operands. Currently we rely on the
+// user to specify the roles as we do not have logic to infer the roles
 void TtLangOp::getEffects(
     ::llvm::SmallVectorImpl<
         ::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>>
@@ -6237,6 +6226,8 @@ void TtLangOp::getEffects(
       effects.emplace_back(::mlir::MemoryEffects::Read::get(), &operands[i]);
     } else if (role == "out") {
       effects.emplace_back(::mlir::MemoryEffects::Write::get(), &operands[i]);
+    } else {
+      assert(false && "arg_roles token must be \"in\" or \"out\"");
     }
   }
 }

@@ -789,8 +789,7 @@ namespace {
 // compiler: we forward all metadata attributes (`kernel_id`, `version_tag`,
 // `arg_roles`, `shard_spec`) verbatim and leave `kernel_artifact` empty for
 // the tt-xla plugin to populate after the pipeline completes.
-class TtLangOpConversionPattern
-    : public OpConversionPattern<ttir::TtLangOp> {
+class TtLangOpConversionPattern : public OpConversionPattern<ttir::TtLangOp> {
 public:
   using OpConversionPattern<ttir::TtLangOp>::OpConversionPattern;
 

@@ -8421,11 +8421,12 @@ static bool anyZero(mlir::ElementsAttr elems) {
            << outCount << ") must match number of results ("
            << getResults().size() << ").";
   }
-  // Mirror the TTNN verifier: at least one "out" operand is required.
-  // Catching this here means the StableHLOToTTIR conversion can never
-  // produce an op that the TTNN verifier or flatbuffer emitter would
-  // reject downstream; the diagnostic surfaces at the same layer that
-  // built the op.
+  // At least one "out" operand is required: a tt-lang kernel must write to
+  // a destination buffer that the runtime hands back as the kernel's output,
+  // so we enforce that semantics for the op here at the TTIR level.
+  // Catching this here also means the StableHLOToTTIR conversion can never
+  // produce an op that the TTNN verifier or flatbuffer emitter would reject
+  // downstream; the diagnostic surfaces at the same layer that built the op.
   if (outCount == 0) {
     return emitOpError(
         "tt-lang kernel must have at least one operand tagged \"out\" "

@@ -226,9 +226,8 @@ createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
                  "KernelArgTensorAccessorArgs operand_index ", operandIndex,
                  " is out of range for io_tensors of size ", ioTensors.size());
       const ::tt::tt_metal::Buffer *buffer = ioTensors[operandIndex].buffer();
-      LOG_ASSERT(buffer != nullptr,
-                 "KernelArgTensorAccessorArgs: io_tensors[", operandIndex,
-                 "] has no backing buffer.");
+      LOG_ASSERT(buffer != nullptr, "KernelArgTensorAccessorArgs: io_tensors[",
+                 operandIndex, "] has no backing buffer.");
       auto cta =
           ::tt::tt_metal::TensorAccessorArgs(buffer).get_compile_time_args();
       coreArgs.insert(coreArgs.end(), cta.begin(), cta.end());

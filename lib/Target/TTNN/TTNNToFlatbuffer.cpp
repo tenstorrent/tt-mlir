@@ -3557,8 +3557,8 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
 //       ...
 //     ],
 //     "core_range": {"start": [x, y], "end": [x, y]},
-//     "cb_configs":  [ {buffer_index, data_format, page_size, total_size}, ... ],
-//     "num_tensors": <int>,
+//     "cb_configs":  [ {buffer_index, data_format, page_size, total_size}, ...
+//     ], "num_tensors": <int>,
 //     ...
 //   }
 //
@@ -3571,8 +3571,8 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
 // scenarios. The Python emitter computes these eagerly, but having a
 // secondary check in C++ is cheap insurance against schema drift.
 static ::tt::target::DataType
-parseDataTypeName(llvm::StringRef name, std::optional<::tt::target::DataType>
-                                           &out) {
+parseDataTypeName(llvm::StringRef name,
+                  std::optional<::tt::target::DataType> &out) {
   // Returns the enum and writes it into `out` for the caller's
   // convenience. NOLINTNEXTLINE: matches the FBS enum spelling 1:1.
   out = llvm::StringSwitch<std::optional<::tt::target::DataType>>(name)
@@ -3641,8 +3641,7 @@ parseCoreRange(FlatbufferObjectCache &cache, TtLangOp op,
     return 0;
   }
   if (*sx > *ex || *sy > *ey) {
-    op.emitError(
-        "kernel_artifact `core_range` is empty: start=(")
+    op.emitError("kernel_artifact `core_range` is empty: start=(")
         << *sx << "," << *sy << ") must be component-wise <= end=(" << *ex
         << "," << *ey << ").";
     return 0;
@@ -3660,8 +3659,7 @@ parseCoreRange(FlatbufferObjectCache &cache, TtLangOp op,
 // union member. The Python emitter produces exactly one of:
 //   ComputeKernelConfig | ReaderKernelConfig | WriterKernelConfig
 // per kernel (see `_serialize_kernel_config`).
-static std::pair<::tt::target::ttnn::KernelConfig,
-                 ::flatbuffers::Offset<void>>
+static std::pair<::tt::target::ttnn::KernelConfig, ::flatbuffers::Offset<void>>
 parseKernelConfig(FlatbufferObjectCache &cache, TtLangOp op,
                   const llvm::json::Object *cfg, llvm::StringRef threadType,
                   uint32_t nocKernelIdx) {
@@ -3709,8 +3707,7 @@ parseKernelConfig(FlatbufferObjectCache &cache, TtLangOp op,
             .value_or(::tt::target::MathFidelity::HiFi4);
     bool fp32DestAccEn = cfg->getBoolean("fp32_dest_acc_en").value_or(false);
     bool dstFullSyncEn = cfg->getBoolean("dst_full_sync_en").value_or(false);
-    bool bfp8PackPrecise =
-        cfg->getBoolean("bfp8_pack_precise").value_or(false);
+    bool bfp8PackPrecise = cfg->getBoolean("bfp8_pack_precise").value_or(false);
     bool mathApproxMode = cfg->getBoolean("math_approx_mode").value_or(false);
     std::vector<::tt::target::UnpackToDestMode> unpackModes;
     auto off = ::tt::target::ttnn::CreateComputeKernelConfigDirect(
@@ -3742,11 +3739,10 @@ parseKernelConfig(FlatbufferObjectCache &cache, TtLangOp op,
 // scoped to the kernel's core range. Pages and totals are passed
 // through verbatim — `_serialize_cb_config` already did the byte
 // arithmetic that mirrors `kernel_runner.py::build_cb_descriptors`.
-static llvm::Expected<std::vector<
-    ::flatbuffers::Offset<::tt::target::ttnn::KernelCBDescriptor>>>
+static llvm::Expected<
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBDescriptor>>>
 parseCbConfigs(
-    FlatbufferObjectCache &cache, TtLangOp op,
-    const llvm::json::Array *cbs,
+    FlatbufferObjectCache &cache, TtLangOp op, const llvm::json::Array *cbs,
     ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> coreRanges) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBDescriptor>>
       out;
@@ -3768,7 +3764,8 @@ parseCbConfigs(
     if (!bufferIndex || !pageSize || !totalSize || !dtName) {
       op.emitError("cb_configs[")
           << i
-          << "] is missing one of buffer_index/page_size/total_size/data_format.";
+          << "] is missing one of "
+             "buffer_index/page_size/total_size/data_format.";
       return llvm::createStringError(std::errc::invalid_argument, "bad cb");
     }
     // ``llvm::json::Value::getAsInteger`` returns ``int64_t``, but the
@@ -3780,9 +3777,8 @@ parseCbConfigs(
     auto checkU32 = [&](int64_t v, llvm::StringRef field) -> bool {
       if (v < 0 ||
           static_cast<uint64_t>(v) > std::numeric_limits<uint32_t>::max()) {
-        op.emitError("cb_configs[")
-            << i << "]." << field << " = " << v
-            << " is out of range for uint32_t.";
+        op.emitError("cb_configs[") << i << "]." << field << " = " << v
+                                    << " is out of range for uint32_t.";
         return false;
       }
       return true;
@@ -3847,8 +3843,8 @@ static ::mlir::LogicalResult buildKernelArgsFromJson(
         ::tt::target::ttnn::CreateKernelArgCBBufferIndex(*cache.fbb, cb)
             .Union();
     ctArgs.push_back(::tt::target::ttnn::CreateKernelArg(
-        *cache.fbb,
-        ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex, cbArg));
+        *cache.fbb, ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex,
+        cbArg));
   }
 
   if (threadType == "noc") {
@@ -4113,8 +4109,7 @@ createOp(FlatbufferObjectCache &cache, TtLangOp op) {
   for (auto &r : roles) {
     r = r.trim();
     if (r.empty()) {
-      op.emitError(
-          "ttnn.tt_lang_op: arg_roles contains an empty role entry.");
+      op.emitError("ttnn.tt_lang_op: arg_roles contains an empty role entry.");
       return 0;
     }
   }
