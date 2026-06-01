@@ -23,11 +23,9 @@ NLPCreateQKVHeadsDecodeResolvedParams resolveNLPCreateQKVHeadsDecodeParams(
   NLPCreateQKVHeadsDecodeResolvedParams params;
   params.optionalOutputTensors = std::nullopt;
 
-  // The output memory config is passed through q_out, but both OpModel and
-  // runtime always set it to 0.
-  if (opT.q_out) {
-    params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.q_out), callType);
+  if (opT.memcfg) {
+    params.outputMemoryConfig =
+        operations::utils::createMemoryConfigIfNeeded(*opT.memcfg, callType);
   }
 
   return params;

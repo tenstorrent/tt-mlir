@@ -25,8 +25,7 @@ resolveSplitQueryKeyValueAndSplitHeadsParams(
     params.numKVHeads = *opT.num_kv_heads;
   }
 
-  // The output memory config is passed through q_out, but both OpModel and
-  // runtime always set it to 0.
+  // The output memory config is passed through q_out
   if (opT.q_out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(*opT.q_out), callType);
