@@ -478,3 +478,62 @@ TEST_F(BeamSearchTest, NoValidCandidateFallbackToDRAM) {
     }
   }
 }
+
+//===----------------------------------------------------------------------===//
+// Edge case: empty-beam sink op must still get a fallback candidate
+//===----------------------------------------------------------------------===//
+
+// Reproduced deterministically with a minimal DRAM-only candidate space (like
+// opt-level 1, where sharded/L1 layouts are cleared) plus an input whose
+// sequence length (128) exceeds the cache (64), so the single DRAM-interleaved
+// combo fails validation. The fix gives the sink op a fallback candidate, so
+// its beam is non-empty and consolidateBeam never indexes an empty vector.
+TEST_F(BeamSearchTest, SinkOpEmptyBeamGetsFallbackCandidate) {
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 128, 512};
+  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  auto inputLayout = createDRAMInterleavedLayout(inputShape);
+  auto inputType = mlir::RankedTensorType::get(
+      inputShape, builder.getBF16Type(), inputLayout);
+  auto cacheLayout = createDRAMInterleavedLayout(cacheShape);
+  auto cacheType = mlir::RankedTensorType::get(
+      cacheShape, builder.getBF16Type(), cacheLayout);
+
+  // func(cache, in0, in1) -> cache.
+  // add(in0, in1)'s only consumer is a FillCacheOp sink (no tensor result).
+  createFuncOp({cacheType, inputType, inputType}, {cacheType});
+  mlir::Value cache = func.getBody().front().getArgument(0);
+  mlir::Value in0 = func.getBody().front().getArgument(1);
+  mlir::Value in1 = func.getBody().front().getArgument(2);
+
+  auto addOp =
+      builder.create<AddOp>(builder.getUnknownLoc(), inputType, in0, in1);
+  auto fillCache = builder.create<FillCacheOp>(builder.getUnknownLoc(), cache,
+                                               addOp.getResult(),
+                                               builder.getI32IntegerAttr(0));
+  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(), cache);
+
+  // DRAM-only legal configs: a single interleaved combo, which the bad shape
+  // makes fail validation -> empty beam without a sink fallback.
+  std::vector<OpConfig> dramOnly;
+  dramOnly.emplace_back(createDRAMInterleavedLayout(inputShape));
+
+  llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
+  legalConfigs[addOp.getOperation()] = dramOnly;
+  legalConfigs[fillCache.getOperation()] = dramOnly;
+
+  MemoryLayoutPropagation propagation(func, legalConfigs,
+                                      /*tensorTypePossibleLayouts=*/nullptr,
+                                      /*beamWidth=*/8);
+
+  // Without the fix this aborts in consolidateBeam (empty-beam consumer).
+  EXPECT_NO_FATAL_FAILURE(propagation.run());
+
+  // With the fix the sink op gets a fallback candidate instead of an empty
+  // beam, so its input-reshard role is preserved and consolidateBeam is safe.
+  const auto &bs = propagation.getBeamState();
+  auto fcIt = bs.find(fillCache.getOperation());
+  ASSERT_NE(fcIt, bs.end());
+  EXPECT_FALSE(fcIt->second.empty())
+      << "sink op with no valid input combination must still get a fallback "
+         "candidate";
+}
