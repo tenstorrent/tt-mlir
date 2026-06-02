@@ -86,8 +86,8 @@ public:
     Location loc = op.getLoc();
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getLhs(),
-                                                adaptor.getRhs());
+    auto boolResult = TosaOpTy::create(rewriter, loc, boolType,
+                                       adaptor.getLhs(), adaptor.getRhs());
 
     rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, boolResult);
     return success();
@@ -115,8 +115,8 @@ public:
     // Swapped operands: rhs, lhs.
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getRhs(),
-                                                adaptor.getLhs());
+    auto boolResult = TosaOpTy::create(rewriter, loc, boolType,
+                                       adaptor.getRhs(), adaptor.getLhs());
 
     rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, boolResult);
     return success();
@@ -143,10 +143,10 @@ public:
     Location loc = op.getLoc();
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
-    auto boolResult = rewriter.create<TosaOpTy>(loc, boolType, adaptor.getLhs(),
-                                                adaptor.getRhs());
+    auto boolResult = TosaOpTy::create(rewriter, loc, boolType,
+                                       adaptor.getLhs(), adaptor.getRhs());
     auto notResult =
-        rewriter.create<tosa::LogicalNotOp>(loc, boolType, boolResult);
+        tosa::LogicalNotOp::create(rewriter, loc, boolType, boolResult);
 
     rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, notResult);
     return success();
@@ -187,7 +187,7 @@ public:
 
     // Apply the logical operation (TOSA handles broadcasting).
     auto logicalResult =
-        rewriter.create<TosaOpTy>(loc, boolType, boolLhs, boolRhs);
+        TosaOpTy::create(rewriter, loc, boolType, boolLhs, boolRhs);
 
     // Convert boolean result back to original type.
     rewriter.replaceOpWithNewOp<tosa::CastOp>(op, resultType, logicalResult);
@@ -263,15 +263,16 @@ public:
     SmallVector<utils::IteratorType> iteratorTypes(
         rank, utils::IteratorType::parallel);
 
-    auto emptyTensor = rewriter.create<tensor::EmptyOp>(
-        loc, resultType.getShape(), resultType.getElementType());
+    auto emptyTensor = tensor::EmptyOp::create(
+        rewriter, loc, resultType.getShape(), resultType.getElementType());
 
-    auto genericOp = rewriter.create<linalg::GenericOp>(
-        loc, resultType, ValueRange{lhs, rhs}, ValueRange{emptyTensor},
+    auto genericOp = linalg::GenericOp::create(
+        rewriter, loc, resultType, ValueRange{lhs, rhs},
+        ValueRange{emptyTensor},
         SmallVector<AffineMap>{lhsMap, rhsMap, resultMap}, iteratorTypes,
         [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
           Value result = buildBody(b, nestedLoc, args, resultType);
-          b.create<linalg::YieldOp>(nestedLoc, result);
+          linalg::YieldOp::create(b, nestedLoc, result);
         });
 
     rewriter.replaceOp(op, genericOp.getResult(0));
@@ -296,7 +297,7 @@ public:
 protected:
   Value buildBody(OpBuilder &b, Location loc, ValueRange args,
                   RankedTensorType /*resultType*/) const override {
-    return b.create<MathOpTy>(loc, args[0], args[1]);
+    return MathOpTy::create(b, loc, args[0], args[1]);
   }
 };
 } // namespace
@@ -314,9 +315,9 @@ protected:
   Value buildBody(OpBuilder &b, Location loc, ValueRange args,
                   RankedTensorType /*resultType*/) const override {
     if (isa<FloatType>(args[0].getType())) {
-      return b.create<ArithFOpTy>(loc, args[0], args[1]);
+      return ArithFOpTy::create(b, loc, args[0], args[1]);
     }
-    return b.create<ArithIOpTy>(loc, args[0], args[1]);
+    return ArithIOpTy::create(b, loc, args[0], args[1]);
   }
 };
 } // namespace
@@ -340,24 +341,24 @@ protected:
 
     if (isa<FloatType>(resultType.getElementType())) {
       // Python-style float modulo: a - floor(a / b) * b
-      Value div = b.create<arith::DivFOp>(loc, lhs, rhs);
-      Value floored = b.create<math::FloorOp>(loc, div);
-      Value prod = b.create<arith::MulFOp>(loc, floored, rhs);
-      return b.create<arith::SubFOp>(loc, lhs, prod);
+      Value div = arith::DivFOp::create(b, loc, lhs, rhs);
+      Value floored = math::FloorOp::create(b, loc, div);
+      Value prod = arith::MulFOp::create(b, loc, floored, rhs);
+      return arith::SubFOp::create(b, loc, lhs, prod);
     }
 
     // Python-style integer modulo: adjust C remainder when signs differ.
-    Value rem = b.create<arith::RemSIOp>(loc, lhs, rhs);
-    Value zero = b.create<arith::ConstantOp>(
-        loc, b.getIntegerAttr(resultType.getElementType(), 0));
-    Value sum = b.create<arith::AddIOp>(loc, rem, rhs);
+    Value rem = arith::RemSIOp::create(b, loc, lhs, rhs);
+    Value zero = arith::ConstantOp::create(
+        b, loc, b.getIntegerAttr(resultType.getElementType(), 0));
+    Value sum = arith::AddIOp::create(b, loc, rem, rhs);
     Value remNeZero =
-        b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, rem, zero);
-    Value xorVal = b.create<arith::XOrIOp>(loc, rem, rhs);
+        arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ne, rem, zero);
+    Value xorVal = arith::XOrIOp::create(b, loc, rem, rhs);
     Value signsDiffer =
-        b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::slt, xorVal, zero);
-    Value needAdjust = b.create<arith::AndIOp>(loc, remNeZero, signsDiffer);
-    return b.create<arith::SelectOp>(loc, needAdjust, sum, rem);
+        arith::CmpIOp::create(b, loc, arith::CmpIPredicate::slt, xorVal, zero);
+    Value needAdjust = arith::AndIOp::create(b, loc, remNeZero, signsDiffer);
+    return arith::SelectOp::create(b, loc, needAdjust, sum, rem);
   }
 };
 } // namespace
@@ -421,26 +422,26 @@ private:
 
     // cdf = 0.5 * (1 + erf(x * invSqrt2))
     Value xScaled =
-        rewriter.create<tosa::MulOp>(loc, resultType, x, invSqrt2, shift);
-    Value erfVal = rewriter.create<tosa::ErfOp>(loc, resultType, xScaled);
+        tosa::MulOp::create(rewriter, loc, resultType, x, invSqrt2, shift);
+    Value erfVal = tosa::ErfOp::create(rewriter, loc, resultType, xScaled);
     Value onePlusErf =
-        rewriter.create<tosa::AddOp>(loc, resultType, one, erfVal);
+        tosa::AddOp::create(rewriter, loc, resultType, one, erfVal);
     Value cdf =
-        rewriter.create<tosa::MulOp>(loc, resultType, half, onePlusErf, shift);
+        tosa::MulOp::create(rewriter, loc, resultType, half, onePlusErf, shift);
 
     // pdf = exp(-x^2/2) / sqrt(2*pi)
-    Value xSq = rewriter.create<tosa::MulOp>(loc, resultType, x, x, shift);
+    Value xSq = tosa::MulOp::create(rewriter, loc, resultType, x, x, shift);
     Value negHalfXSq =
-        rewriter.create<tosa::MulOp>(loc, resultType, negHalf, xSq, shift);
-    Value expVal = rewriter.create<tosa::ExpOp>(loc, resultType, negHalfXSq);
-    Value pdf = rewriter.create<tosa::MulOp>(loc, resultType, invSqrt2Pi,
-                                             expVal, shift);
+        tosa::MulOp::create(rewriter, loc, resultType, negHalf, xSq, shift);
+    Value expVal = tosa::ExpOp::create(rewriter, loc, resultType, negHalfXSq);
+    Value pdf = tosa::MulOp::create(rewriter, loc, resultType, invSqrt2Pi,
+                                    expVal, shift);
 
     // result = grad * (cdf + x * pdf)
     Value xTimesPdf =
-        rewriter.create<tosa::MulOp>(loc, resultType, x, pdf, shift);
+        tosa::MulOp::create(rewriter, loc, resultType, x, pdf, shift);
     Value cdfPlusXPdf =
-        rewriter.create<tosa::AddOp>(loc, resultType, cdf, xTimesPdf);
+        tosa::AddOp::create(rewriter, loc, resultType, cdf, xTimesPdf);
     rewriter.replaceOpWithNewOp<tosa::MulOp>(op, resultType, grad, cdfPlusXPdf,
                                              shift);
     return success();
@@ -469,48 +470,49 @@ private:
     Value one = createTosaConst(rewriter, loc, elemTy, rank, 1.0);
 
     // x^2
-    Value xSq = rewriter.create<tosa::MulOp>(loc, resultType, x, x, shift);
+    Value xSq = tosa::MulOp::create(rewriter, loc, resultType, x, x, shift);
     // a * x^2 * x = a * x^3
-    Value aXSq = rewriter.create<tosa::MulOp>(loc, resultType, a, xSq, shift);
-    Value aXCub = rewriter.create<tosa::MulOp>(loc, resultType, aXSq, x, shift);
+    Value aXSq = tosa::MulOp::create(rewriter, loc, resultType, a, xSq, shift);
+    Value aXCub =
+        tosa::MulOp::create(rewriter, loc, resultType, aXSq, x, shift);
     // inner = k * (x + a*x^3)
-    Value xPlusAXCub = rewriter.create<tosa::AddOp>(loc, resultType, x, aXCub);
+    Value xPlusAXCub = tosa::AddOp::create(rewriter, loc, resultType, x, aXCub);
     Value inner =
-        rewriter.create<tosa::MulOp>(loc, resultType, k, xPlusAXCub, shift);
+        tosa::MulOp::create(rewriter, loc, resultType, k, xPlusAXCub, shift);
 
     // tanh_val = tanh(inner)
-    Value tanhVal = rewriter.create<tosa::TanhOp>(loc, resultType, inner);
+    Value tanhVal = tosa::TanhOp::create(rewriter, loc, resultType, inner);
 
     // sech^2 = 1 - tanh^2
     Value tanhSq =
-        rewriter.create<tosa::MulOp>(loc, resultType, tanhVal, tanhVal, shift);
-    Value negTanhSq = rewriter.create<tosa::NegateOp>(loc, resultType, tanhSq);
+        tosa::MulOp::create(rewriter, loc, resultType, tanhVal, tanhVal, shift);
+    Value negTanhSq = tosa::NegateOp::create(rewriter, loc, resultType, tanhSq);
     Value sechSq =
-        rewriter.create<tosa::AddOp>(loc, resultType, one, negTanhSq);
+        tosa::AddOp::create(rewriter, loc, resultType, one, negTanhSq);
 
     // left = 0.5 * (1 + tanh_val)
     Value onePlusTanh =
-        rewriter.create<tosa::AddOp>(loc, resultType, one, tanhVal);
-    Value left =
-        rewriter.create<tosa::MulOp>(loc, resultType, half, onePlusTanh, shift);
+        tosa::AddOp::create(rewriter, loc, resultType, one, tanhVal);
+    Value left = tosa::MulOp::create(rewriter, loc, resultType, half,
+                                     onePlusTanh, shift);
 
     // right = 0.5 * x * sech^2 * k * (1 + 3*a*x^2)
     Value threeAXSq =
-        rewriter.create<tosa::MulOp>(loc, resultType, threeA, xSq, shift);
+        tosa::MulOp::create(rewriter, loc, resultType, threeA, xSq, shift);
     Value onePlus3AXSq =
-        rewriter.create<tosa::AddOp>(loc, resultType, one, threeAXSq);
+        tosa::AddOp::create(rewriter, loc, resultType, one, threeAXSq);
     Value sechK =
-        rewriter.create<tosa::MulOp>(loc, resultType, sechSq, k, shift);
-    Value sechKTerm = rewriter.create<tosa::MulOp>(loc, resultType, sechK,
-                                                   onePlus3AXSq, shift);
+        tosa::MulOp::create(rewriter, loc, resultType, sechSq, k, shift);
+    Value sechKTerm = tosa::MulOp::create(rewriter, loc, resultType, sechK,
+                                          onePlus3AXSq, shift);
     Value xTerm =
-        rewriter.create<tosa::MulOp>(loc, resultType, x, sechKTerm, shift);
+        tosa::MulOp::create(rewriter, loc, resultType, x, sechKTerm, shift);
     Value right =
-        rewriter.create<tosa::MulOp>(loc, resultType, half, xTerm, shift);
+        tosa::MulOp::create(rewriter, loc, resultType, half, xTerm, shift);
 
     // gelu_bw = grad * (left + right)
     Value leftPlusRight =
-        rewriter.create<tosa::AddOp>(loc, resultType, left, right);
+        tosa::AddOp::create(rewriter, loc, resultType, left, right);
     rewriter.replaceOpWithNewOp<tosa::MulOp>(op, resultType, grad,
                                              leftPlusRight, shift);
     return success();

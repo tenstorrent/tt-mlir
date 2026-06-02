@@ -150,20 +150,20 @@ static bool isOneAttr(mlir::Attribute attr) {
       auto shape = llvm::to_vector_of<int32_t>(shapedType.getShape());
       auto splatValue = elementsAttr.getSplatValue<mlir::Attribute>();
       if (isZeroAttr(splatValue)) {
-        return builder.create<ttir::ZerosOp>(loc, type, shape);
+        return ttir::ZerosOp::create(builder, loc, type, shape);
       }
       if (isOneAttr(splatValue)) {
-        return builder.create<ttir::OnesOp>(loc, type, shape);
+        return ttir::OnesOp::create(builder, loc, type, shape);
       }
 
       // Canonicalize splat constant to FullOp. The value first needs to be
       // converted to i32 or f32, which will not reduce precision because we
       // don't use larger types in TTIR.
       if (auto fillValueAttr = utils::splatToFillValue(builder, elementsAttr)) {
-        return builder.create<ttir::FullOp>(loc, type, shape, fillValueAttr);
+        return ttir::FullOp::create(builder, loc, type, shape, fillValueAttr);
       }
     }
-    return builder.create<ttir::ConstantOp>(loc, type, elementsAttr);
+    return ttir::ConstantOp::create(builder, loc, type, elementsAttr);
   }
   return {};
 }

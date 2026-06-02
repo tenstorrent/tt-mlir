@@ -35,8 +35,8 @@ registerDeviceInSymbolTable(ModuleOp moduleOp, ArrayRef<int64_t> meshShape,
       return failure();
     }
     OpBuilder builder(moduleOp.getBodyRegion());
-    symbolTable.insert(builder.create<DeviceOp>(
-        moduleOp.getLoc(), getDefaultDeviceName(),
+    symbolTable.insert(DeviceOp::create(
+        builder, moduleOp.getLoc(), getDefaultDeviceName(),
         DeviceAttr::get(context, systemDesc, *finalMeshShape, meshTopology)));
   }
   return success();

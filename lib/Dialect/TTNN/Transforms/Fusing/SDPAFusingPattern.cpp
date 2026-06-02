@@ -687,12 +687,12 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     float invScale = 1.0f / scale;
     auto deviceOp =
         utils::getOrInsertDevice(rewriter, c.attentionMatmul.getOperation());
-    auto invScaleOp = rewriter.create<FullOp>(
-        c.attentionMatmul.getLoc(), sinkType,
+    auto invScaleOp = FullOp::create(
+        rewriter, c.attentionMatmul.getLoc(), sinkType,
         rewriter.getF32FloatAttr(invScale), deviceOp.getResult());
     c.attentionSink =
-        rewriter.create<MultiplyOp>(c.attentionMatmul.getLoc(), sinkType,
-                                    c.attentionSink, invScaleOp.getResult());
+        MultiplyOp::create(rewriter, c.attentionMatmul.getLoc(), sinkType,
+                           c.attentionSink, invScaleOp.getResult());
   }
 
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
@@ -761,9 +761,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
       return failure();
     }
 
-    auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-        c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
-        c.mask,
+    auto sdpaOp = ScaledDotProductAttentionOp::create(
+        rewriter, c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
+        c.value, c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
         /*sliding_window_size=*/IntegerAttr(), c.attentionSink);
 

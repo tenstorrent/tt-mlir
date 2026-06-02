@@ -108,22 +108,22 @@ public:
 
     // Reserve CB unconditionally before branching - both sender and receiver
     // need to reserve to maintain proper circular buffer semantics.
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+    Value localMemref = ReserveOp::create(rewriter, loc, cb).getResult();
 
     SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
-    rewriter.create<scf::IfOp>(
-        loc, isSender,
+    scf::IfOp::create(
+        rewriter, loc, isSender,
         [&](OpBuilder &builder, Location loc) {
           // Sender: shard-level DMA read from remote.
-          Value dmaTx = builder.create<DMAReadOp>(loc, remoteMemref,
-                                                  gridIndices, localMemref);
-          builder.create<DMAWaitOp>(loc, dmaTx);
+          Value dmaTx = DMAReadOp::create(builder, loc, remoteMemref,
+                                          gridIndices, localMemref);
+          DMAWaitOp::create(builder, loc, dmaTx);
 
           // Wait for all receivers to be ready (mcastVolume - 1, excluding
           // sender).
-          builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
-                                          numReceiversVal, zero);
+          SemaphoreWaitOp::create(builder, loc, receiversReadySemaphore,
+                                  numReceiversVal, zero);
 
           // Perform shard-level multicast DMA write: from local CB to local CB
           // with multicast parameters. The multicast parameters specify that
@@ -133,7 +133,7 @@ public:
           Value mcastTx = builder.create<DMAWriteOp>(
               loc, localMemref, localMemref, mcastStartIndex,
               remoteLoad.getMcastShape());
-          builder.create<DMAWaitOp>(loc, mcastTx);
+          DMAWaitOp::create(builder, loc, mcastTx);
 
           // Signal receivers that sender is finished.
           builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
@@ -142,7 +142,7 @@ public:
                                          /*startDevice=*/ValueRange(),
                                          /*deviceMcastShape=*/ValueRange());
 
-          builder.create<scf::YieldOp>(loc);
+          scf::YieldOp::create(builder, loc);
         },
         [&](OpBuilder &builder, Location loc) {
           builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
@@ -153,9 +153,9 @@ public:
           // Note: CB already reserved before the if/else, so receiver has
           // proper access to the multicast data.
 
-          builder.create<scf::YieldOp>(loc);
+          scf::YieldOp::create(builder, loc);
         });
-    rewriter.create<PushOp>(loc, cb);
+    PushOp::create(rewriter, loc, cb);
 
     rewriter.eraseOp(remoteLoad);
     return success();
@@ -192,15 +192,15 @@ public:
     Value remoteMemref = remoteLoad.getMemref();
     SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
-    Value dmaTx =
-        rewriter.create<DMAReadOp>(loc, remoteMemref, gridIndices, localMemref);
+    Value localMemref = ReserveOp::create(rewriter, loc, cb).getResult();
+    Value dmaTx = DMAReadOp::create(rewriter, loc, remoteMemref, gridIndices,
+                                    localMemref);
 
     rewriter.eraseOp(remoteLoad);
 
     // Wait for DMA to complete.
-    rewriter.create<DMAWaitOp>(loc, dmaTx);
-    rewriter.create<PushOp>(loc, cb);
+    DMAWaitOp::create(rewriter, loc, dmaTx);
+    PushOp::create(rewriter, loc, cb);
     return success();
   }
 };
@@ -239,24 +239,24 @@ public:
     ValueRange deviceMcastShape = remoteStore.getDeviceMcastShape();
 
     // Wait on CB, emit shard-level dma_write, wait, pop
-    Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
+    Value localMemref = WaitOp::create(rewriter, loc, cb).getResult();
     Value dmaTx =
-        rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref, gridIndices,
-                                    startDevice, deviceMcastShape);
+        DMAWriteOp::create(rewriter, loc, localMemref, remoteMemref,
+                           gridIndices, startDevice, deviceMcastShape);
 
     if (remoteStore.getSemaphore()) {
-      auto incr = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-      rewriter.create<SemaphoreIncOp>(loc, remoteStore.getSemaphore(), incr,
-                                      remoteStore.getSemaphoreIndices(),
-                                      startDevice, deviceMcastShape);
+      auto incr = arith::ConstantIndexOp::create(rewriter, loc, 1);
+      SemaphoreIncOp::create(rewriter, loc, remoteStore.getSemaphore(), incr,
+                             remoteStore.getSemaphoreIndices(), startDevice,
+                             deviceMcastShape);
     }
 
     rewriter.eraseOp(remoteStore);
 
     // Wait for DMA to complete.
-    rewriter.create<DMAWaitOp>(loc, dmaTx);
+    DMAWaitOp::create(rewriter, loc, dmaTx);
     // Pop the circular buffer to signal consumption.
-    rewriter.create<PopOp>(loc, cb);
+    PopOp::create(rewriter, loc, cb);
     return success();
   }
 };

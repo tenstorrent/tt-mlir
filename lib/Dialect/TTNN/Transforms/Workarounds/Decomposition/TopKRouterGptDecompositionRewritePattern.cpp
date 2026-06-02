@@ -38,8 +38,8 @@ LogicalResult TopKRouterGptDecompositionRewritePattern::matchAndRewrite(
   // Create a new TopKRouterGptOp with [B, k_padded] outputs (what tt-metal
   // actually produces).  This op intentionally has k_padded output dims and
   // is immediately consumed by the slices below.
-  auto newTopkOp = rewriter.create<TopKRouterGptOp>(
-      srcOp.getLoc(), TypeRange{paddedIndicesType, paddedWeightsType},
+  auto newTopkOp = TopKRouterGptOp::create(
+      rewriter, srcOp.getLoc(), TypeRange{paddedIndicesType, paddedWeightsType},
       srcOp.getInput(), srcOp.getWeight(), srcOp.getBias(),
       rewriter.getI32IntegerAttr(static_cast<int32_t>(kPadded)),
       srcOp.getNumExpertsAttr());
@@ -50,13 +50,13 @@ LogicalResult TopKRouterGptDecompositionRewritePattern::matchAndRewrite(
                                         static_cast<int32_t>(k)};
   llvm::SmallVector<int32_t, 2> step = {1, 1};
 
-  auto sliceIndices = rewriter.create<SliceStaticOp>(
-      srcOp.getLoc(), indicesType, newTopkOp.getExpertIndices(),
+  auto sliceIndices = SliceStaticOp::create(
+      rewriter, srcOp.getLoc(), indicesType, newTopkOp.getExpertIndices(),
       rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
       rewriter.getI32ArrayAttr(step));
 
-  auto sliceWeights = rewriter.create<SliceStaticOp>(
-      srcOp.getLoc(), weightsType, newTopkOp.getExpertWeights(),
+  auto sliceWeights = SliceStaticOp::create(
+      rewriter, srcOp.getLoc(), weightsType, newTopkOp.getExpertWeights(),
       rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
       rewriter.getI32ArrayAttr(step));
 
