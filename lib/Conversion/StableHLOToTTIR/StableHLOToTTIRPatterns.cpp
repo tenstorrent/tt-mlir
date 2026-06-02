@@ -8618,6 +8618,151 @@ public:
 } // namespace
 
 namespace {
+// Converts stablehlo.custom_call @tt.paged_flash_mla_decode to
+// ttir.paged_flash_multi_latent_attention_decode.
+//
+// The custom_call carries its variadic, optional operands in this order (see
+// tt-xla custom_ops.py::paged_flash_mla_decode):
+//   query, key, [value], page_table, [attention_mask], [cur_pos_tensor],
+//   [attention_sink]
+// and the has_value / has_attention_mask / has_cur_pos_tensor /
+// has_attention_sink frontend attributes record which optional operands are
+// present so we can reconstruct the operand layout. head_dim_v / is_causal /
+// scale are passed as frontend attributes.
+class StableHLOToTTIRPagedFlashMLADecodeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.paged_flash_mla_decode") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "PagedFlashMLADecode op must have "
+                                         "mhlo.frontend_attributes attribute.");
+    }
+
+    // head_dim_v is required: it specifies the value/output head dimension
+    // independently from the Q/K head dimension.
+    auto headDimVStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("head_dim_v");
+    if (!headDimVStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "head_dim_v attribute must be present.");
+    }
+    uint32_t headDimV;
+    if (!llvm::to_integer(headDimVStringAttr.getValue(), headDimV)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "head_dim_v attribute string must be convertible to a "
+                 "non-negative integer. Received \"" +
+                     headDimVStringAttr.getValue() + "\".");
+    }
+    IntegerAttr headDimVAttr = rewriter.getUI32IntegerAttr(headDimV);
+
+    auto isCausalStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalStringAttr) {
+      if (failed(parseBoolFromStringAttr(isCausalStringAttr, isCausal))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse is_causal attribute.");
+      }
+    }
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    FloatAttr scaleAttr = nullptr;
+    if (scaleStringAttr) {
+      float scale;
+      if (failed(parseFloatFromStringAttr(scaleStringAttr, scale))) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Failed to parse scale attribute.");
+      }
+      scaleAttr = rewriter.getF32FloatAttr(scale);
+    }
+
+    auto parseHasFlag = [&](llvm::StringRef name, bool &out) -> LogicalResult {
+      auto strAttr = frontendAttributes.getAs<mlir::StringAttr>(name);
+      if (!strAttr) {
+        return rewriter.notifyMatchFailure(
+            srcOp, name + " attribute must be present.");
+      }
+      if (failed(parseBoolFromStringAttr(strAttr, out))) {
+        return rewriter.notifyMatchFailure(srcOp, "Failed to parse " + name +
+                                                      " attribute.");
+      }
+      return success();
+    };
+
+    bool hasValue = false;
+    bool hasAttentionMask = false;
+    bool hasCurPosTensor = false;
+    bool hasAttentionSink = false;
+    if (failed(parseHasFlag("has_value", hasValue)) ||
+        failed(parseHasFlag("has_attention_mask", hasAttentionMask)) ||
+        failed(parseHasFlag("has_cur_pos_tensor", hasCurPosTensor)) ||
+        failed(parseHasFlag("has_attention_sink", hasAttentionSink))) {
+      return failure();
+    }
+
+    // Reconstruct the operand layout from the has_* flags. Required operands
+    // are query, key, page_table; value/mask/cur_pos/sink are optional and
+    // appear in this fixed order.
+    auto operands = adaptor.getOperands();
+    unsigned expectedNumOperands =
+        /*query, key, page_table=*/3 + (hasValue ? 1 : 0) +
+        (hasAttentionMask ? 1 : 0) + (hasCurPosTensor ? 1 : 0) +
+        (hasAttentionSink ? 1 : 0);
+    if (expectedNumOperands != operands.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Mismatch between number of operands and has_* attributes.");
+    }
+
+    int64_t operandIndex = 0;
+    Value query = operands[operandIndex++];
+    Value key = operands[operandIndex++];
+    Value value = nullptr;
+    if (hasValue) {
+      value = operands[operandIndex++];
+    }
+    Value pageTable = operands[operandIndex++];
+    Value attentionMask = nullptr;
+    if (hasAttentionMask) {
+      attentionMask = operands[operandIndex++];
+    }
+    Value curPosTensor = nullptr;
+    if (hasCurPosTensor) {
+      curPosTensor = operands[operandIndex++];
+    }
+    Value attentionSink = nullptr;
+    if (hasAttentionSink) {
+      attentionSink = operands[operandIndex++];
+    }
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    rewriter.replaceOpWithNewOp<
+        mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp>(
+        srcOp, outputType, query, key, value, headDimVAttr, pageTable,
+        isCausalAttr, attentionMask, curPosTensor, attentionSink, scaleAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
   using OpConversionPattern<
@@ -9378,7 +9523,8 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
       StableHLOToTTIRScaledDotProductAttentionOpConversionPattern,
       StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern,
-      StableHLOToTTIRFlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+      StableHLOToTTIRFlashMlaPrefillOpConversionPattern,
+      StableHLOToTTIRPagedFlashMLADecodeOpConversionPattern>(typeConverter, ctx);
 }
 
 namespace {
