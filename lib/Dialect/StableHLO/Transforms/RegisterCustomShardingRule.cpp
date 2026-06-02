@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "llvm/Support/Error.h"
+#include <shardy/dialect/sdy/ir/enums.h>
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_REGISTERCUSTOMSHARDINGRULEPASS
@@ -418,14 +419,6 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  if (kvHeads == 1) {
-    op.getOperation()->emitError()
-        << "flash_mla_prefill (MLA prefill) expects MHA inputs but got "
-           "num_kv_heads == 1 (MQA); MQA is the decode form and must not reach "
-           "the prefill op";
-    return mlir::sdy::OpShardingRuleAttr();
-  }
-
   int64_t maskBatch = sdy::kNullDim;
   if (hasAttentionMask) {
     ArrayRef<int64_t> mShape = mType.getShape();
@@ -470,8 +463,12 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   // Heads (dim 1): kPassThrough, factor size qHeads. Mask heads are always 1
   // so the mask sits out of this factor (kNullDim).
-  builder.addFactor(makeOpDims(1, 1, 1, sdy::kNullDim), {1}, qHeads,
-                    sdy::FactorType::kPassThrough);
+  // When MLA's compressed latent K/V is a single shared head (kvHeads == 1),
+  // it is broadcast across every query head and must stay replicated when the
+  // query heads are sharded.
+  int64_t kvHeadDim = (kvHeads == 1) ? sdy::kNullDim : 1;
+  builder.addFactor(makeOpDims(1, kvHeadDim, kvHeadDim, sdy::kNullDim), {1},
+                    qHeads, sdy::FactorType::kPassThrough);
 
   // Sequence (dim 2): kNeedReplication, shared across Q/K/V/Out/mask.
   builder.addFactor(makeOpDims(2, 2, 2, 2), {2}, S,
