@@ -75,6 +75,8 @@ def postop(binary, programContext, opContext):
     # Each element will be 10 (from matmul) + 1 (from bias) = 11
     assert torch.allclose(torch_tensor, torch.ones_like(torch_tensor) * 11)
 
+    # Update the same tensor ref twice. The second payload should win.
+    update_device_tensor(programContext, tensor_ref, tensor, torch.zeros_like(torch_tensor))
     update_device_tensor(
         programContext, tensor_ref, tensor, torch.ones_like(torch_tensor)
     )
