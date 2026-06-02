@@ -116,6 +116,11 @@ mlir::sdy::TensorShardingAttr
 getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
                                 mlir::Type type);
 
+// Get a fully replicated sdy.sharding annotation with closed dims, so Shardy
+// propagation cannot re-shard the tensor.
+mlir::sdy::TensorShardingAttr getClosedReplicatedTensorSdyShardingAttr(
+    MLIRContext *context, llvm::StringRef meshName, int64_t rank);
+
 // Get the argument sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
@@ -127,10 +132,12 @@ llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                     mlir::sdy::MeshOp &globalMeshOp);
 
-// Get the sharding attribute for an operand.
+// Get the sharding attribute for an operand. Pass `createIfMissing=false` for
+// a read-only lookup; the default mutates unannotated func args.
 mlir::sdy::TensorShardingAttr
 getOperandShardingAttr(const mlir::OpOperand &operand,
-                       mlir::sdy::MeshOp globalMeshOp);
+                       mlir::sdy::MeshOp globalMeshOp,
+                       bool createIfMissing = true);
 
 // Calculate the updated shape based on the tensor sharding annotation.
 FailureOr<int64_t>
@@ -182,8 +189,10 @@ private:
   mlir::sdy::TensorShardingAttr sdySharding;
 };
 
-// Return true if every dimension has no axes -> replicated.
-bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
+// Return true if every dimension is replicated. With `meshOp`, axes resolving
+// to unit-sized mesh dims are also treated as replicated.
+bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh,
+                             mlir::sdy::MeshOp meshOp = {});
 
 // Return true if the module has any sdy tensor sharding annotations that are
 // not fully replicated.
