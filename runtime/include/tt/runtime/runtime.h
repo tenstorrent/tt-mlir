@@ -274,7 +274,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
 // by the given tensor reference.
 // Preserves the existing tensor wrapper metadata/state (for example mesh event,
 // retain flag, callbacks, and wrapper identity/version lineage), while
-// performing the necessary layout and device normalization on srcTensor to
+// performing the necessary layout normalization on srcTensor to
 // match the existing destination tensor.
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
