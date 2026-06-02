@@ -2281,10 +2281,6 @@ void updateTensorInPool(CallbackContext programContextHandle,
   ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
-  if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
-                                  dstTensor.memory_config());
-  }
 
   LOG_ASSERT(srcTensor.logical_volume() == dstTensor.logical_volume(),
              "Logical volume mismatch when updating tensor in tensor pool: ",
