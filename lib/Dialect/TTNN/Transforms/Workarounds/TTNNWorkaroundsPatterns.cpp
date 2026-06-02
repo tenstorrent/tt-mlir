@@ -214,15 +214,6 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       layoutOp.setLayoutAttr(updatedLayoutAttr);
     }
 
-    TTNNDtypeOpInterface dtypeOp =
-        mlir::dyn_cast<TTNNDtypeOpInterface>(op.getOperation());
-    if (outputWorkaroundResults.tensorDataTypeResult.isModified() && dtypeOp) {
-      ttcore::DataTypeAttr updatedDataTypeAttr =
-          rewriter.getAttr<ttcore::DataTypeAttr>(
-              outputWorkaroundResults.tensorDataTypeResult.targetValue);
-      dtypeOp.setDtypeAttr(updatedDataTypeAttr);
-    }
-
     // The buffer type / memory layout changes are already encoded in the
     // result tensor's TTNNLayoutAttr (set above).
     TTNNDeviceOperandInterface deviceOperandOp =
@@ -593,7 +584,7 @@ public:
         ttmlir::utils::appendLocationSuffix(loc, "_clamp"), indexType,
         op.getIndex(), zero.getResult());
 
-    // %safe_u32 = ttnn.to_layout(%safe, dtype = ui32)
+    // %safe_u32 = ttnn.to_layout(%safe) -> ui32
     ttnn::ToLayoutOp safeIdxU32 = ttnn::utils::createToLayoutOp(
         op.getOperation(),
         mlir::cast<mlir::TypedValue<RankedTensorType>>(safeIdx.getResult()),

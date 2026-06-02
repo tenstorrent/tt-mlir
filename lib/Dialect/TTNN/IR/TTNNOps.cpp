@@ -62,8 +62,7 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 
   // Replace the previous op with the merged data type cast op.
   Value foldedTypecastOp = rewriter.replaceOpWithNewOp<T>(
-      previousDataCastOp, op.getType(), previousDataCastOp.getInput(),
-      op.getDtypeAttr());
+      previousDataCastOp, op.getType(), previousDataCastOp.getInput());
 
   // Replace all uses of the current op with the merged TypecastOp.
   rewriter.replaceAllUsesWith(op, foldedTypecastOp);
@@ -79,14 +78,6 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttnn::RandOp::verify() {
-  ttcore::DataType dtype = getDtype();
-  ttcore::DataType outputType = mlir::tt::ttcore::elementTypeToDataType(
-      getResult().getType().getElementType());
-
-  if (dtype != outputType) {
-    return emitOpError() << "dtype does not match with output tensor type";
-  }
-
   float low = getLow().convertToFloat();
   float high = getHigh().convertToFloat();
   if (low >= high) {
@@ -1132,44 +1123,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 }
 
 //===----------------------------------------------------------------------===//
-// BitcastConvertOp
-//===----------------------------------------------------------------------===//
-
-// BitcastConvertOp verification
-::mlir::LogicalResult mlir::tt::ttnn::BitcastConvertOp::verify() {
-  ::mlir::RankedTensorType outputType = getResult().getType();
-  TTNNLayoutAttr outputLayout =
-      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-
-  if (getDtype() != outputLayout.getDataType()) {
-    return emitOpError() << "Output tensor data type "
-                         << DataTypeEnumToString(outputLayout.getDataType())
-                         << " must match the data type of dtype attribute "
-                         << DataTypeEnumToString(getDtype()) << ".";
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // Typecast Op
 //===----------------------------------------------------------------------===//
-
-// Typecast Op verification
-::mlir::LogicalResult mlir::tt::ttnn::TypecastOp::verify() {
-  ::mlir::RankedTensorType outputType = getResult().getType();
-  TTNNLayoutAttr outputLayout =
-      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-
-  if (getDtype() != outputLayout.getDataType()) {
-    return emitOpError() << "Output tensor data type "
-                         << DataTypeEnumToString(outputLayout.getDataType())
-                         << " must match the data type of dtype attribute "
-                         << DataTypeEnumToString(getDtype()) << ".";
-  }
-
-  return success();
-}
 
 // TypecastOp folder
 ::mlir::OpFoldResult mlir::tt::ttnn::TypecastOp::fold(FoldAdaptor adaptor) {
@@ -1326,13 +1281,6 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 template <typename Op>
 static ::mlir::LogicalResult namedOpVerify(Op op) {
   RankedTensorType output = op.getResult().getType();
-  if (op.getDtype()) {
-    if (op.getDtype() !=
-        ttcore::elementTypeToDataType(output.getElementType())) {
-      return op.emitOpError("Data type mismatch between op and output tensor.");
-    }
-  }
-
   ArrayRef<int64_t> shape = op.getShape().getShape();
   ArrayRef<int64_t> outputShape = output.getShape();
 
@@ -1367,12 +1315,10 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
       mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
   ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
-  ttcore::DataTypeAttr dtypeAttr =
-      ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
   ttnn::LayoutAttr tensorLayoutAttr =
       ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
-  build(builder, state, resultType, device, shapeAttr, fillValue, dtypeAttr,
+  build(builder, state, resultType, device, shapeAttr, fillValue,
         tensorLayoutAttr);
 }
 
@@ -1398,13 +1344,10 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
 
   // Helper lambda to verify layout attributes generically
   auto verifyLayoutAttr = [&](auto layoutAttr) -> LogicalResult {
-    // DataType and Layout
+    // Layout
     //
     if (getLayout() != layoutAttr.getLayout()) {
       return emitOpError("Layout mismatch between op and layoutAttr.");
-    }
-    if (getDtype() != layoutAttr.getDataType()) {
-      return emitOpError("Data type mismatch between op and layoutAttr.");
     }
 
     return success();
@@ -2161,14 +2104,27 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
     }
   }
 
-  if (!op.getDtype()) {
-    op.setDtypeAttr(producerOp.getDtypeAttr());
-  }
   op.getInputMutable().set(producerOp.getInput());
 
   return op.getResult();
 }
 } // namespace
+
+// Returns true iff input/result data types differ, i.e. this to_layout
+// actually performs a dtype conversion alongside the layout change.
+bool ttnn::ToLayoutOp::hasDtypeChange() {
+  auto inputDtype = ttnn::getDtypeFromValue(getInput());
+  auto resultDtype = ttnn::getDtypeFromValue(getResult());
+
+  // If we can't determine one of the dtypes, conservatively assume there is
+  // no dtype change so we don't drive a dtype-aware code path with stale
+  // information.
+  if (!inputDtype || !resultDtype) {
+    return false;
+  }
+
+  return inputDtype.getValue() != resultDtype.getValue();
+}
 
 // ToLayoutOp folder
 mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
@@ -2212,7 +2168,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    ttcore::DataTypeAttr targetDataTypeAttr = toLayoutOp.getDtypeAttr();
     LayoutAttr targetLayoutAttr = toLayoutOp.getLayoutAttr();
     MemoryConfigAttr targetMemoryConfigAttr =
         mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
@@ -2233,7 +2188,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
     rewriter.startOpModification(tensorSpecOp);
 
-    tensorSpecOp.setDtypeAttr(targetDataTypeAttr);
     tensorSpecOp.setLayoutAttr(targetLayoutAttr);
 
     BufferTypeAttr newBufferType = targetMemoryConfigAttr
@@ -2299,10 +2253,11 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
       return mlir::failure();
     }
 
+    // Output dtype is derived from the new result type's TTNNLayoutAttr
+    // encoding via the TTNN_DtypeOpInterface and no longer needs to be passed
+    // through the builder.
     auto zerosOp = rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ZerosOp>(
         emptyOp, toLayoutOp.getType(), /*device=*/nullptr, emptyOp.getShape(),
-        toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
-                                  : emptyOp.getDtypeAttr(),
         toLayoutOp.getLayoutAttr() ? toLayoutOp.getLayoutAttr()
                                    : emptyOp.getLayoutAttr());
 
@@ -3228,8 +3183,6 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
       fp32DestAccEn
           ? static_cast<Type>(Float32Type::get(rewriter.getContext()))
           : static_cast<Type>(BFloat16Type::get(rewriter.getContext()));
-  ttcore::DataType statsDataType =
-      fp32DestAccEn ? ttcore::DataType::Float32 : ttcore::DataType::BFloat16;
 
   // One tile (32x32) per device, width-sharded on core (0,0) in L1. The fused
   // kernel hard-requires core (0,0), so spell the placement out explicitly
@@ -3250,7 +3203,6 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
           .build();
 
   auto statsShapeAttr = ShapeAttr::get(ctx, statsShape);
-  auto statsDtypeAttr = ttcore::DataTypeAttr::get(ctx, statsDataType);
   auto statsLayoutAttr = LayoutAttr::get(ctx, Layout::Tile);
 
   RankedTensorType statsResultType =
@@ -3266,8 +3218,7 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(device);
     statsEmptyOp = rewriter.create<ttnn::EmptyOp>(
-        getLoc(), statsResultType, device, statsShapeAttr, statsDtypeAttr,
-        statsLayoutAttr);
+        getLoc(), statsResultType, device, statsShapeAttr, statsLayoutAttr);
   }
 
   rewriter.modifyOpInPlace(
@@ -4299,6 +4250,7 @@ mlir::OpFoldResult mlir::tt::ttnn::PermuteOp::fold(FoldAdaptor adaptor) {
 void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
 
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   patterns.add(+[](PermuteOp op,
                    mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
     // Require ranked tensors so we can reason about shapes.
@@ -4340,6 +4292,7 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
 
     return mlir::success();
   });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -5987,12 +5940,7 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     return emitOpError() << "input and output tensor must have the same shape";
   }
 
-  // Determine expected output data type.
-  ttcore::DataType expectedOutputDType =
-      getDtype() ? getDtype().value() : inputDType;
-
-  // Verify output tensor data type.
-  if (outputDType != expectedOutputDType) {
+  if (outputDType != inputDType) {
     return emitOpError() << "output tensor data type does not match expected "
                             "output data type";
   }

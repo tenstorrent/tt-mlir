@@ -31,7 +31,7 @@ module {
     // CHECK-NEXT: outs(%[[EMPTY]] :
     %0 = "ttnn.matmul"(%arg0, %arg1) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %1 = "ttnn.matmul"(%arg2, %arg3) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
-    %2 = "ttnn.add"(%0, %1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
+    %2 = "ttnn.add"(%0, %1) : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %3 = "ttnn.exp"(%2) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %4 = "ttnn.log"(%3) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
@@ -70,7 +70,7 @@ module {
     %2 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %3 = "ttnn.neg"(%2) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     // add takes neg from eltwise chain and matmul2 as a non-eltwise middle entry
-    %4 = "ttnn.add"(%3, %1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
+    %4 = "ttnn.add"(%3, %1) : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %5 = "ttnn.log"(%4) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
     return %5 : tensor<64x256xbf16, #layout>
@@ -88,7 +88,7 @@ module {
     %1 = "ttnn.matmul"(%arg2, %arg3) : (tensor<64x128xbf16, #layout>, tensor<128x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %3 = "ttnn.neg"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
-    %4 = "ttnn.add"(%2, %3) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
+    %4 = "ttnn.add"(%2, %3) : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %5 = "ttnn.log"(%4) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
     return %5 : tensor<64x256xbf16, #layout>
@@ -105,7 +105,7 @@ module {
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.neg"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %3 = "ttnn.abs"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
-    %4 = "ttnn.add"(%2, %3) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
+    %4 = "ttnn.add"(%2, %3) : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %5 = "ttnn.log"(%4) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
 
     return %5 : tensor<64x256xbf16, #layout>
@@ -124,7 +124,7 @@ module {
     %1 = "ttnn.exp"(%0) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %2 = "ttnn.neg"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %3 = "ttnn.abs"(%1) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
-    %4 = "ttnn.add"(%2, %3) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
+    %4 = "ttnn.add"(%2, %3) : (tensor<64x256xbf16, #layout>, tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     %5 = "ttnn.log"(%4) : (tensor<64x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>
     // %1 exp also feeds matmul, excluding from chain; %2 %3 are now the entry ops into the chain.
     %6 = "ttnn.matmul"(%1, %arg2) : (tensor<64x256xbf16, #layout>, tensor<256x256xbf16, #layout>) -> tensor<64x256xbf16, #layout>

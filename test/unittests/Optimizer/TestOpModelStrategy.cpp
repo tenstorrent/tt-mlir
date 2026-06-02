@@ -97,12 +97,12 @@ public:
     auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                          /*device=*/nullptr,
                                          ShapeAttr::get(&context, inputShape),
-                                         /*dtype=*/nullptr, /*layout=*/nullptr);
+                                         /*layout=*/nullptr);
 
     auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                          /*device=*/nullptr,
                                          ShapeAttr::get(&context, inputShape),
-                                         /*dtype=*/nullptr, /*layout=*/nullptr);
+                                         /*layout=*/nullptr);
 
     return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
                                  input1.getResult(), input2.getResult());
@@ -123,7 +123,7 @@ public:
     auto input = builder.create<OnesOp>(
         builder.getUnknownLoc(), inputTensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-        /*dtype=*/nullptr, /*layout=*/nullptr);
+        /*layout=*/nullptr);
 
     llvm::SmallVector<int32_t> outputShapeI32(outputShape.begin(),
                                               outputShape.end());
@@ -153,12 +153,12 @@ public:
     auto lhs = builder.create<OnesOp>(builder.getUnknownLoc(), lhsTensorType,
                                       /*device=*/nullptr,
                                       ShapeAttr::get(&context, lhsShape),
-                                      /*dtype=*/nullptr, /*layout=*/nullptr);
+                                      /*layout=*/nullptr);
 
     auto rhs = builder.create<OnesOp>(builder.getUnknownLoc(), rhsTensorType,
                                       /*device=*/nullptr,
                                       ShapeAttr::get(&context, rhsShape),
-                                      /*dtype=*/nullptr, /*layout=*/nullptr);
+                                      /*layout=*/nullptr);
 
     return builder.create<MatmulOp>(builder.getUnknownLoc(), outputTensorType,
                                     lhs.getResult(), rhs.getResult(),

@@ -11,7 +11,6 @@ module {
     // CHECK-SAME: tensor<64x128xui16,
     %0, %1 = "ttir.sort"(%arg0) : (tensor<64x128xbf16>) -> (tensor<64x128xbf16>, tensor<64x128xsi32>)
     // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[INDICES]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
     // CHECK-SAME: tensor<64x128xui16,
     // CHECK-SAME: -> tensor<64x128xsi32,
     return %0, %1 : tensor<64x128xbf16>, tensor<64x128xsi32>

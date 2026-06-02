@@ -11,7 +11,6 @@ module attributes {} {
       %arg1: tensor<1x32x1x128xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 + d2, d3), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>>
   ) attributes {tt.function_type = "forward_device"} {
     // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%arg1)
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf8>
     // CHECK-SAME: -> tensor<1x32x1x128x!ttcore.tile<32x32, bfp_bf8>,
     // CHECK: "ttnn.fill_cache"(%arg0, %[[TYPECAST]])
     // CHECK-NOT: "ttnn.typecast"(%arg0)

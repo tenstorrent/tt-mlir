@@ -95,7 +95,7 @@ module {
   func.func @test_full() -> tensor<32x32xbf16, #l1_layout_bf16> {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: ttnn.full
-    %1 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #l1_layout_bf16>
+    %1 = "ttnn.full"(%0) <{fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #l1_layout_bf16>
     return %1 : tensor<32x32xbf16, #l1_layout_bf16>
   }
   func.func @test_empty() -> tensor<32x32xbf16, #l1_layout_bf16> {

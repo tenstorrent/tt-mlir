@@ -16,7 +16,6 @@ module {
     %3 = stablehlo.reshape %2 : (tensor<1xbf16>) -> tensor<bf16>
     // CHECK-LABEL: @test_rand
     // CHECK: "ttnn.rand"(%{{[0-9]+}})
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>,
     // CHECK-SAME: high = 1.000000e+00 : f32,
     // CHECK-SAME: layout = #ttnn.layout<tile>,
     // CHECK-SAME: low = 0.000000e+00 : f32,

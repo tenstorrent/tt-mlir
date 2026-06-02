@@ -16,8 +16,8 @@ module attributes {} {
     // CHECK: %[[TANH_RES:.*]] = "ttnn.tanh"
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: (%[[TANH_RES]]
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<tile>
+    // CHECK-SAME: -> tensor<{{.*}}bf16
 
     %1 = "ttnn.tanh"(%arg0) : (tensor<1x1x32x32xf32, #ttnn_layout_tile_f32>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
 

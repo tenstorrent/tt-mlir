@@ -65,21 +65,18 @@ module attributes {} {
     // CHECK: %[[DEVICE:.*]] = "ttnn.get_device"
     // %zero = ttnn.full(0 : si32)
     // CHECK: %[[ZERO:.*]] = "ttnn.full"(%[[DEVICE]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<si32>
     // CHECK-SAME: fill_value = 0 : i32
     // %mask = ttnn.lt(idx, zero)  -> numeric predicate tensor
     // CHECK: %[[MASK:.*]] = "ttnn.lt"(%arg1, %[[ZERO]])
     // %safe = ttnn.maximum(idx, zero)  -> si32 (negatives clamped to 0)
     // CHECK: %[[CLAMPED:.*]] = "ttnn.maximum"(%arg1, %[[ZERO]])
-    // %safe_u32 = ttnn.to_layout(safe, dtype = ui32)
+    // %safe_u32 = ttnn.to_layout(safe) -> ui32
     // CHECK: %[[SAFE_U32:.*]] = "ttnn.to_layout"(%[[CLAMPED]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
     // CHECK-SAME: -> tensor<2x3xui32,
     // %raw = ttnn.gather(input, safe_u32, dim)
     // CHECK: %[[RAW:.*]] = "ttnn.gather"(%arg0, %[[SAFE_U32]])
     // %nan = ttnn.full(NaN : f32)   ; 0x7FC00000 is the bit pattern for quiet NaN
     // CHECK: %[[NAN:.*]] = "ttnn.full"(%[[DEVICE]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: fill_value = 0x7FC00000 : f32
     // %result = ttnn.where(mask, NaN, raw)
     // CHECK: "ttnn.where"({{.*}}, %[[NAN]], %[[RAW]])

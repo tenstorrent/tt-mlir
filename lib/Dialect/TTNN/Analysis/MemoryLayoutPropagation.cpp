@@ -1416,13 +1416,6 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
         LayoutAttr::get(op->getContext(), chosenLayout.getLayout()));
   }
 
-  // Update output data type attribute.
-  if (auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(op)) {
-    ttcore::DataTypeAttr newDataTypeAttr =
-        ttcore::DataTypeAttr::get(op->getContext(), chosenLayout.getDataType());
-    dtypeOp.setDtypeAttr(newDataTypeAttr);
-  }
-
   applyOpSpecificAttrs(op, candidate);
 }
 

@@ -268,9 +268,8 @@ public:
     // and actual conversion can't be done.
     auto seedAttr = rewriter.getUI32IntegerAttr(0);
 
-    rewriter.replaceOpWithNewOp<ttir::RandOp>(
-        srcOp, outputType, sizeAttr, TypeAttr::get(outputType.getElementType()),
-        lowAttr, highAttr, seedAttr);
+    rewriter.replaceOpWithNewOp<ttir::RandOp>(srcOp, outputType, sizeAttr,
+                                              lowAttr, highAttr, seedAttr);
     return success();
   }
 };

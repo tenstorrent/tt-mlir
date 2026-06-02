@@ -9,7 +9,7 @@ module {
         %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
         // CHECK: %{{[0-9]+}} = "ttir.full"() <{fill_value = 5.000000e-01 : f32, shape = array<i32: 32, 32>}>
-        %2 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> {ttnn.hoist_generic_via_d2m} : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
+        %2 = "ttnn.full"(%0) <{fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> {ttnn.hoist_generic_via_d2m} : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
 
         return %2 : tensor<32x32xbf16, #ttnn_layout>
     }

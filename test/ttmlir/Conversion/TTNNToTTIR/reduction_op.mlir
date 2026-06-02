@@ -94,7 +94,7 @@ module {
 
         // CHECK: %{{[0-9]+}} = "ttir.cumsum"(%{{[0-9]+}}) <{dim = 0 : i64}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK-NOT: "ttnn.cumsum"
-        %2 = "ttnn.cumsum"(%1) <{dim = 0 : i32, dtype = #ttcore.supportedDataTypes<f32>}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+        %2 = "ttnn.cumsum"(%1) <{dim = 0 : i32}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 

@@ -1330,15 +1330,6 @@ void EmptyOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::RandOp::verify() {
-  auto dtype = getDtype();
-  auto outputType = getResult().getType().getElementType();
-
-  if (dtype != outputType) {
-    return emitOpError()
-           << "dtype does not match with output tensor type [dtype = " << dtype
-           << ", output tensor type = " << outputType << "].";
-  }
-
   float low = getLow().convertToFloat();
   float high = getHigh().convertToFloat();
   if (low >= high) {

@@ -179,9 +179,8 @@ public:
     auto newInputType =
         ttnn::utils::RankedTensorTypeFactory::create(inputType, dtype);
     builder.setInsertionPoint(op);
-    auto typecastOp = builder.create<TypecastOp>(
-        op.getLoc(), newInputType, input,
-        ttcore::DataTypeAttr::get(builder.getContext(), dtype));
+    auto typecastOp =
+        builder.create<TypecastOp>(op.getLoc(), newInputType, input);
     op.getInputMutable().assign(typecastOp.getResult());
   }
 

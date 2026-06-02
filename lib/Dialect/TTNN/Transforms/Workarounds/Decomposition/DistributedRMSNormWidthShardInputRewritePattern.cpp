@@ -104,12 +104,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // Apply ToLayoutOp to convert the input tensor to width-sharded L1.
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
-  auto inputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-      op.getLoc(), memoryConfigedInputType, op.getInput(),
-      tt::ttnn::Layout::Tile,
-      ttcore::DataTypeAttr::get(
-          rewriter.getContext(),
-          ttcore::elementTypeToDataType(inputElementType)));
+  auto inputToLayoutOp =
+      rewriter.create<ttnn::ToLayoutOp>(op.getLoc(), memoryConfigedInputType,
+                                        op.getInput(), tt::ttnn::Layout::Tile);
 
   // The fused kernel requires the weight in ROW_MAJOR layout. The 1D->2D
   // shape reshape is handled by the decomposition pattern; here we only
@@ -134,10 +131,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       RankedTensorType rowMajorWeightType =
           weightType.cloneWithEncoding(rowMajorLayout);
       auto weightToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), rowMajorWeightType, weight, tt::ttnn::Layout::RowMajor,
-          ttcore::DataTypeAttr::get(
-              rewriter.getContext(),
-              ttcore::elementTypeToDataType(weightElementType)));
+          op.getLoc(), rowMajorWeightType, weight, tt::ttnn::Layout::RowMajor);
       weight = weightToLayoutOp.getResult();
     }
   }
@@ -154,10 +148,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       RankedTensorType shardedResidualType =
           residualType.cloneWithEncoding(desiredInputLayout);
       auto residualToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), shardedResidualType, residual, tt::ttnn::Layout::Tile,
-          ttcore::DataTypeAttr::get(
-              rewriter.getContext(),
-              ttcore::elementTypeToDataType(inputElementType)));
+          op.getLoc(), shardedResidualType, residual, tt::ttnn::Layout::Tile);
       residual = residualToLayoutOp.getResult();
     }
   }

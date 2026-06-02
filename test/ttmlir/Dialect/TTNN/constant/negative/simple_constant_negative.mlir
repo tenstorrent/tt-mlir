@@ -6,7 +6,7 @@
 module {
   func.func @test_dram_no_device() -> tensor<1x2xbf16, #ttnn_layout_dram_rm> {
     // CHECK: error: 'ttnn.constant' op device operand must be specified for non-system memory buffer type
-    %0 = "ttnn.constant"() <{ value = dense<[[0.0, 0.0]]> : tensor<1x2xbf16>, dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : () -> tensor<1x2xbf16, #ttnn_layout_dram_rm>
+    %0 = "ttnn.constant"() <{ value = dense<[[0.0, 0.0]]> : tensor<1x2xbf16>, layout = #ttnn.layout<row_major>}> : () -> tensor<1x2xbf16, #ttnn_layout_dram_rm>
     return %0 : tensor<1x2xbf16, #ttnn_layout_dram_rm>
   }
 }
@@ -19,7 +19,7 @@ module {
   func.func @test_host_device() -> tensor<1x2xbf16, #ttnn_layout_host_rm> {
     // CHECK: error: 'ttnn.constant' op device operand must not be specified for system memory buffer type
     %0 = "ttnn.get_device"() : () -> !ttnn.device
-    %1 = "ttnn.constant"(%0) <{ value = dense<[[0.0, 0.0]]> : tensor<1x2xbf16>, dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (!ttnn.device) -> tensor<1x2xbf16, #ttnn_layout_host_rm>
+    %1 = "ttnn.constant"(%0) <{ value = dense<[[0.0, 0.0]]> : tensor<1x2xbf16>, layout = #ttnn.layout<row_major>}> : (!ttnn.device) -> tensor<1x2xbf16, #ttnn_layout_host_rm>
     return %1 : tensor<1x2xbf16, #ttnn_layout_host_rm>
   }
 }

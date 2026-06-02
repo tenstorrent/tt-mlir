@@ -498,7 +498,6 @@ private:
       auto emptyOp = builder.create<ttnn::EmptyOp>(
           runAndCaptureTraceFunc.getLoc(), deviceTensorType, deviceOp,
           ttnn::ShapeAttr::get(context, deviceTensorType.getShape()),
-          ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
           ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()));
 
       traceInputSlots.push_back(emptyOp.getResult());
@@ -801,8 +800,7 @@ private:
 
         auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
             funcOp.getLoc(), systemMemoryTileType, input,
-            /*layout=*/LayoutAttr::get(context, layout.getLayout()),
-            /*dtype=*/ttcore::DataTypeAttr::get(context, layout.getDataType()));
+            /*layout=*/LayoutAttr::get(context, layout.getLayout()));
         tensorInputs.push_back(toLayoutOp.getResult());
       } else {
         // Already on system memory

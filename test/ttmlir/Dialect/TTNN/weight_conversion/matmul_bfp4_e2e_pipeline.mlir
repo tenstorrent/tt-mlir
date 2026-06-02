@@ -23,7 +23,7 @@ module {
 // Inside const_eval: from_device brings tensor to host, typecast on host, to_device sends back.
 // CHECK: "ttnn.from_device"
 // CHECK: "ttnn.typecast"
-// CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf4>
+// CHECK-SAME: -> tensor<128x64x!ttcore.tile<32x32, bfp_bf4>
 // CHECK: "ttnn.to_device"
 
 // The forward function uses load_cached and matmul.
