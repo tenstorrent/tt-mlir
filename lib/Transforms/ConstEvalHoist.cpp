@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Transforms/Passes.h"
@@ -510,6 +511,207 @@ static std::optional<uint64_t> computeL1ConstEvalUsage(mlir::ModuleOp module) {
 }
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// Force const-eval inputs to system memory
+//===----------------------------------------------------------------------===//
+//
+// After hoisting, forward-function arguments whose sole consumer is a
+// load_cached op never need to live on device: the const-eval function can
+// transfer them to device internally. Keeping them in system memory avoids a
+// host->device copy in the forward function. This logic is TTNN-specific and
+// no-ops on IR without TTNN layouts (e.g. TTIR-level invocations).
+//
+namespace {
+
+// Create a system memory layout attribute for the given tensor type.
+static ttnn::TTNNLayoutAttr
+createSystemMemoryLayoutAttr(RankedTensorType type) {
+  return ttnn::TTNNLayoutAttr::Builder(type)
+      .setBufferType(ttnn::BufferType::SystemMemory)
+      .setLayout(ttnn::Layout::RowMajor)
+      .build();
+}
+
+// Convert a tensor type to its system memory equivalent.
+static RankedTensorType toSystemMemoryType(RankedTensorType ty) {
+  ttnn::TTNNLayoutAttr newLayout = createSystemMemoryLayoutAttr(ty);
+  return RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
+}
+
+// Whether the given tensor type already has a TTNN system memory layout.
+static bool isSystemMemory(RankedTensorType ty) {
+  auto layout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(ty.getEncoding());
+  return layout && layout.isSystemBufferType();
+}
+
+// Whether the const-eval argument should be transferred back to device memory.
+//
+// The argument should NOT be transferred to device memory only if its sole user
+// is a ttnn.to_layout op which already transfers it to system memory - this
+// happens if the const-eval function is CPU-hoisted.
+static bool shouldTransferArgumentToDevice(BlockArgument blockArgument) {
+  if (blockArgument.getNumUses() != 1) {
+    return true;
+  }
+
+  auto toLayoutOp =
+      mlir::dyn_cast<ttnn::ToLayoutOp>(*blockArgument.getUsers().begin());
+
+  if (!toLayoutOp) {
+    return true;
+  }
+
+  return mlir::cast<ttnn::TTNNMemoryConfigOpInterface>(
+             toLayoutOp.getOperation())
+             .getMemoryConfigAttr()
+             .getBufferType()
+             .getValue() != ttnn::BufferType::SystemMemory;
+}
+
+// Convert the arguments of the forward function which are const-eval inputs to
+// system memory. Returns the list of converted arguments.
+//
+// An argument is considered a const-eval input if it is consumed only by
+// load_cached ops.
+static SmallVector<BlockArgument> moveConstEvalArgsToHost(func::FuncOp funcOp) {
+  SmallVector<Type> argumentTypes;
+  SmallVector<BlockArgument> convertedArguments;
+
+  for (auto blockArgument : funcOp.getRegion().getArguments()) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(blockArgument.getType());
+
+    // Skip args without a TTNN layout (e.g. TTIR-level IR); nothing to convert.
+    if (!tensorType || !mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(
+                           tensorType.getEncoding())) {
+      argumentTypes.push_back(blockArgument.getType());
+      continue;
+    }
+
+    // Already in system memory.
+    if (isSystemMemory(tensorType)) {
+      argumentTypes.push_back(tensorType);
+      continue;
+    }
+
+    // No uses, nothing to gain.
+    if (blockArgument.getNumUses() == 0) {
+      argumentTypes.push_back(tensorType);
+      continue;
+    }
+
+    // Only convert if every user is a load_cached op.
+    if (llvm::any_of(blockArgument.getUsers(), [](Operation *userOp) {
+          return !mlir::isa<ttcore::LoadCachedOp>(userOp);
+        })) {
+      argumentTypes.push_back(tensorType);
+      continue;
+    }
+
+    auto systemMemoryTensorType = toSystemMemoryType(tensorType);
+    blockArgument.setType(systemMemoryTensorType);
+    argumentTypes.push_back(systemMemoryTensorType);
+    convertedArguments.push_back(blockArgument);
+  }
+
+  if (!convertedArguments.empty()) {
+    auto newFunctionType =
+        mlir::FunctionType::get(funcOp->getContext(), argumentTypes,
+                                funcOp.getFunctionType().getResults());
+    funcOp.setFunctionType(newFunctionType);
+  }
+
+  return convertedArguments;
+}
+
+// Update the const-eval function so that the given argument index is in system
+// memory, inserting a to_layout op to restore the original device layout when
+// the argument is still consumed on device.
+static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
+                                           size_t argumentIndex,
+                                           RankedTensorType systemMemoryType) {
+  SmallVector<Type> constEvalArgumentTypes(
+      constEvalFuncOp.getFunctionType().getInputs());
+
+  // Already converted.
+  if (constEvalArgumentTypes[argumentIndex] == systemMemoryType) {
+    return;
+  }
+
+  auto blockArgument = constEvalFuncOp.getArgument(argumentIndex);
+
+  if (shouldTransferArgumentToDevice(blockArgument)) {
+    mlir::OpBuilder builder(constEvalFuncOp.getRegion());
+
+    // Insert after any existing get_device op.
+    constEvalFuncOp.walk([&builder](ttnn::GetDeviceOp getDeviceOp) {
+      builder.setInsertionPointAfter(getDeviceOp);
+    });
+
+    auto deviceTensorType =
+        mlir::cast<RankedTensorType>(blockArgument.getType());
+    auto deviceTensorLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(deviceTensorType.getEncoding());
+
+    auto originalDataTypeAttr = ttcore::DataTypeAttr::get(
+        constEvalFuncOp.getContext(), deviceTensorLayout.getDataType());
+
+    auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
+        blockArgument.getLoc(), deviceTensorType, blockArgument,
+        deviceTensorLayout.getLayout(), originalDataTypeAttr);
+
+    blockArgument.replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
+  }
+
+  blockArgument.setType(systemMemoryType);
+
+  constEvalArgumentTypes[argumentIndex] = systemMemoryType;
+  auto newConstEvalFunctionType = mlir::FunctionType::get(
+      constEvalFuncOp->getContext(), constEvalArgumentTypes,
+      constEvalFuncOp.getFunctionType().getResults());
+  constEvalFuncOp.setFunctionType(newConstEvalFunctionType);
+}
+
+// Drive the system-memory conversion across all forward functions in the
+// module. Idempotent: already-converted arguments are skipped, so it is safe to
+// run on every hoist invocation.
+static void forceConstEvalInputsToSystemMemory(mlir::ModuleOp moduleOp) {
+  moduleOp->walk([&](func::FuncOp funcOp) {
+    if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+      return;
+    }
+
+    SmallVector<BlockArgument> convertedArguments =
+        moveConstEvalArgsToHost(funcOp);
+
+    for (auto convertedArgument : convertedArguments) {
+      llvm::SmallVector<ttcore::LoadCachedOp> loadCachedOps;
+      for (auto *userOp : convertedArgument.getUsers()) {
+        loadCachedOps.push_back(mlir::cast<ttcore::LoadCachedOp>(userOp));
+      }
+
+      for (auto loadCachedOp : loadCachedOps) {
+        auto constEvalFuncOp =
+            mlir::cast<func::FuncOp>(mlir::SymbolTable::lookupNearestSymbolFrom(
+                loadCachedOp, loadCachedOp.getCalleeAttr()));
+
+        // Argument index in the load_cached op matches the index in the
+        // const-eval function we need to update.
+        size_t argumentIndex = std::distance(
+            loadCachedOp.getOperands().begin(),
+            llvm::find(loadCachedOp.getOperands(), convertedArgument));
+
+        assert(argumentIndex < constEvalFuncOp.getNumArguments() &&
+               "Argument index out of bounds while updating LoadCachedOp.");
+
+        convertArgumentOfConstEvalFunc(
+            constEvalFuncOp, argumentIndex,
+            mlir::cast<RankedTensorType>(convertedArgument.getType()));
+      }
+    }
+  });
+}
+} // namespace
+
 namespace {
 // Transform pass to hoist const-eval subgraphs into separate funcs, invoked
 // w/ ttcore.load_cached ops.
@@ -559,6 +761,10 @@ public:
       module->setAttr(ttnn::utils::g_L1ConstEvalUsageAttrName,
                       builder.getIntegerAttr(u64, alignedUsage));
     }
+
+    // Bring the memory space of const-eval-only inputs up to date with the
+    // current const-eval state. No-op on TTIR-level IR (no TTNN layouts).
+    forceConstEvalInputsToSystemMemory(module);
   }
 
 private:
