@@ -19,6 +19,13 @@ inline constexpr int64_t LAYER_NORM_SUM_X_OFFSET = TILE_WIDTH;
 inline constexpr std::array<uint32_t, 2> VALID_CQ_IDS = {0, 1};
 inline constexpr llvm::StringLiteral g_TTNNHoistGenericViaD2MAttrName =
     "ttnn.hoist_generic_via_d2m";
+// Marks an op as a boundary for trace hoisting (TTNNTraceHoistTransform): ops
+// carrying this attribute are never hoisted into a trace and separate the
+// surrounding hoistable ops into distinct trace regions. Generic enough for any
+// pass to opt an op out of tracing; currently stamped on inlined D2M subgraph
+// ops by TTNNCollaspeD2M.
+inline constexpr llvm::StringLiteral g_TTNNHoistBoundaryAttrName =
+    "ttnn.hoist_boundary";
 inline constexpr llvm::StringLiteral g_TTNNCaptureTracePrefix =
     "run_and_capture_";
 inline constexpr llvm::StringLiteral g_TTNNExecuteTracePrefix = "execute_";

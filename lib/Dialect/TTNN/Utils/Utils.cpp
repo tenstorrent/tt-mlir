@@ -304,6 +304,15 @@ bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op) {
   return op->hasAttr(g_TTNNHoistGenericViaD2MAttrName);
 }
 
+void markAsHoistBoundary(mlir::Operation *op) {
+  op->setAttr(g_TTNNHoistBoundaryAttrName,
+              mlir::UnitAttr::get(op->getContext()));
+}
+
+bool isHoistBoundaryOp(mlir::Operation *op) {
+  return op->hasAttr(g_TTNNHoistBoundaryAttrName);
+}
+
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
   std::set<mlir::StringRef> opNames;
   TTNNDialect *dialect = context->getLoadedDialect<TTNNDialect>();

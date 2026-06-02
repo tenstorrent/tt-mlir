@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -58,10 +59,15 @@ private:
       mapping.map(arg, input);
     }
 
-    // Clone function body operations and map return value.
+    // Clone function body operations and map return value. Mark every inlined
+    // op as a hoist boundary so TTNNTraceHoistTransform treats the whole
+    // subgraph (its get_device, scratch ttnn.empty and ttnn.generic ops) as an
+    // atomic, non-hoistable region. The hoistable ops on either side of the
+    // subgraph then form separate trace regions rather than a single one.
     Block &funcBody = mainFunc.getBody().front();
     for (Operation &op : funcBody.without_terminator()) {
-      builder.clone(op, mapping);
+      Operation *clonedOp = builder.clone(op, mapping);
+      utils::markAsHoistBoundary(clonedOp);
     }
 
     auto returnOp = dyn_cast<func::ReturnOp>(funcBody.getTerminator());
