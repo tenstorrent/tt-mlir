@@ -26,6 +26,9 @@ static constexpr llvm::StringLiteral pagedUpdateCacheTargetName =
 static constexpr llvm::StringLiteral pagedFillCacheTargetName =
     "tt.paged_fill_cache";
 
+static constexpr llvm::StringLiteral pagedFlashMlaDecodeTargetName =
+    "tt.paged_flash_mla_decode";
+
 static constexpr llvm::StringLiteral sparseMatmulTargetName =
     "tt.sparse_matmul";
 
@@ -421,6 +424,58 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
     operandHeadDims[0] = cacheHeadDim;     // cache
     operandHeadDims[1] = fillValueHeadDim; // fill_value
     resultHeadDims[0] = outputHeadDim;     // output
+
+    return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
+                                          headSize);
+  }
+
+  if (target == pagedFlashMlaDecodeTargetName) {
+    // Paged flash MLA decode
+    //  0: query  [1, num_users, nqh, dh_qk]
+    //  1: key    [max_num_blocks, nkv, block_size, dh_qk]
+    //  2: [value [max_num_blocks, nkv, block_size, head_dim_v]] (optional)
+    //  next: page_table, [attention_mask], [cur_pos_tensor], [attention_sink]
+    //
+    // Unlike paged SDPA decode, MLA keeps a single compressed latent KV cache
+    // (nkv is typically 1) that is shared across all query heads, so the KV
+    // cache cannot be head-sharded. We therefore shard only the query head
+    // dimension (and the matching output head dimension) and leave every other
+    // operand replicated: each device computes attention for its slice of
+    // query heads against the full (replicated) latent KV cache, then the
+    // per-head outputs are concatenated.
+    auto queryType = llvm::cast<RankedTensorType>(op.getOperand(0).getType());
+    auto outputType = llvm::cast<RankedTensorType>(op.getResult(0).getType());
+
+    if (queryType.getRank() != 4 || outputType.getRank() != 4) {
+      op.getOperation()->emitWarning()
+          << "Paged flash MLA decode: query and output must be 4D, got query "
+             "rank "
+          << queryType.getRank() << ", output rank " << outputType.getRank();
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+
+    const int64_t queryHeadDim = 2;  // [1, num_users, nqh, dh_qk]
+    const int64_t outputHeadDim = 2; // [1, num_users, nqh, head_dim_v]
+
+    // Query and output share the nqh head dimension; their trailing head_dim
+    // differs (dh_qk vs head_dim_v), so validate just the head dim rather than
+    // the whole shape.
+    if (queryType.getShape()[queryHeadDim] !=
+        outputType.getShape()[outputHeadDim]) {
+      op.getOperation()->emitWarning() << "Paged flash MLA decode: query and "
+                                          "output head dimension must match.";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+
+    int64_t headSize = queryType.getShape()[queryHeadDim];
+
+    SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
+                                         mlir::sdy::kNullDim);
+    SmallVector<int64_t> resultHeadDims(op.getNumResults(),
+                                        mlir::sdy::kNullDim);
+
+    operandHeadDims[0] = queryHeadDim; // query (only query is head-sharded)
+    resultHeadDims[0] = outputHeadDim; // output
 
     return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
                                           headSize);
@@ -1130,6 +1185,7 @@ private:
           {pagedSdpaDecodeTargetName, getPagedAttentionShardingRule},
           {pagedUpdateCacheTargetName, getPagedAttentionShardingRule},
           {pagedFillCacheTargetName, getPagedAttentionShardingRule},
+          {pagedFlashMlaDecodeTargetName, getPagedAttentionShardingRule},
           {sparseMatmulTargetName, getSparseMatmulShardingRule},
           {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
