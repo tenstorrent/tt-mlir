@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-lower-dma-to-fully-indexed-form %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-lower-dma-to-fully-indexed-form %s | FileCheck %s --implicit-check-not=affine.apply
 
 #dram = #ttcore.memory_space<dram>
 #l1 = #ttcore.memory_space<l1>

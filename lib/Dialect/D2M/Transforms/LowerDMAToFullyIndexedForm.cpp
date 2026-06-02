@@ -488,15 +488,18 @@ public:
       D2MLowerDMAToFullyIndexedForm>::D2MLowerDMAToFullyIndexedFormBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<D2MLowerDMAReadToFullyIndexed>(&getContext(),
-                                                debugCoalescingInference);
-    patterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
-                                                 debugCoalescingInference);
-    patterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
-                                                  debugCoalescingInference);
-    populateAffineToStdConversionPatterns(patterns);
-    walkAndApplyPatterns(getOperation(), std::move(patterns));
+    RewritePatternSet dmaPatterns(&getContext());
+    dmaPatterns.add<D2MLowerDMAReadToFullyIndexed>(&getContext(),
+                                                   debugCoalescingInference);
+    dmaPatterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
+                                                    debugCoalescingInference);
+    dmaPatterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
+                                                     debugCoalescingInference);
+    walkAndApplyPatterns(getOperation(), std::move(dmaPatterns));
+
+    RewritePatternSet affineToStdPatterns(&getContext());
+    populateAffineToStdConversionPatterns(affineToStdPatterns);
+    walkAndApplyPatterns(getOperation(), std::move(affineToStdPatterns));
   }
 };
 } // namespace
