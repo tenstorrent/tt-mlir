@@ -219,6 +219,58 @@ def test_compile_addmm(beta: float, alpha: float) -> None:
     _assert_compile_matches_eager(_AddMM(beta, alpha), bias, mat1, mat2, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_sub(shape: tuple[int, ...]) -> None:
+    """Single aten::sub in a compiled graph."""
+    class _Sub(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.sub(a, b)
+
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Sub(), a, b)
+
+
+@pytest.mark.parametrize("alpha", [2.0, 0.5, -1.0])
+def test_compile_sub_alpha(alpha: float) -> None:
+    """`torch.sub(a, b, alpha=k)` — the alpha scale must pass through the
+    FX kwarg into the same scale_tensor subgraph the eager kernel emits."""
+    class _SubAlpha(nn.Module):
+        def __init__(self, k: float) -> None:
+            super().__init__()
+            self.k = k
+
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.sub(a, b, alpha=self.k)
+
+    a = torch.randn((32, 32), dtype=torch.bfloat16)
+    b = torch.randn((32, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_SubAlpha(alpha), a, b)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_mul(shape: tuple[int, ...]) -> None:
+    """Single aten::mul in a compiled graph."""
+    class _Mul(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.mul(a, b)
+
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Mul(), a, b)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_rsqrt(shape: tuple[int, ...]) -> None:
+    """Single aten::rsqrt in a compiled graph. Positive inputs only."""
+    class _Rsqrt(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.rsqrt(x)
+
+    x = torch.rand(shape, dtype=torch.bfloat16).add(0.1)
+    _assert_compile_matches_eager(_Rsqrt(), x, atol=0.01, rtol=0.01)
+
+
 @pytest.mark.parametrize(
     "batch,feat,hidden,classes",
     [(32, 32 * 32, 128, 32), (32, 28 * 28, 128, 10)],

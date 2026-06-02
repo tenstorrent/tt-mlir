@@ -38,6 +38,15 @@ mlir::Value build_t(ModuleBuilder &mb, mlir::Value input);
 // Emit TTIR for element-wise ReLU.
 mlir::Value build_relu(ModuleBuilder &mb, mlir::Value input);
 
+// Emit TTIR for `lhs - alpha * rhs`. Same type rules as build_add.
+mlir::Value build_sub(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, double alpha = 1.0);
+
+// Emit TTIR for element-wise `lhs * rhs`. Inputs must share element type.
+mlir::Value build_mul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise reciprocal square root.
+mlir::Value build_rsqrt(ModuleBuilder &mb, mlir::Value input);
+
 // Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
 // broadcasts against any tensor in downstream elementwise ops.
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);

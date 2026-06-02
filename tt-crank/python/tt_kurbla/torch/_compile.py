@@ -72,6 +72,21 @@ def _(mb, a, b, *, alpha=1):
     return mb.add(a, b, float(alpha))
 
 
+@_lowering(_aten.sub.Tensor)
+def _(mb, a, b, *, alpha=1):
+    return mb.sub(a, b, float(alpha))
+
+
+@_lowering(_aten.mul.Tensor)
+def _(mb, a, b):
+    return mb.mul(a, b)
+
+
+@_lowering(_aten.rsqrt.default)
+def _(mb, x):
+    return mb.rsqrt(x)
+
+
 @_lowering(_aten.mm.default)
 def _(mb, a, b):
     return mb.mm(a, b)

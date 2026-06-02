@@ -39,10 +39,47 @@ at::Tensor tt_add(const at::Tensor &a_in, const at::Tensor &b_in, const at::Scal
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
 }
 
+at::Tensor tt_sub(const at::Tensor &a_in, const at::Tensor &b_in, const at::Scalar &alpha) {
+    const auto [a, b] = align_on_tt(a_in, b_in);
+
+    auto mb = ModuleBuilder::init({spec_for(a), spec_for(b)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, a, b);
+
+    auto result = build_sub(mb, lhs, rhs, alpha.toDouble());
+    auto out_shape = at::infer_size(a.sizes(), b.sizes());
+    auto module_op = std::move(mb).finalize({result});
+
+    auto outputs = compile_and_run(std::move(module_op), {a, b});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
+at::Tensor tt_mul(const at::Tensor &a_in, const at::Tensor &b_in) {
+    const auto [a, b] = align_on_tt(a_in, b_in);
+
+    auto mb = ModuleBuilder::init({spec_for(a), spec_for(b)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, a, b);
+
+    auto result = build_mul(mb, lhs, rhs);
+    auto out_shape = at::infer_size(a.sizes(), b.sizes());
+    auto module_op = std::move(mb).finalize({result});
+
+    auto outputs = compile_and_run(std::move(module_op), {a, b});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
 at::Tensor tt_relu(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::relu: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
     auto result = build_relu(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+at::Tensor tt_rsqrt(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::rsqrt: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_rsqrt(mb, mb.args()[0]);
     auto module_op = std::move(mb).finalize({result});
     auto outputs = compile_and_run(std::move(module_op), {self});
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
@@ -53,6 +90,39 @@ at::Tensor tt_relu(const at::Tensor &self) {
 mlir::Value build_relu(ModuleBuilder &mb, mlir::Value input) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     return mb.create<mlir::tt::ttir::ReluOp>(result_type, input).getResult();
+}
+
+mlir::Value build_rsqrt(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::RsqrtOp>(result_type, input).getResult();
+}
+
+mlir::Value build_sub(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, double alpha) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    TORCH_INTERNAL_ASSERT(lhs_type.getElementType() == rhs_type.getElementType(),
+                          "tt-kurbla build_sub: lhs and rhs must share element type — callers must promote first");
+
+    if (alpha != 1.0) {
+        rhs = scale_tensor(mb, rhs, alpha);
+    }
+
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, lhs_type.getElementType());
+    return mb.create<mlir::tt::ttir::SubtractOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_mul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    TORCH_INTERNAL_ASSERT(lhs_type.getElementType() == rhs_type.getElementType(),
+                          "tt-kurbla build_mul: lhs and rhs must share element type — callers must promote first");
+
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, lhs_type.getElementType());
+    return mb.create<mlir::tt::ttir::MultiplyOp>(result_type, lhs, rhs).getResult();
 }
 
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value) {
@@ -96,7 +166,10 @@ mlir::Value build_add(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, doubl
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("add.Tensor", TORCH_FN(tt_add));
+    m.impl("sub.Tensor", TORCH_FN(tt_sub));
+    m.impl("mul.Tensor", TORCH_FN(tt_mul));
     m.impl("relu", TORCH_FN(tt_relu));
+    m.impl("rsqrt", TORCH_FN(tt_rsqrt));
 }
 
 } // namespace tt::kurbla::torch_backend
