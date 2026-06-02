@@ -47,6 +47,9 @@ private:
     shouldHoist &= !::mlir::isa<mlir::tt::ttnn::MeshShardOp>(op);
     shouldHoist &=
         !(op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>());
+    // Ops explicitly marked as hoist boundaries (e.g. inlined D2M subgraph ops,
+    // see TTNNCollaspeD2M) are never hoisted and separate trace regions.
+    shouldHoist &= !utils::isHoistBoundaryOp(op);
     return shouldHoist;
   }
 
@@ -888,14 +891,8 @@ private:
       return funcOp.emitError("FuncOp should have exactly one block");
     }
 
-    llvm::SmallVector<Operation *> opsToHoist;
-
     mlir::Block &block = funcOp.getBlocks().front();
 
-    // Collect all hoistable ops, but skip the first non-hoistable ops and the
-    // last non-hoistable ops. Non-hoistable ops at the boundaries should remain
-    // outside the trace
-    bool startedCollecting = false;
     llvm::SmallVector<Operation *> allOps;
     for (mlir::Operation &op : block.getOperations()) {
       if (!::mlir::isa<func::ReturnOp>(op)) {
@@ -903,47 +900,46 @@ private:
       }
     }
 
-    // Find the first hoistable op
-    size_t firstHoistable = 0;
-    for (size_t i = 0; i < allOps.size(); i++) {
-      if (shouldHoistOp(allOps[i])) {
-        firstHoistable = i;
-        startedCollecting = true;
-        break;
+    // Partition the block into maximal contiguous runs ("segments") of
+    // hoistable ops, using non-hoistable ops as boundaries. Each segment is
+    // hoisted into its own trace.
+    //
+    // Enabling create-d2m-subgraphs lowers fused subgraphs into a block of
+    // get_device + scratch-buffer ttnn.empty + ttnn.generic ops, all of which
+    // TTNNCollaspeD2M marks with the ttnn.hoist_boundary attribute (see
+    // shouldHoistOp / utils::isHoistBoundaryOp). Those boundary ops separate the
+    // surrounding hoistable ops into distinct segments, yielding several
+    // hoistable regions interleaved with the subgraphs rather than a single one.
+    llvm::SmallVector<llvm::SmallVector<Operation *>> segments;
+    llvm::SmallVector<Operation *> currentSegment;
+    for (Operation *op : allOps) {
+      if (shouldHoistOp(op)) {
+        currentSegment.push_back(op);
+        continue;
+      }
+      // Non-hoistable op: close the current segment (if any) and leave the op
+      // in the original function as a boundary between trace regions.
+      if (!currentSegment.empty()) {
+        segments.push_back(currentSegment);
+        currentSegment.clear();
       }
     }
-
-    // If we found hoistable ops, collect them until we hit non-hoistable ops at
-    // the end
-    if (startedCollecting) {
-      // Find the last hoistable op (before any trailing non-hoistable ops)
-      size_t lastHoistable = firstHoistable;
-      for (size_t i = allOps.size() - 1; i > firstHoistable; i--) {
-        if (shouldHoistOp(allOps[i])) {
-          lastHoistable = i;
-          break;
-        }
-      }
-
-      // Collect all hoistable ops between first and last
-      for (size_t i = firstHoistable; i <= lastHoistable; i++) {
-        if (shouldHoistOp(allOps[i])) {
-          opsToHoist.push_back(allOps[i]);
-        } else {
-          // We found a non-hoistable op in the middle - this is an error
-          return allOps[i]->emitError(
-              "Non-hoistable op found in the middle of hoistable ops");
-        }
-      }
+    if (!currentSegment.empty()) {
+      segments.push_back(currentSegment);
     }
 
-    if (opsToHoist.empty()) {
+    if (segments.empty()) {
       return mlir::success();
     }
 
-    // Perform the hoist transform
-    if (failed(performHoistTransform(funcOp, opsToHoist))) {
-      return mlir::failure();
+    // Hoist each segment independently, in program order. Processing earlier
+    // segments first ensures that once a segment is replaced by its trace op,
+    // the operands of later segments that consumed its results are rewired to
+    // the trace op's results before those segments are themselves hoisted.
+    for (llvm::ArrayRef<Operation *> segment : segments) {
+      if (failed(performHoistTransform(funcOp, segment))) {
+        return mlir::failure();
+      }
     }
 
     if (failed(mergeToLayoutOpsWithFuncArgs(funcOp))) {
