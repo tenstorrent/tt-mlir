@@ -106,6 +106,13 @@ createNDShardSpecIfNeeded(TTNNNDLayoutAttr layout);
 
 bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op);
 
+// Marks `op` as a boundary for trace hoisting. Ops carrying this marker are
+// never hoisted into a trace and act as separators between hoistable regions.
+void markAsHoistBoundary(mlir::Operation *op);
+
+// Returns true if `op` is marked as a hoist boundary (see markAsHoistBoundary).
+bool isHoistBoundaryOp(mlir::Operation *op);
+
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
 
