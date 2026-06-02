@@ -27,6 +27,11 @@
 #layout_8192x16384_tile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<256x512x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_4d_1x1x8192x8192_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 8192 + d1 * 8192 + d2, d3), <1x1>, memref<256x256x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #layout_4d_8192x8192x1x1_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 8192 + d1 + d2, d3), <1x1>, memref<2097152x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_concat_img    = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 4096 + d1, d2), <1x1>, memref<128x20x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_concat_txt    = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 384 + d1, d2), <1x1>, memref<12x20x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_concat_img_6d = #ttnn.ttnn_layout<(d0, d1, d2, d3, d4, d5) -> (d0 * 41943040 + d1 * 10240 + d2 * 2048 + d3 * 32 + d4, d5), <1x1>, memref<1310720x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_concat_txt_6d = #ttnn.ttnn_layout<(d0, d1, d2, d3, d4, d5) -> (d0 * 3932160 + d1 * 10240 + d2 * 2048 + d3 * 32 + d4, d5), <1x1>, memref<122880x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#layout_concat_out    = #ttnn.ttnn_layout<(d0, d1, d2, d3, d4, d5) -> (d0 * 45875200 + d1 * 10240 + d2 * 2048 + d3 * 32 + d4, d5), <1x1>, memref<1433600x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 
 module {
   // sliceReshape
@@ -163,5 +168,33 @@ module {
     %0 = "ttnn.reshape"(%arg0) <{shape = [8192 : i32, 8192 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>) -> tensor<8192x8192x1x1xf32, #layout_4d_8192x8192x1x1_tile>
     %1 = "ttnn.permute"(%0) <{permutation = array<i64: 2, 3, 0, 1>}> : (tensor<8192x8192x1x1xf32, #layout_4d_8192x8192x1x1_tile>) -> tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>
     return %1 : tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>
+  }
+
+  // concat-bloated-tile-to-row-major adjust:
+  //   reshape (...) -> 6D tile with sub-tile inner dims (1, 2),
+  //   reshape (...) -> 6D tile with sub-tile inner dims (1, 2),
+  //   concat dim=1 -> 6D tile (bloat > 1 GB)
+  // After fix, both reshapes and the concat should be in row-major, with a
+  // single to_layout(tile) restoring tile layout at the boundary.
+  // CHECK-LABEL: func.func @concat_bloated_tile_to_row_major
+  // CHECK: %[[RM_IN0:.*]] = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}>
+  // CHECK: %[[R0:.*]] = "ttnn.reshape"(%[[RM_IN0]]) <{shape = [1 : i32, 4096 : i32, 5 : i32, 64 : i32, 1 : i32, 2 : i32]}>
+  // CHECK: %[[RM_IN1:.*]] = "ttnn.to_layout"(%arg1) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}>
+  // CHECK: %[[R1:.*]] = "ttnn.reshape"(%[[RM_IN1]]) <{shape = [1 : i32, 384 : i32, 5 : i32, 64 : i32, 1 : i32, 2 : i32]}>
+  // CHECK: %[[CAT:.*]] = "ttnn.concat"(%[[R0]], %[[R1]]) <{dim = 1 : si32}>
+  // CHECK: %[[OUT:.*]] = "ttnn.to_layout"(%[[CAT]]) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}>
+  // CHECK: return %[[OUT]]
+  func.func @concat_bloated_tile_to_row_major(
+      %arg0: tensor<1x4096x640xf32, #layout_concat_img>,
+      %arg1: tensor<1x384x640xf32, #layout_concat_txt>)
+      -> tensor<1x4480x5x64x1x2xf32, #layout_concat_out> {
+    %0 = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 4096 : i32, 5 : i32, 64 : i32, 1 : i32, 2 : i32]}>
+        : (tensor<1x4096x640xf32, #layout_concat_img>) -> tensor<1x4096x5x64x1x2xf32, #layout_concat_img_6d>
+    %1 = "ttnn.reshape"(%arg1) <{shape = [1 : i32, 384 : i32, 5 : i32, 64 : i32, 1 : i32, 2 : i32]}>
+        : (tensor<1x384x640xf32, #layout_concat_txt>) -> tensor<1x384x5x64x1x2xf32, #layout_concat_txt_6d>
+    %2 = "ttnn.concat"(%0, %1) <{dim = 1 : si32}>
+        : (tensor<1x4096x5x64x1x2xf32, #layout_concat_img_6d>, tensor<1x384x5x64x1x2xf32, #layout_concat_txt_6d>)
+        -> tensor<1x4480x5x64x1x2xf32, #layout_concat_out>
+    return %2 : tensor<1x4480x5x64x1x2xf32, #layout_concat_out>
   }
 }

@@ -1141,6 +1141,121 @@ public:
   }
 };
 
+// Layout-swap for `ttnn.concat`. When a concat's operands come from one-use
+// reshapes that produced tile-padded tensors with sub-tile inner dims, the
+// concat output is also bloated. Concat is a data-movement op that accepts
+// row-major, so we flip the operand reshapes' outputs and the concat output
+// to row-major, then restore tile via a single to_layout for downstream
+// consumers.
+class ConcatBloatedTileToRowMajor : public OpRewritePattern<ttnn::ConcatOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::ConcatOp op,
+                                PatternRewriter &rewriter) const override {
+    auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto resultLayout =
+        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    if (!resultLayout || !resultLayout.isTiled()) {
+      return failure();
+    }
+
+    ArrayRef<int64_t> resultShape = resultType.getShape();
+    if (!hasNonTileAlignedInnerDims(resultShape)) {
+      return failure();
+    }
+
+    auto paddedShape = ttnn::utils::getTilePaddedShape(resultShape);
+    int64_t tiledVolume = ttmlir::utils::volume(llvm::ArrayRef(paddedShape));
+    int64_t rmVolume = ttmlir::utils::volume(resultShape);
+
+    // If the difference is less than 1GB, nothing to do.
+    if (tiledVolume - rmVolume < 1LL * 1024LL * 1024LL * 1024LL) {
+      return failure();
+    }
+
+    // Every operand must be a one-use reshape so we can flip its output
+    // layout to row-major without affecting other consumers.
+    SmallVector<ttnn::ReshapeOp> operandReshapes;
+    for (Value v : op.getInputs()) {
+      auto r = v.getDefiningOp<ttnn::ReshapeOp>();
+      if (!r || !r->hasOneUse()) {
+        return failure();
+      }
+      operandReshapes.push_back(r);
+    }
+
+    auto rowMajorResultLayout =
+        TTNNLayoutAttr::Builder(resultLayout, resultShape)
+            .setLayout(ttnn::Layout::RowMajor)
+            .build();
+    if (rowMajorResultLayout == resultLayout) {
+      return failure();
+    }
+    RankedTensorType rowMajorResultType =
+        resultType.cloneWithEncoding(rowMajorResultLayout);
+
+    // For each upstream reshape, build a row-major variant whose input is
+    // also promoted to row-major (the reshape kernel preserves input layout;
+    // tile -> row-major in one reshape is invalid).
+    SmallVector<Value> newReshapeResults;
+    for (auto reshape : operandReshapes) {
+      auto reshapeResultType =
+          mlir::cast<RankedTensorType>(reshape.getResult().getType());
+      auto reshapeResultLayout =
+          mlir::dyn_cast<ttnn::TTNNLayoutAttr>(reshapeResultType.getEncoding());
+      if (!reshapeResultLayout || !reshapeResultLayout.isTiled()) {
+        return failure();
+      }
+
+      auto rowMajorReshapeLayout =
+          TTNNLayoutAttr::Builder(reshapeResultLayout,
+                                  reshapeResultType.getShape())
+              .setLayout(ttnn::Layout::RowMajor)
+              .build();
+      RankedTensorType rowMajorReshapeResultType =
+          reshapeResultType.cloneWithEncoding(rowMajorReshapeLayout);
+
+      Value reshapeInput = reshape.getInput();
+      if (!reshapeInput.getDefiningOp<ttnn::ToLayoutOp>()) {
+        auto inputType = mlir::cast<RankedTensorType>(reshapeInput.getType());
+        auto inputLayout =
+            mlir::dyn_cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+        if (inputLayout && inputLayout.isTiled()) {
+          auto rowMajorInput = utils::createToLayoutOp(
+              reshape,
+              mlir::cast<mlir::TypedValue<RankedTensorType>>(reshapeInput),
+              rewriter, Layout::RowMajor, inputLayout.getBufferType(),
+              inputLayout.getMemLayout(), inputLayout.getDataType(),
+              "_input_row_major");
+          reshapeInput = rowMajorInput.getResult();
+        }
+      }
+
+      auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+          reshape.getLoc(), rowMajorReshapeResultType, reshapeInput,
+          reshape.getShapeAttr());
+      newReshapeResults.push_back(newReshapeOp.getResult());
+    }
+
+    auto newConcatOp = rewriter.create<ttnn::ConcatOp>(
+        op.getLoc(), rowMajorResultType, newReshapeResults, op.getDimAttr());
+
+    auto restoredLayout = utils::createToLayoutOp(
+        op,
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(newConcatOp.getResult()),
+        rewriter, resultLayout.getLayout(), resultLayout.getBufferType(),
+        resultLayout.getMemLayout(), resultLayout.getDataType(),
+        "_restore_layout");
+
+    rewriter.replaceOp(op, restoredLayout.getResult());
+    for (auto reshape : operandReshapes) {
+      rewriter.eraseOp(reshape);
+    }
+    return success();
+  }
+};
+
 class TTNNMemoryManagement
     : public impl::TTNNMemoryManagementBase<TTNNMemoryManagement> {
 public:
@@ -1158,8 +1273,8 @@ public:
                    ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
                    ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
                    ReshapeElementwiseAdjusting<ttnn::DivideOp>,
-                   PermuteRowMajorAdjusting, ReshapeRowMajorAdjusting>(
-          &getContext());
+                   PermuteRowMajorAdjusting, ReshapeRowMajorAdjusting,
+                   ConcatBloatedTileToRowMajor>(&getContext());
     }
     patterns.add<PropagateSliceThroughPermute, PropagateSliceThroughReshape,
                  HoistCommonReshapeAboveSlices, PropagateSliceThroughRepeat,
