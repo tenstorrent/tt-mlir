@@ -135,10 +135,18 @@ module @FlashMlaPrefill_Sharding_HeadDimV_NeedsAllGather attributes {mhlo.cross_
 
 // -----
 
-// MQA -- a single shared KV head (kvHeads == 1) is the MLA *decode* form.
-module @FlashMlaPrefill_MQA_Rejected attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+// Compressed latent K/V: a single shared KV head (kvHeads == 1) is broadcast
+// across every query head. The head factor maps only Q/Out (kvHeadDim is
+// kNullDim for K/V), so sharding the 128 query heads (-> 64 per shard) leaves
+// the latent K head replicated and requires no collective.
+// CHECK-LABEL: module @FlashMlaPrefill_Sharding_LatentKV_HeadParallel
+module @FlashMlaPrefill_Sharding_LatentKV_HeadParallel attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
   func.func @main(%query: tensor<1x128x2048x576xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "query"}, %key: tensor<1x1x2048x576xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {}, {}]>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "key"}) -> tensor<1x128x2048x512xbf16> {
-    // expected-error @+1 {{flash_mla_prefill (MLA prefill) expects MHA inputs but got num_kv_heads == 1 (MQA)}}
+    // CHECK-NOT: stablehlo.all_gather
+    // CHECK-NOT: stablehlo.all_to_all
+    // CHECK: stablehlo.custom_call @tt.flash_mla_prefill
+    // CHECK-SAME: tensor<1x64x2048x576xbf16>, tensor<1x1x2048x576xbf16>
+    // CHECK-SAME: -> tensor<1x64x2048x512xbf16>
     %0 = stablehlo.custom_call @tt.flash_mla_prefill(%query, %key) {api_version = 0 : i32, mhlo.frontend_attributes = {head_dim_v = "512", is_causal = "True", has_value = "False", has_attention_mask = "False"}} : (tensor<1x128x2048x576xbf16>, tensor<1x1x2048x576xbf16>) -> tensor<1x128x2048x512xbf16>
     return %0 : tensor<1x128x2048x512xbf16>
   }
