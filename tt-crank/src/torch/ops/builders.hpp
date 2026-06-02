@@ -47,6 +47,15 @@ mlir::Value build_mul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 // Emit TTIR for element-wise reciprocal square root.
 mlir::Value build_rsqrt(ModuleBuilder &mb, mlir::Value input);
 
+// Emit TTIR for tensor reshape. `new_shape` must already have any -1 resolved;
+// total element count must match the input.
+mlir::Value build_reshape(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> new_shape);
+
+// Emit TTIR for mean reduction along `dims` (negative dims are normalised
+// against the input rank). Empty `dims` reduces over all dimensions.
+// `keepdim` controls whether reduced dimensions are retained as size-1.
+mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim);
+
 // Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
 // broadcasts against any tensor in downstream elementwise ops.
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);

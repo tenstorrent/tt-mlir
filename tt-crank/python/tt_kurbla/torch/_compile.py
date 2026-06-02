@@ -87,6 +87,16 @@ def _(mb, x):
     return mb.rsqrt(x)
 
 
+@_lowering(_aten.view.default, _aten.reshape.default)
+def _(mb, x, size):
+    return mb.reshape(x, list(size))
+
+
+@_lowering(_aten.mean.dim)
+def _(mb, x, dim, keepdim=False, *, dtype=None):
+    return mb.mean(x, list(dim), keepdim)
+
+
 @_lowering(_aten.mm.default)
 def _(mb, a, b):
     return mb.mm(a, b)
@@ -122,6 +132,10 @@ def _prepare_op_args(
     def _convert(a):
         if isinstance(a, _native.Value):
             return mb.typecast(a, target_dtype)
+        # bool is a subclass of int — check it first so control-flow args
+        # (keepdim, transpose flags, etc.) are never lifted to tensor scalars.
+        if isinstance(a, bool):
+            return a
         if isinstance(a, (int, float)):
             return mb.scalar(target_dtype, float(a))
         return a

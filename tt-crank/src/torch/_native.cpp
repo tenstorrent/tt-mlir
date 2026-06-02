@@ -88,6 +88,16 @@ public:
         return tk::build_rsqrt(*mb_, input);
     }
 
+    mlir::Value reshape(mlir::Value input, std::vector<std::int64_t> new_shape) {
+        assert_builder();
+        return tk::build_reshape(*mb_, input, new_shape);
+    }
+
+    mlir::Value mean(mlir::Value input, std::vector<std::int64_t> dims, bool keepdim) {
+        assert_builder();
+        return tk::build_mean(*mb_, input, dims, keepdim);
+    }
+
     // Lift a Python scalar to a broadcastable `ttir.constant` at `dtype`.
     mlir::Value scalar(::tt::target::DataType dtype, double value) {
         assert_builder();
@@ -228,6 +238,8 @@ NB_MODULE(_native, m) {
         .def("t", &PyModuleBuilder::t, "input"_a)
         .def("relu", &PyModuleBuilder::relu, "input"_a)
         .def("rsqrt", &PyModuleBuilder::rsqrt, "input"_a)
+        .def("reshape", &PyModuleBuilder::reshape, "input"_a, "new_shape"_a)
+        .def("mean", &PyModuleBuilder::mean, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         // Consumes the builder. Subsequent calls on `self` raise.
