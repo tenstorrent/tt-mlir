@@ -457,6 +457,20 @@ determineGSPMDShardingDims(llvm::SmallVector<int64_t> &shardShape,
   return true;
 }
 
+// Generate default GSPMDMeshSharding.
+llvm::Expected<GSPMDMeshSharding> GSPMDMeshSharding::generateDefault() {
+  return GSPMDMeshSharding{mlir::tt::ttcore::MeshShardDirection::FullToShard,
+                           mlir::tt::ttcore::MeshShardType::Identity,
+                           /*shardShape=*/llvm::SmallVector<int64_t>{},
+                           /*shardDims=*/llvm::SmallVector<int64_t>{},
+                           /*meshShape=*/llvm::SmallVector<int64_t>{},
+                           /*deviceIds=*/llvm::SmallVector<int64_t>{},
+                           mlir::tt::ttcore::ShardStatus::Unsharded,
+                           /*opShardingStr*/ "",
+                           /*operandShardingStr*/ "",
+                           /*lastTileDimReplicate*/ false};
+}
+
 // OpenXLA has its own lexer, but we will use simple string-based parser here.
 // This parsing is mainly based on "Sharding Attribute" section in
 // https://github.com/sdasgup3/stablehlo/blob/80082431d1af0933e6202ecc8a6f8801e039235b/docs/spec.md#sharding-attribute
@@ -466,8 +480,8 @@ gspmd_utils::GSPMDMeshSharding::generate(
     mlir::tt::ttcore::ShardStatus shardStatus,
     mlir::tt::ttcore::MeshShardDirection shardDirection) {
   // Need to parse GSPMD sharding string and fill out MeshSharding info.
-  // shardType must be set by one of the keyword checks below.
-  std::optional<mlir::tt::ttcore::MeshShardType> shardType;
+  mlir::tt::ttcore::MeshShardType shardType =
+      mlir::tt::ttcore::MeshShardType::Identity;
   llvm::SmallVector<int64_t> shardShape = {-1};
   llvm::SmallVector<int64_t> shardDims = {-1};
   llvm::SmallVector<int64_t> meshShape = {-1};
@@ -494,8 +508,11 @@ gspmd_utils::GSPMDMeshSharding::generate(
   operandShardingStr.split(operandShardingStrTokens, " ");
 
   // Our goal is to map opShardingStr and operandShardingStr to a mesh shard op
-  // which is represented by MeshSharding object. opShardingStr and
-  // operandShardingStr may or may not have last_tile_dim_replicate annotated.
+  // which is represented by MeshSharding object. If any argument is
+  // pre-sharded, we will create an identity mesh shard op by default. This is
+  // to ensure the shapes are consistent in the graph but runtime will not
+  // attempt to shard the data again. opShardingStr and operandShardingStr may
+  // or may not have last_tile_dim_replicate annotated.
 
   // clang-format off
   // opShardingStr and operandShardingStr will have one of the following
@@ -569,14 +586,14 @@ gspmd_utils::GSPMDMeshSharding::generate(
     }
   }
 
-  if (!shardType.has_value()) {
-    return llvm::createStringError(
-        std::errc::invalid_argument,
-        "Could not determine shard type from GSPMD sharding strings.");
-  }
+  // Check if the input is already pre-sharded. If it is, override shardType to
+  // Identity.
+  shardType = shardStatus == mlir::tt::ttcore::ShardStatus::Presharded
+                  ? ttcore::MeshShardType::Identity
+                  : shardType;
 
   return gspmd_utils::GSPMDMeshSharding{
-      shardDirection,      *shardType,          shardShape,
+      shardDirection,      shardType,           shardShape,
       shardDims,           meshShape,           deviceIds,
       shardStatus,         opShardingStr.str(), operandShardingStr.str(),
       lastTileDimReplicate};

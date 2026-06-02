@@ -606,13 +606,29 @@ llvm::Expected<bool> parseSdySharding(mlir::sdy::TensorShardingAttr sdySharding,
   return true;
 }
 
+// Generate default ShardyMeshSharding.
+llvm::Expected<ShardyMeshSharding> ShardyMeshSharding::generateDefault() {
+  return ShardyMeshSharding{
+      mlir::tt::ttcore::MeshShardDirection::FullToShard,
+      mlir::tt::ttcore::MeshShardType::Identity,
+      /*shardShape=*/llvm::SmallVector<int64_t>{},
+      /*shardDims=*/llvm::SmallVector<int64_t>{},
+      /*meshShape=*/llvm::SmallVector<int64_t>{},
+      /*deviceIds=*/llvm::SmallVector<int64_t>{},
+      mlir::tt::ttcore::ShardStatus::Unsharded,
+      sdy::MeshAttr(),
+      mlir::sdy::TensorShardingAttr(),
+  };
+}
+
 llvm::Expected<ShardyMeshSharding>
 ShardyMeshSharding::generate(sdy::MeshAttr meshAttr,
                              sdy::TensorShardingAttr sdySharding,
                              mlir::tt::ttcore::ShardStatus shardStatus,
                              ttcore::MeshShardDirection shardDirection) {
   // Need to parse sdy sharding and fill out MeshSharding info.
-  mlir::tt::ttcore::MeshShardType shardType{};
+  mlir::tt::ttcore::MeshShardType shardType =
+      mlir::tt::ttcore::MeshShardType::Identity;
   llvm::SmallVector<int64_t> shardShape = {-1};
   llvm::SmallVector<int64_t> shardDims = {-1};
   llvm::SmallVector<int64_t> meshShape = {-1};
@@ -627,10 +643,12 @@ ShardyMeshSharding::generate(sdy::MeshAttr meshAttr,
     meshShape = llvm::SmallVector<int64_t>{-1};
   };
 
+  // Empty meshAttr indicates single device, so no need to convert.
   if (meshAttr.empty()) {
-    return llvm::createStringError(
-        std::errc::invalid_argument,
-        "Empty meshAttr: manual_computation requires a mesh.");
+    meshShape.clear();
+    return ShardyMeshSharding{shardDirection, shardType, shardShape,
+                              shardDims,      meshShape, deviceIds,
+                              shardStatus,    meshAttr,  sdySharding};
   }
 
   if (meshAttr.getAxes().empty()) {
@@ -663,6 +681,12 @@ ShardyMeshSharding::generate(sdy::MeshAttr meshAttr,
   if (totalPartition == 1) {
     setNonDevicesShardType(mlir::tt::ttcore::MeshShardType::Replicate);
   }
+
+  // Check if the input is already pre-sharded. If it is, override shardType to
+  // Identity.
+  shardType = shardStatus == mlir::tt::ttcore::ShardStatus::Presharded
+                  ? ttcore::MeshShardType::Identity
+                  : shardType;
 
   return ShardyMeshSharding{shardDirection, shardType, shardShape,
                             shardDims,      meshShape, deviceIds,

@@ -2973,35 +2973,25 @@ def test_hoisted_concatenate_heads(
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 def test_presharded_arg(target, mesh_shape, request, device):
     def module(builder: TTIRBuilder):
-        # (1, 1, 256, 512) is the logical (global) tensor shape.
-        # After pre-sharding, each device will have a local shard of shape (1, 1, 256, 256).
-        @builder.func(
-            [(1, 1, 256, 512), (1, 1, 256, 512)],
-            [torch.float32, torch.float32],
-            presharded_args={0: (-1, 3), 1: (-1, 3)},
-        )
-        def model(in0: Operand, in1: Operand, builder: TTIRBuilder):
-            # Goldens are set on the logical (global) tensors.
-            torch_all_ones = torch.ones((1, 1, 256, 512), dtype=torch.float32)
-            torch_all_twos = torch.full((1, 1, 256, 512), 2.0, dtype=torch.float32)
-            builder.set_goldens({in0: torch_all_ones, in1: torch_all_twos}, {})
-
-            sum = builder.add(in0, in1)
-
-            # Performing a manual mesh_shard to collect the output shards, since presharded results
-            # aren't supported by the builder infrastructure yet.
-            result = builder.mesh_shard(
-                sum,
+        @builder.func([(1, 1, 256, 512)], [torch.float32])
+        def model(in0: Operand, builder: TTIRBuilder):
+            builder.preshard_arg(in0, shard_dims=(-1, 3))
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Identity.value,
+                shard_shape=(1, 1, 1, 2),
+                shard_dims=(-1, 3),
+            )
+            exp = builder.exp(in_shard)
+            out_shard = builder.mesh_shard(
+                exp,
                 shard_direction=MeshShardDirection.ShardToFull.value,
                 shard_type=MeshShardType.Devices.value,
                 shard_shape=(1, 1, 1, 2),
                 shard_dims=(-1, 3),
             )
-
-            torch_all_threes = torch.full((1, 1, 256, 512), 3.0, dtype=torch.float32)
-            builder.set_goldens({}, {result: torch_all_threes})
-
-            return result
+            return out_shard
 
     compile_and_execute_ttir(
         module,

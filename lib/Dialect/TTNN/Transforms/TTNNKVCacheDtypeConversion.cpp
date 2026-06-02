@@ -31,9 +31,9 @@ public:
 
   // Ops that are safe to propagate dtype through on the kv_cache → cache_op
   // path. Extend this list when new transparent ops appear on that path.
-  // Currently, the list is empty, but we may want to allow certain TMs in the
-  // future.
-  static bool isAllowedOnCachePath(Operation *op) { return false; }
+  static bool isAllowedOnCachePath(Operation *op) {
+    return mlir::isa<MeshShardOp>(op);
+  }
 
   // Walks the linear tensor chain from `value` back through allowed ops,
   // collecting intermediate tensor values into `chain`. Returns the

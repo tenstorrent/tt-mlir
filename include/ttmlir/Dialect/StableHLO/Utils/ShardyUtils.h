@@ -155,6 +155,8 @@ void copyNestedRegions(mlir::OpBuilder &builder, mlir::Operation *srcOp,
 
 class ShardyMeshSharding : public sharding_utils::MeshSharding {
 public:
+  // Static factory methods.
+  static llvm::Expected<ShardyMeshSharding> generateDefault();
   static llvm::Expected<ShardyMeshSharding>
   generate(sdy::MeshAttr meshAttr, sdy::TensorShardingAttr sdySharding,
            mlir::tt::ttcore::ShardStatus shardStatus,

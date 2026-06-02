@@ -1599,6 +1599,29 @@ public:
 } // namespace
 
 namespace {
+class MeshShardOpConversionPattern
+    : public OpConversionPattern<ttir::MeshShardOp> {
+public:
+  using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Only handle identity MeshShard ops - these are no-ops that just pass
+    // through the input.
+    if (adaptor.getShardType() != ttcore::MeshShardType::Identity) {
+      return rewriter.notifyMatchFailure(
+          op, "Only identity MeshShard ops are supported.");
+    }
+
+    // Identity MeshShard is a no-op, just forward the input.
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ClampScalarOpConversionPattern
     : public OpConversionPattern<ttir::ClampScalarOp> {
 public:
@@ -1955,13 +1978,15 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   populateTTIRToLinalgPoolingPatterns(ctx, patterns, typeConverter);
   populateTTIRToLinalgReductionPatterns(ctx, patterns, typeConverter);
 
-  patterns.add<SoftmaxOpConversionPattern, EmptyOpConversionPattern,
-               PermuteOpConversionPattern, SliceStaticOpConversionPattern,
-               PadOpConversionPattern, ConstantOpConversionPattern,
-               NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
-               NamedFillOpConversionPattern<ttir::OnesOp, 1>,
-               FullOpConversionPattern, ArangeOpConversionPattern,
-               ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
+  patterns
+      .add<SoftmaxOpConversionPattern, EmptyOpConversionPattern,
+           PermuteOpConversionPattern, SliceStaticOpConversionPattern,
+           PadOpConversionPattern, ConstantOpConversionPattern,
+           NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
+           NamedFillOpConversionPattern<ttir::OnesOp, 1>,
+           FullOpConversionPattern, ArangeOpConversionPattern,
+           MeshShardOpConversionPattern, ConcatenateHeadsOpConversionPattern>(
+          typeConverter, ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,

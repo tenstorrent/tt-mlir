@@ -47,6 +47,13 @@ inline ::ttnn::Tensor mesh_shard(const ::ttnn::Tensor &input,
                                  const MeshShardType &shardType,
                                  const std::vector<int64_t> &shardShape,
                                  const std::vector<int64_t> &shardDims) {
+  if (shardType == MeshShardType::Identity) {
+    // Forward tensor in runtime for identity shard type assuming that the input
+    // tensor is pre-sharded by frontend and output tensor is expected to be
+    // pre-sharded by frontend.
+    return input;
+  }
+
   auto fullMeshShape = meshDevice.shape();
   ::ttnn::Tensor out;
   if (shardDirection == MeshShardDirection::FullToShardShape) {

@@ -11,7 +11,7 @@ module {
     %arg0: tensor<32x64xbf16>,
     %arg1: tensor<64x128xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.weight_dtype = "bfp_bf8"}
   ) -> tensor<32x64xbf16> {
-    %0 = "ttir.mesh_shard"(%arg1) <{shard_dims = array<i64: -1, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 2>, shard_type = #ttcore.shard_type<devices>}> : (tensor<64x128xbf16>) -> tensor<64x64xbf16>
+    %0 = "ttir.mesh_shard"(%arg1) <{shard_dims = array<i64: -1, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 2>, shard_type = #ttcore.shard_type<identity>}> : (tensor<64x128xbf16>) -> tensor<64x64xbf16>
     // CHECK: "ttir.matmul"
     // CHECK-SAME: ttcore.weight_dtype = "bfp_bf8"
     %1 = "ttir.matmul"(%arg0, %0) : (tensor<32x64xbf16>, tensor<64x64xbf16>) -> tensor<32x64xbf16>

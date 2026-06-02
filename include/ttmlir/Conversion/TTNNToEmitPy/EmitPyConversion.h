@@ -379,6 +379,8 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::MeshShardType> {
 
   static std::string convert(::mlir::tt::ttcore::MeshShardType meshShardType) {
     switch (meshShardType) {
+    case ::mlir::tt::ttcore::MeshShardType::Identity:
+      return "ttnn.MeshShardType.Identity";
     case ::mlir::tt::ttcore::MeshShardType::Replicate:
       return "ttnn.MeshShardType.Replicate";
     case ::mlir::tt::ttcore::MeshShardType::Maximal:

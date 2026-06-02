@@ -60,7 +60,7 @@ public:
                mlir::tt::ttcore::ShardStatus shardStatus)
       : shardDirection(shardDirection), shardType(shardType),
         shardShape(shardShape), shardDims(shardDims), meshShape(meshShape),
-        deviceIds(deviceIds), shardStatus(shardStatus) {}
+        deviceIds(deviceIds) {}
 
   // Getters
   mlir::tt::ttcore::MeshShardDirection getShardDirection() const {
