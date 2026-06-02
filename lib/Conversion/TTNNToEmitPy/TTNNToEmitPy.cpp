@@ -21,7 +21,6 @@
 
 using namespace mlir;
 using namespace mlir::tt;
-using ttnn_to_emitpy::operator|;
 
 // Base class for TTNN to EmitPy OpConversionPattern.
 //
