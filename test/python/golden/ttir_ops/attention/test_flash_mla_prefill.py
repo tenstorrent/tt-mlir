@@ -13,6 +13,16 @@ from builder.base.builder_apis import compile_and_execute_ttir
 pytestmark = pytest.mark.frontend("ttir")
 
 
+# tt-metal's ttnn.transformer.flash_mla_prefill silently drops the attention_mask
+# whenever use_mla=true
+# Tracked upstream: https://github.com/tenstorrent/tt-metal/issues/43239
+_MLA_MASK_UNSUPPORTED = pytest.mark.xfail(
+    reason="tt-metal flash_mla_prefill ignores attn_mask when use_mla=true. "
+    "Tracked upstream: tt-metal#43239.",
+    strict=False,
+)
+
+
 # ---------------------------------------------------------------------------
 # Causal MLA-from-latent (no value, no mask).
 # Exercises operandSegmentSizes = [1, 1, 0, 0] and the head_dim_v <= qkHeadSize
@@ -163,6 +173,7 @@ def test_flash_mla_prefill_causal_with_value(
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
+@_MLA_MASK_UNSUPPORTED
 def test_flash_mla_prefill_with_mask(
     shapes: List[Shape],
     mask_shape: Shape,
@@ -223,6 +234,7 @@ def test_flash_mla_prefill_with_mask(
     ids=["mla_value_mask_scale_b2", "mla_value_mask_scale_b1"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
+@_MLA_MASK_UNSUPPORTED
 def test_flash_mla_prefill_value_mask_scale(
     shapes: List[Shape],
     head_dim_v: int,
