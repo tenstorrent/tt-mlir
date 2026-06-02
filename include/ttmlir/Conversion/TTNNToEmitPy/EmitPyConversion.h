@@ -2372,12 +2372,12 @@ private:
     using DecayedConvertedTy = std::decay_t<ConvertedTy>;
     if constexpr (std::is_same_v<DecayedConvertedTy, std::string>) {
       addKeywordArgument(attrName);
-      return rewriter.getType<emitpy::OpaqueAttr>(convertedValue);
+      return rewriter.getAttr<emitpy::OpaqueAttr>(convertedValue);
     } else if constexpr (std::is_same_v<DecayedConvertedTy,
                                         std::optional<std::string>>) {
       if (convertedValue) {
         addKeywordArgument(attrName);
-        return rewriter.getType<emitpy::OpaqueAttr>(*convertedValue);
+        return rewriter.getAttr<emitpy::OpaqueAttr>(*convertedValue);
       }
       return emit(std::nullopt, attrName);
     } else {
