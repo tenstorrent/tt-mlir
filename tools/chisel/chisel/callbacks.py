@@ -39,7 +39,7 @@ from .report import (
     SkippedNumericsPayload,
 )
 from .safety import chisel_safe
-from .utils import get_op_asm, retrieve_tensor
+from .utils import cached_retrieve_tensor, get_op_asm, invalidate_device_cache
 from .validators import check_numerics, check_shape_dtype
 
 logger = logging.getLogger("chisel")
@@ -85,7 +85,8 @@ def _validate_and_retrieve_tensor(
 ) -> GoldenMapTensor:
     op = ctx.op
     check_shape_dtype(op, "mlir_vs_tensor_ref", mlir_value, rt_tensor_ref)
-    tensor = retrieve_tensor(ctx.rt_program_context, rt_tensor_ref, ctx.mesh_shape)
+    ssa = mlir_value.get_name(ctx.asm_state)
+    tensor = cached_retrieve_tensor(ctx, ssa, rt_tensor_ref, ctx.mesh_shape)
     check_shape_dtype(op, "mlir_vs_runtime_tensor", mlir_value, tensor)
     return tensor
 
@@ -110,7 +111,6 @@ def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
 
     mlir_op_inputs = get_op_inputs(op)
     for mlir_input, rt_tensor_ref in zip(mlir_op_inputs, ctx.input_refs, strict=True):
-        # TODO(ndrakulic): Right now we are pulling input device tensors to host potentially multiple times
         tensor = _validate_and_retrieve_tensor(ctx, mlir_input, rt_tensor_ref)
         ssa = mlir_input.get_name(asm_state)
         ctx.stashed_inputs[ssa] = tensor
@@ -171,13 +171,14 @@ def _get_inplace_input_refs(
 
 
 def _evict_inplace_no_golden(ctx: ChiselContext) -> None:
-    """For each mutated tensor operand on `ctx.op`, drop the golden and record."""
+    """For each mutated tensor operand on `ctx.op`, drop both pools and record."""
     op = ctx.op
     asm_state = ctx.asm_state
     golden_pool = ctx.golden_tensor_pool
     for val in get_inplace_vals(op):
         ssa = val.get_name(asm_state)
         golden_pool.pop(ssa, None)
+        invalidate_device_cache(ctx, ssa)
         ctx.write_record(
             ChiselRecord(
                 op=op.name,
@@ -220,6 +221,12 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     )
     entries.extend(inplace_refs)
 
+    # Invalidate the device cache for every entry, then pull each device tensor
+    # once: outputs are freshly produced and in-place operands were just mutated,
+    # so any cached host copy is stale. The mode loop below reuses these.
+    entry_ssas = [mlir_value.get_name(asm_state) for mlir_value, _ in entries]
+    for ssa in entry_ssas:
+        invalidate_device_cache(ctx, ssa)
     device_tensors = [
         _validate_and_retrieve_tensor(ctx, mlir_value, tensor_ref)
         for mlir_value, tensor_ref in entries
@@ -234,15 +241,16 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         all_outs = execute_golden_with_ssa_inputs(op, ssa_inputs, asm_state)
 
         for idx, (mlir_value, _tensor_ref) in enumerate(entries):
-            ssa = mlir_value.get_name(asm_state)
+            ssa = entry_ssas[idx]
             golden_out = all_outs[idx]
+            device_tensor = device_tensors[idx]
             _emit_pcc(
                 ctx,
                 op,
                 ssa,
                 mlir_value,
                 golden_out,
-                device_tensors[idx],
+                device_tensor,
                 mode=mode,
                 skip_pcc=config.skip_pcc,
             )
