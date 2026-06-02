@@ -490,7 +490,6 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
     auto emptyOp = rewriter.create<ttnn::EmptyOp>(
         loc, emptyTensorType, device,
         ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
-        ttcore::DataTypeAttr::get(ctx, emptyLayoutAttr.getDataType()),
         ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()));
 
     valueMapping[op.getResult()] = emptyOp.getResult();
@@ -503,25 +502,16 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
   return op.emitOpError("Unsupported memref.alloc");
 }
 
-struct TensorAllocAttrs {
-  ttcore::DataTypeAttr dtype;
-  ttnn::LayoutAttr layout;
-};
-
-static FailureOr<TensorAllocAttrs>
-getTensorAllocAttrs(Operation *op, RankedTensorType tensorType) {
+static FailureOr<ttnn::LayoutAttr>
+getTensorAllocLayout(Operation *op, RankedTensorType tensorType) {
   MLIRContext *ctx = op->getContext();
   auto encoding = tensorType.getEncoding();
 
   if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
-    return TensorAllocAttrs{
-        ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType()),
-        ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout())};
+    return ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
   }
   if (auto ndLayoutAttr = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
-    return TensorAllocAttrs{
-        ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType()),
-        ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout())};
+    return ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
   }
   return op->emitOpError("unsupported encoding type"), failure();
 }
@@ -529,8 +519,8 @@ getTensorAllocAttrs(Operation *op, RankedTensorType tensorType) {
 static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
                                      DenseMap<Value, Value> &valueMapping) {
   auto tensorType = cast<RankedTensorType>(op.getResult().getType());
-  auto attrs = getTensorAllocAttrs(op, tensorType);
-  if (failed(attrs)) {
+  auto layout = getTensorAllocLayout(op, tensorType);
+  if (failed(layout)) {
     return failure();
   }
 
@@ -539,8 +529,8 @@ static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  auto emptyOp = rewriter.create<ttnn::EmptyOp>(
-      op.getLoc(), tensorType, device, shape, attrs->dtype, attrs->layout);
+  auto emptyOp = rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device,
+                                                shape, *layout);
   valueMapping[op.getResult()] = emptyOp.getResult();
   return success();
 }

@@ -468,15 +468,6 @@ public:
 
           op->getResult(0).setType(newTensorType);
 
-          // Update output data type for ops that have output data type
-          // attribute.
-          if (TTNNDtypeOpInterface dtypeOp =
-                  mlir::dyn_cast<TTNNDtypeOpInterface>(op)) {
-            ttcore::DataTypeAttr newDataTypeAttr = ttcore::DataTypeAttr::get(
-                op->getContext(), layoutAttr.getDataType());
-            dtypeOp.setDtypeAttr(newDataTypeAttr);
-          }
-
           // Update DPS operand layout as well.
           //
           if (isa<mlir::DestinationStyleOpInterface>(op)) {
@@ -484,7 +475,6 @@ public:
             EmptyOp emptyOp =
                 mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
 
-            emptyOp.setDtype(layoutAttr.getDataType());
             if (layoutAttr.isTiled()) {
               emptyOp.setLayout(ttnn::Layout::Tile);
             } else {
@@ -779,9 +769,7 @@ private:
             newTensorType,                             // output type
             consumerOp->getOperand(edge.operandIndex), // input value
             LayoutAttr::get(consumerOp->getContext(),
-                            reshardOpLayout.getLayout()),
-            ttcore::DataTypeAttr::get(consumerOp->getContext(),
-                                      reshardOpLayout.getDataType()));
+                            reshardOpLayout.getLayout()));
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
@@ -831,8 +819,6 @@ private:
 
       // Create a ToLayoutOp with the new DRAM layout.
       OpBuilder builder(spilledOp->getContext());
-      ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
-          spilledOp->getContext(), dramLayout.getDataType());
       LayoutAttr newLayout =
           LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
@@ -848,7 +834,7 @@ private:
 
       // Step 2: Insert spilling to DRAM.
       Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType);
+          loc, newTensorType, spilledOp->getResult(0), newLayout);
 
       // Step 3: Reconnect uses.
       for (auto &use : uses) {
@@ -941,8 +927,6 @@ private:
           l1InterleavedLayout);
 
       OpBuilder builder(spilledOp->getContext());
-      ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
-          spilledOp->getContext(), l1InterleavedLayout.getDataType());
       LayoutAttr newLayout = LayoutAttr::get(spilledOp->getContext(),
                                              l1InterleavedLayout.getLayout());
       builder.setInsertionPointAfter(spilledOp);
@@ -956,7 +940,7 @@ private:
       }
 
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType);
+          loc, newTensorType, spilledOp->getResult(0), newLayout);
 
       for (auto &[useOp, operandIdx] : uses) {
         useOp->setOperand(operandIdx, toLayoutOp->getResult(0));

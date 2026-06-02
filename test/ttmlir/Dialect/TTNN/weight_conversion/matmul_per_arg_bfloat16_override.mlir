@@ -26,7 +26,7 @@ module attributes {} {
     // host-side chain.
     // CHECK: %[[FROM_DEV2:.*]] = "ttnn.from_device"(%arg2)
     // CHECK: %[[TYPECAST2:.*]] = "ttnn.typecast"(%[[FROM_DEV2]])
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf8>
+    // CHECK-SAME: -> tensor<1x128x256x!ttcore.tile<32x32, bfp_bf8>
     // CHECK: %[[TO_DEV2:.*]] = "ttnn.to_device"(%[[TYPECAST2]], %[[DEV]])
 
     // CHECK: %[[MM2:.*]] = "ttnn.matmul"(%arg0, %[[TO_DEV2]])

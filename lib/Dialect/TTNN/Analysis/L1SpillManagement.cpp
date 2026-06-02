@@ -388,13 +388,6 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
     opWithLayoutIF.setLayoutAttr(
         LayoutAttr::get(op->getContext(), chosenLayout.getLayout()));
   }
-
-  // Update output data type attribute (op-level, uses result 0's layout).
-  if (auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(op)) {
-    ttcore::DataTypeAttr newDataTypeAttr =
-        ttcore::DataTypeAttr::get(op->getContext(), chosenLayout.getDataType());
-    dtypeOp.setDtypeAttr(newDataTypeAttr);
-  }
 }
 
 //===----------------------------------------------------------------------===//

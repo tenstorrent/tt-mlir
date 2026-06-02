@@ -113,8 +113,7 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
   // tensor layout, buffer type and memory layout.
   return rewriter.create<ttnn::ToLayoutOp>(
       loc, toLayoutOpResultType, inputValue,
-      LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
-      ttcore::DataTypeAttr::get(rewriter.getContext(), targetTensorDataType));
+      LayoutAttr::get(rewriter.getContext(), targetTensorLayout));
 }
 
 } // namespace mlir::tt::ttnn::utils

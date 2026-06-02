@@ -13,7 +13,7 @@ module attributes {} {
     func.func @typecast_folding(%arg0: tensor<64x128xf32, #ttnn_layout_device_tile_f32>) -> tensor<64x128xf32, #ttnn_layout_device_tile_f32> {
         // Verify that we fold the typecast when we try to cast to the same dtype.
         // CHECK: return %arg0 : tensor<64x128xf32, #ttnn_layout>
-        %0 = "ttnn.typecast"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<64x128xf32, #ttnn_layout_device_tile_f32>) -> tensor<64x128xf32, #ttnn_layout_device_tile_f32>
+        %0 = "ttnn.typecast"(%arg0) : (tensor<64x128xf32, #ttnn_layout_device_tile_f32>) -> tensor<64x128xf32, #ttnn_layout_device_tile_f32>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_tile_f32>
     }
 
@@ -22,8 +22,8 @@ module attributes {} {
         // Verify that we fold two consecutive typecast ops into a single one.
         // CHECK: ttnn.typecast
         // CHECK-NEXT: return
-        %0 = "ttnn.typecast"(%arg0) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xf32, #ttnn_layout_device_tile_f32>) -> tensor<64x128xi32, #ttnn_layout_device_tile_si32>
-        %1 = "ttnn.typecast"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x128xi32, #ttnn_layout_device_tile_si32>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        %0 = "ttnn.typecast"(%arg0) : (tensor<64x128xf32, #ttnn_layout_device_tile_f32>) -> tensor<64x128xi32, #ttnn_layout_device_tile_si32>
+        %1 = "ttnn.typecast"(%0) : (tensor<64x128xi32, #ttnn_layout_device_tile_si32>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %1 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -32,9 +32,9 @@ module attributes {} {
         // Verify that both typecasts exists.
         // CHECK: ttnn.typecast
         // CHECK: ttnn.typecast
-        %0 = "ttnn.typecast"(%arg0) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xf32, #ttnn_layout_device_tile_f32>) -> tensor<64x128xi32, #ttnn_layout_device_tile_si32>
-        %1 = "ttnn.typecast"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x128xi32, #ttnn_layout_device_tile_si32>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
-        %2 = "ttnn.add"(%0, %0) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xi32, #ttnn_layout_device_tile_si32>, tensor<64x128xi32, #ttnn_layout_device_tile_si32>) -> tensor<64x128xi32, #ttnn_layout_device_tile_si32>
+        %0 = "ttnn.typecast"(%arg0) : (tensor<64x128xf32, #ttnn_layout_device_tile_f32>) -> tensor<64x128xi32, #ttnn_layout_device_tile_si32>
+        %1 = "ttnn.typecast"(%0) : (tensor<64x128xi32, #ttnn_layout_device_tile_si32>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        %2 = "ttnn.add"(%0, %0) : (tensor<64x128xi32, #ttnn_layout_device_tile_si32>, tensor<64x128xi32, #ttnn_layout_device_tile_si32>) -> tensor<64x128xi32, #ttnn_layout_device_tile_si32>
         return %1, %2 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>, tensor<64x128xi32, #ttnn_layout_device_tile_si32>
     }
 
@@ -43,7 +43,7 @@ module attributes {} {
     func.func @typecast_folding_host_memory(%arg0: tensor<64x128xf32, #ttnn_layout_host_rm_f32>) -> tensor<64x128xf32, #ttnn_layout_host_rm_f32> {
         // Verify that we fold the typecast when we try to cast to the same dtype.
         // CHECK: return %arg0 : tensor<64x128xf32, #ttnn_layout3>
-        %0 = "ttnn.typecast"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<64x128xf32, #ttnn_layout_host_rm_f32>) -> tensor<64x128xf32, #ttnn_layout_host_rm_f32>
+        %0 = "ttnn.typecast"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm_f32>) -> tensor<64x128xf32, #ttnn_layout_host_rm_f32>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_rm_f32>
     }
 
@@ -52,8 +52,8 @@ module attributes {} {
         // Verify that we fold two consecutive typecast ops into a single one.
         // CHECK: ttnn.typecast
         // CHECK-NEXT: return
-        %0 = "ttnn.typecast"(%arg0) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xf32, #ttnn_layout_host_rm_f32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
-        %1 = "ttnn.typecast"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
+        %0 = "ttnn.typecast"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm_f32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
+        %1 = "ttnn.typecast"(%0) : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
         return %1 : tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
     }
 
@@ -62,9 +62,9 @@ module attributes {} {
         // Verify that both typecasts exists.
         // CHECK: ttnn.typecast
         // CHECK: ttnn.typecast
-        %0 = "ttnn.typecast"(%arg0) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xf32, #ttnn_layout_host_rm_f32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
-        %1 = "ttnn.typecast"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
-        %2 = "ttnn.add"(%0, %0) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>, tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
+        %0 = "ttnn.typecast"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm_f32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
+        %1 = "ttnn.typecast"(%0) : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
+        %2 = "ttnn.add"(%0, %0) : (tensor<64x128xi32, #ttnn_layout_host_rm_si32>, tensor<64x128xi32, #ttnn_layout_host_rm_si32>) -> tensor<64x128xi32, #ttnn_layout_host_rm_si32>
         return %1, %2 : tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>, tensor<64x128xi32, #ttnn_layout_host_rm_si32>
     }
 }

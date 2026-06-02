@@ -53,20 +53,20 @@ module {
   // sliceEltwise
   // CHECK: %[[LHS_SLICE:.*]] = "ttnn.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}>
   // CHECK: %[[RHS_SLICE:.*]] = "ttnn.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}>
-  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[LHS_SLICE]], %[[RHS_SLICE]]) <{dtype = #ttcore.supportedDataTypes<f32>}>
+  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[LHS_SLICE]], %[[RHS_SLICE]])
   // CHECK-NOT: "ttnn.slice_static"(%[[ADD]])
   func.func @slice_eltwise(%arg0: tensor<64x64xf32, #layout_64x64>, %arg1: tensor<64x64xf32, #layout_64x64>) -> tensor<32x32xf32, #layout_32x32> {
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<64x64xf32, #layout_64x64>, tensor<64x64xf32, #layout_64x64>) -> tensor<64x64xf32, #layout_64x64>
+    %0 = "ttnn.add"(%arg0, %arg1) : (tensor<64x64xf32, #layout_64x64>, tensor<64x64xf32, #layout_64x64>) -> tensor<64x64xf32, #layout_64x64>
     %1 = "ttnn.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}> : (tensor<64x64xf32, #layout_64x64>) -> tensor<32x32xf32, #layout_32x32>
     return %1 : tensor<32x32xf32, #layout_32x32>
   }
 
   // sliceEltwiseWithBroadcast
   // CHECK: %[[LHS_SLICE:.*]] = "ttnn.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}>
-  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[LHS_SLICE]], %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}>
+  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[LHS_SLICE]], %arg1)
   // CHECK-NOT: "ttnn.slice_static"(%[[ADD]])
   func.func @slice_eltwise_with_broadcast(%arg0: tensor<64x64xf32, #layout_64x64>, %arg1: tensor<1x1xf32, #layout_1x1>) -> tensor<32x32xf32, #layout_32x32> {
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<64x64xf32, #layout_64x64>, tensor<1x1xf32, #layout_1x1>) -> tensor<64x64xf32, #layout_64x64>
+    %0 = "ttnn.add"(%arg0, %arg1) : (tensor<64x64xf32, #layout_64x64>, tensor<1x1xf32, #layout_1x1>) -> tensor<64x64xf32, #layout_64x64>
     %1 = "ttnn.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}> : (tensor<64x64xf32, #layout_64x64>) -> tensor<32x32xf32, #layout_32x32>
     return %1 : tensor<32x32xf32, #layout_32x32>
   }
@@ -94,10 +94,10 @@ module {
   // reshape-eltwise adjust
   // CHECK: %[[R0:.*]] = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}>
   // CHECK: %[[R1:.*]] = "ttnn.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}>
-  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[R0]], %[[R1]]) <{dtype = #ttcore.supportedDataTypes<f32>}>
+  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[R0]], %[[R1]])
   // CHECK-NOT: "ttnn.reshape"(%[[ADD]])
   func.func @reshape_eltwise(%arg0: tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>, %arg1: tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x32x32xf32, #layout_r_1x1x32x32> {
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>, tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>
+    %0 = "ttnn.add"(%arg0, %arg1) : (tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>, tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>
     %1 = "ttnn.reshape"(%0) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}> : (tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x32x32xf32, #layout_r_1x1x32x32>
     return %1 : tensor<1x1x32x32xf32, #layout_r_1x1x32x32>
   }
@@ -116,13 +116,13 @@ module {
   }
   // permute-reshape row-major adjust:
   // CHECK-LABEL: func.func @permute_reshape_row_major_adjusting
-  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}>
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}>
   // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RM_IN]])
   // CHECK-SAME: permutation = array<i64: 1, 0>
   // CHECK-SAME: -> tensor<67108864x1xf32
   // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[PERM]]) <{shape = [8192 : i32, 8192 : i32]}>
   // CHECK-SAME: -> tensor<8192x8192xf32
-  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[RESHAPE]]) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}>
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[RESHAPE]]) <{layout = #ttnn.layout<tile>}>
   // CHECK: return %[[RESTORED]]
   func.func @permute_reshape_row_major_adjusting(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<8192x8192xf32, #layout_8192x8192_tile> {
     %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
@@ -132,7 +132,7 @@ module {
 
   // permute-repeat-reshape row-major adjust:
   // CHECK-LABEL: func.func @permute_repeat_reshape_row_major_adjusting
-  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}>
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}>
   // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RM_IN]])
   // CHECK-SAME: permutation = array<i64: 1, 0>
   // CHECK-SAME: -> tensor<67108864x1xf32
@@ -140,7 +140,7 @@ module {
   // CHECK-SAME: -> tensor<67108864x2xf32
   // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[REPEAT]]) <{shape = [8192 : i32, 16384 : i32]}>
   // CHECK-SAME: -> tensor<8192x16384xf32
-  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[RESHAPE]]) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}>
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[RESHAPE]]) <{layout = #ttnn.layout<tile>}>
   // CHECK: return %[[RESTORED]]
   func.func @permute_repeat_reshape_row_major_adjusting(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<8192x16384xf32, #layout_8192x16384_tile> {
     %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
@@ -151,13 +151,13 @@ module {
 
   // reshape-permute row-major adjust:
   // CHECK-LABEL: func.func @reshape_permute_row_major_adjusting
-  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>}>
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}>
   // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[RM_IN]]) <{shape = [8192 : i32, 8192 : i32, 1 : i32, 1 : i32]}>
   // CHECK-SAME: -> tensor<8192x8192x1x1xf32
   // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RESHAPE]])
   // CHECK-SAME: permutation = array<i64: 2, 3, 0, 1>
   // CHECK-SAME: -> tensor<1x1x8192x8192xf32
-  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[PERM]]) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>}>
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[PERM]]) <{layout = #ttnn.layout<tile>}>
   // CHECK: return %[[RESTORED]]
   func.func @reshape_permute_row_major_adjusting(%arg0: tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>) -> tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile> {
     %0 = "ttnn.reshape"(%arg0) <{shape = [8192 : i32, 8192 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>) -> tensor<8192x8192x1x1xf32, #layout_4d_8192x8192x1x1_tile>

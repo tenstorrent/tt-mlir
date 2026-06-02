@@ -8,7 +8,7 @@
 module {
   // CHECK: error: 'ttnn.layer_norm_pre_all_gather' op residual_input shape must match input shape
   func.func @forward_residual_shape_mismatch(%arg0: tensor<1x1x32x128xbf16, #ttnn_layout>, %arg1: tensor<1x1x16x128xbf16, #ttnn_layout_small>) -> tensor<1x1x32x64xbf16, #ttnn_layout_out> {
-    %0 = "ttnn.layer_norm_pre_all_gather"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<1x1x32x128xbf16, #ttnn_layout>, tensor<1x1x16x128xbf16, #ttnn_layout_small>) -> tensor<1x1x32x64xbf16, #ttnn_layout_out>
+    %0 = "ttnn.layer_norm_pre_all_gather"(%arg0, %arg1) <{operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<1x1x32x128xbf16, #ttnn_layout>, tensor<1x1x16x128xbf16, #ttnn_layout_small>) -> tensor<1x1x32x64xbf16, #ttnn_layout_out>
     return %0 : tensor<1x1x32x64xbf16, #ttnn_layout_out>
   }
 }
@@ -22,7 +22,7 @@ module {
 module {
   // CHECK: error: 'ttnn.layer_norm_pre_all_gather' op output last dimension must be 64 (2 * TILE_WIDTH) for layernorm partial statistics, got 32
   func.func @forward_bad_output_shape(%arg0: tensor<1x1x32x128xbf16, #ttnn_layout2>) -> tensor<1x1x32x32xbf16, #ttnn_layout_bad_out> {
-    %0 = "ttnn.layer_norm_pre_all_gather"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, operandSegmentSizes = array<i32: 1, 0, 0>}> : (tensor<1x1x32x128xbf16, #ttnn_layout2>) -> tensor<1x1x32x32xbf16, #ttnn_layout_bad_out>
+    %0 = "ttnn.layer_norm_pre_all_gather"(%arg0) <{operandSegmentSizes = array<i32: 1, 0, 0>}> : (tensor<1x1x32x128xbf16, #ttnn_layout2>) -> tensor<1x1x32x32xbf16, #ttnn_layout_bad_out>
     return %0 : tensor<1x1x32x32xbf16, #ttnn_layout_bad_out>
   }
 }

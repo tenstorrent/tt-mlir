@@ -103,8 +103,6 @@ protected:
     builder.create<mlir::tt::ttnn::EmptyOp>(
         builder.getUnknownLoc(), tensorType, device,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
-        mlir::tt::ttcore::DataTypeAttr::get(
-            &context, mlir::tt::ttcore::DataType::Float32),
         mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile));
 
     // Add return op
