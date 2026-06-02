@@ -53,6 +53,16 @@ public:
         return tk::build_add(*mb_, lhs, rhs, alpha);
     }
 
+    mlir::Value sub(mlir::Value lhs, mlir::Value rhs, double alpha) {
+        assert_builder();
+        return tk::build_sub(*mb_, lhs, rhs, alpha);
+    }
+
+    mlir::Value mul(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_mul(*mb_, lhs, rhs);
+    }
+
     mlir::Value mm(mlir::Value lhs, mlir::Value rhs) {
         assert_builder();
         return tk::build_mm(*mb_, lhs, rhs);
@@ -71,6 +81,11 @@ public:
     mlir::Value relu(mlir::Value input) {
         assert_builder();
         return tk::build_relu(*mb_, input);
+    }
+
+    mlir::Value rsqrt(mlir::Value input) {
+        assert_builder();
+        return tk::build_rsqrt(*mb_, input);
     }
 
     // Lift a Python scalar to a broadcastable `ttir.constant` at `dtype`.
@@ -206,10 +221,13 @@ NB_MODULE(_native, m) {
         .def(nb::init<std::vector<tk::TensorTypeSpec>>(), "input_specs"_a)
         .def("arg", &PyModuleBuilder::arg, "index"_a)
         .def("add", &PyModuleBuilder::add, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
+        .def("sub", &PyModuleBuilder::sub, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
+        .def("mul", &PyModuleBuilder::mul, "lhs"_a, "rhs"_a)
         .def("mm", &PyModuleBuilder::mm, "lhs"_a, "rhs"_a)
         .def("addmm", &PyModuleBuilder::addmm, "bias"_a, "mat1"_a, "mat2"_a, "beta"_a = 1.0, "alpha"_a = 1.0)
         .def("t", &PyModuleBuilder::t, "input"_a)
         .def("relu", &PyModuleBuilder::relu, "input"_a)
+        .def("rsqrt", &PyModuleBuilder::rsqrt, "input"_a)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         // Consumes the builder. Subsequent calls on `self` raise.
