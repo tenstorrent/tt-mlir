@@ -352,8 +352,11 @@ LogicalResult CallOpaqueOp::verify() {
   }
   if (getArgs() && getKeywordArgs() &&
       getArgs()->size() != getKeywordArgs()->size()) {
-    return emitOpError("there must be a specified keyword argument string for "
-                       "every argument; empty strings are allowed");
+    return emitOpError("args and keyword_args must have the same size (empty "
+                       "strings are allowed), but got "
+                       "args size = ")
+           << getArgs()->size()
+           << " and keyword_args size = " << getKeywordArgs()->size();
   }
   return success();
 }
