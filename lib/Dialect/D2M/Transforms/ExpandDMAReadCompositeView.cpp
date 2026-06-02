@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
@@ -409,38 +410,57 @@ static LogicalResult expandCompositeDMAReadRowMajor(
   return success();
 }
 
+static CompositeViewOp getCompositeViewSource(Value value) {
+  while (value) {
+    if (auto compositeView = value.getDefiningOp<CompositeViewOp>()) {
+      return compositeView;
+    }
+
+    auto viewLayout = value.getDefiningOp<ViewLayoutOp>();
+    if (!viewLayout) {
+      return nullptr;
+    }
+    value = viewLayout.getInput();
+  }
+
+  return nullptr;
+}
+
 static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
                                                    GenericOp gOp) {
   CompositeViewOp compositeView = nullptr;
+  Value compositeSource = nullptr;
   gOp.walk([&](DMAReadOp dmaRead) {
-    auto maybeCompositeView = dmaRead.getSrc().getDefiningOp<CompositeViewOp>();
+    auto maybeCompositeView = getCompositeViewSource(dmaRead.getSrc());
     if (maybeCompositeView) {
       TT_assertv(
           compositeView == nullptr,
           "Unsupported multiple composite views in one GenericOp (#7600).");
       compositeView = maybeCompositeView;
+      compositeSource = dmaRead.getSrc();
     }
   });
   TT_assert(compositeView != nullptr);
+  TT_assert(compositeSource != nullptr);
 
   SmallVector<Value> compositeInputs = compositeView.getCompositeInputs();
   TT_assert(compositeInputs.size() > 1u);
 
-  int64_t oldNumInputs = static_cast<int64_t>(gOp.getInputs().size());
   int64_t extraNumInputs = static_cast<int64_t>(compositeInputs.size() - 1);
 
   // Step 1: recreate the GenericOp w/ expanded list of inputs.
   SmallVector<Value> newInputs;
-  newInputs.reserve(oldNumInputs + extraNumInputs);
+  newInputs.reserve(gOp.getInputs().size() + extraNumInputs);
   for (auto input : gOp.getInputs()) {
-    if (input == compositeView.getResult()) {
+    if (input == compositeSource) {
       newInputs.append(compositeInputs.begin(), compositeInputs.end());
       continue;
     }
     newInputs.push_back(input);
   }
 
-  int64_t compositeOperandIdx = gOp.getOperandIndex(compositeView.getResult());
+  uint64_t compositeOperandIdx =
+      static_cast<uint64_t>(gOp.getOperandIndex(compositeSource));
 
   rewriter.setInsertionPoint(gOp);
   // Passing empty block_factors/indexing_maps/iterator_types.
@@ -478,16 +498,18 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
 
     // Shift the affected d2m.get_cb ops.
     newBlock->walk([&](GetCBOp getCBOp) {
-      getCBOp.setCbOperandIdx(getCBOp.getCbOperandIdx() + extraNumInputs);
+      if (getCBOp.getCbOperandIdx() > compositeOperandIdx) {
+        getCBOp.setCbOperandIdx(getCBOp.getCbOperandIdx() + extraNumInputs);
+      }
     });
   }
 
   // Step 3: lower the composite DMA read in the new GenericOp.
   DMAReadOp clonedCompositeRead = nullptr;
   newGOp.walk([&](DMAReadOp dmaRead) {
-    auto maybeCompositeView = dmaRead.getSrc().getDefiningOp<CompositeViewOp>();
+    auto maybeCompositeView = getCompositeViewSource(dmaRead.getSrc());
     if (maybeCompositeView) {
-      TT_assert(dmaRead.getSrc() == compositeView.getResult());
+      TT_assert(dmaRead.getSrc() == compositeSource);
       TT_assert(clonedCompositeRead == nullptr);
       clonedCompositeRead = dmaRead;
     }
@@ -496,9 +518,10 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
 
   auto expandedGenericInputs =
       newGOp.getInputs().slice(compositeOperandIdx, compositeInputs.size());
-  const bool isTiled = mlir::isa<ttcore::TileType>(
-      mlir::cast<MemRefType>(compositeView.getResult().getType())
-          .getElementType());
+  auto compositeSourceType =
+      mlir::cast<MemRefType>(clonedCompositeRead.getSrc().getType());
+  const bool isTiled =
+      mlir::isa<ttcore::TileType>(compositeSourceType.getElementType());
 
   const int32_t compositeDim = compositeView.getDim();
   LogicalResult result = success();
@@ -509,8 +532,7 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
     // This value is only used to determine if we need the guard to skip the
     // padded portions of the output shards.
     const int64_t totalConcatShards =
-        mlir::cast<MemRefType>(compositeView.getResult().getType())
-            .getShape()[compositeDim];
+        compositeSourceType.getShape()[compositeDim];
     result = expandCompositeDMAReadRowMajor(
         rewriter, clonedCompositeRead, expandedGenericInputs, compositeDim,
         compositeView.getLogicalSizes().value(), totalConcatShards);
@@ -523,13 +545,28 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
   return result;
 }
 
+static void eraseDeadViewLayoutChain(IRRewriter &rewriter, Operation *op) {
+  auto viewLayout = mlir::dyn_cast<ViewLayoutOp>(op);
+  if (!viewLayout) {
+    return;
+  }
+
+  for (Operation *user : llvm::make_early_inc_range(viewLayout->getUsers())) {
+    eraseDeadViewLayoutChain(rewriter, user);
+  }
+
+  if (viewLayout->use_empty()) {
+    rewriter.eraseOp(viewLayout);
+  }
+}
+
 static LogicalResult expandCompositeViews(ModuleOp moduleOp) {
   IRRewriter rewriter(moduleOp.getContext());
   SmallVector<GenericOp> genericsToExpand;
 
   moduleOp.walk([&](GenericOp gOp) {
     gOp.walk([&](DMAReadOp dmaRead) {
-      if (dmaRead.getSrc().getDefiningOp<CompositeViewOp>()) {
+      if (getCompositeViewSource(dmaRead.getSrc())) {
         genericsToExpand.push_back(gOp);
         return WalkResult::interrupt();
       }
@@ -543,8 +580,18 @@ static LogicalResult expandCompositeViews(ModuleOp moduleOp) {
     }
   }
 
-  auto status = success();
+  SmallVector<CompositeViewOp> compositeViews;
   moduleOp.walk([&](CompositeViewOp compositeView) {
+    compositeViews.push_back(compositeView);
+  });
+
+  auto status = success();
+  for (CompositeViewOp compositeView : compositeViews) {
+    for (Operation *user :
+         llvm::make_early_inc_range(compositeView->getUsers())) {
+      eraseDeadViewLayoutChain(rewriter, user);
+    }
+
     if (compositeView->use_empty()) {
       compositeView.erase();
     } else {
@@ -552,7 +599,7 @@ static LogicalResult expandCompositeViews(ModuleOp moduleOp) {
           "Composite view has remaining uses after expansion.");
       status = failure();
     }
-  });
+  }
   return status;
 }
 
