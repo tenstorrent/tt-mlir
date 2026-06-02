@@ -76,7 +76,9 @@ def postop(binary, programContext, opContext):
     assert torch.allclose(torch_tensor, torch.ones_like(torch_tensor) * 11)
 
     # Update the same tensor ref twice. The second payload should win.
-    update_device_tensor(programContext, tensor_ref, tensor, torch.zeros_like(torch_tensor))
+    update_device_tensor(
+        programContext, tensor_ref, tensor, torch.zeros_like(torch_tensor)
+    )
     update_device_tensor(
         programContext, tensor_ref, tensor, torch.ones_like(torch_tensor)
     )
