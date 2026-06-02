@@ -636,9 +636,12 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
       // tensors that would collide with the op's CB region.
       evictForDramCBGrowth(op, pos, data);
     }
-    // Skip allocation if eviction inserted a reshard for `op` and shifted it
-    // past `pos`; run()'s sweep reprocesses the reshard and then `op`.
-    if (l1Size > 0 && data.schedule[pos] == op) {
+    // Eviction may have inserted a reshard for `op`, shifting it past `pos`;
+    // bail so run()'s sweep reprocesses the reshard and then `op`.
+    if (data.schedule[pos] != op) {
+      return;
+    }
+    if (l1Size > 0) {
       addResultsToLiveSet(l1Size);
       observer_->onLiveAdded(op, pos, l1Size, pos,
                              memoryTracker.getOccupiedL1());
@@ -1214,6 +1217,18 @@ void L1SpillManagement<MemoryTracker>::run() {
        ++pos) {
     Operation *op = data.schedule[pos];
 
+    // Eviction can insert a reshard for `op`, shifting `op` past `pos`. Rewind
+    // to the first inserted reshard (always at `pos`) so the sweep processes it
+    // (and any others) before reprocessing `op`. Returns true when the caller
+    // should `continue` the sweep.
+    auto rewindIfScheduleShifted = [&]() {
+      if (data.schedule[pos] == op) {
+        return false;
+      }
+      --pos;
+      return true;
+    };
+
     processDeadTensors(pos, data);
 
     // Sink ops (paged_fill_cache / paged_update_cache / fill_cache) are in
@@ -1301,15 +1316,9 @@ void L1SpillManagement<MemoryTracker>::run() {
       for (auto r : tensorResults) {
         Value val = r;
         auto luIt = data.lastUsePositions.find(val);
-        // Every scheduled op (original or inserted reshard) gets an entry at
-        // build time or in insertReshardIntoSchedule. A miss would give `val` a
-        // shifted-space priority via the fallback below, corrupting
-        // farthest-last-use ordering — assert loudly; the fallback only keeps
-        // release builds defined.
         assert(luIt != data.lastUsePositions.end() &&
                "scheduled value missing its lastUsePositions entry");
-        int64_t resultLastUse =
-            (luIt != data.lastUsePositions.end()) ? luIt->second : pos;
+        int64_t resultLastUse = luIt->second;
         // Snapshot before allocation and record event for replay.
         allocEventIndex[val] = l1EventLog.size();
         addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
@@ -1361,11 +1370,7 @@ void L1SpillManagement<MemoryTracker>::run() {
                    ttmlir::opToString(op), result.cbPeakUsage, l1Size);
 
       l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
-      // Eviction may have inserted a reshard for `op` itself, shifting `op`
-      // past `pos`. Rewind to the first inserted reshard (always at `pos`); the
-      // loop walks forward through any others, then reprocesses `op`.
-      if (data.schedule[pos] != op) {
-        --pos;
+      if (rewindIfScheduleShifted()) {
         continue;
       }
       if (l1Size == 0) {
@@ -1398,10 +1403,8 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     handleOOM(op, pos, tensorResults, data, addResultsToLiveSet);
-    // As above: if handleOOM's eviction inserted a reshard for `op`, rewind so
-    // the sweep reprocesses the inserted reshard(s) and then `op`.
-    if (data.schedule[pos] != op) {
-      --pos;
+    if (rewindIfScheduleShifted()) {
+      continue;
     }
   }
 

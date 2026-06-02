@@ -353,10 +353,9 @@ private:
                   std::function<bool()> shouldStop);
 
   /// Evict a specific live value: spill to DRAM, update tracker, and insert
-  /// reshards for consumers that still require the L1 layout. Sibling-operand
-  /// eviction passes skipReshardConsumer=op: it spills all operands of that op
-  /// to give it homogeneous DRAM inputs, so resharding one back to L1 would
-  /// defeat the purpose. The op's other (past/future) consumers are still
+  /// reshards for consumers that still require the L1 layout. If
+  /// skipReshardConsumer is non-null, that one consumer is left reading the
+  /// DRAM spill (no reshard inserted for it); all other consumers are still
   /// restored.
   void evictValue(Value victim, int64_t pos, ScheduleData &data,
                   Operation *skipReshardConsumer = nullptr);
