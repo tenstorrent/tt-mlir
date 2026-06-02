@@ -1,12 +1,16 @@
 #include "torch/ops/builders.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 #include <ATen/ATen.h>
 #include <ATen/ExpandUtils.h>
+#include <ATen/InferSize.h>
 #include <llvm/ADT/APFloat.h>
 #include <llvm/ADT/APInt.h>
+#include <llvm/ADT/SmallVector.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Support/LLVM.h>
@@ -85,6 +89,20 @@ at::Tensor tt_rsqrt(const at::Tensor &self) {
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+at::Tensor tt_mean(const at::Tensor &self, at::OptionalIntArrayRef dim, bool keepdim,
+                   std::optional<at::ScalarType> /*dtype*/) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::mean.dim: tensor must be on tt backend");
+    TORCH_CHECK(dim.has_value(), "tt-kurbla aten::mean.dim: dim must be specified");
+
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_mean(mb, mb.args()[0], dim.value(), keepdim);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type());
+}
+
 } // namespace
 
 mlir::Value build_relu(ModuleBuilder &mb, mlir::Value input) {
@@ -123,6 +141,41 @@ mlir::Value build_mul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
                                     at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
     auto result_type = mlir::RankedTensorType::get(out_shape, lhs_type.getElementType());
     return mb.create<mlir::tt::ttir::MultiplyOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_reshape(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> new_shape) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto result_type = mlir::RankedTensorType::get(new_shape, input_type.getElementType());
+    llvm::SmallVector<int32_t> shape_i32(new_shape.begin(), new_shape.end());
+    auto shape_attr = mb.attrs().getI32ArrayAttr(shape_i32);
+    return mb.create<mlir::tt::ttir::ReshapeOp>(result_type, input, shape_attr).getResult();
+}
+
+mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shape = input_type.getShape();
+    int64_t rank = as<int64_t>(shape.size());
+
+    // Normalize dims (handle negatives) and compute output shape.
+    llvm::SmallVector<int32_t> norm_dims_i32;
+    for (int64_t d : dims) {
+        norm_dims_i32.push_back(as<int32_t>((d + rank) % rank));
+    }
+
+    llvm::SmallVector<int64_t> out_shape;
+    for (int64_t i = 0; i < rank; ++i) {
+        bool reduced = std::find(norm_dims_i32.begin(), norm_dims_i32.end(), as<int32_t>(i)) != norm_dims_i32.end();
+        if (!reduced) {
+            out_shape.push_back(shape[as<std::size_t>(i)]);
+        } else if (keepdim) {
+            out_shape.push_back(1);
+        }
+    }
+
+    auto result_type = mlir::RankedTensorType::get(out_shape, input_type.getElementType());
+    auto keep_dim_attr = mb.attrs().getBoolAttr(keepdim);
+    mlir::ArrayAttr dim_arg_attr = norm_dims_i32.empty() ? nullptr : mb.attrs().getI32ArrayAttr(norm_dims_i32);
+    return mb.create<mlir::tt::ttir::MeanOp>(result_type, input, keep_dim_attr, dim_arg_attr).getResult();
 }
 
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value) {
@@ -170,6 +223,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("mul.Tensor", TORCH_FN(tt_mul));
     m.impl("relu", TORCH_FN(tt_relu));
     m.impl("rsqrt", TORCH_FN(tt_rsqrt));
+    m.impl("mean.dim", TORCH_FN(tt_mean));
 }
 
 } // namespace tt::kurbla::torch_backend

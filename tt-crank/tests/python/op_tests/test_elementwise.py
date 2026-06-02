@@ -54,3 +54,17 @@ def test_mul(shape: tuple[int, ...]) -> None:
 def test_rsqrt(shape: tuple[int, ...]) -> None:
     a = torch.rand(shape, dtype=torch.bfloat16).add(0.1)
     assert_close_cpu_vs_tt(torch.rsqrt, a)
+
+
+@pytest.mark.parametrize("keepdim", [True, False])
+def test_mean_single_dim(keepdim: bool) -> None:
+    # Loose tolerance: mean over 128 bf16 elements accumulates O(sqrt(N)) rounding
+    # error relative to CPU; near-zero outputs drive up relative error further.
+    a = torch.randn((64, 128), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: torch.mean(x, dim=1, keepdim=keepdim), a, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("keepdim", [True, False])
+def test_mean_multi_dim(keepdim: bool) -> None:
+    a = torch.randn((32, 64, 32), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: torch.mean(x, dim=[1, 2], keepdim=keepdim), a, atol=0.05, rtol=0.05)

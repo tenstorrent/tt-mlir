@@ -272,6 +272,56 @@ def test_compile_rsqrt(shape: tuple[int, ...]) -> None:
 
 
 @pytest.mark.parametrize(
+    "src_shape,dst_shape",
+    [
+        ((64, 128), (32, 256)),
+        ((32, 64, 32), (32, 2048)),
+        ((32, 32), (1024,)),
+    ],
+    ids=["2d_reshape", "3d_to_2d", "2d_to_1d"],
+)
+def test_compile_view(src_shape: tuple[int, ...], dst_shape: tuple[int, ...]) -> None:
+    """aten::view in a compiled graph — exercises ReshapeOp emission and
+    shape-attr construction for the FX lowering."""
+    class _View(nn.Module):
+        def __init__(self, shape: tuple[int, ...]) -> None:
+            super().__init__()
+            self.shape = shape
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.view(self.shape)
+
+    x = torch.randn(src_shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_View(dst_shape), x)
+
+
+@pytest.mark.parametrize(
+    "shape,dim,keepdim",
+    [
+        ((64, 128), [1], False),
+        ((64, 128), [1], True),
+        ((32, 64, 32), [1, 2], False),
+        ((32, 64, 32), [1, 2], True),
+    ],
+    ids=["2d_dim1", "2d_dim1_keepdim", "3d_dims12", "3d_dims12_keepdim"],
+)
+def test_compile_mean(shape: tuple[int, ...], dim: list[int], keepdim: bool) -> None:
+    """aten::mean.dim in a compiled graph — exercises MeanOp with dim_arg and
+    keep_dim attrs, covering the AdaptiveAvgPool2d decomposition pattern."""
+    class _Mean(nn.Module):
+        def __init__(self, d: list[int], k: bool) -> None:
+            super().__init__()
+            self.d = d
+            self.k = k
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.mean(dim=self.d, keepdim=self.k)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Mean(dim, keepdim), x, atol=0.01, rtol=0.01)
+
+
+@pytest.mark.parametrize(
     "batch,feat,hidden,classes",
     [(32, 32 * 32, 128, 32), (32, 28 * 28, 128, 10)],
     ids=["tile_aligned", "real_mnist"],
