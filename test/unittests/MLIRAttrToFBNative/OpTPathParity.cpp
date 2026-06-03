@@ -3235,8 +3235,8 @@ mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp buildTestNLPCreateQKVHeadsDecodeOp(
     auto batchOffsetType = tiledL1BF16Type(defaultShape);
     batchOffset =
         e.builder
-            .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{batchOffsetType},
-                                            mlir::ValueRange{})
+            .create<mlir::tt::ttnn::OnesOp>(
+                loc, mlir::TypeRange{batchOffsetType}, mlir::ValueRange{})
             .getResult();
   }
 
@@ -3326,17 +3326,17 @@ const std::initializer_list<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
             /*sliceSize=*/std::optional<uint32_t>(64u)),
 };
 
-INSTANTIATE_TEST_SUITE_P(
-    NLPCreateQKVHeadsDecodeOpTPathParityTest,
-    NLPCreateQKVHeadsDecodeOpTPathParityTest,
-    ::testing::ValuesIn(nlpCreateQKVHeadsDecodeOpList));
+INSTANTIATE_TEST_SUITE_P(NLPCreateQKVHeadsDecodeOpTPathParityTest,
+                         NLPCreateQKVHeadsDecodeOpTPathParityTest,
+                         ::testing::ValuesIn(nlpCreateQKVHeadsDecodeOpList));
 
 //===----------------------------------------------------------------------===//
 // PagedFlashMultiLatentAttentionDecodeOpTPathParity
 //===----------------------------------------------------------------------===//
 
 namespace mlir::tt::ttnn {
-::flatbuffers::Offset<::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+::flatbuffers::Offset<
+    ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
 createOp(::mlir::tt::FlatbufferObjectCache &cache,
          PagedFlashMultiLatentAttentionDecodeOp op);
 } // namespace mlir::tt::ttnn
@@ -3367,7 +3367,7 @@ void resetUnusedFields(
         resetOutputTensorRefT(opT.out);
         opT.memcfg.reset();
       };
-      
+
   helper(opTOpModel);
   helper(opTFB);
 }
@@ -3397,9 +3397,10 @@ buildTestPagedFlashMultiLatentAttentionDecodeOp(
   mlir::Value curPosTensor = withCurPosTensor ? makeOnes() : mlir::Value();
   mlir::Value attentionSink = withAttentionSink ? makeOnes() : mlir::Value();
 
-  return e.builder.create<mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>(
-      loc, tensorType, query, key, value, headDimV, pageTable, isCausal,
-      attentionMask, curPosTensor, attentionSink, scale);
+  return e.builder
+      .create<mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>(
+          loc, tensorType, query, key, value, headDimV, pageTable, isCausal,
+          attentionMask, curPosTensor, attentionSink, scale);
 }
 
 } // namespace
@@ -3485,10 +3486,9 @@ const std::initializer_list<
             /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.25f)),
 };
 
-INSTANTIATE_TEST_SUITE_P(
-    PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
-    PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
-    ::testing::ValuesIn(pagedFlashMlaDecodeOpList));
+INSTANTIATE_TEST_SUITE_P(PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
+                         PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
+                         ::testing::ValuesIn(pagedFlashMlaDecodeOpList));
 
 //===----------------------------------------------------------------------===//
 // PagedScaledDotProductAttentionDecodeOpTPathParity
@@ -3685,9 +3685,8 @@ createOp(::mlir::tt::FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op);
 namespace mlir::tt::ttnn::op_model {
 #ifdef TTMLIR_ENABLE_OPMODEL
 ::tt::target::ttnn::RotaryEmbeddingLlamaOpT
-buildRotaryEmbeddingLlamaOpTFromMLIR(
-    bool isDecodeMode,
-    TTNNLayoutAttr outputLayout);
+buildRotaryEmbeddingLlamaOpTFromMLIR(bool isDecodeMode,
+                                     TTNNLayoutAttr outputLayout);
 #endif // TTMLIR_ENABLE_OPMODEL
 } // namespace mlir::tt::ttnn::op_model
 
@@ -3793,5 +3792,124 @@ const std::initializer_list<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>
 INSTANTIATE_TEST_SUITE_P(RotaryEmbeddingLlamaOpTPathParityTest,
                          RotaryEmbeddingLlamaOpTPathParityTest,
                          ::testing::ValuesIn(rotaryEmbeddingLlamaOpList));
+
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, RotaryEmbeddingOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RotaryEmbeddingOpT
+buildRotaryEmbeddingOpTFromMLIR(std::optional<uint32_t> tokenIndex,
+                                TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RotaryEmbeddingOpT &opTOpModel,
+                       ::tt::target::ttnn::RotaryEmbeddingOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::RotaryEmbeddingOpT &opT) {
+    opT.input.reset();
+    opT.cos_cache.reset();
+    opT.sin_cache.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memcfg.reset();
+    opT.compute_config.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::RotaryEmbeddingOp buildTestRotaryEmbeddingOp(
+    mlir::IntegerAttr tokenIndex = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto cosCacheType = tiledL1BF16Type(defaultShape);
+  auto sinCacheType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value cosCache =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{cosCacheType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value sinCache =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{sinCacheType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::RotaryEmbeddingOp>(
+      loc, outputType, input, cosCache, sinCache, tokenIndex, computeConfig);
+}
+
+} // namespace
+
+using RotaryEmbeddingOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RotaryEmbeddingOp>;
+
+TEST_P(RotaryEmbeddingOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RotaryEmbeddingOp rotaryOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RotaryEmbeddingOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildRotaryEmbeddingOpTFromMLIR(
+          rotaryOp.getTokenIndex(), resolveOutputLayout(rotaryOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, rotaryOp.getInput(),
+                               rotaryOp.getCosCache(), rotaryOp.getSinCache());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, rotaryOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RotaryEmbeddingOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RotaryEmbeddingOp>
+    rotaryEmbeddingOpList = {
+        buildTestRotaryEmbeddingOp(),
+        buildTestRotaryEmbeddingOp(
+            /*tokenIndex=*/mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                42u)),
+        buildTestRotaryEmbeddingOp(
+            /*tokenIndex=*/{},
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestRotaryEmbeddingOp(
+            /*tokenIndex=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                42u),
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RotaryEmbeddingOpTPathParityTest,
+                         RotaryEmbeddingOpTPathParityTest,
+                         ::testing::ValuesIn(rotaryEmbeddingOpList));
 
 #endif // TTMLIR_ENABLE_OPMODEL

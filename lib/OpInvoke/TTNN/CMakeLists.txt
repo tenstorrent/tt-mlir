@@ -20,6 +20,7 @@ add_library(TTNNOpInvokeLib STATIC
   Transformer/PagedFlashMultiLatentAttentionDecodeOp.cpp
   Transformer/PagedScaledDotProductAttentionDecodeOp.cpp
   Transformer/RotaryEmbeddingLlamaOp.cpp
+  Transformer/RotaryEmbeddingOp.cpp
 )
 
 set_property(TARGET TTNNOpInvokeLib PROPERTY CXX_STANDARD 20)
