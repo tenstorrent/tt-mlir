@@ -115,7 +115,16 @@ public:
       return externalDevice;
     }
 
-    static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
+    // NOTE: `ownedInstance` is intentionally `thread_local` (not a plain
+    // function-local static) to avoid a use-after-free crash during process
+    // exit. thread_local variables are destroyed when the thread exits,
+    // which happens before static destruction begins. This guarantees that
+    // GraphTracker (a function-local static in libtt_metal.so, initialized
+    // lazily during the first op) is still alive when the MeshDevice's
+    // program cache is destroyed. With a plain static, GraphTracker could
+    // be destroyed first (reverse init order), causing ProgramImpl's
+    // destructor to crash in deallocate_circular_buffers().
+    static thread_local std::shared_ptr<ttnn::MeshDevice> ownedInstance =
         ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
