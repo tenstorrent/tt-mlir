@@ -84,7 +84,6 @@ Value buildPreparedWeight(PatternRewriter &rewriter, Operation *anchor,
                           Location loc, Value weight, CoreRangeSetAttr bankCRS,
                           int64_t numBanks) {
   auto weightType = mlir::cast<RankedTensorType>(weight.getType());
-  auto *ctx = rewriter.getContext();
 
   // Step 1: from_device → host (SystemMemory).
   auto hostType = utils::RankedTensorTypeFactory::create(
@@ -95,16 +94,12 @@ Value buildPreparedWeight(PatternRewriter &rewriter, Operation *anchor,
   auto hostTiledType =
       utils::RankedTensorTypeFactory::create(hostType, Layout::Tile);
   Value hostTiled =
-      rewriter.create<ToLayoutOp>(loc, hostTiledType, hostWeight, Layout::Tile,
-                                  /*dtype=*/ttcore::DataTypeAttr());
+      rewriter.create<ToLayoutOp>(loc, hostTiledType, hostWeight, Layout::Tile);
 
   // Step 3: typecast to bfp4 on host.
   auto hostBfp4Type = utils::RankedTensorTypeFactory::create(
       hostTiledType, ttcore::DataType::BFP_BFloat4);
-  auto bfp4DtypeAttr =
-      ttcore::DataTypeAttr::get(ctx, ttcore::DataType::BFP_BFloat4);
-  Value hostBfp4 =
-      rewriter.create<TypecastOp>(loc, hostBfp4Type, hostTiled, bfp4DtypeAttr);
+  Value hostBfp4 = rewriter.create<TypecastOp>(loc, hostBfp4Type, hostTiled);
 
   // Step 4: to_device with a result encoding carrying the explicit bank-
   // permuted CRS — the layout encoding is the single source of truth for the
