@@ -84,12 +84,11 @@ auto createPrepareConvTranspose2dWeightsTuple(
     TensorArg weightTensor, ::ttnn::MeshDevice *device,
     const PrepareConvTranspose2dWeightsResolvedParams &params) {
   return std::make_tuple(
-      *std::get<const ::ttnn::Tensor *>(weightTensor),
-      params.inputMemoryConfig, params.inputLayout, opT.weights_format,
-      opT.in_channels, opT.out_channels, opT.batch_size, opT.input_height,
-      opT.input_width, params.kernelSize, params.stride, params.padding,
-      params.dilation, opT.has_bias, opT.groups, device,
-      params.inputDtype, params.outputDtype, params.conv2dConfig,
+      *std::get<const ::ttnn::Tensor *>(weightTensor), params.inputMemoryConfig,
+      params.inputLayout, opT.weights_format, opT.in_channels, opT.out_channels,
+      opT.batch_size, opT.input_height, opT.input_width, params.kernelSize,
+      params.stride, params.padding, params.dilation, opT.has_bias, opT.groups,
+      device, params.inputDtype, params.outputDtype, params.conv2dConfig,
       params.computeConfig, params.sliceConfig, opT.mirror_kernel);
 }
 

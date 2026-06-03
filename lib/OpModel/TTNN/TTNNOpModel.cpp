@@ -5790,14 +5790,15 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-::tt::target::ttnn::PrepareConv2dWeightsOpT buildPrepareConv2dWeightsOpTFromMLIR(
-    MemoryConfigAttr inputMemConfig,
-    ::mlir::tt::ttnn::Layout inputTensorLayout, llvm::StringRef weightsFormat,
-    int32_t inChannels, int32_t outChannels, int32_t batchSize,
-    int32_t inputHeight, int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
-    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-    llvm::ArrayRef<int32_t> dilation, bool hasBias, int32_t groups,
-    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+::tt::target::ttnn::PrepareConv2dWeightsOpT
+buildPrepareConv2dWeightsOpTFromMLIR(
+    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
+    llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    bool hasBias, int32_t groups, ttcore::DataType inputDtype,
+    std::optional<ttcore::DataType> outputDtype,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
