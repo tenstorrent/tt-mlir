@@ -55,7 +55,7 @@ def TTKernel_UnpackStallOnPackOp
   let assemblyFormat = [{ attr-dict }];
 }
 
-def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
+def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "tile_regs_acquire";
     let description = [{
       Acquire an exclusive lock on the DST register for the MATH thread.
@@ -3104,7 +3104,7 @@ def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
     }];
 }
 
-def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
+def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "CBReserveBack call.";
     let description = [{
       CBReserveBack operation
@@ -3138,7 +3138,7 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front", [TTKernel_DeviceZoneOp
 // TTKernel Tile operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
+def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "TilizeBlockOp call.";
     let description = [{
       TilizeBlockOp operation
@@ -3153,7 +3153,7 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
     }];
 }
 
-def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block"> {
+def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental TilizeBlockOp call.";
     let description = [{
       This is a custom tilize block LLK that takes the dimensions of the block, and properly tilizes each row.
@@ -3168,7 +3168,7 @@ def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block
     }];
 }
 
-def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
+def TTKernel_TilizeInitOp : TTKernel_InitOp<"tilize_init", [TTKernel_LayoutOpTrait]> {
     let summary = "TilizeInitOp call.";
     let description = [{
       Initialize the tilize operation. To be called once at beginning of a
@@ -3184,7 +3184,7 @@ def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
     }];
 }
 
-def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
+def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "TilizeUninitOp call.";
     let description = [{
       Uninitialize tilize operation before re-initializing for another operation.
@@ -3197,7 +3197,7 @@ def TTKernel_TilizeUninitOp : TTKernel_Op<"tilize_uninit"> {
     }];
 }
 
-def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
+def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "UntilizeBlockOp call.";
     let description = [{
       UntilizeBlockOp operation
@@ -3212,7 +3212,7 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
     }];
 }
 
-def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_block"> {
+def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental UntilizeBlockOp call.";
     let description = [{
       This is a custom untilize block LLK that takes the dimensions of the block.
@@ -3227,7 +3227,7 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     }];
 }
 
-def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
+def TTKernel_PackUntilizeInitOp : TTKernel_InitOp<"pack_untilize_init", [TTKernel_LayoutOpTrait]> {
     let summary = "PackUntilizeInitOp call.";
     let description = [{
       Initializes UNPACK, MATH, and PACK threads for the pack untilize
@@ -3255,7 +3255,7 @@ def TTKernel_PackUntilizeInitOp : TTKernel_Op<"pack_untilize_init"> {
     }];
 }
 
-def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit"> {
+def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "PackUntilizeUninitOp call.";
     let description = [{
       Uninitializes the pack untilize operation.  Maps to the official tt-metal
@@ -3269,7 +3269,7 @@ def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit"> {
     }];
 }
 
-def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_untilize_block"> {
+def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_untilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental PackUntilizeBlockOp call.";
     let description = [{
       Custom pack untilize block LLK that takes the dimensions of the block.
@@ -3347,7 +3347,7 @@ def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_aran
     }];
 }
 
-def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
+def TTKernel_UntilizeInitOp : TTKernel_InitOp<"untilize_init", [TTKernel_LayoutOpTrait]> {
     let summary = "UntilizeInitOp call.";
     let description = [{
       Init function for untilize operations, to be used at the beginning of the
@@ -3363,7 +3363,7 @@ def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     }];
 }
 
-def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
+def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit", [TTKernel_LayoutOpTrait]> {
     let summary = "UntilizeUninitOp call.";
     let description = [{
       Uninitialize untilize operation, to allow initializing another operation.

@@ -305,7 +305,15 @@ void createD2MToTTKernelPipeline(OpPassManager &pm,
   addD2MToTTKernelPreEmitCPasses(pm, options);
   pm.addPass(ttkernel::createTTKernelHoistInits());
   if (options.insertProfilerTraces) {
-    pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
+    ttkernel::TTKernelInsertDeviceZoneScopesOptions passOpts;
+    if (options.profilerTraits.empty()) {
+      passOpts.traitNames.push_back("device-zone");
+    } else {
+      for (const std::string &n : options.profilerTraits) {
+        passOpts.traitNames.push_back(n);
+      }
+    }
+    pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes(passOpts));
   }
   addEmitCPasses(pm, options);
 }
@@ -345,7 +353,15 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   // selection).
   devicePm.addPass(ttkernel::createTTKernelHoistInits());
   if (options.insertProfilerTraces) {
-    devicePm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
+    ttkernel::TTKernelInsertDeviceZoneScopesOptions passOpts;
+    if (options.profilerTraits.empty()) {
+      passOpts.traitNames.push_back("device-zone");
+    } else {
+      for (const std::string &n : options.profilerTraits) {
+        passOpts.traitNames.push_back(n);
+      }
+    }
+    devicePm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes(passOpts));
   }
   addEmitCPasses(devicePm, options);
 
