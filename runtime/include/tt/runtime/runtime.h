@@ -270,9 +270,12 @@ std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
 
-// Updates the tensor in the program's tensor pool that is referenced by the
-// given tensor reference. Performs necessary layout and device conversions to
-// match the existing tensor.
+// Overwrites only the payload data of the existing tensor pool entry referenced
+// by the given tensor reference.
+// Preserves the existing tensor wrapper metadata/state (for example mesh event,
+// retain flag, callbacks, and wrapper identity/version lineage), while
+// performing the necessary layout normalization on srcTensor to
+// match the existing destination tensor.
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
 

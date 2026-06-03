@@ -2260,8 +2260,6 @@ void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
   }
 }
 
-// TODO(mmilosevicTT): Rework updating tensor to ensure all required fields are
-// preserved.
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor tensor) {
   auto &programContext =
@@ -2283,11 +2281,32 @@ void updateTensorInPool(CallbackContext programContextHandle,
   ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
-  if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
-                                  dstTensor.memory_config());
+
+  LOG_ASSERT(srcTensor.logical_volume() == dstTensor.logical_volume(),
+             "Logical volume mismatch when updating tensor in tensor pool: ",
+             srcTensor.logical_volume(), " != ", dstTensor.logical_volume());
+  LOG_ASSERT(srcTensor.dtype() == dstTensor.dtype(),
+             "Dtype mismatch when updating tensor in tensor pool");
+
+  const std::size_t srcShardCount =
+      ::ttnn::distributed::get_device_tensors(srcTensor).size();
+  const std::size_t dstShardCount =
+      ::ttnn::distributed::get_device_tensors(dstTensor).size();
+  LOG_ASSERT(srcShardCount == dstShardCount,
+             "Shard count mismatch when updating tensor in tensor pool: ",
+             srcShardCount, " != ", dstShardCount);
+
+  const bool srcOnHost = utils::isOnHost(srcTensor.storage_type());
+  const bool dstOnHost = utils::isOnHost(dstTensor.storage_type());
+  if (!srcOnHost && !dstOnHost) {
+    ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
+    ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
+  } else {
+    ::tt::runtime::Tensor &dstRuntimeTensor =
+        tensorPool.getRuntimeTensorAndValidate(tensorRefPtr);
+    memcpy(dstRuntimeTensor, tensor);
   }
-  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+  tensorPool.getTTNNTensorWrapperAndValidate(tensorRefPtr).updateVersion();
 }
 
 size_t getProgramIndex(CallbackContext programContextHandle) {
