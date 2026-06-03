@@ -3331,4 +3331,163 @@ INSTANTIATE_TEST_SUITE_P(
     NLPCreateQKVHeadsDecodeOpTPathParityTest,
     ::testing::ValuesIn(nlpCreateQKVHeadsDecodeOpList));
 
+//===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         PagedFlashMultiLatentAttentionDecodeOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+    uint32_t headDimV, bool isCausal, std::optional<llvm::APFloat> scale,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opTOpModel,
+    ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opTFB) {
+  auto helper =
+      [](::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opT) {
+        opT.query.reset();
+        opT.key.reset();
+        opT.value.reset();
+        opT.page_table.reset();
+        opT.attention_mask.reset();
+        opT.cur_pos_tensor.reset();
+        opT.attention_sink.reset();
+        resetOutputTensorRefT(opT.out);
+        opT.memcfg.reset();
+      };
+      
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp
+buildTestPagedFlashMultiLatentAttentionDecodeOp(
+    bool withValue = false, uint32_t headDimV = 64, bool isCausal = true,
+    bool withAttentionMask = false, bool withCurPosTensor = false,
+    bool withAttentionSink = false, mlir::FloatAttr scale = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value query = makeOnes();
+  mlir::Value key = makeOnes();
+  mlir::Value value = withValue ? makeOnes() : mlir::Value();
+  mlir::Value pageTable = makeOnes();
+  mlir::Value attentionMask = withAttentionMask ? makeOnes() : mlir::Value();
+  mlir::Value curPosTensor = withCurPosTensor ? makeOnes() : mlir::Value();
+  mlir::Value attentionSink = withAttentionSink ? makeOnes() : mlir::Value();
+
+  return e.builder.create<mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>(
+      loc, tensorType, query, key, value, headDimV, pageTable, isCausal,
+      attentionMask, curPosTensor, attentionSink, scale);
+}
+
+} // namespace
+
+using PagedFlashMultiLatentAttentionDecodeOpTPathParityTest =
+    ::testing::TestWithParam<
+        mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>;
+
+TEST_P(PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp mlaOp = GetParam();
+
+  std::optional<llvm::APFloat> scaleOpt;
+  if (auto scaleAttr = mlaOp.getScaleAttr()) {
+    scaleOpt = scaleAttr.getValue();
+  }
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT opTOpModel =
+      mlir::tt::ttnn::op_model::
+          buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+              mlaOp.getHeadDimV(), mlaOp.getIsCausal(), scaleOpt,
+              resolveOutputLayout(mlaOp));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, mlaOp.getQuery(), mlaOp.getKey(),
+                               mlaOp.getPageTable());
+  if (mlaOp.getValue()) {
+    prepopulateOperandTensorRefs(cache, mlaOp.getValue());
+  }
+  if (mlaOp.getAttentionMask()) {
+    prepopulateOperandTensorRefs(cache, mlaOp.getAttentionMask());
+  }
+  if (mlaOp.getCurPosTensor()) {
+    prepopulateOperandTensorRefs(cache, mlaOp.getCurPosTensor());
+  }
+  if (mlaOp.getAttentionSink()) {
+    prepopulateOperandTensorRefs(cache, mlaOp.getAttentionSink());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, mlaOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<
+    mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+    pagedFlashMlaDecodeOpList = {
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(/*withValue=*/true),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(/*withValue=*/false,
+                                                        /*headDimV=*/128u),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(/*withValue=*/false,
+                                                        /*headDimV=*/64u,
+                                                        /*isCausal=*/false),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/false, /*headDimV=*/64u, /*isCausal=*/true,
+            /*withAttentionMask=*/true),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/false, /*headDimV=*/64u, /*isCausal=*/true,
+            /*withAttentionMask=*/false, /*withCurPosTensor=*/true),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/false, /*headDimV=*/64u, /*isCausal=*/true,
+            /*withAttentionMask=*/false, /*withCurPosTensor=*/false,
+            /*withAttentionSink=*/true),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/false, /*headDimV=*/64u, /*isCausal=*/true,
+            /*withAttentionMask=*/false, /*withCurPosTensor=*/false,
+            /*withAttentionSink=*/false,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f)),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/true, /*headDimV=*/128u, /*isCausal=*/false,
+            /*withAttentionMask=*/true, /*withCurPosTensor=*/true,
+            /*withAttentionSink=*/true,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.25f)),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
+    PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
+    ::testing::ValuesIn(pagedFlashMlaDecodeOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
