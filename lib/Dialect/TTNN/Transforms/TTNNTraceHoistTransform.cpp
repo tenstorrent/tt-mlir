@@ -53,6 +53,40 @@ private:
     return shouldHoist;
   }
 
+  // Returns a device handle guaranteed to dominate `op`.
+  //
+  // The block may contain several get_device ops: D2M subgraph lowering emits
+  // one per subgraph, so they appear interleaved with the hoistable ops rather
+  // than once in the block prelude. utils::getOrInsertDevice would return the
+  // first get_device in block order, which may be defined *after* `op` and thus
+  // violate dominance once the trace op is inserted at `op`. To avoid that, we
+  // reuse a get_device that already dominates `op`, otherwise hoist an existing
+  // one (or a freshly inserted one) to the start of the block.
+  ttnn::GetDeviceOp getDominatingDevice(mlir::IRRewriter &rewriter,
+                                        Operation *op) {
+    mlir::Block *block = op->getBlock();
+    ttnn::GetDeviceOp anyDevice;
+    for (Operation &candidate : *block) {
+      auto deviceOp = mlir::dyn_cast<ttnn::GetDeviceOp>(&candidate);
+      if (!deviceOp) {
+        continue;
+      }
+      if (deviceOp->isBeforeInBlock(op)) {
+        return deviceOp;
+      }
+      if (!anyDevice) {
+        anyDevice = deviceOp;
+      }
+    }
+
+    if (anyDevice) {
+      anyDevice->moveBefore(&block->front());
+      return anyDevice;
+    }
+
+    return utils::getOrInsertDevice(rewriter, block);
+  }
+
   std::uint64_t getUniqueTraceFuncIndex() {
     static std::atomic<std::uint64_t> traceFunctionIndex = 0;
     return traceFunctionIndex.fetch_add(1, std::memory_order_relaxed);
@@ -786,7 +820,7 @@ private:
 
     builder.setInsertionPoint(firstOp);
 
-    auto device = utils::getOrInsertDevice(rewriter, firstOp);
+    auto device = getDominatingDevice(rewriter, firstOp);
 
     // Convert inputs to match capture function signature
     llvm::SmallVector<mlir::Value> captureOrExecuteTraceOpInputs;
