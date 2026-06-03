@@ -33,6 +33,7 @@
 #include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingLlamaOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionOp.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -3521,6 +3522,24 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ScaledDotProductAttentionOpT
+buildScaledDotProductAttentionOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT opT;
+  opT.is_causal = isCausal;
+  if (scale.has_value()) {
+    opT.scale = scale->convertToFloat();
+  }
+  if (slidingWindowSize.has_value()) {
+    opT.sliding_window_size = *slidingWindowSize;
+  }
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -3552,16 +3571,21 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT opT =
+      buildScaledDotProductAttentionOpTFromMLIR(isCausal, scale,
+                                                slidingWindowSize, outputLayout);
 
   auto scaledDotProductAttentionOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
-        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt, attentionSinkSpec);
+    ttnn_op_invoke::ScaledDotProductAttentionOpResult result =
+        ttnn_op_invoke::callScaledDotProductAttention(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, querySpec,
+            keySpec, valueSpec, attentionMaskSpec, attentionSinkSpec, device);
+
+    LOG_ASSERT(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+                   result),
+               "Expected ScaledDotProductAttentionOp constraints query to "
+               "return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(queryLayout.getContext(),
@@ -3602,16 +3626,21 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT opT =
+      buildScaledDotProductAttentionOpTFromMLIR(isCausal, scale,
+                                                slidingWindowSize, outputLayout);
 
   auto scaledDotProductAttentionOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
-        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt, attentionSinkSpec);
+    ttnn_op_invoke::ScaledDotProductAttentionOpResult result =
+        ttnn_op_invoke::callScaledDotProductAttention(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, querySpec, keySpec,
+            valueSpec, attentionMaskSpec, attentionSinkSpec, device);
+
+    LOG_ASSERT(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result),
+        "Expected ScaledDotProductAttentionOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(scaledDotProductAttentionOpQuery);
