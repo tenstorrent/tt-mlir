@@ -246,6 +246,13 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
       "Cannot create borrowed tensor with null data unless the volume is 0.");
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
              "Cannot create borrowed tensor with unsupported data type");
+  // A borrowed tensor aliases the caller's buffer and reads it as dense
+  // row-major, so it cannot represent a non-contiguous (e.g. transposed or
+  // sliced) layout. Such input must go through an owned tensor, which gathers
+  // the data into a contiguous buffer.
+  LOG_ASSERT(isContiguous(shape, stride),
+             "Cannot create borrowed tensor from a non-contiguous host buffer; "
+             "non-contiguous input must use an owned host tensor.");
   ::ttnn::Shape ttnnShape(shape);
 
   switch (dataType) {
