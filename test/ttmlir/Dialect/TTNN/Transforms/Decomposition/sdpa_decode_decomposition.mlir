@@ -89,4 +89,36 @@ module {
       -> tensor<1x32x32x64xbf16>
     return %result : tensor<1x32x32x64xbf16>
   }
+
+  // Test 4: SDPADecode with a sliding window AND a per-batch cur_pos_tensor
+  // (is_causal => the kernel reads cur_pos). Decomposed with a runtime window
+  // mask anchored at cur_pos[b]: keep keys (cur_pos-W, cur_pos], synthesized as
+  // cur_pos (cast) compared against arange for both the causal cutoff and the
+  // window lower bound.
+  func.func @sdpa_decode_sliding_window_cur_pos(
+    %query: tensor<1x4x32x64xbf16>,
+    %key: tensor<4x32x128x64xbf16>,
+    %value: tensor<4x32x128x64xbf16>,
+    %cur_pos: tensor<4xi32>
+  ) -> tensor<1x4x32x64xbf16> {
+    // CHECK-LABEL: func.func @sdpa_decode_sliding_window_cur_pos
+    // CHECK-NOT: "ttnn.scaled_dot_product_attention_decode"
+    // window-mask synthesis with cur_pos cast as the per-batch anchor
+    // (the typecast distinguishes the runtime form from the static Sk-1 form).
+    // CHECK: "ttnn.arange"
+    // CHECK: "ttnn.typecast"
+    // CHECK: "ttnn.gt"
+    // CHECK: "ttnn.where"
+    // CHECK: "ttnn.add"
+    // CHECK: "ttnn.softmax"
+    %result = "ttnn.scaled_dot_product_attention_decode"(%query, %key, %value, %cur_pos) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0>,
+      is_causal = true,
+      scale = 0.125 : f32,
+      sliding_window_size = 64 : ui32
+    }> : (tensor<1x4x32x64xbf16>, tensor<4x32x128x64xbf16>,
+         tensor<4x32x128x64xbf16>, tensor<4xi32>)
+      -> tensor<1x4x32x64xbf16>
+    return %result : tensor<1x4x32x64xbf16>
+  }
 }
