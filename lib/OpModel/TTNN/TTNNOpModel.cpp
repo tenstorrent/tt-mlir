@@ -34,6 +34,7 @@
 #include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/SplitQueryKeyValueAndSplitHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -3030,9 +3031,8 @@ buildScaledDotProductAttentionDecodeOpTFromMLIR(
     opT.scale = scale->convertToFloat();
   }
   if (programConfig.has_value() && *programConfig) {
-    opT.program_config =
-        std::make_unique<::tt::target::ttnn::SDPAConfigT>(
-            toNative(*programConfig));
+    opT.program_config = std::make_unique<::tt::target::ttnn::SDPAConfigT>(
+        toNative(*programConfig));
   }
   opT.out = detail::getOutputTensorRefT(outputLayout);
   return opT;
@@ -3078,9 +3078,8 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
                                           attentionSinkLayout);
 
   ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opT =
-      buildScaledDotProductAttentionDecodeOpTFromMLIR(isCausal, scale,
-                                                      programConfig,
-                                                      outputLayout);
+      buildScaledDotProductAttentionDecodeOpTFromMLIR(
+          isCausal, scale, programConfig, outputLayout);
 
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     ttnn_op_invoke::ScaledDotProductAttentionDecodeOpResult result =
@@ -3139,16 +3138,15 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
                                           attentionSinkLayout);
 
   ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opT =
-      buildScaledDotProductAttentionDecodeOpTFromMLIR(isCausal, scale,
-                                                      std::nullopt,
-                                                      outputLayout);
+      buildScaledDotProductAttentionDecodeOpTFromMLIR(
+          isCausal, scale, std::nullopt, outputLayout);
 
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     ttnn_op_invoke::ScaledDotProductAttentionDecodeOpResult result =
         ttnn_op_invoke::callScaledDotProductAttentionDecode(
-            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, querySpec,
-            keySpec, valueSpec, attentionMaskSpec, curPosTensorSpec,
-            attentionSinkSpec, device);
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, querySpec, keySpec,
+            valueSpec, attentionMaskSpec, curPosTensorSpec, attentionSinkSpec,
+            device);
 
     LOG_ASSERT(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result),
@@ -3572,8 +3570,8 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
                                           attentionSinkLayout);
 
   ::tt::target::ttnn::ScaledDotProductAttentionOpT opT =
-      buildScaledDotProductAttentionOpTFromMLIR(isCausal, scale,
-                                                slidingWindowSize, outputLayout);
+      buildScaledDotProductAttentionOpTFromMLIR(
+          isCausal, scale, slidingWindowSize, outputLayout);
 
   auto scaledDotProductAttentionOpQuery = [=]() {
     ttnn_op_invoke::ScaledDotProductAttentionOpResult result =
@@ -3627,8 +3625,8 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
                                           attentionSinkLayout);
 
   ::tt::target::ttnn::ScaledDotProductAttentionOpT opT =
-      buildScaledDotProductAttentionOpTFromMLIR(isCausal, scale,
-                                                slidingWindowSize, outputLayout);
+      buildScaledDotProductAttentionOpTFromMLIR(
+          isCausal, scale, slidingWindowSize, outputLayout);
 
   auto scaledDotProductAttentionOpQuery = [=]() {
     ttnn_op_invoke::ScaledDotProductAttentionOpResult result =
@@ -3972,6 +3970,23 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // SplitQueryKeyValueAndSplitHeadsOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+    uint32_t numHeads, std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opT;
+  opT.num_heads = numHeads;
+  if (numKVHeads.has_value()) {
+    opT.num_kv_heads = *numKVHeads;
+  }
+  opT.transpose_key = transposeKey;
+  opT.q_out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -3994,12 +4009,21 @@ OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
                                                  inputKVLayout.value()));
   }
 
-  // Create query closure
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opT =
+      buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+          numHeads, numKVHeads, transposeKey, outputLayout);
+
   auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
-        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
-        detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::SplitQueryKeyValueAndSplitHeadsOpResult result =
+        ttnn_op_invoke::callSplitQueryKeyValueAndSplitHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+            inputKVSpec, device);
+
+    LOG_ASSERT(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+                   result),
+               "Expected SplitQueryKeyValueAndSplitHeadsOp constraints query "
+               "to return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -4030,12 +4054,21 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
                                                  inputKVLayout.value()));
   }
 
-  // Create query closure
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opT =
+      buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+          numHeads, numKVHeads, transposeKey, outputLayout);
+
   auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
-        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
-        detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::SplitQueryKeyValueAndSplitHeadsOpResult result =
+        ttnn_op_invoke::callSplitQueryKeyValueAndSplitHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec,
+            inputKVSpec, device);
+
+    LOG_ASSERT(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result),
+        "Expected SplitQueryKeyValueAndSplitHeadsOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(splitQueryKeyValueAndSplitHeadsOpQuery);

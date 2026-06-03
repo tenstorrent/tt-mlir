@@ -4197,4 +4197,138 @@ INSTANTIATE_TEST_SUITE_P(ScaledDotProductAttentionOpTPathParityTest,
                          ScaledDotProductAttentionOpTPathParityTest,
                          ::testing::ValuesIn(scaledDotProductAttentionOpList));
 
+//===----------------------------------------------------------------------===//
+// SplitQueryKeyValueAndSplitHeadsOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         SplitQueryKeyValueAndSplitHeadsOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+    uint32_t numHeads, std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opTOpModel,
+    ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opTFB) {
+  auto helper =
+      [](::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT) {
+        opT.in.reset();
+        opT.kv_input.reset();
+        resetOutputTensorRefT(opT.q_out);
+        opT.memcfg.reset();
+        opT.k_out.reset();
+        opT.v_out.reset();
+      };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp
+buildTestSplitQueryKeyValueAndSplitHeadsOp(
+    bool withKvInputTensor = false, uint32_t numHeads = 4u,
+    mlir::IntegerAttr numKvHeads = {}, bool transposeKey = false) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value inputTensor =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value kvInputTensor =
+      withKvInputTensor
+          ? e.builder
+                .create<mlir::tt::ttnn::OnesOp>(loc,
+                                                mlir::TypeRange{tensorType},
+                                                mlir::ValueRange{})
+                .getResult()
+          : mlir::Value();
+
+  return e.builder.create<mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>(
+      loc, mlir::TypeRange{tensorType, tensorType, tensorType}, inputTensor,
+      kvInputTensor, numHeads, numKvHeads, transposeKey);
+}
+
+} // namespace
+
+using SplitQueryKeyValueAndSplitHeadsOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>;
+
+TEST_P(SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp sqkvOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  auto queryLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+      mlir::cast<mlir::RankedTensorType>(sqkvOp.getQuery().getType())
+          .getEncoding());
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+          sqkvOp.getNumHeads(), sqkvOp.getNumKvHeads(), sqkvOp.getTransposeKey(),
+          queryLayout);
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sqkvOp.getInputTensor());
+  if (sqkvOp.getKvInputTensor()) {
+    prepopulateOperandTensorRefs(cache, sqkvOp.getKvInputTensor());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, sqkvOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+    splitQueryKeyValueAndSplitHeadsOpList = {
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(/*withKvInputTensor=*/true),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(/*withKvInputTensor=*/false,
+                                                   /*numHeads=*/8u),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(
+            /*withKvInputTensor=*/false, /*numHeads=*/4u,
+            /*numKvHeads=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                2u)),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(
+            /*withKvInputTensor=*/false, /*numHeads=*/4u, /*numKvHeads=*/{},
+            /*transposeKey=*/true),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(
+            /*withKvInputTensor=*/true, /*numHeads=*/8u,
+            /*numKvHeads=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                2u),
+            /*transposeKey=*/true),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
+    SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
+    ::testing::ValuesIn(splitQueryKeyValueAndSplitHeadsOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
