@@ -393,7 +393,7 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
 
 ::tt::runtime::Tensor Controller::createOwnedHostTensor(
     const void *data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint64_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType) {
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();

@@ -173,14 +173,14 @@ struct RuntimeCheckedConstObjectImpl {
 struct TensorDesc {
   std::vector<uint32_t> shape = {}; // Logical.
   ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
-  std::vector<uint64_t> stride = {}; // Potentially padded.
+  std::vector<int64_t> stride = {}; // Potentially padded.
   uint64_t physicalVolume = 0;       // Potentially padded.
 
   TensorDesc() = default;
 
   TensorDesc(const std::vector<uint32_t> &shape,
              const ::tt::target::DataType dataType,
-             const std::optional<std::vector<uint64_t>> &stride = {},
+             const std::optional<std::vector<int64_t>> &stride = {},
              const std::optional<uint64_t> physicalVolume = {});
 
   size_t volume() const;

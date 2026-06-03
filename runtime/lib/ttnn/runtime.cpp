@@ -51,12 +51,12 @@ static std::uint64_t getNumElements(const std::vector<std::uint32_t> &shape) {
 // irrelevant). A stride vector that does not match the rank is treated as
 // contiguous (we cannot interpret it).
 static bool isContiguous(const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint64_t> &stride) {
+                         const std::vector<std::int64_t> &stride) {
   if (stride.size() != shape.size()) {
     // this can happen with complex tensors and we treat them as contiguous
     return true;
   }
-  std::uint64_t rowMajorStride = 1;
+  std::int64_t rowMajorStride = 1;
   for (size_t d = shape.size(); d-- > 0;) {
     if (shape[d] > 1 && stride[d] != rowMajorStride) {
       return false;
@@ -69,7 +69,7 @@ static bool isContiguous(const std::vector<std::uint32_t> &shape,
 // Gathers a strided host buffer into a dense, contiguous byte buffer.
 static std::vector<std::byte>
 gatherContiguousBytes(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint64_t> &stride,
+                      const std::vector<std::int64_t> &stride,
                       std::uint32_t itemsize) {
   std::uint64_t numElements = getNumElements(shape);
   std::vector<std::byte> out(numElements * itemsize);
@@ -79,15 +79,18 @@ gatherContiguousBytes(const void *data, const std::vector<std::uint32_t> &shape,
 
   const std::byte *src = static_cast<const std::byte *>(data);
   const size_t numDims = shape.size();
-  std::vector<std::uint64_t> idx(numDims, 0);
+  std::vector<std::int64_t> idx(numDims, 0);
 
+  // `stride` is signed: a negative stride (e.g. a reversed view) walks backward
+  // from `data`, which points at the first logical element.
   for (std::uint64_t i = 0; i < numElements; ++i) {
-    std::uint64_t srcOffset = 0;
+    std::int64_t srcOffset = 0;
     for (size_t d = 0; d < numDims; ++d) {
-      srcOffset += idx[d] * static_cast<std::uint64_t>(stride[d]);
+      srcOffset += idx[d] * stride[d];
     }
 
-    std::memcpy(out.data() + i * itemsize, src + srcOffset * itemsize,
+    std::memcpy(out.data() + i * itemsize,
+                src + srcOffset * static_cast<std::int64_t>(itemsize),
                 itemsize);
 
     for (size_t d = numDims; d-- > 0;) {
@@ -103,7 +106,7 @@ gatherContiguousBytes(const void *data, const std::vector<std::uint32_t> &shape,
 
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint64_t> &stride,
+                      const std::vector<std::int64_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
   const void *src = data;
   ::tt::target::DataType dataTypeToUse = dataType;
@@ -235,7 +238,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
 
 ::tt::runtime::Tensor
 createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint64_t> &stride,
+                         const std::vector<std::int64_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
   LOG_ASSERT(
@@ -304,7 +307,7 @@ createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor) {
 
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint64_t> &stride,
+                      const std::vector<std::int64_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
 
   ::tt::runtime::Tensor tensor = utils::createRuntimeTensorFromTTNN(
@@ -336,7 +339,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint64_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
@@ -352,7 +355,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
 Tensor createMultiDeviceBorrowedHostTensor(
     std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint64_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
@@ -368,7 +371,7 @@ Tensor createMultiDeviceBorrowedHostTensor(
 
 ::tt::runtime::Tensor createEmptyTensor(
     Device device, Layout layout, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint64_t> &stride, std::uint32_t itemsize) {
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize) {
   const LayoutDesc &layoutDesc = layout.as<LayoutDesc>(DeviceRuntime::TTNN);
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(
                  utils::fromTTNNDataType(layoutDesc.dataType)),
@@ -522,10 +525,10 @@ std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor) {
   return shape;
 }
 
-std::vector<std::uint64_t> getTensorStride(::tt::runtime::Tensor tensor) {
+std::vector<std::int64_t> getTensorStride(::tt::runtime::Tensor tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       utils::getTTNNTensorFromRuntimeTensor(tensor);
-  std::vector<std::uint64_t> stride;
+  std::vector<std::int64_t> stride;
   for (size_t i = 0; i < ttnnTensor.strides().size(); ++i) {
     stride.push_back(ttnnTensor.strides()[i]);
   }

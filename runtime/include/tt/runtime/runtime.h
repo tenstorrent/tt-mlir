@@ -54,7 +54,7 @@ void shutdownDistributedRuntime();
 // responsible for its allocation/deallocation).
 Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &shape,
-                                const std::vector<std::uint64_t> &stride,
+                                const std::vector<std::int64_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType);
 
@@ -63,7 +63,7 @@ Tensor createBorrowedHostTensor(void *data,
 // instance).
 Tensor createOwnedHostTensor(const void *data,
                              const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint64_t> &stride,
+                             const std::vector<std::int64_t> &stride,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
 
@@ -80,7 +80,7 @@ Tensor createUnsafeBorrowedHostTensor(Tensor ownedHostTensor);
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint64_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
@@ -97,7 +97,7 @@ Tensor createMultiDeviceHostTensor(
 // responsible for its allocation/deallocation).
 Tensor createMultiDeviceBorrowedHostTensor(
     std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint64_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
@@ -105,7 +105,7 @@ Tensor createMultiDeviceBorrowedHostTensor(
 // Creates empty tensor on host/device depending on the passed layout.
 Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint64_t> &stride,
+                         const std::vector<std::int64_t> &stride,
                          std::uint32_t itemsize);
 
 Tensor createScalarTensor(Scalar scalar);
@@ -142,7 +142,7 @@ std::uint32_t getTensorElementSize(Tensor tensor);
 std::uint32_t getTensorVolume(Tensor tensor);
 std::uint32_t getTensorLogicalVolume(Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(Tensor tensor);
-std::vector<std::uint64_t> getTensorStride(Tensor tensor);
+std::vector<std::int64_t> getTensorStride(Tensor tensor);
 TensorDesc getTensorDesc(Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
