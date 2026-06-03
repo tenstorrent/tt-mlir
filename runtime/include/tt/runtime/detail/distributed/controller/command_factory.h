@@ -65,7 +65,7 @@ public:
   static uint64_t buildCreateHostTensorCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
       const ::tt::runtime::Tensor &outputTensor, const void *data,
-      const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
+      const std::vector<uint32_t> &shape, const std::vector<uint64_t> &stride,
       uint32_t itemSize, ::tt::target::DataType dataType);
 
   static uint64_t buildCreateMultiDeviceHostTensorFromShardsCommand(

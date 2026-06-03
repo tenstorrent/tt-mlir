@@ -63,7 +63,7 @@ std::vector<common::WrappedTensor> inline packTensors(
       sizes[j] = shape->Get(j);
     }
 
-    std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
+    std::vector<uint64_t> strides = tt::runtime::utils::calculateStride(sizes);
     allSizesAndStrides.emplace_back(2 * rank);
     std::copy(sizes.begin(), sizes.end(), allSizesAndStrides.back().begin());
     std::transform(strides.begin(), strides.end(),
@@ -98,7 +98,7 @@ inline void
 prepareSizesAndStrides(const std::vector<int64_t> &sizes,
                        std::vector<std::vector<int64_t>> &allSizesAndStrides) {
 
-  std::vector<uint32_t> strides = tt::runtime::utils::calculateStride(sizes);
+  std::vector<uint64_t> strides = tt::runtime::utils::calculateStride(sizes);
   const size_t rank = sizes.size();
 
   allSizesAndStrides.emplace_back(2 * rank);
