@@ -602,24 +602,48 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
       return mlir::sdy::OpShardingRuleAttr();
     }
 
-    const int64_t queryHeadDim = 2; // [1, U, H, D]
-    const int64_t kvHeadDim = 1;    // [B, H, S, D]
+    const int64_t queryUsersDim = 1; // [1, U, H, D]
+    const int64_t queryHeadDim = 2;  // [1, U, H, D]
+    const int64_t kvHeadDim = 1;     // [B, H, S, D]
+    const int64_t outputUsersDim = 1;
     const int64_t outputHeadDim = 2;
 
-    int64_t headSize = queryType.getShape()[queryHeadDim];
+    int64_t numHeads = queryType.getShape()[queryHeadDim];
+    int64_t numUsers = queryType.getShape()[queryUsersDim];
 
-    SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
-                                         mlir::sdy::kNullDim);
-    SmallVector<int64_t> resultHeadDims(op.getNumResults(),
-                                        mlir::sdy::kNullDim);
+    int64_t numOperands = op.getNumOperands();
+    int64_t numResults = op.getNumResults();
 
-    operandHeadDims[0] = queryHeadDim; // query
-    operandHeadDims[1] = kvHeadDim;    // key
-    operandHeadDims[2] = kvHeadDim;    // value
-    resultHeadDims[0] = outputHeadDim; // output
+    mlir::sdy::OpShardingRuleBuilder builder(op);
 
-    return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
-                                          headSize);
+    // Head factor (kPassThrough, size = num_heads): links Q/K/V/Out head dims.
+    SmallVector<int64_t> headOperandDims(numOperands, mlir::sdy::kNullDim);
+    SmallVector<int64_t> headResultDims(numResults, mlir::sdy::kNullDim);
+    headOperandDims[0] = queryHeadDim; // query
+    headOperandDims[1] = kvHeadDim;    // key
+    headOperandDims[2] = kvHeadDim;    // value
+    headResultDims[0] = outputHeadDim; // output
+    builder.addFactor(headOperandDims, headResultDims, numHeads,
+                      mlir::sdy::FactorType::kPassThrough);
+
+    // Users factor (kPassThrough, size = num_users): required so the SPMD
+    // partitioner can keep each DP replica's decode local. Without it, page
+    // table / cur_pos sharding can't propagate and a single replica observes
+    // KV cache corruption from the other replica's writes.
+    SmallVector<int64_t> usersOperandDims(numOperands, mlir::sdy::kNullDim);
+    SmallVector<int64_t> usersResultDims(numResults, mlir::sdy::kNullDim);
+    usersOperandDims[0] = queryUsersDim; // query
+    if (numOperands > 3) {
+      usersOperandDims[3] = 0; // page_table
+    }
+    if (numOperands > 4) {
+      usersOperandDims[4] = 0; // cur_pos_tensor
+    }
+    usersResultDims[0] = outputUsersDim; // output
+    builder.addFactor(usersOperandDims, usersResultDims, numUsers,
+                      mlir::sdy::FactorType::kPassThrough);
+
+    return builder.build();
   }
 
   if (target == chunkedSdpaTargetName) {
@@ -641,22 +665,48 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
     }
 
     const int64_t cacheHeadDim = 1;
+    const int64_t fillValueUsersDim = 1;
     const int64_t fillValueHeadDim = 2;
     const int64_t outputHeadDim = 1;
 
-    int64_t headSize = cacheType.getShape()[cacheHeadDim];
+    auto fillValueType =
+        llvm::cast<RankedTensorType>(op.getOperand(1).getType());
 
-    SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
-                                         mlir::sdy::kNullDim);
-    SmallVector<int64_t> resultHeadDims(op.getNumResults(),
-                                        mlir::sdy::kNullDim);
+    int64_t numHeads = cacheType.getShape()[cacheHeadDim];
+    int64_t numUsers = fillValueType.getShape()[fillValueUsersDim];
 
-    operandHeadDims[0] = cacheHeadDim;     // cache
-    operandHeadDims[1] = fillValueHeadDim; // fill_value
-    resultHeadDims[0] = outputHeadDim;     // output
+    int64_t numOperands = op.getNumOperands();
+    int64_t numResults = op.getNumResults();
 
-    return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
-                                          headSize);
+    mlir::sdy::OpShardingRuleBuilder builder(op);
+
+    // Head factor (kPassThrough, size = num_heads): links cache / fill_value /
+    // output head dims.
+    SmallVector<int64_t> headOperandDims(numOperands, mlir::sdy::kNullDim);
+    SmallVector<int64_t> headResultDims(numResults, mlir::sdy::kNullDim);
+    headOperandDims[0] = cacheHeadDim;     // cache
+    headOperandDims[1] = fillValueHeadDim; // fill_value
+    headResultDims[0] = outputHeadDim;     // output
+    builder.addFactor(headOperandDims, headResultDims, numHeads,
+                      mlir::sdy::FactorType::kPassThrough);
+
+    // Users factor (kPassThrough, size = num_users): cache and output have NO
+    // users dim. This tells the SPMD partitioner each replica writes a
+    // disjoint cache slice, so no cross-device sync is needed for the update.
+    SmallVector<int64_t> usersOperandDims(numOperands, mlir::sdy::kNullDim);
+    SmallVector<int64_t> usersResultDims(numResults, mlir::sdy::kNullDim);
+    usersOperandDims[1] = fillValueUsersDim; // fill_value
+    if (numOperands > 2) {
+      usersOperandDims[2] = 0; // update_indices
+    }
+    if (numOperands > 3) {
+      usersOperandDims[3] = 0; // page_table
+    }
+    // operand[0] (cache) and result[0] (cache) stay kNullDim — critical.
+    builder.addFactor(usersOperandDims, usersResultDims, numUsers,
+                      mlir::sdy::FactorType::kPassThrough);
+
+    return builder.build();
   }
 
   if (target == pagedFillCacheTargetName) {
