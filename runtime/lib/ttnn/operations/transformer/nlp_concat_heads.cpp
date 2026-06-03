@@ -5,26 +5,37 @@
 #include "operations/transformer/nlp_concat_heads.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/transformer/nlpConcatHeadsOp.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
 static void runNLPConcatHeadsOp(const ::tt::target::ttnn::NLPConcatHeadsOp *op,
-                                ProgramTensorPool &tensorPool) {
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+                                ProgramTensorPool &tensorPool,
+                                ProgramContext &context) {
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
-  ::ttnn::Tensor out =
-      ::ttnn::experimental::nlp_concat_heads(in, outputMemoryConfig);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::tt::target::ttnn::NLPConcatHeadsOpT opT;
+  op->UnPackTo(&opT);
+
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::NLPConcatHeadsOpResult result =
+      ttnn_op_invoke::callNLPConcatHeads(ttnn_op_invoke::CallType::EXECUTE, opT,
+                                         &input, targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callNLPConcatHeads execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::NLPConcatHeadsOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runNLPConcatHeadsOp(op, tensorPool);
+  runNLPConcatHeadsOp(op, tensorPool, context);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer

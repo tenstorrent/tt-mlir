@@ -26,6 +26,7 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NlpConcatHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -3792,10 +3793,19 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//
-llvm::Expected<OpConstraints>
-OpModel<NLPConcatHeadsOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                                            TTNNLayoutAttr inputLayout,
-                                            TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::NLPConcatHeadsOpT
+buildNLPConcatHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::NLPConcatHeadsOpT opT;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
+llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -3804,11 +3814,20 @@ OpModel<NLPConcatHeadsOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::NLPConcatHeadsOpT opT =
+      buildNLPConcatHeadsOpTFromMLIR(outputLayout);
+
   auto nlpConcatHeadsOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::nlp_concat_heads, device,
-                                inputSpec,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::NLPConcatHeadsOpResult result =
+        ttnn_op_invoke::callNLPConcatHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+            device);
+
+    LOG_ASSERT(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+                   result),
+               "Expected NLPConcatHeadsOp constraints query to return "
+               "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3830,11 +3849,20 @@ OpModel<NLPConcatHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::NLPConcatHeadsOpT opT =
+      buildNLPConcatHeadsOpTFromMLIR(outputLayout);
+
   auto nlpConcatHeadsOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::nlp_concat_heads, device,
-                            inputSpec,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::NLPConcatHeadsOpResult result =
+        ttnn_op_invoke::callNLPConcatHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec,
+            device);
+
+    LOG_ASSERT(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result),
+        "Expected NLPConcatHeadsOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(nlpConcatHeadsOpQuery);

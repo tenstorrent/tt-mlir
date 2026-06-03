@@ -27,8 +27,9 @@ runConcatenateHeadsOp(const ::tt::target::ttnn::ConcatenateHeadsOp *op,
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callConcatenateHeads execution");
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(),
-                                         std::get<::ttnn::Tensor>(result));
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::ConcatenateHeadsOp *op,
