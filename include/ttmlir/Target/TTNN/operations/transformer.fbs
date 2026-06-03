@@ -62,6 +62,7 @@ table ScaledDotProductAttentionDecodeOp {
   cur_pos_tensor: tt.target.ttnn.TensorRef;
   attention_sink: tt.target.ttnn.TensorRef;
   scale: float = null;
+  sliding_window_size: uint32 = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   program_config: tt.target.ttnn.SDPAConfig;
