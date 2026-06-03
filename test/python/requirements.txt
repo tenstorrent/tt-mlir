@@ -6,6 +6,7 @@ pytest-forked
 pytest-split
 setuptools
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch@https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl; sys_platform == "linux"
+torch@https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl; sys_platform == "linux" and platform_machine == "x86_64"
+torch@https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_aarch64.whl; sys_platform == "linux" and platform_machine == "aarch64"
 torch==2.9.1; sys_platform == "darwin"
 einops
