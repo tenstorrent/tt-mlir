@@ -3490,4 +3490,187 @@ INSTANTIATE_TEST_SUITE_P(
     PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
     ::testing::ValuesIn(pagedFlashMlaDecodeOpList));
 
+//===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<
+    ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         PagedScaledDotProductAttentionDecodeOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+const mlir::tt::ttnn::SDPAProgramConfigAttr nonDefaultSDPAProgramConfigAttr =
+    mlir::tt::ttnn::SDPAProgramConfigAttr::get(
+        getContext(),
+        /*computeWithStorageGridSize=*/
+        mlir::tt::ttnn::CoreCoordAttr::get(getContext(), 8, 8),
+        /*subCoreGrids=*/mlir::tt::ttnn::CoreRangeSetAttr(),
+        /*qChunkSize=*/64, /*kChunkSize=*/64,
+        /*expApproxMode=*/mlir::BoolAttr::get(getContext(), false),
+        /*maxCoresPerHeadBatch=*/64);
+
+void resetUnusedFields(
+    ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opTOpModel,
+    ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opTFB) {
+  auto helper =
+      [](::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opT) {
+        opT.query.reset();
+        opT.key.reset();
+        opT.value.reset();
+        opT.page_table.reset();
+        opT.attention_mask.reset();
+        opT.cur_pos_tensor.reset();
+        opT.attention_sink.reset();
+        resetOutputTensorRefT(opT.out);
+        opT.memcfg.reset();
+      };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp
+buildTestPagedScaledDotProductAttentionDecodeOp(
+    bool isCausal = true, bool withAttentionMask = false,
+    bool withCurPosTensor = false, bool withAttentionSink = false,
+    mlir::FloatAttr scale = {}, mlir::IntegerAttr slidingWindowSize = {},
+    mlir::tt::ttnn::SDPAProgramConfigAttr programConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value query = makeOnes();
+  mlir::Value key = makeOnes();
+  mlir::Value value = makeOnes();
+  mlir::Value pageTable = makeOnes();
+  mlir::Value attentionMask = withAttentionMask ? makeOnes() : mlir::Value();
+  mlir::Value curPosTensor = withCurPosTensor ? makeOnes() : mlir::Value();
+  mlir::Value attentionSink = withAttentionSink ? makeOnes() : mlir::Value();
+
+  return e.builder
+      .create<mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp>(
+          loc, tensorType, query, key, value, pageTable, isCausal,
+          attentionMask, curPosTensor, attentionSink, scale, slidingWindowSize,
+          programConfig);
+}
+
+} // namespace
+
+using PagedScaledDotProductAttentionDecodeOpTPathParityTest =
+    ::testing::TestWithParam<
+        mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp>;
+
+TEST_P(PagedScaledDotProductAttentionDecodeOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp sdpaOp = GetParam();
+
+  std::optional<llvm::APFloat> scaleOpt;
+  if (auto scaleAttr = sdpaOp.getScaleAttr()) {
+    scaleOpt = scaleAttr.getValue();
+  }
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT opTOpModel =
+      mlir::tt::ttnn::op_model::
+          buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+              sdpaOp.getIsCausal(), scaleOpt, sdpaOp.getSlidingWindowSize(),
+              sdpaOp.getProgramConfig(), resolveOutputLayout(sdpaOp));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sdpaOp.getQuery(), sdpaOp.getKey(),
+                               sdpaOp.getValue(), sdpaOp.getPageTable());
+  if (sdpaOp.getAttentionMask()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionMask());
+  }
+  if (sdpaOp.getCurPosTensor()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getCurPosTensor());
+  }
+  if (sdpaOp.getAttentionSink()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionSink());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, sdpaOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<
+    mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp>
+    pagedScaledDotProductAttentionDecodeOpList = {
+        buildTestPagedScaledDotProductAttentionDecodeOp(),
+        buildTestPagedScaledDotProductAttentionDecodeOp(/*isCausal=*/false),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/true),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/true),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/true),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f)),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/{},
+            /*slidingWindowSize=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                128u)),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/{}, /*slidingWindowSize=*/{},
+            /*programConfig=*/nonDefaultSDPAProgramConfigAttr),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/false, /*withAttentionMask=*/true,
+            /*withCurPosTensor=*/true, /*withAttentionSink=*/true,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.25f),
+            /*slidingWindowSize=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                256u),
+            /*programConfig=*/nonDefaultSDPAProgramConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    PagedScaledDotProductAttentionDecodeOpTPathParityTest,
+    PagedScaledDotProductAttentionDecodeOpTPathParityTest,
+    ::testing::ValuesIn(pagedScaledDotProductAttentionDecodeOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
