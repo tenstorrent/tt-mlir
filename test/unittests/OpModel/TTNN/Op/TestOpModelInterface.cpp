@@ -3147,7 +3147,7 @@ TEST_F(OpModelBase, Conv3dInterfaceConfigs) {
       /*input_depth=*/5, /*input_height=*/10, /*input_width=*/10,
       llvm::ArrayRef<int32_t>({3, 3, 3}), llvm::ArrayRef<int32_t>({1, 1, 1}),
       llvm::ArrayRef<int32_t>({0, 0, 0}), "zeros", /*groups=*/1,
-      /*output_dtype=*/nullptr, /*conv3d_config=*/nullptr,
+      /*conv3d_config=*/nullptr,
       /*compute_kernel_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(conv3d.getOperation());
@@ -3262,7 +3262,7 @@ TEST_F(OpModelBase, Conv3dOpModelDiscriminatesConfigs) {
       /*input_depth=*/8, /*input_height=*/28, /*input_width=*/28,
       llvm::ArrayRef<int32_t>({3, 3, 3}), llvm::ArrayRef<int32_t>({1, 1, 1}),
       llvm::ArrayRef<int32_t>({0, 0, 0}), "zeros", /*groups=*/1,
-      /*output_dtype=*/nullptr, /*conv3d_config=*/nullptr,
+      /*conv3d_config=*/nullptr,
       /*compute_kernel_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(conv3d.getOperation());

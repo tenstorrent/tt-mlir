@@ -33,6 +33,26 @@ namespace mlir::tt::ttnn {
 //   inputs (prevents premature deallocation crashes).
 //===----------------------------------------------------------------------===//
 
+struct Conv2dRuleBook : OpRuleBook {
+  /// Output hints: full legal configs with Conv2dConfig.
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+
+  /// Apply Conv2dConfig + DeviceComputeKernelConfig from candidate.
+  void applyOpSpecificAttrs(Operation *op,
+                            const BeamCandidate &candidate) const override;
+
+  /// Tiebreaker: prefer lower act_block_h_override.
+  bool preferCandidate(Operation *op, const BeamCandidate &a,
+                       const BeamCandidate &b) const override;
+
+  /// Reject output hints that would mix sharding types with the input.
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+};
+
 //===----------------------------------------------------------------------===//
 // Conv3d rules:
 //
@@ -56,26 +76,6 @@ struct Conv3dRuleBook : OpRuleBook {
   /// Tiebreaker: prefer larger t*h*w block volume, then larger c_in_block.
   bool preferCandidate(Operation *op, const BeamCandidate &a,
                        const BeamCandidate &b) const override;
-};
-
-struct Conv2dRuleBook : OpRuleBook {
-  /// Output hints: full legal configs with Conv2dConfig.
-  OutputHints
-  getOutputHints(Operation *op,
-                 const std::vector<OpConfig> &legalConfigs) const override;
-
-  /// Apply Conv2dConfig + DeviceComputeKernelConfig from candidate.
-  void applyOpSpecificAttrs(Operation *op,
-                            const BeamCandidate &candidate) const override;
-
-  /// Tiebreaker: prefer lower act_block_h_override.
-  bool preferCandidate(Operation *op, const BeamCandidate &a,
-                       const BeamCandidate &b) const override;
-
-  /// Reject output hints that would mix sharding types with the input.
-  bool isValidOutputHintForInputs(
-      const OpConfig &hint,
-      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
 };
 
 /// Set L1Full slice config on all Conv2d ops before validation.

@@ -12,9 +12,7 @@
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
-namespace mlir {
-namespace tt {
-namespace ttnn {
+namespace mlir::tt::ttnn {
 
 // Search space for ttnn::Conv3dConfigAttr. Each non-empty SmallVector defines
 // the candidate set for that field; an empty vector means the field is fixed
@@ -68,8 +66,6 @@ bool forEachConv3dConfig(
     llvm::function_ref<bool(const Conv3dConfigAttr &)> filterOut,
     llvm::function_ref<void(Conv3dConfigAttr)> callback);
 
-} // namespace ttnn
-} // namespace tt
-} // namespace mlir
+} // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_CONV3DCONFIGSEARCHSPACE_H

@@ -68,25 +68,78 @@ struct Conv2dConfigSearchSpaceFactory {
   }
 };
 
-// Default shape-independent Conv3d search space. Empirical candidate sets
-// derived from tt-metal's `bruteforce_conv3d_sweep.py` block enumeration.
-// LegalOpConfigAnalysis is expected to pair this with a shape-specific
-// filterOutFn that rejects candidates failing divisibility against the
-// concrete (T_out, H_out, W_out, C_in_aligned, kernel) of each op.
+// Default shape-independent Conv3d search space.
+//
+// Candidate sets are produced by structural generators. Each generator
+// emits every value consistent with the structural constraints of its
+// field; LegalOpConfigAnalysis then applies a shape-specific structural
+// filter (divisibility, bounds, h*w <= 256) and OpModel-driven
+// validation that rejects candidates the tt-metal conv3d kernel cannot
+// run on this device. Per-workload blocking oracles are not consulted
+// here — their role is downstream verification, not search input.
 struct Conv3dConfigSearchSpaceFactory {
   static Conv3dConfigSearchSpace get() {
-    static Conv3dConfigSearchSpace searchSpace;
-    // Block sizes step in tile-width units (32). Production blockings in
-    // tt-metal's _BLOCKINGS table top out around 128 for typical 3x3x3 convs.
-    searchSpace.cInBlock = {32, 64, 96, 128};
-    searchSpace.cOutBlock = {32, 64, 96, 128};
-    // T/H/W block candidates cover the common Wan-VAE shapes. Filter must
-    // reject combinations where h*w > 256 (CB cap).
-    searchSpace.tOutBlock = {1, 2, 3, 4};
-    searchSpace.hOutBlock = {1, 2, 4, 8};
-    searchSpace.wOutBlock = {1, 2, 4, 8};
-    // Searching weightsDtype and computeWithStorageGridSize is deferred; pin
-    // to op default for now.
+    static const Conv3dConfigSearchSpace searchSpace = [] {
+      Conv3dConfigSearchSpace s;
+
+      // c_in_block / c_out_block: every multiple of TILE_WIDTH up to
+      // kMaxChannelBlock.
+      //
+      // tt-metal's conv3d kernel processes channels in TILE_WIDTH (32)
+      // groups, and PrepareConv3dWeightsOp pre-packs the weight using
+      // `alignment = TILE_WIDTH` (see TTNNPrepareConv3dWeights). The
+      // structural filter additionally enforces
+      // `c_in_block <= cInAligned`,
+      // `(kT*kH*kW*cInAligned) % c_in_block == 0`,
+      // `c_out_block <= cOutAligned`, and
+      // `cOutAligned % c_out_block == 0`. Non-multiples can satisfy the
+      // divisibility filter only by coincidence and would fail at
+      // runtime.
+      //
+      // kMaxChannelBlock = 256 is the practical cap on the cartesian
+      // product; workloads with cInAligned or cOutAligned beyond it
+      // fall back to the largest tile-aligned divisor under the cap
+      // selected by OpModel-driven ranking.
+      constexpr uint32_t kTileWidth = 32;
+      constexpr uint32_t kMaxChannelBlock = 256;
+      for (uint32_t c = kTileWidth; c <= kMaxChannelBlock; c += kTileWidth) {
+        s.cInBlock.push_back(c);
+        s.cOutBlock.push_back(c);
+      }
+
+      // t_out_block: every positive integer in [1, kMaxTOutBlock].
+      //
+      // Temporal blocks face no tile-alignment or divisibility
+      // constraint; the structural filter checks only
+      // `0 < t_out_block <= T_out` (tt-metal's conv3d kernel pads
+      // non-divisor trailing blocks at runtime).
+      //
+      // kMaxTOutBlock = 16 is a structural cap above the T_out of
+      // typical 3D-conv workloads; values exceeding any given op's
+      // T_out are filtered out per-op.
+      constexpr uint32_t kMaxTOutBlock = 16;
+      for (uint32_t t = 1; t <= kMaxTOutBlock; ++t) {
+        s.tOutBlock.push_back(t);
+      }
+
+      // h_out_block / w_out_block: powers of 2 in [1, kMaxSpatialBlock].
+      //
+      // Spatial blocks are restricted to powers of 2: non-power-of-2
+      // values misalign with tt-metal's 32x32 tile grid for matmul
+      // aspect, and DRAM page strides favour 2^n. The structural filter
+      // caps each block at the corresponding output extent and enforces
+      // `h_out_block * w_out_block <= 256`.
+      //
+      // kMaxSpatialBlock = 32 is the largest power of 2 that fits the
+      // h*w <= 256 budget paired with any nontrivial counterpart.
+      constexpr uint32_t kMaxSpatialBlock = 32;
+      for (uint32_t v = 1; v <= kMaxSpatialBlock; v *= 2) {
+        s.hOutBlock.push_back(v);
+        s.wOutBlock.push_back(v);
+      }
+
+      return s;
+    }();
     return searchSpace;
   }
 };

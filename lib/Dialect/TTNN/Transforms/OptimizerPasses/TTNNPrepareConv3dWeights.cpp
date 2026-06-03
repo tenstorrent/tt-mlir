@@ -1,0 +1,137 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
+#include "ttmlir/Utils.h"
+
+namespace mlir::tt::ttnn {
+#define GEN_PASS_DEF_TTNNPREPARECONV3DWEIGHTS
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
+
+namespace {
+// Post-optimizer pass that materializes a PrepareConv3dWeightsOp before each
+// Conv3dOp. The TTIRToTTNN conversion leaves Conv3dOp consuming its raw 5D
+// weight; this pass picks up the c_in_block chosen by the optimizer (via
+// Conv3dConfigAttr) and inserts the prepare op with that block size. The
+// prepared weight's shape is invariant in c_in_block, so the shape is fully
+// determined by op attributes.
+//
+// Mirrors TTNNPrepareConv2dWeightsAndBias: by deferring prepare-op creation
+// until after the optimizer has chosen a config, we avoid the layout/c_in_block
+// mistypings that the (deleted) TTNNRefreshConv3dPrepareWeights pass was
+// patching up post-hoc.
+class TTNNPrepareConv3dWeights
+    : public impl::TTNNPrepareConv3dWeightsBase<TTNNPrepareConv3dWeights> {
+public:
+  using impl::TTNNPrepareConv3dWeightsBase<
+      TTNNPrepareConv3dWeights>::TTNNPrepareConv3dWeightsBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    moduleOp.walk(
+        [&](Conv3dOp convOp) { processConvOp(convOp, rewriter); });
+  }
+
+private:
+  void processConvOp(Conv3dOp convOp, IRRewriter &rewriter) {
+    // Skip if the prepare op is already in place (weight already 2D).
+    if (convOp.getWeight().getType().getRank() == 2) {
+      return;
+    }
+
+    constexpr int32_t TILE_WIDTH =
+        static_cast<int32_t>(ttcore::TileType::getDefaultShape()[1]);
+    constexpr int32_t ALIGNMENT = TILE_WIDTH;
+
+    // Derive c_in_block from the optimizer's Conv3dConfigAttr when present,
+    // otherwise default to TILE_WIDTH (matching tt-metal's default).
+    int32_t cInBlock = TILE_WIDTH;
+    if (Conv3dConfigAttr config = convOp.getConv3dConfigAttr()) {
+      if (auto chosen = config.getCInBlock()) {
+        cInBlock = static_cast<int32_t>(*chosen);
+      }
+    }
+
+    // The prepare op's MLIR result type must match what tt-metal's runtime
+    // produces: a ROW_MAJOR 2D tensor. The helper builds exactly that.
+    mlir::RankedTensorType preparedWeightType =
+        op_model::getPreparedConv3dWeightsOutputTensor(&convOp);
+
+    rewriter.setInsertionPoint(convOp);
+
+    // tt-metal's prepare_conv3d_weights runtime kernel expects its input
+    // weight to be ROW_MAJOR in SystemMemory. The optimizer's layout
+    // propagation may have re-typed the raw 5D weight (e.g. to TILE in
+    // DRAM); since the prepare op didn't exist at workaround time, the
+    // input-operand workaround couldn't fire. Insert the to_layout here.
+    Value rawWeight = convOp.getWeight();
+    auto rawWeightType =
+        mlir::cast<RankedTensorType>(rawWeight.getType());
+    auto rawWeightLayout =
+        mlir::cast<TTNNLayoutAttr>(rawWeightType.getEncoding());
+    if (rawWeightLayout.getLayout() != Layout::RowMajor ||
+        rawWeightLayout.getBufferType() != BufferType::SystemMemory) {
+      auto hostRowMajorLayout =
+          TTNNLayoutAttr::Builder(rewriter.getContext(),
+                                  rawWeightType.getShape(),
+                                  rawWeightLayout.getScalarElementType())
+              .setBufferType(BufferType::SystemMemory)
+              .build();
+      auto hostRowMajorType = mlir::RankedTensorType::get(
+          rawWeightType.getShape(), rawWeightLayout.getScalarElementType(),
+          hostRowMajorLayout);
+      auto rowMajorLayoutAttr =
+          LayoutAttr::get(rewriter.getContext(), Layout::RowMajor);
+      auto toRowMajorOp = rewriter.create<ToLayoutOp>(
+          ttmlir::utils::appendLocationSuffix(
+              convOp.getLoc(), "_prepare_conv3d_weight_to_row_major"),
+          hostRowMajorType, rawWeight, rowMajorLayoutAttr);
+      rawWeight = toRowMajorOp.getResult();
+    }
+
+    auto prepareOp = rewriter.create<PrepareConv3dWeightsOp>(
+        ttmlir::utils::appendLocationSuffix(convOp.getLoc(),
+                                            "_prepare_conv3d_weight"),
+        preparedWeightType, rawWeight,
+        rewriter.getI32IntegerAttr(convOp.getGroups()),
+        rewriter.getI32IntegerAttr(cInBlock),
+        rewriter.getI32IntegerAttr(ALIGNMENT), convOp.getDevice());
+
+    // tt-metal's conv3d kernel consumes the weight in TILE layout. The
+    // prepare op outputs ROW_MAJOR (matching runtime), so insert a to_layout
+    // op converting to TILE before the conv3d. Without this, the workaround
+    // pass — which already ran — has not been able to enforce the tile
+    // constraint on the weight (its input was the raw 5D weight).
+    auto tileLayoutAttr =
+        LayoutAttr::get(rewriter.getContext(), Layout::Tile);
+    auto preparedLayout =
+        mlir::cast<TTNNLayoutAttr>(preparedWeightType.getEncoding());
+    auto tiledLayout =
+        TTNNLayoutAttr::Builder(rewriter.getContext(),
+                                preparedWeightType.getShape(),
+                                ttcore::TileType::get(
+                                    preparedLayout.getScalarElementType()))
+            .setBufferType(preparedLayout.getBufferType())
+            .setMemoryLayout(preparedLayout.getMemLayout())
+            .build();
+    auto tiledType = mlir::RankedTensorType::get(
+        preparedWeightType.getShape(), preparedLayout.getScalarElementType(),
+        tiledLayout);
+    auto toTileOp = rewriter.create<ToLayoutOp>(
+        ttmlir::utils::appendLocationSuffix(convOp.getLoc(),
+                                            "_prepare_conv3d_weight_to_tile"),
+        tiledType, prepareOp.getResult(), tileLayoutAttr);
+
+    rewriter.modifyOpInPlace(convOp, [&]() {
+      convOp.getWeightMutable().assign(toTileOp.getResult());
+    });
+  }
+};
+} // namespace
+} // namespace mlir::tt::ttnn

@@ -129,8 +129,6 @@ void createTTNNPipelineAnalysisPasses(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
             innerPm.addPass(
-                mlir::tt::ttnn::createTTNNRefreshConv3dPrepareWeights());
-            innerPm.addPass(
                 mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
           },
           wrapperOptions));
@@ -170,8 +168,6 @@ void createTTNNPipelineAnalysisPasses(
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNRefreshConv3dPrepareWeights());
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
           },
@@ -422,6 +418,12 @@ void createTTIRToTTNNCommonPipeline(
     }
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
+
+    // Materialize PrepareConv3dWeightsOp for every Conv3dOp. Runs after the
+    // optimizer (so it can read the optimizer's chosen Conv3dConfigAttr) but
+    // unconditionally — at optimization-level=0 there's no Conv3dConfigAttr
+    // and the pass falls back to TILE_WIDTH for c_in_block.
+    devicePm.addPass(mlir::tt::ttnn::createTTNNPrepareConv3dWeights());
 
     if (options.enableCreateD2MSubgraphs) {
       TTNNPipelineD2MPassOptions d2mOptions;

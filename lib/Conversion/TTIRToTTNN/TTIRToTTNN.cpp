@@ -1940,43 +1940,7 @@ public:
 
     auto paddingModeAttr = adaptor.getPaddingModeAttr();
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    constexpr int64_t ALIGNMENT = TILE_WIDTH;
-
-    auto weightShape = weightTy.getShape();
-    int64_t outChannels = weightShape[0];
-    int64_t inChannelsPerGroup = weightShape[1];
-    int64_t kernelDepth = weightShape[2];
-    int64_t kernelHeight = weightShape[3];
-    int64_t kernelWidth = weightShape[4];
-    int64_t cInAligned =
-        llvm::divideCeil(inChannelsPerGroup, ALIGNMENT) * ALIGNMENT;
-    int64_t numCInBlocks = cInAligned / TILE_WIDTH;
-    llvm::SmallVector<int64_t> preparedWeightShape = {
-        numCInBlocks * kernelDepth * kernelHeight * kernelWidth * TILE_WIDTH,
-        outChannels};
-    auto oldWeightLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(weightTy.getEncoding());
-    auto preparedWeightLayout =
-        ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(),
-                                      preparedWeightShape,
-                                      oldWeightLayout.getScalarElementType())
-            .setBufferType(ttnn::BufferType::DRAM)
-            .setMemoryLayout(ttnn::TensorMemoryLayout::Interleaved)
-            .build();
-    auto preparedWeightType = mlir::RankedTensorType::get(
-        preparedWeightShape, oldWeightLayout.getScalarElementType(),
-        preparedWeightLayout);
-    Value reshapedWeight = rewriter.create<ttnn::PrepareConv3dWeightsOp>(
-        ttmlir::utils::appendLocationSuffix(op.getLoc(),
-                                            "_prepare_conv3d_weight"),
-        preparedWeightType, adaptor.getWeight(), groupsAttr,
-        rewriter.getI32IntegerAttr(TILE_WIDTH),
-        rewriter.getI32IntegerAttr(ALIGNMENT), device);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2004,9 +1968,12 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
+    // The raw 5D weight is passed through unchanged; TTNNPrepareConv3dWeights
+    // (a post-optimizer pass) inserts the PrepareConv3dWeightsOp once the
+    // optimizer has chosen a Conv3dConfigAttr.
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
-        op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
-        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
+        op.getLoc(), outputType, input, adaptor.getWeight(), reshapedBias,
+        device, inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
         *paddingAttr, paddingModeAttr, groupsAttr, /*conv3d_config=*/nullptr,
         /*compute_config=*/nullptr);

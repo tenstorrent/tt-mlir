@@ -1550,7 +1550,8 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
 
 // TT-Metal's Conv3d has operand format constraints:
 // - input must be row-major bf16
-// - weight must be tile bf16
+// - weight must be bf16 (layout is enforced by TTNNPrepareConv3dWeights,
+//   which inserts a prepare op + to_layout(Tile) before Conv3dOp)
 // - bias must be tile bf16 when present
 // - output is forced to bf16
 // Tracked in: https://github.com/tenstorrent/tt-metal/issues/35436
@@ -1560,6 +1561,9 @@ TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
   TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds weightWorkaround;
+  weightWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
   TTNNOperandWorkarounds tiledBf16Workaround;
   tiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
@@ -1571,7 +1575,7 @@ TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
   auto workaround =
       wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
           .addInputOperandWorkaround(inputWorkaround)
-          .addInputOperandWorkaround(tiledBf16Workaround)
+          .addInputOperandWorkaround(weightWorkaround)
           .addOutputOperandWorkaround(outputWorkaround);
 
   if (op.getBias()) {

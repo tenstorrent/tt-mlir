@@ -2,19 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Phase 4 of the conv3d optimizer rollout: oracle accuracy test.
+// Conv3d search-space reachability test against the oracle.
 //
-// We lift the hand-tuned `_BLOCKINGS` table from tt-metal's
-// `models/tt_dit/utils/conv3d.py` into a JSON asset and grade tt-mlir's
-// optimizer scoring against it. For each row:
-//   1. Build the same search space and shape-specific filter as
-//      LegalOpConfigAnalysis would for a Conv3dOp of this shape.
-//   2. Generate all candidates and sort by the empirical scoring tuple
-//      defined in Phase 5 (voxelsPerLaunch, c_in, c_out, ...).
-//   3. Record whether the oracle's chosen blocking appears in the top-1
-//      and top-5 of our ranking.
+// The production ranker is two-stage: a structural pre-filter selects
+// the top-K candidates by block volume + aspect, and OpModel re-ranks
+// them by simulated runtime. This test cannot invoke OpModel (no
+// device), so it grades only the prerequisite: every hand-tuned oracle
+// pick must be *reachable* by the search space and the structural
+// filter. If reachability holds, production OpModel ranking has the
+// chance to surface the oracle pick; if it doesn't, no amount of
+// OpModel tuning will recover it.
 //
-// Thresholds are starting floors — ratchet upward as the heuristic improves.
+// Ranking-quality verification belongs in silicon perf benchmarks over
+// the full _BLOCKINGS distribution, where actual runtime is observable.
 
 #include "ttmlir/Dialect/TTNN/Analysis/Conv3dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
@@ -123,20 +123,50 @@ Conv3dConfigSearchSpace buildSearchSpaceWithExpected(const OracleEntry &o) {
   return space;
 }
 
-// Score tuple — must match the order used by LegalOpConfigAnalysis::
-// fillOpSpecificAttrs sort key (Phase 5). Larger is better.
-std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>
-scoreConfig(Conv3dConfigAttr cfg, int64_t spatialVolume) {
-  uint32_t t = cfg.getTOutBlock().value_or(1);
-  uint32_t h = cfg.getHOutBlock().value_or(1);
-  uint32_t w = cfg.getWOutBlock().value_or(1);
-  uint32_t cIn = cfg.getCInBlock().value_or(1);
-  uint32_t cOut = cfg.getCOutBlock().value_or(1);
-  int64_t hwAspect = std::abs(static_cast<int64_t>(h) * w - 32);
-  int64_t largeSpatialBonus = (spatialVolume > 10000 && cOut >= 96) ? 1000 : 0;
-  return {-hwAspect, static_cast<int64_t>(t), static_cast<int64_t>(cIn),
-          static_cast<int64_t>(cOut), largeSpatialBonus};
+// Test-only proxy for the L1-fit predicate the production path defers
+// to OpModel. OpModel queries require a real device, which this gtest
+// has no access to, so without this proxy the structural top-K would
+// be dominated by max-volume candidates that exceed L1 — OpModel would
+// reject them in production but this test cannot. The estimator mirrors
+// tt-metal's `bruteforce_conv3d_sweep.py` CB sizing and is intentionally
+// duplicated here only to make ranking comparisons against the oracle
+// meaningful; do not lift this back into LegalOpConfigAnalysis.
+int64_t estimateL1Bytes(int64_t cInBlock, int64_t cOutBlock, int64_t tBlock,
+                        int64_t hBlock, int64_t wBlock, int64_t kT, int64_t kH,
+                        int64_t kW, int64_t cInAligned) {
+  constexpr int64_t TILE = 2048;
+  constexpr int64_t FP32_TILE = 4096;
+  constexpr int64_t TILE_H = 32;
+  constexpr int64_t DTYPE_B = 2;
+  int64_t cInNumBlocks = cInAligned / cInBlock;
+  int64_t numPatches = tBlock * hBlock * wBlock;
+  int64_t patchSize = kT * kH * kW * cInBlock;
+  int64_t paddedPatchSize = ((patchSize + 31) / 32) * 32;
+  int64_t paddedPatchBytes = paddedPatchSize * DTYPE_B;
+  int64_t mMt = (numPatches + TILE_H - 1) / TILE_H;
+  int64_t mKt = (patchSize + 31) / 32;
+  int64_t mNt = (cOutBlock + 31) / 32;
+  int64_t vol2colRmPages =
+      (numPatches % TILE_H == 0) ? TILE_H : std::min(numPatches, 2 * TILE_H);
+  int64_t cbVol2colRm = paddedPatchBytes * vol2colRmPages;
+  int64_t cbVol2colTiled = TILE * mKt;
+  int64_t cbWeight = TILE * mKt * mNt;
+  bool useFp32 = cInNumBlocks > 1;
+  int64_t partialTile = useFp32 ? FP32_TILE : TILE;
+  int64_t cbInterm = partialTile * mMt * mNt;
+  int64_t cbResult = TILE * mMt * mNt;
+  int64_t cbReduction =
+      (cInNumBlocks > 1) ? (partialTile * mMt * mNt + TILE) : 0;
+  int64_t cbBias = TILE * mNt;
+  int64_t cbZero = useFp32 ? TILE : 0;
+  int64_t tS = (tBlock - 1) + kT;
+  int64_t hS = (hBlock - 1) + kH;
+  int64_t wS = (wBlock - 1) + kW;
+  int64_t cbShard = tS * hS * wS * cInBlock * DTYPE_B;
+  return cbVol2colRm + cbVol2colTiled + cbWeight + cbInterm + cbResult +
+         cbReduction + cbBias + cbZero + cbShard;
 }
+constexpr int64_t kL1Budget = 1572864 - 200 * 1024;
 
 bool sameBlocking(Conv3dConfigAttr cfg, const OracleEntry &o) {
   return cfg.getCInBlock() == o.expectedCInBlock &&
@@ -153,13 +183,11 @@ public:
   void SetUp() override { context.loadDialect<TTNNDialect>(); }
 };
 
-TEST_F(Conv3dOracleAccuracyTest, TopKHitRate) {
+TEST_F(Conv3dOracleAccuracyTest, OracleReachability) {
   std::vector<OracleEntry> oracle = loadOracle();
   ASSERT_FALSE(oracle.empty()) << "Oracle JSON loaded zero entries.";
 
   size_t total = oracle.size();
-  size_t top1Hits = 0;
-  size_t top5Hits = 0;
   size_t reachable = 0;
 
   constexpr int64_t TILE_WIDTH = 32;
@@ -168,16 +196,13 @@ TEST_F(Conv3dOracleAccuracyTest, TopKHitRate) {
         ((o.inChannels + TILE_WIDTH - 1) / TILE_WIDTH) * TILE_WIDTH;
     int64_t cOutAligned =
         ((o.outChannels + TILE_WIDTH - 1) / TILE_WIDTH) * TILE_WIDTH;
-    int64_t spatialVolume = o.tOut * o.hOut * o.wOut;
 
-    // Filter mirrors tt-metal's brute-force sweep: divisibility is required
-    // for c_in/c_out blocks (the weight reshape depends on it) but spatial
-    // (t/h/w) blocks are allowed to be non-divisors — the runtime handles
-    // partial last blocks via padding. The hard h*w <= 256 cap is still
-    // enforced (CB capacity). This is intentionally looser than the
-    // LegalOpConfigAnalysis filter we ship in tt-mlir today, which
-    // currently requires divisibility everywhere; the gap surfaces below
-    // as oracle entries we score against but cannot reach in production.
+    // Filter mirrors LegalOpConfigAnalysis's structural pre-filter
+    // (divisibility, bounds, h*w <= 256), plus the test-only L1-fit
+    // proxy. The proxy stands in for OpModel — production delegates L1
+    // validation to OpModel, but unit tests cannot invoke it (no
+    // device). Without the proxy, the structural ranker would prefer
+    // candidates OpModel would reject.
     auto filter = [&](const Conv3dConfigAttr &cfg) {
       if (auto cIn = cfg.getCInBlock()) {
         if (cIn.value() == 0 || cIn.value() > cInAligned ||
@@ -203,6 +228,18 @@ TEST_F(Conv3dOracleAccuracyTest, TopKHitRate) {
           return true;
         }
       }
+      // Test-only OpModel proxy: reject candidates whose hand-coded L1
+      // estimate exceeds the budget. See estimateL1Bytes docstring.
+      if (cfg.getCInBlock() && cfg.getCOutBlock() && cfg.getTOutBlock() &&
+          cfg.getHOutBlock() && cfg.getWOutBlock()) {
+        int64_t l1 = estimateL1Bytes(
+            cfg.getCInBlock().value(), cfg.getCOutBlock().value(),
+            cfg.getTOutBlock().value(), cfg.getHOutBlock().value(),
+            cfg.getWOutBlock().value(), o.kT, o.kH, o.kW, cInAligned);
+        if (l1 > kL1Budget) {
+          return true;
+        }
+      }
       return false;
     };
 
@@ -221,10 +258,6 @@ TEST_F(Conv3dOracleAccuracyTest, TopKHitRate) {
     forEachConv3dConfig(static_cast<Conv3dOp *>(nullptr), baseConfig, space,
                         filter,
                         [&](Conv3dConfigAttr cfg) { all.push_back(cfg); });
-    std::stable_sort(
-        all.begin(), all.end(), [&](Conv3dConfigAttr a, Conv3dConfigAttr b) {
-          return scoreConfig(a, spatialVolume) > scoreConfig(b, spatialVolume);
-        });
 
     // Did the search space + filter actually contain the oracle's pick?
     bool inSpace = std::any_of(all.begin(), all.end(), [&](Conv3dConfigAttr c) {
@@ -248,61 +281,18 @@ TEST_F(Conv3dOracleAccuracyTest, TopKHitRate) {
                     << " w=" << o.expectedWOutBlock;
       continue;
     }
-
-    // Top-1
-    if (!all.empty() && sameBlocking(all[0], o)) {
-      ++top1Hits;
-    }
-    // Top-5
-    bool inTop5 = false;
-    for (size_t i = 0; i < std::min<size_t>(5, all.size()); ++i) {
-      if (sameBlocking(all[i], o)) {
-        ++top5Hits;
-        inTop5 = true;
-        break;
-      }
-    }
-    if (!inTop5) {
-      // Print the top-3 picks alongside the expected so failures are
-      // actionable. Helps tune the scoring tuple in Phase 5 follow-ups.
-      llvm::errs() << "[miss] shape (kT=" << o.kT << ", kH=" << o.kH
-                   << ", kW=" << o.kW << ", Cin=" << o.inChannels
-                   << ", Cout=" << o.outChannels << ", T=" << o.tOut
-                   << ", H=" << o.hOut << ", W=" << o.wOut
-                   << ") expected (cIn=" << o.expectedCInBlock
-                   << " cOut=" << o.expectedCOutBlock
-                   << " t=" << o.expectedTOutBlock
-                   << " h=" << o.expectedHOutBlock
-                   << " w=" << o.expectedWOutBlock << "); we picked:";
-      for (size_t i = 0; i < std::min<size_t>(3, all.size()); ++i) {
-        auto c = all[i];
-        llvm::errs() << " [" << i << "](cIn=" << c.getCInBlock().value_or(0)
-                     << " cOut=" << c.getCOutBlock().value_or(0)
-                     << " t=" << c.getTOutBlock().value_or(0)
-                     << " h=" << c.getHOutBlock().value_or(0)
-                     << " w=" << c.getWOutBlock().value_or(0) << ")";
-      }
-      llvm::errs() << " total_candidates=" << all.size() << "\n";
-    }
   }
 
   llvm::errs() << "[Conv3dOracleAccuracy] total=" << total
-               << " reachable=" << reachable << " top1=" << top1Hits
-               << " top5=" << top5Hits << "\n";
+               << " reachable=" << reachable << "\n";
 
-  // Reachability floor: every oracle entry must be in the search space, or
-  // we cannot meaningfully grade scoring.
+  // Reachability is the only check: every oracle entry must be
+  // generated by the search space and admitted by the structural
+  // filter, otherwise OpModel ranking in production can never surface
+  // it. Whether OpModel then ranks the oracle pick first vs second vs
+  // tenth is graded by silicon perf tests, not here.
   EXPECT_EQ(reachable, total)
-      << "Some oracle entries are not in the search space; tighten "
-         "buildSearchSpaceWithExpected or relax the filter.";
-
-  // Starting thresholds: top-5 >= 20%, top-1 >= 10%. The remaining 80%
-  // of oracle picks miss because our scoring lacks an L1-budget cost — the
-  // oracle frequently picks smaller `t_out_block` than the largest valid
-  // divisor, suggesting tt-metal's hand-tuning weighs activation footprint
-  // we don't model. Future Phase 5 follow-up: lift `estimate_l1_bytes` from
-  // tt-metal's `bruteforce_conv3d_sweep.py` and add it to scoring. Ratchet
-  // these thresholds upward when that lands.
-  EXPECT_GE(top5Hits * 100, total * 20) << "top-5 hit rate dropped below 20%";
-  EXPECT_GE(top1Hits * 100, total * 10) << "top-1 hit rate dropped below 10%";
+      << "Some oracle entries are not in the search space; expand the "
+         "search-space caps in Conv3dConfigSearchSpaceFactory or relax "
+         "the structural filter in LegalOpConfigAnalysis.";
 }

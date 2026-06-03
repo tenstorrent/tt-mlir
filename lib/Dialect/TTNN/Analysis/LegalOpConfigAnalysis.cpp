@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Conv3dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -346,32 +345,42 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
                         /*compute_with_storage_grid_size=*/std::nullopt);
         }
 
-        // Shape-specific divisibility filter. The empirical rules:
-        //   c_in_block | (kT * kH * kW * c_in_aligned)
-        //   t/h/w_out_block | T/H/W_out (only for currently-set fields)
-        //   h_out_block * w_out_block <= 256
-        const auto kernelSize = convOp.getKernelSize();
-        const int64_t kT = kernelSize[0];
-        const int64_t kH = kernelSize[1];
-        const int64_t kW = kernelSize[2];
+        // Shape-derived bounds used by the structural pre-filter below.
+        // The kernel sizes and aligned channel counts come from op
+        // attributes (the weight tensor's in-IR shape is raw 5D at this
+        // point — TTNNPrepareConv3dWeights hasn't run yet — so dim 1 is
+        // not yet a flattened patch dimension).
         constexpr int64_t TILE_WIDTH =
             mlir::tt::ttcore::TileType::getDefaultShape()[1];
-        // Use op attribute (not the weight tensor) because by this point the
-        // weight has already been collapsed to 2D by PrepareConv3dWeightsOp,
-        // so dim 1 of the weight tensor is out_channels, not c_in_per_group.
         const int64_t cInPerGroup = convOp.getInChannels() / convOp.getGroups();
         const int64_t cInAligned =
             llvm::divideCeil(cInPerGroup, TILE_WIDTH) * TILE_WIDTH;
         const auto outputShape = convOp.getResult().getType().getShape();
-        // Conv3dOp output is NDHWC (channel last). Drop the batch dim and
-        // channel dim; T, H, W are dims 1, 2, 3.
+        // Conv3dOp output is NDHWC (channel last). T, H, W are dims 1, 2, 3.
         const int64_t tOut = outputShape[1];
         const int64_t hOut = outputShape[2];
         const int64_t wOut = outputShape[3];
         const int64_t cOut = outputShape[4];
         const int64_t cOutAligned =
             llvm::divideCeil(cOut, TILE_WIDTH) * TILE_WIDTH;
+        const auto kernelSize = convOp.getKernelSize();
+        const int64_t kT = kernelSize[0];
+        const int64_t kH = kernelSize[1];
+        const int64_t kW = kernelSize[2];
 
+        // Structural pre-filter. Rejects only candidates that are
+        // structurally invalid for the runtime kernel:
+        //   - c_in_block must divide kT*kH*kW*cInAligned (weight
+        //     pre-pack constraint) and not exceed cInAligned.
+        //   - c_out_block must divide cOutAligned and not exceed it.
+        //   - t/h/w blocks must be positive and not exceed the
+        //     corresponding output extent (tt-metal pads non-divisor
+        //     trailing blocks at runtime).
+        //   - h_out_block * w_out_block <= 256 (CB capacity limit
+        //     baked into the kernel).
+        // L1-fit is intentionally *not* checked here — OpModel is the
+        // authoritative legality oracle and the validation pass below
+        // queries it directly.
         auto filterOut = [=](const Conv3dConfigAttr &cfg) {
           if (auto cIn = cfg.getCInBlock()) {
             if (cIn.value() == 0 || cIn.value() > cInAligned ||
@@ -380,24 +389,23 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
             }
           }
           if (auto cOutBlock = cfg.getCOutBlock()) {
-            // c_out_block must be tile-aligned and not exceed c_out_aligned.
             if (cOutBlock.value() == 0 || cOutBlock.value() > cOutAligned ||
                 cOutAligned % cOutBlock.value() != 0) {
               return true;
             }
           }
           if (auto t = cfg.getTOutBlock()) {
-            if (t.value() == 0 || tOut % t.value() != 0) {
+            if (t.value() == 0 || static_cast<int64_t>(t.value()) > tOut) {
               return true;
             }
           }
           if (auto h = cfg.getHOutBlock()) {
-            if (h.value() == 0 || hOut % h.value() != 0) {
+            if (h.value() == 0 || static_cast<int64_t>(h.value()) > hOut) {
               return true;
             }
           }
           if (auto w = cfg.getWOutBlock()) {
-            if (w.value() == 0 || wOut % w.value() != 0) {
+            if (w.value() == 0 || static_cast<int64_t>(w.value()) > wOut) {
               return true;
             }
           }
@@ -423,41 +431,215 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
           generatedConfigs.push_back(baseConfig);
         }
 
-        // Empirical scoring rules derived from tt-metal's
-        // `bruteforce_conv3d_sweep.py` and verified against the hand-tuned
-        // `_BLOCKINGS` oracle table (14 of 15 production entries use
-        // h·w == 32):
-        //   1. Prefer h_out_block * w_out_block close to 32 — the matmul
-        //      aspect-ratio sweet spot for the tt-metal Conv3d kernel.
-        //   2. Larger t_out_block — more temporal voxels per launch.
-        //   3. Larger c_in_block — fewer C-in passes per output voxel.
-        //   4. Larger c_out_block — fewer C-out passes.
-        //   5. For T*H*W > 10_000 prefer c_out >= 96; small c_out * large
-        //      spatial never wins.
-        const int64_t spatialVolume = tOut * hOut * wOut;
-        auto score = [&](const Conv3dConfigAttr &c) {
+        // Two-stage ranking: a first-principles structural score
+        // selects the top-K candidates for OpModel evaluation, then
+        // OpModel provides authoritative legality + cycle-based ordering.
+        //
+        // Hand-tuned per-workload blocking oracles are intentionally not
+        // consulted here. Their role is verification (does the runtime
+        // of an optimizer-picked config land close to the oracle's
+        // hand-tuned config?), not search input.
+        //
+        // Structural score (larger is better):
+        //   1. -|h*w - kAspectTarget| where kAspectTarget is the device
+        //      compute grid's tile count (8x8 = 64 cores, processing
+        //      one 32x32 tile each → kAspectTarget output positions per
+        //      launch saturates the grid on conv3d's vol2col+matmul M
+        //      dimension). Aspect-saturating candidates rank first
+        //      because under- or over-saturating wastes cores or
+        //      inflates per-launch CB pressure past what L1 can hold;
+        //      OpModel's constraint check is sometimes optimistic about
+        //      L1 vs the full validation pipeline, so the pre-rank
+        //      should not bet on extreme block sizes.
+        //   2. blockVolume = t * h * w * cInBlock * cOutBlock
+        //      Among aspect-saturating candidates, bigger blocks
+        //      amortize kernel-launch overhead.
+        //   3. -max(h, w)
+        //      Aspect-tie breaker preferring balanced (8,4) over (16,2).
+        //   4. Canonical (t, h, w, cIn, cOut) tail for determinism.
+        constexpr int64_t kAspectTarget = 32;
+        auto structuralScore = [&](const Conv3dConfigAttr &c) {
           uint32_t t = c.getTOutBlock().value_or(1);
           uint32_t h = c.getHOutBlock().value_or(1);
           uint32_t w = c.getWOutBlock().value_or(1);
           uint32_t cIn = c.getCInBlock().value_or(1);
           uint32_t cOut = c.getCOutBlock().value_or(1);
-          int64_t hwAspect = std::abs(static_cast<int64_t>(h) * w - 32);
-          int64_t largeSpatialBonus =
-              (spatialVolume > 10000 && cOut >= 96) ? 1000 : 0;
-          return std::make_tuple(-hwAspect, static_cast<int64_t>(t),
-                                 static_cast<int64_t>(cIn),
-                                 static_cast<int64_t>(cOut), largeSpatialBonus);
+          int64_t aspectDist =
+              std::abs(static_cast<int64_t>(h) * w - kAspectTarget);
+          int64_t blockVolume = int64_t{t} * h * w * cIn * cOut;
+          int64_t aspectBalance = -static_cast<int64_t>(std::max(h, w));
+          return std::make_tuple(
+              -aspectDist, blockVolume, aspectBalance, static_cast<int64_t>(t),
+              static_cast<int64_t>(h), static_cast<int64_t>(w),
+              static_cast<int64_t>(cIn), static_cast<int64_t>(cOut));
         };
         llvm::stable_sort(generatedConfigs, [&](const Conv3dConfigAttr &a,
                                                 const Conv3dConfigAttr &b) {
-          return score(a) > score(b);
+          return structuralScore(a) > structuralScore(b);
         });
+
+        // Default compute config attached to every emitted Conv3dOp. At
+        // optimization-level=1 the TTNNSetComputeKernelConfig pass is
+        // skipped (it defers to the optimizer), but Conv3dOp's runtime
+        // kernel rejects IR without compute_config.
+        auto defaultComputeCfg =
+            DeviceComputeKernelConfigAttr::get(op->getContext())
+                .withMathFidelity(MathFidelity::HiFi4)
+                .withFp32DestAccEn(true);
+
+        // OpModel-driven validation has two parts:
+        //
+        //   Legality: `getOpConstraints` runs a tt-metal graph query
+        //     that reports whether a config is runnable (CB allocation,
+        //     L1 fit, kernel preconditions). Works in mock-device mode,
+        //     so this gate is always meaningful.
+        //
+        //   Cycle-based ranking: `getOpRuntime` runs a kernel
+        //     simulation that returns a cycle estimate. Available only
+        //     on real silicon; mock devices return
+        //     "getOpRuntime is not supported in mock device mode". When
+        //     unavailable, candidates are kept in structural order.
+        //
+        // Strategy: walk structurally-ranked candidates in batches of
+        // kOpModelValidationBatch, querying constraints. Stop expanding
+        // once at least one candidate is legality-validated. If every
+        // candidate the search space produces is rejected by
+        // constraints, the op is unrunnable on this device and we emit
+        // a compile error rather than a silently broken flatbuffer.
+        // Then, for the legality-validated set, try `getOpRuntime` for
+        // cycle ranking; if it errors out (mock device), keep
+        // structural order.
+        constexpr size_t kOpModelValidationBatch = 64;
+        const TTNNLayoutAttr representativeOutputLayout =
+            analysisResult.begin()->outputLayout;
+
+        // Probe layouts are read directly from the in-IR operand types.
+        // Conv3dOp is in `enabledOpsForWorkaroundWithOptimizer`, so by
+        // the time this analysis runs the workaround pass has already
+        // pinned the input to RowMajor BF16 and the bias to Tile BF16;
+        // the weight is whatever the optimizer chose (it gets prepared
+        // post-optimizer by TTNNPrepareConv3dWeights, which inserts a
+        // to_layout(Tile) before the kernel).
+        std::vector<TTNNLayoutAttr> probeInputs;
+        probeInputs.push_back(mlir::cast<TTNNLayoutAttr>(
+            convOp.getInput().getType().getEncoding()));
+        probeInputs.push_back(mlir::cast<TTNNLayoutAttr>(
+            convOp.getWeight().getType().getEncoding()));
+        if (convOp.getBias()) {
+          probeInputs.push_back(mlir::cast<TTNNLayoutAttr>(
+              convOp.getBias().getType().getEncoding()));
+        }
+
+        llvm::SmallVector<Conv3dConfigAttr> opModelLegal;
+        size_t opModelExamined = 0;
+        size_t opModelRejected = 0;
+        std::string firstError;
+        while (opModelLegal.empty() &&
+               opModelExamined < generatedConfigs.size()) {
+          size_t batchEnd = std::min(opModelExamined + kOpModelValidationBatch,
+                                     generatedConfigs.size());
+          for (size_t i = opModelExamined; i < batchEnd; ++i) {
+            OpConfig probeConfig(
+                representativeOutputLayout,
+                Conv3dAttrs{generatedConfigs[i], defaultComputeCfg});
+            llvm::Expected<op_model::OpConstraints> constraints =
+                convOp.getOpConstraints(probeInputs, probeConfig);
+            if (!constraints) {
+              ++opModelRejected;
+              if (firstError.empty()) {
+                firstError = llvm::toString(constraints.takeError());
+              } else {
+                llvm::consumeError(constraints.takeError());
+              }
+              continue;
+            }
+            opModelLegal.push_back(generatedConfigs[i]);
+          }
+          opModelExamined = batchEnd;
+        }
+
+        if (opModelLegal.empty()) {
+          // Every candidate the search space could produce was rejected
+          // by OpModel's legality check with the runtime-contract
+          // layouts. The op cannot run on this device under any
+          // blocking we can express.
+          convOp.emitError()
+              << "Conv3dOp has no OpModel-runnable configuration: "
+              << opModelRejected
+              << " structurally-valid candidates were all rejected by "
+                 "the tt-metal kernel simulation. First rejection: "
+              << firstError
+              << ". Consider widening Conv3dConfigSearchSpaceFactory's "
+                 "caps or reducing the op's shape.";
+          analysisResult.clear();
+          return;
+        }
+
+        // Try cycle-based ranking on the legality-validated set. The
+        // first runtime query doubles as a feature probe — if it returns
+        // an error, the device cannot supply cycle estimates (mock
+        // mode), so we keep structural order. Otherwise we collect
+        // cycles for every legal candidate and sort ascending.
+        llvm::SmallVector<Conv3dConfigAttr> reordered;
+        reordered.reserve(generatedConfigs.size());
+        {
+          OpConfig firstProbe(
+              representativeOutputLayout,
+              Conv3dAttrs{opModelLegal.front(), defaultComputeCfg});
+          llvm::Expected<size_t> firstRuntime =
+              convOp.getOpRuntime(probeInputs, firstProbe);
+          if (firstRuntime) {
+            llvm::SmallVector<std::pair<Conv3dConfigAttr, size_t>>
+                opModelRanked;
+            opModelRanked.reserve(opModelLegal.size());
+            opModelRanked.emplace_back(opModelLegal.front(),
+                                       firstRuntime.get());
+            for (size_t i = 1; i < opModelLegal.size(); ++i) {
+              OpConfig probe(representativeOutputLayout,
+                             Conv3dAttrs{opModelLegal[i], defaultComputeCfg});
+              llvm::Expected<size_t> runtime =
+                  convOp.getOpRuntime(probeInputs, probe);
+              if (!runtime) {
+                // Stale failure on a config that just passed
+                // constraints. Keep it but order it after the
+                // cycle-known ones via std::numeric_limits::max().
+                llvm::consumeError(runtime.takeError());
+                opModelRanked.emplace_back(opModelLegal[i],
+                                           std::numeric_limits<size_t>::max());
+                continue;
+              }
+              opModelRanked.emplace_back(opModelLegal[i], runtime.get());
+            }
+            llvm::stable_sort(opModelRanked,
+                              [](const std::pair<Conv3dConfigAttr, size_t> &a,
+                                 const std::pair<Conv3dConfigAttr, size_t> &b) {
+                                return a.second < b.second;
+                              });
+            for (const auto &entry : opModelRanked) {
+              reordered.push_back(entry.first);
+            }
+          } else {
+            // Runtime estimates unavailable (typically mock device).
+            // Keep structural order of legality-passing candidates.
+            llvm::consumeError(firstRuntime.takeError());
+            for (Conv3dConfigAttr cfg : opModelLegal) {
+              reordered.push_back(cfg);
+            }
+          }
+        }
+        // Append the post-examined-batch tail (untested by OpModel) in
+        // structural order so the beam search has fallback candidates.
+        for (size_t i = opModelExamined; i < generatedConfigs.size(); ++i) {
+          reordered.push_back(generatedConfigs[i]);
+        }
+        generatedConfigs = std::move(reordered);
 
         std::vector<OpConfig> newLegalConfigs;
         for (Conv3dConfigAttr configAttr : generatedConfigs) {
           for (const OpConfig &existingOpConfig : analysisResult) {
-            newLegalConfigs.emplace_back(existingOpConfig.outputLayout,
-                                         Conv3dAttrs{configAttr, std::nullopt});
+            newLegalConfigs.emplace_back(
+                existingOpConfig.outputLayout,
+                Conv3dAttrs{configAttr, defaultComputeCfg});
           }
         }
 

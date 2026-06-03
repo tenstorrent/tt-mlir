@@ -1,22 +1,19 @@
 // REQUIRES: opmodel
-// XFAIL: *
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1 enable-greedy-optimizer=false" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 // RUN: ttrt run %t.ttnn
 
-// Silicon smoke for the Phase 2/5 vertical slice: lower a single Conv3dOp
-// through the optimizer-enabled pipeline, attach a Conv3dConfig (Phase 5
-// scoring), and execute on n150 hardware.
+// Silicon smoke for the optimizer-enabled vertical slice: lower a single
+// Conv3dOp through the optimizer-enabled pipeline, attach a Conv3dConfig,
+// and execute on n150 hardware.
 //
-// Currently XFAIL: tt-metal's conv3d kernel rejects the optimizer-emitted IR
-// with "Layout mismatch, expected TILE, got ROW_MAJOR" at runtime, even
-// when the chosen config matches the tt-metal default (c_in_block=32, all
-// other blocks=1). The MLIR IR appears valid — weight tensor is in TILE
-// layout (memref<108x1x!ttcore.tile<32x32, bf16>, #dram>) and input is
-// row-major as required by Conv3dOp's operand workaround. The no-opt path
-// runs successfully on the same shape, so the issue is in how
-// optimizer-attached attributes interact with tt-metal's Conv3d execution
-// path. Needs joint debugging with tt-metal. Remove XFAIL once resolved.
+// Previously XFAIL'd because the optimizer's layout propagation was
+// re-typing PrepareConv3dWeightsOp's output to TILE, while the tt-metal
+// runtime kernel for prepare_conv3d_weights always returns ROW_MAJOR
+// ("Layout mismatch, expected TILE, got ROW_MAJOR"). Fixed structurally
+// by TTNNPrepareConv3dWeights: the prepare op is materialized
+// post-optimizer (so the optimizer can never see it) and emits ROW_MAJOR
+// followed by an explicit to_layout to TILE for the conv3d consumer.
 module {
   func.func @conv3d_silicon_smoke(
       %arg0: tensor<1x8x28x28x128xbf16>,

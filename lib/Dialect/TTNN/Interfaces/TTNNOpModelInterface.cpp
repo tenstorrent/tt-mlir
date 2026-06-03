@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/OpModel/TTNN/D2MOpCostModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -3304,7 +3305,11 @@ Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  // tt-metal's conv3d kernel consumes the prepared 2D weight; the in-IR
+  // weight may still be raw 5D (before TTNNPrepareConv3dWeights runs), so
+  // pass the prepared shape/layout regardless of what's currently in IR.
+  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
+  const auto weightShape = preparedWeight.getShape();
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
@@ -3330,7 +3335,9 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
+  const auto weightShape = preparedWeight.getShape();
+  auto weightLayout = mlir::cast<TTNNLayoutAttr>(preparedWeight.getEncoding());
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
@@ -3343,7 +3350,7 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<Conv3dOp>::getOpRuntime, *this, inputShape, inputs[0],
-      weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      weightShape, weightLayout, biasShape, biasLayout, getInChannels(),
       getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
       getPaddingMode(), getDtypeAttr(), attr.conv3dConfig,

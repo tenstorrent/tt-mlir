@@ -754,7 +754,12 @@ const std::set<mlir::StringRef>
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
         // without it, opt_level>=1 dtype propagation picks f32. See #8141.
         ttnn::TopKOp::getOperationName(),
-        // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
-        // layout. See #8411.
-        ttnn::PrepareConv3dWeightsOp::getOperationName()};
+        // Conv3d's runtime kernel hard-rejects Tile input
+        // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
+        // workaround running here, the optimizer's layout propagation
+        // picks Tile for the input and downstream OpModel queries
+        // (LegalOpConfigAnalysis, OperationValidationAndFallback) see
+        // an inconsistent view between in-IR layouts and runtime
+        // contract.
+        ttnn::Conv3dOp::getOperationName()};
 } // namespace mlir::tt::ttnn

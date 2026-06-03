@@ -312,15 +312,15 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
   }];
 }
 
-def TTNNRefreshConv3dPrepareWeights : Pass<"ttnn-refresh-conv3d-prepare-weights", "::mlir::ModuleOp"> {
-  let summary = "Reconcile PrepareConv3dWeightsOp.c_in_block with the c_in_block chosen by the optimizer.";
+def TTNNPrepareConv3dWeights : Pass<"ttnn-prepare-conv3d-weights", "::mlir::ModuleOp"> {
+  let summary = "Insert PrepareConv3dWeightsOp before every Conv3dOp.";
   let description = [{
-    TTIRToTTNN emits a PrepareConv3dWeightsOp eagerly with c_in_block = TILE_WIDTH = 32.
-    After the optimizer attaches a Conv3dConfigAttr (which may pick a different c_in_block),
-    this pass walks every Conv3dOp, reads its conv3d_config.c_in_block, and updates the
-    upstream PrepareConv3dWeightsOp.c_in_block attribute to match. The prepared weight's
-    flat output shape is invariant in c_in_block (numCInBlocks * cInBlock == cInAligned),
-    so only the attribute is mutated — not the SSA value type.
+    TTIRToTTNN lowers ttir.conv3d to ttnn.conv3d with the raw 5D weight still attached.
+    This pass walks every Conv3dOp, derives c_in_block from the optimizer's
+    Conv3dConfigAttr (or falls back to TILE_WIDTH = 32), and inserts a
+    PrepareConv3dWeightsOp that reshapes the raw 5D weight into the 2D layout the
+    tt-metal runtime expects. The Conv3dOp's weight operand is then rewired to the
+    prepared result. Mirrors TTNNPrepareConv2dWeightsAndBias.
   }];
 }
 
