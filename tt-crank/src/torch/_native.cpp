@@ -98,6 +98,12 @@ public:
         return tk::build_mean(*mb_, input, dims, keepdim);
     }
 
+    mlir::Value batch_norm_inference(mlir::Value operand, mlir::Value scale, mlir::Value offset, mlir::Value mean,
+                                     mlir::Value variance, float eps) {
+        assert_builder();
+        return tk::build_bn_inference(*mb_, operand, scale, offset, mean, variance, eps);
+    }
+
     // Lift a Python scalar to a broadcastable `ttir.constant` at `dtype`.
     mlir::Value scalar(::tt::target::DataType dtype, double value) {
         assert_builder();
@@ -240,6 +246,8 @@ NB_MODULE(_native, m) {
         .def("rsqrt", &PyModuleBuilder::rsqrt, "input"_a)
         .def("reshape", &PyModuleBuilder::reshape, "input"_a, "new_shape"_a)
         .def("mean", &PyModuleBuilder::mean, "input"_a, "dims"_a, "keepdim"_a = false)
+        .def("batch_norm_inference", &PyModuleBuilder::batch_norm_inference, "operand"_a, "scale"_a, "offset"_a,
+             "mean"_a, "variance"_a, "eps"_a)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         // Consumes the builder. Subsequent calls on `self` raise.

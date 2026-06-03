@@ -89,6 +89,31 @@ at::Tensor tt_rsqrt(const at::Tensor &self) {
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+at::Tensor tt_batch_norm_inference(const at::Tensor &input_in, const std::optional<at::Tensor> &weight_in,
+                                   const std::optional<at::Tensor> &bias_in,
+                                   const std::optional<at::Tensor> &running_mean_in,
+                                   const std::optional<at::Tensor> &running_var_in, bool training, double /*momentum*/,
+                                   double eps, bool /*cudnn_enabled*/) {
+    TORCH_CHECK(is_tt(input_in), "tt-kurbla aten::batch_norm: tensor must be on tt backend");
+    TORCH_CHECK(!training, "tt-kurbla aten::batch_norm: training mode not supported");
+    TORCH_CHECK(running_mean_in.has_value() && running_var_in.has_value(),
+                "tt-kurbla aten::batch_norm: running_mean and running_var must be provided");
+    TORCH_CHECK(weight_in.has_value() && bias_in.has_value(),
+                "tt-kurbla aten::batch_norm: weight and bias must be provided (affine=True)");
+
+    const auto [input, weight, bias, running_mean, running_var] =
+        align_on_tt(input_in, *weight_in, *bias_in, *running_mean_in, *running_var_in);
+
+    auto mb = ModuleBuilder::init(
+        {spec_for(input), spec_for(weight), spec_for(bias), spec_for(running_mean), spec_for(running_var)});
+    auto [promoted, inp_v, w_v, b_v, m_v, v_v] = promote_inputs(mb, input, weight, bias, running_mean, running_var);
+
+    auto result = build_bn_inference(mb, inp_v, w_v, b_v, m_v, v_v, as<float>(eps));
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {input, weight, bias, running_mean, running_var});
+    return wrap_tt_tensor(std::move(outputs[0]), input.sizes(), promoted);
+}
+
 at::Tensor tt_mean(const at::Tensor &self, at::OptionalIntArrayRef dim, bool keepdim,
                    std::optional<at::ScalarType> /*dtype*/) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::mean.dim: tensor must be on tt backend");
@@ -198,6 +223,26 @@ mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double valu
     return constant.getResult();
 }
 
+mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Value scale, mlir::Value offset,
+                               mlir::Value mean, mlir::Value variance, float eps) {
+    auto operand_elem = mlir::cast<mlir::RankedTensorType>(operand.getType()).getElementType();
+    TORCH_INTERNAL_ASSERT(
+        mlir::cast<mlir::RankedTensorType>(scale.getType()).getElementType() == operand_elem &&
+            mlir::cast<mlir::RankedTensorType>(offset.getType()).getElementType() == operand_elem &&
+            mlir::cast<mlir::RankedTensorType>(mean.getType()).getElementType() == operand_elem &&
+            mlir::cast<mlir::RankedTensorType>(variance.getType()).getElementType() == operand_elem,
+        "tt-kurbla build_bn_inference: all inputs must share element type — callers must promote first");
+
+    auto result_type = mlir::cast<mlir::RankedTensorType>(operand.getType());
+    llvm::APFloat eps_ap(as<double>(eps));
+    bool loses_info = false;
+    eps_ap.convert(llvm::APFloat::IEEEsingle(), llvm::APFloat::rmNearestTiesToEven, &loses_info);
+    return mb
+        .create<mlir::tt::ttir::BatchNormInferenceOp>(result_type, operand, scale, offset, mean, variance, eps_ap,
+                                                      as<uint32_t>(1))
+        .getResult();
+}
+
 mlir::Value build_add(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, double alpha) {
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
     auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
@@ -224,6 +269,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("relu", TORCH_FN(tt_relu));
     m.impl("rsqrt", TORCH_FN(tt_rsqrt));
     m.impl("mean.dim", TORCH_FN(tt_mean));
+    m.impl("batch_norm", TORCH_FN(tt_batch_norm_inference));
 }
 
 } // namespace tt::kurbla::torch_backend

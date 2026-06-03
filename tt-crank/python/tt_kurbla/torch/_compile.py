@@ -19,6 +19,7 @@ Pipeline::
 
 from __future__ import annotations
 
+import operator
 from collections.abc import Callable
 
 import torch
@@ -53,10 +54,27 @@ def _spec_from_tensor(t: torch.Tensor) -> "_native.TensorTypeSpec":
     return _native.TensorTypeSpec(list(t.shape), _to_runtime_dtype(t.dtype))
 
 
-# Lowering registry: FX call_function target -> function (mb, *args, **kwargs).
-# Each FX op supported by the tt backend will be registered here via the @_lowering decorator.
-_LOWERINGS: dict = {}
+# Python operator registry: callable -> fn(*args, **kwargs).
+_OPERATORS: dict = {}
 
+def _operator(*targets):
+    def decorator(fn):
+        for t in targets:
+            _OPERATORS[t] = fn
+        return fn
+
+    return decorator
+
+
+@_operator(operator.getitem)
+def _(container, idx):
+    if isinstance(container, tuple):
+        return container[idx]
+    raise NotImplementedError(f"tt-kurbla compile: getitem on non-tuple {type(container).__name__}")
+
+
+# ATen op lowering registry: OpOverload -> fn(mb, *args, **kwargs).
+_LOWERINGS: dict = {}
 
 def _lowering(*targets):
     def decorator(fn):
@@ -65,7 +83,6 @@ def _lowering(*targets):
         return fn
 
     return decorator
-
 
 @_lowering(_aten.add.Tensor)
 def _(mb, a, b, *, alpha=1):
@@ -115,6 +132,15 @@ def _(mb, input):
 @_lowering(_aten.relu.default)
 def _(mb, input):
     return mb.relu(input)
+
+@_lowering(_aten._native_batch_norm_legit_no_training.default)
+def _(mb, input, weight, bias, running_mean, running_var, momentum, eps):
+    if weight is None or bias is None:
+        raise NotImplementedError(
+            "tt-kurbla compile: batch_norm without affine parameters (affine=False) not supported"
+        )
+    result = mb.batch_norm_inference(input, weight, bias, running_mean, running_var, float(eps))
+    return (result, None, None)
 
 
 def _is_tensor_schema_arg(
@@ -168,13 +194,28 @@ class _TTIRInterpreter(torch.fx.Interpreter):
         self._current_node = n
         return super().run_node(n)
 
-    def call_function(self, target, args, kwargs):
+    def _lower_op(self, target, args, kwargs):
         fn = _LOWERINGS.get(target)
         if fn is None:
-            raise NotImplementedError(f"tt-kurbla compile: unsupported FX target {target}")
-        target_dtype = _to_runtime_dtype(self._current_node.meta["val"].dtype)
+            raise NotImplementedError(f"tt-kurbla compile: op {target} not implemented")
+
+        val = self._current_node.meta["val"]
+        target_dtype = _to_runtime_dtype(val[0].dtype if isinstance(val, (tuple, list)) else val.dtype)
         args = _prepare_op_args(self.mb, args, target_dtype, target._schema)
         return fn(self.mb, *args, **kwargs)
+
+    def _call_operator(self, target, args, kwargs):
+        op = _OPERATORS.get(target)
+        if op is None:
+            raise NotImplementedError(f"tt-kurbla compile: operator {target} not implemented")
+
+        return op(*args, **kwargs)
+
+    def call_function(self, target, args, kwargs):
+        if isinstance(target, torch._ops.OpOverload):
+            return self._lower_op(target, args, kwargs)
+
+        return self._call_operator(target, args, kwargs)
 
 
 def _fw_compiler(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor]) -> Callable:
