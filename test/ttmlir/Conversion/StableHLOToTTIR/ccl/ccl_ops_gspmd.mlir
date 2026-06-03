@@ -2532,13 +2532,12 @@ module @collective_broadcast_8x4_cluster_1 attributes {mhlo.num_partitions = 32 
 // torchax - GSPMD test with multi-user case
 module @jit_jax_wrapper attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<1024x1024xf32> {mhlo.sharding = "{devices=[8,1]<=[8]}"}) -> (tensor<1024x1024xf32> {jax.result_info = "", mhlo.sharding = "{devices=[8,1]<=[8]}"}) {
+    // CHECK: builtin.module @jit_jax_wrapper
+    // arg0 sharded on dim 0 by mesh size 8 -> tensor<128x1024xf32>.
+    // CHECK: func.func public @main
+    // CHECK-SAME: %arg0: tensor<128x1024xf32>
     %0 = stablehlo.custom_call @Sharding(%arg0) {mhlo.sharding = "{devices=[8,1]<=[8]}"} : (tensor<1024x1024xf32>) -> tensor<1024x1024xf32>
     %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} : (tensor<1024x1024xf32>) -> tensor<128x1024xf32>
-    // CHECK: "ttir.mesh_shard"
-    // CHECK-SAME: shard_dims = array<i64: -1, 0>
-    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-    // CHECK-SAME: shard_shape = array<i64: 8, 1>
-    // CHECK-SAME: shard_type = #ttcore.shard_type<identity>
     %2 = call @shmap_body(%1) : (tensor<128x1024xf32>) -> tensor<128x1024xf32>
     %3 = stablehlo.custom_call @Sharding(%2) {mhlo.sharding = "{manual}"} : (tensor<128x1024xf32>) -> tensor<128x1024xf32>
     %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {mhlo.sharding = "{devices=[8,1]<=[8]}"} : (tensor<128x1024xf32>) -> tensor<1024x1024xf32>
@@ -2599,13 +2598,12 @@ module @SyncTensorsGraph.13 attributes {mhlo.cross_program_prefetches = [], mhlo
 
 module @jit_negative_basic attributes {mhlo.num_partitions = 2 : i32, mhlo.num_replicas = 1 : i32} {
   func.func public @main(%arg0: tensor<256x256xf32> {mhlo.sharding = "{devices=[1,2]<=[2]}"}) -> (tensor<256x128xf32> {jax.result_info = "", mhlo.sharding = "{replicated}"}) {
+    // CHECK: builtin.module @jit_negative_basic
+    // arg0 sharded on dim 1 by mesh size 2 -> tensor<256x128xf32>.
+    // CHECK: func.func public @main
+    // CHECK-SAME: %arg0: tensor<256x128xf32>
     %0 = stablehlo.custom_call @Sharding(%arg0) {mhlo.sharding = "{devices=[1,2]<=[2]}"} : (tensor<256x256xf32>) -> tensor<256x256xf32>
     %1 = stablehlo.custom_call @SPMDFullToShardShape(%0) {mhlo.sharding = "{manual}"} : (tensor<256x256xf32>) -> tensor<256x128xf32>
-    // CHECK: "ttir.mesh_shard"
-    // CHECK-SAME: shard_dims = array<i64: -1, 1>
-    // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-    // CHECK-SAME: shard_shape = array<i64: 1, 2>
-    // CHECK-SAME: shard_type = #ttcore.shard_type<identity>
     %2 = call @shmap_body(%1) : (tensor<256x128xf32>) -> tensor<256x128xf32>
     %3 = stablehlo.custom_call @Sharding(%2) {mhlo.sharding = "{manual}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>
     %4 = stablehlo.custom_call @SPMDShardToFullShape(%3) {mhlo.sharding = "{replicated}"} : (tensor<256x128xf32>) -> tensor<256x128xf32>

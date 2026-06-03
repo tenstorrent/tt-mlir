@@ -41,6 +41,7 @@ namespace mlir::tt::d2m {
 } // namespace mlir::tt::d2m
 
 namespace {
+
 struct ConvertD2MToTTKernel
     : public d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
 
@@ -90,13 +91,29 @@ struct ConvertD2MToTTKernel
       target.addLegalDialect<ttnn::TTNNDialect>();
     }
 
-    // Allow loads and stores to integer element types.
-    //   i.e. riscv accesses to L1.
+    auto isHostScalarLoadStore = [](Operation *op, MemRefType memrefType) {
+      auto func = op->getParentOfType<func::FuncOp>();
+      if (!func || func->hasAttr(d2m::ThreadAttr::name)) {
+        return false;
+      }
+
+      return ttcore::getMemorySpace(memrefType) ==
+                 ttcore::MemorySpace::System &&
+             memrefType.hasStaticShape() && memrefType.getNumElements() == 1 &&
+             !mlir::isa<ttcore::TileType>(memrefType.getElementType());
+    };
+
+    // Allow loads and stores to integer element types, i.e. riscv accesses to
+    // L1. Host command-function scalar load/stores are also legal; those are
+    // CPU-side buffer operations and must not be lowered as circular-buffer
+    // tile accesses.
     target.addDynamicallyLegalOp<memref::LoadOp>([&](memref::LoadOp op) {
-      return op.getMemRefType().getElementType().isIntOrIndex();
+      return op.getMemRefType().getElementType().isIntOrIndex() ||
+             isHostScalarLoadStore(op, op.getMemRefType());
     });
     target.addDynamicallyLegalOp<memref::StoreOp>([&](memref::StoreOp op) {
-      return op.getMemRefType().getElementType().isIntOrIndex();
+      return op.getMemRefType().getElementType().isIntOrIndex() ||
+             isHostScalarLoadStore(op, op.getMemRefType());
     });
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
@@ -104,8 +121,10 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<memref::GlobalOp>();
     target.addLegalOp<memref::GetGlobalOp>();
 
-    target.addDynamicallyLegalOp<func::FuncOp>(
-        [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return !op->hasAttr(d2m::ThreadAttr::name) ||
+             op->hasAttr(ttkernel::ThreadTypeAttr::name);
+    });
 
     if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
             moduleOp, "D2MToTTKernel"))) {
@@ -198,6 +217,11 @@ struct ConvertD2MToTTKernel
       signalPassFailure();
       return;
     }
+
+    // The d2m.thread attr is kept until the end of this pass, when body
+    // rewrites have consumed nocIndex.
+    getOperation()->walk(
+        [](func::FuncOp funcOp) { funcOp->removeAttr(d2m::ThreadAttr::name); });
   };
 };
 } // namespace

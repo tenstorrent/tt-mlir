@@ -219,14 +219,14 @@ struct TTIRToTTNNCommonPipelineOptions
                                   "Use mock quasar system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
-  // Option to override maximum number of sharded layouts to be generated
-  // in legal layout analysis.
-  //
+  // Maximum number of sharded layouts per op in legal layout analysis.
+  // Needs to be at least maxReshardCandidatesPerType * numShardingTypes (=12
+  // with defaults of 4 and 3) so all reshard types get adequate coverage.
   Option<int64_t> maxLegalLayouts{
       *this, OptionNames::maxLegalLayouts,
       llvm::cl::desc("Override maximum number of sharded layouts for legal "
                      "layout analysis."),
-      llvm::cl::init(8)};
+      llvm::cl::init(64)};
 
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
@@ -651,14 +651,6 @@ struct TTNNCommonToEmitPyPipelineOptions
   Option<bool> splitFiles{*this, "split-files",
                           llvm::cl::desc("Enables TTNNFileSplit pass"),
                           llvm::cl::init(true)};
-
-  Option<bool> createMainForTest{
-      *this, "create-main-for-test",
-      llvm::cl::desc(
-          "Create main_for_test wrapper for frontend-driven execution "
-          "(e.g. PythonModelRunner). Injects device as an explicit "
-          "argument into the forward function."),
-      llvm::cl::init(false)};
 };
 
 void createTTNNCommonToRuntimePipeline(

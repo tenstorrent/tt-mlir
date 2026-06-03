@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagation.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
@@ -85,7 +86,29 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// Returns nullptr when no filtering is needed (all layouts accepted).
 /// Delegates to per-op rule files via OpRuleBook.
 static LayoutFilterFn getInputLayoutFilter(Operation *op, unsigned operandIdx) {
-  return getRuleBook(op).getInputLayoutFilter(operandIdx);
+  auto inputType =
+      mlir::cast<RankedTensorType>(op->getOperand(operandIdx).getType());
+  return getRuleBook(op).getInputLayoutFilter(inputType, operandIdx);
+}
+
+/// Returns true if the operand is already "constant" from the optimizer's
+/// perspective: it is either the result of a ttcore.load_cached (already
+/// const-evaled by a prior ConstEvalHoist pass) or a func block argument
+/// whose ArgumentType is anything other than Input.
+static bool isConstantDerivedOperand(Value operand) {
+  if (Operation *def = operand.getDefiningOp()) {
+    return mlir::isa<ttcore::LoadCachedOp>(def);
+  }
+  auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand);
+  if (!blockArg) {
+    return false;
+  }
+  auto funcOp = mlir::dyn_cast_or_null<mlir::func::FuncOp>(
+      blockArg.getOwner()->getParentOp());
+  if (!funcOp) {
+    return false;
+  }
+  return !ttcore::isInputArgumentType(funcOp, blockArg.getArgNumber());
 }
 
 /// Check if a layout is sharded.
@@ -328,10 +351,9 @@ void MemoryLayoutPropagation::run() {
     // These ops (e.g., BFP8 typecast on weights) will be re-hoisted into
     // const_eval functions. Promoting their output to L1 would cause the
     // const_eval to return L1 tensors that starve other ops of L1 budget.
-    bool allFromConstEval = op->getNumOperands() > 0 &&
-                            llvm::all_of(op->getOperands(), [](Value operand) {
-                              return ttcore::valueTracesToConstantArgs(operand);
-                            });
+    bool allFromConstEval =
+        op->getNumOperands() > 0 &&
+        llvm::all_of(op->getOperands(), isConstantDerivedOperand);
     if (allFromConstEval) {
       TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                    "[op {0}] Skipping {1} @{2}: all operands from const_eval",
@@ -582,11 +604,15 @@ MemoryLayoutPropagation::processOp(Operation *op) {
                  op->getName(), op->getLoc());
 
     TTNNLayoutAttr dramLayout = getDRAMInterleavedFallback(op);
-    if (dramLayout) {
+    bool isSink = optimizer_utils::isSinkOp(op);
+    if (dramLayout || isSink) {
       BeamCandidate fallback;
-      fallback.configHint = OpConfig(dramLayout);
-      fallback.score = LayoutScore(); // Lowest possible score.
-      fallback.outputLayouts.assign(op->getNumResults(), dramLayout);
+      fallback.configHint =
+          dramLayout ? OpConfig(dramLayout) : OpConfig(TTNNLayoutAttr());
+      fallback.score = LayoutScore();
+      if (dramLayout) {
+        fallback.outputLayouts.assign(op->getNumResults(), dramLayout);
+      }
       // When all tryHint calls fail (e.g. op model unavailable in NO_DISPATCH
       // mode) we fall through to this synthetic candidate. It carries no
       // producerCandidateIndices, so downstream phases implicitly assume the
@@ -622,8 +648,8 @@ bool MemoryLayoutPropagation::validateReshard(
   }
 
   auto result = op_constraint_validation::validateOperation<ToMemoryConfigOp>(
-      consumerOp, /*additionalL1Usage=*/0, deviceAttr.getWorkerGrid(),
-      inputShape, producerOutputLayout, reshardLayout);
+      consumerOp, /*additionalL1Usage=*/0, inputShape, producerOutputLayout,
+      reshardLayout);
 
   bool valid = result.isSuccess();
 
@@ -724,9 +750,8 @@ void MemoryLayoutPropagation::addReshardCandidates(
     Value operand, TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
     const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
     Operation *producerOp, size_t resultIdx, size_t maxCandidates) {
-  // Skip reshards for operands derived from constant/parameter arguments.
-  // These will be re-hoisted into const_eval.
-  if (ttcore::valueTracesToConstantArgs(operand)) {
+
+  if (isConstantDerivedOperand(operand)) {
     return;
   }
   if (!shouldExploreReshards(op)) {
@@ -775,7 +800,8 @@ void MemoryLayoutPropagation::addReshardCandidates(
     auto outputLayout =
         mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
     if (outputLayout &&
-        mlir::isa<ttcore::TileType>(outputLayout.getElementType())) {
+        mlir::isa<ttcore::TileType>(outputLayout.getElementType()) &&
+        outputType.getRank() > 0) {
       auto shape = outputType.getShape();
       int64_t cols = (shape.back() + TILE_WIDTH - 1) / TILE_WIDTH;
       int64_t rows =
@@ -1244,9 +1270,11 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   }
   auto currentLayout =
       mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
-  if (!currentLayout) {
-    return nullptr;
-  }
+  // A ranked tensor result always carries a TTNNLayoutAttr encoding by the
+  // time layout propagation runs (defaulted to DRAM-interleaved by the
+  // TTNNLayout pass), so a non-sink beam target always gets a fallback.
+  assert(currentLayout &&
+         "ranked tensor result must have a TTNNLayoutAttr encoding");
 
   // If the op already has an L1 layout it was pinned by an earlier pass
   // (workaround or lowering) that knows what the backend kernel requires.
@@ -1350,15 +1378,6 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     d2m_optimizer_utils::applyChosenLayoutToD2MSubgraphOp(
         dispatchOp, chosenLayout, deviceAttr.getWorkerGrid());
 
-    // Attach L1 usage annotation for spill management.
-    if (chosenLayout.hasL1BufferType() &&
-        candidate.validationResult.isSuccess() &&
-        candidate.validationResult.outputL1Usage > 0) {
-      OpBuilder builder(op->getContext());
-      op->setAttr(
-          "ttnn.output_l1_usage",
-          builder.getI64IntegerAttr(candidate.validationResult.outputL1Usage));
-    }
     return;
   }
 
@@ -1398,30 +1417,7 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
         LayoutAttr::get(op->getContext(), chosenLayout.getLayout()));
   }
 
-  // Update output data type attribute.
-  if (auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(op)) {
-    ttcore::DataTypeAttr newDataTypeAttr =
-        ttcore::DataTypeAttr::get(op->getContext(), chosenLayout.getDataType());
-    dtypeOp.setDtypeAttr(newDataTypeAttr);
-  }
-
   applyOpSpecificAttrs(op, candidate);
-
-  // Attach L1 usage annotation for spill management.
-  if (chosenLayout.hasL1BufferType() &&
-      candidate.validationResult.isSuccess() &&
-      candidate.validationResult.outputL1Usage > 0) {
-    OpBuilder builder(op->getContext());
-    op->setAttr(
-        "ttnn.output_l1_usage",
-        builder.getI64IntegerAttr(candidate.validationResult.outputL1Usage));
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "L1 annotation: {0} @{1} -> outputL1Usage={2} bytes, "
-                 "bufType={3}, memLayout={4}",
-                 op->getName(), op->getLoc(),
-                 candidate.validationResult.outputL1Usage,
-                 chosenLayout.getBufferType(), chosenLayout.getMemLayout());
-  }
 }
 
 void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
@@ -1472,15 +1468,6 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
       builder.create<ToMemoryConfigOp>(loc, newTensorType, operand);
 
   consumerOp->setOperand(operandIndex, memoryReconfigOp->getResult(0));
-
-  // Annotate L1 output usage so L1SpillManagement can track this op.
-  if (outputLayout.hasL1BufferType()) {
-    uint64_t l1Usage = utils::getPerCoreL1Usage(
-        outputLayout, deviceAttr.getWorkerGrid().getGridVolume());
-    OpBuilder attrBuilder(memoryReconfigOp->getContext());
-    memoryReconfigOp->setAttr("ttnn.output_l1_usage",
-                              attrBuilder.getI64IntegerAttr(l1Usage));
-  }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Inserted memory reconfig op: {0}", memoryReconfigOp);

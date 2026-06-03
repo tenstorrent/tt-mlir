@@ -60,19 +60,19 @@ class IfOpModelRequired<list<Trait> traits> {
 //===----------------------------------------------------------------------===//
 
 class TTNN_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [Pure, CheckTileTypeTrait, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>] #
+        Op<TTNN_Dialect, mnemonic, [Pure, CheckTileTypeTrait, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>, DeclareOpInterfaceMethods<TTNN_DtypeOpInterface>] #
         IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>] #
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>, DeclareOpInterfaceMethods<TTNN_DtypeOpInterface>] #
         IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_MemFreeOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>] #
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>, DeclareOpInterfaceMethods<TTNN_DtypeOpInterface>] #
         IfOpModelRequired<traits>.value # traits>;
 
 class TTNN_MemoryEffectOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>] #
+        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface, DeclareOpInterfaceMethods<TTNN_MemoryConfigOpInterface>, DeclareOpInterfaceMethods<TTNN_DtypeOpInterface>] #
         IfOpModelRequired<traits>.value # traits>;
 
 #endif

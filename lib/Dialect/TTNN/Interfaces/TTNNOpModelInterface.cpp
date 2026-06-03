@@ -79,18 +79,31 @@ issueErrorForGetOpConstraints(mlir::Operation *op,
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-llvm::Expected<bool> checkDeviceWorkerGrid(mlir::Operation *op) {
-  auto deviceAttr = ttcore::lookupDevice(op);
-  assert(deviceAttr);
-  return op_model::Device::getDeviceConstraints(deviceAttr.getWorkerGrid());
-}
-
-llvm::Expected<ttcore::GridAttr> getValidatedDeviceGrid(mlir::Operation *op) {
-  auto check = checkDeviceWorkerGrid(op);
-  if (!check) {
-    return check.takeError();
+// Resolves the output dtype to pass to the op-model query.
+//
+// Preference order:
+//  1. The candidate output layout being probed by the optimizer
+//     (`candidateOutputLayout`). When supplied this is always non-null and
+//     is the right semantic answer because it represents the dtype the
+//     optimizer is actively legality-checking.
+//  2. The op's intrinsic dtype via the `TTNNDtypeOpInterface`, derived from
+//     the result tensor's `TTNNLayoutAttr` encoding (or element-type
+//     fallback). Used when the optimizer hasn't supplied a candidate layout
+//     yet (e.g. during certain `MemoryLayoutPropagation` probes).
+//
+// Returns null only when neither source is available, in which case the
+// caller cannot meaningfully build an op-model query and should surface
+// that as an "unsupported" result.
+inline ttcore::DataTypeAttr
+resolveOutputDtype(mlir::Operation *op, TTNNLayoutAttr candidateOutputLayout) {
+  if (candidateOutputLayout) {
+    return ttcore::DataTypeAttr::get(candidateOutputLayout.getContext(),
+                                     candidateOutputLayout.getDataType());
   }
-  return ttcore::lookupDevice(op).getWorkerGrid();
+  if (auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(op)) {
+    return dtypeOp.getDtypeAttr();
+  }
+  return nullptr;
 }
 
 llvm::SmallVector<int64_t>
@@ -118,11 +131,9 @@ getUnaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = op.getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(op.getOperation()));
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
-      inputs[0], opConfig.outputLayout);
+      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -147,17 +158,14 @@ getBinaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = op.getLhs().getType().getShape();
   const auto inputShapeB = op.getRhs().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(op.getOperation()));
-
   ttcore::DataTypeAttr opDtypeAttr = nullptr;
   if (auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(op.getOperation())) {
     opDtypeAttr = dtypeOp.getDtypeAttr();
   }
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShapeA,
-      inputs[0], inputShapeB, inputs[1], opConfig.outputLayout, opDtypeAttr);
+      op_model::OpModel<OpT>::getOpConstraints, op, inputShapeA, inputs[0],
+      inputShapeB, inputs[1], opConfig.outputLayout, opDtypeAttr);
 }
 
 template <typename OpT>
@@ -184,13 +192,9 @@ getTernaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeB = op.getSecond().getType().getShape();
   const auto inputShapeC = op.getThird().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(op.getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShapeA,
-      inputs[0], inputShapeB, inputs[1], inputShapeC, inputs[2],
-      opConfig.outputLayout);
+      op_model::OpModel<OpT>::getOpConstraints, op, inputShapeA, inputs[0],
+      inputShapeB, inputs[1], inputShapeC, inputs[2], opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -214,11 +218,9 @@ getReductionOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   assert(inputs.size() == 1);
   const auto inputShape = op.getInput().getType().getShape();
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(op.getOperation()));
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
-      inputs[0], detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
+      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
+      detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
       op.getKeepDim(), opConfig.outputLayout);
 }
 
@@ -242,12 +244,9 @@ getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = op.getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(op.getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
-      inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       op.getConfigTensorsInDram(), opConfig.outputLayout);
@@ -278,12 +277,9 @@ getMaxPool2dWithIndicesOpConstraints(OpT op,
 
   const auto inputShape = op.getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(op.getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
-      inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       /*deallocate_input*/ false, /*return_indices*/ true,
@@ -314,16 +310,14 @@ getNamedFullOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   assert(inputs.size() == 0);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(op.getOperation()));
-
   const mlir::tt::ttnn::ShapeAttr shape = op.getShape();
-  const std::optional<mlir::tt::ttcore::DataType> dtype = op.getDtype();
+  const std::optional<mlir::tt::ttcore::DataType> dtype =
+      dataTypeAttrToOptional(op.getDtypeAttr());
   const std::optional<mlir::tt::ttnn::Layout> layout = op.getLayout();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, shape, dtype,
-      layout, opConfig.outputLayout);
+      op_model::OpModel<OpT>::getOpConstraints, op, shape, dtype, layout,
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -335,12 +329,9 @@ getQuantizationOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const auto scaleShape = op.getScale().getType().getShape();
   const auto zeroPointShape = op.getZeroPoint().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(op.getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
-      inputs[0], scaleShape, inputs[1], zeroPointShape, inputs[2], op.getAxis(),
+      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
+      scaleShape, inputs[1], zeroPointShape, inputs[2], op.getAxis(),
       op.getOutputDtype(), opConfig.outputLayout);
 }
 
@@ -899,12 +890,9 @@ LeakyReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LeakyReluOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getParameter(), opConfig.outputLayout);
+      op_model::OpModel<LeakyReluOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getParameter(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1092,9 +1080,6 @@ ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto indexShape = getIndex().getType().getShape();
   const auto sourceShape = getSource().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   std::optional<ttcore::ReduceTypeAttr> reduceType =
       ttcore::ReduceTypeAttr::get(getContext(), ttcore::ReduceType::Invalid);
   if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
@@ -1103,9 +1088,9 @@ ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ScatterOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], indexShape, inputs[1], sourceShape, inputs[2],
-      getDim(), reduceType, opConfig.outputLayout);
+      op_model::OpModel<ScatterOp>::getOpConstraints, *this, inputShape,
+      inputs[0], indexShape, inputs[1], sourceShape, inputs[2], getDim(),
+      reduceType, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1139,16 +1124,13 @@ GatherOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
   assert(inputs.size() == 2);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   const auto inputShape = getInput().getType().getShape();
   const auto indexShape = getIndex().getType().getShape();
   int32_t dim = getDim();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GatherOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], indexShape, inputs[1], dim, opConfig.outputLayout);
+      op_model::OpModel<GatherOp>::getOpConstraints, *this, inputShape,
+      inputs[0], indexShape, inputs[1], dim, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1193,13 +1175,10 @@ GeluBackwardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = getLhs().getType().getShape();
   const auto inputShapeB = getRhs().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<GeluBackwardOp>::getOpConstraints, getOperation(),
-      deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1],
-      getApproximate().str(), opConfig.outputLayout);
+      inputShapeA, inputs[0], inputShapeB, inputs[1], getApproximate().str(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1262,12 +1241,9 @@ PowScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getLhs().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PowScalarOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getRhs(), opConfig.outputLayout);
+      op_model::OpModel<PowScalarOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getRhs(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1533,12 +1509,9 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SoftmaxOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDimension(), getNumericStable(),
-      opConfig.outputLayout);
+      op_model::OpModel<SoftmaxOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getDimension(), getNumericStable(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1566,12 +1539,9 @@ ReshapeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto outputShape = getResult().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ReshapeOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], outputShape, opConfig.outputLayout);
+      op_model::OpModel<ReshapeOp>::getOpConstraints, *this, inputShape,
+      inputs[0], outputShape, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1598,12 +1568,9 @@ SliceStaticOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SliceStaticOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
+      op_model::OpModel<SliceStaticOp>::getOpConstraints, *this, inputShape,
+      inputs[0], detail::convertArrayAttrToSmallVec(getBegins()),
       detail::convertArrayAttrToSmallVec(getEnds()),
       detail::convertArrayAttrToSmallVec(getStep()), opConfig.outputLayout);
 }
@@ -1635,12 +1602,9 @@ SliceDynamicOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto beginsShape = getBegins().getType().getShape();
   const auto endsShape = getEnds().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SliceDynamicOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], beginsShape, inputs[1], endsShape, inputs[2],
+      op_model::OpModel<SliceDynamicOp>::getOpConstraints, *this, inputShape,
+      inputs[0], beginsShape, inputs[1], endsShape, inputs[2],
       detail::convertOptionalArrayAttrToSmallVec(getStep()),
       opConfig.outputLayout);
 }
@@ -1671,12 +1635,13 @@ BitcastConvertOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  assert(dtype && "BitcastConvertOp requires output dtype");
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<BitcastConvertOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDtypeAttr(), opConfig.outputLayout);
+      op_model::OpModel<BitcastConvertOp>::getOpConstraints, *this, inputShape,
+      inputs[0], dtype, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1686,9 +1651,13 @@ BitcastConvertOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  assert(dtype && "BitcastConvertOp requires output dtype");
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<BitcastConvertOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getDtypeAttr(), opConfig.outputLayout);
+      inputs[0], dtype, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1707,12 +1676,13 @@ TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  assert(dtype && "TypecastOp requires output dtype");
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<TypecastOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDtypeAttr(), opConfig.outputLayout);
+      op_model::OpModel<TypecastOp>::getOpConstraints, *this, inputShape,
+      inputs[0], dtype, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1727,9 +1697,13 @@ TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  assert(dtype && "TypecastOp requires output dtype");
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<TypecastOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDtypeAttr(), opConfig.outputLayout);
+      dtype, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1745,12 +1719,20 @@ ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
+  // Only signal a dtype conversion to the op model when this to_layout is
+  // genuinely changing dtype. Use the resolved (candidate or intrinsic)
+  // output dtype, and compare it against the input dtype.
+  std::optional<ttcore::DataType> outputDtype = std::nullopt;
+  if (ttcore::DataTypeAttr dtype =
+          detail::resolveOutputDtype(getOperation(), opConfig.outputLayout)) {
+    if (dtype.getValue() != inputs[0].getDataType()) {
+      outputDtype = dtype.getValue();
+    }
+  }
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ToLayoutOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDtype(), opConfig.outputLayout);
+      op_model::OpModel<ToLayoutOp>::getOpConstraints, *this, inputShape,
+      inputs[0], outputDtype, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1762,9 +1744,17 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
+  std::optional<ttcore::DataType> outputDtype = std::nullopt;
+  if (ttcore::DataTypeAttr dtype =
+          detail::resolveOutputDtype(getOperation(), opConfig.outputLayout)) {
+    if (dtype.getValue() != inputs[0].getDataType()) {
+      outputDtype = dtype.getValue();
+    }
+  }
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ToLayoutOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDtype(), opConfig.outputLayout);
+      outputDtype, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1778,17 +1768,14 @@ ToMemoryConfigOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   TTNNLayoutAttr outputLayout =
       opConfig.outputLayout
           ? opConfig.outputLayout
           : mlir::cast<TTNNLayoutAttr>(getResult().getType().getEncoding());
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ToMemoryConfigOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], outputLayout);
+      op_model::OpModel<ToMemoryConfigOp>::getOpConstraints, *this, inputShape,
+      inputs[0], outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1824,12 +1811,9 @@ ConcatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     inputShapes.push_back(inputType.getShape());
   }
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ConcatOp>::getOpConstraints, *this, deviceGrid,
-      inputShapes, inputs, getDim(), opConfig.outputLayout);
+      op_model::OpModel<ConcatOp>::getOpConstraints, *this, inputShapes, inputs,
+      getDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1860,12 +1844,9 @@ TransposeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<TransposeOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDim0(), getDim1(), opConfig.outputLayout);
+      op_model::OpModel<TransposeOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getDim0(), getDim1(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1891,12 +1872,10 @@ CumSumOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<CumSumOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDim(), getDtype(), opConfig.outputLayout);
+      op_model::OpModel<CumSumOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getDim(), dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1908,7 +1887,7 @@ CumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<CumSumOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDim(), getDtype(), opConfig.outputLayout);
+      getDim(), dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1920,14 +1899,11 @@ ConcatenateHeadsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   const auto inputShape = getInput().getType().getShape();
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ConcatenateHeadsOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], opConfig.outputLayout);
+      inputShape, inputs[0], opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2032,18 +2008,15 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
          "ttnn::transformer::scaled_dot_product_attention_decode can have 3, "
          "4, 5, or 6 input tensors");
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   ScaledDotProductAttentionDecodeArgs sdpaArgs =
       unpackScaledDotProductAttentionDecodeArgs(inputs, *this);
 
   auto scale = getScale();
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
-      *this, deviceGrid, sdpaArgs.queryShape, sdpaArgs.queryLayout,
-      sdpaArgs.keyShape, sdpaArgs.keyLayout, sdpaArgs.valueShape,
-      sdpaArgs.valueLayout, sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
+      *this, sdpaArgs.queryShape, sdpaArgs.queryLayout, sdpaArgs.keyShape,
+      sdpaArgs.keyLayout, sdpaArgs.valueShape, sdpaArgs.valueLayout,
+      sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
       sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
       sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
       sdpaArgs.attentionSinkLayout, sdpaArgs.scale, sdpaArgs.programConfig,
@@ -2164,16 +2137,13 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
          "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
          "7 input tensors");
 
-  ttcore::GridAttr deviceGrid;
-  ASSIGN_OR_RETURN(deviceGrid, detail::getValidatedDeviceGrid(getOperation()));
-
   PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
       unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<
           PagedScaledDotProductAttentionDecodeOp>::getOpConstraints,
-      *this, deviceGrid, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
+      *this, pagedSdpaArgs.queryShape, pagedSdpaArgs.queryLayout,
       pagedSdpaArgs.keyShape, pagedSdpaArgs.keyLayout, pagedSdpaArgs.valueShape,
       pagedSdpaArgs.valueLayout, pagedSdpaArgs.pageTableShape,
       pagedSdpaArgs.pageTableLayout, pagedSdpaArgs.isCausal,
@@ -2293,8 +2263,6 @@ llvm::Expected<op_model::OpConstraints>
 PagedFlashMultiLatentAttentionDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   PagedFlashMultiLatentAttentionDecodeArgs args =
       unpackPagedFlashMultiLatentAttentionDecodeArgs(inputs, *this);
@@ -2302,12 +2270,12 @@ PagedFlashMultiLatentAttentionDecodeOp::getOpConstraints(
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<
           PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints,
-      *this, deviceGrid, args.queryShape, args.queryLayout, args.keyShape,
-      args.keyLayout, args.valueShape, args.valueLayout, args.headDimV,
-      args.pageTableShape, args.pageTableLayout, args.isCausal,
-      args.attentionMaskShape, args.attentionMaskLayout, args.curPosTensorShape,
-      args.curPosTensorLayout, args.attentionSinkShape,
-      args.attentionSinkLayout, args.scale, opConfig.outputLayout);
+      *this, args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
+      args.valueShape, args.valueLayout, args.headDimV, args.pageTableShape,
+      args.pageTableLayout, args.isCausal, args.attentionMaskShape,
+      args.attentionMaskLayout, args.curPosTensorShape, args.curPosTensorLayout,
+      args.attentionSinkShape, args.attentionSinkLayout, args.scale,
+      opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -2339,9 +2307,6 @@ ScaledDotProductAttentionOp::getOpConstraints(
          "ttnn::scaled_dot_product_attention can have 3 to 5 operands input "
          "tensors (q, k, v, optional mask, optional attention_sink)");
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   const auto queryShape = getQuery().getType().getShape();
   const auto keyShape = getKey().getType().getShape();
   const auto valueShape = getValue().getType().getShape();
@@ -2364,8 +2329,8 @@ ScaledDotProductAttentionOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionOp>::getOpConstraints, *this,
-      deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
-      inputs[2], attentionMaskShape, attentionMaskLayout, attentionSinkShape,
+      queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
+      attentionMaskShape, attentionMaskLayout, attentionSinkShape,
       attentionSinkLayout, isCausal, getScale(), getSlidingWindowSize(),
       opConfig.outputLayout);
 }
@@ -2412,8 +2377,6 @@ RotaryEmbeddingLlamaOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == 4);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
   auto inputShape = getInput().getType().getShape();
   auto cosShape = getCosCache().getType().getShape();
   auto sinShape = getSinCache().getType().getShape();
@@ -2422,8 +2385,8 @@ RotaryEmbeddingLlamaOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], cosShape, inputs[1], sinShape,
-      inputs[2], transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+      inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
+      transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2452,18 +2415,15 @@ RotaryEmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                     const OpConfig &opConfig) {
   assert(inputs.size() == 3);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   auto inputShape = getInput().getType().getShape();
   auto cosShape = getCosCache().getType().getShape();
   auto sinShape = getSinCache().getType().getShape();
   auto tokenIndex = getTokenIndex();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RotaryEmbeddingOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
-      tokenIndex, opConfig.outputLayout);
+      op_model::OpModel<RotaryEmbeddingOp>::getOpConstraints, *this, inputShape,
+      inputs[0], cosShape, inputs[1], sinShape, inputs[2], tokenIndex,
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2491,9 +2451,6 @@ NLPCreateQKVHeadsDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == (1 + (getBatchOffset() == nullptr ? 0 : 1)));
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   auto inputShape = getInput().getType().getShape();
 
   std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape;
@@ -2505,7 +2462,7 @@ NLPCreateQKVHeadsDecodeOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
+      inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
       getNumHeads(), getNumKvHeads(), getOverlapQkCoregrid(), getSliceSize(),
       opConfig.outputLayout);
 }
@@ -2539,13 +2496,11 @@ NLPConcatHeadsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                    const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
   auto inputShape = getInput().getType().getShape();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<NLPConcatHeadsOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], opConfig.outputLayout);
+      op_model::OpModel<NLPConcatHeadsOp>::getOpConstraints, *this, inputShape,
+      inputs[0], opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2568,15 +2523,12 @@ NLPConcatHeadsDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   const auto inputShape = getInput().getType().getShape();
   uint32_t numHeads = getNumHeads();
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], numHeads, opConfig.outputLayout);
+      inputShape, inputs[0], numHeads, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2598,8 +2550,6 @@ llvm::Expected<op_model::OpConstraints>
 SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == (1 + (getKvInputTensor() ? 1 : 0)));
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   auto inputShape = getInputTensor().getType().getShape();
 
@@ -2614,8 +2564,8 @@ SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints,
-      *this, deviceGrid, inputShape, inputs[0], kvInputShape, kvInputLayout,
-      getNumHeads(), getNumKvHeads(), getTransposeKey(), opConfig.outputLayout);
+      *this, inputShape, inputs[0], kvInputShape, kvInputLayout, getNumHeads(),
+      getNumKvHeads(), getTransposeKey(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(
@@ -2646,13 +2596,9 @@ RepeatInterleaveOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RepeatInterleaveOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], getRepeats(), getDim(),
-      opConfig.outputLayout);
+      inputShape, inputs[0], getRepeats(), getDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2678,12 +2624,9 @@ RepeatOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RepeatOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getRepeatDims().getShape(), opConfig.outputLayout);
+      op_model::OpModel<RepeatOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getRepeatDims().getShape(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2709,13 +2652,9 @@ PadOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PadOp>::getOpConstraints, *this, deviceGrid, inputShape,
-      inputs[0], getPadding(), getValue(), getUseMulticore(),
-      opConfig.outputLayout);
+      op_model::OpModel<PadOp>::getOpConstraints, *this, inputShape, inputs[0],
+      getPadding(), getValue(), getUseMulticore(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2741,13 +2680,9 @@ SortOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<SortOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDim(), getDescending(), getStable(),
-      opConfig.outputLayout);
+      op_model::OpModel<SortOp>::getOpConstraints, *this, inputShape, inputs[0],
+      getDim(), getDescending(), getStable(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2773,12 +2708,9 @@ ArgMaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDim(), getKeepDim(), getUseMulticore(),
+      op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getDim(), getKeepDim(), getUseMulticore(),
       opConfig.outputLayout);
 }
 
@@ -2805,12 +2737,9 @@ ProdOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ProdOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDimArg(), getKeepDim(), opConfig.outputLayout);
+      op_model::OpModel<ProdOp>::getOpConstraints, *this, inputShape, inputs[0],
+      getDimArg(), getKeepDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2866,14 +2795,11 @@ RequantizeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto outScaleShape = getOutScale().getType().getShape();
   const auto outZeroPointShape = getOutZeroPoint().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RequantizeOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], inScaleShape, inputs[1], inZeroPointShape,
-      inputs[2], outScaleShape, inputs[3], outZeroPointShape, inputs[4],
-      getAxis(), getOutputDtype(), opConfig.outputLayout);
+      op_model::OpModel<RequantizeOp>::getOpConstraints, *this, inputShape,
+      inputs[0], inScaleShape, inputs[1], inZeroPointShape, inputs[2],
+      outScaleShape, inputs[3], outZeroPointShape, inputs[4], getAxis(),
+      getOutputDtype(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2940,9 +2866,6 @@ LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   // Convert activation attribute to optional StringRef
   std::optional<llvm::StringRef> activation =
       getActivation() ? std::make_optional(getActivation().value())
@@ -2952,8 +2875,8 @@ LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LinearOp>::getOpConstraints, *this, deviceGrid,
-      inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
+      op_model::OpModel<LinearOp>::getOpConstraints, *this, inputShapeA,
+      inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
       opConfig.outputLayout, getTransposeA(), getTransposeB(), activation,
       attr.matmulProgramConfig, attr.computeKernelConfig);
 }
@@ -2992,9 +2915,6 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = getA().getType().getShape();
   const auto inputShapeB = getB().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   // Convert activation attribute to optional StringRef
   std::optional<llvm::StringRef> activation =
       getActivation() ? std::make_optional(getActivation().value())
@@ -3004,9 +2924,9 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<MatmulOp>::getOpConstraints, *this, deviceGrid,
-      inputShapeA, inputs[0], inputShapeB, inputs[1], opConfig.outputLayout,
-      getTransposeA(), getTransposeB(), activation, attr.matmulProgramConfig,
+      op_model::OpModel<MatmulOp>::getOpConstraints, *this, inputShapeA,
+      inputs[0], inputShapeB, inputs[1], opConfig.outputLayout, getTransposeA(),
+      getTransposeB(), activation, attr.matmulProgramConfig,
       attr.computeKernelConfig);
 }
 
@@ -3033,16 +2953,13 @@ TopKRouterGptOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                   const OpConfig &opConfig) {
   assert(inputs.size() == 3);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
   const auto biasShape = getBias().getType().getShape();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<TopKRouterGptOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], weightShape, inputs[1], biasShape, inputs[2],
+      op_model::OpModel<TopKRouterGptOp>::getOpConstraints, *this, inputShape,
+      inputs[0], weightShape, inputs[1], biasShape, inputs[2],
       static_cast<uint32_t>(getK()), static_cast<uint32_t>(getNumExperts()),
       opConfig.outputLayout);
 }
@@ -3092,15 +3009,13 @@ llvm::Expected<op_model::OpConstraints>
 FillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
   assert(inputs.size() == 2);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<FillCacheOp>::getOpConstraints, *this, deviceGrid,
-      cacheShape, inputs[0], inputShape, inputs[1], getBatchOffset(),
+      op_model::OpModel<FillCacheOp>::getOpConstraints, *this, cacheShape,
+      inputs[0], inputShape, inputs[1], getBatchOffset(),
       opConfig.outputLayout);
 }
 
@@ -3125,16 +3040,14 @@ llvm::Expected<op_model::OpConstraints>
 UpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                 const OpConfig &opConfig) {
   assert(inputs.size() == 3);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
   auto updateIndexShape = getUpdateIndex().getType().getShape();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<UpdateCacheOp>::getOpConstraints, *this, deviceGrid,
-      cacheShape, inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
+      op_model::OpModel<UpdateCacheOp>::getOpConstraints, *this, cacheShape,
+      inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
       getBatchOffset(), opConfig.outputLayout);
 }
 
@@ -3157,8 +3070,6 @@ PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
   assert(inputs.size() >= 3 && inputs.size() <= 4 &&
          "PagedUpdateCacheOp must have 3 or 4 inputs");
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
@@ -3172,9 +3083,8 @@ PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PagedUpdateCacheOp>::getOpConstraints, *this,
-      deviceGrid, cacheShape, inputs[0], inputShape, inputs[1],
-      updateIndexShape, inputs[2], pageTableShape, pageTableLayout,
-      getShareCache(), opConfig.outputLayout);
+      cacheShape, inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
+      pageTableShape, pageTableLayout, getShareCache(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3203,8 +3113,6 @@ PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                    const OpConfig &opConfig) {
   assert(inputs.size() >= 3 && inputs.size() <= 4 &&
          "PagedFillCacheOp must have 3 or 4 inputs");
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
@@ -3217,8 +3125,8 @@ PagedFillCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PagedFillCacheOp>::getOpConstraints, *this, deviceGrid,
-      cacheShape, inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
+      op_model::OpModel<PagedFillCacheOp>::getOpConstraints, *this, cacheShape,
+      inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
       batchIdxShape, batchIdxLayout, opConfig.outputLayout);
 }
 
@@ -3251,11 +3159,9 @@ llvm::Expected<op_model::OpConstraints>
 SamplingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 5);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::SamplingOp>::getOpConstraints, *this,
-      deviceGrid, getInputValues().getType().getShape(), inputs[0],
+      getInputValues().getType().getShape(), inputs[0],
       getInputIndices().getType().getShape(), inputs[1],
       getK().getType().getShape(), inputs[2], getP().getType().getShape(),
       inputs[3], getTemp().getType().getShape(), inputs[4], getSeed(),
@@ -3314,18 +3220,15 @@ Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
   Conv2dAttrs attr = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<Conv2dOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), attr.conv2dConfig,
-      attr.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
-      opConfig.outputLayout);
+      op_model::OpModel<Conv2dOp>::getOpConstraints, *this, inputShape,
+      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
+      getKernelSize(), getStride(), getPadding(), getDilation(), getGroups(),
+      attr.conv2dConfig, attr.deviceComputeKernelConfig,
+      getConv2dSliceConfigAttr(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3372,16 +3275,13 @@ Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<Conv3dOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
-      getConv3dConfig(), getComputeConfig(), opConfig.outputLayout);
+      op_model::OpModel<Conv3dOp>::getOpConstraints, *this, inputShape,
+      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
+      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3448,18 +3348,15 @@ ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   // If a conv config has been specified, use that. If not, read the op property
   Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ConvTranspose2dOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getOutputPadding(), getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
+      op_model::OpModel<ConvTranspose2dOp>::getOpConstraints, *this, inputShape,
+      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
+      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
+      getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
       getConv2dSliceConfig(), opConfig.outputLayout);
 }
 
@@ -3498,8 +3395,6 @@ llvm::Expected<op_model::OpConstraints>
 PrepareConv2dWeightsOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == 1);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const ::llvm::ArrayRef<int64_t> weightShape =
       getWeightTensor().getType().getShape();
@@ -3507,11 +3402,11 @@ PrepareConv2dWeightsOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PrepareConv2dWeightsOp>::getOpConstraints, *this,
-      deviceGrid, inputs[0], weightShape, getInputMemoryConfig(),
-      getInputTensorLayout(), getWeightsFormat(), getInChannels(),
-      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
-      getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
+      inputs[0], weightShape, getInputMemoryConfig(), getInputTensorLayout(),
+      getWeightsFormat(), getInChannels(), getOutChannels(), getBatchSize(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getDilation(), getHasBias(), getGroups(), getInputDtype(),
+      getOutputDtype(), conv2dAttrs.conv2dConfig,
       conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
       opConfig.outputLayout);
 }
@@ -3531,8 +3426,6 @@ llvm::Expected<op_model::OpConstraints>
 PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                       const OpConfig &opConfig) {
   assert(inputs.size() == 1);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const ::llvm::ArrayRef<int64_t> biasShape =
       getBiasTensor().getType().getShape();
@@ -3540,12 +3433,12 @@ PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PrepareConv2dBiasOp>::getOpConstraints, *this,
-      deviceGrid, inputs[0], biasShape, getInputMemoryConfig(),
-      getInputTensorLayout(), getInChannels(), getOutChannels(), getBatchSize(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getDilation(), getGroups(), getInputDtype(),
-      getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, opConfig.outputLayout);
+      inputs[0], biasShape, getInputMemoryConfig(), getInputTensorLayout(),
+      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(),
+      getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
+      conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3556,6 +3449,25 @@ PrepareConv2dBiasOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// PrepareConv3dWeightsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv3dWeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+PrepareConv3dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // PrepareConvTranspose2dWeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -3563,8 +3475,6 @@ llvm::Expected<op_model::OpConstraints>
 PrepareConvTranspose2dWeightsOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == 1);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const ::llvm::ArrayRef<int64_t> weightShape =
       getWeightTensor().getType().getShape();
@@ -3572,7 +3482,7 @@ PrepareConvTranspose2dWeightsOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints,
-      *this, deviceGrid, inputs[0], weightShape, getInputMemoryConfig(),
+      *this, inputs[0], weightShape, getInputMemoryConfig(),
       getInputTensorLayout(), getWeightsFormat(), getInChannels(),
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
       getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
@@ -3595,8 +3505,6 @@ llvm::Expected<op_model::OpConstraints>
 PrepareConvTranspose2dBiasOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == 1);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const ::llvm::ArrayRef<int64_t> biasShape =
       getBiasTensor().getType().getShape();
@@ -3604,13 +3512,12 @@ PrepareConvTranspose2dBiasOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints, *this,
-      deviceGrid, inputs[0], biasShape, getInputMemoryConfig(),
-      getInputTensorLayout(), getInChannels(), getOutChannels(), getBatchSize(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getDilation(), getGroups(), getInputDtype(),
-      getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
-      opConfig.outputLayout);
+      inputs[0], biasShape, getInputMemoryConfig(), getInputTensorLayout(),
+      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(),
+      getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
+      conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
+      getConv2dSliceConfig(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> PrepareConvTranspose2dBiasOp::getOpRuntime(
@@ -3706,9 +3613,6 @@ llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
                                "(representing main input tensor, "
                                "running_mean, running_var, weight and bias).");
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   const auto inputShape = getInput().getType().getShape();
 
   BatchNormOptionalArgs optionalArgs =
@@ -3716,7 +3620,7 @@ llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<BatchNormInferenceOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], optionalArgs.runningMeanShape,
+      inputShape, inputs[0], optionalArgs.runningMeanShape,
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
@@ -3758,9 +3662,6 @@ BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
          "usage of this op with 2-4 input tensors is discouraged as it's "
          "ambiguous.");
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   const auto inputShape = getInput().getType().getShape();
 
   BatchNormOptionalArgs optionalArgs =
@@ -3768,7 +3669,7 @@ BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<BatchNormTrainingOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], optionalArgs.runningMeanShape,
+      inputShape, inputs[0], optionalArgs.runningMeanShape,
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
@@ -3835,8 +3736,6 @@ unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -3848,11 +3747,10 @@ RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
           : std::nullopt;
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RMSNormOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout,
-      computeKernelConfig);
+      op_model::OpModel<RMSNormOp>::getOpConstraints, *this, inputShape,
+      inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
+      opConfig.outputLayout, computeKernelConfig);
 }
 
 llvm::Expected<size_t>
@@ -3901,8 +3799,6 @@ unpackRMSNormPreAllGatherOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -3911,9 +3807,9 @@ llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, getDtype(), getUse_2dCoreGrid(),
-      opConfig.outputLayout);
+      inputShape, inputs[0], optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      getUse_2dCoreGrid(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3927,8 +3823,8 @@ RMSNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpRuntime, *this, inputShape,
       inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, getDtype(), getUse_2dCoreGrid(),
-      opConfig.outputLayout);
+      optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      getUse_2dCoreGrid(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3966,8 +3862,6 @@ unpackLayerNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 LayerNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -3975,10 +3869,10 @@ LayerNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       unpackLayerNormOptionalArgs(inputs, *this);
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LayerNormOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      op_model::OpModel<LayerNormOp>::getOpConstraints, *this, inputShape,
+      inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4031,8 +3925,6 @@ unpackLayerNormPreAllGatherOptionalArgs(
 llvm::Expected<op_model::OpConstraints>
 LayerNormPreAllGatherOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -4041,9 +3933,10 @@ LayerNormPreAllGatherOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<LayerNormPreAllGatherOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], optionalArgs.residualInputShape,
+      inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
-      optionalArgs.recipLayout, getDtype(), opConfig.outputLayout);
+      optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4058,7 +3951,8 @@ LayerNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<LayerNormPreAllGatherOp>::getOpRuntime, *this,
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
-      optionalArgs.recipLayout, getDtype(), opConfig.outputLayout);
+      optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4096,8 +3990,6 @@ unpackLayerNormPostAllGatherOptionalArgs(
 llvm::Expected<op_model::OpConstraints>
 LayerNormPostAllGatherOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const auto inputShape = getInput().getType().getShape();
   const auto statsShape = getStats().getType().getShape();
@@ -4107,10 +3999,9 @@ LayerNormPostAllGatherOp::getOpConstraints(
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], statsShape, inputs[1],
-      optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout);
+      inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
@@ -4172,8 +4063,6 @@ llvm::Expected<op_model::OpConstraints>
 GroupNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
   assert(!inputs.empty() && "GroupNormOp requires at least input layout");
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -4181,12 +4070,11 @@ GroupNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       unpackGroupNormOptionalArgs(inputs, *this);
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GroupNormOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], optionalArgs.inputMaskShape,
-      optionalArgs.inputMaskLayout, optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getNumGroups(), getEpsilon(),
-      opConfig.outputLayout, getCoreGrid());
+      op_model::OpModel<GroupNormOp>::getOpConstraints, *this, inputShape,
+      inputs[0], optionalArgs.inputMaskShape, optionalArgs.inputMaskLayout,
+      optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, getNumGroups(),
+      getEpsilon(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4203,7 +4091,7 @@ GroupNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], optionalArgs.inputMaskShape, optionalArgs.inputMaskLayout,
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getNumGroups(),
-      getEpsilon(), opConfig.outputLayout, getCoreGrid());
+      getEpsilon(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4217,12 +4105,9 @@ ClampScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ClampScalarOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getMinAttr(), getMaxAttr(), opConfig.outputLayout);
+      op_model::OpModel<ClampScalarOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getMinAttr(), getMaxAttr(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4248,12 +4133,9 @@ ClampTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ClampTensorOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getMin().getType().getShape(), inputs[1],
+      op_model::OpModel<ClampTensorOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getMin().getType().getShape(), inputs[1],
       getMax().getType().getShape(), inputs[2], opConfig.outputLayout);
 }
 
@@ -4281,13 +4163,9 @@ PermuteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PermuteOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getPermutation(), getPadValue(),
-      opConfig.outputLayout);
+      op_model::OpModel<PermuteOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getPermutation(), getPadValue(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4313,13 +4191,9 @@ UpsampleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<UpsampleOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getScaleFactor(), getMode(),
-      opConfig.outputLayout);
+      op_model::OpModel<UpsampleOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getScaleFactor(), getMode(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4346,12 +4220,9 @@ EmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<EmbeddingOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], weightShape, inputs[1], opConfig.outputLayout);
+      op_model::OpModel<EmbeddingOp>::getOpConstraints, *this, inputShape,
+      inputs[0], weightShape, inputs[1], opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4380,13 +4251,10 @@ EmbeddingBackwardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto weightShape = getWeight().getType().getShape();
   const auto inGradientShape = getInGradient().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<EmbeddingBackwardOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], weightShape, inputs[1],
-      inGradientShape, inputs[2], opConfig.outputLayout);
+      inputShape, inputs[0], weightShape, inputs[1], inGradientShape, inputs[2],
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4414,15 +4282,14 @@ EmptyOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == 0);
 
   const llvm::ArrayRef<int64_t> shape = getShape().getShape();
-  const mlir::tt::ttcore::DataTypeAttr dtype = getDtypeAttr();
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  assert(dtype && "EmptyOp requires output dtype");
   const mlir::tt::ttnn::Layout layout = getLayoutAttr().getValue();
-
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints, *this,
-      deviceGrid, shape, dtype, layout, opConfig.outputLayout);
+      shape, dtype, layout, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4444,14 +4311,12 @@ ArangeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ::mlir::IntegerAttr startAttr = getStartAttr();
   ::mlir::IntegerAttr endAttr = getEndAttr();
   ::mlir::IntegerAttr stepAttr = getStepAttr();
-  std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
-
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
+  std::optional<mlir::tt::ttcore::DataType> dtype =
+      dataTypeAttrToOptional(getDtypeAttr());
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints, *this,
-      deviceGrid, startAttr, endAttr, stepAttr, dtype, opConfig.outputLayout);
+      startAttr, endAttr, stepAttr, dtype, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4504,17 +4369,16 @@ llvm::Expected<op_model::OpConstraints>
 FullOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 0);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const mlir::tt::ttnn::ShapeAttr shape = getShape();
   const mlir::Attribute fillValue = getFillValue();
-  const std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+  const std::optional<mlir::tt::ttcore::DataType> dtype =
+      dataTypeAttrToOptional(getDtypeAttr());
   const std::optional<mlir::tt::ttnn::Layout> layout = getLayout();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints, *this,
-      deviceGrid, shape, fillValue, dtype, layout, opConfig.outputLayout);
+      op_model::OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints, *this, shape,
+      fillValue, dtype, layout, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4535,12 +4399,9 @@ MeshPartitionOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<MeshPartitionOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDim(), getClusterAxis(), opConfig.outputLayout);
+      op_model::OpModel<MeshPartitionOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getDim(), getClusterAxis(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4564,12 +4425,9 @@ ConstantOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 0);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ConstantOp>::getOpConstraints, *this, deviceGrid,
-      getValue(), opConfig.outputLayout);
+      op_model::OpModel<ConstantOp>::getOpConstraints, *this, getValue(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4588,13 +4446,14 @@ RandOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 0);
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
+  ttcore::DataTypeAttr dtype =
+      detail::resolveOutputDtype(getOperation(), opConfig.outputLayout);
+  assert(dtype && "RandOp requires output dtype");
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints, *this,
-      deviceGrid, getSize(), getDtype(), getLayout(), getLow(), getHigh(),
-      getSeed(), opConfig.outputLayout);
+      getSize(), dtype.getValue(), getLayout(), getLow(), getHigh(), getSeed(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4615,13 +4474,10 @@ DropoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<DropoutOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getProb(), getScale(), getSeed(),
-      getUsePerDeviceSeed(), opConfig.outputLayout);
+      op_model::OpModel<DropoutOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getProb(), getScale(), getSeed(), getUsePerDeviceSeed(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4648,12 +4504,9 @@ GlobalAvgPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
 
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
-
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GlobalAvgPool2dOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getDtype(), opConfig.outputLayout);
+      op_model::OpModel<GlobalAvgPool2dOp>::getOpConstraints, *this, inputShape,
+      inputs[0], dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4665,7 +4518,7 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<GlobalAvgPool2dOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getDtype(), opConfig.outputLayout);
+      inputs[0], dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4676,14 +4529,12 @@ llvm::Expected<op_model::OpConstraints>
 AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
   assert(inputs.size() == 1);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
 
   const auto inputShape = getInput().getType().getShape();
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], getDtype());
+      inputShape, inputs[0], dataTypeAttrToOptional(getDtypeAttr()));
 }
 
 llvm::Expected<size_t>
@@ -4694,7 +4545,7 @@ AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
-      inputShape, inputs[0], getDtype());
+      inputShape, inputs[0], dataTypeAttrToOptional(getDtypeAttr()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -4890,13 +4741,11 @@ llvm::Expected<op_model::OpConstraints>
 TopKOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
-  ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
-                   detail::getValidatedDeviceGrid(getOperation()));
   const auto inputShape = getInputTensor().getType().getShape();
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::TopKOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], getK(), getDim(), getLargest(),
-      getSorted(), opConfig.outputLayout);
+      inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>

@@ -247,10 +247,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for mesh shard op operands.
-  static TTNNOperandsWorkarounds
-  createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
-
   // Create workarounds for mesh partition op operands. The input and output
   // tensors are always in row-major layout.
   // TODO (hshah): Remove once
@@ -371,6 +367,11 @@ public:
   // Sparsity tensor must be in ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
   static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
+
+  // Create workarounds for prepare_conv3d_weights op operands.
+  // Weight tensor must be in system memory and ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds
+  createPrepareConv3dWeightsOpOperandsWorkarounds();
 
   // Create workarounds for all_to_all_dispatch op operands.
   // Expert indices and mapping require uint16 dtype and ROW_MAJOR layout.

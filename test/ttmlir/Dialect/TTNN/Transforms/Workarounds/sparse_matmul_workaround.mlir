@@ -23,7 +23,6 @@ module {
       %s: tensor<1x4x1x4xf32>) -> tensor<1x4x1x4x32x64xbf16> {
     // CHECK-LABEL: func.func public @test_sparse_matmul_sparsity_f32_to_bf16
     // CHECK: %[[SPARSITY_BF16:.*]] = "ttnn.to_layout"(%arg2)
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: tensor<1x4x1x4xf32,
     // CHECK-SAME: -> tensor<1x4x1x4xbf16,
@@ -49,7 +48,6 @@ module {
       %s: tensor<1x4x1x4xui16>) -> tensor<1x4x1x4x32x64xbf16> {
     // CHECK-LABEL: func.func public @test_sparse_matmul_sparsity_ui16_to_bf16
     // CHECK: %[[SPARSITY_BF16:.*]] = "ttnn.to_layout"(%arg2)
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: tensor<1x4x1x4xui16,
     // CHECK-SAME: -> tensor<1x4x1x4xbf16,

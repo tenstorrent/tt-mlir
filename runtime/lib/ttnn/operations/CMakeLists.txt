@@ -20,7 +20,6 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/selective_reduce_combine.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_partition.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
@@ -28,6 +27,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_bias.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv3d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_bias.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv3d.cpp

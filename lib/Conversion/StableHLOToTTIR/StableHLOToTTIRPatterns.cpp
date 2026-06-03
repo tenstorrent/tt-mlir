@@ -49,6 +49,45 @@
 using namespace mlir;
 using namespace mlir::tt;
 
+void mlir::tt::retypeFuncArg(ConversionPatternRewriter &rewriter, Value value,
+                             Type newType) {
+  auto blockArg = mlir::dyn_cast<BlockArgument>(value);
+  if (!blockArg) {
+    return;
+  }
+  auto funcOp = dyn_cast<func::FuncOp>(blockArg.getOwner()->getParentOp());
+  if (!funcOp) {
+    return;
+  }
+  blockArg.setType(newType);
+  llvm::SmallVector<Type> argTypes(funcOp.getArgumentTypes());
+  argTypes[blockArg.getArgNumber()] = newType;
+  rewriter.modifyOpInPlace(funcOp, [&]() {
+    funcOp.setType(FunctionType::get(rewriter.getContext(), argTypes,
+                                     funcOp.getResultTypes()));
+  });
+}
+
+void mlir::tt::rewireFuncReturns(ConversionPatternRewriter &rewriter,
+                                 Value oldValue, Value newValue) {
+  for (mlir::OpOperand &use : llvm::make_early_inc_range(oldValue.getUses())) {
+    auto returnOp = mlir::dyn_cast<func::ReturnOp>(use.getOwner());
+    if (!returnOp) {
+      continue;
+    }
+    auto funcOp = returnOp->getParentOfType<func::FuncOp>();
+    unsigned resultIdx = use.getOperandNumber();
+    rewriter.modifyOpInPlace(
+        returnOp, [&]() { returnOp.setOperand(resultIdx, newValue); });
+    llvm::SmallVector<Type> resultTypes(funcOp.getResultTypes());
+    resultTypes[resultIdx] = newValue.getType();
+    rewriter.modifyOpInPlace(funcOp, [&]() {
+      funcOp.setType(FunctionType::get(rewriter.getContext(),
+                                       funcOp.getArgumentTypes(), resultTypes));
+    });
+  }
+}
+
 // Helper to extract values from optional StableHLO attributes with defaults.
 // StableHLO convolution attributes like window_strides, lhs_dilation, etc.
 // are optional and default to 1 (or 0 for padding) when not specified.
@@ -2530,8 +2569,9 @@ public:
       }
     }
 
-    // Handle 5D input (3D pooling) by decomposing into two 2D pooling passes.
-    // This works because max is associative: max(i,j,k) = max_i(max(j,k)).
+    // Handle 5D input (3D max pooling) by decomposing into two 2D max pooling
+    // passes.
+    // This works because max is associative: max(d,h,w) = max_d(max(h,w)).
     if (inputRank == 5) {
       return lowerReduceWindow5D(srcOp, adaptor, rewriter, *initValues,
                                  reductionOps, windowDimensions, windowStrides,
@@ -2760,9 +2800,9 @@ public:
 private:
   // Decompose a 5D reduce_window (3D pooling) into two sequential 2D max pool
   // operations. The 3D pooling window [kD, kH, kW] is factored as:
-  //   Pass 1: MaxPool2d over (H, W) with kernel [kH, kW]
-  //   Pass 2: MaxPool2d over (D)    with kernel [kD, 1]
-  // This is valid because max is associative: max(i,j,k) = max_i(max(j,k)).
+  //   Pass 1: Permute to [N,D,H,W,C], reshape to [N*D,H,W,C], MaxPool2d [kH,kW]
+  //   Pass 2: Reshape to [N,D,Hout*Wout,C], MaxPool2d [kD,1]
+  // This is valid because max is associative: max(d,h,w) = max_d(max(h,w)).
   LogicalResult
   lowerReduceWindow5D(mlir::stablehlo::ReduceWindowOp srcOp,
                       mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
@@ -2800,9 +2840,9 @@ private:
       }
     }
 
-    // Non-spatial dimensions are folded into batch, so they must have trivial
-    // window attributes. Stride > 1 would subsample, padding would change the
-    // output size - neither is handled by the batch-folding reshapes.
+    // Non-spatial dimensions (N and C) must use trivial windowing: stride 1 and
+    // no padding. Stride > 1 or non-zero padding on N or C would subsample or
+    // resize those axes; this decomposition only pools over D, H, and W.
     for (size_t dim : nonSpatialDims) {
       if (windowStrides[dim] != 1 || padding[dim * 2] != 0 ||
           padding[dim * 2 + 1] != 0) {
@@ -2880,15 +2920,22 @@ private:
       RankedTensorType originalResultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
 
+      // NDHWC input is already in the layout used for pooling; canonicalizing
+      // to NCDHW and permuting back would be a no-op transpose pair.
+      SmallVector<int64_t> permNDHWCToNCDHW = {0, 4, 1, 2, 3};
+      bool inputIsNDHWC = needsPermute && permToCanonical == permNDHWCToNCDHW;
+
       // Permute to canonical NCDHW layout if needed.
       SmallVector<int64_t> canonShape;
       if (needsPermute) {
         canonShape = ttmlir::utils::applyPermutation(inputType.getShape(),
                                                      permToCanonical);
-        input = rewriter.create<ttir::PermuteOp>(
-            srcOp.getLoc(),
-            RankedTensorType::get(canonShape, elemType, encoding), input,
-            permToCanonical);
+        if (!inputIsNDHWC) {
+          input = rewriter.create<ttir::PermuteOp>(
+              srcOp.getLoc(),
+              RankedTensorType::get(canonShape, elemType, encoding), input,
+              permToCanonical);
+        }
       } else {
         canonShape = SmallVector<int64_t>(inputType.getShape());
       }
@@ -2912,17 +2959,27 @@ private:
       int64_t Hout = canonResultShape[3];
       int64_t Wout = canonResultShape[4];
 
-      // Pass 1: Pool over H, W.
-      // Reshape [N, C, D, H, W] -> [N*C*D, H, W, 1].
-      int64_t batchHW = N * C * D;
-      SmallVector<int64_t> shapeForHW = {batchHW, H, W, 1};
-      SmallVector<int32_t> shapeForHW32(shapeForHW.begin(), shapeForHW.end());
+      // Pass 1: Pool over H, W with channels preserved (NHWC).
+      // [N, C, D, H, W] -> permute -> [N, D, H, W, C] -> reshape ->
+      // [N*D, H, W, C].
+      SmallVector<int64_t> permNCDHWToNDHWC = {0, 2, 3, 4, 1};
+      Value ndhwc = input;
+      if (!inputIsNDHWC) {
+        SmallVector<int64_t> shapeNDHWC = {N, D, H, W, C};
+        ndhwc = rewriter.create<ttir::PermuteOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(shapeNDHWC, elemType, encoding), input,
+            permNCDHWToNDHWC);
+      }
 
+      int64_t batchND = N * D;
+      SmallVector<int64_t> shapeForHW = {batchND, H, W, C};
+      SmallVector<int32_t> shapeForHW32(shapeForHW.begin(), shapeForHW.end());
       Value reshapedHW = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(), RankedTensorType::get(shapeForHW, elemType, encoding),
-          input, rewriter.getI32ArrayAttr(shapeForHW32));
+          ndhwc, rewriter.getI32ArrayAttr(shapeForHW32));
 
-      SmallVector<int64_t> resultShapeHW = {batchHW, Hout, Wout, 1};
+      SmallVector<int64_t> resultShapeHW = {batchND, Hout, Wout, C};
       Value pooledHW =
           rewriter
               .create<ttir::MaxPool2dOp>(
@@ -2933,17 +2990,15 @@ private:
               .getResult();
 
       // Pass 2: Pool over D.
-      // Reshape [N*C*D, Hout, Wout, 1] -> [N*C, D, Hout*Wout, 1].
-      int64_t batchD = N * C;
+      // [N*D, Hout, Wout, C] -> [N, D, Hout*Wout, C].
       int64_t flatHW = Hout * Wout;
-      SmallVector<int64_t> shapeForD = {batchD, D, flatHW, 1};
+      SmallVector<int64_t> shapeForD = {N, D, flatHW, C};
       SmallVector<int32_t> shapeForD32(shapeForD.begin(), shapeForD.end());
-
       Value reshapedD = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(), RankedTensorType::get(shapeForD, elemType, encoding),
           pooledHW, rewriter.getI32ArrayAttr(shapeForD32));
 
-      SmallVector<int64_t> resultShapeD = {batchD, Dout, flatHW, 1};
+      SmallVector<int64_t> resultShapeD = {N, Dout, flatHW, C};
       Value pooledD =
           rewriter
               .create<ttir::MaxPool2dOp>(
@@ -2952,13 +3007,19 @@ private:
                   reshapedD, kernelD, strideD, dilationD, paddingD, ceilMode)
               .getResult();
 
-      // Reshape back to canonical 5D: [N*C, Dout, Hout*Wout, 1] ->
-      //                                [N, C, Dout, Hout, Wout].
+      // [N, Dout, Hout*Wout, C] (NHWC) -> permute -> [N, C, Dout, Hout*Wout] ->
+      // reshape -> canonical [N, C, Dout, Hout, Wout].
+      SmallVector<int64_t> permNHWCToNCDF = {0, 3, 1, 2};
+      SmallVector<int64_t> shapeNCDF = {N, C, Dout, flatHW};
+      Value ncdf = rewriter.create<ttir::PermuteOp>(
+          srcOp.getLoc(), RankedTensorType::get(shapeNCDF, elemType, encoding),
+          pooledD, permNHWCToNCDF);
+
       SmallVector<int32_t> canonResultShape32(canonResultShape.begin(),
                                               canonResultShape.end());
       Value result = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(),
-          RankedTensorType::get(canonResultShape, elemType, encoding), pooledD,
+          RankedTensorType::get(canonResultShape, elemType, encoding), ncdf,
           rewriter.getI32ArrayAttr(canonResultShape32));
 
       // Permute back to original layout if needed.
@@ -4468,6 +4529,21 @@ public:
           getContext(), mlir::tt::ttcore::ShardStatus::Unsharded);
     }
 
+    // Presharded: no mesh_shard needed. Forward the original value and
+    // update the func signature so arg/result types use local shapes.
+    if (shardStatusAttr.getValue() ==
+        mlir::tt::ttcore::ShardStatus::Presharded) {
+      mlir::Value input = definingOp.getInputs().front();
+      if (shardDirection == mlir::tt::ttcore::MeshShardDirection::FullToShard) {
+        mlir::tt::retypeFuncArg(rewriter, input, srcOp->getResult(0).getType());
+      } else {
+        mlir::tt::rewireFuncReturns(rewriter, srcOp->getResult(0), input);
+      }
+      rewriter.replaceOp(srcOp, input);
+      rewriter.eraseOp(definingOp);
+      return success();
+    }
+
     // Once extracted, we can generate the GSPMDMeshSharding object.
     llvm::Expected<mlir::tt::gspmd_utils::GSPMDMeshSharding> gspmdMeshSharding =
         mlir::tt::gspmd_utils::GSPMDMeshSharding::generate(
@@ -5673,10 +5749,11 @@ public:
 
     auto slicedIndices = indices.getValue();
     for (auto index : slicedIndices.getValues<llvm::APInt>()) {
+      // When maxIndex == 0, 0 and maxIndex collapse to the same value; count
+      // such indices only as starts to avoid double-counting them as ends.
       if (index == 0) {
         starts++;
-      }
-      if (index == maxIndex) {
+      } else if (index == maxIndex) {
         ends++;
       }
       if (!((index - lastIndex == 1) || (index == lastIndex && index == 0) ||
@@ -5693,13 +5770,17 @@ public:
 
     // Body [0, 1, ..., maxIndex] must be present, i.e. at least one 0 and one
     // maxIndex. Rejects constant-uniform indices like [1, 1, ..., 1].
-    if (starts == 0 || ends == 0) {
+    // When maxIndex == 0 the body is just [0]; only starts is meaningful, and
+    // all surplus indices become front padding.
+    if (starts == 0 || (maxIndex != 0 && ends == 0)) {
       return rewriter.notifyMatchFailure(
           srcOp, "Indices do not contain the body [0, 1, ..., maxIndex]");
     }
 
     starts--;
-    ends--;
+    if (maxIndex != 0) {
+      ends--;
+    }
 
     SmallVector<Value> slicesToConcat;
 
@@ -6123,8 +6204,21 @@ public:
     auto cacheUpdateInputType =
         mlir::cast<RankedTensorType>((*CachePositions).getType());
     auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
-    if (cacheUpdateInputShape.size() != 1) {
-      return mlir::failure();
+    if (cacheUpdateInputShape.size() > 1) {
+      return rewriter.notifyMatchFailure(
+          scatterOp,
+          "cache position operand must be rank-0 or rank-1, got rank " +
+              std::to_string(cacheUpdateInputShape.size()));
+    }
+
+    // If the cache position is rank-0 (scalar), reshape it to rank-1 so that
+    // downstream ops (UpdateCacheOp, its canonicalization) can index shape[0].
+    if (cacheUpdateInputShape.empty()) {
+      auto rank1Type =
+          RankedTensorType::get({1}, cacheUpdateInputType.getElementType());
+      *CachePositions = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+          scatterOp.getLoc(), rank1Type, *CachePositions,
+          rewriter.getI32ArrayAttr({1}));
     }
 
     Value cache = scatterOp.getInputs()[0];
@@ -6416,8 +6510,21 @@ public:
                                                     scatterIndices, newShape);
     }
 
-    rewriter.replaceOpWithNewOp<ttir::EmbeddingBackwardOp>(
-        srcOp, outputType, scatterIndices, operand, update);
+    // Create embedding_backward op into a temporary value.
+    auto embeddingBackwardOp = rewriter.create<ttir::EmbeddingBackwardOp>(
+        srcOp.getLoc(), outputType, scatterIndices, operand, update);
+    Value result = embeddingBackwardOp.getResult();
+
+    // Add the original operand to the embedding_backward result only if operand
+    // is non-zero.
+    if (!matchPattern(operand, m_Zero()) &&
+        !matchPattern(operand, m_AnyZeroFloat())) {
+      auto addOp = rewriter.create<ttir::AddOp>(
+          srcOp.getLoc(), outputType, embeddingBackwardOp.getResult(), operand);
+      result = addOp.getResult();
+    }
+
+    rewriter.replaceOp(srcOp, result);
 
     return success();
   }
@@ -6887,36 +6994,59 @@ private:
 
   Value extractElementWiseScatterIndices(mlir::stablehlo::ScatterOp op,
                                          PatternRewriter &rewriter) const {
-    // Indices need to match updates tensor.
+    // Build an index tensor shape-aligned with the update tensor: size-1 at
+    // each update_window_dim, and the index batch dims (all dims except
+    // index_vector_dim) at the remaining positions. Window axes are then
+    // expanded via repeat.
     TypedValue<RankedTensorType> indexTensor = op.getScatterIndices();
     RankedTensorType updateType =
         mlir::cast<RankedTensorType>(op.getUpdates()[0].getType());
     RankedTensorType indexType = indexTensor.getType();
-    llvm::SmallVector<int64_t> indexShape(indexType.getShape());
+    ArrayRef<int64_t> origIndexShape = indexType.getShape();
     ArrayRef<int64_t> updateShape = updateType.getShape();
 
-    if (indexShape.size() < updateShape.size()) {
-      // Need to reshape indices by appending 1s to the shape.
-      llvm::SmallVector<int64_t> newShape(indexShape.begin(), indexShape.end());
-      newShape.resize(updateShape.size(), 1);
-
-      indexTensor = ttir::utils::createReshapeOp(rewriter, op.getLoc(),
-                                                 indexTensor, newShape);
-      indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
-      indexShape = newShape;
-    }
-
-    // Repeat along update_window_dims to match update tensor shape.
+    int64_t indexVectorDim =
+        op.getScatterDimensionNumbers().getIndexVectorDim();
     ArrayRef<int64_t> updateWindowDims =
         op.getScatterDimensionNumbers().getUpdateWindowDims();
-    llvm::SmallVector<int64_t> repeatDims(indexShape.size(), 1);
-    bool needsRepeat = false;
 
-    // For each update_window_dim, set repeat factor to match update tensor
-    // size.
-    for (auto dimAttr : updateWindowDims) {
-      int64_t dim = dimAttr;
-      if (indexShape[dim] != updateShape[dim]) {
+    // Collect the scatter-batch dims of the original index tensor (all dims
+    // except index_vector_dim). For implicit index_vector_dim (== rank), no
+    // dim is excluded.
+    llvm::SmallVector<int64_t> indexBatchShape;
+    indexBatchShape.reserve(origIndexShape.size());
+    for (int64_t i = 0; i < static_cast<int64_t>(origIndexShape.size()); ++i) {
+      if (i != indexVectorDim) {
+        indexBatchShape.push_back(origIndexShape[i]);
+      }
+    }
+
+    // Compose the reshape target: size-1 at each update_window_dim, and the
+    // index batch dims at the remaining positions.
+    llvm::DenseSet<int64_t> windowDimSet(updateWindowDims.begin(),
+                                         updateWindowDims.end());
+    llvm::SmallVector<int64_t> reshapedIndexShape(updateShape.size(), 1);
+    size_t batchIdx = 0;
+    for (size_t i = 0; i < updateShape.size(); ++i) {
+      if (windowDimSet.contains(static_cast<int64_t>(i))) {
+        continue;
+      }
+      if (batchIdx < indexBatchShape.size()) {
+        reshapedIndexShape[i] = indexBatchShape[batchIdx++];
+      }
+    }
+
+    if (origIndexShape != ArrayRef<int64_t>(reshapedIndexShape)) {
+      indexTensor = ttir::utils::createReshapeOp(
+          rewriter, op.getLoc(), indexTensor, reshapedIndexShape);
+      indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
+    }
+
+    // Repeat each update_window_dim from 1 up to updateShape[dim].
+    llvm::SmallVector<int64_t> repeatDims(updateShape.size(), 1);
+    bool needsRepeat = false;
+    for (int64_t dim : updateWindowDims) {
+      if (reshapedIndexShape[dim] != updateShape[dim]) {
         repeatDims[dim] = updateShape[dim];
         needsRepeat = true;
       }
@@ -7496,8 +7626,8 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::RandOp>(
         srcOp, outputType, rewriter.getI32ArrayAttr(size),
-        mlir::TypeAttr::get(outputType.getElementType()),
-        rewriter.getF32FloatAttr(*low), rewriter.getF32FloatAttr(*high));
+        rewriter.getF32FloatAttr(*low), rewriter.getF32FloatAttr(*high),
+        rewriter.getUI32IntegerAttr(0));
 
     return success();
   }
@@ -7580,7 +7710,7 @@ public:
 
     auto randOp = rewriter.create<mlir::tt::ttir::RandOp>(
         srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
-        mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
+        fromFloat, toFloat, seed);
 
     // TODO (pglusac): Change to bit cast once we support it or remove if
     // rand starts supporting uint32.

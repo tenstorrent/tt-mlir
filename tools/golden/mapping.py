@@ -1823,6 +1823,15 @@ def sdpa_decode_golden(
     # Mask is in decode layout [B, 1, H, S], permute to [B, H, 1, S] to match qk
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float().permute(0, 2, 1, 3))
+    elif is_causal and cur_pos_tensor is not None:
+        # Synthesize a per-batch causal mask: positions j > cur_pos[b] are -inf.
+        b, _, _, seq_len = qk.shape
+        causal_mask = torch.zeros((b, 1, 1, seq_len), dtype=torch.float32)
+        cur_t = _gmt_leaf_torch(cur_pos_tensor)
+        for i in range(b):
+            start_idx = int(cur_t[i].item())
+            causal_mask[i, :, :, start_idx + 1 :] = float("-inf")
+        qk = torch.add(qk, causal_mask)
 
     # Scale AFTER masking (tt-metal fuses scale into exp)
     if scale is not None:
@@ -2515,6 +2524,297 @@ def gather_golden(
     return gathered.to(device=device)
 
 
+def stablehlo_scatter_golden(
+    inputs: List[GoldenMapTensor],
+    scatter_indices: GoldenMapTensor,
+    updates: List[GoldenMapTensor],
+    scatter_dimension_numbers,
+    update_computation_region,
+    result_types: List[Type],
+) -> Union[GoldenMapTensor, List[GoldenMapTensor]]:
+    # Unpack dimension numbers
+    update_window_dims = list(scatter_dimension_numbers.update_window_dims)
+    inserted_window_dims = list(scatter_dimension_numbers.inserted_window_dims)
+    input_batching_dims = list(scatter_dimension_numbers.input_batching_dims)
+    scatter_indices_batching_dims = list(
+        scatter_dimension_numbers.scatter_indices_batching_dims
+    )
+    scattered_dims_to_operand_dims = list(
+        scatter_dimension_numbers.scattered_dims_to_operand_dims
+    )
+    index_vector_dim = scatter_dimension_numbers.index_vector_dim
+
+    # Currently support simple cases without batching
+    assert len(input_batching_dims) == 0, "input_batching_dims not supported yet"
+    assert (
+        len(scatter_indices_batching_dims) == 0
+    ), "scatter_indices_batching_dims not supported yet"
+
+    # Validate update_window_dims are trailing dimensions (as currently implemented)
+    # This golden assumes update_window_dims are the trailing dimensions of the update tensor
+    # in order, which is the common case for most scatter operations.
+    if len(update_window_dims) > 0:
+        expected_trailing = list(
+            range(
+                len(updates[0].shape) - len(update_window_dims), len(updates[0].shape)
+            )
+        )
+        assert update_window_dims == expected_trailing, (
+            f"scatter golden currently only supports update_window_dims as trailing "
+            f"dimensions. Got update_window_dims={update_window_dims}, but expected "
+            f"{expected_trailing} for update shape {updates[0].shape}. "
+            f"Arbitrary update_window_dims require proper dimension mapping."
+        )
+
+    # Work with first shard for replicated tensors
+    def _first_shard(t):
+        return t.shard_at(0) if isinstance(t, GoldenMapTensor) else t
+
+    # Initialize outputs as clones of inputs
+    outputs = [inp.clone() for inp in inputs]
+
+    # Get tensor shapes
+    scatter_indices_shape = list(_first_shard(scatter_indices).shape)
+
+    # Determine the batch shape (indices without index_vector_dim)
+    if index_vector_dim < len(scatter_indices_shape):
+        batch_shape = (
+            scatter_indices_shape[:index_vector_dim]
+            + scatter_indices_shape[index_vector_dim + 1 :]
+        )
+        index_depth = scatter_indices_shape[index_vector_dim]
+    else:
+        # index_vector_dim == rank means each element is a scalar index
+        batch_shape = scatter_indices_shape
+        index_depth = 1
+
+    # Flatten scatter indices to [num_indices, index_depth]
+    num_indices = int(torch.tensor(batch_shape).prod()) if batch_shape else 1
+    indices_flat = (
+        _first_shard(scatter_indices).reshape(num_indices, index_depth).long()
+    )
+
+    # Bounds check indices before processing (similar to gather_golden)
+    for i in range(len(inputs)):
+        input_shard = _first_shard(inputs[i])
+        for k, operand_dim in enumerate(scattered_dims_to_operand_dims):
+            if operand_dim in inserted_window_dims:
+                # For inserted dims, the index must be in valid range
+                valid_max = input_shard.size(operand_dim) - 1
+            else:
+                # For window dims, the index + window size must fit
+                # Find the corresponding update window dimension
+                update_dim_for_operand = None
+                non_inserted_count = 0
+                for d in range(len(input_shard.shape)):
+                    if d == operand_dim and d not in inserted_window_dims:
+                        if non_inserted_count < len(update_window_dims):
+                            update_dim_for_operand = update_window_dims[
+                                non_inserted_count
+                            ]
+                        break
+                    if d not in inserted_window_dims:
+                        non_inserted_count += 1
+
+                if update_dim_for_operand is not None:
+                    update_shard = _first_shard(updates[i])
+                    window_size = update_shard.shape[update_dim_for_operand]
+                    valid_max = input_shard.size(operand_dim) - window_size
+                else:
+                    valid_max = input_shard.size(operand_dim) - 1
+
+            if k < index_depth:
+                if torch.any(indices_flat[:, k] < 0) or torch.any(
+                    indices_flat[:, k] > valid_max
+                ):
+                    raise IndexError(
+                        f"scatter indices out of bounds for operand {i} dim {operand_dim}: "
+                        f"indices range [{indices_flat[:, k].min()}, {indices_flat[:, k].max()}], "
+                        f"valid range [0, {valid_max}]"
+                    )
+
+    # Process each scatter index
+    for idx_num in range(num_indices):
+        # Get the index vector for this scatter location
+        index_vector = indices_flat[idx_num]
+
+        # Build the start indices for the operand
+        operand_start_indices = [0] * len(scattered_dims_to_operand_dims)
+        for i, operand_dim in enumerate(scattered_dims_to_operand_dims):
+            if i < len(index_vector):
+                operand_start_indices[i] = int(index_vector[i].item())
+
+        # For each input/update pair
+        for i in range(len(inputs)):
+            output_tensor = outputs[i]
+            if len(output_tensor.shard_map) > 1:
+                first_output_shard = _first_shard(output_tensor)
+                for device, shard in output_tensor.shard_map.items():
+                    if not torch.equal(shard, first_output_shard):
+                        raise AssertionError(
+                            "stablehlo_scatter_golden expects replicated output shards when "
+                            "applying scatter via _first_shard(outputs[i])"
+                        )
+                for device in output_tensor.shard_map:
+                    output_tensor.shard_map[device] = first_output_shard
+            input_shard = _first_shard(output_tensor)
+
+            update_tensor = updates[i]
+            if len(update_tensor.shard_map) > 1:
+                first_update_shard = _first_shard(update_tensor)
+                for device, shard in update_tensor.shard_map.items():
+                    if not torch.equal(shard, first_update_shard):
+                        raise AssertionError(
+                            "stablehlo_scatter_golden expects replicated update shards when "
+                            "reading updates via _first_shard(updates[i])"
+                        )
+            update_shard = _first_shard(update_tensor)
+            update_shape = list(update_shard.shape)
+
+            # Calculate the update slice for this index
+            # The update tensor has batch dims followed by window dims
+            update_batch_idx = []
+            if num_indices > 1:
+                # Convert flat index back to multi-dimensional batch index
+                remaining = idx_num
+                for dim_size in reversed(batch_shape):
+                    update_batch_idx.insert(0, remaining % dim_size)
+                    remaining //= dim_size
+
+            # Extract the update window for this batch element
+            update_slice_indices = tuple(update_batch_idx) + (slice(None),) * len(
+                update_window_dims
+            )
+            update_window = (
+                update_shard[update_slice_indices] if update_batch_idx else update_shard
+            )
+
+            # Build the scatter slice in the operand
+            # Map update window to operand, inserting dims as needed
+            operand_indices = []
+            update_dim_idx = 0
+            for operand_dim in range(len(input_shard.shape)):
+                if operand_dim in inserted_window_dims:
+                    # This dim is collapsed in update, use index
+                    mapped_idx = (
+                        scattered_dims_to_operand_dims.index(operand_dim)
+                        if operand_dim in scattered_dims_to_operand_dims
+                        else None
+                    )
+                    if mapped_idx is not None and mapped_idx < len(
+                        operand_start_indices
+                    ):
+                        operand_indices.append(operand_start_indices[mapped_idx])
+                    else:
+                        operand_indices.append(0)
+                else:
+                    # This dim exists in update window
+                    operand_indices.append(slice(None))
+                    update_dim_idx += 1
+
+            # Apply the update computation
+            # Bounds should already be validated, so use operand_indices directly
+            if len(operand_indices) > 0:
+                try:
+                    current_value = input_shard[tuple(operand_indices)]
+                except IndexError as e:
+                    raise IndexError(
+                        f"Failed to index operand {i} with indices {operand_indices} "
+                        f"(operand shape: {input_shard.shape}, scatter index {idx_num}): {e}"
+                    )
+
+                # Check if the update computation is a simple replacement or an actual computation
+                # by looking at the region operations
+                is_simple_replacement = True
+                applied_op = False
+                if update_computation_region is not None:
+                    for block in update_computation_region.blocks:
+                        for op in block.operations:
+                            # Check if there's any computation beyond just returning the update value
+                            op_type = type(op).__name__
+                            if hasattr(op, "OPERATION_NAME"):
+                                op_name = op.OPERATION_NAME
+                            else:
+                                op_name = op_type
+
+                            # Skip return operations
+                            if "return" in str(op_name).lower():
+                                continue
+
+                            is_simple_replacement = False
+                            # Try to determine the operation type
+                            try:
+                                if "AddOp" in op_type or "add" in str(op_name).lower():
+                                    input_shard[tuple(operand_indices)] = (
+                                        current_value + update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MulOp" in op_type
+                                    or "mul" in str(op_name).lower()
+                                    or "multiply" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = (
+                                        current_value * update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MaxOp" in op_type or "max" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = torch.maximum(
+                                        current_value, update_window
+                                    )
+                                    applied_op = True
+                                elif (
+                                    "MinOp" in op_type or "min" in str(op_name).lower()
+                                ):
+                                    input_shard[tuple(operand_indices)] = torch.minimum(
+                                        current_value, update_window
+                                    )
+                                    applied_op = True
+                                else:
+                                    # Default to replacement if we don't recognize the op
+                                    input_shard[tuple(operand_indices)] = update_window
+                                    applied_op = True
+                            except (IndexError, RuntimeError) as e:
+                                raise RuntimeError(
+                                    f"Failed to apply update computation for operand {i}, "
+                                    f"scatter index {idx_num}: update shape {update_window.shape}, "
+                                    f"current value shape {current_value.shape}, error: {e}"
+                                )
+
+                            if applied_op:
+                                break
+                        if applied_op:
+                            break
+
+                if is_simple_replacement and not applied_op:
+                    # Simple replacement (assumes stablehlo.return %arg1 in region)
+                    try:
+                        input_shard[tuple(operand_indices)] = update_window
+                    except (IndexError, RuntimeError) as e:
+                        raise RuntimeError(
+                            f"Failed to apply replacement for operand {i}, "
+                            f"scatter index {idx_num}: update shape {update_window.shape}, "
+                            f"operand indices {operand_indices}, error: {e}"
+                        )
+
+    # Return outputs with proper types
+    output_results = []
+    for i, output in enumerate(outputs):
+        if i < len(result_types):
+            output_dtype = mlir_type_to_torch_dtype(
+                result_types[i].element_type
+                if hasattr(result_types[i], "element_type")
+                else result_types[i]
+            )
+            output_results.append(output.to(output_dtype))
+        else:
+            output_results.append(output)
+
+    return output_results[0] if len(output_results) == 1 else output_results
+
+
 def tilize_golden(
     input_tensor: GoldenMapTensor, tilize=True, **kwargs
 ) -> GoldenMapTensor:
@@ -3052,7 +3352,7 @@ def silu_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
 def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Golden function for silu operation with TTIR parameter names.
+    Golden function for softmax with TTIR/TTNN parameter names.
 
     Parameters
     ----------
@@ -3066,7 +3366,7 @@ def softmax_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     GoldenMapTensor
         Softmax output
     """
-    dimension = kwargs.get("dim", 1)
+    dimension = kwargs.get("dimension", 1)
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
 
 
@@ -3547,6 +3847,13 @@ def ttir_pow_golden(
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.pow(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_atan2_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.atan2(input_tensor, other_tensor).to(output_dtype)
 
 
 def ttir_ge_golden(
@@ -4741,8 +5048,6 @@ def ttir_mesh_shard_golden(
     if shard_direction == ttcore.ir.MeshShardDirection.FullToShard:
         if shard_type == ttcore.ir.MeshShardType.Replicate:
             shard_dims = [None] * len(mesh_shape)
-        elif shard_type == ttcore.ir.MeshShardType.Identity:
-            return input.clone().to(output_dtype)
         return apply_sharding(input, mesh_shape, shard_dims)
     elif shard_direction == ttcore.ir.MeshShardDirection.ShardToFull:
         if shard_type == ttcore.ir.MeshShardType.Replicate:
@@ -6734,19 +7039,56 @@ def ttnn_atan2_golden(
     return torch.atan2(input_tensor, other_tensor).to(output_dtype)
 
 
+# Torch goldens for fused matmul/linear activations. Mirrors
+# ttnn.operations.activations._get_golden_map_for_unary_op (string keys are
+# lowercase op names; ``*_approx`` suffix is stripped before lookup).
+_FUSED_ACTIVATION_FNS: Dict[str, Callable] = {
+    "relu": torch.nn.functional.relu,
+    "relu6": torch.nn.functional.relu6,
+    "silu": torch.nn.functional.silu,
+    "mish": torch.nn.functional.mish,
+    "sigmoid": torch.nn.functional.sigmoid,
+    "hardsigmoid": torch.nn.functional.hardsigmoid,
+    "tanh": torch.nn.functional.tanh,
+    "log": torch.log,
+    "softplus": torch.nn.functional.softplus,
+    "gelu": torch.nn.functional.gelu,
+    "sqrt": torch.sqrt,
+}
+
+
+def _get_fused_activation_fn(
+    activation: Optional[Union[str, StringAttr]],
+) -> Optional[Callable]:
+    if activation is None:
+        return None
+    if not isinstance(activation, str):
+        activation = unpack_mlir_attr(activation)
+    name = activation[:-7] if activation.endswith("_approx") else activation
+    activation_fn = _FUSED_ACTIVATION_FNS.get(name)
+    if activation_fn is None:
+        raise ValueError(f"Unsupported fused activation: {activation}")
+    return activation_fn
+
+
 def ttnn_matmul_golden(
     input_tensor: GoldenMapTensor,
     other_tensor: GoldenMapTensor,
     transpose_a_attr: BoolAttr,
     transpose_b_attr: BoolAttr,
     output_type_mlir: Type,
+    activation_attr: Optional[StringAttr] = None,
 ) -> GoldenMapTensor:
     transpose_a = unpack_mlir_attr(transpose_a_attr)
     transpose_b = unpack_mlir_attr(transpose_b_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     a = torch.transpose(input_tensor, -2, -1) if transpose_a else input_tensor
     b = torch.transpose(other_tensor, -2, -1) if transpose_b else other_tensor
-    return torch.matmul(a, b).to(output_dtype)
+    output = torch.matmul(a, b)
+    activation_fn = _get_fused_activation_fn(activation_attr)
+    if activation_fn is not None:
+        output = activation_fn(output)
+    return output.to(output_dtype)
 
 
 def ttnn_linear_golden(
@@ -6756,6 +7098,7 @@ def ttnn_linear_golden(
     transpose_a_attr: BoolAttr,
     transpose_b_attr: BoolAttr,
     output_type_mlir: Type,
+    activation_attr: Optional[StringAttr] = None,
 ) -> GoldenMapTensor:
     transpose_a = unpack_mlir_attr(transpose_a_attr)
     transpose_b = unpack_mlir_attr(transpose_b_attr)
@@ -6772,7 +7115,11 @@ def ttnn_linear_golden(
         if bias_tensor.shape != output.shape
         else bias_tensor
     )
-    return torch.add(output, bias_tensor).to(output_dtype)
+    output = torch.add(output, bias_tensor)
+    activation_fn = _get_fused_activation_fn(activation_attr)
+    if activation_fn is not None:
+        output = activation_fn(output)
+    return output.to(output_dtype)
 
 
 def ttnn_rms_norm_pre_all_gather_golden(
@@ -7381,16 +7728,30 @@ def ttir_sdpa_golden(
     is_causal_attr: BoolAttr,
     scale_attr: Optional[FloatAttr],
     output_type_mlir: Type,
+    sliding_window_size_attr: Optional[IntegerAttr] = None,
+    attention_sink: Optional[GoldenMapTensor] = None,
 ) -> GoldenMapTensor:
     """
     Matches tt-metal's SDPA implementation, which follows PyTorch semantics:
     softmax(QK * scale + mask). The kernel folds scale into exp, but the host
     wrapper pre-multiplies any user attn_mask by 1/scale to compensate.
     Supports standard attention and Grouped-Query Attention (GQA).
+
+    sliding_window_size: kernel-derived {0, -inf} mask added after scaling.
+      causal:     window covers last W tokens [i-W+1, i]
+      non-causal: window covers [i-W/2, i+W/2] (inclusive, W+1 tokens)
+    attention_sink: per-head logit treated as a virtual K column. Kernel
+      applies scale to it just like raw QK, so the golden pre-scales it
+      before concat-softmax-slice.
     """
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     is_causal = unpack_mlir_attr(is_causal_attr)
     scale = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
+    sliding_window_size = (
+        unpack_mlir_attr(sliding_window_size_attr)
+        if sliding_window_size_attr is not None
+        else None
+    )
 
     q_heads = query.shape[1]
     kv_heads = key.shape[1]
@@ -7407,7 +7768,24 @@ def ttir_sdpa_golden(
     qk = torch.matmul(query.float(), key.float().transpose(-2, -1))
     qk = torch.mul(qk, scale)
 
-    if is_causal and attention_mask is None:
+    # When sliding_window_size is set, the kernel uses only the window mask
+    # (which already encodes the causal constraint via its topology). The
+    # separate causal mask path is skipped, matching the decomposition's
+    # if/else-if structure.
+    if sliding_window_size is not None:
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        i_idx = torch.arange(seq_len_q).unsqueeze(1)
+        j_idx = torch.arange(seq_len_k).unsqueeze(0)
+        diff = i_idx - j_idx
+        if is_causal:
+            in_window = (diff >= 0) & (diff < sliding_window_size)
+        else:
+            half = sliding_window_size // 2
+            in_window = (diff >= -half) & (diff <= half)
+        window_mask = torch.where(in_window, 0.0, float("-inf"))
+        qk = torch.add(qk, window_mask)
+    elif is_causal and attention_mask is None:
         seq_len_q = qk.shape[-2]
         seq_len_k = qk.shape[-1]
         causal_mask = torch.triu(
@@ -7418,7 +7796,22 @@ def ttir_sdpa_golden(
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float())
 
-    attn_weights = torch.softmax(qk, dim=-1)
+    if attention_sink is not None:
+        # Sink shape: [1, Hq, 1, 1]; broadcast to [B, Hq, Sq, 1] and scale.
+        # GoldenMapTensor routes torch ops through __torch_function__ but
+        # doesn't override Python `*` or mutating methods like .expand — use
+        # torch.* free functions instead.
+        sink = torch.mul(attention_sink.float(), scale)
+        sink = torch.broadcast_to(
+            sink, (qk.shape[0], qk.shape[1], qk.shape[2], sink.shape[-1])
+        )
+        sink_cols = sink.shape[-1]
+        extended = torch.cat([qk, sink], dim=-1)
+        attn_weights = torch.softmax(extended, dim=-1)
+        attn_weights = attn_weights[..., :-sink_cols]
+    else:
+        attn_weights = torch.softmax(qk, dim=-1)
+
     output = torch.matmul(attn_weights, value.float())
 
     return output.to(output_dtype)
@@ -7679,7 +8072,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.TruncOp: ttir_trunc_golden,
     # Elementwise binary operations
     ttir.AddOp: ttir_add_golden,
-    ttir.Atan2Op: torch.atan2,
+    ttir.Atan2Op: ttir_atan2_golden,
     ttir.MultiplyOp: ttir_multiply_golden,
     ttir.SubtractOp: ttir_subtract_golden,
     ttir.DivOp: ttir_div_golden,
@@ -7878,6 +8271,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SelectOp: stablehlo_select_golden,
     stablehlo.PadOp: stablehlo_pad_golden,
     stablehlo.GatherOp: gather_golden,
+    stablehlo.ScatterOp: stablehlo_scatter_golden,
     # CCL (Collective Communication Library) operations
     stablehlo.AllGatherOp: stablehlo_all_gather_golden,
     stablehlo.AllReduceOp: stablehlo_all_reduce_golden,
@@ -8127,6 +8521,7 @@ def chisel_ttnn_matmul(op, inputs):
         other_tensor=inputs["b"],
         transpose_a_attr=op.attributes["transpose_a"],
         transpose_b_attr=op.attributes["transpose_b"],
+        activation_attr=_attr_get(op.attributes, "activation"),
         output_type_mlir=op.results[0].type.element_type,
     )
 
@@ -8186,6 +8581,7 @@ def chisel_ttnn_linear(op, inputs):
         bias_tensor=inputs["bias"],
         transpose_a_attr=op.attributes["transpose_a"],
         transpose_b_attr=op.attributes["transpose_b"],
+        activation_attr=_attr_get(op.attributes, "activation"),
         output_type_mlir=op.results[0].type.element_type,
     )
 
@@ -8745,6 +9141,32 @@ def chisel_ttnn_batch_norm_inference(op, inputs):
     )
 
 
+def chisel_ttnn_batch_norm_training(op, inputs):
+    output_type = op.results[0].type.element_type
+    running_mean = inputs["running_mean"]
+    running_var = inputs["running_var"]
+    rm_shape = list(running_mean.shape)
+    rv_shape = list(running_var.shape)
+    result, updated_running_mean, updated_running_var = ttir_batch_norm_training_golden(
+        input_tensor=inputs["input"],
+        scale=inputs["weight"],
+        offset=inputs["bias"],
+        running_mean=torch.reshape(running_mean, [-1]),
+        running_variance=torch.reshape(running_var, [-1]),
+        epsilon_attr=op.attributes["epsilon"],
+        dimension_attr=1,
+        momentum_attr=op.attributes["momentum"],
+        output_type_mlir=output_type,
+        mean_output_type_mlir=output_type,
+        variance_output_type_mlir=output_type,
+    )
+    return (
+        result,
+        torch.reshape(updated_running_mean, rm_shape),
+        torch.reshape(updated_running_var, rv_shape),
+    )
+
+
 def chisel_ttnn_distributed_rms_norm(op, inputs):
     return ttir_distributed_rms_norm_golden(
         input=inputs["input"],
@@ -8829,7 +9251,7 @@ def chisel_ttnn_paged_fill_cache(op, inputs):
         input_tensor=inputs["input"],
         page_table_tensor=inputs["page_table"],
         batch_idx_tensor=inputs["batch_idx_tensor"],
-        output_type_mlir=op.results[0].type.element_type,
+        output_type_mlir=op.operands[0].type.element_type,
     )
 
 
@@ -8843,7 +9265,7 @@ def chisel_ttnn_paged_update_cache(op, inputs):
         update_index_tensor=inputs["update_index"],
         share_cache_attr=_attr_get(op.attributes, "share_cache", default=False),
         page_table_tensor=inputs["page_table"],
-        output_type_mlir=op.results[0].type.element_type,
+        output_type_mlir=op.operands[0].type.element_type,
     )
 
 
@@ -9177,6 +9599,7 @@ CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.PrepareConvTranspose2dBiasOp: chisel_ttnn_prepare_conv_transpose2d_bias,
     # BatchNorm / DistRMSNorm / Scatter
     ttnn.BatchNormInferenceOp: chisel_ttnn_batch_norm_inference,
+    ttnn.BatchNormTrainingOp: chisel_ttnn_batch_norm_training,
     ttnn.DistributedRMSNormOp: chisel_ttnn_distributed_rms_norm,
     ttnn.ScatterOp: chisel_ttnn_scatter,
     # SDPA / Attention ops

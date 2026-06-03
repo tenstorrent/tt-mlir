@@ -19,8 +19,7 @@ from .exceptions import GoldenNotImplementedError
 from .ops import (
     RoleName,
     SSAName,
-    get_flat_inplace_vals,
-    get_op_inputs,
+    get_inplace_vals,
     get_op_outputs,
     is_tensor_value,
 )
@@ -92,7 +91,7 @@ def execute_golden(
         )
 
     ssa_count = len(get_op_outputs(op))
-    inplace_vals = get_flat_inplace_vals(op)
+    inplace_vals = get_inplace_vals(op)
     expected = ssa_count + len(inplace_vals)
     assert len(tensors) == expected, (
         f"Golden for {type(op).__name__} returned {len(tensors)} tensor(s) "
@@ -111,15 +110,3 @@ def execute_golden_with_ssa_inputs(
     """Re-key SSA-keyed inputs by role and run the registered golden for `op`."""
     role_inputs = build_role_keyed_inputs(op, ssa_inputs, asm_state)
     return execute_golden(op, role_inputs)
-
-
-def execute_golden_from_pool(
-    op: Operation, pool: Dict[SSAName, GoldenMapTensor], asm_state
-) -> List[GoldenMapTensor]:
-    """Read inputs from `pool`, run golden, store outputs back into `pool`."""
-    names = (inp.get_name(asm_state) for inp in get_op_inputs(op))
-    ssa_inputs: Dict[SSAName, GoldenMapTensor] = {name: pool[name] for name in names}
-    result = execute_golden_with_ssa_inputs(op, ssa_inputs, asm_state)
-    for out_val, tensor in zip(get_op_outputs(op), result, strict=True):
-        pool[out_val.get_name(asm_state)] = tensor
-    return result

@@ -2486,11 +2486,12 @@ def TTIR_GroupNormOp : TTIR_NamedOp<"group_norm", [AttrSizedOperandSegments]> {
     is normalized by subtracting the mean and dividing by the standard deviation,
     then optionally scaled and shifted by weight (gamma) and bias (beta).
 
-    Input tensor is expected to have shape [N, 1, H*W, C], where C is the dimension
-    along which groups are formed. Groups are formed using the tensor's last dimension.
+    Input tensor must be at least 4D. Common shapes include [N, C, H, W] (4D) and
+    [N, C, D, H, W] (5D for 3D convolutions). During TTIR-to-TTNN conversion, inputs
+    are permuted and reshaped to [N, 1, H*W, C] based on the channel_dim attribute.
 
     Inputs:
-    - `input` (Tensor): The input tensor to be normalized (4D, shape [N, 1, H*W, C]).
+    - `input` (Tensor): The input tensor to be normalized (at least 4D).
     - `input_mask` (Optional Tensor): When processing the inputs, the mask is used to
       only look at the elements of the current group. Defaults to None.
     - `weight` (Optional Tensor): The scale parameter (gamma). If provided, the
@@ -5351,11 +5352,10 @@ def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
     Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
 
     Example:
-      %0 = "ttir.rand"() <{dtype = bf16, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
+      %0 = "ttir.rand"() <{high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
 
     Attributes:
       - `size` (Array of Integer): The shape of the tensor to create.
-      - `dtype` (mlir:Type): Data type of the returned tensor.
       - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
       - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
       - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
@@ -5365,7 +5365,6 @@ def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
   }];
 
   let arguments = (ins I32ArrayAttr:$size,
-                       TypeAttr:$dtype,
                        DefaultValuedAttr<F32Attr, "0.0">:$low,
                        DefaultValuedAttr<F32Attr, "1.0">:$high,
                        DefaultValuedAttr<UI32Attr, "0">:$seed);

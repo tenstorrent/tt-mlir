@@ -25,9 +25,11 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -1328,15 +1330,6 @@ void EmptyOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::RandOp::verify() {
-  auto dtype = getDtype();
-  auto outputType = getResult().getType().getElementType();
-
-  if (dtype != outputType) {
-    return emitOpError()
-           << "dtype does not match with output tensor type [dtype = " << dtype
-           << ", output tensor type = " << outputType << "].";
-  }
-
   float low = getLow().convertToFloat();
   float high = getHigh().convertToFloat();
   if (low >= high) {
@@ -5467,7 +5460,7 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
 
   // Currently TTIR only supports the sum reduce types.
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
-    return emitOpError("Invalid reduction op for all reduce op.");
+    return emitOpError("Invalid reduction type for all reduce op.");
   }
 
   return success();
@@ -5483,7 +5476,7 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
 
   // Currently TTIR only supports the sum reduce types.
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
-    return emitOpError("Invalid reduction op for all reduce async op.");
+    return emitOpError("Invalid reduction type for all reduce async op.");
   }
 
   return success();
@@ -5503,7 +5496,7 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
       reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
       reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
-    return emitOpError("Invalid reduction op for reduce scatter op.");
+    return emitOpError("Invalid reduction type for reduce scatter op.");
   }
 
   if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
@@ -7175,9 +7168,9 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     return emitOpError("input and output must have the same shape");
   }
 
-  // Input must be 4D.
-  if (inputType.getRank() != 4) {
-    return emitOpError("input must be a 4D tensor, got rank ")
+  // Input must be at least 4D (e.g. 4D [N, C, H, W] or 5D [N, C, D, H, W]).
+  if (inputType.getRank() < 4) {
+    return emitOpError("input must be at least a 4D tensor, got rank ")
            << inputType.getRank();
   }
 

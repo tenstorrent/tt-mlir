@@ -194,63 +194,49 @@ private:
     return rmArgs;
   }
 
-  // Handles dtype conversion when backend dtype differs from IR tensor element
-  // type. Inserts a toLayout op with TILE layout (required for on-device
-  // typecast) to perform the dtype conversion. Returns true if conversion was
-  // inserted, indicating RM propagation should stop at this point.
-  //
-  // TODO(bmalesevic, #6783): Once issue is addressed (on-device typecasting
-  // support for RM tensors), RM propagation should be allowed to continue after
-  // dtype conversion without forcing conversion to tile layout (which currently
-  // stops RM propagation).
-  bool handleDtypeConversionIfNeeded(Operation *user, IRRewriter &rewriter,
-                                     TTNNLayoutAttr rmOutputLayout,
-                                     Type backendDataType,
-                                     Type tensorElementType,
-                                     RankedTensorType userResultType) {
-    if (backendDataType == tensorElementType) {
-      return false; // No conversion needed
-    }
-
-    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                 "Dtype mismatch detected at op {}: backend dtype {} != "
-                 "tensor element type {}. Inserting toLayout op.",
-                 ttmlir::opToString(user), backendDataType, tensorElementType);
-
-    // First, set the operation's result type to match what the backend
-    // actually produces (with backend's dtype in the layout)
+  // Sets `user`'s result type to what the backend actually produces (RowMajor
+  // layout with the backend's dtype). If that dtype differs from the IR's
+  // expected element type, inserts a RowMajor-preserving toLayout op after
+  // `user` so the on-device typecast happens without leaving RowMajor.
+  // TTNNDecomposeLayouts emits an on-device typecast for this no-layout-change
+  // case (see handleDeviceInputNoLayoutTypecast). Returns the value to keep
+  // propagating RM layout from.
+  Value setBackendResultAndMaybeTypecast(Operation *user, IRRewriter &rewriter,
+                                         TTNNLayoutAttr rmOutputLayout,
+                                         Type backendDataType,
+                                         Type tensorElementType,
+                                         RankedTensorType userResultType) {
     RankedTensorType backendResultType = RankedTensorType::get(
         userResultType.getShape(), backendDataType, rmOutputLayout);
     user->getResult(0).setType(backendResultType);
 
+    if (backendDataType == tensorElementType) {
+      return user->getResult(0);
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Dtype mismatch at op {}: backend dtype {} != tensor element "
+                 "type {}. Inserting RowMajor toLayout op for on-device "
+                 "typecast.",
+                 ttmlir::opToString(user), backendDataType, tensorElementType);
+
     rewriter.setInsertionPointAfter(user);
 
-    // Create layout with TILE (required for on-device typecast) and the
-    // original tensor element type. TTNNDecomposeLayouts requires TILE
-    // layout for on-device dtype conversion; ROW_MAJOR would force a
-    // host round-trip (from_device → typecast → to_device).
-    TTNNLayoutAttr tileLayout =
+    TTNNLayoutAttr rmLayoutWithTargetDtype =
         TTNNLayoutAttr::Builder(rmOutputLayout, userResultType.getShape())
-            .setElementType(tensorElementType)
-            .setLayout(Layout::Tile);
+            .setElementType(tensorElementType);
 
-    // Create toLayout op using TILE layout for dtype conversion
     auto toLayoutOp = utils::createToLayoutOp(
         user,
         mlir::cast<mlir::TypedValue<RankedTensorType>>(user->getResult(0)),
-        rewriter, tileLayout.getLayout(), tileLayout.getBufferType(),
-        tileLayout.getMemLayout(), tileLayout.getDataType(),
-        "_dtype_conversion");
+        rewriter, rmLayoutWithTargetDtype.getLayout(),
+        rmLayoutWithTargetDtype.getBufferType(),
+        rmLayoutWithTargetDtype.getMemLayout(),
+        rmLayoutWithTargetDtype.getDataType(), "_dtype_conversion");
 
-    // Replace all uses (except the toLayout itself)
     user->getResult(0).replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                 "Inserted toLayout op (TILE) after {} to convert {} -> "
-                 "{}. Stopping RM propagation.",
-                 ttmlir::opToString(user), backendDataType, tensorElementType);
-
-    return true; // Conversion inserted, stop RM propagation
+    return toLayoutOp.getResult();
   }
 
   // Propagates RowMajor layout through the function starting from the given
@@ -297,24 +283,20 @@ private:
         Type backendDataType = rmOutputLayout->getScalarElementType();
         Type tensorElementType = userResultType.getElementType();
 
-        // Handle dtype conversion if backend dtype differs from IR element type
-        if (handleDtypeConversionIfNeeded(user, rewriter, rmOutputLayout.get(),
-                                          backendDataType, tensorElementType,
-                                          userResultType)) {
-          continue; // Stop RM propagation (converted to TILE)
-        }
-
-        // No dtype mismatch, continue propagating with RM layout
-        RankedTensorType backendResultType = RankedTensorType::get(
-            userResultType.getShape(), backendDataType, rmOutputLayout.get());
-        user->getResult(0).setType(backendResultType);
+        // Set the user's result to the backend's RM layout, inserting an
+        // on-device typecast (also RM) if the backend dtype differs from the
+        // IR's expected element type. Propagation continues either from the
+        // user op directly or from the inserted typecast.
+        Value propagatedValue = setBackendResultAndMaybeTypecast(
+            user, rewriter, rmOutputLayout.get(), backendDataType,
+            tensorElementType, userResultType);
 
         TTMLIR_DEBUG(
             ttmlir::LogComponent::RMPropagation,
             "Set RowMajor layout on op {} at {}, \n\t output layout: {}",
             user->getName(), user->getLoc(), rmOutputLayout.get());
 
-        worklist.push(user->getResult(0));
+        worklist.push(propagatedValue);
       }
     }
   }

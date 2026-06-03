@@ -56,13 +56,8 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         ttnn.CaptureOrExecuteTraceOp: ChiselOpConfig(no_golden=True),
         ttnn.CreateGlobalSemaphoreOp: ChiselOpConfig(no_golden=True),
         ttnn.ResetGlobalSemaphoreOp: ChiselOpConfig(no_golden=True),
-        # In-place ops (see CHISEL_INPLACE_OPS).
-        ttnn.UpdateCacheOp: ChiselOpConfig(no_golden=True),
-        ttnn.PagedUpdateCacheOp: ChiselOpConfig(no_golden=True),
-        ttnn.FillCacheOp: ChiselOpConfig(no_golden=True),
-        ttnn.PagedFillCacheOp: ChiselOpConfig(no_golden=True),
+        # In-place ops with no golden.
         ttnn.WriteTensorOp: ChiselOpConfig(no_golden=True),
-        ttnn.BatchNormTrainingOp: ChiselOpConfig(no_golden=True),
         ttnn.PointToPointOp: ChiselOpConfig(no_golden=True),
         # Quantization ops not currently supported.
         ttnn.QuantizeOp: ChiselOpConfig(no_golden=True),
@@ -73,7 +68,6 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         ttnn.RotaryEmbeddingLlamaOp: ChiselOpConfig(no_golden=True),
         ttnn.RotaryEmbeddingOp: ChiselOpConfig(no_golden=True),
         ttnn.ConstantOp: ChiselOpConfig(no_golden=True),
-        ttnn.MeshShardOp: ChiselOpConfig(no_golden=True),
         ttnn.MeshPartitionOp: ChiselOpConfig(no_golden=True),
         ttnn.NLPConcatHeadsOp: ChiselOpConfig(no_golden=True),
         ttnn.NLPConcatHeadsDecodeOp: ChiselOpConfig(no_golden=True),

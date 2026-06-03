@@ -19,7 +19,6 @@ module attributes {} {
     // Therefore, the pass will insert the necessary type conversion and revert output layout ops.
 
     // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: -> tensor<1x1x16384x32xbf16,
     // CHECK-NEXT: "ttnn.max_pool2d"
     // CHECK-SAME: -> tensor<1x1x4096x32xbf16,

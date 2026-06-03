@@ -268,9 +268,8 @@ public:
     // and actual conversion can't be done.
     auto seedAttr = rewriter.getUI32IntegerAttr(0);
 
-    rewriter.replaceOpWithNewOp<ttir::RandOp>(
-        srcOp, outputType, sizeAttr, TypeAttr::get(outputType.getElementType()),
-        lowAttr, highAttr, seedAttr);
+    rewriter.replaceOpWithNewOp<ttir::RandOp>(srcOp, outputType, sizeAttr,
+                                              lowAttr, highAttr, seedAttr);
     return success();
   }
 };
@@ -720,17 +719,17 @@ public:
     namedAttrs.push_back(rewriter.getNamedAttr(
         "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-    // ttir.group_norm requires 4D; reshape rank<4 to 4D by appending
+    // ttir.group_norm requires rank >= 4; reshape rank<4 to 4D by appending
     // trailing unit dims (keeps channel_dim at the same index), then
     // reshape the result back to the original rank.
     Value input = adaptor.getOperands()[0];
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     int64_t inputRank = inputType.getRank();
-    if (inputRank > 4) {
-      return rewriter.notifyMatchFailure(srcOp, "input rank must be <= 4");
+    if (inputRank > 5) {
+      return rewriter.notifyMatchFailure(srcOp, "input rank must be <= 5");
     }
 
-    if (inputRank == 4) {
+    if (inputRank >= 4) {
       rewriter.replaceOpWithNewOp<ttir::GroupNormOp>(
           srcOp, outputType, adaptor.getOperands(), namedAttrs);
       return success();

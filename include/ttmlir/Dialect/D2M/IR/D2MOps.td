@@ -201,8 +201,8 @@ def D2M_ToDeviceOp
       ```
     }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                       AnyRankedTensorOrMemRef:$output,
+  let arguments = (ins AnyRankedTensorOrAnyMemRef:$input,
+                       AnyRankedTensorOrAnyMemRef:$output,
                        TTCore_MetalLayoutAttr:$layout);
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
@@ -240,8 +240,8 @@ def D2M_ToHostOp
       ```
     }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                       AnyRankedTensorOrMemRef:$output,
+  let arguments = (ins AnyRankedTensorOrAnyMemRef:$input,
+                       AnyRankedTensorOrAnyMemRef:$output,
                        TTCore_MetalLayoutAttr:$layout);
   let results = (outs Variadic<AnyRankedTensor>:$results);
 

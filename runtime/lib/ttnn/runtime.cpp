@@ -4,6 +4,7 @@
 
 #include "Constants.h"
 
+#include "operations/cpu/cpu.h"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
@@ -1243,6 +1244,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv3dWeightsOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
     tensorRefs = {opContext.type_as_PrepareConvTranspose2dWeightsOp()->out()};
     break;
@@ -1297,10 +1302,6 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->out()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRefs = {opContext.type_as_MeshShardOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
@@ -1757,6 +1758,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv3dWeightsOp()->weight_tensor()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
     tensorRefs = {
         opContext.type_as_PrepareConvTranspose2dWeightsOp()->weight_tensor()};
@@ -1874,10 +1879,6 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MeshShardOp: {
-    tensorRefs = {opContext.type_as_MeshShardOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
@@ -2259,8 +2260,6 @@ void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
   }
 }
 
-// TODO(mmilosevicTT): Rework updating tensor to ensure all required fields are
-// preserved.
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor tensor) {
   auto &programContext =
@@ -2282,11 +2281,32 @@ void updateTensorInPool(CallbackContext programContextHandle,
   ::ttnn::Tensor &srcTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
-  if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
-                                  dstTensor.memory_config());
+
+  LOG_ASSERT(srcTensor.logical_volume() == dstTensor.logical_volume(),
+             "Logical volume mismatch when updating tensor in tensor pool: ",
+             srcTensor.logical_volume(), " != ", dstTensor.logical_volume());
+  LOG_ASSERT(srcTensor.dtype() == dstTensor.dtype(),
+             "Dtype mismatch when updating tensor in tensor pool");
+
+  const std::size_t srcShardCount =
+      ::ttnn::distributed::get_device_tensors(srcTensor).size();
+  const std::size_t dstShardCount =
+      ::ttnn::distributed::get_device_tensors(dstTensor).size();
+  LOG_ASSERT(srcShardCount == dstShardCount,
+             "Shard count mismatch when updating tensor in tensor pool: ",
+             srcShardCount, " != ", dstShardCount);
+
+  const bool srcOnHost = utils::isOnHost(srcTensor.storage_type());
+  const bool dstOnHost = utils::isOnHost(dstTensor.storage_type());
+  if (!srcOnHost && !dstOnHost) {
+    ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
+    ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
+  } else {
+    ::tt::runtime::Tensor &dstRuntimeTensor =
+        tensorPool.getRuntimeTensorAndValidate(tensorRefPtr);
+    memcpy(dstRuntimeTensor, tensor);
   }
-  tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+  tensorPool.getTTNNTensorWrapperAndValidate(tensorRefPtr).updateVersion();
 }
 
 size_t getProgramIndex(CallbackContext programContextHandle) {
@@ -2294,6 +2314,21 @@ size_t getProgramIndex(CallbackContext programContextHandle) {
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
   return programContext.getProgramIndex();
+}
+
+std::vector<::tt::runtime::Tensor>
+invokeCpuOp(CallbackContext programContextHandle, OpContext opContextHandle,
+            const std::vector<::tt::runtime::Tensor> &inputs) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const auto &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  LOG_ASSERT(opContext.type_type() == ::tt::target::ttnn::OpType::CpuOp,
+             "invokeCpuOp: opContext must wrap a CpuOp, got ",
+             ::tt::target::ttnn::EnumNameOpType(opContext.type_type()));
+  return operations::cpu::invokeCpuOp(programContext, opContext.type_as_CpuOp(),
+                                      inputs);
 }
 
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {

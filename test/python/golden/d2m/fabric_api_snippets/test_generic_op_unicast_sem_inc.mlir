@@ -20,7 +20,7 @@ module attributes {} {
     %out2 = "ttnn.distribute_tensor"(%out1, %0) <{mapper_config = #ttnn.mesh_mapper_config<placements = [<shard, 0 : i64>, <shard, 1 : i64>]>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_host_tile_shard>
     %out3 = "ttnn.to_device"(%out2, %0) : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>
 
-    %semaphore = "ttnn.create_global_semaphore"() <{initial_value = 10 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : () -> !ttnn.global_semaphore
+    %semaphore = "ttnn.create_global_semaphore"(%0) <{core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,7)>]>, initial_value = 10 : ui32}> : (!ttnn.device) -> !ttnn.global_semaphore
     "ttnn.reset_global_semaphore"(%semaphore) <{value = 0 : ui32}> : (!ttnn.global_semaphore) -> ()
 
     "ttnn.generic"(%3, %out3, %semaphore) <{

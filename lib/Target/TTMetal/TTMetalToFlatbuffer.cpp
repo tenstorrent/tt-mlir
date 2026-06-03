@@ -29,12 +29,14 @@
 #include "ttmlir/Version.h"
 
 #include "flatbuffers/buffer.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLExtras.h"
@@ -708,9 +710,14 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
   } else {
     // Default values for host strides & volume when H2D/D2H copy doesn't need
     // host-side alignment & padding.
-    hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
-        ttmlir::utils::calculateStrides(memref.getShape()));
-    hostVolume = ttmlir::utils::volume(memref.getShape());
+    if (memref.getRank() == 0) {
+      hostStrides = {};
+      hostVolume = 1;
+    } else {
+      hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
+          ttmlir::utils::calculateStrides(memref.getShape()));
+      hostVolume = ttmlir::utils::volume(memref.getShape());
+    }
   }
 
   return target::metal::CreateBufferDescDirect(
@@ -1032,6 +1039,40 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
   return data;
 }
 
+static bool isUnitScalarMemref(MemRefType memref) {
+  return ttcore::getMemorySpace(memref) == ttcore::MemorySpace::System &&
+         memref.hasStaticShape() && memref.getNumElements() == 1 &&
+         !mlir::isa<ttcore::TileType>(memref.getElementType());
+}
+
+static bool hasOnlyZeroIndices(ValueRange indices) {
+  return llvm::all_of(
+      indices, [](Value index) { return matchPattern(index, m_Zero()); });
+}
+
+static bool isSupportedScalarBufferLoad(memref::LoadOp loadOp) {
+  return isUnitScalarMemref(loadOp.getMemRefType()) &&
+         hasOnlyZeroIndices(loadOp.getIndices());
+}
+
+static std::optional<std::pair<Value, Value>>
+getScalarBufferCopyOperands(memref::StoreOp storeOp) {
+  auto loadOp = storeOp.getValue().getDefiningOp<memref::LoadOp>();
+  if (!loadOp || !isSupportedScalarBufferLoad(loadOp)) {
+    return std::nullopt;
+  }
+
+  MemRefType srcType = loadOp.getMemRefType();
+  MemRefType dstType = storeOp.getMemRefType();
+  if (!isUnitScalarMemref(dstType) ||
+      srcType.getElementType() != dstType.getElementType() ||
+      !hasOnlyZeroIndices(storeOp.getIndices())) {
+    return std::nullopt;
+  }
+
+  return std::make_pair(loadOp.getMemRef(), storeOp.getMemRef());
+}
+
 std::shared_ptr<void> translateTTMetalToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string,
@@ -1231,6 +1272,27 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 fbb, cache.at<target::metal::BufferRef>(copyOp.getSource()),
                 cache.at<target::metal::BufferRef>(copyOp.getTarget())),
             op);
+      } else if (auto constantOp = dyn_cast_if_present<arith::ConstantOp>(op);
+                 constantOp) {
+        // Constants may feed host-only scalar reshapes in the command function;
+        // they do not map to runtime commands.
+        return;
+      } else if (auto loadOp = dyn_cast_if_present<memref::LoadOp>(op);
+                 loadOp && isSupportedScalarBufferLoad(loadOp)) {
+        return;
+      } else if (auto storeOp = dyn_cast_if_present<memref::StoreOp>(op);
+                 storeOp) {
+        std::optional<std::pair<Value, Value>> copyOperands =
+            getScalarBufferCopyOperands(storeOp);
+        if (!copyOperands) {
+          llvm_unreachable("Unsupported memref.store in command function.");
+        }
+
+        cqBuilder.appendCommand(
+            target::metal::CreateMemrefCopyCommand(
+                fbb, cache.at<target::metal::BufferRef>(copyOperands->first),
+                cache.at<target::metal::BufferRef>(copyOperands->second)),
+            op);
       } else if (auto cpuOp = dyn_cast_if_present<func::CallOp>(op); cpuOp) {
         std::vector<flatbuffers::Offset<target::metal::BufferRef>> ins;
         ins.reserve(cpuOp.getOperands().size());
@@ -1305,8 +1367,6 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
           meshShardType = ::tt::target::MeshShardType::Replicate;
         } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
           meshShardType = ::tt::target::MeshShardType::Devices;
-        } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
-          meshShardType = ::tt::target::MeshShardType::Identity;
         } else {
           llvm_unreachable("unhandled mesh_shard type");
         }

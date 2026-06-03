@@ -686,8 +686,7 @@ void memcpy(Tensor dst, Tensor src) {
 void memcpy(Tensor dst, TensorDesc dstDesc, Tensor src, TensorDesc srcDesc) {
   LOG_ASSERT(dstDesc.dataType == srcDesc.dataType, "Tensor data type mismatch");
   // Allow rank mismatch for reshape-style copies (e.g. [128] -> [1,128]) when
-  // total byte size matches and both are contiguous (rank normalization may
-  // promote 1D to 2D on one side while the other keeps original shape).
+  // total byte size matches and both tensors are contiguous.
   if (dstDesc.shape.size() != srcDesc.shape.size()) {
     LOG_ASSERT(dstDesc.sizeBytes() == srcDesc.sizeBytes(),
                "Tensor size mismatch for rank-changing copy");

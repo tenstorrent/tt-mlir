@@ -2,6 +2,7 @@
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=RMS
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=LAYERNORM
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=SOFTMAX
+// RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=REPEAT
 
 // =============================================================================
 // SDPA decomposition — is_causal=true (MHA, equal heads)
@@ -360,4 +361,37 @@ func.func @softmax_first_dim(%input: tensor<4x32x128xbf16>) -> tensor<4x32x128xb
 func.func @softmax_mid_dim(%input: tensor<4x32x128xbf16>) -> tensor<4x32x128xbf16> {
   %0 = "ttir.softmax"(%input) <{dimension = 1 : si32, numericStable = false}> : (tensor<4x32x128xbf16>) -> tensor<4x32x128xbf16>
   return %0 : tensor<4x32x128xbf16>
+}
+
+// =============================================================================
+// Repeat decomposition
+// =============================================================================
+
+// REPEAT-LABEL: func.func @repeat_2d
+// REPEAT-NOT: ttir.repeat
+// REPEAT: %[[C0:.*]] = "ttir.concat"(%arg0, %arg0) <{dim = 0 : si32}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<64x32xf32>
+// REPEAT: %[[C1:.*]] = "ttir.concat"(%[[C0]], %[[C0]]) <{dim = 1 : si32}> : (tensor<64x32xf32>, tensor<64x32xf32>) -> tensor<64x64xf32>
+// REPEAT: %[[C2:.*]] = "ttir.concat"(%[[C0]], %[[C1]]) <{dim = 1 : si32}> : (tensor<64x32xf32>, tensor<64x64xf32>) -> tensor<64x96xf32>
+// REPEAT: return %[[C2]]
+func.func @repeat_2d(%arg0: tensor<32x32xf32>) -> tensor<64x96xf32> {
+  %0 = "ttir.repeat"(%arg0) <{repeat_dimensions = array<i64: 2, 3>}> : (tensor<32x32xf32>) -> tensor<64x96xf32>
+  return %0 : tensor<64x96xf32>
+}
+
+// REPEAT-LABEL: func.func @repeat_3d
+// REPEAT-NOT: ttir.repeat
+// REPEAT-COUNT-5: ttir.concat
+// REPEAT: return
+func.func @repeat_3d(%arg0: tensor<1x32x32xf32>) -> tensor<32x32x32xf32> {
+  %0 = "ttir.repeat"(%arg0) <{repeat_dimensions = array<i64: 32, 1, 1>}> : (tensor<1x32x32xf32>) -> tensor<32x32x32xf32>
+  return %0 : tensor<32x32x32xf32>
+}
+
+// REPEAT-LABEL: func.func @repeat_power_of_2
+// REPEAT-NOT: ttir.repeat
+// REPEAT-COUNT-5: ttir.concat
+// REPEAT: return
+func.func @repeat_power_of_2(%arg0: tensor<32x32xf32>) -> tensor<256x128xf32> {
+  %0 = "ttir.repeat"(%arg0) <{repeat_dimensions = array<i64: 8, 4>}> : (tensor<32x32xf32>) -> tensor<256x128xf32>
+  return %0 : tensor<256x128xf32>
 }

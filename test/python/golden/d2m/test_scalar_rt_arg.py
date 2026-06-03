@@ -82,7 +82,7 @@ _TTNN_SCALAR_MLIR = """\
 module {
   func.func @test_ttnn_scalar_kernel_arg(%arg0: tensor<1xui32, #scalar_layout>) attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #l1_memory_config, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
+    %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
     "ttnn.generic"(%1, %1, %arg0) <{program = #program, operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>, tensor<1xui32, #scalar_layout>) -> ()
     return
   }

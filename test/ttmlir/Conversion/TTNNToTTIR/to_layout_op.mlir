@@ -18,7 +18,7 @@ module {
     // CHECK-SAME: ->
     // CHECK-SAME: #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>>>
     // CHECK-NOT: "ttnn.to_layout"
-    %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xbf16, #dram_layout>) -> tensor<32x32xbf16, #l1_layout>
+    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xbf16, #dram_layout>) -> tensor<32x32xbf16, #l1_layout>
     return %0 : tensor<32x32xbf16, #l1_layout>
   }
 }

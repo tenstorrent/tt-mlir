@@ -16,7 +16,7 @@ module attributes {} {
     // CHECK: %[[CONCAT_RES:.*]] = "ttnn.concat"
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: (%[[CONCAT_RES]]
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
+    // CHECK-SAME: -> tensor<{{.*}}bf16
 
     %1 = "ttnn.concat"(%arg0, %arg1) <{
       dim = 2 : si32

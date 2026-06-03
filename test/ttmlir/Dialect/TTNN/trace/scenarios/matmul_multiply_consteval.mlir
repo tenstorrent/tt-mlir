@@ -26,7 +26,7 @@ module {
   func.func @matmul_with_multiply(%arg0: tensor<64x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg1: tensor<32x64xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<64x64xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<64x64xbf16> {
     // CHECK: %[[GET_DEVICE:.+]] = "ttnn.get_device"()
     // CHECK: %[[LOAD_CACHED_RESULT:.+]] = ttcore.load_cached(@matmul_with_multiply_const_eval_0, [%arg0, %arg1])
-    // CHECK: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]], %arg2, %[[LOAD_CACHED_RESULT]]) <{capture_callee = @run_and_capture_trace_0_matmul_with_multiply, execute_callee = @execute_trace_0_matmul_with_multiply}>
+    // CHECK: %[[TRACE_RESULT:.+]] = "ttnn.capture_or_execute_trace"(%[[GET_DEVICE]], %arg2, %[[LOAD_CACHED_RESULT]]) <{capture_callee = @run_and_capture_trace_0_matmul_with_multiply, execute_callee = @execute_trace_0_matmul_with_multiply, operandSegmentSizes = array<i32: 1, 2, 0>}>
     // CHECK-NOT: "ttnn.multiply"
     // CHECK-NOT: "ttnn.matmul"
     // CHECK: return %[[TRACE_RESULT]]

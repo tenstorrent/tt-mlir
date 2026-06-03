@@ -20,7 +20,7 @@ module {
 
         // CHECK-NOT: %{{[0-9]+}} = ttir.empty() : tensor<32x32xf32, #ttnn_layout1>
         // CHECK-NOT: %{{[0-9]+}} = "ttir.add"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
-        %3 = "ttnn.add"(%1, %2) {dtype = #ttcore.supportedDataTypes<f32>} : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+        %3 = "ttnn.add"(%1, %2) : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
         %4 = "ttnn.to_memory_config"(%3) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 

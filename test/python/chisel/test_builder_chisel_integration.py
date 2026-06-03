@@ -8,9 +8,11 @@ import torch
 
 import chisel
 from ttmlir.dialects import ttnn
-from builder.base.builder_apis import compile_and_execute_ttnn
+from builder.base.builder_apis import compile_and_execute_ttnn, compile_and_execute_ttir
 from builder.base.builder_utils import Operand
 from builder.ttnn.ttnn_builder import TTNNBuilder
+from builder.ttir.ttir_builder import TTIRBuilder
+
 
 # n300 mesh layout used by the multichip tests; the `multichip_device` fixture
 # opens a matching (1, 2) mesh device and skips when the host has fewer chips.
@@ -441,3 +443,174 @@ def test_chisel_records_matmul_tensor_parallel_multichip(
         records = report.records
 
     _assert_matmul_pcc(records, mesh=_MULTICHIP_MESH)
+
+
+def test_chisel_records_update_cache_inplace(request, device, tmp_path):
+    # ttir.update_cache canonicalizes to ttir.paged_update_cache (see
+    # UpdateCacheOp::getCanonicalizationPatterns in TTIROps.cpp), which lowers
+    # to ttnn.paged_update_cache - an in-place op that mutates `cache` and has
+    # no SSA result, so every numerics record on it describes the in-place
+    # cache operand.
+    cache_shape = (1, 32, 64, 512)
+    update_shape = (1, 32, 1, 512)
+    index_shape = (1,)
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [cache_shape, update_shape, index_shape],
+            [torch.float32, torch.float32, torch.int32],
+        )
+        def update_cache(
+            in0: Operand,  # cache
+            in1: Operand,  # update values
+            in2: Operand,  # update index
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            update_index = torch.randint(
+                0, cache_shape[2], index_shape, dtype=torch.int32
+            )
+            builder.set_goldens(inputs={in2: update_index})
+            return builder.update_cache(in0, in1, in2)
+
+    with chisel.session(
+        results_path=str(tmp_path / "chisel_result.jsonl"),
+        checks_config=chisel.ChiselChecksConfig(isolation=True, accumulation=True),
+    ) as report:
+        compile_and_execute_ttir(
+            module,
+            test_base=request.node.name,
+            output_root=str(tmp_path),
+            target="ttnn",
+            device=device,
+        )
+        records = report.records
+
+    assert records, "chisel report is empty"
+
+    cache_numerics = [
+        r
+        for r in records
+        if r.op == "ttnn.paged_update_cache" and r.check == "numerics"
+    ]
+    assert cache_numerics, (
+        "no numerics records produced for ttnn.paged_update_cache; "
+        f"saw: {[(r.op, r.check) for r in records]}"
+    )
+
+    PCC_THRESHOLD = 0.99
+    for mode in (chisel.NumericsMode.ISOLATED, chisel.NumericsMode.ACCUMULATED):
+        for_mode = [r for r in cache_numerics if r.payload.mode == mode]
+        assert for_mode, f"no cache numerics record for mode={mode}"
+        for r in for_mode:
+            assert (
+                r.status == chisel.RecordStatus.OK
+            ), f"cache {mode} fail: payload={r.payload}"
+            assert (
+                r.payload.pcc >= PCC_THRESHOLD
+            ), f"cache {mode} PCC {r.payload.pcc} below {PCC_THRESHOLD}"
+
+    # When a chisel golden is registered, the pool entry for an in-place
+    # operand is refreshed, not evicted.
+    evictions = [
+        r
+        for r in records
+        if r.check == "golden_evicted" and r.op == "ttnn.paged_update_cache"
+    ]
+    assert not evictions, (
+        f"unexpected golden_evicted records on ttnn.paged_update_cache: "
+        f"{[r.ssa for r in evictions]}"
+    )
+
+
+def test_chisel_records_batch_norm_training_inplace(request, device, tmp_path):
+    # ttnn.batch_norm_training has one SSA result (the normalized output) plus
+    # two in-place mutated operands (`running_mean`, `running_var`), so each
+    # mode produces numerics records for the SSA result and both in-place
+    # operands.
+    n, c, h, w = 1, 4, 8, 8
+    input_shape = (n, c, h, w)
+    param_shape = (c,)
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [input_shape, param_shape, param_shape, param_shape, param_shape],
+            [torch.float32] * 5,
+        )
+        def batch_norm_training(
+            in0: Operand,
+            scale: Operand,
+            offset: Operand,
+            running_mean: Operand,
+            running_variance: Operand,
+            builder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.batch_norm_training(
+                in0,
+                scale,
+                offset,
+                running_mean,
+                running_variance,
+                epsilon=1e-5,
+                dimension=1,
+                momentum=0.1,
+            )
+
+    with chisel.session(
+        results_path=str(tmp_path / "chisel_result.jsonl"),
+        checks_config=chisel.ChiselChecksConfig(isolation=True, accumulation=True),
+    ) as report:
+        compile_and_execute_ttir(
+            module,
+            test_base=request.node.name,
+            output_root=str(tmp_path),
+            target="ttnn",
+            device=device,
+        )
+        records = report.records
+
+    assert records, "chisel report is empty"
+
+    bnt_numerics = [
+        r
+        for r in records
+        if r.op == "ttnn.batch_norm_training" and r.check == "numerics"
+    ]
+    assert bnt_numerics, (
+        "no numerics records produced for ttnn.batch_norm_training; "
+        f"saw: {[(r.op, r.check) for r in records]}"
+    )
+
+    PCC_THRESHOLD = 0.99
+    for mode in (chisel.NumericsMode.ISOLATED, chisel.NumericsMode.ACCUMULATED):
+        for_mode = [r for r in bnt_numerics if r.payload.mode == mode]
+        assert for_mode, f"no batch_norm_training numerics record for mode={mode}"
+        # One record per SSA result + per in-place mutated operand. Distinct
+        # SSAs prove the in-place running_mean / running_var were validated
+        # alongside the SSA result.
+        ssas = {r.ssa for r in for_mode}
+        assert len(ssas) >= 2, (
+            f"expected numerics records for the SSA result plus at least one "
+            f"in-place operand on ttnn.batch_norm_training in {mode} mode, "
+            f"got ssas={ssas}"
+        )
+        for r in for_mode:
+            assert (
+                r.status == chisel.RecordStatus.OK
+            ), f"batch_norm_training {mode} fail: payload={r.payload}"
+            assert (
+                r.payload.pcc >= PCC_THRESHOLD
+            ), f"batch_norm_training {mode} PCC {r.payload.pcc} below {PCC_THRESHOLD}"
+
+    # When a chisel golden is registered, the pool entry for an in-place
+    # operand is refreshed, not evicted.
+    evictions = [
+        r
+        for r in records
+        if r.op == "ttnn.batch_norm_training" and r.check == "golden_evicted"
+    ]
+    assert not evictions, (
+        f"unexpected golden_evicted records on ttnn.batch_norm_training: "
+        f"{[r.ssa for r in evictions]}"
+    )

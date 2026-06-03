@@ -137,7 +137,6 @@ void createTTNNPipelineAnalysisPasses(
       TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
       propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
       propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
-      propagationOptions.beamWidth = 8;
       propagationOptions.enableL1ShardingLayouts =
           options.memoryLayoutAnalysisEnabled;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
@@ -186,6 +185,9 @@ void createTTNNPipelineLoweringPasses(OpPassManager &pm,
   pm.addPass(createTTNNLayout());
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
+  // Resolve composite ops into typed ops (with OpModel) or inline their
+  // decompositions.
+  pm.addPass(createTTNNResolveComposites());
   // Add pass to remove unused values.
   if (removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
@@ -242,6 +244,12 @@ void createTTNNPipelineWorkaroundPass(
   workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
+
+  // Bind distributed-op scratch buffers before the optimizer so they
+  // contribute to L1 budgeting; the canonicalize + CSE below dedupe matching
+  // EmptyOps across multiple distributed ops.
+  pm.addPass(createTTNNAllocateDistributedOpBuffers());
+
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
 }
@@ -350,9 +358,10 @@ void createTTIRToTTNNCommonPipeline(
       }
     }
 
-    if (options.dramSpaceSavingOptimizationEnabled) {
-      devicePm.addPass(createTTNNMemoryManagement());
-    }
+    TTNNMemoryManagementOptions memoryManagementOptions;
+    memoryManagementOptions.aggressiveMemorySaving =
+        options.dramSpaceSavingOptimizationEnabled;
+    devicePm.addPass(createTTNNMemoryManagement(memoryManagementOptions));
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
@@ -432,6 +441,11 @@ void createTTIRToTTNNCommonPipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
+
+    // Bind distributed-op semaphores after the optimizer (core range derives
+    // from the finalized input shard spec) and before trace hoisting (SSA
+    // values must be visible at the trace boundary).
+    devicePm.addPass(createTTNNAllocateDistributedOpSemaphores());
 
     // Trace hoisting must run before layout decomposition because it adjusts
     // layouts of function arguments (e.g. moving inputs to system_memory). It
@@ -590,14 +604,6 @@ void createTTNNCommonToEmitPyPipeline(
     } else {
       devicePm.addPass(createTTNNCreateInputGenerators());
     }
-
-    // Optionally create main_for_test wrapper for frontend-driven execution
-    // (e.g. PythonModelRunner). This must run after the input generator/loader
-    // pass so that _main already exists.
-    //
-    if (options.createMainForTest) {
-      devicePm.addPass(createTTNNCreateMainForTest());
-    }
   }
 
   devicePm.addPass(createTTNNPrepareConstEvalCaching());
@@ -608,17 +614,15 @@ void createTTNNCommonToEmitPyPipeline(
     devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
   }
 
-  // Both paths (targetModule and TTNNCreateMainForTest) inject device as an
-  // explicit argument into the forward function. Const-eval functions also
-  // need device injected, but this can't be done as a separate MLIR pass
-  // because load_cached ops verify callee argument count between passes
-  // (issue #6746). Setting targetModule=true on the EmitPy pass tells it to
-  // handle const-eval device injection inside its runOnOperation, before
-  // applyFullConversion.
+  // targetModule injects device as an explicit argument into the forward
+  // function. Const-eval functions also need device injected, but this can't
+  // be done as a separate MLIR pass because load_cached ops verify callee
+  // argument count between passes (issue #6746). Setting targetModule=true on
+  // the EmitPy pass tells it to handle const-eval device injection inside its
+  // runOnOperation, before applyFullConversion.
   //
   ConvertTTNNToEmitPyOptions emitpyOptions;
-  emitpyOptions.targetModule =
-      options.targetModule || options.createMainForTest;
+  emitpyOptions.targetModule = options.targetModule;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
 
   devicePm.addPass(createEmitPyConstEvalCachingPass());

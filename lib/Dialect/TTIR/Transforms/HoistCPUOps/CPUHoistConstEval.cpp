@@ -108,15 +108,6 @@ analyzeConstEval(func::FuncOp funcOp) {
     }
   }
 
-  // Skip identity MeshShard ops.
-  // These ops are just semantic decorators, and are no-ops
-  // from the runtime perspective.
-  for (auto nestedOp : funcOp.getOps<mlir::tt::ttir::MeshShardOp>()) {
-    if (nestedOp.getShardType() == ttcore::MeshShardType::Identity) {
-      opsToSkip.insert(nestedOp);
-    }
-  }
-
   // Collect all ops that are not skipped.
   funcOp.walk([&](mlir::Operation *nestedOp) {
     if (llvm::isa<func::FuncOp, func::ReturnOp>(nestedOp)) {

@@ -555,6 +555,20 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::Modul
   ];
 }
 
+def InsertReshardsForUnpropagatedOpsPass : Pass<"insert-reshards-for-unpropagated-ops", "::mlir::ModuleOp">
+{
+  let summary = "Insert sdy.reshard to replicate operands of ops Shardy left unsharded.";
+  let description = [{
+    For ops whose results have no sdy.sharding after propagation, reshard
+    any sharded operand to fully replicated. Closes a gap that breaks
+    UpdateGlobalToLocalShapes.
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def ShardyCCLCanonicalizationPass : Pass<"shardy-ccl-canonicalization", "::mlir::ModuleOp">
 {
   let summary = "Canonicalize Shardy CCL operations.";

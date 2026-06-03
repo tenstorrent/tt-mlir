@@ -673,10 +673,7 @@ getMemoryMapImpl(ttcore::DeviceAttr device, MemRefType memrefType,
   if (auto shardLayout =
           mlir::dyn_cast<ttcore::ShardLayoutAttr>(memrefType.getLayout())) {
 
-    unsigned shardRank = shardLayout.getRank();
-    unsigned gridRank = memrefType.getRank() - shardRank;
-
-    auto gridShape = memrefType.getShape().take_front(gridRank);
+    auto gridShape = shardLayout.getGridShape(memrefType);
     auto deviceGridShape = device.getWorkerGrid().getShape();
 
     // Use stored forward map if available; otherwise fall back to

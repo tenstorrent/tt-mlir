@@ -14,8 +14,7 @@ module {
     // This conv2d has deallocate_activation=true, which means it will deallocate %input
     // However, it's not the last user because the add operation also uses %input
     // CHECK: error: use-after-free detected: op deallocates its input but is not the last user
-    %conv_out = "ttnn.conv2d"(%input, %weight, %bias, %device) <{
-      in_channels = 64: i32,
+    %conv_out = "ttnn.conv2d"(%input, %weight, %bias, %device) <{in_channels = 64: i32,
       out_channels = 64: i32,
       batch_size = 1: i32,
       input_height = 32: i32,
@@ -25,13 +24,11 @@ module {
       padding = array<i32: 1, 1>,
       dilation = array<i32: 1, 1>,
       groups = 1: i32,
-      dtype = #ttcore.supportedDataTypes<bf16>,
       conv2d_config = #ttnn.conv2d_config<weights_dtype = bf16, deallocate_activation = true, act_block_h_override = 0>,
-      conv2d_slice_config = #ttnn.conv2d_slice_config<l1_full, 0>
-    }> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<64x64x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x64xbf16, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
+      conv2d_slice_config = #ttnn.conv2d_slice_config<l1_full, 0>}> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<64x64x3x3xbf16, #ttnn_layout1>, tensor<1x1x1x64xbf16, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
 
     // This operation also uses %input, creating a use-after-free since conv2d above deallocates it
-    %result = "ttnn.add"(%input, %conv_out) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<1x1x1024x64xbf16, #ttnn_layout>) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
+    %result = "ttnn.add"(%input, %conv_out) : (tensor<1x1x1024x64xbf16, #ttnn_layout>, tensor<1x1x1024x64xbf16, #ttnn_layout>) -> tensor<1x1x1024x64xbf16, #ttnn_layout>
 
     return %result : tensor<1x1x1024x64xbf16, #ttnn_layout>
   }

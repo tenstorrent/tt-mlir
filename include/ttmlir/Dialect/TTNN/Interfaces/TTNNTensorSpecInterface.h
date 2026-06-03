@@ -37,39 +37,56 @@ inline MemoryConfigAttr getMemoryConfigFromResult(mlir::Operation *op) {
       .Default([](mlir::Attribute) { return MemoryConfigAttr(); });
 }
 
-// Verifies the TTNNDtypeOpInterface
-template <typename ConcreteType>
-mlir::LogicalResult verifyTTNNDtypeOpInterface(mlir::Operation *op) {
-  // Check if the operation defines output dtype attribute.
-  auto outputDTypeAttr = mlir::cast<ConcreteType>(op).getDtypeAttr();
+// Derives the data type carried by a tensor-typed Value. Prefers the
+// TTNN(ND)LayoutAttr encoding's dataType when present, and otherwise falls
+// back to the tensor's element type. Returns a null DataTypeAttr only if the
+// value is not a RankedTensorType, or the element type is not a recognized
+// TTMLIR data type.
+inline ttcore::DataTypeAttr getDtypeFromValue(mlir::Value value) {
+  auto tensor = mlir::dyn_cast<RankedTensorType>(value.getType());
+  if (!tensor) {
+    return nullptr;
+  }
 
-  // Retrieve output layout.
-  for (Value result : op->getResults()) {
-    RankedTensorType output = mlir::cast<RankedTensorType>(result.getType());
-    TTNNLayoutAttr outputLayoutAttr =
-        mlir::dyn_cast_if_present<TTNNLayoutAttr>(output.getEncoding());
+  mlir::MLIRContext *ctx = value.getContext();
 
-    // If output layout isn't present, skip the verification.
-    if (!outputLayoutAttr) {
-      return mlir::success();
+  // Prefer the TTNN(ND)LayoutAttr encoding's dataType when present.
+  if (mlir::Attribute encoding = tensor.getEncoding()) {
+    if (auto layoutAttr = mlir::dyn_cast<TTNNLayoutAttr>(encoding)) {
+      return ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
     }
-
-    // Some ops derive output dtype from output layout encoding.
-    if (!outputDTypeAttr) {
-      continue;
-    }
-
-    // Compare output data type attribute with output tensor data type.
-    if (outputDTypeAttr.getValue() != outputLayoutAttr.getDataType()) {
-      return op->emitOpError()
-             << "output tensor layout data type "
-             << DataTypeEnumToString(outputLayoutAttr.getDataType())
-             << " must match output data type attribute "
-             << DataTypeEnumToString(outputDTypeAttr.getValue());
+    if (auto layoutAttr = mlir::dyn_cast<TTNNNDLayoutAttr>(encoding)) {
+      return ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
     }
   }
 
-  return mlir::success();
+  // Fall back to deriving from the tensor's element type.
+  std::optional<ttcore::DataType> dataType =
+      ttcore::elementTypeToDataTypeImpl(tensor.getElementType());
+  assert(dataType && "element type must be a recognized TTMLIR data type");
+  return ttcore::DataTypeAttr::get(ctx, *dataType);
+}
+
+// Derives the output data type from the targeted result. Returns a null
+// DataTypeAttr if the op has no result, otherwise delegates to
+// getDtypeFromValue on the targeted result.
+inline ttcore::DataTypeAttr getDtypeFromResult(mlir::Operation *op,
+                                               unsigned int resultIndex) {
+  if (op->getNumResults() == 0 && resultIndex == 0) {
+    return nullptr;
+  }
+  assert(resultIndex < op->getNumResults() && "result index out of bounds");
+  return getDtypeFromValue(op->getResult(resultIndex));
+}
+
+// Convenience wrapper to convert a (possibly null) DataTypeAttr into the
+// std::optional<ttcore::DataType> form.
+inline std::optional<ttcore::DataType>
+dataTypeAttrToOptional(ttcore::DataTypeAttr attr) {
+  if (!attr) {
+    return std::nullopt;
+  }
+  return attr.getValue();
 }
 
 // Verifies the TTNNLayoutInterface

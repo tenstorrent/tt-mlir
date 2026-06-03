@@ -262,21 +262,6 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       .addOutputOperandWorkaround(operandWorkaround); // result
 }
 
-// Factory method to create a set of workarounds for mesh shard op input
-// operand. ttnn::MeshShardOp supports host tensors only
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
-    mlir::tt::ttcore::MeshShardType shardType) {
-  wa::TTNNOperandWorkarounds sysMemWorkaround;
-  if (shardType != mlir::tt::ttcore::MeshShardType::Identity) {
-    sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
-    sysMemWorkaround.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr();
-  }
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(sysMemWorkaround)
-      .addOutputOperandWorkaround(sysMemWorkaround);
-}
-
 // Factory method to create a set of workarounds for mesh partition op operands.
 // The input and output tensors associated with the op should always be in
 // row-major layout.
@@ -360,6 +345,19 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
   hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(hostRowMajorWorkaround);
+}
+
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPrepareConv3dWeightsOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds hostRowMajorWorkaround;
+  hostRowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  hostRowMajorWorkaround.tensorMemoryLayoutWorkaround =
+      TensorMemoryLayoutAttr();
+  hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(hostRowMajorWorkaround)
+      .addOutputOperandWorkaround(TTNNOperandWorkarounds());
 }
 
 // Factory method to create a set of workarounds for where op operands.

@@ -9,7 +9,85 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/SmallPtrSet.h"
+
+#include <array>
+#include <numeric>
+
 namespace mlir::tt::d2m::utils {
+
+d2m::ToLayoutOp getToLayoutProducerBehindViews(mlir::Value operand) {
+  bool sawView = false;
+  while (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+    sawView = true;
+    operand = view.getInput();
+  }
+  return sawView ? operand.getDefiningOp<d2m::ToLayoutOp>() : d2m::ToLayoutOp();
+}
+
+llvm::SmallVector<int64_t>
+findDownstreamTiledToLayoutTileShape(mlir::Value value) {
+  llvm::SmallVector<Value> worklist{value};
+  llvm::SmallPtrSet<Value, 8> visited{value};
+
+  while (!worklist.empty()) {
+    Value current = worklist.pop_back_val();
+    for (OpOperand &use : current.getUses()) {
+      Operation *user = use.getOwner();
+
+      if (auto toLayout = dyn_cast<d2m::ToLayoutOp>(user)) {
+        auto outputType = mlir::dyn_cast<RankedTensorType>(toLayout.getType(0));
+        if (!outputType) {
+          continue;
+        }
+        if (auto tileType =
+                mlir::dyn_cast<ttcore::TileType>(outputType.getElementType())) {
+          return llvm::to_vector(tileType.getShape());
+        }
+        if (visited.insert(toLayout.getResult(0)).second) {
+          worklist.push_back(toLayout.getResult(0));
+        }
+        continue;
+      }
+
+      if (auto view = dyn_cast<d2m::ViewLayoutOp>(user)) {
+        if (visited.insert(view.getResult()).second) {
+          worklist.push_back(view.getResult());
+        }
+        continue;
+      }
+
+      if (auto mask = dyn_cast<d2m::MaskOp>(user)) {
+        if (visited.insert(mask.getResult()).second) {
+          worklist.push_back(mask.getResult());
+        }
+        continue;
+      }
+    }
+  }
+
+  return {};
+}
+
+llvm::SmallVector<int64_t>
+findUpstreamTiledLayoutBridgeTileShape(mlir::Value value) {
+  while (auto valueType = mlir::dyn_cast<RankedTensorType>(value.getType())) {
+    if (auto tileType =
+            mlir::dyn_cast<ttcore::TileType>(valueType.getElementType())) {
+      return llvm::to_vector(tileType.getShape());
+    }
+    if (auto view = value.getDefiningOp<d2m::ViewLayoutOp>()) {
+      value = view.getInput();
+      continue;
+    }
+    if (auto toLayout = value.getDefiningOp<d2m::ToLayoutOp>()) {
+      value = toLayout.getInput();
+      continue;
+    }
+    break;
+  }
+  return {};
+}
 
 llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
@@ -138,11 +216,14 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
   ttcore::MetalLayoutAttr layout =
       mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-  // For now, only non-collapsed 2D virtual grids on L1 are supported.
-  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) ||
-      layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+  if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
     return false;
   }
+
+  // Non-2D physical shapes always go through virtual grid. Collapsed-dim
+  // layouts that have already been normalized to a 2D physical grid stay
+  // VGM-compatible — the VGM maps only the materialized grid dimensions while
+  // the layout keeps the logical-to-physical collapse.
   if (physicalShape.size() != 2) {
     return true;
   }
@@ -202,21 +283,108 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
 }
 
+int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> alignments,
+                                     int64_t intervalStart,
+                                     int64_t intervalEnd) {
+  TT_assert(intervalStart < intervalEnd);
+
+  int64_t collapsedSize = ttmlir::utils::alignUp(logicalShape[intervalEnd - 1],
+                                                 alignments[intervalEnd - 1]);
+  for (int64_t dim = intervalEnd - 2; dim >= intervalStart; --dim) {
+    collapsedSize = ttmlir::utils::alignUp(logicalShape[dim] * collapsedSize,
+                                           alignments[dim]);
+  }
+  return collapsedSize;
+}
+
+static llvm::SmallVector<int64_t>
+computeSelectedGridDimAlignments(ttcore::MetalLayoutAttr layout,
+                                 ArrayRef<int64_t> selectedGrid,
+                                 ArrayRef<int64_t> tileShape) {
+  llvm::SmallVector<int64_t> normalizedIntervals =
+      layout.getNormalizedIntervals();
+  const int64_t tensorGridRank = normalizedIntervals.size() / 2;
+
+  TT_assertv(selectedGrid.size() == static_cast<size_t>(tensorGridRank),
+             "Selected grid rank {} must match tensor grid rank {}.",
+             selectedGrid.size(), tensorGridRank);
+
+  constexpr std::array<int64_t, 2> defaultTileShape =
+      ttcore::TileType::getDefaultShape();
+
+  llvm::SmallVector<int64_t> alignments =
+      ttcore::MetalLayoutAttr::computeTileAlignments(layout.getLogicalShape(),
+                                                     normalizedIntervals);
+
+  for (int64_t intervalIdx = 0; intervalIdx < tensorGridRank; ++intervalIdx) {
+    const int64_t gridDim = selectedGrid[intervalIdx];
+    if (gridDim <= 1) {
+      continue;
+    }
+
+    const bool isTileInterval = intervalIdx >= tensorGridRank - 2;
+    const int64_t tileIdx = intervalIdx - (tensorGridRank - 2);
+    const int64_t gridAwareThreshold =
+        gridDim * (isTileInterval ? defaultTileShape[tileIdx] : 1);
+
+    const int64_t intervalStart = normalizedIntervals[intervalIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[intervalIdx * 2 + 1];
+    const int64_t alignmentDim =
+        (intervalStart + 1 == intervalEnd) ? intervalEnd - 1 : intervalStart;
+
+    int64_t collapsedSize = computeCollapsedIntervalSize(
+        layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+    if (collapsedSize > gridAwareThreshold) {
+      alignments[alignmentDim] =
+          std::lcm(alignments[alignmentDim], gridAwareThreshold);
+      collapsedSize = computeCollapsedIntervalSize(
+          layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+    }
+
+    const bool dividesTiles = !tileShape.empty() && isTileInterval;
+    const int64_t physicalDivisor =
+        gridDim * (dividesTiles ? tileShape[tileIdx] : 1);
+    if (collapsedSize % physicalDivisor != 0) {
+      const int64_t baseAlignment = alignments[alignmentDim];
+      const int64_t maxAlignment = std::lcm(baseAlignment, physicalDivisor);
+      for (int64_t candidate = baseAlignment; candidate <= maxAlignment;
+           candidate += baseAlignment) {
+        alignments[alignmentDim] = candidate;
+        collapsedSize = computeCollapsedIntervalSize(
+            layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+        if (collapsedSize % physicalDivisor == 0) {
+          break;
+        }
+      }
+      TT_assertv(collapsedSize % physicalDivisor == 0,
+                 "Unable to make collapsed interval size {} divisible by {}",
+                 collapsedSize, physicalDivisor);
+    }
+  }
+
+  return alignments;
+}
+
 ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
-                                              ArrayRef<int64_t> targetGrid,
-                                              bool ttnnMode) {
+                                              ArrayRef<int64_t> selectedGrid,
+                                              bool ttnnMode,
+                                              ArrayRef<int64_t> tileShape) {
   llvm::SmallVector<int64_t> newDimAlignments;
   if (ttnnMode) {
     // TTNN tensors use simple tile-aligned dim alignments without grid-aware
     // padding adjustments.
     newDimAlignments.assign(oldLayout.getLogicalShape().size(), 1);
     auto defaultTileShape = ttcore::TileType::getDefaultShape();
-    newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[1];
-    newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[0];
+    if (newDimAlignments.size() == 1) {
+      newDimAlignments[0] = defaultTileShape[1];
+    } else {
+      newDimAlignments[newDimAlignments.size() - 1] = defaultTileShape[1];
+      newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[0];
+    }
   } else {
-    newDimAlignments = ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
-        oldLayout.getLogicalShape(), targetGrid,
-        oldLayout.getNormalizedIntervals());
+    newDimAlignments =
+        computeSelectedGridDimAlignments(oldLayout, selectedGrid, tileShape);
   }
 
   return ttcore::MetalLayoutAttr::get(
@@ -225,10 +393,10 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
       oldLayout.getCollapsedIntervals(), newDimAlignments);
 }
 
-mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
-                                             ArrayRef<int64_t> targetGrid,
-                                             bool ttnnMode,
-                                             ArrayRef<int64_t> optimalGrid) {
+mlir::RankedTensorType
+tensorWithOptimalGrid(mlir::RankedTensorType oldTensor, bool ttnnMode,
+                      ArrayRef<int64_t> optimalGrid,
+                      ArrayRef<int64_t> paddingTileShape) {
   auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
 
   llvm::SmallVector<int64_t> tileShape;
@@ -238,8 +406,11 @@ mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
     elementType = tileType.getElementType();
   }
 
+  ArrayRef<int64_t> layoutTileShape = paddingTileShape.empty()
+                                          ? ArrayRef<int64_t>(tileShape)
+                                          : paddingTileShape;
   ttcore::MetalLayoutAttr newLayout =
-      layoutWithOptimalGrid(oldLayout, targetGrid, ttnnMode);
+      layoutWithOptimalGrid(oldLayout, optimalGrid, ttnnMode, layoutTileShape);
 
   llvm::SmallVector<int64_t> deviceShape = newLayout.getDeviceShape(
       optimalGrid, llvm::ArrayRef(tileShape.data(), tileShape.size()));

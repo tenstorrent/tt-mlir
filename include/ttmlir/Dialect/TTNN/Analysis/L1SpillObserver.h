@@ -42,7 +42,7 @@ public:
   virtual void onDemotion(Operation *op, int64_t pos, bool success,
                           uint64_t newL1Usage) {}
 
-  /// Belady eviction: victim tensor spilled to DRAM.
+  /// Farthest-last-use eviction: victim tensor spilled to DRAM.
   virtual void onEviction(Operation *victim, int64_t pos, uint64_t freedBytes) {
   }
 

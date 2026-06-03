@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
 #include "mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h"
@@ -153,15 +154,24 @@ static bool isCBDeclaration(emitc::VerbatimOp verbatim,
   return verbatim.getValue().starts_with(prefix);
 }
 
-// Check whether a CB declaration for `cbName` exists & dominates `useOp`, to
-// avoid duplication.
-//
-// To handle declarations that live in outer enclosing blocks, walk upward
-// through the lexical parent chain and scan ops that appear before the current
-// use at each nesting level. Since the IR is all-SCF at this stage, this
-// strategy is equivalent but faster than full-funcOp level dominance analysis.
-static bool hasDominatingCBDeclaration(Operation *useOp,
-                                       llvm::StringRef cbName) {
+static void setInsertionPointAfterDefOrBlockStart(Value value,
+                                                  OpBuilder &builder) {
+  if (Operation *defOp = value.getDefiningOp()) {
+    builder.setInsertionPointAfter(defOp);
+    return;
+  }
+
+  builder.setInsertionPointToStart(value.getParentBlock());
+}
+
+// Check whether a matching verbatim op exists & dominates `useOp`, to avoid
+// duplicating declarations. To handle declarations that live in outer enclosing
+// blocks, walk upward through the lexical parent chain and scan ops that appear
+// before the current use at each nesting level. Since the IR is all-SCF at this
+// stage, this strategy is equivalent but faster than full-funcOp level
+// dominance analysis.
+template <typename Predicate>
+static bool hasDominatingVerbatim(Operation *useOp, Predicate predicate) {
   Operation *currentOp = useOp;
   Block *currentBlock = currentOp->getBlock();
 
@@ -171,7 +181,7 @@ static bool hasDominatingCBDeclaration(Operation *useOp,
         break;
       }
       if (auto verbatimOp = mlir::dyn_cast<emitc::VerbatimOp>(op);
-          verbatimOp && isCBDeclaration(verbatimOp, cbName)) {
+          verbatimOp && predicate(verbatimOp)) {
         return true;
       }
     }
@@ -192,19 +202,16 @@ static bool hasDominatingCBDeclaration(Operation *useOp,
 static std::string ensureCBDeclaration(Value cb, Operation *useOp,
                                        ConversionPatternRewriter &rewriter) {
   std::string cbName = getCBName(cb);
-  if (hasDominatingCBDeclaration(useOp, cbName)) {
+  if (hasDominatingVerbatim(useOp, [&](emitc::VerbatimOp verbatimOp) {
+        return isCBDeclaration(verbatimOp, cbName);
+      })) {
     return cbName;
   }
 
   // Place the declaration right after the value's definition so it dominates
-  // every use site, including those in nested regions (e.g. loop bodies). For
-  // block arguments (no defining op), use the block start.
+  // every use site, including those in nested regions (e.g. loop bodies).
   OpBuilder::InsertionGuard guard(rewriter);
-  if (Operation *defOp = cb.getDefiningOp()) {
-    rewriter.setInsertionPointAfter(defOp);
-  } else {
-    rewriter.setInsertionPointToStart(cb.getParentBlock());
-  }
+  setInsertionPointAfterDefOrBlockStart(cb, rewriter);
 
   std::string cbDecl = "CircularBuffer " + cbName + "({});";
   rewriter.create<emitc::VerbatimOp>(useOp->getLoc(), cbDecl, ValueRange{cb});
@@ -222,6 +229,159 @@ static StringRef getL1PtrOpaqueTypeName(unsigned elementWidth) {
   default:
     llvm_unreachable("unsupported L1AddrPtr element width");
   }
+}
+
+static bool hasDominatingVerbatimWithPrefix(Operation *useOp,
+                                            llvm::StringRef prefix) {
+  return hasDominatingVerbatim(useOp, [&](emitc::VerbatimOp verbatimOp) {
+    return verbatimOp.getValue().starts_with(prefix);
+  });
+}
+
+static FailureOr<int64_t> extractNocIndex(Attribute value) {
+  auto nocIdxAttr = mlir::dyn_cast_if_present<IntegerAttr>(value);
+  if (!nocIdxAttr) {
+    return failure();
+  }
+
+  const int64_t nocIdx = nocIdxAttr.getInt();
+  if (nocIdx != 0 && nocIdx != 1) {
+    return failure();
+  }
+
+  return nocIdx;
+}
+
+static FailureOr<int64_t> getStaticNocIndex(Operation *useOp,
+                                            Value nocId = {}) {
+  if (nocId) {
+    if (auto constantOp = nocId.getDefiningOp<arith::ConstantOp>()) {
+      return extractNocIndex(constantOp.getValue());
+    }
+    if (auto constantOp = nocId.getDefiningOp<emitc::ConstantOp>()) {
+      return extractNocIndex(constantOp.getValue());
+    }
+    return failure();
+  }
+
+  auto funcOp = useOp->getParentOfType<func::FuncOp>();
+  if (!funcOp) {
+    return failure();
+  }
+
+  StringRef kernelSymbol = funcOp.getSymName();
+  FailureOr<int64_t> nocIdx = failure();
+  for (Operation *scope = funcOp->getParentOp(); scope && failed(nocIdx);
+       scope = scope->getParentOp()) {
+    scope->walk([&](ttmetal::EnqueueProgramOp enqueueProgram) {
+      if (succeeded(nocIdx)) {
+        return;
+      }
+
+      for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
+        auto nocConfig = mlir::dyn_cast<ttmetal::NocConfigAttr>(kernelConfig);
+        if (!nocConfig ||
+            nocConfig.getKernelSymbol().getRootReference() != kernelSymbol) {
+          continue;
+        }
+
+        switch (nocConfig.getNocIndex()) {
+        case ttcore::NocIndex::Noc0:
+          nocIdx = 0;
+          return;
+        case ttcore::NocIndex::Noc1:
+          nocIdx = 1;
+          return;
+        }
+      }
+    });
+  }
+
+  return nocIdx;
+}
+
+static void setInsertionPointToFunctionStart(Operation *useOp,
+                                             OpBuilder &builder) {
+  if (auto funcOp = useOp->getParentOfType<func::FuncOp>()) {
+    builder.setInsertionPointToStart(&funcOp.getBody().front());
+    return;
+  }
+
+  builder.setInsertionPointToStart(useOp->getBlock());
+}
+
+static std::string ensureFunctionScopedDeclaration(
+    Operation *useOp, ConversionPatternRewriter &rewriter,
+    llvm::StringRef declaration, llvm::StringRef name,
+    llvm::StringRef duplicateCheckPrefix = {}) {
+  llvm::StringRef prefix =
+      duplicateCheckPrefix.empty() ? declaration : duplicateCheckPrefix;
+  if (hasDominatingVerbatimWithPrefix(useOp, prefix)) {
+    return name.str();
+  }
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  setInsertionPointToFunctionStart(useOp, rewriter);
+  rewriter.create<emitc::VerbatimOp>(useOp->getLoc(), declaration);
+  return name.str();
+}
+
+static std::string getResultVariableName(Value result, llvm::StringRef prefix) {
+  std::string ssaName;
+  llvm::raw_string_ostream os(ssaName);
+  mlir::OpPrintingFlags flags;
+  result.printAsOperand(os, flags);
+  os.flush();
+  return (prefix + ssaName.substr(1)).str();
+}
+
+static std::string ensureNocDeclaration(Operation *useOp,
+                                        ConversionPatternRewriter &rewriter) {
+  constexpr llvm::StringLiteral nocName = "noc";
+  if (hasDominatingVerbatimWithPrefix(useOp, "Noc noc;") ||
+      hasDominatingVerbatimWithPrefix(useOp, "Noc noc(")) {
+    return nocName.str();
+  }
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  setInsertionPointToFunctionStart(useOp, rewriter);
+  FailureOr<int64_t> nocIdx = getStaticNocIndex(useOp);
+  if (succeeded(nocIdx)) {
+    rewriter.create<emitc::VerbatimOp>(
+        useOp->getLoc(), "Noc noc(" + std::to_string(*nocIdx) + ");");
+  } else {
+    rewriter.create<emitc::VerbatimOp>(useOp->getLoc(), "Noc noc;");
+  }
+
+  return nocName.str();
+}
+
+static std::string ensureNocReference(Operation *useOp,
+                                      ConversionPatternRewriter &rewriter,
+                                      SmallVectorImpl<Value> &operands,
+                                      Value nocId = {}) {
+  if (!nocId) {
+    return ensureNocDeclaration(useOp, rewriter);
+  }
+
+  FailureOr<int64_t> nocIdx = getStaticNocIndex(useOp, nocId);
+  if (succeeded(nocIdx)) {
+    std::string nocName = "noc" + std::to_string(*nocIdx);
+    std::string declaration =
+        "Noc " + nocName + "(" + std::to_string(*nocIdx) + ");";
+    return ensureFunctionScopedDeclaration(useOp, rewriter, declaration,
+                                           nocName);
+  }
+
+  operands.push_back(nocId);
+  return "Noc({})";
+}
+
+static std::string
+ensureEndpointDeclaration(Operation *useOp, ConversionPatternRewriter &rewriter,
+                          llvm::StringRef type, llvm::StringRef name) {
+  std::string decl = (type + " " + name + ";").str();
+  return ensureFunctionScopedDeclaration(useOp, rewriter, decl, name);
 }
 
 // Type converter used for TTKernel/TTMetal conversions:
@@ -486,6 +646,12 @@ public:
       }
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "true"));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::NocInlineDwWriteOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "InlineWriteDst::L1"));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceInitOp>) {
       // sfpu_reduce_init<PoolType, DataFormat>()
@@ -854,6 +1020,249 @@ private:
 } // namespace
 
 namespace {
+class TTKernelToEmitCGetNocAddrRewriter
+    : public OpConversionPattern<ttkernel::GetNocAddrOp> {
+public:
+  using OpConversionPattern<ttkernel::GetNocAddrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::GetNocAddrOp op,
+                  ttkernel::GetNocAddrOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType =
+        this->getTypeConverter()->convertType(op->getResult(0).getType());
+    TT_assert(resultType);
+
+    SmallVector<Value, 1> nocOperands;
+    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
+                                             nocOperands, adaptor.getNoc());
+    std::string endpoint = ensureEndpointDeclaration(
+        op.getOperation(), rewriter, "UnicastEndpoint", "unicast_ep");
+    SmallVector<Value, 4> operands = {adaptor.getX(), adaptor.getY(),
+                                      adaptor.getL1Address()};
+    operands.append(nocOperands);
+
+    std::string varName = getResultVariableName(op->getResult(0), "noc_addr_");
+    std::string callStr =
+        "uint64_t " + varName + " = " + endpoint +
+        ".get_noc_unicast_addr(static_cast<uint32_t>({}), "
+        "static_cast<uint32_t>({}), static_cast<uint32_t>({}), " +
+        nocName + ".get_noc_id());";
+
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
+    rewriter.replaceOp(
+        op, rewriter.create<emitc::LiteralOp>(op.getLoc(), resultType, varName)
+                .getResult());
+    return success();
+  }
+};
+
+class TTKernelToEmitCNocAtomicBarrierRewriter
+    : public OpConversionPattern<ttkernel::NocAsyncAtomicBarrierOp> {
+public:
+  using OpConversionPattern<
+      ttkernel::NocAsyncAtomicBarrierOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::NocAsyncAtomicBarrierOp op,
+                  ttkernel::NocAsyncAtomicBarrierOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    SmallVector<Value, 1> operands;
+    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
+                                             operands, adaptor.getNocId());
+    std::string callStr = nocName + ".async_atomic_barrier();";
+
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+template <typename SourceOp>
+class TTKernelToEmitCNocFullBarrierRewriter
+    : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelToEmitCNocFullBarrierRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx,
+      std::string methodName)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx),
+        methodName(std::move(methodName)) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    SmallVector<Value, 1> operands;
+    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
+                                             operands, adaptor.getNoc());
+    std::string callStr =
+        nocName + "." + methodName + "<Noc::BarrierMode::FULL>();";
+
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+private:
+  std::string methodName;
+};
+
+template <typename SourceOp>
+class TTKernelToEmitCNocTridBarrierRewriter
+    : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelToEmitCNocTridBarrierRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx,
+      std::string methodName)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx),
+        methodName(std::move(methodName)) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    SmallVector<Value, 2> operands;
+    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
+                                             operands, adaptor.getNoc());
+    operands.push_back(adaptor.getTrid());
+    std::string callStr =
+        nocName + "." + methodName + "<Noc::BarrierMode::TXN_ID>({});";
+
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+private:
+  std::string methodName;
+};
+
+template <typename SourceOp>
+class TTKernelToEmitCNocAsyncTransferRewriter
+    : public OpConversionPattern<SourceOp> {
+  static constexpr bool isRead =
+      std::is_same_v<SourceOp, ttkernel::NocAsyncReadOp>;
+
+public:
+  TTKernelToEmitCNocAsyncTransferRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value localL1Addr = nullptr;
+    ValueRange coreXY;
+    ValueRange bankId;
+    Value remoteAddr = nullptr;
+    if constexpr (isRead) {
+      localL1Addr = adaptor.getDstLocalL1Addr();
+      coreXY = adaptor.getSrcCoreXY();
+      bankId = adaptor.getSrcBankId();
+      remoteAddr = adaptor.getSrcAddress();
+    } else {
+      localL1Addr = adaptor.getSrcLocalL1Addr();
+      coreXY = adaptor.getDstCoreXY();
+      bankId = adaptor.getDstBankId();
+      remoteAddr = adaptor.getDstAddress();
+    }
+
+    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter);
+    SmallVector<Value, 5> operands{localL1Addr, adaptor.getSize()};
+    std::string callStr;
+
+    if (!coreXY.empty()) {
+      TT_assert(coreXY.size() == 2u);
+      std::string endpoint = ensureEndpointDeclaration(
+          op.getOperation(), rewriter, "UnicastEndpoint", "unicast_ep");
+      operands.append(coreXY.begin(), coreXY.end());
+      operands.push_back(remoteAddr);
+      if constexpr (isRead) {
+        callStr = nocName + ".async_read(" + endpoint +
+                  ", CoreLocalMem<uint32_t>({}), {}, "
+                  "{{.noc_x = {}, .noc_y = {}, "
+                  ".addr = static_cast<uint32_t>({})}, {{});";
+      } else {
+        callStr = nocName +
+                  ".async_write("
+                  "CoreLocalMem<uint32_t>({}), " +
+                  endpoint +
+                  ", {}, {{} , {{.noc_x = {}, .noc_y = {}, "
+                  ".addr = static_cast<uint32_t>({})});";
+      }
+    } else {
+      TT_assert(bankId.size() == 1u);
+      std::string endpoint = ensureEndpointDeclaration(
+          op.getOperation(), rewriter, "AllocatorBank<AllocatorBankType::DRAM>",
+          "dram_ep");
+      operands.push_back(bankId.front());
+      operands.push_back(remoteAddr);
+      if constexpr (isRead) {
+        callStr = nocName + ".async_read(" + endpoint +
+                  ", CoreLocalMem<uint32_t>({}), {}, "
+                  "{{.bank_id = static_cast<uint32_t>({}), "
+                  ".addr = static_cast<uint32_t>({})}, {{});";
+      } else {
+        callStr = nocName +
+                  ".async_write("
+                  "CoreLocalMem<uint32_t>({}), " +
+                  endpoint +
+                  ", {}, {{} , {{.bank_id = static_cast<uint32_t>({}), "
+                  ".addr = static_cast<uint32_t>({})});";
+      }
+    }
+
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+template <typename SourceOp>
+class TTKernelToEmitCNocAsyncWriteMulticastRewriter
+    : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelToEmitCNocAsyncWriteMulticastRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    SmallVector<Value, 9> operands;
+    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
+                                             operands, adaptor.getNoc());
+    std::string endpoint = ensureEndpointDeclaration(
+        op.getOperation(), rewriter, "MulticastEndpoint", "mcast_ep");
+
+    llvm::StringRef mcastMode =
+        std::is_same_v<SourceOp, ttkernel::NocAsyncWriteMulticastOp>
+            ? "Noc::McastMode::EXCLUDE_SRC"
+            : "Noc::McastMode::INCLUDE_SRC";
+    bool linked = op.getLinked().value_or(false);
+
+    operands.append({adaptor.getSrcLocalL1Addr(), adaptor.getSize(),
+                     adaptor.getNumDests(), adaptor.getDstNocXStart(),
+                     adaptor.getDstNocYStart(), adaptor.getDstNocXEnd(),
+                     adaptor.getDstNocYEnd(), adaptor.getDstLocalL1Addr()});
+    std::string dstArgs =
+        "noc_traits_t<MulticastEndpoint>::"
+        "dst_args_mcast_type{{.noc_x_start = {}, .noc_y_start = {}, "
+        ".noc_x_end = {}, .noc_y_end = {}, "
+        ".addr = static_cast<uint32_t>({})}";
+
+    std::string callStr = nocName + ".async_write_multicast<" +
+                          mcastMode.str() + ">(CoreLocalMem<uint32_t>({}), " +
+                          endpoint + ", {}, {}, {{} , " + dstArgs + ", " +
+                          (linked ? "true" : "false") + ");";
+
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+} // namespace
+
+namespace {
 class TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter
     : public OpConversionPattern<ttkernel::GetMyLogicalMeshPositionOp> {
 public:
@@ -1161,14 +1570,8 @@ public:
       return success();
     }
 
-    // Generate unique variable name from SSA number (pattern from
-    // TTKernelClassMethodRewriter).
-    std::string ssaName;
-    llvm::raw_string_ostream os(ssaName);
-    mlir::OpPrintingFlags flags;
-    op->getResult(0).printAsOperand(os, flags);
-    os.flush();
-    std::string varName = "tensor_accessor_args_" + ssaName.substr(1);
+    std::string varName =
+        getResultVariableName(op->getResult(0), "tensor_accessor_args_");
 
     // Build CTA/CRTA expression with priority: expr attr > chaining > literal.
     auto buildArgExpr = [&](StringAttr exprAttr, Value baseValue,
@@ -1203,8 +1606,6 @@ public:
                        ", " + crtaArg + ">();";
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), code);
 
-    // Create literal to reference the variable (pattern from
-    // TTKernelClassMethodRewriter).
     auto resultType =
         this->getTypeConverter()->convertType(op->getResultTypes()[0]);
     auto literalOp =
@@ -1313,14 +1714,8 @@ public:
       resultTypes.push_back(convertedType);
     }
 
-    // Calling class/struct member function is difficult to do in EmitC..
-    // Create a unique variable name based on SSA number.
-    std::string ssaName;
-    llvm::raw_string_ostream os(ssaName);
-    mlir::OpPrintingFlags flags;
-    op->getResult(0).printAsOperand(os, flags);
-    os.flush();
-    std::string varName = "temp_" + ssaName.substr(1);
+    // Calling class/struct member function is difficult to do in EmitC.
+    std::string varName = getResultVariableName(op->getResult(0), "temp_");
 
     // Call the member function using verbatim with placeholders {} for args.
     TT_assert(resultTypes.size() == 1u);
@@ -1537,6 +1932,42 @@ public:
     return success();
   }
 };
+
+// Arith MaxSIOp / MinSIOp don't have an emitc lowering. Lower to
+// std::max<int32_t> / std::min<int32_t>, mirroring the unsigned versions.
+class ArithMaxSIRewriter : public OpConversionPattern<arith::MaxSIOp> {
+public:
+  using OpConversionPattern<arith::MaxSIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MaxSIOp op, arith::MaxSIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::max<int32_t>", adaptor.getOperands());
+    return success();
+  }
+};
+
+class ArithMinSIRewriter : public OpConversionPattern<arith::MinSIOp> {
+public:
+  using OpConversionPattern<arith::MinSIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MinSIOp op, arith::MinSIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::min<int32_t>", adaptor.getOperands());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1674,6 +2105,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AsinTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Atan2BinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Atan2BinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryBitwiseTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryLeftShiftTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryLogicalRightShiftTileOp>,
@@ -1700,6 +2133,18 @@ public:
         TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileInt32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::EqBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::EqBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NeBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NeBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GtBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GtBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LtBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LtBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LeBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LeBinaryTilesOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::DivUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileOp>,
@@ -1743,7 +2188,13 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::LtzTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>>(
+        typeConverter, funcOp.getContext());
+
+    // The remaining patterns are added in a separate `patterns.add<>` call to
+    // avoid exceeding clang's default fold-expression nesting depth (256
+    // template args) in `RewritePatternSet::add`.
+    patterns.add<
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulIntTileInitOp>,
@@ -1819,8 +2270,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInt32Op>,
 
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadTileOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncReadOnePacketSetStateOp>,
@@ -1829,24 +2278,14 @@ public:
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncReadOnePacketWithStateWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadSetTridOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierWithTridOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteSetTridOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncWriteOnePacketWithTridOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ResetNocTridBarrierCounterOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
         TTKernelToEmitCOpaqueRewriter<
-            ttkernel::ExperimentalGetNocMulticastAddrOp>,
-        TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncWriteMulticastOnePacketOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
-        TTKernelToEmitCOpaqueRewriter<
-            ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalXToTranslatedOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalYToTranslatedOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetMyDeviceIdOp>,
@@ -1881,12 +2320,31 @@ public:
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteSramWriteU32Op>>(
         typeConverter, funcOp.getContext(), "noc_semaphore_set_remote");
+    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::NocInlineDwWriteOp>>(
+        typeConverter, funcOp.getContext());
 
-    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
-        typeConverter, funcOp.getContext(), "get_noc_addr");
     patterns
-        .add<TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncAtomicBarrierOp>>(
+        .add<TTKernelToEmitCGetNocAddrRewriter,
+             TTKernelToEmitCNocAtomicBarrierRewriter,
+             TTKernelToEmitCNocAsyncTransferRewriter<ttkernel::NocAsyncReadOp>,
+             TTKernelToEmitCNocAsyncTransferRewriter<ttkernel::NocAsyncWriteOp>,
+             TTKernelToEmitCNocAsyncWriteMulticastRewriter<
+                 ttkernel::NocAsyncWriteMulticastOp>,
+             TTKernelToEmitCNocAsyncWriteMulticastRewriter<
+                 ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>>(
             typeConverter, funcOp.getContext());
+    patterns.add<
+        TTKernelToEmitCNocFullBarrierRewriter<ttkernel::NocAsyncReadBarrierOp>>(
+        typeConverter, funcOp.getContext(), "async_read_barrier");
+    patterns.add<TTKernelToEmitCNocFullBarrierRewriter<
+        ttkernel::NocAsyncWriteBarrierOp>>(typeConverter, funcOp.getContext(),
+                                           "async_write_barrier");
+    patterns.add<TTKernelToEmitCNocTridBarrierRewriter<
+        ttkernel::NocAsyncReadBarrierWithTridOp>>(
+        typeConverter, funcOp.getContext(), "async_read_barrier");
+    patterns.add<TTKernelToEmitCNocTridBarrierRewriter<
+        ttkernel::NocAsyncWriteBarrierWithTridOp>>(
+        typeConverter, funcOp.getContext(), "async_write_barrier");
 
     patterns.add<TTKernelInvokeSFPIOpRewriter>(typeConverter,
                                                funcOp.getContext());
@@ -1926,9 +2384,10 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
-                 ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
-                                                         funcOp.getContext());
+    patterns
+        .add<ArithFloorDivRewriter, ArithBitcastRewriter, ArithMaxUIRewriter,
+             ArithMinUIRewriter, ArithMaxSIRewriter, ArithMinSIRewriter>(
+            typeConverter, funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }
