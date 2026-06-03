@@ -6,10 +6,7 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 // End-to-end check that a `stablehlo.composite "tenstorrent.gather_dim"` lowers
-// all the way to `ttnn.gather` and produces a valid flatbuffer. The rank-1
-// case additionally exercises the C++ workaround in
-// runtime/lib/ttnn/operations/data_movement/gather.cpp when executed via
-// `ttrt run`.
+// all the way to `ttnn.gather` and produces a valid flatbuffer.
 
 module attributes {} {
   // CHECK-LABEL: func.func @gather_dim_2d
