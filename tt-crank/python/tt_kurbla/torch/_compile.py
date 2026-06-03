@@ -117,30 +117,40 @@ def _(mb, input):
     return mb.relu(input)
 
 
+def _is_tensor_schema_arg(
+    idx: int,
+    schema: torch._C.FunctionSchema,
+) -> bool:
+    return idx < len(schema.arguments) and "Tensor" in str(schema.arguments[idx].type)
+
+
 def _prepare_op_args(
     mb: "_native.ModuleBuilder",
     args: tuple,
     target_dtype: "_native.DataType",
+    schema: torch._C.FunctionSchema,
 ) -> tuple:
-    """Normalize a lowering's positional args to `target_dtype`.
-
-    Casts tensor args to `target_dtype` and lifts Python scalars to
-    broadcastable `ttir.constant` values at the same dtype. After this every
-    positional arg is a `Value` at the target element type.
+    """Uses the ATen schema to distinguish tensor-typed positions from
+    non-tensor attributes (keepdim, dim, eps, momentum, etc.).
+    - _native.Value at a tensor position: typecast to target_dtype
+    - Python scalar (int/float) at a tensor position: lifted to a [1]-shaped
+      ttir.constant (handles e.g. aten.add.Tensor(x, 3.14))
+    - Everything else (None, list, bool, ...): passed through unchanged
     """
+    out = []
+    for i, a in enumerate(args):
+        if not _is_tensor_schema_arg(i, schema):
+            out.append(a)
+            continue
 
-    def _convert(a):
         if isinstance(a, _native.Value):
-            return mb.typecast(a, target_dtype)
-        # bool is a subclass of int — check it first so control-flow args
-        # (keepdim, transpose flags, etc.) are never lifted to tensor scalars.
-        if isinstance(a, bool):
-            return a
-        if isinstance(a, (int, float)):
-            return mb.scalar(target_dtype, float(a))
-        return a
+            out.append(mb.typecast(a, target_dtype))
+        elif isinstance(a, (int, float)):
+            out.append(mb.scalar(target_dtype, float(a)))
+        else:
+            out.append(a)
 
-    return tuple(_convert(a) for a in args)
+    return tuple(out)
 
 
 class _TTIRInterpreter(torch.fx.Interpreter):
@@ -163,7 +173,7 @@ class _TTIRInterpreter(torch.fx.Interpreter):
         if fn is None:
             raise NotImplementedError(f"tt-kurbla compile: unsupported FX target {target}")
         target_dtype = _to_runtime_dtype(self._current_node.meta["val"].dtype)
-        args = _prepare_op_args(self.mb, args, target_dtype)
+        args = _prepare_op_args(self.mb, args, target_dtype, target._schema)
         return fn(self.mb, *args, **kwargs)
 
 
