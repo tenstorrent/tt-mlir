@@ -16,6 +16,7 @@ add_library(TTNNOpInvokeLib STATIC
   Matmul/MatmulOp.cpp
   Transformer/ConcatenateHeadsOp.cpp
   Transformer/NlpConcatHeadsOp.cpp
+  Transformer/NlpCreateQKVHeadsDecodeOp.cpp
 )
 
 set_property(TARGET TTNNOpInvokeLib PROPERTY CXX_STANDARD 20)
