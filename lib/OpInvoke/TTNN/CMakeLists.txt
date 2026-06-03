@@ -1,6 +1,7 @@
 add_library(TTNNOpInvokeLib STATIC
   utils/utils.cpp
   Conv/Conv2dOp.cpp
+  Conv/Conv3dOp.cpp
   Conv/ConvTranspose2dOp.cpp
   Conv/PrepareConv2dBiasOp.cpp
   Conv/PrepareConv2dWeightsOp.cpp
