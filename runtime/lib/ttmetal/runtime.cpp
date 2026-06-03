@@ -615,8 +615,12 @@ static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
   LOG_ASSERT(dst.elementSize() == src.elementSize(),
              "Tensor item size mismatch");
 
-  const auto srcIndices = getStridedRowStartIndices(src.shape, std::vector<std::uint32_t>(src.stride.begin(), src.stride.end()));
-  const auto dstIndices = getStridedRowStartIndices(dst.shape, std::vector<std::uint32_t>(dst.stride.begin(), dst.stride.end()));
+  const auto srcIndices = getStridedRowStartIndices(
+      src.shape,
+      std::vector<std::uint32_t>(src.stride.begin(), src.stride.end()));
+  const auto dstIndices = getStridedRowStartIndices(
+      dst.shape,
+      std::vector<std::uint32_t>(dst.stride.begin(), dst.stride.end()));
   assert(srcIndices.size() == dstIndices.size());
   assert(srcIndices.size() ==
          utils::product(src.shape.cbegin(), src.shape.cend() - 1));
