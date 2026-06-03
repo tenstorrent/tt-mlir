@@ -46,24 +46,24 @@ static std::uint64_t getNumElements(const std::vector<std::uint32_t> &shape) {
                          std::multiplies<std::uint64_t>());
 }
 
-// Returns true if `stride` (element strides) describes a non-contiguous layout
-// for `shape`. Dimensions of size <= 1 are ignored (their stride is
+// Returns true if `stride` (element strides) describes a contiguous, row-major
+// layout for `shape`. Dimensions of size <= 1 are ignored (their stride is
 // irrelevant). A stride vector that does not match the rank is treated as
 // contiguous (we cannot interpret it).
-static bool isNonContiguous(const std::vector<std::uint32_t> &shape,
-                            const std::vector<std::uint64_t> &stride) {
+static bool isContiguous(const std::vector<std::uint32_t> &shape,
+                         const std::vector<std::uint64_t> &stride) {
   if (stride.size() != shape.size()) {
     // this can happen with complex tensors and we treat them as contiguous
-    return false;
+    return true;
   }
   std::uint64_t rowMajorStride = 1;
   for (size_t d = shape.size(); d-- > 0;) {
     if (shape[d] > 1 && stride[d] != rowMajorStride) {
-      return true;
+      return false;
     }
     rowMajorStride *= shape[d];
   }
-  return false;
+  return true;
 }
 
 // Gathers a strided host buffer into a dense, contiguous byte buffer.
@@ -111,7 +111,7 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
   // Non-contiguous input: gather into a contiguous byte buffer first.
   std::vector<std::byte> gatheredData;
-  if (data != nullptr && isNonContiguous(shape, stride)) {
+  if (data != nullptr && !isContiguous(shape, stride)) {
     gatheredData = gatherContiguousBytes(data, shape, stride, itemsize);
     src = gatheredData.data();
   }
