@@ -4723,10 +4723,10 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
 //===----------------------------------------------------------------------===//
 
 def TTKernel_Bfloat16GreaterOp : TTKernel_Op<"bfloat16_greater", [Pure]> {
-    let summary = "Compare two bfloat16 values.";
+    let summary = "Compare two bfloat16 values using integer arithmetic.";
     let description = [{
-      Returns true if bf16_a > bf16_b using integer arithmetic.
-      Maps to bfloat16_greater() in device code.
+      Returns true if bf16_a > bf16_b.  Operates on the raw uint16 bit
+      representation.  Maps to bfloat16_greater() in device code.
     }];
 
     let arguments = (ins UI16:$bf16_a, UI16:$bf16_b);
