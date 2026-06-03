@@ -19,6 +19,8 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/JSON.h"
@@ -28,7 +30,11 @@
 #include "mlir/IR/Builders.h"
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <string>
+#include <sys/types.h>
+
+#define DEBUG_TYPE "ttnn-collect-perf-metrics"
 
 namespace mlir::tt::ttnn {
 
@@ -137,6 +143,13 @@ struct AggregatedMetrics {
 //     forward call yields a single sample (one token for decode, one image
 //     for vision); consumers must interpret accordingly.
 //===----------------------------------------------------------------------===//
+
+// Forward declarations for free helpers used by PerfTargets methods below.
+// Their definitions live right after PerfTargets.
+uint64_t getNumMatmulTiles(RankedTensorType lhs, RankedTensorType output);
+inline bool isValidWeightForTargetCalculation(mlir::Value v);
+bool constEvalDoesNotChangeTensorVolume(ttcore::LoadCachedOp loadCachedOp);
+
 struct PerfTargets {
   ttcore::Arch arch = ttcore::Arch::WormholeB0;
   unsigned numChips = 0;
@@ -154,6 +167,9 @@ struct PerfTargets {
   // tt-metal/tech_reports/GEMM_FLOPS/GEMM_FLOPS.md:101).
   uint64_t cyclesPerTileMatmul = 0;
 
+  MathFidelity defaultMathFidelity = MathFidelity::HiFi2;
+  ttcore::DataType defaultWeightDataType = ttcore::DataType::BFP_BFloat4;
+
   // Per-op classification across every weight matmul / linear / SDPA op
   // in the forward function. Counts use peak numbers before the
   // utilization derate.
@@ -165,8 +181,8 @@ struct PerfTargets {
   uint64_t paramMemoryBytes = 0;
 
   // Ops dropped because their DRAM-stream source couldn't be verified —
-  // see isDramResidentSource. Mirrored to JSON so silent skips remain
-  // auditable.
+  // see isValidWeightForTargetCalculation. Mirrored to JSON so silent skips
+  // remain auditable.
   uint64_t skippedOps = 0;
 
   // rooflineMs is the pure theoretical ceiling — sum of per-op
@@ -175,20 +191,189 @@ struct PerfTargets {
   // realistic single-step wall-clock estimate.
   double rooflineMs = 0.0;
   double topPerfEstimateMs = 0.0;
+
+  double getUsToReadWeightsFromDRAM(uint64_t weightBytes) {
+    if (dramBandwidthBytesPerSec == 0) {
+      return 0.0;
+    }
+    double us = static_cast<double>(weightBytes) / dramBandwidthBytesPerSec;
+    return us * 1e6; // convert to us
+  }
+
+  // Cycles per `numMatmulTiles` 32x32x32 tile-muls, scaled by the
+  // configured math fidelity. HiFi2 baseline = 32 cycles per tile
+  // (LoFi 16, HiFi3 48, HiFi4 64; see
+  // tt-metal/tech_reports/GEMM_FLOPS/GEMM_FLOPS.md:101).
+  uint64_t getNumCycles(uint64_t numMatmulTiles, MathFidelity mathFidelity) {
+    switch (mathFidelity) {
+    case MathFidelity::LoFi:
+      return numMatmulTiles * 16;
+    case MathFidelity::HiFi2:
+      return numMatmulTiles * 32;
+    case MathFidelity::HiFi3:
+      return numMatmulTiles * 48;
+    case MathFidelity::HiFi4:
+      return numMatmulTiles * 64;
+    }
+    llvm_unreachable("Unsupported MathFidelity");
+  }
+
+  // BFP8 byte count of a tensor — same accounting everywhere
+  // (1056 bytes / 1024 scalars = 1.03125 B / scalar). Caller pre-casts.
+  uint64_t bytesAtBfp8(RankedTensorType t) {
+    return static_cast<uint64_t>(
+        static_cast<double>(t.getNumElements()) * 1056.0 / 1024.0 + 0.5);
+  }
+
+  // Single entry point: walk every interesting op in funcOp, dispatch by
+  // op type to extract its DRAM-resident weights and tile-mul work, then
+  // run the shared roofline kernel below.
+  //
+  // Per-op extractors only encode WHAT the op consumes from DRAM and HOW
+  // much compute it does — the validate / max(dram, compute) / classify
+  // logic lives in one place.
+  void accountOp(func::FuncOp funcOp) {
+    funcOp->walk([&](Operation *op) {
+      SmallVector<Value, 2> weights;
+      uint64_t tileMuls = 0;
+
+      bool matched =
+          llvm::TypeSwitch<Operation *, bool>(op)
+              .Case<MatmulOp, LinearOp>([&](auto m) {
+                weights = {m.getB()};
+                tileMuls = matmulTileMuls(m.getA(), m.getResult());
+                return true;
+              })
+              .Case<ScaledDotProductAttentionDecodeOp,
+                    PagedScaledDotProductAttentionDecodeOp>([&](auto m) {
+                weights = {m.getKey(), m.getValue()};
+                // SDPA decode: M=1 → compute negligible; DRAM-only.
+                tileMuls = 0;
+                return true;
+              })
+              .Case<ScaledDotProductAttentionOp>([&](auto m) {
+                weights = {m.getKey(), m.getValue()};
+                tileMuls = sdpaPrefillTileMuls(m.getQuery(), m.getKey());
+                return true;
+              })
+              .Default([](Operation *) { return false; });
+
+      if (!matched) {
+        return;
+      }
+
+      for (Value w : weights) {
+        if (!isValidWeightForTargetCalculation(w)) {
+          skippedOps++;
+          llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
+                       << " — input is not DRAM-resident (producer: "
+                       << (w.getDefiningOp()
+                               ? w.getDefiningOp()->getName().getStringRef()
+                               : "<block-arg>")
+                       << ")\n";
+          return;
+        }
+      }
+
+      // 2. Sum weight scalars + BFP8 bytes across all weights.
+      uint64_t weightScalars = 0;
+      uint64_t weightBytes = 0;
+      for (Value w : weights) {
+        auto t = mlir::cast<RankedTensorType>(w.getType());
+        weightScalars += static_cast<uint64_t>(t.getNumElements());
+        weightBytes += bytesAtBfp8(t);
+      }
+      paramCount += weightScalars;
+      paramMemoryBytes += weightBytes;
+
+      // 3+4. DRAM us and compute us.
+      double dramUs = getUsToReadWeightsFromDRAM(weightBytes);
+      uint64_t computeCycles = getNumCycles(tileMuls, defaultMathFidelity);
+      double computeUs =
+          (numTensixCores == 0 || aiclkHz == 0)
+              ? 0.0
+              : static_cast<double>(computeCycles) * 1.0e6 /
+                    static_cast<double>(numTensixCores * aiclkHz);
+
+      // 5. Take max, accumulate, classify.
+      double opUs = std::max(dramUs, computeUs);
+      rooflineMs += opUs / 1000.0;
+      bool dramBound = dramUs >= computeUs;
+      if (dramBound) {
+        dramBoundOps++;
+      } else {
+        computeBoundOps++;
+      }
+
+      // Debug log — every counted op, with every value we computed.
+      // Enable via `-debug-only=ttnn-collect-perf-metrics`.
+      LLVM_DEBUG({
+        llvm::dbgs() << "[perf-metrics] " << op->getName() << " loc=";
+        op->getLoc().print(llvm::dbgs());
+        llvm::dbgs() << "\n  weights        =";
+        for (Value w : weights) {
+          llvm::dbgs() << " " << w.getType();
+        }
+        llvm::dbgs() << "\n  weight_scalars = " << weightScalars
+                     << "\n  weight_bytes   = " << weightBytes << " (BFP8)"
+                     << "\n  tile_muls      = " << tileMuls
+                     << "\n  compute_cycles = " << computeCycles
+                     << "\n  dram_us        = " << dramUs
+                     << "\n  compute_us     = " << computeUs
+                     << "\n  op_us          = " << opUs << " ("
+                     << (dramBound ? "DRAM" : "compute") << "-bound)"
+                     << "\n  running totals: roofline_ms=" << rooflineMs
+                     << " dram_bound_ops=" << dramBoundOps
+                     << " compute_bound_ops=" << computeBoundOps
+                     << " skipped_ops=" << skippedOps << "\n";
+      });
+    });
+  }
+
+private:
+  // === Per-op-type extractors ===
+
+  // Tile-mul count for matmul/linear (M·K·N tiles, batched).
+  uint64_t matmulTileMuls(Value lhs, Value result) {
+    return getNumMatmulTiles(mlir::cast<RankedTensorType>(lhs.getType()),
+                             mlir::cast<RankedTensorType>(result.getType()));
+  }
+
+  // Tile-mul count for SDPA prefill: 2·B·Hq·up32(Sq)·up32(D)·up32(Sk).
+  // Returns 0 (compute-free) for unexpected ranks — caller falls back to
+  // DRAM-only via the shared max(dramUs, computeUs).
+  uint64_t sdpaPrefillTileMuls(Value query, Value key) {
+    auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
+    auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
+    if (!qType || !kType || qType.getShape().size() != 4 ||
+        kType.getShape().size() != 4) {
+      return 0;
+    }
+    ArrayRef<int64_t> q = qType.getShape();
+    ArrayRef<int64_t> k = kType.getShape();
+    auto up32 = [](uint64_t x) { return (x + 31) / 32; };
+    return 2ULL * static_cast<uint64_t>(q[0]) * static_cast<uint64_t>(q[1]) *
+           up32(static_cast<uint64_t>(q[2])) *
+           up32(static_cast<uint64_t>(q[3])) *
+           up32(static_cast<uint64_t>(k[2]));
+  }
 };
 
-// Strict check: is `v` a DRAM-resident weight that the roofline can
-// honestly charge against? Two accepted cases:
-//   1. A direct function argument of a forward-device function whose
-//      ttcore.argument_type is Parameter or Constant, or that carries
-//      the ttcore.kv_cache attribute.
-//   2. A result of `ttcore.load_cached` (the canonical op that loads a
-//      const-evaluated weight into DRAM once at compile/load time).
-//
-// Anything else — a `repeat_interleave`, `typecast`, intermediate
-// activation, etc. — fails the check and the caller must skip the op
-// (and bump skippedOps so the drop is auditable in the JSON).
-inline bool isDramResidentSource(mlir::Value v) {
+// Tensor needs to be in DRAM.
+// A direct arg marked as a weight (Parameter/Constant/kv_cache) is valid.
+// A tensor produced by a load_cached op is valid, but only when the tensor
+// volume is not changed in the const eval func. This is so that we prevent
+// counting a tensor that has been broadcasted.
+inline bool isValidWeightForTargetCalculation(mlir::Value v) {
+  auto vType = mlir::dyn_cast<RankedTensorType>(v.getType());
+  if (!vType) {
+    return false;
+  }
+
+  if (utils::getBufferTypeFromTensor(vType) != BufferType::DRAM) {
+    return false;
+  }
+
   if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(v)) {
     auto funcOp =
         mlir::dyn_cast<mlir::func::FuncOp>(blockArg.getOwner()->getParentOp());
@@ -205,10 +390,64 @@ inline bool isDramResidentSource(mlir::Value v) {
            argType == ttcore::ArgumentType::Constant ||
            ttcore::isKVCacheArgument(funcOp, idx);
   }
-  if (mlir::Operation *def = v.getDefiningOp()) {
-    return mlir::isa<ttcore::LoadCachedOp>(def);
+
+  auto definingOp = v.getDefiningOp();
+
+  if (!definingOp) {
+    return false;
   }
-  return false;
+
+  auto loadCachedOp = mlir::dyn_cast<ttcore::LoadCachedOp>(definingOp);
+  if (!loadCachedOp) {
+    return false;
+  }
+
+  if (!constEvalDoesNotChangeTensorVolume(loadCachedOp)) {
+    return false;
+  }
+
+  return true;
+}
+
+// Compare the total scalar volume across the load_cached op's inputs vs
+// its results. Equal totals mean the const-eval function only reshaped /
+// retiled / fused weights — the post-const-eval tensor is still backed
+// by the same number of bytes streamed from DRAM, so it's safe to count
+// against the roofline. A larger output volume implies a broadcast (e.g.
+// repeat_interleave Hkv → Hq); in that case the post-const-eval tensor
+// is *bigger* than what DRAM actually carries, so we reject it.
+bool constEvalDoesNotChangeTensorVolume(ttcore::LoadCachedOp loadCachedOp) {
+  auto totalVolume = [](auto range) {
+    uint64_t total = 0;
+    for (mlir::Value v : range) {
+      if (auto rt = mlir::dyn_cast<RankedTensorType>(v.getType())) {
+        total += static_cast<uint64_t>(rt.getNumElements());
+      }
+    }
+    return total;
+  };
+  return totalVolume(loadCachedOp.getInputs()) ==
+         totalVolume(loadCachedOp.getResults());
+}
+
+uint64_t getNumMatmulTiles(RankedTensorType lhs, RankedTensorType output) {
+  ArrayRef<int64_t> lhsShape = lhs.getShape();
+  ArrayRef<int64_t> resultShape = output.getShape();
+
+  auto M = resultShape[resultShape.size() - 2];
+  auto K = lhsShape[lhsShape.size() - 1];
+  auto N = resultShape[resultShape.size() - 1];
+  auto batch = 1;
+  for (size_t i = 0; i < resultShape.size() - 2; i++) {
+    batch *= resultShape[i];
+  }
+
+  // Tilize M, K, N
+  auto tilesM = (M + 31) / 32;
+  auto tilesK = (K + 31) / 32;
+  auto tilesN = (N + 31) / 32;
+
+  return batch * tilesM * tilesK * tilesN;
 }
 
 class TTNNCollectPerfMetrics
@@ -518,225 +757,9 @@ public:
         }
       }
 
-      // Shared body for ttnn.matmul and ttnn.linear — both compute
-      // result = a · b (linear additionally adds a bias). For the roofline
-      // only the matmul work counts; the bias add is negligible.
-      auto handleMatmul = [&](Operation *op, Value a, Value b, Value result) {
-        // Skip ops whose rhs isn't an honest DRAM-resident weight (e.g.,
-        // SDPA matmuls whose rhs is a repeat_interleave broadcast — the
-        // matmul reads from L1, not from a 4x-larger DRAM tensor).
-        if (!isDramResidentSource(b)) {
-          perfTargets.skippedOps++;
-          llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
-                       << " — rhs is not a DRAM weight "
-                       << "(producer: "
-                       << (b.getDefiningOp()
-                               ? b.getDefiningOp()->getName().getStringRef()
-                               : "<block-arg>")
-                       << ")\n";
-          return;
-        }
-        auto rhsType = mlir::dyn_cast<RankedTensorType>(b.getType());
-        auto lhsType = mlir::dyn_cast<RankedTensorType>(a.getType());
-        auto resultType = mlir::dyn_cast<RankedTensorType>(result.getType());
-        assert(rhsType && lhsType && resultType &&
-               "TTNNCollectPerfMetrics: matmul operands and result must be "
-               "ranked tensors.");
-        // Operands may carry either a scalar element type or a
-        // ttcore::TileType<H, W, dtype>. In both cases getNumElements()
-        // returns the logical scalar count — TileType only affects
-        // in-memory layout, not the shape semantics.
-
-        ArrayRef<int64_t> lhsShape = lhsType.getShape();
-        ArrayRef<int64_t> rhsShape = rhsType.getShape();
-        ArrayRef<int64_t> resultShape = resultType.getShape();
-        assert(lhsShape.size() >= 2 && rhsShape.size() >= 2 &&
-               resultShape.size() >= 2 &&
-               "TTNNCollectPerfMetrics: matmul shapes must be at least 2D.");
-
-        // M, K, N from the scalar shapes. Last two dims of lhs are (M, K),
-        // last dim of rhs is N. transpose_a/transpose_b are ignored here —
-        // they swap which dim is which but don't change the total work.
-        uint64_t M = static_cast<uint64_t>(lhsShape[lhsShape.size() - 2]);
-        uint64_t K = static_cast<uint64_t>(lhsShape[lhsShape.size() - 1]);
-        uint64_t N = static_cast<uint64_t>(rhsShape[rhsShape.size() - 1]);
-
-        // Round M, K, N up to 32 and count 32x32x32 tile-multiply units.
-        auto roundUp32 = [](uint64_t x) { return (x + 31) & ~uint64_t{31}; };
-        uint64_t mUnits = roundUp32(M) / 32;
-        uint64_t kUnits = roundUp32(K) / 32;
-        uint64_t nUnits = roundUp32(N) / 32;
-
-        // Batch dims come from the result shape (already reflects any lhs/rhs
-        // broadcasting).
-        uint64_t batch = 1;
-        for (size_t i = 0; i + 2 < resultShape.size(); ++i) {
-          batch *= static_cast<uint64_t>(resultShape[i]);
-        }
-        uint64_t tileMuls = batch * mUnits * kUnits * nUnits;
-
-        // Bytes read from the weight (rhs) — scalar element count at BFP8
-        // (1056 bytes / 1024 scalars = 1.03125 B / scalar).
-        assert(utils::getBufferTypeFromTensor(rhsType) == BufferType::DRAM &&
-               "TTNNCollectPerfMetrics: expected matmul rhs (weight) to be in "
-               "DRAM.");
-        uint64_t rhsScalars = static_cast<uint64_t>(rhsType.getNumElements());
-        uint64_t rhsBytes = static_cast<uint64_t>(
-            static_cast<double>(rhsScalars) * 1056.0 / 1024.0 + 0.5);
-
-        // Accumulate the rhs weight stream — useful as a sanity-check
-        // alongside the time-based roofline. Use rhsBytes (BFP8) so the
-        // memory total matches what the dramUs calculation above charges.
-        perfTargets.paramCount += rhsScalars;
-        perfTargets.paramMemoryBytes += rhsBytes;
-
-        // Compute vs DRAM-bound classification, directly in us.
-        //
-        // Skip when populateHardwareLimits hasn't populated these (e.g.
-        // multi-chip soft-skip leaves dramBandwidthBytesPerSec / aiclkHz /
-        // numTensixCores all zero).
-        if (perfTargets.dramBandwidthBytesPerSec == 0 ||
-            perfTargets.aiclkHz == 0 || perfTargets.numTensixCores == 0) {
-          return;
-        }
-
-        // DRAM time: bytes / (bytes/sec) = sec, × 1e6 = us. Aggregate chip
-        // bandwidth.
-        double dramUs =
-            static_cast<double>(rhsBytes) * 1.0e6 /
-            static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
-
-        // Compute time at HiFi2: 32 cycles per 32x32x32 tile-mul on one
-        // Tensix matrix engine; the chip runs numTensixCores tile-muls in
-        // parallel at AICLK. Assumes the matmul parallelizes across the full
-        // worker grid (best-case roofline).
-        double computeUs =
-            static_cast<double>(tileMuls * perfTargets.cyclesPerTileMatmul) *
-            1.0e6 /
-            static_cast<double>(perfTargets.numTensixCores *
-                                perfTargets.aiclkHz);
-
-        double opUs = std::max(dramUs, computeUs);
-        perfTargets.rooflineMs += opUs / 1000.0;
-        if (dramUs >= computeUs) {
-          perfTargets.dramBoundOps++;
-        } else {
-          perfTargets.computeBoundOps++;
-        }
-      };
-      funcOp->walk([&](MatmulOp op) {
-        handleMatmul(op, op.getA(), op.getB(), op.getResult());
-      });
-      funcOp->walk([&](LinearOp op) {
-        handleMatmul(op, op.getA(), op.getB(), op.getResult());
-      });
-
-      // Fused SDPA decode (emitted at optimization-level >= 1). The op
-      // packages QK^T + softmax + attn@V; for the roofline, the dominant
-      // cost is reading the K and V caches from DRAM (M=1 decode means
-      // the compute math collapses to negligible). Treat compute as 0 and
-      // bill the DRAM stream of both caches at the BFP8 byte rate to stay
-      // consistent with the matmul weight path.
-      auto handleSdpaDecode = [&](Operation *op, Value key, Value value) {
-        if (perfTargets.dramBandwidthBytesPerSec == 0) {
-          return;
-        }
-        if (!isDramResidentSource(key) || !isDramResidentSource(value)) {
-          perfTargets.skippedOps++;
-          llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
-                       << " — K or V is not a DRAM cache source.\n";
-          return;
-        }
-        auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
-        auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
-        if (!kType || !vType) {
-          return;
-        }
-        auto bytesAtBfp8 = [](RankedTensorType t) {
-          return static_cast<uint64_t>(
-              static_cast<double>(t.getNumElements()) * 1056.0 / 1024.0 + 0.5);
-        };
-        uint64_t kvBytes = bytesAtBfp8(kType) + bytesAtBfp8(vType);
-        double dramUs =
-            static_cast<double>(kvBytes) * 1.0e6 /
-            static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
-        perfTargets.rooflineMs += dramUs / 1000.0;
-        perfTargets.dramBoundOps++;
-      };
-      funcOp->walk([&](ScaledDotProductAttentionDecodeOp op) {
-        handleSdpaDecode(op, op.getKey(), op.getValue());
-      });
-      funcOp->walk([&](PagedScaledDotProductAttentionDecodeOp op) {
-        handleSdpaDecode(op, op.getKey(), op.getValue());
-      });
-
-      // SDPA prefill (FlashAttention-2). Unlike decode, Sq can be large
-      // (the whole prompt), so the QK^T / attn@V compute scales as
-      // O(B·Hq·Sq·D·Sk) per matmul and can dominate over the K+V DRAM
-      // stream. Roofline := max(dram_us, compute_us) as everywhere else.
-      // Shapes per the op spec: query [B, Hq, Sq, D], key/value
-      // [B, Hkv, Sk, D].
-      auto handleSdpaPrefill = [&](Operation *op, Value query, Value key,
-                                   Value value) {
-        if (perfTargets.dramBandwidthBytesPerSec == 0 ||
-            perfTargets.aiclkHz == 0 || perfTargets.numTensixCores == 0) {
-          return;
-        }
-        if (!isDramResidentSource(key) || !isDramResidentSource(value)) {
-          perfTargets.skippedOps++;
-          llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
-                       << " — K or V is not a DRAM cache source.\n";
-          return;
-        }
-        auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
-        auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
-        auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
-        if (!qType || !kType || !vType) {
-          return;
-        }
-        auto bytesAtBfp8 = [](RankedTensorType t) {
-          return static_cast<uint64_t>(
-              static_cast<double>(t.getNumElements()) * 1056.0 / 1024.0 + 0.5);
-        };
-        uint64_t kvBytes = bytesAtBfp8(kType) + bytesAtBfp8(vType);
-        double dramUs =
-            static_cast<double>(kvBytes) * 1.0e6 /
-            static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
-
-        ArrayRef<int64_t> qShape = qType.getShape();
-        ArrayRef<int64_t> kShape = kType.getShape();
-        if (qShape.size() != 4 || kShape.size() != 4) {
-          // Unexpected rank — fall back to dram-only accounting.
-          perfTargets.rooflineMs += dramUs / 1000.0;
-          perfTargets.dramBoundOps++;
-          return;
-        }
-        // QK^T and attn@V are both (B·Hq, Sq, D, Sk) tile-mul shape (K is
-        // broadcast from Hkv → Hq in L1; doesn't affect compute count).
-        uint64_t B = static_cast<uint64_t>(qShape[0]);
-        uint64_t Hq = static_cast<uint64_t>(qShape[1]);
-        uint64_t Sq = static_cast<uint64_t>(qShape[2]);
-        uint64_t D = static_cast<uint64_t>(qShape[3]);
-        uint64_t Sk = static_cast<uint64_t>(kShape[2]);
-        auto up32 = [](uint64_t x) { return (x + 31) / 32; };
-        uint64_t tileMuls = 2 * B * Hq * up32(Sq) * up32(D) * up32(Sk);
-        double computeUs =
-            static_cast<double>(tileMuls * perfTargets.cyclesPerTileMatmul) *
-            1.0e6 /
-            static_cast<double>(perfTargets.numTensixCores *
-                                perfTargets.aiclkHz);
-
-        double opUs = std::max(dramUs, computeUs);
-        perfTargets.rooflineMs += opUs / 1000.0;
-        if (dramUs >= computeUs) {
-          perfTargets.dramBoundOps++;
-        } else {
-          perfTargets.computeBoundOps++;
-        }
-      };
-      funcOp->walk([&](ScaledDotProductAttentionOp op) {
-        handleSdpaPrefill(op, op.getQuery(), op.getKey(), op.getValue());
-      });
+      // Walk every weight-consuming op (matmul/linear + SDPA variants)
+      // through a single dispatch + shared roofline kernel.
+      perfTargets.accountOp(funcOp);
 
       // First pass: identify DRAM spills
       identifyDRAMSpills(funcOp, spilledValues);
