@@ -40,7 +40,6 @@ TEST_F(OpModelTripwireTest, PagedUpdateCacheOpWrongGrid) {
   const llvm::SmallVector<int64_t> cacheShape = {8, 4, 32, 256};
   const llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
   const llvm::SmallVector<int64_t> updateIndexShape = {8};
-  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
 
   // numUsers = inputShape[1] = 8; the only valid HS grid in tt-mlir IR is
   // {8, 1}.  We use {4, 1} (num_cores = 4) so the new TT_FATAL rejects it
@@ -56,7 +55,7 @@ TEST_F(OpModelTripwireTest, PagedUpdateCacheOpWrongGrid) {
       updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
 
   auto constraintsExp = OpModel<PagedUpdateCacheOp>::getOpConstraints(
-      workerGrid, cacheShape, cacheLayout, inputShape, inputLayoutWrongGrid,
+      cacheShape, cacheLayout, inputShape, inputLayoutWrongGrid,
       updateIndexShape, updateIndexLayout, std::nullopt, std::nullopt, false,
       cacheLayout);
   const bool ok = static_cast<bool>(constraintsExp);
