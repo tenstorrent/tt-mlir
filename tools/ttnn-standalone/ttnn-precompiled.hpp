@@ -114,7 +114,10 @@ public:
       return externalDevice;
     }
 
-    static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
+    // NOTE: `ownedInstance` is intentionally `thread_local` (not a plain
+    // function-local static) to avoid a use-after-free crash during process
+    // exit.
+    static thread_local std::shared_ptr<ttnn::MeshDevice> ownedInstance =
         ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
