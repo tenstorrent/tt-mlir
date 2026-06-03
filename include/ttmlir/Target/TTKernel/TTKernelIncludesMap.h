@@ -265,6 +265,10 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"experimental::untilize_block",                   {"api/compute/untilize.h", ""}},
         {"experimental::pack_untilize_block",              {"api/compute/pack_untilize.h", ""}},
 
+        // Numeric.
+        {"bfloat16_greater",                               {"api/numeric/bfloat16.h", "api/numeric/bfloat16.h"}},
+        {"float32_greater",                                {"api/numeric/float32.h", "api/numeric/float32.h"}},
+
         // System.
         // These size_t specializations are hard-coded in TTKernelToEmitC.
         {"std::max<size_t>",                               {"<algorithm>", "<algorithm>"}},

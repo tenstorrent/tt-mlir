@@ -2045,6 +2045,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>,
 
+        // Numeric
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Bfloat16GreaterOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Float32GreaterOp>,
+
         // Compute kernel hardware startup
         TTKernelToEmitCOpaqueRewriter<ttkernel::ComputeKernelHWStartupOp>,
 

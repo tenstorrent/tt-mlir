@@ -245,3 +245,23 @@ func.func @test_remote_mailbox_protocol_ops(%mailbox: !ttkernel.l1_addr) {
   %sink = arith.addi %loaded, %zero : i32
   return
 }
+
+//===----------------------------------------------------------------------===//
+// Numeric operations
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: func.func @test_bfloat16_greater
+// CHECK-SAME: (%[[A:.*]]: ui16, %[[B:.*]]: ui16)
+func.func @test_bfloat16_greater(%arg0: ui16, %arg1: ui16) -> () {
+  %0 = ttkernel.bfloat16_greater(%arg0, %arg1) : (ui16, ui16) -> i1
+  // CHECK: ttkernel.bfloat16_greater(%[[A]], %[[B]]) : (ui16, ui16) -> i1
+  return
+}
+
+// CHECK-LABEL: func.func @test_float32_greater
+// CHECK-SAME: (%[[A:.*]]: ui32, %[[B:.*]]: ui32)
+func.func @test_float32_greater(%arg0: ui32, %arg1: ui32) -> () {
+  %0 = ttkernel.float32_greater(%arg0, %arg1) : (ui32, ui32) -> i1
+  // CHECK: ttkernel.float32_greater(%[[A]], %[[B]]) : (ui32, ui32) -> i1
+  return
+}

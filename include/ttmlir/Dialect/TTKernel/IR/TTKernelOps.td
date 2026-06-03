@@ -4718,6 +4718,40 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
     }];
 }
 
+//===----------------------------------------------------------------------===//
+// TTKernel Numeric operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_Bfloat16GreaterOp : TTKernel_Op<"bfloat16_greater", [Pure]> {
+    let summary = "Compare two bfloat16 values.";
+    let description = [{
+      Returns true if bf16_a > bf16_b using integer arithmetic.
+      Maps to bfloat16_greater() in device code.
+    }];
+
+    let arguments = (ins UI16:$bf16_a, UI16:$bf16_b);
+    let results = (outs I1:$result);
+
+    let assemblyFormat = [{
+      `(` $bf16_a `,` $bf16_b `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_Float32GreaterOp : TTKernel_Op<"float32_greater", [Pure]> {
+    let summary = "Compare two float32 values using integer arithmetic.";
+    let description = [{
+      Returns true if f32_a > f32_b.  Operates on the raw uint32 bit
+      representation.  Maps to float32_greater() in device code.
+    }];
+
+    let arguments = (ins UI32:$f32_a, UI32:$f32_b);
+    let results = (outs I1:$result);
+
+    let assemblyFormat = [{
+      `(` $f32_a `,` $f32_b `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "Print to output stream from kernel.";
     let description = [{
