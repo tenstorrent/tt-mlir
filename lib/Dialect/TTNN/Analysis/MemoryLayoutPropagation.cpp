@@ -1407,14 +1407,6 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     result.setType(newTensorType);
   }
 
-  // Op-level attribute updates use result 0's layout (chosenLayout).
-
-  // Update layout attribute for ops that have layout interface.
-  if (auto opWithLayoutIF = mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
-    opWithLayoutIF.setLayoutAttr(
-        LayoutAttr::get(op->getContext(), chosenLayout.getLayout()));
-  }
-
   applyOpSpecificAttrs(op, candidate);
 }
 

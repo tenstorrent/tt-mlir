@@ -212,18 +212,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   rewriter.modifyOpInPlace(op, [&]() {
     opResult.setType(newOutputResultType);
 
-    // Some ops defines attributes with tensor layout, buffer type and memory
-    // layout, hence we need to update the attributes as well. For example,
-    // the empty op defines layout and memory_config attributes.
-    TTNNLayoutOpInterface layoutOp =
-        mlir::dyn_cast<TTNNLayoutOpInterface>(op.getOperation());
-    if (outputWorkaroundResults.tensorLayoutResult.isModified() && layoutOp) {
-      LayoutAttr updatedLayoutAttr = rewriter.getAttr<LayoutAttr>(
-          outputWorkaroundResults.tensorLayoutResult.targetValue);
-      layoutOp.setLayoutAttr(updatedLayoutAttr);
-    }
-
-    // The buffer type / memory layout changes are already encoded in the
+    // The buffer type / memory layout / page layout changes are encoded in the
     // result tensor's TTNNLayoutAttr (set above).
     TTNNDeviceOperandInterface deviceOperandOp =
         mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());

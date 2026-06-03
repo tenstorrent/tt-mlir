@@ -58,10 +58,10 @@ func.func @scatter_simple_3(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>
 // Scatter with f32. For f32, there is a layout conversion before and after scatter due to tt-metal f32 scatter limitations.
 func.func @scatter_simple_4(%arg0: tensor<1000x32xf32>, %arg1: tensor<10x32xi64>, %arg2: tensor<10x32xf32>) -> tensor<1000x32xf32> {
   // CHECK-LABEL: func.func @scatter_simple_4
-  // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<row_major>}>
-  // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<row_major>}>
+  // CHECK: "ttnn.to_layout"({{.*}})
+  // CHECK: "ttnn.to_layout"({{.*}})
   // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<1000x32xf32, {{.*}}>, tensor<10x32xsi32, {{.*}}>, tensor<10x32xf32, {{.*}}>) -> tensor<1000x32xf32, {{.*}}>
-  // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<tile>}>
+  // CHECK: "ttnn.to_layout"({{.*}})
   %0 = "ttir.scatter"(%arg0, %arg1, %arg2) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<1000x32xf32>, tensor<10x32xi64>, tensor<10x32xf32>) -> tensor<1000x32xf32>
   return %0 : tensor<1000x32xf32>
 }

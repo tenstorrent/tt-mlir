@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-workaround -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-workaround --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #dram = #ttnn.buffer_type<dram>
@@ -9,12 +9,13 @@ module @test_distributed_rms_norm_workaround attributes {} {
   func.func public @test_workaround_layout_only(
       %arg0: tensor<1x1x32x128xbf16, #ttnn_layout_supported>,
       %arg1: tensor<4x32xbf16, #ttnn_layout_weight_2d>) -> tensor<1x1x32x128xbf16, #ttnn_layout_supported> {
-    // CHECK: #[[INPUT_WS_LAYOUT:.+]] = #ttnn.ttnn_layout{{.*}}#l1{{.*}}<width_sharded>
     // CHECK-LABEL: func.func public @test_workaround_layout_only
     // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: tensor<{{.*}}, #[[INPUT_WS_LAYOUT]]>
+    // CHECK-SAME: #ttnn.buffer_type<l1>
+    // CHECK-SAME: <width_sharded>
     // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: row_major
+    // CHECK-SAME: -> tensor<4x32xbf16,
+    // CHECK-SAME: memref<4x32xbf16, #ttnn.buffer_type
     // CHECK: "ttnn.distributed_rms_norm"
     // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>
     // CHECK-NOT: "ttnn.empty"

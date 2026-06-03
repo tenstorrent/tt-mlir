@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=2,4" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mesh-shape=2,4" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 2x4>]>} {
@@ -16,7 +16,7 @@ module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 2x4>]>} {
 
 // CHECK-LABEL: @test_sdy_all_slice_composite_row_major
 // CHECK: "ttnn.to_layout"(%arg0)
-// CHECK-SAME: <{layout = #ttnn.layout<row_major>}>
+// CHECK-SAME: memref<4x32xbf16, #ttnn.buffer_type<dram>>
 // CHECK: "ttnn.mesh_partition"
 // CHECK-SAME: <{cluster_axis = 1 : ui32, dim = 0 : si32}>
 // CHECK: "ttnn.mesh_partition"

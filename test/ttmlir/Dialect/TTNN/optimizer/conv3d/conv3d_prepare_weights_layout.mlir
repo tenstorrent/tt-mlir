@@ -28,17 +28,18 @@ module {
     // The IR shape is:
     //   %1 = prepare_conv3d_weights(...) -> tensor<..., #row_major_layout>
     //   "ttnn.deallocate"(%argweight) ...     // optional dealloc
-    //   %2 = to_layout(%1) <{layout = tile}>
+    //   %2 = to_layout(%1) -> tensor<..., #tile_layout>
     //   %3 = conv3d(input, %2, ...)
     //
     // We assert structurally: a `to_layout` to tile must appear between
     // prepare and conv3d, and the prepare op's result memref must NOT be
     // tiled.
     //
-    // CHECK: %{{[0-9]+}} = "ttnn.prepare_conv3d_weights"
-    // CHECK-NOT: !ttcore.tile
-    // CHECK: layout = #ttnn.layout<tile>
-    // CHECK: ttnn.conv3d
+    // CHECK-DAG: #[[PREPARE_RM_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<3456x32xbf16, #dram>
+    // CHECK-DAG: #[[WEIGHTS_TILE_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<108x1x!ttcore.tile<32x32, bf16>, #dram>
+    // CHECK: %[[PREPARE_WEIGHTS:.*]] = "ttnn.prepare_conv3d_weights"{{.*}} -> tensor<3456x32xbf16, #[[PREPARE_RM_LAYOUT]]>
+    // CHECK: %[[TILED_WEIGHTS:.*]] = "ttnn.to_layout"(%[[PREPARE_WEIGHTS]]){{.*}} -> tensor<3456x32xbf16, #[[WEIGHTS_TILE_LAYOUT]]>
+    // CHECK: "ttnn.conv3d"({{.*}}, %[[TILED_WEIGHTS]],
     %0 = "ttir.conv3d"(%arg0, %arg1) <{
         stride = array<i32: 1, 1, 1>,
         padding = array<i32: 0, 0, 0>,

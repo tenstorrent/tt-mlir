@@ -1311,15 +1311,10 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
                                    mlir::Value device) {
   mlir::MLIRContext *ctx = builder.getContext();
   mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
-  ttnn::TTNNLayoutAttr layoutAttr =
-      mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
   ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
-  ttnn::LayoutAttr tensorLayoutAttr =
-      ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
-  build(builder, state, resultType, device, shapeAttr, fillValue,
-        tensorLayoutAttr);
+  build(builder, state, resultType, device, shapeAttr, fillValue);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1342,28 +1337,12 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
                          << output.getShape();
   }
 
-  // Helper lambda to verify layout attributes generically
-  auto verifyLayoutAttr = [&](auto layoutAttr) -> LogicalResult {
-    // Layout
-    //
-    if (getLayout() != layoutAttr.getLayout()) {
-      return emitOpError("Layout mismatch between op and layoutAttr.");
-    }
+  if (!mlir::dyn_cast_if_present<TTNNLayoutAttr>(encoding) &&
+      !mlir::dyn_cast_if_present<TTNNNDLayoutAttr>(encoding)) {
+    return emitOpError() << "Unsupported layout encoding type";
+  }
 
-    return success();
-  };
-
-  // Use TypeSwitch to handle both TTNNLayoutAttr and TTNNNDLayoutAttr
-  return llvm::TypeSwitch<mlir::Attribute, mlir::LogicalResult>(encoding)
-      .Case<TTNNLayoutAttr>([&](TTNNLayoutAttr layoutAttr) {
-        return verifyLayoutAttr(layoutAttr);
-      })
-      .template Case<TTNNNDLayoutAttr>([&](TTNNNDLayoutAttr layoutAttr) {
-        return verifyLayoutAttr(layoutAttr);
-      })
-      .Default([&](mlir::Attribute) {
-        return emitOpError() << "Unsupported layout encoding type";
-      });
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -2109,6 +2088,10 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 
+::mlir::LogicalResult ToLayoutOp::verify() {
+  return verifyTTNNLayoutInterface<ToLayoutOp>(*this);
+}
+
 namespace {
 // ToLayoutOp can be folded if its input has the same layout as the output of
 // ToLayoutOp.
@@ -2273,7 +2256,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    LayoutAttr targetLayoutAttr = toLayoutOp.getLayoutAttr();
     MemoryConfigAttr targetMemoryConfigAttr =
         mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
             toLayoutOp.getOperation())
@@ -2292,8 +2274,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     auto tensorSpecOp = mlir::cast<TTNNTensorSpecInterface>(creationOp);
 
     rewriter.startOpModification(tensorSpecOp);
-
-    tensorSpecOp.setLayoutAttr(targetLayoutAttr);
 
     BufferTypeAttr newBufferType = targetMemoryConfigAttr
                                        ? targetMemoryConfigAttr.getBufferType()
@@ -2362,9 +2342,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     // encoding via the TTNN_DtypeOpInterface and no longer needs to be passed
     // through the builder.
     auto zerosOp = rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ZerosOp>(
-        emptyOp, toLayoutOp.getType(), /*device=*/nullptr, emptyOp.getShape(),
-        toLayoutOp.getLayoutAttr() ? toLayoutOp.getLayoutAttr()
-                                   : emptyOp.getLayoutAttr());
+        emptyOp, toLayoutOp.getType(), /*device=*/nullptr, emptyOp.getShape());
 
     rewriter.replaceAllOpUsesWith(toLayoutOp, zerosOp);
     rewriter.eraseOp(toLayoutOp);
@@ -3523,7 +3501,6 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
           .build();
 
   auto statsShapeAttr = ShapeAttr::get(ctx, statsShape);
-  auto statsLayoutAttr = LayoutAttr::get(ctx, Layout::Tile);
 
   RankedTensorType statsResultType =
       RankedTensorType::get(statsShape, statsElementType, statsLayout);
@@ -3537,8 +3514,8 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
   {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(device);
-    statsEmptyOp = rewriter.create<ttnn::EmptyOp>(
-        getLoc(), statsResultType, device, statsShapeAttr, statsLayoutAttr);
+    statsEmptyOp = rewriter.create<ttnn::EmptyOp>(getLoc(), statsResultType,
+                                                  device, statsShapeAttr);
   }
 
   rewriter.modifyOpInPlace(
