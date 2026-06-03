@@ -136,16 +136,16 @@ void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
 }
 
 // Registry for all const-eval cache vectors.
-// Using a function-local static (Meyers singleton) ensures this is initialized
-// after DeviceGetter::getInstance() (which initializes the device), and thus
-// destroyed before the device during program exit. This prevents a
-// use-after-free crash when the global g_cached_result_* vectors (initialized
-// before main) try to destroy device-side tensors after the device and its
-// GraphTracker have already been closed.
+// Using a thread_local function-local static (Meyers singleton) ensures this
+// is destroyed before the thread_local device during thread exit. thread_local
+// variables are destroyed in reverse initialization order within the same
+// thread, so since the device is initialized before the registry, the registry
+// is destroyed first — clearing all cached tensors while the device and
+// GraphTracker are still alive.
 class ConstEvalCacheRegistry {
 public:
   static ConstEvalCacheRegistry &instance() {
-    static ConstEvalCacheRegistry reg;
+    static thread_local ConstEvalCacheRegistry reg;
     return reg;
   }
 
