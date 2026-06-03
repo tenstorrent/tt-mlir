@@ -20,8 +20,8 @@ RotaryEmbeddingLlamaResolvedParams resolveRotaryEmbeddingLlamaParams(
   RotaryEmbeddingLlamaResolvedParams params;
 
   if (opT.compute_config) {
-    params.computeConfig = operations::utils::createDeviceComputeKernelConfig(
-        *opT.compute_config);
+    params.computeConfig =
+        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
   }
 
   if (opT.out) {
@@ -40,18 +40,16 @@ auto createRotaryEmbeddingLlamaTuple(
     Tag tag, const ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opT,
     TensorArg input, TensorArg cosCache, TensorArg sinCache, TensorArg transMat,
     const RotaryEmbeddingLlamaResolvedParams &params) {
-  return std::make_tuple(resolveTensorArg(input, tag),
-                         resolveTensorArg(cosCache, tag),
-                         resolveTensorArg(sinCache, tag),
-                         resolveTensorArg(transMat, tag), opT.is_decode_mode,
-                         params.outputMemoryConfig, params.computeConfig);
+  return std::make_tuple(
+      resolveTensorArg(input, tag), resolveTensorArg(cosCache, tag),
+      resolveTensorArg(sinCache, tag), resolveTensorArg(transMat, tag),
+      opT.is_decode_mode, params.outputMemoryConfig, params.computeConfig);
 }
 
-RotaryEmbeddingLlamaOpResult
-callRotaryEmbeddingLlama(CallType callType,
-                         const ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opT,
-                         TensorArg input, TensorArg cosCache, TensorArg sinCache,
-                         TensorArg transMat, ::ttnn::MeshDevice *device) {
+RotaryEmbeddingLlamaOpResult callRotaryEmbeddingLlama(
+    CallType callType, const ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opT,
+    TensorArg input, TensorArg cosCache, TensorArg sinCache, TensorArg transMat,
+    ::ttnn::MeshDevice *device) {
   RotaryEmbeddingLlamaResolvedParams params =
       resolveRotaryEmbeddingLlamaParams(opT);
 

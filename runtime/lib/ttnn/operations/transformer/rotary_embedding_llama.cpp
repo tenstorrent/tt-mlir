@@ -12,8 +12,10 @@
 namespace tt::runtime::ttnn::operations::transformer {
 static void
 runRotaryEmbeddingLlama(const ::tt::target::ttnn::RotaryEmbeddingLlamaOp *op,
-                        ProgramTensorPool &tensorPool, ProgramContext &context) {
-  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->input());
+                        ProgramTensorPool &tensorPool,
+                        ProgramContext &context) {
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->input());
   const ::ttnn::Tensor &cosCache =
       tensorPool.getTTNNTensorAndValidate(op->cos_cache());
   const ::ttnn::Tensor &sinCache =

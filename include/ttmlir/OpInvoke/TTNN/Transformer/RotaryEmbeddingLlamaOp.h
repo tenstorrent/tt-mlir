@@ -32,11 +32,10 @@ struct RotaryEmbeddingLlamaResolvedParams {
 RotaryEmbeddingLlamaResolvedParams resolveRotaryEmbeddingLlamaParams(
     const ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opT);
 
-RotaryEmbeddingLlamaOpResult
-callRotaryEmbeddingLlama(CallType callType,
-                         const ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opT,
-                         TensorArg input, TensorArg cosCache, TensorArg sinCache,
-                         TensorArg transMat, ::ttnn::MeshDevice *device);
+RotaryEmbeddingLlamaOpResult callRotaryEmbeddingLlama(
+    CallType callType, const ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opT,
+    TensorArg input, TensorArg cosCache, TensorArg sinCache, TensorArg transMat,
+    ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke
 

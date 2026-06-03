@@ -47,9 +47,8 @@ static void runScaledDotProductAttentionOp(
               : std::nullopt,
           targetDevice);
 
-  LOG_ASSERT(
-      std::holds_alternative<::ttnn::Tensor>(result),
-      "Expected Tensor from callScaledDotProductAttention execution");
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callScaledDotProductAttention execution");
   ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);

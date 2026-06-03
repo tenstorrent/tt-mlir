@@ -47,8 +47,7 @@ resolveScaledDotProductAttentionDecodeParams(
 
 template <typename Tag>
 auto createScaledDotProductAttentionDecodeTuple(
-    Tag tag,
-    const ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opT,
+    Tag tag, const ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opT,
     TensorArg query, TensorArg key, TensorArg value,
     std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> curPosTensor,

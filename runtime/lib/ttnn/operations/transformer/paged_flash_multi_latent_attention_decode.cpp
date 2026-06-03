@@ -21,7 +21,7 @@ static void runPagedFlashMultiLatentAttentionDecodeOp(
   if (op->value()) {
     value.emplace(tensorPool.getTTNNTensorAndValidate(op->value()));
   }
-  
+
   const ::ttnn::Tensor &pageTable =
       tensorPool.getTTNNTensorAndValidate(op->page_table());
 

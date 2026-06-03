@@ -38,8 +38,7 @@ resolveSplitQueryKeyValueAndSplitHeadsParams(
 
 template <typename Tag>
 auto createSplitQueryKeyValueAndSplitHeadsTuple(
-    Tag tag,
-    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT,
+    Tag tag, const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT,
     TensorArg input, std::optional<TensorArg> kvInput,
     const SplitQueryKeyValueAndSplitHeadsResolvedParams &params) {
   return std::make_tuple(

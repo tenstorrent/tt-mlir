@@ -66,9 +66,8 @@ ScaledDotProductAttentionOpResult callScaledDotProductAttention(
       resolveScaledDotProductAttentionParams(opT);
 
   auto makeTuple = [&](auto tag) {
-    return createScaledDotProductAttentionTuple(tag, opT, query, key, value,
-                                                attentionMask, attentionSink,
-                                                params);
+    return createScaledDotProductAttentionTuple(
+        tag, opT, query, key, value, attentionMask, attentionSink, params);
   };
 
   callOp(::ttnn::transformer::scaled_dot_product_attention);
