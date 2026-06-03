@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
@@ -20,7 +21,6 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/JSON.h"
@@ -33,8 +33,6 @@
 #include <cstdint>
 #include <string>
 #include <sys/types.h>
-
-#define DEBUG_TYPE "ttnn-collect-perf-metrics"
 
 namespace mlir::tt::ttnn {
 
@@ -225,6 +223,21 @@ struct PerfTargets {
         static_cast<double>(t.getNumElements()) * 1056.0 / 1024.0 + 0.5);
   }
 
+  // Stringify a TypeRange (op operands / results) as a comma-separated
+  // list — used by the debug logger to surface input/output shapes.
+  static std::string typeRangeToString(mlir::TypeRange types) {
+    std::string s;
+    llvm::raw_string_ostream os(s);
+    llvm::interleaveComma(types, os);
+    return s;
+  }
+  static std::string valueTypesToString(mlir::ArrayRef<Value> values) {
+    std::string s;
+    llvm::raw_string_ostream os(s);
+    llvm::interleaveComma(values, os, [&](Value v) { os << v.getType(); });
+    return s;
+  }
+
   // Single entry point: walk every interesting op in funcOp, dispatch by
   // op type to extract its DRAM-resident weights and tile-mul work, then
   // run the shared roofline kernel below.
@@ -306,27 +319,34 @@ struct PerfTargets {
       }
 
       // Debug log — every counted op, with every value we computed.
-      // Enable via `-debug-only=ttnn-collect-perf-metrics`.
-      LLVM_DEBUG({
-        llvm::dbgs() << "[perf-metrics] " << op->getName() << " loc=";
-        op->getLoc().print(llvm::dbgs());
-        llvm::dbgs() << "\n  weights        =";
-        for (Value w : weights) {
-          llvm::dbgs() << " " << w.getType();
-        }
-        llvm::dbgs() << "\n  weight_scalars = " << weightScalars
-                     << "\n  weight_bytes   = " << weightBytes << " (BFP8)"
-                     << "\n  tile_muls      = " << tileMuls
-                     << "\n  compute_cycles = " << computeCycles
-                     << "\n  dram_us        = " << dramUs
-                     << "\n  compute_us     = " << computeUs
-                     << "\n  op_us          = " << opUs << " ("
-                     << (dramBound ? "DRAM" : "compute") << "-bound)"
-                     << "\n  running totals: roofline_ms=" << rooflineMs
-                     << " dram_bound_ops=" << dramBoundOps
-                     << " compute_bound_ops=" << computeBoundOps
-                     << " skipped_ops=" << skippedOps << "\n";
-      });
+      // Enable via `TTMLIR_ENABLE_DEBUG_LOGS=ON` build flag and
+      // `-debug-only=perf-targets` at run time. Includes the op name,
+      // all input and output tensor types (so shapes are visible), the
+      // subset of inputs we charged as DRAM weights, the derived
+      // scalar/byte/tile-mul/cycle counts, the dram_us/compute_us/op_us
+      // breakdown with bound classification, and a running roofline +
+      // counter snapshot.
+      TTMLIR_DEBUG(::ttmlir::LogComponent::PerfTargets,
+                   "{0}\n"
+                   "  inputs        = [{1}]\n"
+                   "  outputs       = [{2}]\n"
+                   "  weights       = [{3}]\n"
+                   "  weight_scalars= {4}\n"
+                   "  weight_bytes  = {5} (BFP8)\n"
+                   "  tile_muls     = {6}\n"
+                   "  compute_cycles= {7}\n"
+                   "  dram_us       = {8}\n"
+                   "  compute_us    = {9}\n"
+                   "  op_us         = {10} ({11}-bound)\n"
+                   "  running: roofline_ms={12} dram_bound_ops={13} "
+                   "compute_bound_ops={14} skipped_ops={15}",
+                   op->getName().getStringRef(),
+                   typeRangeToString(op->getOperandTypes()),
+                   typeRangeToString(op->getResultTypes()),
+                   valueTypesToString(weights), weightScalars, weightBytes,
+                   tileMuls, computeCycles, dramUs, computeUs, opUs,
+                   (dramBound ? "DRAM" : "compute"), rooflineMs, dramBoundOps,
+                   computeBoundOps, skippedOps);
     });
   }
 
