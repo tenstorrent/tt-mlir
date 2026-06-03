@@ -14,6 +14,7 @@ add_library(TTNNOpInvokeLib STATIC
   Eltwise/Unary/EltwiseUnaryCompositeOp.cpp
   Eltwise/Unary/EltwiseUnaryOp.cpp
   Matmul/MatmulOp.cpp
+  Transformer/ConcatenateHeadsOp.cpp
 )
 
 set_property(TARGET TTNNOpInvokeLib PROPERTY CXX_STANDARD 20)

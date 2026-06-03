@@ -25,6 +25,16 @@ void run(const ::tt::target::ttnn::NLPConcatHeadsDecodeOp *op,
       subCoreGrids = in.shard_spec().value().grid;
     }
   }
+  //   std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
+  // if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
+  //     isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
+  //   auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+  //   auto ranges = coreRangeSet.ranges();
+  //   if (ranges.size() != 1 ||
+  //       ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
+  //     subCoreGrids = coreRangeSet;
+  //   }
+  // }
 
   ::ttnn::Tensor out = ::ttnn::experimental::nlp_concat_heads_decode(
       in, op->num_heads(), outputMemoryConfig, std::nullopt, subCoreGrids);

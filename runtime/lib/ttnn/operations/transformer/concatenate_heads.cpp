@@ -5,27 +5,36 @@
 #include "operations/transformer/concatenate_heads.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/transformer/concatenateHeadsOp.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
 static void
 runConcatenateHeadsOp(const ::tt::target::ttnn::ConcatenateHeadsOp *op,
-                      ProgramTensorPool &tensorPool) {
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+                      ProgramTensorPool &tensorPool, ProgramContext &context) {
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
-  ::ttnn::Tensor out =
-      ::ttnn::transformer::concatenate_heads(in, outputMemoryConfig);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::tt::target::ttnn::ConcatenateHeadsOpT opT;
+  op->UnPackTo(&opT);
+
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::ConcatenateHeadsOpResult result =
+      ttnn_op_invoke::callConcatenateHeads(ttnn_op_invoke::CallType::EXECUTE,
+                                           opT, &input, targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callConcatenateHeads execution");
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(),
+                                         std::get<::ttnn::Tensor>(result));
 }
 
 void run(const ::tt::target::ttnn::ConcatenateHeadsOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runConcatenateHeadsOp(op, tensorPool);
+  runConcatenateHeadsOp(op, tensorPool, context);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer
