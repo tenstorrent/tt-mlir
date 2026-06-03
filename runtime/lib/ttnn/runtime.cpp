@@ -69,10 +69,13 @@ static bool isNonContiguous(const std::vector<std::uint32_t> &shape,
 // Gathers a strided host buffer into a dense, contiguous byte buffer.
 static std::vector<std::byte>
 gatherContiguousBytes(const void *data, const std::vector<std::uint32_t> &shape,
-            const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
+                      const std::vector<std::uint32_t> &stride,
+                      std::uint32_t itemsize) {
   std::uint64_t numElements = getNumElements(shape);
   std::vector<std::byte> out(numElements * itemsize);
-  if (numElements == 0) return out;
+  if (numElements == 0) {
+    return out;
+  }
 
   const std::byte *src = static_cast<const std::byte *>(data);
   const size_t numDims = shape.size();
@@ -84,11 +87,13 @@ gatherContiguousBytes(const void *data, const std::vector<std::uint32_t> &shape,
       srcOffset += idx[d] * static_cast<std::uint64_t>(stride[d]);
     }
 
-    std::memcpy(out.data() + i * itemsize,
-                src + srcOffset * itemsize, itemsize);
+    std::memcpy(out.data() + i * itemsize, src + srcOffset * itemsize,
+                itemsize);
 
     for (size_t d = numDims; d-- > 0;) {
-      if (++idx[d] < shape[d]) break;
+      if (++idx[d] < shape[d]) {
+        break;
+      }
       idx[d] = 0;
     }
   }
@@ -141,14 +146,11 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   case ::ttnn::DataType::FLOAT32:
     return utils::createTTNNTensor<float>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::BFLOAT16:
-    return utils::createTTNNTensor<bfloat16>(src, ttnnShape,
-                                             ttnnDataType);
+    return utils::createTTNNTensor<bfloat16>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::UINT32:
-    return utils::createTTNNTensor<uint32_t>(src, ttnnShape,
-                                             ttnnDataType);
+    return utils::createTTNNTensor<uint32_t>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::UINT16:
-    return utils::createTTNNTensor<uint16_t>(src, ttnnShape,
-                                             ttnnDataType);
+    return utils::createTTNNTensor<uint16_t>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::UINT8:
     return utils::createTTNNTensor<uint8_t>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::INT32:
