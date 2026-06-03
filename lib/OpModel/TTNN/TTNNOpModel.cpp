@@ -30,6 +30,7 @@
 #include "ttmlir/OpInvoke/TTNN/Transformer/NlpCreateQKVHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/PagedFlashMultiLatentAttentionDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/PagedScaledDotProductAttentionDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingLlamaOp.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -3600,6 +3601,18 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RotaryEmbeddingLlamaOpT
+buildRotaryEmbeddingLlamaOpTFromMLIR(bool isDecodeMode,
+                                     TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opT;
+  opT.is_decode_mode = isDecodeMode;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
@@ -3621,11 +3634,20 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
       ::ttnn::TensorSpec transMatSpec,
       detail::convertToTensorSpec(device, transMatShape, transMatLayout));
 
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opT =
+      buildRotaryEmbeddingLlamaOpTFromMLIR(isDecodeMode, outputLayout);
+
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::rotary_embedding_llama,
-                                device, inputSpec, cosSpec, sinSpec,
-                                transMatSpec, isDecodeMode,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RotaryEmbeddingLlamaOpResult result =
+        ttnn_op_invoke::callRotaryEmbeddingLlama(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+            cosSpec, sinSpec, transMatSpec, device);
+
+    LOG_ASSERT(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+                   result),
+               "Expected RotaryEmbeddingLlamaOp constraints query to return "
+               "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3656,12 +3678,20 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
       ::ttnn::TensorSpec transMatSpec,
       detail::convertToTensorSpec(device, transMatShape, transMatLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opT =
+      buildRotaryEmbeddingLlamaOpTFromMLIR(isDecodeMode, outputLayout);
+
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::rotary_embedding_llama,
-                            device, inputSpec, cosSpec, sinSpec, transMatSpec,
-                            isDecodeMode,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RotaryEmbeddingLlamaOpResult result =
+        ttnn_op_invoke::callRotaryEmbeddingLlama(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec, cosSpec,
+            sinSpec, transMatSpec, device);
+
+    LOG_ASSERT(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result),
+        "Expected RotaryEmbeddingLlamaOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(rotaryEmbeddingLlamaOpQuery);

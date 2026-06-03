@@ -3673,4 +3673,125 @@ INSTANTIATE_TEST_SUITE_P(
     PagedScaledDotProductAttentionDecodeOpTPathParityTest,
     ::testing::ValuesIn(pagedScaledDotProductAttentionDecodeOpList));
 
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingLlamaOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlamaOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RotaryEmbeddingLlamaOpT
+buildRotaryEmbeddingLlamaOpTFromMLIR(
+    bool isDecodeMode,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opTOpModel,
+                       ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opT) {
+    opT.input.reset();
+    opT.cos_cache.reset();
+    opT.sin_cache.reset();
+    opT.trans_mat.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memcfg.reset();
+    opT.compute_config.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::RotaryEmbeddingLlamaOp buildTestRotaryEmbeddingLlamaOp(
+    bool isDecodeMode = false,
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto cosCacheType = tiledL1BF16Type(defaultShape);
+  auto sinCacheType = tiledL1BF16Type(defaultShape);
+  auto transMatType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value cosCache =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{cosCacheType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value sinCache =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{sinCacheType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value transMat =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{transMatType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>(
+      loc, outputType, input, cosCache, sinCache, transMat, isDecodeMode,
+      computeConfig);
+}
+
+} // namespace
+
+using RotaryEmbeddingLlamaOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>;
+
+TEST_P(RotaryEmbeddingLlamaOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RotaryEmbeddingLlamaOp rotaryOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildRotaryEmbeddingLlamaOpTFromMLIR(
+          rotaryOp.getIsDecodeMode(), resolveOutputLayout(rotaryOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, rotaryOp.getInput(),
+                               rotaryOp.getCosCache(), rotaryOp.getSinCache(),
+                               rotaryOp.getTransMat());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, rotaryOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>
+    rotaryEmbeddingLlamaOpList = {
+        buildTestRotaryEmbeddingLlamaOp(),
+        buildTestRotaryEmbeddingLlamaOp(/*isDecodeMode=*/true),
+        buildTestRotaryEmbeddingLlamaOp(
+            /*isDecodeMode=*/false,
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestRotaryEmbeddingLlamaOp(
+            /*isDecodeMode=*/true,
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RotaryEmbeddingLlamaOpTPathParityTest,
+                         RotaryEmbeddingLlamaOpTPathParityTest,
+                         ::testing::ValuesIn(rotaryEmbeddingLlamaOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
