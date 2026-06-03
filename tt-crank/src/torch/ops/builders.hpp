@@ -72,4 +72,15 @@ mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double valu
 // element type, then a `ttir.multiply`. Shared cross-op helper.
 mlir::Value scale_tensor(ModuleBuilder &mb, mlir::Value tensor, double value);
 
+// Emit TTIR for tensor dimension permutation. `permutation[i]` gives the
+// source dimension index for output dimension `i`.
+mlir::Value build_permute(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> permutation);
+
+// Emit TTIR for 2D max pooling (no indices). Input is NCHW; the emitter
+// inserts NCHW→NHWC and NHWC→NCHW permutes around MaxPool2dOp internally.
+// `stride`, `padding`, and `dilation` are [H, W]; `padding` is applied symmetrically.
+mlir::Value build_max_pool2d(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> kernel_size,
+                             llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
+                             llvm::ArrayRef<int64_t> dilation, bool ceil_mode);
+
 } // namespace tt::kurbla::torch_backend

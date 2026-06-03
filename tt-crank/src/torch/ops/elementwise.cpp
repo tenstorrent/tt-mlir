@@ -128,6 +128,28 @@ at::Tensor tt_mean(const at::Tensor &self, at::OptionalIntArrayRef dim, bool kee
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type());
 }
 
+std::tuple<at::Tensor, at::Tensor> tt_max_pool2d_with_indices(const at::Tensor &self_in, at::IntArrayRef kernel_size,
+                                                              at::IntArrayRef stride, at::IntArrayRef padding,
+                                                              at::IntArrayRef dilation, bool ceil_mode) {
+    TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::max_pool2d_with_indices: tensor must be on tt backend");
+
+    auto effective_stride = stride.empty() ? kernel_size : stride;
+
+    auto mb = ModuleBuilder::init({spec_for(self_in)});
+    auto result = build_max_pool2d(mb, mb.args()[0], kernel_size, effective_stride, padding, dilation, ceil_mode);
+
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self_in});
+
+    auto pool_result = wrap_tt_tensor(std::move(outputs[0]), out_shape, self_in.scalar_type());
+    // Indices are never used in inference; return a CPU zero tensor as placeholder.
+    at::Tensor dummy_indices = at::zeros(out_shape, at::TensorOptions().dtype(c10::ScalarType::Long));
+    return std::make_tuple(std::move(pool_result), std::move(dummy_indices));
+}
+
 } // namespace
 
 mlir::Value build_relu(ModuleBuilder &mb, mlir::Value input) {
@@ -262,6 +284,57 @@ mlir::Value build_add(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs, doubl
     return add.getResult();
 }
 
+mlir::Value build_permute(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> permutation) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shape = input_type.getShape();
+    llvm::SmallVector<int64_t> out_shape;
+    for (auto p : permutation) {
+        out_shape.push_back(shape[as<std::size_t>(p)]);
+    }
+    auto result_type = mlir::RankedTensorType::get(out_shape, input_type.getElementType());
+    auto perm_attr = mb.attrs().getDenseI64ArrayAttr(permutation);
+    return mb.create<mlir::tt::ttir::PermuteOp>(result_type, input, perm_attr).getResult();
+}
+
+mlir::Value build_max_pool2d(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> kernel_size,
+                             llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
+                             llvm::ArrayRef<int64_t> dilation, bool ceil_mode) {
+    auto nchw_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shape = nchw_type.getShape(); // [N, C, H, W]
+    auto elem_type = nchw_type.getElementType();
+
+    // NCHW[N,C,H,W] → NHWC[N,H,W,C]: permutation [0,2,3,1]
+    auto nhwc_input = build_permute(mb, input, {0, 2, 3, 1});
+
+    int64_t kH = kernel_size[0], kW = kernel_size[1];
+    int64_t sH = stride[0], sW = stride[1];
+    int64_t pH = padding[0], pW = padding[1];
+    int64_t dH = dilation[0], dW = dilation[1];
+
+    auto compute_out = [ceil_mode](int64_t in_size, int64_t k, int64_t s, int64_t p, int64_t d) -> int64_t {
+        int64_t eff = in_size + 2 * p - d * (k - 1) - 1;
+        return ceil_mode ? (eff + s - 1) / s + 1 : eff / s + 1;
+    };
+
+    int64_t H_out = compute_out(shape[2], kH, sH, pH, dH);
+    int64_t W_out = compute_out(shape[3], kW, sW, pW, dW);
+
+    auto nhwc_out_type = mlir::RankedTensorType::get({shape[0], H_out, W_out, shape[1]}, elem_type);
+    auto kernel_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(kH), as<int32_t>(kW)});
+    auto stride_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(sH), as<int32_t>(sW)});
+    auto dilation_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(dH), as<int32_t>(dW)});
+    auto padding_attr =
+        mb.attrs().getDenseI32ArrayAttr({as<int32_t>(pH), as<int32_t>(pW), as<int32_t>(pH), as<int32_t>(pW)});
+    auto ceil_mode_attr = mb.attrs().getBoolAttr(ceil_mode);
+
+    auto nhwc_result = mb.create<mlir::tt::ttir::MaxPool2dOp>(nhwc_out_type, nhwc_input, kernel_attr, stride_attr,
+                                                              dilation_attr, padding_attr, ceil_mode_attr)
+                           .getResult();
+
+    // NHWC[N,H_out,W_out,C] → NCHW[N,C,H_out,W_out]: permutation [0,3,1,2]
+    return build_permute(mb, nhwc_result, {0, 3, 1, 2});
+}
+
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("add.Tensor", TORCH_FN(tt_add));
     m.impl("sub.Tensor", TORCH_FN(tt_sub));
@@ -270,6 +343,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("rsqrt", TORCH_FN(tt_rsqrt));
     m.impl("mean.dim", TORCH_FN(tt_mean));
     m.impl("batch_norm", TORCH_FN(tt_batch_norm_inference));
+    m.impl("max_pool2d_with_indices", TORCH_FN(tt_max_pool2d_with_indices));
 }
 
 } // namespace tt::kurbla::torch_backend

@@ -70,6 +70,22 @@ def test_mean_multi_dim(keepdim: bool) -> None:
     assert_close_cpu_vs_tt(lambda x: torch.mean(x, dim=[1, 2], keepdim=keepdim), a, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize(
+    "n,c,h,w,k,stride,padding",
+    [
+        (1, 32, 64, 64, 3, 2, 1),
+        (1, 64, 32, 32, 2, 2, 0),
+    ],
+    ids=["stride2_pad1", "stride2_nopad"],
+)
+def test_max_pool2d(n: int, c: int, h: int, w: int, k: int, stride: int, padding: int) -> None:
+    x = torch.randn((n, c, h, w), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(
+        lambda t: torch.nn.functional.max_pool2d(t, kernel_size=k, stride=stride, padding=padding),
+        x,
+    )
+
+
 @pytest.mark.parametrize("n,c,h,w", [(32, 32, 32, 32)])
 def test_batch_norm_inference(n: int, c: int, h: int, w: int) -> None:
     # nn.BatchNorm2d in eval mode dispatches to _native_batch_norm_legit_no_training.
