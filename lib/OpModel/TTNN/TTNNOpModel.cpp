@@ -32,6 +32,7 @@
 #include "ttmlir/OpInvoke/TTNN/Transformer/PagedScaledDotProductAttentionDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingLlamaOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -3015,6 +3016,28 @@ OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+buildScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opT;
+  opT.is_causal = isCausal;
+  if (scale.has_value()) {
+    opT.scale = scale->convertToFloat();
+  }
+  if (programConfig.has_value() && *programConfig) {
+    opT.program_config =
+        std::make_unique<::tt::target::ttnn::SDPAConfigT>(
+            toNative(*programConfig));
+  }
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -3053,26 +3076,23 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
-
-  // The current position information is required for this op. It can either be
-  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
-  // std::optional so we must pass an empty vector.
-  const std::vector<uint32_t> curPosEmpty = {};
-
-  auto sdpaProgramConfigConverted =
-      conversion::getSDPAProgramConfig(programConfig);
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opT =
+      buildScaledDotProductAttentionDecodeOpTFromMLIR(isCausal, scale,
+                                                      programConfig,
+                                                      outputLayout);
 
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::scaled_dot_product_attention_decode, device,
-        querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec, scaleFloat, slidingWindowSize,
-        detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfigConverted,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::ScaledDotProductAttentionDecodeOpResult result =
+        ttnn_op_invoke::callScaledDotProductAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, querySpec,
+            keySpec, valueSpec, attentionMaskSpec, curPosTensorSpec,
+            attentionSinkSpec, device);
+
+    LOG_ASSERT(
+        std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(result),
+        "Expected ScaledDotProductAttentionDecodeOp constraints query to "
+        "return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(queryLayout.getContext(),
@@ -3117,22 +3137,23 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opT =
+      buildScaledDotProductAttentionDecodeOpTFromMLIR(isCausal, scale,
+                                                      std::nullopt,
+                                                      outputLayout);
 
-  // The current position information is required for this op. It can either be
-  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
-  // std::optional so we must pass an empty vector.
-  const std::vector<uint32_t> curPosEmpty = {};
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::scaled_dot_product_attention_decode, device,
-        querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::ScaledDotProductAttentionDecodeOpResult result =
+        ttnn_op_invoke::callScaledDotProductAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, querySpec,
+            keySpec, valueSpec, attentionMaskSpec, curPosTensorSpec,
+            attentionSinkSpec, device);
+
+    LOG_ASSERT(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result),
+        "Expected ScaledDotProductAttentionDecodeOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(scaledDotProductAttentionDecodeOpQuery);

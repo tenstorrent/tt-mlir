@@ -5,34 +5,30 @@
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/transformer/scaledDotProductAttentionDecodeOp.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
 static void runScaledDotProductAttentionDecodeOp(
     const ::tt::target::ttnn::ScaledDotProductAttentionDecodeOp *op,
-    ProgramTensorPool &tensorPool) {
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
-
+    ProgramTensorPool &tensorPool, ProgramContext &context) {
   const ::ttnn::Tensor &query =
       tensorPool.getTTNNTensorAndValidate(op->query());
   const ::ttnn::Tensor &key = tensorPool.getTTNNTensorAndValidate(op->key());
   const ::ttnn::Tensor &value =
       tensorPool.getTTNNTensorAndValidate(op->value());
-  bool isCausal = op->is_causal();
-
-  std::optional<::ttnn::Tensor> curPosTensor = std::nullopt;
-  if (op->cur_pos_tensor()) {
-    curPosTensor.emplace(
-        tensorPool.getTTNNTensorAndValidate(op->cur_pos_tensor()));
-  }
 
   std::optional<::ttnn::Tensor> attentionMask = std::nullopt;
   if (op->attention_mask()) {
     attentionMask.emplace(
         tensorPool.getTTNNTensorAndValidate(op->attention_mask()));
+  }
+
+  std::optional<::ttnn::Tensor> curPosTensor = std::nullopt;
+  if (op->cur_pos_tensor()) {
+    curPosTensor.emplace(
+        tensorPool.getTTNNTensorAndValidate(op->cur_pos_tensor()));
   }
 
   std::optional<::ttnn::Tensor> attentionSink = std::nullopt;
@@ -41,31 +37,38 @@ static void runScaledDotProductAttentionDecodeOp(
         tensorPool.getTTNNTensorAndValidate(op->attention_sink()));
   }
 
-  std::optional<float> scale = op->scale();
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opT;
+  op->UnPackTo(&opT);
 
-  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      programConfig;
-  if (op->program_config()) {
-    programConfig = utils::createSDPAProgramConfig(op->program_config());
-  }
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  // The current position information is required for this op. It can either be
-  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
-  // std::optional so we must pass an empty vector.
-  const std::vector<uint32_t> curPosEmpty = {};
-  ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention_decode(
-      query, key, value, isCausal, attentionMask, curPosEmpty, curPosTensor,
-      attentionSink, scale, slidingWindowSize, outputMemoryConfig,
-      programConfig,
-      /*compute_kernel_config=*/std::nullopt);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::ScaledDotProductAttentionDecodeOpResult result =
+      ttnn_op_invoke::callScaledDotProductAttentionDecode(
+          ttnn_op_invoke::CallType::EXECUTE, opT, &query, &key, &value,
+          attentionMask.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionMask)
+              : std::nullopt,
+          curPosTensor.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*curPosTensor)
+              : std::nullopt,
+          attentionSink.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionSink)
+              : std::nullopt,
+          targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callScaledDotProductAttentionDecode "
+             "execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::ScaledDotProductAttentionDecodeOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runScaledDotProductAttentionDecodeOp(op, tensorPool);
+  runScaledDotProductAttentionDecodeOp(op, tensorPool, context);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer
