@@ -16,9 +16,6 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/Support/Debug.h"
-
-#define DEBUG_TYPE "d2m-materialize-view-returns"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MMATERIALIZEVIEWRETURNS
@@ -145,11 +142,6 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                             std::multiplies<>());
         if (inheritedVolume == targetVolume) {
           physGrid = *inherited;
-        } else {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "materializeView: upstream physGrid vol "
-                     << inheritedVolume << " != virt grid vol " << targetVolume
-                     << "; falling back to volume-exact factorization\n");
         }
       }
       if (physGrid.empty()) {
