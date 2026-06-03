@@ -877,6 +877,95 @@ public:
   }
 };
 
+// Shared helper: builds a ttir.gather from an (input, index) pair, casting the
+// index to UInt32 when needed and applying a workaround when input tensors
+// are Rank 1.
+static LogicalResult convertToTTIRGather(mlir::Operation *srcOp,
+                                         mlir::Value input, mlir::Value index,
+                                         RankedTensorType outputType,
+                                         int32_t dim,
+                                         ConversionPatternRewriter &rewriter) {
+  // Cast the index tensor to UInt32 type if it isn't already UInt32 or UInt16.
+  auto indexType = mlir::cast<RankedTensorType>(index.getType());
+  if (!indexType.getElementType().isInteger()) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "Index tensor must be of an integer type");
+  }
+  if (!indexType.getElementType().isUnsignedInteger(32) &&
+      !indexType.getElementType().isUnsignedInteger(16)) {
+    auto ui32Type = RankedTensorType::get(indexType.getShape(),
+                                          rewriter.getIntegerType(32, false));
+    index = rewriter.create<ttir::TypecastOp>(srcOp->getLoc(), ui32Type, index);
+    indexType = mlir::cast<RankedTensorType>(index.getType());
+  }
+
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  int64_t inputRank = inputType.getRank();
+  int64_t indexRank = indexType.getRank();
+  if (inputRank != indexRank) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "Index and Input tensors must have same rank");
+  }
+  if (inputRank == 0) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "0-rank tensors (scalars) are not supported.");
+  }
+
+  // Workaround to support Rank-1 input/index tensors: tt-metal's gather
+  // requires rank >= 2, so unsqueeze a leading unit dimension on the input
+  // and index, gather, then reshape the result back to the original rank.
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/45155
+  if (inputRank < 2) {
+    auto prependUnitDim = [](RankedTensorType type) {
+      SmallVector<int64_t> shape = {1};
+      shape.append(type.getShape().begin(), type.getShape().end());
+      return shape;
+    };
+
+    SmallVector<int64_t> inputShape2D = prependUnitDim(inputType);
+    SmallVector<int64_t> indexShape2D = prependUnitDim(indexType);
+    SmallVector<int64_t> outShape2D = prependUnitDim(outputType);
+
+    auto reshape = [&](Value value, ArrayRef<int64_t> shape, Type elementType) {
+      auto reshapedType = RankedTensorType::get(shape, elementType);
+      return rewriter.create<ttir::ReshapeOp>(
+          srcOp->getLoc(), reshapedType, value,
+          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(shape)));
+    };
+
+    Value inputReshaped =
+        reshape(input, inputShape2D, inputType.getElementType());
+    Value indexReshaped =
+        reshape(index, indexShape2D, indexType.getElementType());
+
+    // Map `dim` from the original rank into the unsqueezed (rank-2) layout.
+    // Original dim d referenced in a rank-R tensor becomes d + (2 - R) under
+    // the leading-1 prepend. Negative dims already index from the back and
+    // remain valid.
+    int32_t adjustedDim = dim;
+    if (dim >= 0) {
+      adjustedDim = dim + static_cast<int32_t>(2 - inputRank);
+    }
+
+    // The gather result mirrors the (reshaped) index shape.
+    auto gatherReshapedType =
+        RankedTensorType::get(outShape2D, outputType.getElementType());
+    Value gather = rewriter.create<ttir::GatherOp>(
+        srcOp->getLoc(), gatherReshapedType, inputReshaped, indexReshaped,
+        rewriter.getI32IntegerAttr(adjustedDim));
+
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        srcOp, outputType, gather,
+        rewriter.getI32ArrayAttr(
+            llvm::to_vector_of<int32_t>(outputType.getShape())));
+    return success();
+  }
+
+  rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
+                                              rewriter.getI32IntegerAttr(dim));
+  return success();
+}
+
 class TenstorrentGatherConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 public:
@@ -907,36 +996,17 @@ public:
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
-
-    IntegerAttr dimAttr = rewriter.getI32IntegerAttr(0);
-
-    if (compositeAttrs) {
-      if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
-        dimAttr =
-            rewriter.getI32IntegerAttr(static_cast<int32_t>(attr.getInt()));
-      }
-    }
-
-    auto input = adaptor.getOperands()[0];
-    auto index = adaptor.getOperands()[1];
-
-    // Cast the index tensor to UInt32 type if it isn't already UInt32 or UInt16
-    auto indexType = mlir::cast<RankedTensorType>(index.getType());
-    if (!indexType.getElementType().isInteger()) {
+    auto dimIntAttr =
+        compositeAttrs ? compositeAttrs.getAs<IntegerAttr>("dim") : nullptr;
+    if (!dimIntAttr) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Index tensor must be of an integer type");
+          srcOp, llvm::Twine(name) + " requires integer 'dim' attribute");
     }
-    if (!indexType.getElementType().isUnsignedInteger(32) &&
-        !indexType.getElementType().isUnsignedInteger(16)) {
-      auto ui32Type = RankedTensorType::get(indexType.getShape(),
-                                            rewriter.getIntegerType(32, false));
-      index =
-          rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
-    }
+    int32_t dim = static_cast<int32_t>(dimIntAttr.getInt());
 
-    rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
-                                                dimAttr);
-    return success();
+    return convertToTTIRGather(srcOp, adaptor.getOperands()[0],
+                               adaptor.getOperands()[1], outputType, dim,
+                               rewriter);
   }
 };
 
@@ -983,30 +1053,11 @@ public:
       return rewriter.notifyMatchFailure(
           srcOp, llvm::Twine(targetName) + " requires integer 'dim' attribute");
     }
-    auto dimAttr =
-        rewriter.getI32IntegerAttr(static_cast<int32_t>(dimIntAttr.getInt()));
+    int32_t dim = static_cast<int32_t>(dimIntAttr.getInt());
 
-    auto input = adaptor.getOperands()[0];
-    auto index = adaptor.getOperands()[1];
-
-    // Cast the index tensor to UInt32 type if it isn't already UInt32 or
-    // UInt16.
-    auto indexType = mlir::cast<RankedTensorType>(index.getType());
-    if (!indexType.getElementType().isInteger()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Index tensor must be of an integer type");
-    }
-    if (!indexType.getElementType().isUnsignedInteger(32) &&
-        !indexType.getElementType().isUnsignedInteger(16)) {
-      auto ui32Type = RankedTensorType::get(indexType.getShape(),
-                                            rewriter.getIntegerType(32, false));
-      index =
-          rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
-                                                dimAttr);
-    return success();
+    return convertToTTIRGather(srcOp, adaptor.getOperands()[0],
+                               adaptor.getOperands()[1], outputType, dim,
+                               rewriter);
   }
 };
 
