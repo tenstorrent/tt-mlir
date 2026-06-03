@@ -91,16 +91,12 @@ TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
   // tiling succeeds only if the split dimension stays a multiple of 32.
   // e.g. 128/2=64 ✓, 128/4=32 ✓, 128/8=16 ✗, 64/2=32 ✓, 64/4=16 ✗
   const llvm::SmallVector<int64_t> inputShape = {64, 128};
-  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const TTNNLayoutAttr layoutDRAMRowMajor = CreateRowMajorLayout(
       inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr layoutDRAMTiled = CreateTiledLayout(
       inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr layoutL1Tiled = CreateTiledLayout(
       inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
-
-  auto legalExp = Device::getDeviceConstraints(workerGrid);
-  EXPECT_TRUE(static_cast<bool>(legalExp));
 
   const int32_t dim = p.dim;
   const std::optional<uint32_t> clusterAxis = p.clusterAxis;
@@ -112,14 +108,12 @@ TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
 
   // Row-major layouts should always succeed.
   auto constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, layoutDRAMRowMajor, dim, clusterAxis,
-      layoutDRAMRowMajor);
+      inputShape, layoutDRAMRowMajor, dim, clusterAxis, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
 
   // Tiled DRAM layout — succeeds only if post-split shape is tile-aligned.
   constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, layoutDRAMTiled, dim, clusterAxis,
-      layoutDRAMTiled);
+      inputShape, layoutDRAMTiled, dim, clusterAxis, layoutDRAMTiled);
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectTilingSuccess);
   if (!constraintsExp) {
     llvm::consumeError(constraintsExp.takeError());
@@ -127,8 +121,7 @@ TEST_P(MeshPartitionLibMockDeviceTest, MeshPartitionOp) {
 
   // Tiled L1 layout — same condition.
   constraintsExp = OpModel<MeshPartitionOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, layoutL1Tiled, dim, clusterAxis,
-      layoutL1Tiled);
+      inputShape, layoutL1Tiled, dim, clusterAxis, layoutL1Tiled);
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectTilingSuccess);
   if (!constraintsExp) {
     llvm::consumeError(constraintsExp.takeError());

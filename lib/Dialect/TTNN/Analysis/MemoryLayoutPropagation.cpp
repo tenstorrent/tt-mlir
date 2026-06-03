@@ -648,8 +648,8 @@ bool MemoryLayoutPropagation::validateReshard(
   }
 
   auto result = op_constraint_validation::validateOperation<ToMemoryConfigOp>(
-      consumerOp, /*additionalL1Usage=*/0, deviceAttr.getWorkerGrid(),
-      inputShape, producerOutputLayout, reshardLayout);
+      consumerOp, /*additionalL1Usage=*/0, inputShape, producerOutputLayout,
+      reshardLayout);
 
   bool valid = result.isSuccess();
 
