@@ -11,6 +11,15 @@ RUN dnf install --refresh -y wget python3.12 python3.12-pip python3.12-devel
 
 RUN echo "TT_METAL_VERSION: ${TT_METAL_VERSION}"
 
+# tt-metal's install_dependencies.sh adds the Intel oneAPI repo to install TBB. That repo also
+# offers intel-oneapi-mpi-2021.1.1 as a provider of libfabric.so.1, which dnf then picks to
+# satisfy AlmaLinux openmpi's dependency instead of AlmaLinux's own libfabric. That ancient MPI
+# package is signed with Intel's retired GPG key (0x7E6C5DBE), absent from Intel's current key
+# bundle, so its signature can't be verified -> "GPG check FAILED". We don't need Intel MPI
+# (multihost uses AlmaLinux OpenMPI); exclude it so libfabric.so.1 is satisfied by AlmaLinux's
+# libfabric. Signature verification stays enabled for everything else.
+RUN echo "exclude=intel-oneapi-mpi*" >> /etc/dnf/dnf.conf
+
 # Setup / install metal dependencies
 RUN wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_VERSION}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version} && \
     chmod u+x sfpi-info.sh && \
