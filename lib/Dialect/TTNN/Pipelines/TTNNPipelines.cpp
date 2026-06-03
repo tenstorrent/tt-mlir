@@ -382,6 +382,15 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
     }
 
+    // Activation dtype lowering runs after weight dtype conversion and KV
+    // cache dtype conversion. This is important because activation dtype can
+    // be influenced by weight and KV cache dtype.
+    if (options.enableActivationDtypeLowering) {
+      TTNNActivationDtypeLoweringOptions actOpts;
+      actOpts.enable = true;
+      devicePm.addPass(createTTNNActivationDtypeLowering(actOpts));
+    }
+
     // Apply ComputeKernelConfig settings before analysis passes.
     // Create options struct and forward pipeline options.
     TTNNSetComputeKernelConfigOptions setConfigOptions;
