@@ -104,6 +104,12 @@ public:
         return tk::build_bn_inference(*mb_, operand, scale, offset, mean, variance, eps);
     }
 
+    mlir::Value max_pool2d(mlir::Value input, std::vector<std::int64_t> kernel_size, std::vector<std::int64_t> stride,
+                           std::vector<std::int64_t> padding, std::vector<std::int64_t> dilation, bool ceil_mode) {
+        assert_builder();
+        return tk::build_max_pool2d(*mb_, input, kernel_size, stride, padding, dilation, ceil_mode);
+    }
+
     // Lift a Python scalar to a broadcastable `ttir.constant` at `dtype`.
     mlir::Value scalar(::tt::target::DataType dtype, double value) {
         assert_builder();
@@ -248,6 +254,8 @@ NB_MODULE(_native, m) {
         .def("mean", &PyModuleBuilder::mean, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("batch_norm_inference", &PyModuleBuilder::batch_norm_inference, "operand"_a, "scale"_a, "offset"_a,
              "mean"_a, "variance"_a, "eps"_a)
+        .def("max_pool2d", &PyModuleBuilder::max_pool2d, "input"_a, "kernel_size"_a, "stride"_a, "padding"_a,
+             "dilation"_a, "ceil_mode"_a = false)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         // Consumes the builder. Subsequent calls on `self` raise.

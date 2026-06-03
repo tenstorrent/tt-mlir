@@ -334,6 +334,25 @@ def test_compile_mnist(batch: int, feat: int, hidden: int, classes: int) -> None
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.1)
 
 
+@pytest.mark.parametrize(
+    "n,c,h,w,k,stride,padding",
+    [
+        (1, 32, 64, 64, 3, 2, 1),
+        (1, 64, 32, 32, 2, 2, 0),
+    ],
+    ids=["stride2_pad1", "stride2_nopad"],
+)
+def test_compile_max_pool2d(n: int, c: int, h: int, w: int, k: int, stride: int, padding: int) -> None:
+    """aten::max_pool2d_with_indices in a compiled graph — exercises the NCHW→NHWC
+    permute, MaxPool2dOp, and NHWC→NCHW permute path through the TTIR emitter."""
+    class _MaxPool(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.max_pool2d(x, kernel_size=k, stride=stride, padding=padding)
+
+    x = torch.randn((n, c, h, w), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_MaxPool(), x)
+
+
 def test_compile_batch_norm(device_type: DeviceType) -> None:
     """nn.BatchNorm2d in eval mode compiled end-to-end — exercises
     aten._native_batch_norm_legit_no_training + operator.getitem in one FX graph."""

@@ -133,6 +133,18 @@ def _(mb, input):
 def _(mb, input):
     return mb.relu(input)
 
+@_lowering(_aten.max_pool2d_with_indices.default)
+def _(mb, x, kernel_size, stride, padding=0, dilation=1, ceil_mode=False):
+    if isinstance(padding, int):
+        padding = [padding, padding]
+    if isinstance(dilation, int):
+        dilation = [dilation, dilation]
+    if not stride:
+        stride = list(kernel_size)
+    result = mb.max_pool2d(x, list(kernel_size), list(stride), list(padding), list(dilation), bool(ceil_mode))
+    return (result, None)
+
+
 @_lowering(_aten._native_batch_norm_legit_no_training.default)
 def _(mb, input, weight, bias, running_mean, running_var, momentum, eps):
     if weight is None or bias is None:
