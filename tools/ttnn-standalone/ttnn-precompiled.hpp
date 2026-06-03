@@ -115,10 +115,22 @@ public:
       return externalDevice;
     }
 
-    static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
+    // Wrap the device in a holder that calls close() in its destructor.
+    // This ensures the device is properly shut down before the shared_ptr
+    // destructor runs, avoiding a crash due to GraphTracker being destroyed
+    // before the MeshDevice during program exit.
+    struct DeviceHolder {
+      std::shared_ptr<ttnn::MeshDevice> device;
+      ~DeviceHolder() {
+        if (device) {
+          device->close();
+        }
+      }
+    };
+    static DeviceHolder holder{
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize)};
     hasOwnedDevice = true;
-    return ownedInstance.get();
+    return holder.device.get();
   }
 
   // Set an external device (we don't own it)
