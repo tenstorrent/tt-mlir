@@ -68,3 +68,12 @@ def test_mean_single_dim(keepdim: bool) -> None:
 def test_mean_multi_dim(keepdim: bool) -> None:
     a = torch.randn((32, 64, 32), dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(lambda x: torch.mean(x, dim=[1, 2], keepdim=keepdim), a, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("n,c,h,w", [(32, 32, 32, 32)])
+def test_batch_norm_inference(n: int, c: int, h: int, w: int) -> None:
+    # nn.BatchNorm2d in eval mode dispatches to _native_batch_norm_legit_no_training.
+    # Tile-aligned NCHW only — same constraint as the rest of the elementwise suite.
+    model = torch.nn.BatchNorm2d(c).eval().to(torch.bfloat16)
+    x = torch.randn((n, c, h, w), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(model, x, atol=0.05, rtol=0.05)

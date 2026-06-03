@@ -334,6 +334,15 @@ def test_compile_mnist(batch: int, feat: int, hidden: int, classes: int) -> None
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.1)
 
 
+def test_compile_batch_norm(device_type: DeviceType) -> None:
+    """nn.BatchNorm2d in eval mode compiled end-to-end — exercises
+    aten._native_batch_norm_legit_no_training + operator.getitem in one FX graph."""
+    _skip_if_sim(device_type)
+    model = nn.BatchNorm2d(32).eval().to(torch.bfloat16)
+    x = torch.randn((32, 32, 32, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
+
+
 def test_compile_add_dtype_promotion(device_type: DeviceType) -> None:
     """bf16 + f32 must promote to f32 - same `at::promote_types` semantics
     the eager kernel applies. Validates that the compile path's MLIR-level

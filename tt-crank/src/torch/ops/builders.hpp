@@ -56,6 +56,14 @@ mlir::Value build_reshape(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<s
 // `keepdim` controls whether reduced dimensions are retained as size-1.
 mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim);
 
+// Emit TTIR for batch normalization inference:
+//   result = (operand - mean) / sqrt(variance + eps) * scale + offset
+// All five value inputs must share the same element type — callers must promote
+// first (eager via `promote_inputs`, compile via explicit `typecast` calls).
+// `eps` is embedded as an F32 attribute. `dimension` is hardcoded to 1 (NCHW).
+mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Value scale, mlir::Value offset,
+                               mlir::Value mean, mlir::Value variance, float eps);
+
 // Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
 // broadcasts against any tensor in downstream elementwise ops.
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);
