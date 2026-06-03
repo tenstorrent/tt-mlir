@@ -2,44 +2,35 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
-
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "operations/transformer/nlp_concat_heads_decode.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "ttmlir/OpInvoke/TTNN/transformer/nlpConcatHeadsDecodeOp.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
 
 void run(const ::tt::target::ttnn::NLPConcatHeadsDecodeOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
-
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  // Pass in sub_core_grids when metal would infer it is required
-  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
-  if (in.is_sharded() && in.shard_spec().has_value()) {
-    const auto &inputCoreRanges = in.shard_spec().value().grid.ranges();
-    if (inputCoreRanges.size() > 1 ||
-        !(inputCoreRanges[0].start_coord == ::tt::tt_metal::CoreCoord{0, 0})) {
-      subCoreGrids = in.shard_spec().value().grid;
-    }
-  }
-  //   std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
-  // if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
-  //     isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-  //   auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
-  //   auto ranges = coreRangeSet.ranges();
-  //   if (ranges.size() != 1 ||
-  //       ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
-  //     subCoreGrids = coreRangeSet;
-  //   }
-  // }
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opT;
+  op->UnPackTo(&opT);
 
-  ::ttnn::Tensor out = ::ttnn::experimental::nlp_concat_heads_decode(
-      in, op->num_heads(), outputMemoryConfig, std::nullopt, subCoreGrids);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::NLPConcatHeadsDecodeOpResult result =
+      ttnn_op_invoke::callNLPConcatHeadsDecode(
+          ttnn_op_invoke::CallType::EXECUTE, opT, &in, targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callNLPConcatHeadsDecode execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer

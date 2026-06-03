@@ -4370,50 +4370,93 @@ INSTANTIATE_TEST_SUITE_P(
     SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
     ::testing::ValuesIn(splitQueryKeyValueAndSplitHeadsOpList));
 
-// TEST_F(SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
-//        NonDefaultMemoryConfig) {
-//   mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp sqkvOp =
-//       buildTestSplitQueryKeyValueAndSplitHeadsOp(
-//           /*withKvInputTensor=*/true, /*numHeads=*/8u,
-//           /*numKvHeads=*/
-//           mlir::IntegerAttr::get(
-//               mlir::IntegerType::get(getContext(), 32,
-//                                      mlir::IntegerType::Unsigned),
-//               2u),
-//           /*transposeKey=*/true);
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
 
-//   // Path A: OpModel-style construction.
-//   ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opTOpModel =
-//       mlir::tt::ttnn::op_model::buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
-//           sqkvOp.getNumHeads(), sqkvOp.getNumKvHeads(),
-//           sqkvOp.getTransposeKey(),
-//           mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-//               mlir::cast<mlir::RankedTensorType>(sqkvOp.getQuery().getType())
-//                   .getEncoding()));
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, NLPConcatHeadsDecodeOp op);
+} // namespace mlir::tt::ttnn
 
-//   // Path B: FB serialization round-trip (what runtime sees).
-//   ::flatbuffers::FlatBufferBuilder fbb;
-//   mlir::tt::FlatbufferObjectCache cache(&fbb);
-//   prepopulateOperandTensorRefs(cache, sqkvOp.getInputTensor());
-//   if (sqkvOp.getKvInputTensor()) {
-//     prepopulateOperandTensorRefs(cache, sqkvOp.getKvInputTensor());
-//   }
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::NLPConcatHeadsDecodeOpT
+buildNLPConcatHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                     TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
 
-//   auto fbOffset = mlir::tt::ttnn::createOp(cache, sqkvOp);
-//   fbb.Finish(fbOffset);
-//   auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
-//   ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opTFB;
-//   r->UnPackTo(&opTFB);
+namespace {
 
-//   resetUnusedFields(opTOpModel, opTFB);
+void resetUnusedFields(
+    ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opTOpModel,
+    ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opT) {
+    opT.in.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memcfg.reset();
+  };
 
-//   EXPECT_NE(opTOpModel, opTFB);
-//   EXPECT_NE(opTOpModel.memcfg, opTFB.memcfg);
-//   EXPECT_NE(opTOpModel.memcfg, nullptr);
-//   EXPECT_EQ(opTFB.memcfg, nullptr);
-//   opTOpModel.memcfg.reset();
-//   opTFB.memcfg.reset();
-//   EXPECT_EQ(opTOpModel, opTFB);
-// }
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::NLPConcatHeadsDecodeOp
+buildTestNLPConcatHeadsDecodeOp(uint32_t numHeads = 4u) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::NLPConcatHeadsDecodeOp>(
+      loc, outputType, input, numHeads);
+}
+
+} // namespace
+
+using NLPConcatHeadsDecodeOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::NLPConcatHeadsDecodeOp>;
+
+TEST_P(NLPConcatHeadsDecodeOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::NLPConcatHeadsDecodeOp nlpOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildNLPConcatHeadsDecodeOpTFromMLIR(
+          nlpOp.getNumHeads(), resolveOutputLayout(nlpOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, nlpOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, nlpOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::NLPConcatHeadsDecodeOp>
+    nlpConcatHeadsDecodeOpList = {
+        buildTestNLPConcatHeadsDecodeOp(),
+        buildTestNLPConcatHeadsDecodeOp(/*numHeads=*/8u),
+};
+
+INSTANTIATE_TEST_SUITE_P(NLPConcatHeadsDecodeOpTPathParityTest,
+                         NLPConcatHeadsDecodeOpTPathParityTest,
+                         ::testing::ValuesIn(nlpConcatHeadsDecodeOpList));
 
 #endif // TTMLIR_ENABLE_OPMODEL

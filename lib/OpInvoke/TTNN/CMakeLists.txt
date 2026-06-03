@@ -15,6 +15,7 @@ add_library(TTNNOpInvokeLib STATIC
   Eltwise/Unary/EltwiseUnaryOp.cpp
   Matmul/MatmulOp.cpp
   Transformer/ConcatenateHeadsOp.cpp
+  Transformer/NlpConcatHeadsDecodeOp.cpp
   Transformer/NlpConcatHeadsOp.cpp
   Transformer/NlpCreateQKVHeadsDecodeOp.cpp
   Transformer/PagedFlashMultiLatentAttentionDecodeOp.cpp

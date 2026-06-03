@@ -26,6 +26,7 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NlpConcatHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NlpConcatHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NlpCreateQKVHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/PagedFlashMultiLatentAttentionDecodeOp.h"
@@ -3989,14 +3990,6 @@ buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
   }
   opT.transpose_key = transposeKey;
   opT.q_out = detail::getOutputTensorRefT(outputLayout);
-  // auto memory_config = detail::getNullableMemoryConfigT(outputLayout);
-  // if (memory_config.has_value()) {
-  //   opT.memcfg = std::make_unique<::tt::target::ttnn::MemoryConfigT>(
-  //       memory_config.value());
-  //   if (opT.memcfg) {
-  //     LOG_WARNING("Memory config should be set to nullptr to match runtime");
-  //   }
-  // }
   return opT;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -4175,6 +4168,18 @@ OpModel<NLPConcatHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsDecodeOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::NLPConcatHeadsDecodeOpT
+buildNLPConcatHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                     TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opT;
+  opT.num_heads = numHeads;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     uint32_t numHeads, TTNNLayoutAttr outputLayout) {
@@ -4186,28 +4191,20 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // tt-metal's nlp_concat_heads_decode infers on_subcoregrids from the input
-  // shard grid: if the CoreRangeSet has multiple ranges or doesn't start at
-  // (0,0), it sets on_subcoregrids=true and requires sub_core_grids.
-  // Compute sub_core_grids from the input layout so the subcoregrids path
-  // doesn't crash on a nullopt dereference in compute_output_specs.
-  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
-  if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
-      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
-    auto ranges = coreRangeSet.ranges();
-    if (ranges.size() != 1 ||
-        ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
-      subCoreGrids = coreRangeSet;
-    }
-  }
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opT =
+      buildNLPConcatHeadsDecodeOpTFromMLIR(numHeads, outputLayout);
 
-  // Create query closure
   auto nlpConcatHeadsDecodeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
-        numHeads, detail::getNullableMemoryConfig(outputLayout),
-        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
+    ttnn_op_invoke::NLPConcatHeadsDecodeOpResult result =
+        ttnn_op_invoke::callNLPConcatHeadsDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+            device);
+
+    LOG_ASSERT(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+                   result),
+               "Expected NLPConcatHeadsDecodeOp constraints query to return "
+               "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -4228,25 +4225,20 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Pass sub_core_grids when the input shard grid would trigger subcoregrids
-  // (see getOpConstraints above for rationale).
-  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
-  if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
-      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
-    auto ranges = coreRangeSet.ranges();
-    if (ranges.size() != 1 ||
-        ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
-      subCoreGrids = coreRangeSet;
-    }
-  }
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opT =
+      buildNLPConcatHeadsDecodeOpTFromMLIR(numHeads, outputLayout);
 
-  // Create query closure
   auto nlpConcatHeadsDecodeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
-        numHeads, detail::getNullableMemoryConfig(outputLayout),
-        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
+    ttnn_op_invoke::NLPConcatHeadsDecodeOpResult result =
+        ttnn_op_invoke::callNLPConcatHeadsDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec,
+            device);
+
+    LOG_ASSERT(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result),
+        "Expected NLPConcatHeadsDecodeOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(nlpConcatHeadsDecodeOpQuery);
