@@ -822,6 +822,236 @@ INSTANTIATE_TEST_SUITE_P(ConvTranspose2dOpTPathParityTest,
                          ::testing::ValuesIn(convTranspose2dOpList));
 
 //===----------------------------------------------------------------------===//
+// PrepareConvTranspose2dBiasOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConvTranspose2dBiasOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         PrepareConvTranspose2dBiasOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PrepareConvTranspose2dBiasOpT
+buildPrepareConvTranspose2dBiasOpTFromMLIR(
+    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
+    int32_t inChannels, int32_t outChannels, int32_t batchSize,
+    int32_t inputHeight, int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT &opTOpModel,
+    ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::PrepareConvTranspose2dBiasOpT &opT) {
+    opT.bias_tensor.reset();
+    opT.device.reset();
+    resetOutputTensorRefT(opT.out);
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::PrepareConvTranspose2dBiasOp
+buildTestPrepareConvTranspose2dBiasOp(
+    mlir::tt::ttcore::DataTypeAttr outputDtype = {},
+    mlir::tt::ttnn::Conv2dConfigAttr conv2dConfig = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeKernelConfig = {},
+    mlir::tt::ttnn::Conv2dSliceConfigAttr conv2dSliceConfig = {},
+    uint32_t inChannels = 64, uint32_t outChannels = 32, uint32_t batchSize = 1,
+    uint32_t inputHeight = 28, uint32_t inputWidth = 28,
+    llvm::ArrayRef<int32_t> kernelSize = {3, 3},
+    llvm::ArrayRef<int32_t> stride = {2, 2},
+    llvm::ArrayRef<int32_t> padding = {1, 1},
+    llvm::ArrayRef<int32_t> dilation = {1, 1}, uint32_t groups = 1) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  llvm::SmallVector<int64_t, 4> biasShape = {1, 1, 1,
+                                             static_cast<int64_t>(outChannels)};
+  auto biasType = tiledL1BF16Type(biasShape);
+  auto outputType = tiledL1BF16Type(biasShape);
+
+  mlir::Value bias = e.builder
+                         .create<mlir::tt::ttnn::OnesOp>(
+                             loc, mlir::TypeRange{biasType}, mlir::ValueRange{})
+                         .getResult();
+
+  mlir::Value device =
+      e.builder
+          .create<mlir::tt::ttnn::GetDeviceOp>(
+              loc, e.builder.getType<mlir::tt::ttnn::DeviceType>(),
+              mlir::tt::ttnn::MeshShapeAttr::get(&e.context, 1, 1),
+              mlir::tt::ttnn::MeshOffsetAttr::get(&e.context, 0, 0))
+          .getResult();
+
+  auto biasLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+      mlir::cast<mlir::RankedTensorType>(biasType).getEncoding());
+  auto inputMemoryConfig = mlir::tt::ttnn::MemoryConfigAttr::get(biasLayout);
+
+  return e.builder.create<mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>(
+      loc, outputType, bias, inputMemoryConfig, mlir::tt::ttnn::Layout::Tile,
+      inChannels, outChannels, batchSize, inputHeight, inputWidth, kernelSize,
+      stride, padding, dilation, groups, device,
+      mlir::tt::ttcore::DataType::BFloat16, outputDtype, conv2dConfig,
+      computeKernelConfig, conv2dSliceConfig);
+}
+
+} // namespace
+
+using PrepareConvTranspose2dBiasOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>;
+
+TEST_P(PrepareConvTranspose2dBiasOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PrepareConvTranspose2dBiasOp prepareOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildPrepareConvTranspose2dBiasOpTFromMLIR(
+          prepareOp.getInputMemoryConfig(), prepareOp.getInputTensorLayout(),
+          prepareOp.getInChannels(), prepareOp.getOutChannels(),
+          prepareOp.getBatchSize(), prepareOp.getInputHeight(),
+          prepareOp.getInputWidth(), prepareOp.getKernelSize(),
+          prepareOp.getStride(), prepareOp.getPadding(),
+          prepareOp.getDilation(), prepareOp.getGroups(),
+          prepareOp.getInputDtype(), prepareOp.getOutputDtype(),
+          prepareOp.getConv2dConfig(), prepareOp.getComputeConfig(),
+          prepareOp.getConv2dSliceConfig(), resolveOutputLayout(prepareOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, prepareOp.getBiasTensor());
+  cache.getOrCreate(prepareOp.getDevice(), mlir::tt::ttnn::createDeviceRef);
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, prepareOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>
+    prepareConvTranspose2dBiasOpList = {
+        buildTestPrepareConvTranspose2dBiasOp(),
+        buildTestPrepareConvTranspose2dBiasOp(/*outputDtype=*/bf16DtypeAttr),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{},
+            /*conv2dConfig=*/
+            mlir::tt::ttnn::Conv2dConfigAttr::get(
+                getContext(),
+                /*weights_dtype=*/mlir::tt::ttcore::DataType::BFloat16,
+                /*activation=*/mlir::tt::ttnn::UnaryWithParamAttr(),
+                /*deallocate_activation=*/
+                mlir::BoolAttr::get(getContext(), false),
+                /*reallocate_halo_output=*/
+                mlir::BoolAttr::get(getContext(), true),
+                /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+                /*reshard_if_not_optimal=*/
+                mlir::BoolAttr::get(getContext(), false),
+                /*override_sharding_config=*/
+                mlir::BoolAttr::get(getContext(), false),
+                /*shard_layout=*/std::nullopt,
+                /*core_grid=*/mlir::tt::ttnn::CoreRangeSetAttr(),
+                /*transpose_shards=*/mlir::BoolAttr::get(getContext(), false),
+                /*output_layout=*/mlir::tt::ttnn::Layout::Tile,
+                /*enable_act_double_buffer=*/
+                mlir::BoolAttr::get(getContext(), true),
+                /*enable_weights_double_buffer=*/
+                mlir::BoolAttr::get(getContext(), true),
+                /*enable_kernel_stride_folding=*/
+                mlir::BoolAttr::get(getContext(), false),
+                /*config_tensors_in_dram=*/mlir::BoolAttr())),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/
+            mlir::tt::ttnn::DeviceComputeKernelConfigAttr::get(
+                getContext(), mlir::tt::ttnn::MathFidelity::HiFi2,
+                mlir::BoolAttr::get(getContext(), false),
+                mlir::BoolAttr::get(getContext(), true),
+                mlir::BoolAttr::get(getContext(), true),
+                mlir::BoolAttr::get(getContext(), false))),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{},
+            /*conv2dSliceConfig=*/
+            mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
+                getContext(), mlir::tt::ttnn::Conv2dSliceType::DramHeight, 4)),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/128u),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/64u),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/4u),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/14u),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/14u),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{4, 4}),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{3, 3},
+            /*stride=*/{1, 1}),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{3, 3},
+            /*stride=*/{2, 2}, /*padding=*/{0, 0}),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{3, 3},
+            /*stride=*/{2, 2}, /*padding=*/{1, 1}, /*dilation=*/{2, 2}),
+        buildTestPrepareConvTranspose2dBiasOp(
+            /*outputDtype=*/{}, /*conv2dConfig=*/{},
+            /*computeKernelConfig=*/{}, /*conv2dSliceConfig=*/{},
+            /*inChannels=*/64u, /*outChannels=*/32u, /*batchSize=*/1u,
+            /*inputHeight=*/28u, /*inputWidth=*/28u, /*kernelSize=*/{3, 3},
+            /*stride=*/{2, 2}, /*padding=*/{1, 1}, /*dilation=*/{1, 1},
+            /*groups=*/4u),
+};
+
+INSTANTIATE_TEST_SUITE_P(PrepareConvTranspose2dBiasOpTPathParityTest,
+                         PrepareConvTranspose2dBiasOpTPathParityTest,
+                         ::testing::ValuesIn(prepareConvTranspose2dBiasOpList));
+
+//===----------------------------------------------------------------------===//
 // LinearOpTPathParity
 //===----------------------------------------------------------------------===//
 
