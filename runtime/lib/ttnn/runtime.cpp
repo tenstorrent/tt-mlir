@@ -39,13 +39,78 @@ namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
 
+// Returns the number of elements described by `shape`.
+static std::uint64_t getNumElements(const std::vector<std::uint32_t> &shape) {
+  return std::accumulate(shape.begin(), shape.end(),
+                         static_cast<std::uint64_t>(1),
+                         std::multiplies<std::uint64_t>());
+}
+
+// Returns true if `stride` (element strides) describes a non-contiguous layout
+// for `shape`. Dimensions of size <= 1 are ignored (their stride is
+// irrelevant). A stride vector that does not match the rank is treated as
+// contiguous (we cannot interpret it).
+static bool isNonContiguous(const std::vector<std::uint32_t> &shape,
+                            const std::vector<std::uint32_t> &stride) {
+  if (stride.size() != shape.size()) {
+    // this can happen with complex tensors and we treat them as contiguous
+    return false;
+  }
+  std::uint32_t rowMajorStride = 1;
+  for (size_t d = shape.size(); d-- > 0;) {
+    if (shape[d] > 1 && stride[d] != rowMajorStride) {
+      return true;
+    }
+    rowMajorStride *= shape[d];
+  }
+  return false;
+}
+
+// Gathers a strided host buffer into a dense, contiguous byte buffer.
+static std::vector<std::byte>
+gatherContiguousBytes(const void *data, const std::vector<std::uint32_t> &shape,
+            const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
+  std::uint64_t numElements = getNumElements(shape);
+  std::vector<std::byte> out(numElements * itemsize);
+  if (numElements == 0) return out;
+
+  const std::byte *src = static_cast<const std::byte *>(data);
+  const size_t numDims = shape.size();
+  std::vector<std::uint64_t> idx(numDims, 0);
+
+  for (std::uint64_t i = 0; i < numElements; ++i) {
+    std::uint64_t srcOffset = 0;
+    for (size_t d = 0; d < numDims; ++d) {
+      srcOffset += idx[d] * static_cast<std::uint64_t>(stride[d]);
+    }
+
+    std::memcpy(out.data() + i * itemsize,
+                src + srcOffset * itemsize, itemsize);
+
+    for (size_t d = numDims; d-- > 0;) {
+      if (++idx[d] < shape[d]) break;
+      idx[d] = 0;
+    }
+  }
+
+  return out;
+}
+
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  const void *dataToUse = data;
+  const void *src = data;
   ::tt::target::DataType dataTypeToUse = dataType;
   std::vector<std::byte> castedData;
+
+  // Non-contiguous input: gather into a contiguous byte buffer first.
+  std::vector<std::byte> gatheredData;
+  if (data != nullptr && isNonContiguous(shape, stride)) {
+    gatheredData = gatherContiguousBytes(data, shape, stride, itemsize);
+    src = gatheredData.data();
+  }
+
   if (!::tt::runtime::utils::isSupportedDataType(dataType)) {
     dataTypeToUse = ::tt::runtime::utils::getUnsupportedDataTypeAlias(dataType);
 
@@ -55,20 +120,18 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
               ::tt::target::EnumNameDataType(dataTypeToUse),
               ", this may impact throughput and the integrity of the data.");
 
-    uint64_t numElements = std::accumulate(shape.begin(), shape.end(),
-                                           static_cast<std::uint64_t>(1),
-                                           std::multiplies<std::uint64_t>());
+    std::uint64_t numElements = getNumElements(shape);
 
     std::uint32_t itemSizeToUse =
         ::tt::runtime::utils::dataTypeElementSize(dataTypeToUse);
 
     castedData.resize(itemSizeToUse * numElements);
 
-    if (data != nullptr) {
-      ::tt::runtime::utils::handleBufferCast(data, castedData.data(), dataType,
+    if (src != nullptr) {
+      ::tt::runtime::utils::handleBufferCast(src, castedData.data(), dataType,
                                              dataTypeToUse, numElements);
     }
-    dataToUse = castedData.data();
+    src = castedData.data();
   }
 
   ::ttnn::Shape ttnnShape(shape);
@@ -76,20 +139,20 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
 
   switch (ttnnDataType) {
   case ::ttnn::DataType::FLOAT32:
-    return utils::createTTNNTensor<float>(dataToUse, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<float>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::BFLOAT16:
-    return utils::createTTNNTensor<bfloat16>(dataToUse, ttnnShape,
+    return utils::createTTNNTensor<bfloat16>(src, ttnnShape,
                                              ttnnDataType);
   case ::ttnn::DataType::UINT32:
-    return utils::createTTNNTensor<uint32_t>(dataToUse, ttnnShape,
+    return utils::createTTNNTensor<uint32_t>(src, ttnnShape,
                                              ttnnDataType);
   case ::ttnn::DataType::UINT16:
-    return utils::createTTNNTensor<uint16_t>(dataToUse, ttnnShape,
+    return utils::createTTNNTensor<uint16_t>(src, ttnnShape,
                                              ttnnDataType);
   case ::ttnn::DataType::UINT8:
-    return utils::createTTNNTensor<uint8_t>(dataToUse, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<uint8_t>(src, ttnnShape, ttnnDataType);
   case ::ttnn::DataType::INT32:
-    return utils::createTTNNTensor<int32_t>(dataToUse, ttnnShape, ttnnDataType);
+    return utils::createTTNNTensor<int32_t>(src, ttnnShape, ttnnDataType);
   default:
     LOG_FATAL("Unsupported data type");
   }
