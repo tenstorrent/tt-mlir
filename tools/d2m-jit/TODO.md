@@ -85,14 +85,6 @@ These ops live in `D2MGenericRegionOps.td` but are not yet exposed in
 so we add ops when we have something to test against rather than
 speculatively.
 
-### 🟡 Bespoke-signature ops (need design)
-
-| op | why it's interesting | what's blocking |
-| --- | --- | --- |
-| `tile_clamp_scalar(x, min, max)` | clamp with attribute (not operand) bounds | needs `FloatAttr` / `IntegerAttr` threading through `_eltwise_block`, plus a wrapper that picks the attr type from the tile's underlying dtype |
-| `tile_typecast(x)` | in-kernel dtype conversion (host-side already covered by `tilize(dtype=...)`) | needs an `_eltwise_block` variant that takes a target element type different from the input |
-| `tile_transpose(x)` | per-tile (32×32) element transpose -- distinct from logical `permute` / `view` | naming question — collides with `permute` / `view` semantics if called `transpose` |
-
 ### 🟡 Reductions (scoped — float blocked, int viable)
 
 `tile_reduce_sum`, `tile_reduce_max`, `tile_reduce_mean` (float) and

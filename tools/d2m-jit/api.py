@@ -4,14 +4,16 @@
 
 from __future__ import annotations
 
+import ast
+
 from ttmlir.ir import *
-from ttmlir.dialects import d2m, arith, linalg
+from ttmlir.dialects import d2m, ttcore, arith, linalg
 
 from ._src.utils import _asindex
 from ._src.ast import D2MCompiler, syntax
 from ._src.config import config
 from ._src.errors import D2mJitError
-from ._src.tensor_layout import Layout, float32, float16, bfloat16
+from ._src.tensor_layout import Layout, float32, float16, bfloat16, _to_data_type
 from ._src.builder import (
     CompiledKernel,
     LazyTensor,
@@ -374,6 +376,117 @@ def trunc(input):
     return _eltwise_block(lambda t: d2m.tile_trunc(t.type, t), input)
 
 
+# --- Bespoke-signature unary ops --------------------------------------------
+#
+# These take additional Python-literal arguments that lower to MLIR
+# attributes on the tile op (rather than runtime values). When called from
+# inside a `@d2m.kernel` body, the literal args are pulled out of the AST
+# via `_const_value`; from regular Python the wrapper accepts the same
+# literals directly.
+
+
+def _const_value(node):
+    """args_as_attr callback: pull a Python literal out of `node`.
+
+    Accepts a bare `ast.Constant`, or a `+literal`/`-literal` UnaryOp on
+    a numeric constant (Python parses `-0.5` as `UnaryOp(USub,
+    Constant(0.5))`). Raises a clear error otherwise so kernel users
+    get a useful message instead of an obscure compile-time crash."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.operand, ast.Constant):
+        v = node.operand.value
+        if isinstance(v, (int, float)):
+            if isinstance(node.op, ast.USub):
+                return -v
+            if isinstance(node.op, ast.UAdd):
+                return v
+    raise D2mJitError(
+        f"expected a Python literal (number/string), got "
+        f"{type(node).__name__}; runtime values are not supported "
+        f"for attribute-typed kernel arguments"
+    )
+
+
+def _tile_elem_type(block):
+    """Return the !ttcore.tile element type of a tile-tensor block, or
+    raise a clear error if `block` isn't a tile tensor."""
+    elem_ty = ttcore.ir.TileType.maybe_downcast(block.type.element_type)
+    if elem_ty is None:
+        raise TypeError(
+            f"expected a tile-typed tensor block, got element type "
+            f"{block.type.element_type}"
+        )
+    return elem_ty
+
+
+# The ttcore.DataType returned by `TileType.data_type` comes from a
+# different python-binding module than `ttcore.DataType.Float32` (separate
+# nanobind modules each bind the same C++ enum), so `==` and `in` fail.
+# Compare via `.name` strings.
+_FLOAT_DATA_TYPE_NAMES = frozenset({"Float32", "Float16", "BFloat16"})
+
+
+def _is_float_tile_dtype(tile_elem_ty):
+    return tile_elem_ty.data_type.name in _FLOAT_DATA_TYPE_NAMES
+
+
+@syntax(
+    "clamp_scalar",
+    args_as_attr=[False, _const_value, _const_value],
+)
+def clamp_scalar(input, min, max):
+    """Block-level elementwise clamp to scalar bounds `[min, max]`.
+
+    `min` and `max` must be Python literals. The attribute type is picked
+    from the tile element type: float tiles use F32Attr; integer tiles use
+    I32Attr (the verifier requires both bounds to be the same attr type).
+    """
+    elem_ty = _tile_elem_type(input)
+    if _is_float_tile_dtype(elem_ty):
+        f32 = F32Type.get()
+        min_attr = FloatAttr.get(f32, float(min))
+        max_attr = FloatAttr.get(f32, float(max))
+    else:
+        i32 = IntegerType.get_signless(32)
+        min_attr = IntegerAttr.get(i32, int(min))
+        max_attr = IntegerAttr.get(i32, int(max))
+    return _eltwise_block(
+        lambda t: d2m.tile_clamp_scalar(t.type, t, min_attr, max_attr),
+        input,
+    )
+
+
+@syntax(
+    "typecast",
+    args_as_attr=[False, _const_value],
+)
+def typecast(input, dtype):
+    """Block-level elementwise per-tile typecast to `dtype`.
+
+    `dtype` is a d2m DataType (e.g. `d2m.bfloat16`) or one of the strings
+    accepted by `_to_data_type` (`"fp32"`, `"bf16"`, `"fp16"`, ...). The
+    output block has the same shape as the input but a different tile
+    element type.
+
+    Distinct from host-side `tilize(dtype=...)` / `untilize(dtype=...)`:
+    those convert a `LazyTensor`'s layout off-device; this one happens
+    inside the kernel body during compute.
+    """
+    return _typecast_block(input, dtype)
+
+
+@syntax("tile_transpose")
+def tile_transpose(input):
+    """Block-level elementwise per-tile (32x32) transpose.
+
+    Distinct from logical `d2m.permute` / `d2m.view` (host-side layout
+    transformations on a `LazyTensor`): this one transposes each tile
+    in-place inside a kernel body.
+    """
+    return _eltwise_block(lambda t: d2m.tile_transpose(t.type, t), input)
+
+
 @syntax("add")
 def add(lhs, rhs):
     """Block-level elementwise addition."""
@@ -710,6 +823,18 @@ class TensorBlock:
         """Same as `d2m.trunc(self)`."""
         return trunc(ast_self)
 
+    def tile_transpose(ast_self: TensorBlock) -> TensorBlock:
+        """Same as `d2m.tile_transpose(self)` -- per-tile (32x32) transpose."""
+        return tile_transpose(ast_self)
+
+    # NOTE: clamp_scalar / typecast / bcast intentionally have no
+    # method-style form. They carry Python-literal attribute arguments,
+    # and the AST visitor's `args_as_attr` mechanism only kicks in on
+    # free-function calls (visit_Call on a Name target). Method calls go
+    # through visit_Attribute and fully evaluate their args, which would
+    # fall over on float literals (visit_Constant doesn't handle floats).
+    # Use the free-function form: `clamp_scalar(x, -1.0, 1.0)` etc.
+
     # --- Binary block-level method forms ----
     def add(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         """Same as `d2m.add(self, rhs)`."""
@@ -861,6 +986,58 @@ def _eltwise_block(tile_op_fn, *blocks):
         if hasattr(result, "result"):
             result = result.result
         linalg.yield_([result])
+    return generic.result
+
+
+def _typecast_block(input, dtype):
+    """Tile-level typecast inside a linalg.generic. Output block has the
+    same shape as `input` but a different tile element type.
+
+    Separate from `_eltwise_block` because that helper assumes input and
+    output blocks share an element type; typecast deliberately changes it.
+    """
+    src_tile_dc = _tile_elem_type(input)
+    dst_data_type = _to_data_type(dtype)
+    if src_tile_dc.data_type.name == dst_data_type.name:
+        # No-op: avoid emitting a typecast for a same-dtype cast (the
+        # backend may not support the resulting init/run pair).
+        return input
+    src_shape = src_tile_dc.shape
+    # `dst_tile_ty` is a plain ir.Type; `block_ty.element_type` is also a
+    # plain ir.Type. We deliberately use those (not the downcast
+    # `tt_ir.TileType`) as Block arg types -- Block.create_at_start does
+    # not accept the downcast subclass.
+    dst_tile_ty = ttcore.ir.TileType.get(
+        input.context, src_shape[0], src_shape[1], dst_data_type
+    )
+    block_ty = input.type
+    src_tile_ty = block_ty.element_type
+    rank = block_ty.rank
+    out_block_ty = RankedTensorType.get(list(block_ty.shape), dst_tile_ty)
+
+    output = d2m.empty(out_block_ty)
+    identity = AffineMap.get_identity(rank)
+    indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)] * 2)
+    parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+    iterator_types = ArrayAttr.get([parallel] * rank)
+
+    generic = linalg.GenericOp(
+        [out_block_ty],
+        [input],
+        [output],
+        indexing_maps,
+        iterator_types,
+    )
+    body = Block.create_at_start(
+        generic.regions[0],
+        [src_tile_ty, dst_tile_ty],
+        [Location.unknown()] * 2,
+    )
+    with InsertionPoint(body):
+        casted = d2m.tile_typecast(dst_tile_ty, body.arguments[0])
+        if hasattr(casted, "result"):
+            casted = casted.result
+        linalg.yield_([casted])
     return generic.result
 
 
