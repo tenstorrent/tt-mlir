@@ -162,7 +162,8 @@ public:
       }
       if (callee == "experimental::write_row_mask_tile" ||
           callee == "experimental::write_col_mask_tile" ||
-          callee == "experimental::fill_arange_tile") {
+          callee == "experimental::fill_arange_tile" ||
+          callee == "experimental::fill_pad_cb") {
         emitLlk(experimental_padding_llks_generated,
                 experimental_padding_llks_generated_len);
       }

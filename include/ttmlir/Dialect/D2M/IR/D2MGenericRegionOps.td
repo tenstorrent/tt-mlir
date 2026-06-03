@@ -3024,6 +3024,43 @@ def D2M_WriteColMaskTileOp : D2M_GenericRegionOp<"write_col_mask_tile",
     let assemblyFormat = [{ `(` $validCols `)` `to` $output attr-dict `:` type($validCols) `,` type($output) }];
 }
 
+def D2M_FillPadCBOp : D2M_GenericRegionDatamovementOp<"fill_pad_cb",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+   D2M_SynchronizableOpInterface]> {
+  let summary = "Fill a CB region with a packed constant pad value (D2M).";
+  let description = [{
+    Writes `num_bytes` bytes to the given CB starting at the current write
+    pointer, using `packed_value` as a u32 stamp (the caller is responsible
+    for packing dtype-narrower values, e.g. duplicating a bf16 into the
+    high+low halves of a u32).
+
+    Lives on the datamovement (BRISC/NCRISC) thread between
+    `cb_reserve_back` and `cb_push_back` issued by the same thread.
+
+    Used by the `expand_dma_read_composite_view` pass to pre-fill the
+    portion of L1 corresponding to a `d2m.fill_buffer` operand of a
+    DM-only generic, so that subsequent OOB DMA reads source the pad value.
+  }];
+
+  let arguments = (ins AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$cb,
+                       I32Attr:$packed_value,
+                       I32Attr:$num_bytes,
+                       TypeAttr:$dtype);
+
+  let extraClassDeclaration = [{
+    bool isProducer(mlir::OpOperand &operand) {
+      return &getCbMutable() == &operand;
+    }
+    bool isConsumer(mlir::OpOperand &) {
+      return false;
+    }
+  }];
+
+  let assemblyFormat = [{
+    `(` $cb `)` attr-dict `:` type($cb)
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // D2M Arange Ops
 //===----------------------------------------------------------------------===//

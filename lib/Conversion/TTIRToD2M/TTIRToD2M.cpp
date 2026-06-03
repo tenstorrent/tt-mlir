@@ -2697,6 +2697,199 @@ public:
 };
 } // namespace
 
+namespace {
+// Conversion for ttir.pad — RM-only (tile-format deferred).
+//
+// Lowers each padded dim by emitting `d2m.fill_buffer` op(s) of the pad-region
+// shape and chaining `d2m.composite_view`s along that dim. Result is consumed
+// by downstream as a view, materialized later either by the consumer's generic
+// or by `D2MMaterializeViewReturns`.
+class D2MPadOpRewriter final : public mlir::OpConversionPattern<ttir::PadOp>,
+                               D2MNamedRewriterCommon {
+
+public:
+  D2MPadOpRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                   ttcore::MemorySpace defaultInputMemSpace,
+                   ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                   bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::PadOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    auto loc = op.getLoc();
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    Type elementType = inputType.getElementType();
+
+    // RM only for v1.
+    if (mlir::isa<ttcore::TileType>(elementType)) {
+      return rewriter.notifyMatchFailure(op, "tile-format pad not supported");
+    }
+
+    ArrayRef<int32_t> padding = op.getPadding();
+    int64_t rank = inputType.getRank();
+    if (static_cast<int64_t>(padding.size()) != 2 * rank) {
+      return rewriter.notifyMatchFailure(op, "padding size mismatch");
+    }
+
+    // Peek through any producer-emitted `d2m.to_layout` whose source already
+    // matches what `createOptimalLayoutOp` would produce here (RM, noCollapse,
+    // L1, sharded, same logical shape, untiled). Avoids a redundant
+    // tile->flat->tile chain that downstream `MaterializeViewReturns` would
+    // otherwise materialize as an extra DM generic + L1 buffer.
+    auto matchesPadInputLayout = [&](Value v) -> bool {
+      auto vTy = mlir::dyn_cast<RankedTensorType>(v.getType());
+      if (!vTy || vTy.getElementType() != elementType) {
+        return false;
+      }
+      auto layout =
+          mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(vTy.getEncoding());
+      if (!layout) {
+        return false;
+      }
+      if (layout.getMemorySpace() != memorySpaces[0] ||
+          layout.getMemoryLayout() != ttcore::TensorMemoryLayout::Sharded) {
+        return false;
+      }
+      if (layout.getLogicalShape() != inputType.getShape()) {
+        return false;
+      }
+      return layout.getCollapsedIntervals().getNumElements() == 0;
+    };
+
+    Value padded;
+    if (auto toLayout = adaptor.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
+      if (matchesPadInputLayout(toLayout.getInput())) {
+        padded = toLayout.getInput();
+      }
+    }
+    if (!padded) {
+      padded =
+          createOptimalLayoutOp(adaptor.getInput(), memorySpaces[0],
+                                /*tiled=*/false, /*noCollapse=*/true, rewriter);
+    }
+
+    // Build pad value attr (ttir.pad's `value` is f32; cast to input element
+    // type so the FillBufferOp verifier sees matching types).
+    APFloat valueAP = op.getValueAttr().getValue();
+    TypedAttr valueAttr;
+    if (auto floatTy = mlir::dyn_cast<FloatType>(elementType)) {
+      bool losesInfo = false;
+      valueAP.convert(floatTy.getFloatSemantics(), APFloat::rmNearestTiesToEven,
+                      &losesInfo);
+      valueAttr = rewriter.getFloatAttr(floatTy, valueAP);
+    } else if (auto intTy = mlir::dyn_cast<IntegerType>(elementType)) {
+      // ttir.pad value is f32; round to nearest int (banker's rounding).
+      llvm::APSInt asInt(intTy.getWidth(), /*isUnsigned=*/false);
+      bool ignored;
+      valueAP.convertToInteger(asInt, APFloat::rmNearestTiesToEven, &ignored);
+      valueAttr = rewriter.getIntegerAttr(intTy, asInt);
+    } else {
+      return rewriter.notifyMatchFailure(op, "unsupported element type");
+    }
+
+    auto paddedType = mlir::cast<RankedTensorType>(padded.getType());
+    auto baseLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(paddedType.getEncoding());
+    auto baseLogical = llvm::to_vector(baseLayout.getLogicalShape());
+
+    // Iterate over each padded dim, growing `padded` via composite_view.
+    auto currentLogical = baseLogical;
+
+    // Multi-axis pad requires nested composite_views which
+    // ExpandDMAReadCompositeView can't currently flatten. Reject for now.
+    int64_t numPaddedAxes = 0;
+    for (int64_t d = 0; d < rank; ++d) {
+      if (padding[2 * d] != 0 || padding[2 * d + 1] != 0) {
+        ++numPaddedAxes;
+      }
+    }
+    if (numPaddedAxes > 1) {
+      return rewriter.notifyMatchFailure(op,
+                                         "multi-axis pad not yet supported");
+    }
+
+    for (int64_t d = 0; d < rank; ++d) {
+      int64_t lo = padding[2 * d];
+      int64_t hi = padding[2 * d + 1];
+      if (lo == 0 && hi == 0) {
+        continue;
+      }
+
+      auto buildFill = [&](int64_t padAmt) -> Value {
+        SmallVector<int64_t> fillLogical = currentLogical;
+        fillLogical[d] = padAmt;
+        auto fillLayout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), fillLogical, baseLayout.getMemorySpace(),
+            baseLayout.getMemoryLayout(), baseLayout.getCollapsedIntervals(),
+            baseLayout.getDimAlignments());
+        // Simple 1x1 grid at this point — GridSelection re-blocks to the
+        // consumer grid using `fixed_shard` for per-core L1 sizing.
+        SmallVector<int64_t> simpleGrid(rank, 1);
+        SmallVector<int64_t> shardedShape =
+            fillLayout.getDeviceShape(simpleGrid, /*tileShape=*/{});
+        auto fillType =
+            RankedTensorType::get(shardedShape, elementType, fillLayout);
+        // fixed_shard = one tile (32x32) on the trailing two dims; 1 on others.
+        SmallVector<int64_t> fixedShard(rank, 1);
+        if (rank >= 2) {
+          fixedShard[rank - 2] = 32;
+          fixedShard[rank - 1] = 32;
+        }
+        return rewriter
+            .create<d2m::FillBufferOp>(
+                loc, fillType, valueAttr,
+                /*address=*/IntegerAttr(),
+                /*alignment=*/IntegerAttr(),
+                rewriter.getDenseI64ArrayAttr(fixedShard))
+            .getResult();
+      };
+
+      SmallVector<Value> compositeInputs;
+      SmallVector<int64_t> compositeLogicalSizes;
+      if (lo > 0) {
+        compositeInputs.push_back(buildFill(lo));
+        compositeLogicalSizes.push_back(lo);
+      }
+      compositeInputs.push_back(padded);
+      compositeLogicalSizes.push_back(currentLogical[d]);
+      if (hi > 0) {
+        compositeInputs.push_back(buildFill(hi));
+        compositeLogicalSizes.push_back(hi);
+      }
+
+      // Output type along this dim grows by lo + hi.
+      currentLogical[d] += lo + hi;
+      auto outLayout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), currentLogical, baseLayout.getMemorySpace(),
+          baseLayout.getMemoryLayout(), baseLayout.getCollapsedIntervals(),
+          baseLayout.getDimAlignments());
+      SmallVector<int64_t> simpleGrid(rank, 1);
+      SmallVector<int64_t> outSharded =
+          outLayout.getDeviceShape(simpleGrid, /*tileShape=*/{});
+      auto compositeOutType =
+          RankedTensorType::get(outSharded, elementType, outLayout);
+
+      // composite_view's `dim` is in logical-shape coordinates (matches the
+      // layout's logical_shape rank).
+      auto compositeView = rewriter.create<d2m::CompositeViewOp>(
+          loc, compositeOutType, compositeInputs,
+          /*dim=*/static_cast<int32_t>(d),
+          rewriter.getDenseI64ArrayAttr(compositeLogicalSizes));
+      padded = compositeView.getResult();
+    }
+
+    rewriter.replaceOp(
+        op, unLayoutResult(rewriter, padded, op.getResult().getType())
+                ->getResult(0));
+    return success();
+  }
+};
+} // namespace
+
 // Conversion for ttir.to_layout -> d2m.to_layout.
 class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
                               public OpConversionPattern<ttir::ToLayoutOp> {
@@ -4242,6 +4435,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
     D2MConcatRewriter,
+    D2MPadOpRewriter,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,        rearrangeLogicalInfo>,
     D2MTensorManipulationOpRewriter<ttir::ReshapeOp,          reshapeLogicalInfo>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp,      sliceLogicalInfo>,

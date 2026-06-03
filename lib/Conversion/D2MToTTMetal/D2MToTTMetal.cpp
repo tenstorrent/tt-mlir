@@ -172,10 +172,50 @@ public:
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
 
     llvm::SmallVector<Value> remappedBuffers;
+    // Pre-scan each kernel function's arg spec: any CBPort arg referencing an
+    // ins/outs operand index means that operand is used as a CB inside the
+    // kernel (e.g., a fill_buffer that backs a fill_pad_cb call) and must be
+    // routed to the CB list, not the runtime-arg list.
+    unsigned ioSize = op.getInputsAndOutputs().size();
+    DenseSet<unsigned> ioCBIndices;
+    auto collectCBIndices = [&](ArrayRef<ttkernel::ArgAttr> argList) {
+      for (ttkernel::ArgAttr arg : argList) {
+        if (arg.getArgType() == ttkernel::ArgType::CBPort &&
+            arg.getOperandIndex() < ioSize) {
+          ioCBIndices.insert(arg.getOperandIndex());
+        }
+      }
+    };
+    for (Attribute threadAttr : op.getThreads()) {
+      auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+      auto kernelFunc = symbolTable.lookup<func::FuncOp>(
+          thread.getKernelSymbol().getRootReference());
+      if (!kernelFunc) {
+        continue;
+      }
+      auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
+          ttkernel::ArgSpecAttr::name);
+      if (!kernelSpec) {
+        continue;
+      }
+      collectCBIndices(kernelSpec.getRtArgs());
+      collectCBIndices(kernelSpec.getCtArgs());
+    }
+
     llvm::SmallVector<Value> args;
     DenseMap<uint32_t, uint32_t> argMapping;
-    for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
+    llvm::SmallVector<Value> cbs;
+    llvm::SmallVector<int64_t> cbPorts;
+    DenseMap<size_t, size_t> cbOperandIndexToPort;
+    for (unsigned i = 0; i < ioSize; ++i) {
       auto operand = adaptor.getOperands()[i];
+      if (ioCBIndices.contains(i)) {
+        unsigned cbPort = cbs.size();
+        cbs.push_back(getUnderlyingMemref(operand));
+        cbOperandIndexToPort[i] = cbPort;
+        cbPorts.push_back(cbPort);
+        continue;
+      }
       argMapping[i] = args.size();
       args.push_back(getUnderlyingMemref(operand));
       remappedBuffers.push_back(
@@ -183,10 +223,6 @@ public:
     }
 
     // Add additional args.
-    llvm::SmallVector<Value> cbs;
-    llvm::SmallVector<int64_t> cbPorts;
-    DenseMap<size_t, size_t> cbOperandIndexToPort;
-    unsigned ioSize = op.getInputsAndOutputs().size();
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operandIndex = ioSize + i;
       auto operand = adaptor.getOperands()[operandIndex];
@@ -328,6 +364,41 @@ public:
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
         op, memrefType, address, /*virtualGridInverseMapping=*/vgm,
         /*virtualGridForwardMapping=*/fwd);
+
+    return success();
+  };
+};
+} // namespace
+
+namespace {
+// d2m.fill_buffer has been consumed by ExpandDMAReadCompositeView (its value
+// was lifted into a fill_pad_cb call inside the kernel). What remains is just
+// an L1 allocation request — convert to ttmetal.CreateBufferOp the same way
+// memref.alloc is handled.
+class D2MFillBufferRewriter : public OpConversionPattern<d2m::FillBufferOp> {
+public:
+  using OpConversionPattern<d2m::FillBufferOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::FillBufferOp op, d2m::FillBufferOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto address = op->getAttrOfType<IntegerAttr>("address");
+    if (!address) {
+      return failure();
+    }
+
+    auto memrefType = mlir::cast<MemRefType>(op.getResult().getType());
+    assert(memrefType.getMemorySpace() &&
+           "No memref memory space found, failing.");
+
+    TT_assertv(
+        (mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr,
+                   ttcore::CBLayoutAttr>(memrefType.getLayout())),
+        "expected physical device layout (shard or interleaved)");
+
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
+        op, memrefType, address, /*virtualGridInverseMapping=*/nullptr,
+        /*virtualGridForwardMapping=*/nullptr);
 
     return success();
   };
@@ -878,13 +949,13 @@ namespace mlir::tt {
 void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
                                   ttmetal::MathFidelity mathFidelity) {
-  patterns.add<
-      ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
-      ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
-      ttmetal::D2MMeshShardRewriter, ttmetal::D2MCreateGlobalSemaphoreRewriter,
-      ttmetal::D2MResetGlobalSemaphoreRewriter,
-      ttmetal::D2MCreateLocalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
-      ctx);
+  patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::D2MFillBufferRewriter,
+               ttmetal::MemrefDeallocRewriter, ttmetal::D2MToDeviceRewriter,
+               ttmetal::D2MToHostRewriter, ttmetal::D2MMeshShardRewriter,
+               ttmetal::D2MCreateGlobalSemaphoreRewriter,
+               ttmetal::D2MResetGlobalSemaphoreRewriter,
+               ttmetal::D2MCreateLocalSemaphoreRewriter,
+               ttmetal::D2MViewLayoutRewriter>(ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
   patterns.add<ttmetal::D2MOperandAliasRewriter>(ctx);
 }

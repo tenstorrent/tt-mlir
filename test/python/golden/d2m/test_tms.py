@@ -23,7 +23,10 @@ from ttmlir.ir import *
 from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir, build_module
+from builder.base.builder_utils import run_ttir_pipeline
+from builder.base.builder_runtime import execute_fb
+from ttmlir.passes import ttir_to_ttmetal_backend_pipeline, ttmetal_to_flatbuffer_bin
 from test_utils import Marks, SkipIf, shape_str, shapes_list_str
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -1084,3 +1087,90 @@ def test_typecast(
         target=target,
         pipeline_options=[],
     )
+
+
+# Pad tests
+# Padding format: [low_dim0, high_dim0, low_dim1, high_dim1].
+# RM only (tile-format pad not yet supported in D2M).
+@pytest.mark.parametrize(
+    "shape, padding, value, dtype",
+    [
+        # Baseline: high-pad inner dim, bf16
+        ((224, 224), [0, 0, 0, 32], 1.0, torch.bfloat16),
+        # 1: low-pad inner dim
+        ((224, 224), [0, 0, 32, 0], 1.0, torch.bfloat16),
+        # 2: both-sides inner dim
+        ((224, 224), [0, 0, 16, 16], 1.0, torch.bfloat16),
+        # 7: high-pad outer (sharded) dim
+        ((224, 224), [0, 32, 0, 0], 1.0, torch.bfloat16),
+        # 8: multi-axis both sides — TODO: requires flattening nested
+        # composite_views in ExpandDMAReadCompositeView.
+        pytest.param(
+            (224, 224),
+            [16, 16, 16, 16],
+            1.0,
+            torch.bfloat16,
+            marks=pytest.mark.xfail(reason="multi-axis pad not yet supported"),
+        ),
+        # 3: zero pad value
+        ((224, 224), [0, 0, 0, 32], 0.0, torch.bfloat16),
+        # 3b: negative pad value
+        ((224, 224), [0, 0, 0, 32], -1.0, torch.bfloat16),
+        # 4: non-square shape
+        ((128, 256), [0, 0, 0, 64], 1.0, torch.bfloat16),
+        # 5: f32 dtype
+        ((224, 224), [0, 0, 0, 32], 1.0, torch.float32),
+    ],
+    ids=[
+        "baseline_hi_w_bf16",
+        "lo_w_bf16",
+        "both_w_bf16",
+        "hi_h_bf16",
+        "multi_axis_bf16",
+        "zero_val_bf16",
+        "neg_val_bf16",
+        "nonsquare_bf16",
+        "hi_w_f32",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_pad(
+    shape: Shape,
+    padding: List[int],
+    value: float,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def pad_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.pad(in0, padding=padding, value=value)
+
+    sys_desc_path = get_request_kwargs(request).get(
+        "system_desc_path", "ttrt-artifacts/system_desc.ttsys"
+    )
+    mlir_module, builder = build_module(module, "ttir", system_desc_path=sys_desc_path)
+    golden_input_output, _ = builder.golden_map
+    run_ttir_pipeline(
+        mlir_module,
+        ttir_to_ttmetal_backend_pipeline,
+        system_desc_path=sys_desc_path,
+    )
+    _, output_tensors = execute_fb(
+        ttmetal_to_flatbuffer_bin(mlir_module),
+        input_output_goldens=golden_input_output,
+        device=device,
+    )
+
+    # torch.set_printoptions(threshold=10_000_000, linewidth=400, precision=1, sci_mode=False)
+    # for prog_key, program in output_tensors.items():
+    #     for key, shards in program.items():
+    #         for shard_id, t in shards.items():
+    #             print(f"\n[{prog_key}/{key} shard={shard_id}] shape={tuple(t.shape)} dtype={t.dtype}")
+    #             print(t)

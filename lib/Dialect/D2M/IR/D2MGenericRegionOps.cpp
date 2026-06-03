@@ -1256,6 +1256,18 @@ void FillArangeTileOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// FillPadCBOp Implementation
+//===----------------------------------------------------------------------===//
+
+void FillPadCBOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getCbMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
 // ArangeBlockOp Implementation
 //===----------------------------------------------------------------------===//
 

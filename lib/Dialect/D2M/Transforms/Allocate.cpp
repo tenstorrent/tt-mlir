@@ -540,8 +540,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       analysis.sequencing.operationMap[op] = position;
       analysis.sequencing.positionMap.emplace_back(op);
 
-      if (llvm::isa<memref::AllocOp, d2m::ViewLayoutOp, d2m::CompositeViewOp,
-                    d2m::CreateGlobalSemaphoreOp>(op)) {
+      if (llvm::isa<memref::AllocOp, d2m::FillBufferOp, d2m::ViewLayoutOp,
+                    d2m::CompositeViewOp, d2m::CreateGlobalSemaphoreOp>(op)) {
         // Skip memref.alloc operations that have a genericOp as parent
         if (llvm::isa<memref::AllocOp>(op) &&
             op->getParentOfType<d2m::GenericOp>()) {
@@ -591,6 +591,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             llvm::cast<MemRefType>(allocOp->getResultTypes().front());
         MemrefValueContext &memrefCtx = addMemrefValueContext(
             rewriter, analysis, allocOp, memrefType, device);
+        memrefCtx.live = closure.live;
+      } else if (auto fillOp = llvm::dyn_cast<d2m::FillBufferOp>(op)) {
+        TT_assertv(!fillOp->use_empty(),
+                   "didn't expect a fill_buffer op without uses: {}",
+                   asOperand(fillOp));
+
+        const MemRefType memrefType =
+            llvm::cast<MemRefType>(fillOp->getResultTypes().front());
+        MemrefValueContext &memrefCtx = addMemrefValueContext(
+            rewriter, analysis, fillOp.getResult(), memrefType, device);
         memrefCtx.live = closure.live;
       }
     }
@@ -959,7 +969,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             // If `memref` is being defined inside `funcOp` and is initially
             // placed in L1, it will require scratch memory to hold its tensor
             // data.
-            if (memref.getDefiningOp<memref::AllocOp>() &&
+            if ((memref.getDefiningOp<memref::AllocOp>() ||
+                 memref.getDefiningOp<d2m::FillBufferOp>()) &&
                 memspace == MemorySpace::DeviceL1) {
               memrefCtx.reqIndex = b.request(
                   PlannerSpace::Scratch,
@@ -1091,8 +1102,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       if (!isDeviceMemorySpace(memrefCtx.type, MemorySpace::System)) {
         continue;
       }
-      memref::AllocOp allocOp = memref.getDefiningOp<memref::AllocOp>();
-      if (!allocOp) {
+      Operation *definingOp = memref.getDefiningOp();
+      if (!definingOp ||
+          !llvm::isa<memref::AllocOp, d2m::FillBufferOp>(definingOp)) {
         continue;
       }
       TT_debugv(memrefCtx.remappedMemSpace.has_value(),
@@ -1102,7 +1114,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const auto &solution = analysis.problem(remappedMemorySpace);
       const auto &memInfo = memSpaces[ordinal(remappedMemorySpace)];
 
-      assignAddressAndAlignment(rewriter, allocOp,
+      assignAddressAndAlignment(rewriter, definingOp,
                                 solution.request(memrefCtx.reqIndex).offset,
                                 memInfo);
     }
@@ -1327,8 +1339,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       if (memrefCtx.isInsideGeneric) {
         continue;
       }
-      memref::AllocOp allocOp = memref.getDefiningOp<memref::AllocOp>();
-      if (!allocOp) {
+      Operation *definingOp = memref.getDefiningOp();
+      if (!definingOp ||
+          !llvm::isa<memref::AllocOp, d2m::FillBufferOp>(definingOp)) {
         continue;
       }
       if (!ttcore::isDeviceMemorySpace(
@@ -1336,14 +1349,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         continue;
       }
 
-      insertDealloc(rewriter, allocOp, memrefCtx.live.last,
-                    analysis.sequencing);
+      insertDealloc(rewriter, memref, memrefCtx.live.last, analysis.sequencing);
     }
 
     return success();
   }
 
-  static void insertDealloc(RewriterBase &rewriter, memref::AllocOp allocOp,
+  static void insertDealloc(RewriterBase &rewriter, Value memref,
                             Planner::SequenceT position,
                             const SequenceMapping &sequencing) {
     Operation *lastOp = sequencing.positionMap[position];
@@ -1351,8 +1363,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       OpBuilder::InsertionGuard guard(rewriter);
       {
         rewriter.setInsertionPointAfter(lastOp);
-        rewriter.create<memref::DeallocOp>(lastOp->getLoc(),
-                                           allocOp.getResult());
+        rewriter.create<memref::DeallocOp>(lastOp->getLoc(), memref);
       }
     }
   }
@@ -1436,8 +1447,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
            storeOp.getStartDevice().empty();
   }
 
-  static void assignAddressAndAlignment(RewriterBase &rewriter,
-                                        memref::AllocOp op,
+  static void assignAddressAndAlignment(RewriterBase &rewriter, Operation *op,
                                         Planner::AllocSizeT offset,
                                         const MemorySpaceInfo &info) {
 
@@ -1445,8 +1455,17 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     rewriter.startOpModification(op);
     {
-      op.setAlignment(info.alignment);
-      op->setAttr("address", rewriter.getI64IntegerAttr(address));
+      auto i64 = rewriter.getI64IntegerAttr(info.alignment);
+      auto addrAttr = rewriter.getI64IntegerAttr(address);
+      if (auto allocOp = llvm::dyn_cast<memref::AllocOp>(op)) {
+        allocOp.setAlignment(info.alignment);
+        op->setAttr("address", addrAttr);
+      } else if (auto fillOp = llvm::dyn_cast<d2m::FillBufferOp>(op)) {
+        fillOp.setAlignmentAttr(i64);
+        fillOp.setAddressAttr(addrAttr);
+      } else {
+        llvm_unreachable("assignAddressAndAlignment: unsupported op type");
+      }
     };
     rewriter.finalizeOpModification(op);
   }
@@ -1478,6 +1497,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       chain.emplace_back(definingOp);
 
       if (auto op = llvm::dyn_cast<memref::AllocOp>(definingOp)) {
+        type = mlir::cast<MemRefType>(op->getResultTypes().front());
+        return {{value, type, chain}};
+      }
+      if (auto op = llvm::dyn_cast<d2m::FillBufferOp>(definingOp)) {
         type = mlir::cast<MemRefType>(op->getResultTypes().front());
         return {{value, type, chain}};
       }

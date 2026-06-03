@@ -3124,6 +3124,22 @@ def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_c
 }
 
 
+def TTKernel_ExperimentalFillPadCBOp : TTKernel_Op<"experimental::fill_pad_cb"> {
+    let summary = "Experimental Fill Pad CB Op";
+    let description = [{
+      Writes a packed u32 stamp `packed_value` to the CB write pointer for
+      `num_bytes` bytes, used to pre-fill an L1 region with a constant pad
+      value. Runs on the BRISC/NCRISC datamovement thread between
+      cb_reserve_back and cb_push_back.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb, I32:$num_bytes, I32:$packed_value);
+
+    let assemblyFormat = [{
+      `(` $cb `,` $num_bytes `,` $packed_value `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_arange_tile"> {
     let summary = "Experimental Write Full Linear Index Tile Op";
     let description = [{

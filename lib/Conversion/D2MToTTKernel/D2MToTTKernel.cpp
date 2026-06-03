@@ -1747,6 +1747,54 @@ public:
   }
 };
 
+// After ExpandDMAReadCompositeView has emitted experimental::fill_pad_cb on
+// the fill_buffer's CB, the fill_buffer op itself is just a memref alloc
+// carrying address/alignment attrs. Replace with a plain memref.alloc that
+// carries the same attrs (mirroring the EmptyOp → memref::AllocOp shape the
+// allocator already expects).
+class D2MFillBufferRewriter : public OpConversionPattern<d2m::FillBufferOp> {
+public:
+  using OpConversionPattern<d2m::FillBufferOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::FillBufferOp op, d2m::FillBufferOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto memrefType = mlir::dyn_cast<MemRefType>(op.getResult().getType());
+    if (!memrefType) {
+      return rewriter.notifyMatchFailure(op, "fill_buffer must be bufferized");
+    }
+    auto allocOp = rewriter.create<memref::AllocOp>(op.getLoc(), memrefType);
+    if (auto addr = op.getAddressAttr()) {
+      allocOp->setAttr("address", addr);
+    }
+    if (auto align = op.getAlignmentAttr()) {
+      allocOp.setAlignment(align.getInt());
+    }
+    rewriter.replaceOp(op, allocOp.getResult());
+    return success();
+  }
+};
+
+class D2MFillPadCBRewriter : public OpConversionPattern<d2m::FillPadCBOp> {
+public:
+  using OpConversionPattern<d2m::FillPadCBOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::FillPadCBOp op, d2m::FillPadCBOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    auto i32Ty = rewriter.getI32Type();
+    Value packedVal =
+        rewriter.create<arith::ConstantOp>(loc, i32Ty, op.getPackedValueAttr());
+    Value numBytesVal =
+        rewriter.create<arith::ConstantOp>(loc, i32Ty, op.getNumBytesAttr());
+    rewriter.create<ttkernel::ExperimentalFillPadCBOp>(loc, adaptor.getCb(),
+                                                       numBytesVal, packedVal);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class D2MWriteColMaskTileRewriter
     : public OpConversionPattern<d2m::WriteColMaskTileOp> {
 public:
@@ -3215,6 +3263,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTileRandRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
+               ttkernel::D2MFillBufferRewriter,
+               ttkernel::D2MFillPadCBRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,

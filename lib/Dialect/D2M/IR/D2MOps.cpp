@@ -241,6 +241,106 @@ d2m::EmptyOp::getBufferType(mlir::Value value,
 }
 
 //===----------------------------------------------------------------------===//
+// FillBufferOp
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult d2m::FillBufferOp::verify() {
+  auto valueAttr = mlir::dyn_cast<mlir::TypedAttr>(getValueAttr());
+  if (!valueAttr) {
+    return emitOpError("`value` must be a typed attribute");
+  }
+  auto resultElemType =
+      mlir::cast<mlir::ShapedType>(getResult().getType()).getElementType();
+  // For tile-encoded results, compare against the tile's underlying data type.
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(resultElemType)) {
+    resultElemType = tileType.getElementType();
+  }
+  if (valueAttr.getType() != resultElemType) {
+    return emitOpError("`value` element type ")
+           << valueAttr.getType() << " does not match result element type "
+           << resultElemType;
+  }
+  if (auto alignment = getAlignment()) {
+    if (*alignment <= 0) {
+      return emitOpError("`alignment`, when set, must be positive");
+    }
+  }
+  llvm::ArrayRef<int64_t> fixedShard = getFixedShard();
+  if (fixedShard.empty()) {
+    return emitOpError("`fixed_shard` must be non-empty");
+  }
+  for (int64_t d : fixedShard) {
+    if (d <= 0) {
+      return emitOpError("`fixed_shard` entries must be positive");
+    }
+  }
+  return mlir::success();
+}
+
+void d2m::FillBufferOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Allocate::get(),
+                       getOperation()->getResult(0),
+                       SideEffects::DefaultResource::get());
+}
+
+bool d2m::FillBufferOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool d2m::FillBufferOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return true;
+}
+
+mlir::bufferization::AliasingValueList d2m::FillBufferOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::FillBufferOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+mlir::LogicalResult d2m::FillBufferOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  if (getOperation()->getUses().empty()) {
+    rewriter.eraseOp(*this);
+    return mlir::success();
+  }
+
+  // If already a memref-typed result, nothing to do.
+  if (mlir::isa<mlir::MemRefType>(getResult().getType())) {
+    return mlir::success();
+  }
+
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  auto bufferTypeOr =
+      getBufferType(getResult(), options, state, invocationStack);
+  if (mlir::failed(bufferTypeOr)) {
+    return emitOpError("failed to compute buffer type");
+  }
+  auto bufferType = mlir::cast<mlir::MemRefType>(*bufferTypeOr);
+
+  rewriter.setInsertionPoint(*this);
+  auto newOp = rewriter.create<d2m::FillBufferOp>(
+      getLoc(), bufferType, getValueAttr(), getAddressAttr(),
+      getAlignmentAttr(), getFixedShardAttr());
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     newOp.getResult());
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // CreateGlobalSemaphoreOp
 //===----------------------------------------------------------------------===//
 

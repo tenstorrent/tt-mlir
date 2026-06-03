@@ -5,9 +5,13 @@
 #ifndef TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_PADDING_LLKS_H
 #define TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_PADDING_LLKS_H
 
-// Include CB API for pack-side functions (llk_wait_for_free_tiles,
-// llk_push_tiles) and get_local_cb_interface
+// CB API (get_local_cb_interface, llk_wait_for_free_tiles, llk_push_tiles) is
+// only used by the compute-side mask/arange helpers below (gated on
+// TRISC_UNPACK). Including it on a datamovement build pulls in compute-only
+// generated headers (chlkc_list.h, etc.), so guard it.
+#ifdef TRISC_UNPACK
 #include "api/compute/cb_api.h"
+#endif
 
 namespace experimental {
 using std::uint16_t;
@@ -86,6 +90,11 @@ inline void _write_col_mask_to_l1_(volatile T *ptr, uint32_t validCols,
     }
   }
 }
+
+// Compute-side helpers below depend on cb_api.h / float_to_bits / ALWI which
+// are only available on TRISC builds. fill_pad_cb (further down) is DM-only
+// and stays unguarded.
+#ifdef TRISC_UNPACK
 
 // CB-based mask write functions - write mask patterns directly to CB memory.
 // Compiled for TRISC_UNPACK so UNPACK thread blocks until mask is written.
@@ -192,6 +201,28 @@ ALWI void fill_arange_tile(uint32_t cb_id) {
     _fill_arange_tile_to_l1_<df>(ptr);
   }
 #endif
+}
+
+#endif // TRISC_UNPACK
+
+// =============================================================================
+// fill_pad_cb: Fill a region of a CB with a packed constant value.
+// =============================================================================
+// Runs on BRISC/NCRISC (datamovement thread). The caller is responsible for
+// having reserved space in the CB via cb_reserve_back, and for issuing
+// cb_push_back after this call returns. The stamp `packed_value` is a u32
+// repeated across `num_bytes` bytes; bf16 callers must pre-pack two bf16 values
+// into one u32.
+//
+// num_bytes must be a multiple of 4.
+inline __attribute__((always_inline)) void
+fill_pad_cb(uint32_t cb_id, uint32_t num_bytes, uint32_t packed_value) {
+  volatile tt_l1_ptr uint32_t *ptr =
+      reinterpret_cast<volatile tt_l1_ptr uint32_t *>(get_write_ptr(cb_id));
+  const uint32_t N = num_bytes >> 2;
+  for (uint32_t i = 0; i < N; ++i) {
+    ptr[i] = packed_value;
+  }
 }
 
 } // namespace experimental

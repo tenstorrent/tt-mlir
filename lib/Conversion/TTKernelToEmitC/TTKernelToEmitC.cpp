@@ -1882,6 +1882,10 @@ public:
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::RemoteSramWriteU32Op>>(
         typeConverter, funcOp.getContext(), "noc_semaphore_set_remote");
 
+    patterns
+        .add<TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalFillPadCBOp>>(
+            typeConverter, funcOp.getContext());
+
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
         typeConverter, funcOp.getContext(), "get_noc_addr");
     patterns

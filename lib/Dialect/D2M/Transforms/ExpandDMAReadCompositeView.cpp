@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
@@ -11,6 +12,8 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AffineExpr.h"
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/APInt.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MEXPANDDMAREADCOMPOSITEVIEW
@@ -209,7 +212,8 @@ static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
 static LogicalResult expandCompositeDMAReadRowMajor(
     IRRewriter &rewriter, DMAReadOp dmaRead, ValueRange expandedInputs,
     const int32_t concatDim, ArrayRef<int64_t> logicalSizes,
-    const int64_t totalConcatShards) {
+    const int64_t totalConcatShards,
+    const DenseMap<unsigned, Value> &localFillMemrefs) {
   Value localDst = dmaRead.getDst();
   MemRefType dstType = mlir::cast<MemRefType>(localDst.getType());
   SmallVector<int64_t> outputShardShape(dstType.getShape());
@@ -248,6 +252,68 @@ static LogicalResult expandCompositeDMAReadRowMajor(
                                  ValueRange shardIters, Value globalConcatIdx,
                                  const int inputIdx,
                                  const int64_t pieceOffset) {
+    // Fill-rooted branch: source is the per-core local CB stamp (filled by
+    // Stage G hook). Emit local-form DMAReadOp w/ same-core self-NoC read.
+    // Loop-coalesce if pad span > fixed_shard.
+    auto fillIt = localFillMemrefs.find(static_cast<unsigned>(inputIdx));
+    if (fillIt != localFillMemrefs.end()) {
+      Value localFill = fillIt->second;
+      auto localFillType = mlir::cast<MemRefType>(localFill.getType());
+      ArrayRef<int64_t> fillShardShape = localFillType.getShape();
+      int64_t fillShardElems = 1;
+      for (int64_t d : fillShardShape) {
+        fillShardElems *= d;
+      }
+      // The total elements this branch needs to write (matches the read of
+      // a "remote" branch at this coalescing factor).
+      int64_t branchReadElems = coalescingFactor;
+
+      // Local memory map for the fill (single L1 offset).
+      AffineMap localFillMap =
+          utils::getMemoryMap(device, localFill, /*isRemote=*/false);
+      // Local memory map for dst (single L1 offset).
+      AffineMap dstMap = localMemoryMap;
+
+      // dst indices = shardIters mapped through dst map.
+      SmallVector<Value> dstIndices = utils::applyMap(
+          builder, innerLoc, dstMap, shardIters, /*isRemote=*/false);
+
+      // Loop coalesce: read fillShardElems each time, advance dst offset.
+      int64_t remaining = branchReadElems;
+      int64_t dstOffsetElems = 0;
+      Value dstBaseOffset = dstIndices[0];
+      while (remaining > 0) {
+        int64_t thisRead = std::min(remaining, fillShardElems);
+
+        // src: zero-origin in the per-core fill (replicated content; any
+        // offset yields same value).
+        SmallVector<Value> zeroShardIdx(
+            fillShardShape.size(),
+            builder.create<arith::ConstantIndexOp>(innerLoc, 0));
+        SmallVector<Value> srcIndices = utils::applyMap(
+            builder, innerLoc, localFillMap, zeroShardIdx, /*isRemote=*/false);
+
+        // dst index = base + dstOffsetElems.
+        Value advancedDst = dstBaseOffset;
+        if (dstOffsetElems != 0) {
+          Value step =
+              builder.create<arith::ConstantIndexOp>(innerLoc, dstOffsetElems);
+          advancedDst =
+              builder.create<arith::AddIOp>(innerLoc, dstBaseOffset, step);
+        }
+        SmallVector<Value> thisDstIndices = {advancedDst};
+
+        Value dmaTx = builder.create<DMAReadOp>(
+            innerLoc, localFill, srcIndices, localDst, thisDstIndices,
+            builder.getI64IntegerAttr(thisRead));
+        builder.create<DMAWaitOp>(innerLoc, dmaTx);
+
+        remaining -= thisRead;
+        dstOffsetElems += thisRead;
+      }
+      return;
+    }
+
     // Locate the starting coordinates for the current coalescingFactor worth of
     // DMA read on the specified input.
     SmallVector<Value> inputFullIdx(2 * gridRank);
@@ -409,6 +475,172 @@ static LogicalResult expandCompositeDMAReadRowMajor(
   return success();
 }
 
+// Walk the def chain through known view-style wrappers looking for a
+// FillBufferOp. Returns null for any input that doesn't root in a fill_buffer
+// (including chains terminating in plain memref::AllocOp, ttcore.stream_layout,
+// composite_view, or any other op). Caller invokes this speculatively on every
+// generic input, so unknown ops must NOT assert — they are simply not fills.
+static FillBufferOp traceToFillBuffer(Value v) {
+  while (v) {
+    Operation *op = v.getDefiningOp();
+    if (!op) {
+      return nullptr;
+    }
+    if (auto fill = mlir::dyn_cast<FillBufferOp>(op)) {
+      return fill;
+    }
+    if (auto view = mlir::dyn_cast<ViewLayoutOp>(op)) {
+      v = view.getInput();
+      continue;
+    }
+    return nullptr;
+  }
+  return nullptr;
+}
+
+// Pack `value` into a u32 stamp suitable for the experimental::fill_pad_cb
+// LLK. bf16 → duplicate two bf16 halves into a u32. f32/i32 → raw 32-bit
+// pattern.
+static FailureOr<uint32_t> packValueForLLK(TypedAttr value, Type elementType) {
+  if (auto floatTy = mlir::dyn_cast<FloatType>(elementType)) {
+    auto floatAttr = mlir::dyn_cast<FloatAttr>(value);
+    if (!floatAttr) {
+      return failure();
+    }
+    APFloat ap = floatAttr.getValue();
+    if (floatTy.isBF16()) {
+      // bf16 occupies the upper 16 bits of a f32 bit-pattern.
+      bool losesInfo = false;
+      ap.convert(APFloat::IEEEsingle(), APFloat::rmNearestTiesToEven,
+                 &losesInfo);
+      uint32_t f32Bits = ap.bitcastToAPInt().getZExtValue();
+      uint16_t bf16 = static_cast<uint16_t>(f32Bits >> 16);
+      return (static_cast<uint32_t>(bf16) << 16) | bf16;
+    }
+    if (floatTy.isF32()) {
+      return static_cast<uint32_t>(ap.bitcastToAPInt().getZExtValue());
+    }
+    return failure();
+  }
+  if (auto intTy = mlir::dyn_cast<IntegerType>(elementType)) {
+    auto intAttr = mlir::dyn_cast<IntegerAttr>(value);
+    if (!intAttr) {
+      return failure();
+    }
+    if (intTy.getWidth() == 32) {
+      return static_cast<uint32_t>(intAttr.getValue().getSExtValue());
+    }
+    return failure();
+  }
+  return failure();
+}
+
+// Emit `reserve` + `fill_pad_cb` + `push` at the top of the datamovement
+// region of `genericOp` for each input traceable to a FillBufferOp.
+//
+// fill_buffer has been reblocked to the consumer grid by GridSelection
+// (Stage C), so each core in the grid has its own L1 stamp at the same
+// lock-step address. fill_pad_cb runs on each core's local CB.
+//
+// `localFillMemrefs` (output) maps the fill input's operand index to the
+// per-core local memref returned by ReserveOp. Stage F uses these as the
+// src of local-form DMAReadOps so OOB reads stay same-core (no NoC traffic
+// to remote fill data).
+static LogicalResult emitFillPadCBForFillBufferInputs(
+    IRRewriter &rewriter, GenericOp genericOp,
+    DenseMap<unsigned, Value> *localFillMemrefs = nullptr) {
+  // Collect (operandIdx, FillBufferOp) for inputs that root in a fill_buffer.
+  SmallVector<std::pair<unsigned, FillBufferOp>> fillInputs;
+  for (auto [idx, input] : llvm::enumerate(genericOp.getInputs())) {
+    if (FillBufferOp fill = traceToFillBuffer(input)) {
+      fillInputs.emplace_back(static_cast<unsigned>(idx), fill);
+    }
+  }
+  if (fillInputs.empty()) {
+    return success();
+  }
+
+  Location loc = genericOp.getLoc();
+
+  // For each region marked datamovement, prepend the reserve/fill_pad_cb/push
+  // triples.
+  for (auto [regionIdx, region] : llvm::enumerate(genericOp.getRegions())) {
+    auto threadAttr = mlir::cast<ThreadAttr>(genericOp.getThreads()[regionIdx]);
+    if (threadAttr.getThreadType() != ThreadType::Datamovement &&
+        threadAttr.getThreadType() != ThreadType::Unified) {
+      continue;
+    }
+    if (region.empty()) {
+      continue;
+    }
+    Block &block = region.front();
+    rewriter.setInsertionPointToStart(&block);
+
+    for (auto &[operandIdx, fill] : fillInputs) {
+      auto memrefType = mlir::cast<MemRefType>(fill.getResult().getType());
+      Type elementType = memrefType.getElementType();
+      Type llkElementType = elementType;
+      if (auto tileTy = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+        llkElementType = tileTy.getElementType();
+      }
+
+      auto valueAttr = mlir::cast<TypedAttr>(fill.getValueAttr());
+      auto packed = packValueForLLK(valueAttr, llkElementType);
+      if (failed(packed)) {
+        return fill.emitOpError("unsupported pad value/dtype combo for "
+                                "experimental::fill_pad_cb");
+      }
+
+      // num_bytes = per-core L1 footprint of the fill. The memref shape after
+      // Stage C is `grid x fixed_shard`. We only want the `fixed_shard`
+      // portion since fill_pad_cb writes ONE core's CB. Use the op's
+      // `fixed_shard` attr directly.
+      int64_t elementCount = 1;
+      for (int64_t d : fill.getFixedShard()) {
+        elementCount *= d;
+      }
+      int64_t bytesPerElement;
+      if (auto tileTy = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+        bytesPerElement =
+            tileTy.getSizeBytes() / (tileTy.getHeight() * tileTy.getWidth());
+        elementCount *= tileTy.getHeight() * tileTy.getWidth();
+      } else {
+        bytesPerElement =
+            llvm::divideCeil(elementType.getIntOrFloatBitWidth(), 8);
+      }
+      int64_t numBytes = elementCount * bytesPerElement;
+
+      // Per-core L1 memref the CB is bound to. Strip the device (shard)
+      // layout: ReserveOp's result type is a plain local L1 memref of the
+      // per-core shard shape — exactly what local-form DMAReadOp wants.
+      MemRefType perCoreLocalType = MemRefType::get(
+          memrefType.getShape().drop_front(/*gridRank=*/2),
+          memrefType.getElementType(),
+          /*layout=*/MemRefLayoutAttrInterface{}, memrefType.getMemorySpace());
+      auto cbType = CBType::get(rewriter.getContext(), perCoreLocalType);
+      Value cb = rewriter.create<GetCBOp>(
+          loc, cbType, rewriter.getI64IntegerAttr(operandIdx),
+          /*resolution_stage=*/nullptr);
+      rewriter.create<ReserveOp>(loc, perCoreLocalType, cb).getResult();
+      rewriter.create<FillPadCBOp>(
+          loc, cb, rewriter.getI32IntegerAttr(static_cast<int32_t>(*packed)),
+          rewriter.getI32IntegerAttr(static_cast<int32_t>(numBytes)),
+          TypeAttr::get(llkElementType));
+      rewriter.create<PushOp>(loc, cb);
+      // Same-thread producer + consumer: must cb_wait_front before reading
+      // since fill_pad_cb writes at write_ptr and pad-branch dma_reads source
+      // from read_ptr. Use WaitOp's result as the local memref for downstream
+      // dma_reads — its lowering emits get_read_ptr (correct post-wait).
+      Value localFill =
+          rewriter.create<WaitOp>(loc, perCoreLocalType, cb).getResult();
+      if (localFillMemrefs) {
+        (*localFillMemrefs)[operandIdx] = localFill;
+      }
+    }
+  }
+  return success();
+}
+
 static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
                                                    GenericOp gOp) {
   CompositeViewOp compositeView = nullptr;
@@ -501,6 +733,30 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
           .getElementType());
 
   const int32_t compositeDim = compositeView.getDim();
+
+  // Stage G first: emit reserve+fill_pad_cb+push for every fill input at the
+  // top of the DM region, capturing each fill's per-core local memref. These
+  // are then used as local-form DMAReadOp sources in the per-stick expansion
+  // (Stage F) below. Order matters — Stage G must precede expansion so the
+  // local memrefs exist when expansion emits dma_reads.
+  DenseMap<unsigned, Value> localFillMemrefsAbs;
+  if (failed(emitFillPadCBForFillBufferInputs(rewriter, newGOp,
+                                              &localFillMemrefsAbs))) {
+    return failure();
+  }
+  // Translate absolute new-generic operand indices to slice-relative indices
+  // (expandedInputs slice starts at compositeOperandIdx).
+  DenseMap<unsigned, Value> localFillMemrefs;
+  for (auto &[absIdx, val] : localFillMemrefsAbs) {
+    if (static_cast<int64_t>(absIdx) >= compositeOperandIdx &&
+        static_cast<int64_t>(absIdx) <
+            compositeOperandIdx +
+                static_cast<int64_t>(compositeInputs.size())) {
+      localFillMemrefs[absIdx - static_cast<unsigned>(compositeOperandIdx)] =
+          val;
+    }
+  }
+
   LogicalResult result = success();
   if (isTiled) {
     result = expandCompositeDMAReadTiled(rewriter, clonedCompositeRead,
@@ -513,7 +769,8 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
             .getShape()[compositeDim];
     result = expandCompositeDMAReadRowMajor(
         rewriter, clonedCompositeRead, expandedGenericInputs, compositeDim,
-        compositeView.getLogicalSizes().value(), totalConcatShards);
+        compositeView.getLogicalSizes().value(), totalConcatShards,
+        localFillMemrefs);
   }
   if (failed(result)) {
     return result;

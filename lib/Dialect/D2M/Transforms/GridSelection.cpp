@@ -319,11 +319,33 @@ optimizeTTNNMetalLayoutCastOpGrid(ttir::TTNNMetalLayoutCastOp castOp,
 // Transform phases — apply pre-computed grid decisions to the IR.
 // ----------------------------------------------------------------------------
 
+static void applyCompositeViewUpdate(
+    const OperandGridInfo &info,
+    const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
+    OpBuilder &builder);
+
 static void
 applyToLayoutUpdate(const OperandGridInfo &info,
                     const EffectiveTargetGridRange &effectiveTargetGridRange,
                     bool ttnnMode, OpBuilder &builder) {
   auto toLayoutOp = info.operand.getDefiningOp<d2m::ToLayoutOp>();
+
+  // When the to_layout's input is a composite_view, reblock the composite to
+  // the consumer grid first. Without this the composite stays at its producer
+  // grid (often 1x1) and a later view_layout wrapper is inserted to bridge to
+  // the consumer's grid — ExpandDMAReadCompositeView cannot trace through that
+  // wrapper. Reblocking the composite up front collapses the chain into
+  // composite → per-shard to_layout → generic, matching the concat path.
+  if (auto compositeView =
+          toLayoutOp.getInput().getDefiningOp<d2m::CompositeViewOp>()) {
+    OperandGridInfo compositeInfo;
+    compositeInfo.operand = compositeView.getResult();
+    compositeInfo.selectedGrid = info.selectedGrid;
+    compositeInfo.targetGrid = info.targetGrid;
+    applyCompositeViewUpdate(compositeInfo, effectiveTargetGridRange, ttnnMode,
+                             builder);
+  }
+
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
                        ttnnMode, info.selectedGrid, builder);
 }
@@ -438,6 +460,22 @@ static void applyCompositeViewUpdate(
         mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
     if (!inputLayout) {
       reblockedInputs.push_back(input);
+      continue;
+    }
+
+    // FillBufferOp special case: reblock to consumer grid with the op's
+    // `fixed_shard` for per-core L1 sizing. Bypasses view_layout broadcast
+    // so each consumer-grid core gets its own lock-step L1 stamp.
+    if (auto fillOp = input.getDefiningOp<d2m::FillBufferOp>()) {
+      llvm::ArrayRef<int64_t> fixedShard = fillOp.getFixedShard();
+      llvm::ArrayRef<int64_t> consumerGrid = info.selectedGrid;
+      SmallVector<int64_t> newDeviceShape(consumerGrid.begin(),
+                                          consumerGrid.end());
+      newDeviceShape.append(fixedShard.begin(), fixedShard.end());
+      auto newFillType = RankedTensorType::get(
+          newDeviceShape, inputType.getElementType(), inputType.getEncoding());
+      fillOp.getResult().setType(newFillType);
+      reblockedInputs.push_back(fillOp.getResult());
       continue;
     }
 

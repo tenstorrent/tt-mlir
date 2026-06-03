@@ -528,6 +528,43 @@ def D2M_EmptyOp
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }
 
+def D2M_FillBufferOp
+    : D2M_Op<
+          "fill_buffer", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                          DeclareOpInterfaceMethods<
+                              BufferizableOpInterface,
+                              ["bufferizesToMemoryRead",
+                               "bufferizesToMemoryWrite", "bufferize",
+                               "getAliasingValues", "getBufferType"]>]> {
+  let summary = "Per-core L1 buffer holding a constant pad value (D2M).";
+  let description = [{
+    Allocates a per-core L1 buffer of fixed per-shard size (`fixed_shard`),
+    replicated across the grid encoded by `result` type. Each core in the
+    grid holds an independent copy of the constant `value`, written at
+    kernel start via RISCV stores by the `expand_dma_read_composite_view`
+    pass.
+
+    `fixed_shard` is the per-core L1 footprint and is independent of the
+    op's logical pad-region extent. The result's device shape is
+    `grid x fixed_shard`. This decouples per-core L1 sizing from the
+    logical pad-region shape carried by a containing `composite_view`.
+
+    `address` and `alignment` are populated by the Allocate pass. All
+    cores in the grid receive the same address (lock-step) by virtue of
+    the standard sharded alloc model.
+  }];
+
+  let arguments = (ins TypedAttrInterface:$value,
+                       OptionalAttr<I64Attr>:$address,
+                       OptionalAttr<I64Attr>:$alignment,
+                       DenseI64ArrayAttr:$fixed_shard);
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
+
+  let hasVerifier = 1;
+}
+
 def D2M_CreateGlobalSemaphoreOp : D2M_Op<"create_global_semaphore",
     [DeclareOpInterfaceMethods<BufferizableOpInterface,
       ["bufferizesToMemoryRead", "bufferizesToMemoryWrite",
