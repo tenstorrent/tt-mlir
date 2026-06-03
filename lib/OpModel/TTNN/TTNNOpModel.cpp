@@ -3866,8 +3866,14 @@ buildNLPCreateQKVHeadsDecodeOpTFromMLIR(uint32_t numHeads,
   if (sliceSize.has_value()) {
     opT.slice_size = *sliceSize;
   }
-  opT.q_out = detail::getOutputTensorRefT(outputLayout);
-  opT.memcfg = nullptr;
+  auto memory_config = detail::getNullableMemoryConfigT(outputLayout);
+  if (memory_config.has_value()) {
+    opT.memcfg = std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+        memory_config.value());
+    if (opT.memcfg) {
+      LOG_WARNING("Memory config should be set to nullptr to match runtime");
+    }
+  }
   return opT;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -3983,6 +3989,14 @@ buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
   }
   opT.transpose_key = transposeKey;
   opT.q_out = detail::getOutputTensorRefT(outputLayout);
+  // auto memory_config = detail::getNullableMemoryConfigT(outputLayout);
+  // if (memory_config.has_value()) {
+  //   opT.memcfg = std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+  //       memory_config.value());
+  //   if (opT.memcfg) {
+  //     LOG_WARNING("Memory config should be set to nullptr to match runtime");
+  //   }
+  // }
   return opT;
 }
 #endif // TTMLIR_ENABLE_OPMODEL

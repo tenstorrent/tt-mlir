@@ -3206,7 +3206,7 @@ void resetUnusedFields(
   auto helper = [](::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opT) {
     opT.input.reset();
     opT.batch_offset.reset();
-    resetOutputTensorRefT(opT.q_out);
+    opT.q_out.reset();
     opT.k_out.reset();
     opT.v_out.reset();
   };
@@ -3277,10 +3277,7 @@ TEST_P(NLPCreateQKVHeadsDecodeOpTPathParityTest,
   ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opTOpModel =
       mlir::tt::ttnn::op_model::buildNLPCreateQKVHeadsDecodeOpTFromMLIR(
           qkvOp.getNumHeads(), qkvOp.getNumKvHeads(),
-          qkvOp.getOverlapQkCoregrid(), qkvOp.getSliceSize(),
-          mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-              mlir::cast<mlir::RankedTensorType>(qkvOp.getQuery().getType())
-                  .getEncoding()));
+          qkvOp.getOverlapQkCoregrid(), qkvOp.getSliceSize(), nullptr);
 
   // Path B: FB serialization round-trip.
   ::flatbuffers::FlatBufferBuilder fbb;
@@ -3329,6 +3326,48 @@ const std::initializer_list<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
 INSTANTIATE_TEST_SUITE_P(NLPCreateQKVHeadsDecodeOpTPathParityTest,
                          NLPCreateQKVHeadsDecodeOpTPathParityTest,
                          ::testing::ValuesIn(nlpCreateQKVHeadsDecodeOpList));
+
+TEST_F(NLPCreateQKVHeadsDecodeOpTPathParityTest, NonDefaultMemoryConfig) {
+  mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp qkvOp =
+      buildTestNLPCreateQKVHeadsDecodeOp(
+          /*withBatchOffset=*/true, /*numHeads=*/16u,
+          /*numKVHeads=*/std::optional<uint32_t>(4u),
+          /*overlapQKCoregrid=*/std::optional<bool>(false),
+          /*sliceSize=*/std::optional<uint32_t>(64u));
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildNLPCreateQKVHeadsDecodeOpTFromMLIR(
+          qkvOp.getNumHeads(), qkvOp.getNumKvHeads(),
+          qkvOp.getOverlapQkCoregrid(), qkvOp.getSliceSize(),
+          mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+              mlir::cast<mlir::RankedTensorType>(qkvOp.getQuery().getType())
+                  .getEncoding()));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, qkvOp.getInput());
+  if (qkvOp.getBatchOffset()) {
+    prepopulateOperandTensorRefs(cache, qkvOp.getBatchOffset());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, qkvOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_NE(opTOpModel, opTFB);
+  EXPECT_NE(opTOpModel.memcfg, opTFB.memcfg);
+  EXPECT_NE(opTOpModel.memcfg, nullptr);
+  EXPECT_EQ(opTFB.memcfg, nullptr);
+  opTOpModel.memcfg.reset();
+  opTFB.memcfg.reset();
+  EXPECT_EQ(opTOpModel, opTFB);
+}
 
 //===----------------------------------------------------------------------===//
 // PagedFlashMultiLatentAttentionDecodeOpTPathParity
@@ -4273,13 +4312,13 @@ TEST_P(SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
   mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp sqkvOp = GetParam();
 
   // Path A: OpModel-style construction.
-  auto queryLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
-      mlir::cast<mlir::RankedTensorType>(sqkvOp.getQuery().getType())
-          .getEncoding());
   ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opTOpModel =
       mlir::tt::ttnn::op_model::buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
           sqkvOp.getNumHeads(), sqkvOp.getNumKvHeads(),
-          sqkvOp.getTransposeKey(), queryLayout);
+          sqkvOp.getTransposeKey(),
+          mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+              mlir::cast<mlir::RankedTensorType>(sqkvOp.getQuery().getType())
+                  .getEncoding()));
 
   // Path B: FB serialization round-trip (what runtime sees).
   ::flatbuffers::FlatBufferBuilder fbb;
@@ -4330,5 +4369,51 @@ INSTANTIATE_TEST_SUITE_P(
     SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
     SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
     ::testing::ValuesIn(splitQueryKeyValueAndSplitHeadsOpList));
+
+// TEST_F(SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
+//        NonDefaultMemoryConfig) {
+//   mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp sqkvOp =
+//       buildTestSplitQueryKeyValueAndSplitHeadsOp(
+//           /*withKvInputTensor=*/true, /*numHeads=*/8u,
+//           /*numKvHeads=*/
+//           mlir::IntegerAttr::get(
+//               mlir::IntegerType::get(getContext(), 32,
+//                                      mlir::IntegerType::Unsigned),
+//               2u),
+//           /*transposeKey=*/true);
+
+//   // Path A: OpModel-style construction.
+//   ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opTOpModel =
+//       mlir::tt::ttnn::op_model::buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+//           sqkvOp.getNumHeads(), sqkvOp.getNumKvHeads(),
+//           sqkvOp.getTransposeKey(),
+//           mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+//               mlir::cast<mlir::RankedTensorType>(sqkvOp.getQuery().getType())
+//                   .getEncoding()));
+
+//   // Path B: FB serialization round-trip (what runtime sees).
+//   ::flatbuffers::FlatBufferBuilder fbb;
+//   mlir::tt::FlatbufferObjectCache cache(&fbb);
+//   prepopulateOperandTensorRefs(cache, sqkvOp.getInputTensor());
+//   if (sqkvOp.getKvInputTensor()) {
+//     prepopulateOperandTensorRefs(cache, sqkvOp.getKvInputTensor());
+//   }
+
+//   auto fbOffset = mlir::tt::ttnn::createOp(cache, sqkvOp);
+//   fbb.Finish(fbOffset);
+//   auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+//   ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opTFB;
+//   r->UnPackTo(&opTFB);
+
+//   resetUnusedFields(opTOpModel, opTFB);
+
+//   EXPECT_NE(opTOpModel, opTFB);
+//   EXPECT_NE(opTOpModel.memcfg, opTFB.memcfg);
+//   EXPECT_NE(opTOpModel.memcfg, nullptr);
+//   EXPECT_EQ(opTFB.memcfg, nullptr);
+//   opTOpModel.memcfg.reset();
+//   opTFB.memcfg.reset();
+//   EXPECT_EQ(opTOpModel, opTFB);
+// }
 
 #endif // TTMLIR_ENABLE_OPMODEL
