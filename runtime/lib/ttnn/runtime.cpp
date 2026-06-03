@@ -369,9 +369,10 @@ Tensor createMultiDeviceBorrowedHostTensor(
   return createMultiDeviceHostTensor(tensorShards, strategy, meshShape);
 }
 
-::tt::runtime::Tensor createEmptyTensor(
-    Device device, Layout layout, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::int64_t> &stride, std::uint32_t itemsize) {
+::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
+                                        const std::vector<std::uint32_t> &shape,
+                                        const std::vector<std::int64_t> &stride,
+                                        std::uint32_t itemsize) {
   const LayoutDesc &layoutDesc = layout.as<LayoutDesc>(DeviceRuntime::TTNN);
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(
                  utils::fromTTNNDataType(layoutDesc.dataType)),

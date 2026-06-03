@@ -131,9 +131,10 @@ Tensor createMultiDeviceBorrowedHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
-::tt::runtime::Tensor createEmptyTensor(
-    Device device, Layout layout, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::int64_t> &stride, std::uint32_t itemsize);
+::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
+                                        const std::vector<std::uint32_t> &shape,
+                                        const std::vector<std::int64_t> &stride,
+                                        std::uint32_t itemsize);
 
 ::tt::runtime::Tensor createScalarTensor(::tt::runtime::Scalar scalar);
 

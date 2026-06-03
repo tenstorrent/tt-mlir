@@ -174,7 +174,7 @@ struct TensorDesc {
   std::vector<uint32_t> shape = {}; // Logical.
   ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
   std::vector<int64_t> stride = {}; // Potentially padded.
-  uint64_t physicalVolume = 0;       // Potentially padded.
+  uint64_t physicalVolume = 0;      // Potentially padded.
 
   TensorDesc() = default;
 

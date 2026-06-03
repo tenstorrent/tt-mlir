@@ -408,7 +408,7 @@ createTensorDescFromBufferDesc(const target::metal::BufferDesc *bufferDesc) {
   const std::vector<uint32_t> shape(bufferDesc->shape()->begin(),
                                     bufferDesc->shape()->end());
   const std::vector<int64_t> stride(bufferDesc->host_strides()->begin(),
-                                     bufferDesc->host_strides()->end());
+                                    bufferDesc->host_strides()->end());
   const uint64_t physicalVolume = bufferDesc->host_volume();
   assert(shape.size() == stride.size());
   const auto dataType = bufferDesc->data_type();
