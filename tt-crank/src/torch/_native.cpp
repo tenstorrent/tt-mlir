@@ -12,6 +12,7 @@
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Value.h>
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/vector.h>
 #include <torch/csrc/autograd/python_variable.h>
@@ -102,6 +103,14 @@ public:
                                      mlir::Value variance, float eps) {
         assert_builder();
         return tk::build_bn_inference(*mb_, operand, scale, offset, mean, variance, eps);
+    }
+
+    mlir::Value conv2d(mlir::Value input, mlir::Value weight, std::optional<mlir::Value> bias_opt,
+                       std::vector<std::int64_t> stride, std::vector<std::int64_t> padding,
+                       std::vector<std::int64_t> dilation, int64_t groups) {
+        assert_builder();
+        return tk::build_conv2d(*mb_, input, weight, bias_opt.value_or(mlir::Value{}), stride, padding, dilation,
+                                groups);
     }
 
     mlir::Value max_pool2d(mlir::Value input, std::vector<std::int64_t> kernel_size, std::vector<std::int64_t> stride,
@@ -254,6 +263,8 @@ NB_MODULE(_native, m) {
         .def("mean", &PyModuleBuilder::mean, "input"_a, "dims"_a, "keepdim"_a = false)
         .def("batch_norm_inference", &PyModuleBuilder::batch_norm_inference, "operand"_a, "scale"_a, "offset"_a,
              "mean"_a, "variance"_a, "eps"_a)
+        .def("conv2d", &PyModuleBuilder::conv2d, "input"_a, "weight"_a, "bias"_a, "stride"_a, "padding"_a, "dilation"_a,
+             "groups"_a)
         .def("max_pool2d", &PyModuleBuilder::max_pool2d, "input"_a, "kernel_size"_a, "stride"_a, "padding"_a,
              "dilation"_a, "ceil_mode"_a = false)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)

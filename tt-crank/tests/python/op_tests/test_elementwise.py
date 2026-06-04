@@ -71,6 +71,21 @@ def test_mean_multi_dim(keepdim: bool) -> None:
 
 
 @pytest.mark.parametrize(
+    "n,c_in,h,w,c_out,ksize,stride,padding,bias",
+    [
+        (1, 32, 32, 32, 64, 3, 1, 1, False),
+        (1, 32, 32, 32, 64, 3, 2, 1, False),
+        (1, 32, 32, 32, 64, 1, 1, 0, True),
+    ],
+    ids=["3x3_s1_nopad_nobias", "3x3_s2_pad1_nobias", "1x1_bias"],
+)
+def test_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: int, stride: int, padding: int, bias: bool) -> None:
+    x = torch.randn((n, c_in, h, w), dtype=torch.bfloat16)
+    conv = torch.nn.Conv2d(c_in, c_out, ksize, stride=stride, padding=padding, bias=bias).to(torch.bfloat16)
+    assert_close_cpu_vs_tt(conv, x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
     "n,c,h,w,k,stride,padding",
     [
         (1, 32, 64, 64, 3, 2, 1),

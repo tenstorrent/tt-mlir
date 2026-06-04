@@ -133,6 +133,13 @@ def _(mb, input):
 def _(mb, input):
     return mb.relu(input)
 
+@_lowering(_aten.convolution.default)
+def _(mb, input, weight, bias, stride, padding, dilation, transposed, output_padding, groups):
+    if transposed:
+        raise NotImplementedError("tt-kurbla compile: transposed convolution not supported")
+    return mb.conv2d(input, weight, bias, list(stride), list(padding), list(dilation), int(groups))
+
+
 @_lowering(_aten.max_pool2d_with_indices.default)
 def _(mb, x, kernel_size, stride, padding=0, dilation=1, ceil_mode=False):
     if isinstance(padding, int):
