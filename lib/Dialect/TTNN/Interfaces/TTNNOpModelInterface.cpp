@@ -3921,6 +3921,10 @@ struct LayerNormPreAllGatherOptionalArgs {
   std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
   std::optional<llvm::ArrayRef<int64_t>> recipShape = std::nullopt;
   std::optional<TTNNLayoutAttr> recipLayout = std::nullopt;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      std::nullopt;
+  std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig =
+      std::nullopt;
 };
 
 static LayerNormPreAllGatherOptionalArgs
@@ -3941,6 +3945,12 @@ unpackLayerNormPreAllGatherOptionalArgs(
       ret.recipLayout = inputs[idx++];
     }
   }
+  if (op.getComputeConfig()) {
+    ret.computeKernelConfig = op.getComputeConfig();
+  }
+  if (op.getProgramConfig()) {
+    ret.programConfig = op.getProgramConfig();
+  }
   return ret;
 }
 
@@ -3958,6 +3968,7 @@ LayerNormPreAllGatherOp::getOpConstraints(
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
       optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      optionalArgs.computeKernelConfig, optionalArgs.programConfig,
       opConfig.outputLayout);
 }
 
@@ -3974,6 +3985,7 @@ LayerNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
       optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      optionalArgs.computeKernelConfig, optionalArgs.programConfig,
       opConfig.outputLayout);
 }
 

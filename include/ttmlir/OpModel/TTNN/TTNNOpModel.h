@@ -1660,16 +1660,21 @@ struct OpModel<LayerNormPreAllGatherOp> {
       std::optional<TTNNLayoutAttr> residualInputLayout,
       std::optional<llvm::ArrayRef<int64_t>> recipShape,
       std::optional<TTNNLayoutAttr> recipLayout,
-      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout);
+      std::optional<ttcore::DataType> dtype,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
-               std::optional<TTNNLayoutAttr> residualInputLayout,
-               std::optional<llvm::ArrayRef<int64_t>> recipShape,
-               std::optional<TTNNLayoutAttr> recipLayout,
-               std::optional<ttcore::DataType> dtype,
-               TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> recipShape,
+      std::optional<TTNNLayoutAttr> recipLayout,
+      std::optional<ttcore::DataType> dtype,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

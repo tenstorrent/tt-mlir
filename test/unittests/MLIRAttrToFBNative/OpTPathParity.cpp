@@ -4966,4 +4966,125 @@ INSTANTIATE_TEST_SUITE_P(LayerNormPostAllGatherOpTPathParityTest,
                          LayerNormPostAllGatherOpTPathParityTest,
                          ::testing::ValuesIn(layerNormPostAllGatherOpList));
 
+//===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPreAllGatherOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, LayerNormPreAllGatherOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::LayerNormPreAllGatherOpT
+buildLayerNormPreAllGatherOpTFromMLIR(
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::LayerNormPreAllGatherOpT &opTOpModel,
+                       ::tt::target::ttnn::LayerNormPreAllGatherOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::LayerNormPreAllGatherOpT &opT) {
+    opT.input.reset();
+    opT.residual_input.reset();
+    opT.recip.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memory_config.reset();
+    opT.dtype = tt::target::DataType::BFloat16;
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::LayerNormPreAllGatherOp buildTestLayerNormPreAllGatherOp(
+    bool withResidualInput = false, bool withRecip = false,
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {},
+    mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr programConfig =
+        {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value input = makeOnes();
+  mlir::Value residualInput = withResidualInput ? makeOnes() : mlir::Value();
+  mlir::Value recip = withRecip ? makeOnes() : mlir::Value();
+
+  return e.builder.create<mlir::tt::ttnn::LayerNormPreAllGatherOp>(
+      loc, tensorType, input, residualInput, recip, computeConfig,
+      programConfig);
+}
+
+} // namespace
+
+using LayerNormPreAllGatherOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::LayerNormPreAllGatherOp>;
+
+TEST_P(LayerNormPreAllGatherOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::LayerNormPreAllGatherOp lnOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::LayerNormPreAllGatherOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildLayerNormPreAllGatherOpTFromMLIR(
+          lnOp.getComputeConfig(), lnOp.getProgramConfig(),
+          resolveOutputLayout(lnOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, lnOp.getInput());
+  if (lnOp.getResidualInput()) {
+    prepopulateOperandTensorRefs(cache, lnOp.getResidualInput());
+  }
+  if (lnOp.getRecip()) {
+    prepopulateOperandTensorRefs(cache, lnOp.getRecip());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, lnOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::LayerNormPreAllGatherOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::LayerNormPreAllGatherOp>
+    layerNormPreAllGatherOpList = {
+        buildTestLayerNormPreAllGatherOp(),
+        buildTestLayerNormPreAllGatherOp(/*withResidualInput=*/true),
+        buildTestLayerNormPreAllGatherOp(/*withResidualInput=*/false,
+                                         /*withRecip=*/true),
+        buildTestLayerNormPreAllGatherOp(
+            /*withResidualInput=*/false, /*withRecip=*/false,
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestLayerNormPreAllGatherOp(
+            /*withResidualInput=*/false, /*withRecip=*/false,
+            /*computeConfig=*/{},
+            /*programConfig=*/nonDefaultLayerNormProgramConfigAttr),
+        buildTestLayerNormPreAllGatherOp(
+            /*withResidualInput=*/true, /*withRecip=*/true,
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr,
+            /*programConfig=*/nonDefaultLayerNormProgramConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(LayerNormPreAllGatherOpTPathParityTest,
+                         LayerNormPreAllGatherOpTPathParityTest,
+                         ::testing::ValuesIn(layerNormPreAllGatherOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
