@@ -17159,9 +17159,7 @@ class TTIRBuilder(Builder):
         in1 = self._get_golden_tensor(expert_indices)
         in2 = self._get_golden_tensor(expert_scores)
         in3 = self._get_golden_tensor(expert_mapping)
-        nwc_attr = IntegerAttr.get(
-            IntegerType.get_unsigned(32), tilize_out_shape[0]
-        )
+        nwc_attr = IntegerAttr.get(IntegerType.get_unsigned(32), tilize_out_shape[0])
         ca_golden_attr = (
             ca_attr
             if ca_attr is not None
@@ -17258,9 +17256,7 @@ class TTIRBuilder(Builder):
             golden = GoldenMapTensor(
                 {
                     i: torch.zeros(shape, dtype=dtype).clone()
-                    for i in range(
-                        self._mesh_shape[0] * self._mesh_shape[1]
-                    )
+                    for i in range(self._mesh_shape[0] * self._mesh_shape[1])
                 },
                 mesh_shape=self._mesh_shape,
             )
