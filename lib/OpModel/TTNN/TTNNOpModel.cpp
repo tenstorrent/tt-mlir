@@ -26,6 +26,7 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/BatchNormOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/GroupNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsOp.h"
@@ -7677,6 +7678,18 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
 // GroupNormOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::GroupNormOpT
+buildGroupNormOpTFromMLIR(int64_t numGroups, llvm::APFloat epsilon,
+                          TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::GroupNormOpT opT;
+  opT.num_groups = numGroups;
+  opT.epsilon = epsilon.convertToFloat();
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
@@ -7702,23 +7715,19 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  int numGroupsInt = static_cast<int>(numGroups);
-  float epsilonFloat = epsilon.convertToFloat();
+  ::tt::target::ttnn::GroupNormOpT opT =
+      buildGroupNormOpTFromMLIR(numGroups, epsilon, outputLayout);
 
   auto groupNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::group_norm, device, inputSpec,
-                                numGroupsInt, epsilonFloat, inputMaskSpec,
-                                weightSpec, biasSpec,
-                                /*reciprocals=*/std::nullopt,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                /*dtype=*/std::nullopt,
-                                /*core_grid=*/std::nullopt,
-                                /*inplace=*/std::nullopt,
-                                /*output_layout=*/std::nullopt,
-                                /*num_out_blocks=*/std::nullopt,
-                                /*compute_kernel_config=*/std::nullopt,
-                                /*negative_mask=*/std::nullopt,
-                                /*use_welford=*/false);
+    ttnn_op_invoke::GroupNormOpResult result = ttnn_op_invoke::callGroupNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+        inputMaskSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected GroupNormOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), groupNormQuery);
@@ -7752,22 +7761,19 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  int numGroupsInt = static_cast<int>(numGroups);
-  float epsilonFloat = epsilon.convertToFloat();
+  ::tt::target::ttnn::GroupNormOpT opT =
+      buildGroupNormOpTFromMLIR(numGroups, epsilon, outputLayout);
 
   auto groupNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::group_norm, device, inputSpec, numGroupsInt,
-                            epsilonFloat, inputMaskSpec, weightSpec, biasSpec,
-                            /*reciprocals=*/std::nullopt,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            /*dtype=*/std::nullopt,
-                            /*core_grid=*/std::nullopt,
-                            /*inplace=*/std::nullopt,
-                            /*output_layout=*/std::nullopt,
-                            /*num_out_blocks=*/std::nullopt,
-                            /*compute_kernel_config=*/std::nullopt,
-                            /*negative_mask=*/std::nullopt,
-                            /*use_welford=*/false);
+    ttnn_op_invoke::GroupNormOpResult result = ttnn_op_invoke::callGroupNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec,
+        inputMaskSpec, weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected GroupNormOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(groupNormQuery);

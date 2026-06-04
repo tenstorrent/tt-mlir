@@ -15,6 +15,7 @@ add_library(TTNNOpInvokeLib STATIC
   Eltwise/Unary/EltwiseUnaryOp.cpp
   Matmul/MatmulOp.cpp
   Normalization/BatchNormOp.cpp
+  Normalization/GroupNormOp.cpp
   Transformer/ConcatenateHeadsOp.cpp
   Transformer/NLPConcatHeadsDecodeOp.cpp
   Transformer/NLPConcatHeadsOp.cpp

@@ -4697,4 +4697,129 @@ INSTANTIATE_TEST_SUITE_P(BatchNormTrainingOpTPathParityTest,
                          BatchNormTrainingOpTPathParityTest,
                          ::testing::ValuesIn(batchNormTrainingOpList));
 
+//===----------------------------------------------------------------------===//
+// GroupNormOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::GroupNormOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, GroupNormOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::GroupNormOpT
+buildGroupNormOpTFromMLIR(int64_t numGroups, llvm::APFloat epsilon,
+                          TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::GroupNormOpT &opTOpModel,
+                       ::tt::target::ttnn::GroupNormOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::GroupNormOpT &opT) {
+    opT.input.reset();
+    opT.input_mask.reset();
+    opT.weight.reset();
+    opT.bias.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memory_config.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::GroupNormOp buildTestGroupNormOp(bool withInputMask = false,
+                                                 bool withWeight = false,
+                                                 bool withBias = false,
+                                                 uint64_t numGroups = 4u,
+                                                 mlir::FloatAttr epsilon = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value input = makeOnes();
+  mlir::Value inputMask = withInputMask ? makeOnes() : mlir::Value();
+  mlir::Value weight = withWeight ? makeOnes() : mlir::Value();
+  mlir::Value bias = withBias ? makeOnes() : mlir::Value();
+
+  llvm::APFloat epsilonVal(1e-12f);
+  if (epsilon) {
+    epsilonVal = epsilon.getValue();
+  }
+
+  return e.builder.create<mlir::tt::ttnn::GroupNormOp>(
+      loc, tensorType, input, inputMask, weight, bias, numGroups, epsilonVal);
+}
+
+} // namespace
+
+using GroupNormOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::GroupNormOp>;
+
+TEST_P(GroupNormOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::GroupNormOp gnOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::GroupNormOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildGroupNormOpTFromMLIR(
+          static_cast<int64_t>(gnOp.getNumGroups()), gnOp.getEpsilon(),
+          resolveOutputLayout(gnOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, gnOp.getInput());
+  if (gnOp.getInputMask()) {
+    prepopulateOperandTensorRefs(cache, gnOp.getInputMask());
+  }
+  if (gnOp.getWeight()) {
+    prepopulateOperandTensorRefs(cache, gnOp.getWeight());
+  }
+  if (gnOp.getBias()) {
+    prepopulateOperandTensorRefs(cache, gnOp.getBias());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, gnOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::GroupNormOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::GroupNormOp> groupNormOpList = {
+    buildTestGroupNormOp(),
+    buildTestGroupNormOp(/*withInputMask=*/true),
+    buildTestGroupNormOp(/*withInputMask=*/false, /*withWeight=*/true),
+    buildTestGroupNormOp(/*withInputMask=*/false, /*withWeight=*/false,
+                         /*withBias=*/true),
+    buildTestGroupNormOp(/*withInputMask=*/false, /*withWeight=*/false,
+                         /*withBias=*/false, /*numGroups=*/8u),
+    buildTestGroupNormOp(
+        /*withInputMask=*/false, /*withWeight=*/false, /*withBias=*/false,
+        /*numGroups=*/4u,
+        /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-6f)),
+    buildTestGroupNormOp(
+        /*withInputMask=*/true, /*withWeight=*/true, /*withBias=*/true,
+        /*numGroups=*/8u,
+        /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-6f)),
+};
+
+INSTANTIATE_TEST_SUITE_P(GroupNormOpTPathParityTest, GroupNormOpTPathParityTest,
+                         ::testing::ValuesIn(groupNormOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

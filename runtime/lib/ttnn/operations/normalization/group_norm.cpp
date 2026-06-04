@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/normalization/group_norm.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/GroupNormOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::group_norm {
 void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
@@ -27,26 +28,26 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
     bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
-  float epsilon = op->epsilon();
+  ::tt::target::ttnn::GroupNormOpT opT;
+  op->UnPackTo(&opT);
 
-  int num_groups = static_cast<int>(op->num_groups());
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  // Handle optional memory config
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+  ttnn_op_invoke::GroupNormOpResult result = ttnn_op_invoke::callGroupNorm(
+      ttnn_op_invoke::CallType::EXECUTE, opT, &input,
+      input_mask.has_value()
+          ? std::optional<ttnn_op_invoke::TensorArg>(&*input_mask)
+          : std::nullopt,
+      weight.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*weight)
+                         : std::nullopt,
+      bias.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*bias)
+                       : std::nullopt,
+      &targetDevice);
 
-  // Call TTNN group norm operation
-  ::ttnn::Tensor output = ::ttnn::group_norm(
-      input, num_groups, epsilon, input_mask, weight, bias,
-      /*reciprocals=*/std::nullopt, memoryConfig,
-      /*dtype=*/std::nullopt, /*core_grid=*/std::nullopt,
-      /*inplace=*/std::nullopt, /*output_layout=*/std::nullopt,
-      /*num_out_blocks=*/std::nullopt,
-      /*compute_kernel_config=*/std::nullopt,
-      /*negative_mask=*/std::nullopt,
-      /*use_welford=*/false);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callGroupNorm execution");
 
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::group_norm
