@@ -711,3 +711,41 @@ const std::initializer_list<mlir::tt::ttnn::SDPAProgramConfigAttr>
 
 INSTANTIATE_TEST_SUITE_P(SDPAProgramConfigTest, SDPAProgramConfigTest,
                          ::testing::ValuesIn(sdpaProgramConfigAttrList));
+
+//===----------------------------------------------------------------------===//
+// LayerNormShardedMultiCoreProgramConfig
+//===----------------------------------------------------------------------===//
+
+class LayerNormShardedMultiCoreProgramConfigTest
+    : public ToNativeConsistencyTest<
+          mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr,
+          ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT> {};
+
+TEST_P(LayerNormShardedMultiCoreProgramConfigTest,
+       LayerNormShardedMultiCoreProgramConfig) {
+  RunTest(GetParam());
+}
+
+const std::initializer_list<
+    mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr>
+    layerNormShardedMultiCoreProgramConfigAttrList = {
+        mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
+            LayerNormShardedMultiCoreProgramConfigTest::getContext(),
+            mlir::tt::ttnn::CoreCoordAttr::get(
+                LayerNormShardedMultiCoreProgramConfigTest::getContext(), 8, 8),
+            1, 4, 4, false),
+        mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
+            LayerNormShardedMultiCoreProgramConfigTest::getContext(),
+            mlir::tt::ttnn::CoreCoordAttr::get(
+                LayerNormShardedMultiCoreProgramConfigTest::getContext(), 4, 4),
+            1, 2, 8, true),
+        mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
+            LayerNormShardedMultiCoreProgramConfigTest::getContext(),
+            mlir::tt::ttnn::CoreCoordAttr::get(
+                LayerNormShardedMultiCoreProgramConfigTest::getContext(), 1, 1),
+            1, 1, 1, false)};
+
+INSTANTIATE_TEST_SUITE_P(
+    LayerNormShardedMultiCoreProgramConfigTest,
+    LayerNormShardedMultiCoreProgramConfigTest,
+    ::testing::ValuesIn(layerNormShardedMultiCoreProgramConfigAttrList));
