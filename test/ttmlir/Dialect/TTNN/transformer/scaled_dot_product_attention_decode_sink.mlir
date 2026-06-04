@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-ttnn-decomposition-pass=false" %s | FileCheck %s
 
 // A decode-shaped (Sq=1) ttir.scaled_dot_product_attention carrying an
 // attention sink must lower to ttnn.scaled_dot_product_attention_decode WITHOUT
