@@ -49,10 +49,6 @@ namespace mlir::tt::ttir::fusing {
 // slice and the concat are peeled, and the sink (broadcast back to [1, Hq, 1,
 // 1]) is fed to the op's attention_sink operand.
 //
-// Out of scope (intentionally — handled by the TTNN matcher today):
-//   - generic typecast look-through
-//   - 3D Q/K/V (must be rank 4)
-//   - sliding_window_size
 class SDPAFusingPattern : public mlir::OpRewritePattern<MatmulOp> {
 public:
   using OpRewritePattern<MatmulOp>::OpRewritePattern;
