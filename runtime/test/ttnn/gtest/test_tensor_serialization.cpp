@@ -38,7 +38,7 @@ private:
 
 TEST_F(TensorSerializationTest, TestDumpAndLoadFloat32Tensor) {
   std::vector<uint32_t> shape = {3, 3};
-  std::vector<uint32_t> stride = tt::runtime::utils::calculateStride(shape);
+  std::vector<int64_t> stride = tt::runtime::utils::calculateStride(shape);
   tt::target::DataType dataType = tt::target::DataType::Float32;
   uint32_t itemSize = sizeof(float);
 
@@ -80,7 +80,7 @@ TEST_F(TensorSerializationTest, TestDumpAndLoadFloat32Tensor) {
 
 TEST_F(TensorSerializationTest, TestDumpAndLoadTensorWithDevice) {
   std::vector<uint32_t> shape = {32, 32};
-  std::vector<uint32_t> stride = tt::runtime::utils::calculateStride(shape);
+  std::vector<int64_t> stride = tt::runtime::utils::calculateStride(shape);
   tt::target::DataType dataType = tt::target::DataType::BFloat16;
   uint32_t itemSize = sizeof(uint16_t);
 

@@ -281,7 +281,7 @@ void shutdownDistributedRuntime() {
 
 Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &shape,
-                                const std::vector<std::uint32_t> &stride,
+                                const std::vector<std::int64_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType) {
   using RetType = Tensor;
@@ -304,7 +304,7 @@ Tensor createBorrowedHostTensor(void *data,
 
 Tensor createOwnedHostTensor(const void *data,
                              const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint32_t> &stride,
+                             const std::vector<std::int64_t> &stride,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType) {
   using RetType = Tensor;
@@ -346,7 +346,7 @@ Tensor createUnsafeBorrowedHostTensor(Tensor ownedHostTensor) {
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
@@ -394,7 +394,7 @@ Tensor createMultiDeviceHostTensor(
 
 Tensor createMultiDeviceBorrowedHostTensor(
     std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
@@ -420,7 +420,7 @@ Tensor createMultiDeviceBorrowedHostTensor(
 
 Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint32_t> &stride,
+                         const std::vector<std::int64_t> &stride,
                          std::uint32_t itemsize) {
   using RetType = Tensor;
   LOG_ASSERT(!shape.empty());
@@ -514,8 +514,8 @@ std::vector<std::uint32_t> getTensorShape(Tensor t) {
       });
 }
 
-std::vector<std::uint32_t> getTensorStride(Tensor t) {
-  using RetType = std::vector<std::uint32_t>;
+std::vector<std::int64_t> getTensorStride(Tensor t) {
+  using RetType = std::vector<std::int64_t>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorStride(t); },
