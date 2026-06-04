@@ -2,11 +2,37 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 namespace mlir::tt::ttnn {
+namespace {
+
+constexpr int64_t kLargeInnerDimThreshold = 50000;
+
+template <typename OpTy>
+void maybeApplyLargeInnerDimBf16MatmulConfig(
+    OpTy op, DeviceComputeKernelConfigAttr &config) {
+  std::optional<int64_t> innerDim = getMatmulInnerDim(
+      op.getA().getType(), op.getB().getType(), op.getTransposeA(),
+      op.getTransposeB());
+  if (!innerDim || *innerDim <= kLargeInnerDimThreshold) {
+    return;
+  }
+
+  auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+  if (ttcore::elementTypeToDataType(outputType.getElementType()) ==
+      ttcore::DataType::BFloat16) {
+    config = config.withFp32DestAccEn(true);
+    config = config.withPackerL1Acc(true);
+  }
+}
+
+} // namespace
+
 #define GEN_PASS_DEF_TTNNSETCOMPUTEKERNELCONFIG
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
@@ -80,6 +106,13 @@ public:
 
       if (!config.getDstFullSyncEn() && dstFullSyncEn) {
         config = config.withDstFullSyncEn(dstFullSyncEn);
+      }
+
+      // This fix is required for correctness of large matmuls/linears.
+      if (auto matmulOp = dyn_cast<MatmulOp>(op)) {
+        maybeApplyLargeInnerDimBf16MatmulConfig(matmulOp, config);
+      } else if (auto linearOp = dyn_cast<LinearOp>(op)) {
+        maybeApplyLargeInnerDimBf16MatmulConfig(linearOp, config);
       }
 
       // Log config after applying overrides
