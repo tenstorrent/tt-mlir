@@ -380,17 +380,12 @@ void createTTIRToTTNNCommonPipeline(
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
-    // Create options struct and forward pipeline options.
+    // Always run: large-K matmul/linear packer_l1_acc logic runs even when
+    // pipeline options leave math_fidelity undefined and fp32_dest_acc_en false.
     TTNNSetComputeKernelConfigOptions setConfigOptions;
-
-    // Forward the OptionalMathFidelity value directly
     setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
     setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
-
-    if (setConfigOptions.fp32DestAccEn ||
-        setConfigOptions.mathFidelity != OptionalMathFidelity::Undefined) {
-      devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
-    }
+    devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
 
     if (options.enableCreateD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {
