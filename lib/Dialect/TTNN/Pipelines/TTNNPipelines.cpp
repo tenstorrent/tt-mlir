@@ -384,7 +384,8 @@ void createTTIRToTTNNCommonPipeline(
 
     // Apply ComputeKernelConfig settings before analysis passes.
     // Always run: large-K matmul/linear packer_l1_acc logic runs even when
-    // pipeline options leave math_fidelity undefined and fp32_dest_acc_en false.
+    // pipeline options leave math_fidelity undefined and fp32_dest_acc_en
+    // false.
     TTNNSetComputeKernelConfigOptions setConfigOptions;
     setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
     setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();

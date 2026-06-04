@@ -35,9 +35,7 @@ def _matmul_module(in_lhs: torch.Tensor, in_rhs: torch.Tensor) -> Callable:
     return module
 
 
-def _make_bf16_small_inputs(
-    k: int, seed: int = 0
-) -> tuple[torch.Tensor, torch.Tensor]:
+def _make_bf16_small_inputs(k: int, seed: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
     """Small-magnitude bf16 activations."""
     torch.manual_seed(seed)
     scale = 0.001
@@ -48,9 +46,7 @@ def _make_bf16_small_inputs(
 
 @pytest.mark.forked
 @pytest.mark.parametrize("k", [100000, 4096], ids=["large_k", "small_k"])
-def test_bf16_matmul_compute_config_passes_pcc(
-    k: int, request, device
-):
+def test_bf16_matmul_compute_config_passes_pcc(k: int, request, device):
     """Large-K bf16 matmul gets fp32_dest_acc_en and packer_l1_acc; small-K skips the fix."""
     in_lhs, in_rhs = _make_bf16_small_inputs(k)
 

@@ -565,7 +565,7 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
     defined, preserving any existing configuration decisions made by earlier compiler passes.
 
     Precision requiremnets:
-    For `ttnn.matmul` and `ttnn.linear` with inner dimension > kLargeInnerDimThreshold and 
+    For `ttnn.matmul` and `ttnn.linear` with inner dimension > kLargeInnerDimThreshold and
     bf16 output, sets `fp32_dest_acc_en = true` and `packer_l1_acc = true`.
 
     Behaviour:
