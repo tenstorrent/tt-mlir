@@ -39,14 +39,14 @@ struct MatmulAdjustedShapes {
   llvm::SmallVector<int64_t> inputB;
 };
 
-MatmulAdjustedShapes getMatmulAdjustedInputShapes(::mlir::RankedTensorType inputA,
-                                                  ::mlir::RankedTensorType inputB,
-                                                  bool transposeA,
-                                                  bool transposeB);
+MatmulAdjustedShapes
+getMatmulAdjustedInputShapes(::mlir::RankedTensorType inputA,
+                             ::mlir::RankedTensorType inputB, bool transposeA,
+                             bool transposeB);
 
 std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
-                                           ::mlir::RankedTensorType inputB,
-                                           bool transposeA, bool transposeB);
+                                         ::mlir::RankedTensorType inputB,
+                                         bool transposeA, bool transposeB);
 
 } // namespace mlir::tt::ttnn
 
