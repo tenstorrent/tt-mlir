@@ -11,10 +11,11 @@
 namespace mlir::tt::ttnn {
 namespace {
 
-// During training backward run we have observed matmuls with inner dimension equal to vocab size
-// fail due to precision issues. Upon inspection, we have not found a model that has vocab size 
-// smaller than this threshold. Fix is only applied to these types of matmuls, as we do not expect 
-// other matmuls to have this type of inner dimension.
+// During training backward run we have observed matmuls with inner dimension
+// equal to vocab size fail due to precision issues. Upon inspection, we have
+// not found a model that has vocab size smaller than this threshold. Fix is
+// only applied to these types of matmuls, as we do not expect other matmuls to
+// have this type of inner dimension.
 constexpr int64_t kLargeInnerDimThreshold = 50000;
 
 template <typename OpTy>
