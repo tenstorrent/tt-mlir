@@ -27,6 +27,8 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+#include "llvm/ADT/SmallVector.h"
+
 #include <optional>
 
 #define GET_OP_CLASSES
