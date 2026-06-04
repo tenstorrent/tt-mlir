@@ -60,8 +60,18 @@ SumL1MemoryTracker::validate(Operation *op,
   }
   uint64_t additionalL1 =
       currentOccupied > inputOverlap ? currentOccupied - inputOverlap : 0;
+  return validateBackendDirect(op, inputLayouts, config, additionalL1);
+}
+
+op_constraint_validation::ValidationResult
+SumL1MemoryTracker::validateBackendDirect(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage) const {
+  if (backendValidator) {
+    return backendValidator(op, inputLayouts, config, additionalL1Usage);
+  }
   return op_constraint_validation::validateOperation(op, inputLayouts, config,
-                                                     additionalL1);
+                                                     additionalL1Usage);
 }
 
 uint64_t SumL1MemoryTracker::getOccupiedL1() const { return currentOccupied; }
@@ -830,7 +840,7 @@ void L1SpillManagement<MemoryTracker>::evictValue(
       if (!needsReshard) {
         auto consumerInputs = utils::extractInputLayouts(consumer);
         auto consumerConfig = extractOpConfigFromIR(consumer);
-        auto consumerResult = op_constraint_validation::validateOperation(
+        auto consumerResult = memoryTracker.validateBackendDirect(
             consumer, consumerInputs, consumerConfig,
             /*additionalL1Usage=*/0);
         needsReshard = consumerResult.isMetalBackendError();
@@ -851,7 +861,7 @@ void L1SpillManagement<MemoryTracker>::evictValue(
 
         // Aligned per-core L1 size from validating the inserted reshard;
         // fall back to the layout estimate if validation can't model it.
-        auto reshardValidation = op_constraint_validation::validateOperation(
+        auto reshardValidation = memoryTracker.validateBackendDirect(
             reshardOp, utils::extractInputLayouts(reshardOp),
             extractOpConfigFromIR(reshardOp), /*additionalL1Usage=*/0);
         uint64_t reshardSizePerCore =
@@ -1500,7 +1510,7 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
                  "    EVICT_ALL: {0} (L1: {1} bytes)",
                  ttmlir::opToString(victimOp), freedBytes);
     observer_->onEviction(victimOp, pos, freedBytes);
-    spillToDram(victim, triggerOp);
+    spillToDramBeforeTrigger(victim, triggerOp);
     memoryTracker.removeTensor(victim);
     evictedOps.push_back(victimOp);
   }
@@ -1510,6 +1520,11 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
     event.skipped = true;
   }
   memoryTracker.init(l1BudgetPerCore);
+  // INVARIANT: spillToDramBeforeTrigger requires a full tracker reset.
+  // Anything else here means the address simulator is out of sync with
+  // the IR's L1 occupancy.
+  assert(memoryTracker.getOccupiedL1() == 0 &&
+         "evictAllFromL1: tracker not fully reset after flush");
 
   // Revalidate consumers after all evictions to avoid revalidating against
   // transient intermediate IR states.
@@ -1540,9 +1555,8 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
 
   auto inputLayouts = utils::extractInputLayouts(op);
   auto config = extractOpConfigFromIR(op);
-  auto result =
-      op_constraint_validation::validateOperation(op, inputLayouts, config,
-                                                  /*additionalL1Usage=*/0);
+  auto result = memoryTracker.validateBackendDirect(op, inputLayouts, config,
+                                                    /*additionalL1Usage=*/0);
   if (!result.isSuccess()) {
     op->emitError("L1SpillManagement: DRAM output config failed validation "
                   "after demotion (")
@@ -1565,12 +1579,24 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
 }
 
 //===----------------------------------------------------------------------===//
-// spillToDram
+// spillToDram / spillToDramBeforeTrigger / spillToDramImpl
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
-                                                   Operation *insertBefore) {
+void L1SpillManagement<MemoryTracker>::spillToDram(Value result) {
+  spillToDramImpl(result, /*insertBefore=*/nullptr);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::spillToDramBeforeTrigger(
+    Value result, Operation *triggerOp) {
+  assert(triggerOp && "spillToDramBeforeTrigger requires a non-null trigger");
+  spillToDramImpl(result, triggerOp);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::spillToDramImpl(
+    Value result, Operation *insertBefore) {
   Operation *defOp = result.getDefiningOp();
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(result.getType());
   TTNNLayoutAttr layoutAttr =
