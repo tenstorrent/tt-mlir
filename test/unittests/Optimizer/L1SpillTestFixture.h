@@ -391,15 +391,17 @@ public:
     return false;
   }
 
-  /// Count how many ToMemoryConfigOp ops appear immediately before `op`.
-  size_t reshardsDirectlyBefore(mlir::Operation *op) {
-    size_t n = 0;
-    mlir::Operation *cursor = op->getPrevNode();
-    while (cursor && mlir::isa<ToMemoryConfigOp>(cursor)) {
-      ++n;
-      cursor = cursor->getPrevNode();
+  /// Return true if `v`'s defining op still has an L1 result layout (i.e. it
+  /// was NOT demoted in place to DRAM). Distinct from wasSpilled, which looks
+  /// for an inserted ToMemoryConfigOp user — demoteToDram mutates the result
+  /// type directly without inserting a spill op.
+  bool resultIsL1(mlir::Value v) {
+    auto rt = mlir::dyn_cast<mlir::RankedTensorType>(v.getType());
+    if (!rt) {
+      return false;
     }
-    return n;
+    auto enc = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rt.getEncoding());
+    return enc && enc.hasL1BufferType();
   }
 
   /// Count all ops of a given kind in func.

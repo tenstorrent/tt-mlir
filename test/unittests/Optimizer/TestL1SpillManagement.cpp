@@ -159,8 +159,8 @@ class NotImplementedPostFlushTest : public L1SpillTestFixture {};
 
 // After evictAllFromL1 resets the tracker, a subsequent allocation must
 // land at a fresh top-of-budget address as if no prior tensors existed.
-// This is the runtime check for Task 1.5's invariant (spillToDramBeforeTrigger
-// must be paired with a full tracker reset).
+// This is the runtime check for the spillToDramBeforeTrigger invariant
+// (must be paired with a full tracker reset).
 TEST_F(NotImplementedPostFlushTest, PostFlushAllocationSeesEmptyTracker) {
   l1BudgetPerCore = 1300 * kKiB;
   llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
@@ -189,6 +189,12 @@ TEST_F(NotImplementedPostFlushTest, PostFlushAllocationSeesEmptyTracker) {
   // opPostFlush must NOT be spilled — the reset tracker has 1.3 MiB free.
   EXPECT_FALSE(wasSpilled(opPostFlush->getResult(0)))
       << "post-flush allocation should fit on a fully-reset tracker";
+  // ...and must NOT be demoted in place either. A corrupted free-list after
+  // the reset could make handleNoFit call demoteToDram, which wasSpilled
+  // would miss (demote mutates the result type without inserting a spill op).
+  EXPECT_TRUE(resultIsL1(opPostFlush->getResult(0)))
+      << "post-flush allocation should stay L1 (not demoted to DRAM)";
+  EXPECT_TRUE(obs->demotions.empty());
   // Exactly the 2 evict-all spills, no extras from opPostFlush.
   EXPECT_EQ(countSpills(), 2u);
   EXPECT_EQ(obs->evictions.size(), 2u);
@@ -234,6 +240,12 @@ TEST_F(SnapshotReplayManyAllocsTest, EvictEarliestTensorReplaysAllSuccessors) {
   EXPECT_FALSE(wasSpilled(opB->getResult(0)));
   EXPECT_FALSE(wasSpilled(opC->getResult(0)));
   EXPECT_FALSE(wasSpilled(opD->getResult(0)));
+  // ...and must NOT be demoted in place — a wrong replay could push a
+  // successor through handleNoFit → demoteToDram, which wasSpilled misses.
+  EXPECT_TRUE(resultIsL1(opB->getResult(0)));
+  EXPECT_TRUE(resultIsL1(opC->getResult(0)));
+  EXPECT_TRUE(resultIsL1(opD->getResult(0)));
+  EXPECT_TRUE(obs->demotions.empty());
 }
 
 //===----------------------------------------------------------------------===//
@@ -281,6 +293,11 @@ TEST_F(SnapshotReplayCrossEvictionTest, SecondEvictionUsesUpdatedSnapshots) {
   EXPECT_EQ(obs->evictions[1].victim, opB) << "second eviction = opB";
   EXPECT_TRUE(wasSpilled(opA->getResult(0)));
   EXPECT_TRUE(wasSpilled(opB->getResult(0)));
+  // The two pressure ops survived in L1 — neither was demoted by a
+  // corrupted free-list after the cross-eviction replays.
+  EXPECT_TRUE(resultIsL1(opP1->getResult(0)));
+  EXPECT_TRUE(resultIsL1(opP2->getResult(0)));
+  EXPECT_TRUE(obs->demotions.empty());
 }
 
 //===----------------------------------------------------------------------===//
@@ -346,6 +363,12 @@ TEST_F(SnapshotReplayNonEmptyAndCascadeTest,
   EXPECT_FALSE(wasSpilled(opTrigger1->getResult(0)));
   EXPECT_FALSE(wasSpilled(opPost->getResult(0)));
   EXPECT_FALSE(wasSpilled(opTrigger2->getResult(0)));
+  // Survivors must be L1, not demoted in place by a corrupted replay.
+  EXPECT_TRUE(resultIsL1(opA->getResult(0)));
+  EXPECT_TRUE(resultIsL1(opTrigger1->getResult(0)));
+  EXPECT_TRUE(resultIsL1(opPost->getResult(0)));
+  EXPECT_TRUE(resultIsL1(opTrigger2->getResult(0)));
+  EXPECT_TRUE(obs->demotions.empty());
 }
 
 //===----------------------------------------------------------------------===//
@@ -508,8 +531,8 @@ TEST_F(CBOverlapTest, HighCBPeakEvictsLowAddressTensor) {
 
   EXPECT_TRUE(wasSpilled(opLarge->getResult(0)))
       << "opLarge should be spilled to clear the CB region";
-  // Observer should record either an eviction or a fragmentation demote.
-  EXPECT_TRUE(!obs->evictions.empty() || !obs->demotions.empty());
+  ASSERT_EQ(obs->evictions.size(), 1u) << "expected exactly one eviction";
+  EXPECT_EQ(obs->evictions[0].victim, opLarge);
 }
 
 //===----------------------------------------------------------------------===//
@@ -552,6 +575,47 @@ TEST_F(CushionDominantTriggerTest, SmallCBPlusCushionFiresAtTightFit) {
       << "cushion contribution should evict opNearFull. "
       << "evictions=" << obs->evictions.size()
       << " demotions=" << obs->demotions.size() << " spills=" << countSpills();
+}
+
+//===----------------------------------------------------------------------===//
+// DramCBGrowthTest
+//===----------------------------------------------------------------------===//
+
+class DramCBGrowthTest : public L1SpillTestFixture {};
+
+// Exercises the DRAM-config CB path: a DRAM-output op carries a large CB
+// peak that only applies once the output is DRAM-interleaved (the static CB
+// flips from globally_allocated to locally_allocated and grows). The fixture
+// reports this via setDramCBPeak, and makeValidator returns it on the
+// configIsDRAM branch. The op's cushioned DRAM CB clashes with a live
+// low-address L1 tensor, so the pass evicts that tensor.
+//
+// opKeep (200 KiB, L1) sits at the top, leaving lowestOccupiedAddress just
+// below budget. opDram has a DRAM output and a 1100 KiB DRAM CB peak;
+// 1100 KiB + 130 KiB cushion exceeds lowestOccupiedAddress → opKeep evicted.
+TEST_F(DramCBGrowthTest, DramOutputCBEvictsLowAddressTensor) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto l1Layout = makeL1Sharded(shape);
+  auto ttL1 = tensorType(shape, l1Layout);
+  auto ttDram = tensorType(shape, makeDRAM(shape));
+
+  auto args = beginFunc({ttL1});
+  auto *opKeep = addUnary(args[0], ttL1, /*l1UsageBytes=*/200 * kKiB);
+  // DRAM-output op; the DRAM CB peak is what drives the eviction.
+  auto *opDram = addUnary(args[0], ttDram, /*l1UsageBytes=*/0);
+  setDramCBPeak(opDram, /*cb=*/1100 * kKiB);
+  // opKeep must outlive opDram so it's still live when the CB check fires.
+  auto *useKeep =
+      addUnary(opKeep->getResult(0), ttL1, /*l1UsageBytes=*/50 * kKiB);
+  finishFunc({opDram->getResult(0), useKeep->getResult(0)});
+
+  auto [obs] = run();
+
+  ASSERT_EQ(obs->evictions.size(), 1u)
+      << "DRAM CB peak + cushion should evict the low-address L1 tensor";
+  EXPECT_EQ(obs->evictions[0].victim, opKeep);
+  EXPECT_TRUE(wasSpilled(opKeep->getResult(0)));
 }
 
 //===----------------------------------------------------------------------===//
