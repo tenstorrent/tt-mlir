@@ -563,7 +563,7 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
     This pass sets ComputeKernelConfig attributes for TTNN operations that implement
     ComputeKernelConfigOpInterface.
 
-    Pipeline option defaults (math_fidelity, fp32_dest_acc_en, packer_l1_acc, etc.):
+    Pipeline behaviour:
     - If an operation has no compute_config attribute, a new config is created and pipeline
       option values are applied.
     - If a parameter is already set on the operation's compute_config, pipeline options do
@@ -571,7 +571,7 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
     - If a parameter is unset (std::nullopt for math_fidelity, false for bool options),
       the corresponding pipeline option is applied.
 
-    Large-inner-dimension bf16 matmul/linear correctness fix:
+    Large-inner-dimension bf16 matmul/linear correctness fix (tenstorrent/tt-metal#46101):
     For `ttnn.matmul` and `ttnn.linear` with inner dimension > 50000 and bf16 output,
     always sets `fp32_dest_acc_en = true` and `packer_l1_acc = true`, even when those
     parameters are already set to false. This rule runs after pipeline option defaults
