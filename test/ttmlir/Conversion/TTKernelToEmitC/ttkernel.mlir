@@ -2878,4 +2878,32 @@ module {
 
   } // module
 
+  //===----------------------------------------------------------------------===//
+  // TTKernel Numeric operations
+  //===----------------------------------------------------------------------===//
+
+  module @ttkernel_numeric_operations {
+
+    // CHECK-LABEL: func @bfloat16_greater
+    func.func @bfloat16_greater() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = scalar, operand_index = 0>, <arg_type = scalar, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %raw0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> ui32
+      %raw1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> ui32
+      %arg0 = ttkernel.bitcast %raw0 : ui32 to ui16
+      %arg1 = ttkernel.bitcast %raw1 : ui32 to ui16
+      // CHECK: emitc.call_opaque "bfloat16_greater"(%{{.*}}, %{{.*}}) : (ui16, ui16) -> i1
+      %0 = ttkernel.bfloat16_greater(%arg0, %arg1) : (ui16, ui16) -> i1
+      return
+    }
+
+    // CHECK-LABEL: func @float32_greater
+    func.func @float32_greater() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = scalar, operand_index = 0>, <arg_type = scalar, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %arg0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> ui32
+      %arg1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> ui32
+      // CHECK: emitc.call_opaque "float32_greater"(%{{.*}}, %{{.*}}) : (ui32, ui32) -> i1
+      %0 = ttkernel.float32_greater(%arg0, %arg1) : (ui32, ui32) -> i1
+      return
+    }
+
+  } // module
+
 } // module
