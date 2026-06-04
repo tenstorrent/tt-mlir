@@ -2471,6 +2471,51 @@ llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
 // FlashMlaPrefillOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+struct FlashMlaPrefillArgs {
+  llvm::SmallVector<int64_t> queryShape;
+  TTNNLayoutAttr queryLayout;
+  llvm::SmallVector<int64_t> keyShape;
+  TTNNLayoutAttr keyLayout;
+  std::optional<llvm::SmallVector<int64_t>> valueShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> valueLayout = std::nullopt;
+  std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+  uint32_t headDimV;
+  bool isCausal;
+};
+
+static FlashMlaPrefillArgs
+unpackFlashMlaPrefillArgs(const std::vector<TTNNLayoutAttr> &inputs,
+                          FlashMlaPrefillOp op) {
+  FlashMlaPrefillArgs ret;
+  ret.queryShape =
+      llvm::SmallVector<int64_t>(op.getQuery().getType().getShape());
+  ret.queryLayout = inputs[0];
+  ret.keyShape = llvm::SmallVector<int64_t>(op.getKey().getType().getShape());
+  ret.keyLayout = inputs[1];
+
+  size_t idx = 2;
+  if (op.getValue()) {
+    ret.valueShape =
+        llvm::SmallVector<int64_t>(op.getValue().getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has value but no value layout was provided.");
+    ret.valueLayout = inputs[idx++];
+  }
+  if (op.getAttentionMask()) {
+    ret.attentionMaskShape =
+        llvm::SmallVector<int64_t>(op.getAttentionMask().getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has attention mask but no attention mask layout was provided.");
+    ret.attentionMaskLayout = inputs[idx++];
+  }
+
+  ret.headDimV = op.getHeadDimV();
+  ret.isCausal = op.getIsCausal();
+
+  return ret;
+}
+
 llvm::Expected<op_model::OpConstraints>
 FlashMlaPrefillOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                     const OpConfig &opConfig) {
@@ -2481,29 +2526,13 @@ FlashMlaPrefillOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
 
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-
-  size_t idx = 2;
-  const std::optional<llvm::ArrayRef<int64_t>> valueShape =
-      getValue() ? std::make_optional(getValue().getType().getShape())
-                 : std::nullopt;
-  const std::optional<TTNNLayoutAttr> valueLayout =
-      getValue() ? std::make_optional(inputs[idx++]) : std::nullopt;
-  const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
-      getAttentionMask()
-          ? std::make_optional(getAttentionMask().getType().getShape())
-          : std::nullopt;
-  const std::optional<TTNNLayoutAttr> attentionMaskLayout =
-      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
-
-  uint32_t headDimV = getHeadDimV();
-  bool isCausal = getIsCausal();
+  FlashMlaPrefillArgs args = unpackFlashMlaPrefillArgs(inputs, *this);
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<FlashMlaPrefillOp>::getOpConstraints, *this, deviceGrid,
-      queryShape, inputs[0], keyShape, inputs[1], valueShape, valueLayout,
-      attentionMaskShape, attentionMaskLayout, headDimV, isCausal, getScale(),
+      args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
+      args.valueShape, args.valueLayout, args.attentionMaskShape,
+      args.attentionMaskLayout, args.headDimV, args.isCausal, getScale(),
       opConfig.outputLayout);
 }
 
@@ -2513,29 +2542,13 @@ FlashMlaPrefillOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() >= 2 && inputs.size() <= 4 &&
          "ttnn::flash_mla_prefill can have 2 to 4 input tensors");
 
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-
-  size_t idx = 2;
-  const std::optional<llvm::ArrayRef<int64_t>> valueShape =
-      getValue() ? std::make_optional(getValue().getType().getShape())
-                 : std::nullopt;
-  const std::optional<TTNNLayoutAttr> valueLayout =
-      getValue() ? std::make_optional(inputs[idx++]) : std::nullopt;
-  const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
-      getAttentionMask()
-          ? std::make_optional(getAttentionMask().getType().getShape())
-          : std::nullopt;
-  const std::optional<TTNNLayoutAttr> attentionMaskLayout =
-      getAttentionMask() ? std::make_optional(inputs[idx++]) : std::nullopt;
-
-  uint32_t headDimV = getHeadDimV();
-  bool isCausal = getIsCausal();
+  FlashMlaPrefillArgs args = unpackFlashMlaPrefillArgs(inputs, *this);
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<FlashMlaPrefillOp>::getOpRuntime, *this, queryShape,
-      inputs[0], keyShape, inputs[1], valueShape, valueLayout,
-      attentionMaskShape, attentionMaskLayout, headDimV, isCausal, getScale(),
+      op_model::OpModel<FlashMlaPrefillOp>::getOpRuntime, *this,
+      args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
+      args.valueShape, args.valueLayout, args.attentionMaskShape,
+      args.attentionMaskLayout, args.headDimV, args.isCausal, getScale(),
       opConfig.outputLayout);
 }
 

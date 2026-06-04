@@ -7136,4 +7136,160 @@ INSTANTIATE_TEST_SUITE_P(PagedFlashMLADecodeTests,
                          OpModelPagedFlashMLADecodeParam,
                          pagedFlashMLADecodeOpTestValues);
 
+//===----------------------------------------------------------------------===//
+// FlashMlaPrefillOp
+//===----------------------------------------------------------------------===//
+
+struct FlashMlaPrefillOpParam {
+  detail::TestTensor query;
+  detail::TestTensor key;
+  std::optional<detail::TestTensor> value;
+  std::optional<detail::TestTensor> attentionMask;
+  uint32_t headDimV;
+  bool isCausal;
+  bool withScale;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelFlashMlaPrefillParam
+    : public OpModelTest,
+      public testing::WithParamInterface<FlashMlaPrefillOpParam> {
+protected:
+  void RunTest() {
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    const auto [queryShape, queryTensorLayout, queryBufferType,
+                queryVirtualGrid] = GetParam().query;
+    const auto [keyShape, keyTensorLayout, keyBufferType, keyVirtualGrid] =
+        GetParam().key;
+    const auto headDimV = GetParam().headDimV;
+    const auto isCausal = GetParam().isCausal;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto expectedLegal = GetParam().expectedResult.expectedLegal;
+
+    const TTNNLayoutAttr queryLayout = CreateTiledLayout(
+        queryShape, queryBufferType, queryTensorLayout, queryVirtualGrid);
+    const TTNNLayoutAttr keyLayout = CreateTiledLayout(
+        keyShape, keyBufferType, keyTensorLayout, keyVirtualGrid);
+
+    std::optional<SmallVector<int64_t>> valueShape = std::nullopt;
+    std::optional<TTNNLayoutAttr> valueLayout = std::nullopt;
+    if (auto valueDetail = GetParam().value) {
+      valueShape = valueDetail->shape;
+      valueLayout =
+          CreateTiledLayout(valueDetail->shape, valueDetail->bufferType,
+                            valueDetail->layout, valueDetail->virtualGrid);
+    }
+
+    std::optional<SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+    std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+    if (auto attentionMaskDetail = GetParam().attentionMask) {
+      attentionMaskShape = attentionMaskDetail->shape;
+      attentionMaskLayout = CreateTiledLayout(
+          attentionMaskDetail->shape, attentionMaskDetail->bufferType,
+          attentionMaskDetail->layout, attentionMaskDetail->virtualGrid);
+    }
+
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    const llvm::APFloat scaleAPFloat(1.0f);
+    std::optional<llvm::APFloat> scale = std::nullopt;
+    if (GetParam().withScale) {
+      scale.emplace(scaleAPFloat);
+    }
+
+    auto constraintsExp = OpModel<FlashMlaPrefillOp>::getOpConstraints(
+        CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
+        valueShape, valueLayout, attentionMaskShape, attentionMaskLayout,
+        headDimV, isCausal, scale, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBacks] = constraintsExp.get();
+      EXPECT_GE(cbSize, 0);
+      EXPECT_GE(l1PeakSize, 0);
+      EXPECT_GE(totalPeakSize, 0);
+      EXPECT_GE(outputSizeResult, 0);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp = OpModel<FlashMlaPrefillOp>::getOpRuntime(
+        queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
+        attentionMaskShape, attentionMaskLayout, headDimV, isCausal, scale,
+        outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  }
+};
+
+TEST_P(OpModelFlashMlaPrefillParam, FlashMlaPrefillOp) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  RunTest();
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+// MLA prefill config: batch=1, n_query_heads=16, n_kv_heads=1 (MLA),
+// seq_len=32, qk_head_size=128, head_dim_v=64.
+// Q: [1, 16, 32, 128], K: [1, 1, 32, 128], output: [1, 16, 32, 64].
+const auto flashMlaPrefillOpTestValues = testing::Values(
+    // Causal, MLA-from-latent (no value, no mask).
+    FlashMlaPrefillOpParam{
+        detail::TestTensor{{1, 16, 32, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, // value
+        std::nullopt, // attentionMask
+        64,           // headDimV
+        true,         // isCausal
+        false,        // withScale
+        detail::TestTensor{
+            {1, 16, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}},
+    // Causal, with explicit value tensor.
+    FlashMlaPrefillOpParam{
+        detail::TestTensor{{1, 16, 32, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::nullopt, // attentionMask
+        64,           // headDimV
+        true,         // isCausal
+        true,         // withScale
+        detail::TestTensor{
+            {1, 16, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}},
+    // Non-causal, with attention mask.
+    FlashMlaPrefillOpParam{
+        detail::TestTensor{{1, 16, 32, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, // value
+        std::make_optional(detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        64,    // headDimV
+        false, // isCausal
+        false, // withScale
+        detail::TestTensor{
+            {1, 16, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}});
+
+INSTANTIATE_TEST_SUITE_P(FlashMlaPrefillTests, OpModelFlashMlaPrefillParam,
+                         flashMlaPrefillOpTestValues);
+
 } // namespace mlir::tt::ttnn::op_model

@@ -8571,7 +8571,7 @@ public:
     }
     uint32_t headDimV;
     if (!llvm::to_integer(headDimVStringAttr.getValue(), headDimV) ||
-        headDimV == 0) {
+        headDimV <= 0) {
       return rewriter.notifyMatchFailure(
           srcOp,
           "head_dim_v attribute must be a positive integer. Received \"" +
@@ -8608,7 +8608,7 @@ public:
     FloatAttr scaleAttr =
         scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
 
-    // has_value / has_attention_mask flags.
+    // has_value flag
     auto hasValueStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("has_value");
     bool hasValue = false;
@@ -8619,6 +8619,7 @@ public:
       }
     }
 
+    // has_attention_mask flag
     auto hasAttentionMaskStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
     bool hasAttentionMask = false;
