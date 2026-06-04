@@ -31,6 +31,7 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
+#include <cmath>
 #include <cstdint>
 #include <optional>
 
@@ -3313,6 +3314,47 @@ private:
     return rewriter.create<ttnn::RepeatOp>(loc, broadcastType, mask, shapeAttr);
   }
 
+  // Pre-divide the attention sink by `scale` so the tt-metal kernel reproduces
+  // the faithful sink logit.
+  //
+  // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470: the
+  // SDPA prefill and decode kernels apply `scale` inside the exp path to BOTH
+  // the QK scores and the attention sink (exp((sink - max) * scale)). The
+  // generic ttir.scaled_dot_product_attention carries the sink as a faithful
+  // post-scale logit (in the source graph it is concatenated to the
+  // already-scaled scores, and the op's golden does not scale it). Feeding it
+  // raw would make the kernel compute scale*sink. Dividing by `scale` here
+  // cancels the kernel's multiply: scale * (sink / scale) == sink. tt-metal's
+  // own gpt-oss model does the same at weight-load time (weights.py:
+  // sinks_for_sdpa = sinks / scaling). Done at lowering — not in fusing — so
+  // the TTIR op stays faithful and every producer of it (fuser, StableHLO,
+  // or hand-authored) is covered by a single site. A constant sink folds away.
+  Value
+  compensateAttentionSinkForScale(ttir::ScaledDotProductAttentionOp op,
+                                  Value sink,
+                                  ConversionPatternRewriter &rewriter) const {
+    if (!sink) {
+      return sink;
+    }
+    // The effective scale must match what the kernel applies: the explicit
+    // scale attribute, else the default 1 / sqrt(head_dim).
+    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
+    int64_t headDim = queryType.getShape().back();
+    float scale = op.getScaleAttr()
+                      ? static_cast<float>(op.getScaleAttr().getValueAsDouble())
+                      : 1.0f / std::sqrt(static_cast<float>(headDim));
+    // scale == 1 (or the degenerate 0) needs no compensation.
+    if (scale == 1.0f || scale == 0.0f) {
+      return sink;
+    }
+    auto sinkType = mlir::cast<RankedTensorType>(sink.getType());
+    Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    Value invScale = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), sinkType, rewriter.getF32FloatAttr(1.0f / scale), device);
+    return rewriter.create<ttnn::MultiplyOp>(op.getLoc(), sinkType, sink,
+                                             invScale);
+  }
+
   // Lower to SDPA decode op. Operand layout transitions:
   //   Q:      [B, Hq, 1, D]      -> [1, B, Hq, D]  (permute {2,0,1,3})
   //   K, V:   [B, Hkv, Sk, D]    -> unchanged (TTIR generic and TTNN decode
@@ -3341,11 +3383,14 @@ private:
                                              op.getLoc());
     }
 
+    Value attentionSink = compensateAttentionSinkForScale(
+        op, adaptor.getAttentionSink(), rewriter);
+
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
         adaptor.getValue(), op.getIsCausal(), attentionMask,
         /*cur_pos_tensor=*/Value(),
-        /*attention_sink=*/adaptor.getAttentionSink(), adaptor.getScaleAttr(),
+        /*attention_sink=*/attentionSink, adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(),
         /*program_config=*/nullptr);
 
@@ -3383,12 +3428,15 @@ private:
             ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims));
       }
     }
+    
+    Value attentionSink = compensateAttentionSinkForScale(
+        op, adaptor.getAttentionSink(), rewriter);
 
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
-        op.getIsCausal(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink());
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        mask, op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(), attentionSink);
 
     return success();
   }

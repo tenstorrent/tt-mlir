@@ -538,6 +538,11 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   // attribute as the default 1/sqrt(D), so always emit an explicit scale to
   // preserve the source semantics: the matched scale when present, else 1.0.
   FloatAttr scaleAttr = rewriter.getF32FloatAttr(c.scale.value_or(1.0f));
+  // attention_sink is emitted as the faithful post-scale logit, exactly as it
+  // appeared in the source graph (concatenated to the already-scaled scores).
+  // Do NOT pre-divide it by scale here: the tt-metal kernel applies scale to
+  // the sink, and the TTIRToTTNN lowering compensates once
+  // (compensateAttentionSinkForScale); dividing here too would double-correct.
   auto newOp = rewriter.create<ScaledDotProductAttentionOp>(
       c.attentionMatmul.getLoc(),
       /*resultType=*/resultType,
