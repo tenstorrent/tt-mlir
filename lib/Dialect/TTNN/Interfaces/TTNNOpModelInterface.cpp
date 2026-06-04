@@ -3605,6 +3605,8 @@ struct BatchNormOptionalArgs {
   std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
   std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
   std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      std::nullopt;
 };
 
 template <typename BatchNormOpType>
@@ -3621,6 +3623,7 @@ unpackBatchNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
     ret.runningVarLayout = inputs[2];
     ret.weightLayout = inputs[3];
     ret.biasLayout = inputs[4];
+    ret.computeKernelConfig = op.getComputeConfig();
   }
   return ret;
 }
@@ -3642,7 +3645,8 @@ llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, getEpsilon(), optionalArgs.computeKernelConfig,
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3663,7 +3667,7 @@ BatchNormInferenceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.runningVarShape, optionalArgs.runningVarLayout,
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout);
+      optionalArgs.computeKernelConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3692,7 +3696,7 @@ BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
       optionalArgs.biasLayout, getEpsilon(), getMomentum(),
-      opConfig.outputLayout);
+      optionalArgs.computeKernelConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3716,7 +3720,7 @@ BatchNormTrainingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.runningVarShape, optionalArgs.runningVarLayout,
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      getMomentum(), opConfig.outputLayout);
+      getMomentum(), optionalArgs.computeKernelConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

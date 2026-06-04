@@ -4457,4 +4457,244 @@ INSTANTIATE_TEST_SUITE_P(NLPConcatHeadsDecodeOpTPathParityTest,
                          NLPConcatHeadsDecodeOpTPathParityTest,
                          ::testing::ValuesIn(nlpConcatHeadsDecodeOpList));
 
+//===----------------------------------------------------------------------===//
+// BatchNormInferenceOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormInferenceOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, BatchNormInferenceOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::BatchNormInferenceOpT buildBatchNormInferenceOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::BatchNormInferenceOpT &opTOpModel,
+                       ::tt::target::ttnn::BatchNormInferenceOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::BatchNormInferenceOpT &opT) {
+    opT.input.reset();
+    opT.running_mean.reset();
+    opT.running_var.reset();
+    opT.weight.reset();
+    opT.bias.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memory_config.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::BatchNormInferenceOp buildTestBatchNormInferenceOp(
+    mlir::FloatAttr epsilon = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value input = makeOnes();
+  mlir::Value runningMean = makeOnes();
+  mlir::Value runningVar = makeOnes();
+  mlir::Value weight = makeOnes();
+  mlir::Value bias = makeOnes();
+
+  llvm::APFloat epsilonVal(1e-5f);
+  if (epsilon) {
+    epsilonVal = epsilon.getValue();
+  }
+
+  return e.builder.create<mlir::tt::ttnn::BatchNormInferenceOp>(
+      loc, tensorType, input, runningMean, runningVar, epsilonVal, weight, bias,
+      computeConfig);
+}
+
+} // namespace
+
+using BatchNormInferenceOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::BatchNormInferenceOp>;
+
+TEST_P(BatchNormInferenceOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::BatchNormInferenceOp bnOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::BatchNormInferenceOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildBatchNormInferenceOpTFromMLIR(
+          bnOp.getEpsilon(), bnOp.getComputeConfig(),
+          resolveOutputLayout(bnOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, bnOp.getInput(), bnOp.getRunningMean(),
+                               bnOp.getRunningVar(), bnOp.getWeight(),
+                               bnOp.getBias());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, bnOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::BatchNormInferenceOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::BatchNormInferenceOp>
+    batchNormInferenceOpList = {
+        buildTestBatchNormInferenceOp(),
+        buildTestBatchNormInferenceOp(
+            /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-3f)),
+        buildTestBatchNormInferenceOp(
+            /*epsilon=*/{},
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestBatchNormInferenceOp(
+            /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-3f),
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(BatchNormInferenceOpTPathParityTest,
+                         BatchNormInferenceOpTPathParityTest,
+                         ::testing::ValuesIn(batchNormInferenceOpList));
+
+//===----------------------------------------------------------------------===//
+// BatchNormTrainingOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormTrainingOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, BatchNormTrainingOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::BatchNormTrainingOpT buildBatchNormTrainingOpTFromMLIR(
+    llvm::APFloat epsilon, llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::BatchNormTrainingOpT &opTOpModel,
+                       ::tt::target::ttnn::BatchNormTrainingOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::BatchNormTrainingOpT &opT) {
+    opT.input.reset();
+    opT.running_mean.reset();
+    opT.running_var.reset();
+    opT.weight.reset();
+    opT.bias.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memory_config.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::BatchNormTrainingOp buildTestBatchNormTrainingOp(
+    mlir::FloatAttr epsilon = {}, mlir::FloatAttr momentum = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value input = makeOnes();
+  mlir::Value runningMean = makeOnes();
+  mlir::Value runningVar = makeOnes();
+  mlir::Value weight = makeOnes();
+  mlir::Value bias = makeOnes();
+
+  llvm::APFloat epsilonVal(1e-5f);
+  if (epsilon) {
+    epsilonVal = epsilon.getValue();
+  }
+  llvm::APFloat momentumVal(0.1f);
+  if (momentum) {
+    momentumVal = momentum.getValue();
+  }
+
+  return e.builder.create<mlir::tt::ttnn::BatchNormTrainingOp>(
+      loc, tensorType, input, runningMean, runningVar, epsilonVal, momentumVal,
+      weight, bias, computeConfig);
+}
+
+} // namespace
+
+using BatchNormTrainingOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::BatchNormTrainingOp>;
+
+TEST_P(BatchNormTrainingOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::BatchNormTrainingOp bnOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::BatchNormTrainingOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildBatchNormTrainingOpTFromMLIR(
+          bnOp.getEpsilon(), bnOp.getMomentum(), bnOp.getComputeConfig(),
+          resolveOutputLayout(bnOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, bnOp.getInput(), bnOp.getRunningMean(),
+                               bnOp.getRunningVar(), bnOp.getWeight(),
+                               bnOp.getBias());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, bnOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::BatchNormTrainingOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::BatchNormTrainingOp>
+    batchNormTrainingOpList = {
+        buildTestBatchNormTrainingOp(),
+        buildTestBatchNormTrainingOp(
+            /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-3f)),
+        buildTestBatchNormTrainingOp(
+            /*epsilon=*/{},
+            /*momentum=*/mlir::Builder(getContext()).getF32FloatAttr(0.01f)),
+        buildTestBatchNormTrainingOp(
+            /*epsilon=*/{}, /*momentum=*/{},
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestBatchNormTrainingOp(
+            /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-3f),
+            /*momentum=*/mlir::Builder(getContext()).getF32FloatAttr(0.01f),
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(BatchNormTrainingOpTPathParityTest,
+                         BatchNormTrainingOpTPathParityTest,
+                         ::testing::ValuesIn(batchNormTrainingOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

@@ -4128,17 +4128,25 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
     biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
   }
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
   // Test getOpConstraints
   llvm::Expected<OpConstraints> constraintsExp =
       training
           ? op_model::OpModel<BatchNormTrainingOp>::getOpConstraints(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, momentum, outputLayout)
+                biasShape, biasLayout, epsilon, momentum, deviceConfig, outputLayout)
           : op_model::OpModel<BatchNormInferenceOp>::getOpConstraints(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, outputLayout);
+                biasShape, biasLayout, epsilon, deviceConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4158,11 +4166,11 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
           ? op_model::OpModel<BatchNormTrainingOp>::getOpRuntime(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, momentum, outputLayout)
+                biasShape, biasLayout, epsilon, momentum, deviceConfig, outputLayout)
           : op_model::OpModel<BatchNormInferenceOp>::getOpRuntime(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, outputLayout);
+                biasShape, biasLayout, epsilon, deviceConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {

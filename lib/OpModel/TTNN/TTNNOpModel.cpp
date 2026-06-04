@@ -25,6 +25,7 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/BatchNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsOp.h"
@@ -6984,6 +6985,23 @@ llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
 // BatchNormInferenceOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::BatchNormInferenceOpT buildBatchNormInferenceOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::BatchNormInferenceOpT opT;
+  opT.epsilon = epsilon.convertToFloat();
+  opT.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
@@ -6994,6 +7012,7 @@ llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7013,22 +7032,22 @@ llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  // The following arguments are received by the invoke method of batch norm but
-  // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
 
-  // For inference, training is false and momentum is 0.1 (default)
-  bool training = false;
-  float momentum = 0.1f;
+  ::tt::target::ttnn::BatchNormInferenceOpT opT =
+      buildBatchNormInferenceOpTFromMLIR(epsilon, computeKernelConfig,
+                                         outputLayout);
 
   auto batchNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
-        training, epsilon.convertToFloat(), momentum, weightSpec, biasSpec,
-        outputSpec, detail::getNullableMemoryConfig(outputLayout),
-        computeKernelConfig);
+    ttnn_op_invoke::BatchNormOpResult result =
+        ttnn_op_invoke::callBatchNormInference(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+            runningMeanSpec, runningVarSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected BatchNormInferenceOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), batchNormQuery);
@@ -7047,6 +7066,7 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7066,23 +7086,22 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  // The following arguments are received by the invoke method of batch norm but
-  // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
 
-  // For inference, training is false and momentum is 0.1 (default)
-  bool training = false;
-  float momentum = 0.1f;
+  ::tt::target::ttnn::BatchNormInferenceOpT opT =
+      buildBatchNormInferenceOpTFromMLIR(epsilon, computeKernelConfig,
+                                         outputLayout);
 
-  // Create query closure
   auto batchNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
-        training, epsilon.convertToFloat(), momentum, weightSpec, biasSpec,
-        outputSpec, detail::getNullableMemoryConfig(outputLayout),
-        computeKernelConfig);
+    ttnn_op_invoke::BatchNormOpResult result =
+        ttnn_op_invoke::callBatchNormInference(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec,
+            runningMeanSpec, runningVarSpec, weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected BatchNormInferenceOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(batchNormQuery);
@@ -7095,6 +7114,24 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
 // BatchNormTrainingOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::BatchNormTrainingOpT buildBatchNormTrainingOpTFromMLIR(
+    llvm::APFloat epsilon, llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::BatchNormTrainingOpT opT;
+  opT.epsilon = epsilon.convertToFloat();
+  opT.momentum = momentum.convertToFloat();
+  opT.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
@@ -7105,7 +7142,9 @@ llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+    llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7124,21 +7163,22 @@ llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  // The following arguments are received by the invoke method of batch norm but
-  // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
 
-  // For training mode
-  bool training = true;
+  ::tt::target::ttnn::BatchNormTrainingOpT opT =
+      buildBatchNormTrainingOpTFromMLIR(epsilon, momentum, computeKernelConfig,
+                                        outputLayout);
 
   auto batchNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
-        training, epsilon.convertToFloat(), momentum.convertToFloat(),
-        weightSpec, biasSpec, outputSpec,
-        detail::getNullableMemoryConfig(outputLayout), computeKernelConfig);
+    ttnn_op_invoke::BatchNormOpResult result =
+        ttnn_op_invoke::callBatchNormTraining(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+            runningMeanSpec, runningVarSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected BatchNormTrainingOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), batchNormQuery);
@@ -7157,7 +7197,9 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+    llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7176,22 +7218,22 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  // The following arguments are received by the invoke method of batch norm but
-  // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
 
-  // For training mode
-  bool training = true;
+  ::tt::target::ttnn::BatchNormTrainingOpT opT =
+      buildBatchNormTrainingOpTFromMLIR(epsilon, momentum, computeKernelConfig,
+                                        outputLayout);
 
-  // Create query closure
   auto batchNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
-        training, epsilon.convertToFloat(), momentum.convertToFloat(),
-        weightSpec, biasSpec, outputSpec,
-        detail::getNullableMemoryConfig(outputLayout), computeKernelConfig);
+    ttnn_op_invoke::BatchNormOpResult result =
+        ttnn_op_invoke::callBatchNormTraining(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec,
+            runningMeanSpec, runningVarSpec, weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected BatchNormTrainingOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(batchNormQuery);

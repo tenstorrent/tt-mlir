@@ -1,0 +1,51 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#ifndef TTNN_OP_INVOKE_BATCH_NORM_OP_H
+#define TTNN_OP_INVOKE_BATCH_NORM_OP_H
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "ttmlir/Target/TTNN/operations/normalization_generated.h"
+#pragma clang diagnostic pop
+#include "ttmlir/OpInvoke/TTNN/utils/utils.h"
+#include "ttnn/graph/graph_query_op_constraints.hpp"
+#include "ttnn/graph/graph_query_op_runtime.hpp"
+#include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
+#include "ttnn/types.hpp"
+
+#include <optional>
+
+namespace ttnn_op_invoke {
+
+using BatchNormOpResult =
+    std::variant<::ttnn::graph::ConstraintQueryResponse,
+                 ::ttnn::graph::RuntimeQueryResponse, ::ttnn::Tensor>;
+
+struct BatchNormResolvedParams {
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+};
+
+BatchNormResolvedParams resolveBatchNormInferenceParams(
+    const ::tt::target::ttnn::BatchNormInferenceOpT &opT);
+
+BatchNormResolvedParams resolveBatchNormTrainingParams(
+    const ::tt::target::ttnn::BatchNormTrainingOpT &opT);
+
+BatchNormOpResult callBatchNormInference(
+    CallType callType, const ::tt::target::ttnn::BatchNormInferenceOpT &opT,
+    TensorArg input, std::optional<TensorArg> runningMean,
+    std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
+    std::optional<TensorArg> bias, ::ttnn::MeshDevice *device);
+
+BatchNormOpResult callBatchNormTraining(
+    CallType callType, const ::tt::target::ttnn::BatchNormTrainingOpT &opT,
+    TensorArg input, std::optional<TensorArg> runningMean,
+    std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
+    std::optional<TensorArg> bias, ::ttnn::MeshDevice *device);
+
+} // namespace ttnn_op_invoke
+
+#endif // TTNN_OP_INVOKE_BATCH_NORM_OP_H
