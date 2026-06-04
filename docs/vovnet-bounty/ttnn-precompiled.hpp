@@ -166,6 +166,7 @@ inline ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layou
   }
 
   return loadedTensor;
+
 }
 
 } // namespace ttnn

@@ -50,6 +50,12 @@ inline bool g_convs_prepared = false;
 // Per-conv cache (sharding/halo/block configs) keyed by conv index in forward().
 inline CachedConvConfig g_conv_cache[41];
 
+// Optional per-conv shard_layout override. When set, bypasses auto-shard for
+// that conv (both the prep ttnn::conv2d call and the prim-cached path use the
+// override). Use this to hand-tune sharding on hot convs.
+inline std::array<std::optional<tt::tt_metal::TensorMemoryLayout>, 41>
+    g_conv_shard_override{};
+
 // Cached results for the 58 const-eval dispatch sites in forward(). Each slot
 // is filled lazily on the first call; subsequent calls reuse the stored tensor.
 inline std::array<std::vector<ttnn::Tensor>, 58> g_const_eval_cache;

@@ -42,12 +42,29 @@ ttnn::Tensor prep_and_capture_conv2d(
     std::optional<ttnn::operations::unary::UnaryWithParam> activation) {
   auto cfg = kConvConfig();
   cfg.activation = activation;
-  auto result = ttnn::conv2d(input, raw_weight, device,
-      in_ch, out_ch, batch, in_h, in_w,
-      kernel, stride, padding, dilation, groups,
-      ::ttnn::DataType::BFLOAT16, raw_bias,
-      cfg, kComputeConfig(), kInterleavedDram(),
-      std::nullopt, false, true);
+  if (g_conv_shard_override[conv_idx].has_value()) {
+    cfg.shard_layout = g_conv_shard_override[conv_idx];
+  }
+  auto try_prep = [&](const ::ttnn::Conv2dConfig& c) {
+    return ttnn::conv2d(input, raw_weight, device,
+        in_ch, out_ch, batch, in_h, in_w,
+        kernel, stride, padding, dilation, groups,
+        ::ttnn::DataType::BFLOAT16, raw_bias,
+        c, kComputeConfig(), kInterleavedDram(),
+        std::nullopt, false, true);
+  };
+  decltype(try_prep(cfg)) result;
+  try {
+    result = try_prep(cfg);
+  } catch (const std::exception&) {
+    // Override didn't fit L1. Clear it and retry with auto-shard so the
+    // conv survives. cache.use_fallback will be set later in prim path.
+    std::cerr << "PREP_OVERRIDE_FAILED idx=" << conv_idx << " — reverting to auto-shard\n";
+    g_conv_shard_override[conv_idx].reset();
+    auto cfg2 = kConvConfig();
+    cfg2.activation = activation;
+    result = try_prep(cfg2);
+  }
   auto& tup = std::get<2>(result);
   g_prepared_convs[conv_idx].weight = std::get<0>(std::get<1>(tup));
   g_prepared_convs[conv_idx].bias   = std::get<1>(std::get<1>(tup));
@@ -192,6 +209,9 @@ ttnn::Tensor conv2d_prim_cached(
     conv_config.enable_act_double_buffer = true;
     conv_config.enable_weights_double_buffer = true;
     conv_config.activation = activation;
+    if (g_conv_shard_override[conv_idx].has_value()) {
+        conv_config.shard_layout = g_conv_shard_override[conv_idx];
+    }
     auto padding_n4 = get_pair_n4_padding(padding);
     bool is_mm_conv = (groups == 1);
 
@@ -244,11 +264,12 @@ ttnn::Tensor conv2d_prim_cached(
             conv_config.enable_activation_reuse, conv_config.config_tensors_in_dram, conv_config.force_split_reader);
         return ttnn::to_memory_config(co, tt::tt_metal::MemoryConfig{
             tt::tt_metal::TensorMemoryLayout::INTERLEAVED, tt::tt_metal::BufferType::DRAM});
-      } catch (const std::exception&) {
+      } catch (const std::exception& e) {
         // Expected for conv shapes whose resolved prim-path L1 config doesn't
         // fit (TT_THROW from validate_circular_buffer_region). The fallback
         // ttnn::conv2d re-resolves with auto-sharding; cache.use_fallback then
         // pins this index to the fallback path on subsequent calls.
+        std::cerr << "PRIM_FALLBACK idx=" << conv_idx << "\n";
         cache.use_fallback=true; cache.valid=true;
         ttnn::Conv2dConfig fb_cfg{.config_tensors_in_dram = true, .enable_kernel_stride_folding = false,
                                   .enable_act_double_buffer = true, .enable_weights_double_buffer = true};

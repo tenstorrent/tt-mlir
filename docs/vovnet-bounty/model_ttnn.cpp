@@ -22,6 +22,11 @@ VoVNet::VoVNet(ttnn::distributed::MeshDevice* device,
     g_conv_cache[idx].use_fallback = true;
     g_conv_cache[idx].valid = true;
   }
+
+  // Shard-layout overrides: tested grafting from vovnet_standalone_opt/.bak
+  // (optimizer at b=8). At b=16 the shard_shape doubles and busts prim L1
+  // even for the layouts the optimizer chose. Conclusion: refactor is
+  // already doing what the optimizer would do at b=16.
 }
 
 ttnn::Tensor VoVNet::operator()(const ttnn::Tensor& image) {
