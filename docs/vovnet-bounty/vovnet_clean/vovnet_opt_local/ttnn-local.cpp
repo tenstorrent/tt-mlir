@@ -1,0 +1,7262 @@
+#include "ttnn-precompiled.hpp"
+::std::vector<::ttnn::Tensor>
+main_const_eval_0(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ::ttnn::Tensor v3 = v1[1];
+  ::ttnn::Tensor v4 = v1[2];
+  ::ttnn::Tensor v5 = v1[3];
+  ::ttnn::Tensor v6 = v1[4];
+  ::ttnn::Tensor v7 = v1[5];
+  ::ttnn::Tensor v8 = v1[6];
+  ::ttnn::Tensor v9 = v1[7];
+  ::ttnn::Tensor v10 = v1[8];
+  ::ttnn::Tensor v11 = v1[9];
+  ::ttnn::Tensor v12 = v1[10];
+  ::ttnn::Tensor v13 = v1[11];
+  ::ttnn::Tensor v14 = v1[12];
+  ::ttnn::Tensor v15 = v1[13];
+  ::ttnn::Tensor v16 = v1[14];
+  ::ttnn::Tensor v17 = v1[15];
+  ::ttnn::Tensor v18 = v1[16];
+  ::ttnn::Tensor v19 = v1[17];
+  ::ttnn::Tensor v20 = v1[18];
+  ::ttnn::Tensor v21 = v1[19];
+  ::ttnn::Tensor v22 = v1[20];
+  ::ttnn::Tensor v23 = v1[21];
+  ::ttnn::Tensor v24 = v1[22];
+  ::ttnn::Tensor v25 = v1[23];
+  ::ttnn::Tensor v26 = v1[24];
+  ::ttnn::Tensor v27 = v1[25];
+  ::ttnn::Tensor v28 = v1[26];
+  ::ttnn::Tensor v29 = v1[27];
+  ::ttnn::Tensor v30 = v1[28];
+  ::ttnn::Tensor v31 = v1[29];
+  ::ttnn::Tensor v32 = v1[30];
+  ::ttnn::Tensor v33 = v1[31];
+  ::ttnn::Tensor v34 = v1[32];
+  ::ttnn::Tensor v35 = v1[33];
+  ::ttnn::Tensor v36 = v1[34];
+  ::ttnn::Tensor v37 = v1[35];
+  ::ttnn::Tensor v38 = v1[36];
+  ::ttnn::Tensor v39 = v1[37];
+  ::ttnn::Tensor v40 = v1[38];
+  ::ttnn::Tensor v41 = v1[39];
+  ::ttnn::Tensor v42 = v1[40];
+  ::ttnn::Tensor v43 = v1[41];
+  ::ttnn::Tensor v44 = v1[42];
+  ::ttnn::Tensor v45 = v1[43];
+  ::ttnn::Tensor v46 = v1[44];
+  ::ttnn::Tensor v47 = v1[45];
+  ::ttnn::Tensor v48 = v1[46];
+  ::ttnn::Tensor v49 = v1[47];
+  ::ttnn::Tensor v50 = v1[48];
+  ::ttnn::Tensor v51 = v1[49];
+  ::ttnn::Tensor v52 = v1[50];
+  ::ttnn::Tensor v53 = v1[51];
+  ::ttnn::Tensor v54 = v1[52];
+  ::ttnn::Tensor v55 = v1[53];
+  ::ttnn::Tensor v56 = v1[54];
+  ::ttnn::Tensor v57 = v1[55];
+  ::ttnn::Tensor v58 = v1[56];
+  ::ttnn::Tensor v59 = v1[57];
+  ::ttnn::Tensor v60 = v1[58];
+  ::ttnn::Tensor v61 = v1[59];
+  ::ttnn::Tensor v62 = v1[60];
+  ::ttnn::Tensor v63 = v1[61];
+  ::ttnn::Tensor v64 = v1[62];
+  ::ttnn::Tensor v65 = v1[63];
+  ::ttnn::Tensor v66 = v1[64];
+  ::ttnn::Tensor v67 = v1[65];
+  ::ttnn::Tensor v68 = v1[66];
+  ::ttnn::Tensor v69 = v1[67];
+  ::ttnn::Tensor v70 = v1[68];
+  ::ttnn::Tensor v71 = v1[69];
+  ::ttnn::Tensor v72 = v1[70];
+  ::ttnn::Tensor v73 = v1[71];
+  ::ttnn::Tensor v74 = v1[72];
+  ::ttnn::Tensor v75 = v1[73];
+  ::ttnn::Tensor v76 = v1[74];
+  ::ttnn::Tensor v77 = v1[75];
+  ::ttnn::Tensor v78 = v1[76];
+  ::ttnn::Tensor v79 = v1[77];
+  ::ttnn::Tensor v80 = v1[78];
+  ::ttnn::Tensor v81 = v1[79];
+  ::ttnn::Tensor v82 = v1[80];
+  ::ttnn::Tensor v83 = v1[81];
+  ::ttnn::Tensor v84 = v1[82];
+  ::ttnn::Tensor v85 = v1[83];
+  ::ttnn::Tensor v86 = v1[84];
+  ::ttnn::Tensor v87 = v1[85];
+  ::ttnn::Tensor v88 = v1[86];
+  ::ttnn::Tensor v89 = v1[87];
+  ::ttnn::Tensor v90 = v1[88];
+  ::ttnn::Tensor v91 = v1[89];
+  ::ttnn::Tensor v92 = v1[90];
+  ::ttnn::Tensor v93 = v1[91];
+  ::ttnn::Tensor v94 = v1[92];
+  ::ttnn::Tensor v95 = v1[93];
+  ::ttnn::Tensor v96 = v1[94];
+  ::ttnn::Tensor v97 = v1[95];
+  ::ttnn::Tensor v98 = v1[96];
+  ::ttnn::Tensor v99 = v1[97];
+  ::ttnn::Tensor v100 = v1[98];
+  ::ttnn::Tensor v101 = v1[99];
+  ::ttnn::Tensor v102 = v1[100];
+  ::ttnn::Tensor v103 = v1[101];
+  ::ttnn::Tensor v104 = v1[102];
+  ::ttnn::Tensor v105 = v1[103];
+  ::ttnn::Tensor v106 = v1[104];
+  ::ttnn::Tensor v107 = v1[105];
+  ::ttnn::Tensor v108 = v1[106];
+  ::ttnn::Tensor v109 = v1[107];
+  ::ttnn::Tensor v110 = v1[108];
+  ::ttnn::Tensor v111 = v1[109];
+  ::ttnn::Tensor v112 = v1[110];
+  ::ttnn::Tensor v113 = v1[111];
+  ::ttnn::Tensor v114 = v1[112];
+  ::ttnn::Tensor v115 = v1[113];
+  ::ttnn::Tensor v116 = v1[114];
+  ttnn::distributed::MeshDevice *v117 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v118 = ttnn::to_device(
+      v115, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v119 = ttnn::to_layout(
+      v118, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v118, false);
+  ::ttnn::Tensor v120 = ttnn::to_device(
+      v114, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v121 = ttnn::to_layout(
+      v120, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v120, false);
+  ::ttnn::Tensor v122 = ttnn::to_device(
+      v113, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v123 = ttnn::to_layout(
+      v122, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v122, false);
+  ::ttnn::Tensor v124 = ttnn::to_device(
+      v112, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v125 = ttnn::to_layout(
+      v124, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v124, false);
+  ::ttnn::Tensor v126 = ttnn::to_device(
+      v110, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v127 = ttnn::to_layout(
+      v126, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v126, false);
+  ::ttnn::Tensor v128 = ttnn::to_device(
+      v109, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v129 = ttnn::to_layout(
+      v128, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v128, false);
+  ::ttnn::Tensor v130 = ttnn::to_device(
+      v108, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v131 = ttnn::to_layout(
+      v130, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v130, false);
+  ::ttnn::Tensor v132 = ttnn::to_device(
+      v107, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v133 = ttnn::to_layout(
+      v132, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v132, false);
+  ::ttnn::Tensor v134 = ttnn::to_device(
+      v105, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v135 = ttnn::to_layout(
+      v134, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v134, false);
+  ::ttnn::Tensor v136 = ttnn::to_device(
+      v104, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v137 = ttnn::to_layout(
+      v136, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v136, false);
+  ::ttnn::Tensor v138 = ttnn::to_device(
+      v103, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v139 = ttnn::to_layout(
+      v138, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v138, false);
+  ::ttnn::Tensor v140 = ttnn::to_device(
+      v102, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v141 = ttnn::to_layout(
+      v140, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v140, false);
+  ::ttnn::Tensor v142 = ttnn::to_device(
+      v100, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v143 = ttnn::to_layout(
+      v142, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v142, false);
+  ::ttnn::Tensor v144 = ttnn::to_device(
+      v99, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v145 = ttnn::to_layout(
+      v144, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v144, false);
+  ::ttnn::Tensor v146 = ttnn::to_device(
+      v98, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v147 = ttnn::to_layout(
+      v146, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v146, false);
+  ::ttnn::Tensor v148 = ttnn::to_device(
+      v97, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v149 = ttnn::to_layout(
+      v148, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v148, false);
+  ::ttnn::Tensor v150 = ttnn::to_device(
+      v95, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v151 = ttnn::to_layout(
+      v150, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v150, false);
+  ::ttnn::Tensor v152 = ttnn::to_device(
+      v94, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v153 = ttnn::to_layout(
+      v152, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v152, false);
+  ::ttnn::Tensor v154 = ttnn::to_device(
+      v93, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v155 = ttnn::to_layout(
+      v154, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v154, false);
+  ::ttnn::Tensor v156 = ttnn::to_device(
+      v92, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v157 = ttnn::to_layout(
+      v156, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v156, false);
+  ::ttnn::Tensor v158 = ttnn::to_device(
+      v90, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v159 = ttnn::to_layout(
+      v158, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v158, false);
+  ::ttnn::Tensor v160 = ttnn::to_device(
+      v89, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v161 = ttnn::to_layout(
+      v160, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v160, false);
+  ::ttnn::Tensor v162 = ttnn::to_device(
+      v88, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v163 = ttnn::to_layout(
+      v162, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v162, false);
+  ::ttnn::Tensor v164 = ttnn::to_device(
+      v87, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v165 = ttnn::to_layout(
+      v164, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v164, false);
+  ::ttnn::Tensor v166 = ttnn::to_device(
+      v85, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v167 = ttnn::to_layout(
+      v166, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v166, false);
+  ::ttnn::Tensor v168 = ttnn::to_device(
+      v84, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v169 = ttnn::to_layout(
+      v168, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v168, false);
+  ::ttnn::Tensor v170 = ttnn::to_device(
+      v83, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v171 = ttnn::to_layout(
+      v170, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v170, false);
+  ::ttnn::Tensor v172 = ttnn::to_device(
+      v82, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v173 = ttnn::to_layout(
+      v172, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v172, false);
+  ::ttnn::Tensor v174 = ttnn::to_device(
+      v80, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v175 = ttnn::to_layout(
+      v174, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v174, false);
+  ::ttnn::Tensor v176 = ttnn::to_device(
+      v79, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v177 = ttnn::to_layout(
+      v176, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v176, false);
+  ::ttnn::Tensor v178 = ttnn::to_device(
+      v78, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v179 = ttnn::to_layout(
+      v178, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v178, false);
+  ::ttnn::Tensor v180 = ttnn::to_device(
+      v77, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v181 = ttnn::to_layout(
+      v180, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v180, false);
+  ::ttnn::Tensor v182 = ttnn::to_device(
+      v75, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v183 = ttnn::to_layout(
+      v182, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v182, false);
+  ::ttnn::Tensor v184 = ttnn::to_device(
+      v74, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v185 = ttnn::to_layout(
+      v184, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v184, false);
+  ::ttnn::Tensor v186 = ttnn::to_device(
+      v73, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v187 = ttnn::to_layout(
+      v186, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v186, false);
+  ::ttnn::Tensor v188 = ttnn::to_device(
+      v72, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v189 = ttnn::to_layout(
+      v188, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v188, false);
+  ::ttnn::Tensor v190 = ttnn::to_device(
+      v70, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v191 = ttnn::to_layout(
+      v190, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v190, false);
+  ::ttnn::Tensor v192 = ttnn::to_device(
+      v69, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v193 = ttnn::to_layout(
+      v192, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v192, false);
+  ::ttnn::Tensor v194 = ttnn::to_device(
+      v68, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v195 = ttnn::to_layout(
+      v194, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v194, false);
+  ::ttnn::Tensor v196 = ttnn::to_device(
+      v67, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v197 = ttnn::to_layout(
+      v196, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v196, false);
+  ::ttnn::Tensor v198 = ttnn::to_device(
+      v65, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v199 = ttnn::to_layout(
+      v198, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v198, false);
+  ::ttnn::Tensor v200 = ttnn::to_device(
+      v64, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v201 = ttnn::to_layout(
+      v200, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v200, false);
+  ::ttnn::Tensor v202 = ttnn::to_device(
+      v63, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v203 = ttnn::to_layout(
+      v202, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v202, false);
+  ::ttnn::Tensor v204 = ttnn::to_device(
+      v62, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v205 = ttnn::to_layout(
+      v204, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v204, false);
+  ::ttnn::Tensor v206 = ttnn::to_device(
+      v60, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v207 = ttnn::to_layout(
+      v206, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v206, false);
+  ::ttnn::Tensor v208 = ttnn::to_device(
+      v59, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v209 = ttnn::to_layout(
+      v208, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v208, false);
+  ::ttnn::Tensor v210 = ttnn::to_device(
+      v58, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v211 = ttnn::to_layout(
+      v210, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v210, false);
+  ::ttnn::Tensor v212 = ttnn::to_device(
+      v57, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v213 = ttnn::to_layout(
+      v212, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v212, false);
+  ::ttnn::Tensor v214 = ttnn::to_device(
+      v55, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v215 = ttnn::to_layout(
+      v214, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v214, false);
+  ::ttnn::Tensor v216 = ttnn::to_device(
+      v54, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v217 = ttnn::to_layout(
+      v216, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v216, false);
+  ::ttnn::Tensor v218 = ttnn::to_device(
+      v53, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v219 = ttnn::to_layout(
+      v218, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v218, false);
+  ::ttnn::Tensor v220 = ttnn::to_device(
+      v52, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v221 = ttnn::to_layout(
+      v220, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v220, false);
+  ::ttnn::Tensor v222 = ttnn::to_device(
+      v50, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v223 = ttnn::to_layout(
+      v222, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v222, false);
+  ::ttnn::Tensor v224 = ttnn::to_device(
+      v49, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v225 = ttnn::to_layout(
+      v224, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v224, false);
+  ::ttnn::Tensor v226 = ttnn::to_device(
+      v48, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v227 = ttnn::to_layout(
+      v226, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v226, false);
+  ::ttnn::Tensor v228 = ttnn::to_device(
+      v47, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v229 = ttnn::to_layout(
+      v228, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v228, false);
+  ::ttnn::Tensor v230 = ttnn::to_device(
+      v45, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v231 = ttnn::to_layout(
+      v230, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v230, false);
+  ::ttnn::Tensor v232 = ttnn::to_device(
+      v44, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v233 = ttnn::to_layout(
+      v232, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v232, false);
+  ::ttnn::Tensor v234 = ttnn::to_device(
+      v43, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v235 = ttnn::to_layout(
+      v234, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v234, false);
+  ::ttnn::Tensor v236 = ttnn::to_device(
+      v42, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v237 = ttnn::to_layout(
+      v236, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v236, false);
+  ::ttnn::Tensor v238 = ttnn::to_device(
+      v40, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v239 = ttnn::to_layout(
+      v238, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v238, false);
+  ::ttnn::Tensor v240 = ttnn::to_device(
+      v39, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v241 = ttnn::to_layout(
+      v240, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v240, false);
+  ::ttnn::Tensor v242 = ttnn::to_device(
+      v38, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v243 = ttnn::to_layout(
+      v242, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v242, false);
+  ::ttnn::Tensor v244 = ttnn::to_device(
+      v37, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v245 = ttnn::to_layout(
+      v244, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v244, false);
+  ::ttnn::Tensor v246 = ttnn::to_device(
+      v35, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v247 = ttnn::to_layout(
+      v246, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v246, false);
+  ::ttnn::Tensor v248 = ttnn::to_device(
+      v34, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v249 = ttnn::to_layout(
+      v248, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v248, false);
+  ::ttnn::Tensor v250 = ttnn::to_device(
+      v33, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v251 = ttnn::to_layout(
+      v250, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v250, false);
+  ::ttnn::Tensor v252 = ttnn::to_device(
+      v32, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v253 = ttnn::to_layout(
+      v252, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v252, false);
+  ::ttnn::Tensor v254 = ttnn::to_device(
+      v30, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v255 = ttnn::to_layout(
+      v254, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v254, false);
+  ::ttnn::Tensor v256 = ttnn::to_device(
+      v29, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v257 = ttnn::to_layout(
+      v256, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v256, false);
+  ::ttnn::Tensor v258 = ttnn::to_device(
+      v28, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v259 = ttnn::to_layout(
+      v258, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v258, false);
+  ::ttnn::Tensor v260 = ttnn::to_device(
+      v27, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v261 = ttnn::to_layout(
+      v260, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v260, false);
+  ::ttnn::Tensor v262 = ttnn::to_device(
+      v25, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v263 = ttnn::to_layout(
+      v262, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v262, false);
+  ::ttnn::Tensor v264 = ttnn::to_device(
+      v24, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v265 = ttnn::to_layout(
+      v264, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v264, false);
+  ::ttnn::Tensor v266 = ttnn::to_device(
+      v23, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v267 = ttnn::to_layout(
+      v266, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v266, false);
+  ::ttnn::Tensor v268 = ttnn::to_device(
+      v22, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v269 = ttnn::to_layout(
+      v268, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v268, false);
+  ::ttnn::Tensor v270 = ttnn::to_device(
+      v20, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v271 = ttnn::to_layout(
+      v270, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v270, false);
+  ::ttnn::Tensor v272 = ttnn::to_device(
+      v19, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v273 = ttnn::to_layout(
+      v272, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v272, false);
+  ::ttnn::Tensor v274 = ttnn::to_device(
+      v18, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v275 = ttnn::to_layout(
+      v274, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v274, false);
+  ::ttnn::Tensor v276 = ttnn::to_device(
+      v17, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v277 = ttnn::to_layout(
+      v276, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v276, false);
+  ::ttnn::Tensor v278 = ttnn::to_device(
+      v15, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v279 = ttnn::to_layout(
+      v278, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v278, false);
+  ::ttnn::Tensor v280 = ttnn::to_device(
+      v14, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v281 = ttnn::to_layout(
+      v280, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v280, false);
+  ::ttnn::Tensor v282 = ttnn::to_device(
+      v13, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v283 = ttnn::to_layout(
+      v282, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v282, false);
+  ::ttnn::Tensor v284 = ttnn::to_device(
+      v12, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v285 = ttnn::to_layout(
+      v284, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v284, false);
+  ::ttnn::Tensor v286 = ttnn::to_device(
+      v10, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v287 = ttnn::to_layout(
+      v286, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v286, false);
+  ::ttnn::Tensor v288 = ttnn::to_device(
+      v9, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v289 = ttnn::to_layout(
+      v288, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v288, false);
+  ::ttnn::Tensor v290 = ttnn::to_device(
+      v8, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v291 = ttnn::to_layout(
+      v290, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v290, false);
+  ::ttnn::Tensor v292 = ttnn::to_device(
+      v7, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v293 = ttnn::to_layout(
+      v292, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v292, false);
+  ::ttnn::Tensor v294 = ttnn::to_device(
+      v5, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v295 = ttnn::to_layout(
+      v294, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v294, false);
+  ::ttnn::Tensor v296 = ttnn::to_device(
+      v4, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v297 = ttnn::to_layout(
+      v296, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v296, false);
+  ::ttnn::Tensor v298 = ttnn::to_device(
+      v3, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v299 = ttnn::to_layout(
+      v298, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v298, false);
+  ::ttnn::Tensor v300 = ttnn::to_device(
+      v2, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v301 = ttnn::to_layout(
+      v300, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v300, false);
+  ::std::optional<::std::reference_wrapper<::ttnn::distributed::MeshDevice>>
+      v302 = *v117;
+  ::ttnn::Tensor v303 = ttnn::full(
+      ::ttnn::Shape({1}), 0.000010f, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::TILE, v302,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v304 =
+      ttnn::add(v125, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v125, false);
+  ::ttnn::Tensor v305 = ttnn::sqrt(
+      v304, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v304, false);
+  ::ttnn::Tensor v306 = ttnn::divide(
+      v119, v305, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v305, false);
+  ttnn::deallocate(v119, false);
+  ::ttnn::Tensor v307 = ttnn::reshape(
+      v306, ::std::vector<int32_t>{64, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v308 = ttnn::to_device(
+      v116, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v309 = ttnn::to_layout(
+      v308, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v308, false);
+  ::ttnn::Tensor v310 = ttnn::multiply(
+      v309, v307, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v309, false);
+  ttnn::deallocate(v307, false);
+  ::ttnn::Tensor v311 = ttnn::to_layout(
+      v310, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v310, false);
+  ::ttnn::Tensor v312 = ttnn::from_device(v311);
+  ttnn::deallocate(v311, false);
+  ::ttnn::Tensor v313 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v312,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::L1, ::std::nullopt},
+      ::ttnn::Layout::TILE, "OIHW", 3, 64, 1, 224, 224,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{2, 2},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 32,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v312, false);
+  ::ttnn::Tensor v314 = ttnn::reshape(
+      v123, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v123, false);
+  ::ttnn::Tensor v315 = ttnn::reshape(
+      v306, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v306, false);
+  ::ttnn::Tensor v316 = ttnn::multiply(
+      v314, v315, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v315, false);
+  ttnn::deallocate(v314, false);
+  ::ttnn::Tensor v317 = ttnn::reshape(
+      v121, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v121, false);
+  ::ttnn::Tensor v318 = ttnn::subtract(
+      v317, v316, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v317, false);
+  ttnn::deallocate(v316, false);
+  ::ttnn::Tensor v319 = ttnn::to_layout(
+      v318, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v318, false);
+  ::ttnn::Tensor v320 = ttnn::from_device(v319);
+  ttnn::deallocate(v319, false);
+  ::ttnn::Tensor v321 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v320,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::L1, ::std::nullopt},
+      ::ttnn::Layout::TILE, 3, 64, 1, 224, 224, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{2, 2}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v117, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 32,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v320, false);
+  ::ttnn::Tensor v322 =
+      ttnn::add(v133, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v133, false);
+  ::ttnn::Tensor v323 = ttnn::sqrt(
+      v322, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v322, false);
+  ::ttnn::Tensor v324 = ttnn::divide(
+      v127, v323, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v323, false);
+  ttnn::deallocate(v127, false);
+  ::ttnn::Tensor v325 = ttnn::reshape(
+      v324, ::std::vector<int32_t>{64, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v326 = ttnn::to_device(
+      v111, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v327 = ttnn::to_layout(
+      v326, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v326, false);
+  ::ttnn::Tensor v328 = ttnn::multiply(
+      v327, v325, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v327, false);
+  ttnn::deallocate(v325, false);
+  ::ttnn::Tensor v329 = ttnn::to_layout(
+      v328, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v328, false);
+  ::ttnn::Tensor v330 = ttnn::from_device(v329);
+  ttnn::deallocate(v329, false);
+  ::ttnn::Tensor v331 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v330,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 6}}}},
+                            ::std::array<uint32_t, 2>{224, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 64, 64, 1, 112, 112,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v330, false);
+  ::ttnn::Tensor v332 = ttnn::reshape(
+      v131, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v131, false);
+  ::ttnn::Tensor v333 = ttnn::reshape(
+      v324, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v324, false);
+  ::ttnn::Tensor v334 = ttnn::multiply(
+      v332, v333, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v333, false);
+  ttnn::deallocate(v332, false);
+  ::ttnn::Tensor v335 = ttnn::reshape(
+      v129, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v129, false);
+  ::ttnn::Tensor v336 = ttnn::subtract(
+      v335, v334, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v335, false);
+  ttnn::deallocate(v334, false);
+  ::ttnn::Tensor v337 = ttnn::to_layout(
+      v336, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v336, false);
+  ::ttnn::Tensor v338 = ttnn::from_device(v337);
+  ttnn::deallocate(v337, false);
+  ::ttnn::Tensor v339 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v338,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 6}}}},
+                            ::std::array<uint32_t, 2>{224, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 64, 64, 1, 112, 112,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v338, false);
+  ::ttnn::Tensor v340 =
+      ttnn::add(v141, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v141, false);
+  ::ttnn::Tensor v341 = ttnn::sqrt(
+      v340, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v340, false);
+  ::ttnn::Tensor v342 = ttnn::divide(
+      v135, v341, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v341, false);
+  ttnn::deallocate(v135, false);
+  ::ttnn::Tensor v343 = ttnn::reshape(
+      v342, ::std::vector<int32_t>{64, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v344 = ttnn::to_device(
+      v106, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v345 = ttnn::to_layout(
+      v344, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v344, false);
+  ::ttnn::Tensor v346 = ttnn::multiply(
+      v345, v343, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v345, false);
+  ttnn::deallocate(v343, false);
+  ::ttnn::Tensor v347 = ttnn::to_layout(
+      v346, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v346, false);
+  ::ttnn::Tensor v348 = ttnn::from_device(v347);
+  ttnn::deallocate(v347, false);
+  ::ttnn::Tensor v349 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v348,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 64, 64, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v348, false);
+  ::ttnn::Tensor v350 = ttnn::reshape(
+      v139, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v139, false);
+  ::ttnn::Tensor v351 = ttnn::reshape(
+      v342, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v342, false);
+  ::ttnn::Tensor v352 = ttnn::multiply(
+      v350, v351, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v351, false);
+  ttnn::deallocate(v350, false);
+  ::ttnn::Tensor v353 = ttnn::reshape(
+      v137, ::std::vector<int32_t>{1, 1, 1, 64},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v137, false);
+  ::ttnn::Tensor v354 = ttnn::subtract(
+      v353, v352, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v353, false);
+  ttnn::deallocate(v352, false);
+  ::ttnn::Tensor v355 = ttnn::to_layout(
+      v354, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v354, false);
+  ::ttnn::Tensor v356 = ttnn::from_device(v355);
+  ttnn::deallocate(v355, false);
+  ::ttnn::Tensor v357 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v356,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 64, 64, 1, 56, 56, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v117, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v356, false);
+  ::ttnn::Tensor v358 =
+      ttnn::add(v149, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v149, false);
+  ::ttnn::Tensor v359 = ttnn::sqrt(
+      v358, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v358, false);
+  ::ttnn::Tensor v360 = ttnn::divide(
+      v143, v359, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v359, false);
+  ttnn::deallocate(v143, false);
+  ::ttnn::Tensor v361 = ttnn::reshape(
+      v360, ::std::vector<int32_t>{128, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v362 = ttnn::to_device(
+      v101, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v363 = ttnn::to_layout(
+      v362, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v362, false);
+  ::ttnn::Tensor v364 = ttnn::multiply(
+      v363, v361, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v363, false);
+  ttnn::deallocate(v361, false);
+  ::ttnn::Tensor v365 = ttnn::to_layout(
+      v364, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v364, false);
+  ::ttnn::Tensor v366 = ttnn::from_device(v365);
+  ttnn::deallocate(v365, false);
+  ::ttnn::Tensor v367 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v366,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 64, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v366, false);
+  ::ttnn::Tensor v368 = ttnn::reshape(
+      v147, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v147, false);
+  ::ttnn::Tensor v369 = ttnn::reshape(
+      v360, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v360, false);
+  ::ttnn::Tensor v370 = ttnn::multiply(
+      v368, v369, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v369, false);
+  ttnn::deallocate(v368, false);
+  ::ttnn::Tensor v371 = ttnn::reshape(
+      v145, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v145, false);
+  ::ttnn::Tensor v372 = ttnn::subtract(
+      v371, v370, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v371, false);
+  ttnn::deallocate(v370, false);
+  ::ttnn::Tensor v373 = ttnn::to_layout(
+      v372, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v372, false);
+  ::ttnn::Tensor v374 = ttnn::from_device(v373);
+  ttnn::deallocate(v373, false);
+  ::ttnn::Tensor v375 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v374,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 64, 128, 1, 56, 56, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v117, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v374, false);
+  ::ttnn::Tensor v376 =
+      ttnn::add(v157, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v157, false);
+  ::ttnn::Tensor v377 = ttnn::sqrt(
+      v376, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v376, false);
+  ::ttnn::Tensor v378 = ttnn::divide(
+      v151, v377, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v377, false);
+  ttnn::deallocate(v151, false);
+  ::ttnn::Tensor v379 = ttnn::reshape(
+      v378, ::std::vector<int32_t>{128, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v380 = ttnn::to_device(
+      v96, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v381 = ttnn::to_layout(
+      v380, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v380, false);
+  ::ttnn::Tensor v382 = ttnn::multiply(
+      v381, v379, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v381, false);
+  ttnn::deallocate(v379, false);
+  ::ttnn::Tensor v383 = ttnn::to_layout(
+      v382, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v382, false);
+  ::ttnn::Tensor v384 = ttnn::from_device(v383);
+  ttnn::deallocate(v383, false);
+  ::ttnn::Tensor v385 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v384,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v384, false);
+  ::ttnn::Tensor v386 = ttnn::reshape(
+      v155, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v155, false);
+  ::ttnn::Tensor v387 = ttnn::reshape(
+      v378, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v378, false);
+  ::ttnn::Tensor v388 = ttnn::multiply(
+      v386, v387, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v387, false);
+  ttnn::deallocate(v386, false);
+  ::ttnn::Tensor v389 = ttnn::reshape(
+      v153, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v153, false);
+  ::ttnn::Tensor v390 = ttnn::subtract(
+      v389, v388, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v389, false);
+  ttnn::deallocate(v388, false);
+  ::ttnn::Tensor v391 = ttnn::to_layout(
+      v390, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v390, false);
+  ::ttnn::Tensor v392 = ttnn::from_device(v391);
+  ttnn::deallocate(v391, false);
+  ::ttnn::Tensor v393 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v392,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v392, false);
+  ::ttnn::Tensor v394 =
+      ttnn::add(v165, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v165, false);
+  ::ttnn::Tensor v395 = ttnn::sqrt(
+      v394, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v394, false);
+  ::ttnn::Tensor v396 = ttnn::divide(
+      v159, v395, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v395, false);
+  ttnn::deallocate(v159, false);
+  ::ttnn::Tensor v397 = ttnn::reshape(
+      v396, ::std::vector<int32_t>{128, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v398 = ttnn::to_device(
+      v91, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v399 = ttnn::to_layout(
+      v398, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v398, false);
+  ::ttnn::Tensor v400 = ttnn::multiply(
+      v399, v397, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v399, false);
+  ttnn::deallocate(v397, false);
+  ::ttnn::Tensor v401 = ttnn::to_layout(
+      v400, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v400, false);
+  ::ttnn::Tensor v402 = ttnn::from_device(v401);
+  ttnn::deallocate(v401, false);
+  ::ttnn::Tensor v403 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v402,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v402, false);
+  ::ttnn::Tensor v404 = ttnn::reshape(
+      v163, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v163, false);
+  ::ttnn::Tensor v405 = ttnn::reshape(
+      v396, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v396, false);
+  ::ttnn::Tensor v406 = ttnn::multiply(
+      v404, v405, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v405, false);
+  ttnn::deallocate(v404, false);
+  ::ttnn::Tensor v407 = ttnn::reshape(
+      v161, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v161, false);
+  ::ttnn::Tensor v408 = ttnn::subtract(
+      v407, v406, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v407, false);
+  ttnn::deallocate(v406, false);
+  ::ttnn::Tensor v409 = ttnn::to_layout(
+      v408, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v408, false);
+  ::ttnn::Tensor v410 = ttnn::from_device(v409);
+  ttnn::deallocate(v409, false);
+  ::ttnn::Tensor v411 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v410,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v410, false);
+  ::ttnn::Tensor v412 =
+      ttnn::add(v173, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v173, false);
+  ::ttnn::Tensor v413 = ttnn::sqrt(
+      v412, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v412, false);
+  ::ttnn::Tensor v414 = ttnn::divide(
+      v167, v413, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v413, false);
+  ttnn::deallocate(v167, false);
+  ::ttnn::Tensor v415 = ttnn::reshape(
+      v414, ::std::vector<int32_t>{128, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v416 = ttnn::to_device(
+      v86, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v417 = ttnn::to_layout(
+      v416, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v416, false);
+  ::ttnn::Tensor v418 = ttnn::multiply(
+      v417, v415, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v417, false);
+  ttnn::deallocate(v415, false);
+  ::ttnn::Tensor v419 = ttnn::to_layout(
+      v418, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v418, false);
+  ::ttnn::Tensor v420 = ttnn::from_device(v419);
+  ttnn::deallocate(v419, false);
+  ::ttnn::Tensor v421 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v420,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v420, false);
+  ::ttnn::Tensor v422 = ttnn::reshape(
+      v171, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v171, false);
+  ::ttnn::Tensor v423 = ttnn::reshape(
+      v414, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v414, false);
+  ::ttnn::Tensor v424 = ttnn::multiply(
+      v422, v423, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v423, false);
+  ttnn::deallocate(v422, false);
+  ::ttnn::Tensor v425 = ttnn::reshape(
+      v169, ::std::vector<int32_t>{1, 1, 1, 128},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v169, false);
+  ::ttnn::Tensor v426 = ttnn::subtract(
+      v425, v424, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v425, false);
+  ttnn::deallocate(v424, false);
+  ::ttnn::Tensor v427 = ttnn::to_layout(
+      v426, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v426, false);
+  ::ttnn::Tensor v428 = ttnn::from_device(v427);
+  ttnn::deallocate(v427, false);
+  ::ttnn::Tensor v429 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v428,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v428, false);
+  ::ttnn::Tensor v430 =
+      ttnn::add(v181, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v181, false);
+  ::ttnn::Tensor v431 = ttnn::sqrt(
+      v430, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v430, false);
+  ::ttnn::Tensor v432 = ttnn::divide(
+      v175, v431, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v431, false);
+  ttnn::deallocate(v175, false);
+  ::ttnn::Tensor v433 = ttnn::reshape(
+      v432, ::std::vector<int32_t>{256, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v434 = ttnn::to_device(
+      v81, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v435 = ttnn::to_layout(
+      v434, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v434, false);
+  ::ttnn::Tensor v436 = ttnn::multiply(
+      v435, v433, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v435, false);
+  ttnn::deallocate(v433, false);
+  ::ttnn::Tensor v437 = ttnn::to_layout(
+      v436, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v436, false);
+  ::ttnn::Tensor v438 = ttnn::from_device(v437);
+  ttnn::deallocate(v437, false);
+  ::ttnn::Tensor v439 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v438,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 448},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 448, 256, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v438, false);
+  ::ttnn::Tensor v440 = ttnn::reshape(
+      v179, ::std::vector<int32_t>{1, 1, 1, 256},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v179, false);
+  ::ttnn::Tensor v441 = ttnn::reshape(
+      v432, ::std::vector<int32_t>{1, 1, 1, 256},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v432, false);
+  ::ttnn::Tensor v442 = ttnn::multiply(
+      v440, v441, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v441, false);
+  ttnn::deallocate(v440, false);
+  ::ttnn::Tensor v443 = ttnn::reshape(
+      v177, ::std::vector<int32_t>{1, 1, 1, 256},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v177, false);
+  ::ttnn::Tensor v444 = ttnn::subtract(
+      v443, v442, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v443, false);
+  ttnn::deallocate(v442, false);
+  ::ttnn::Tensor v445 = ttnn::to_layout(
+      v444, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v444, false);
+  ::ttnn::Tensor v446 = ttnn::from_device(v445);
+  ttnn::deallocate(v445, false);
+  ::ttnn::Tensor v447 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v446,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 448},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 448, 256, 1, 56, 56,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v446, false);
+  ::ttnn::Tensor v448 =
+      ttnn::add(v189, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v189, false);
+  ::ttnn::Tensor v449 = ttnn::sqrt(
+      v448, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v448, false);
+  ::ttnn::Tensor v450 = ttnn::divide(
+      v183, v449, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v449, false);
+  ttnn::deallocate(v183, false);
+  ::ttnn::Tensor v451 = ttnn::reshape(
+      v450, ::std::vector<int32_t>{160, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v452 = ttnn::to_device(
+      v76, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v453 = ttnn::to_layout(
+      v452, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v452, false);
+  ::ttnn::Tensor v454 = ttnn::multiply(
+      v453, v451, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v453, false);
+  ttnn::deallocate(v451, false);
+  ::ttnn::Tensor v455 = ttnn::to_layout(
+      v454, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v454, false);
+  ::ttnn::Tensor v456 = ttnn::from_device(v455);
+  ttnn::deallocate(v455, false);
+  ::ttnn::Tensor v457 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v456,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{16, 256},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::ROW_MAJOR, "OIHW", 256, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v456, false);
+  ::ttnn::Tensor v458 = ttnn::reshape(
+      v187, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v187, false);
+  ::ttnn::Tensor v459 = ttnn::reshape(
+      v450, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v450, false);
+  ::ttnn::Tensor v460 = ttnn::multiply(
+      v458, v459, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v459, false);
+  ttnn::deallocate(v458, false);
+  ::ttnn::Tensor v461 = ttnn::reshape(
+      v185, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v185, false);
+  ::ttnn::Tensor v462 = ttnn::subtract(
+      v461, v460, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v461, false);
+  ttnn::deallocate(v460, false);
+  ::ttnn::Tensor v463 = ttnn::to_layout(
+      v462, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v462, false);
+  ::ttnn::Tensor v464 = ttnn::from_device(v463);
+  ttnn::deallocate(v463, false);
+  ::ttnn::Tensor v465 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v464,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{16, 256},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::ROW_MAJOR, 256, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v464, false);
+  ::ttnn::Tensor v466 =
+      ttnn::add(v197, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v197, false);
+  ::ttnn::Tensor v467 = ttnn::sqrt(
+      v466, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v466, false);
+  ::ttnn::Tensor v468 = ttnn::divide(
+      v191, v467, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v467, false);
+  ttnn::deallocate(v191, false);
+  ::ttnn::Tensor v469 = ttnn::reshape(
+      v468, ::std::vector<int32_t>{160, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v470 = ttnn::to_device(
+      v71, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v471 = ttnn::to_layout(
+      v470, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v470, false);
+  ::ttnn::Tensor v472 = ttnn::multiply(
+      v471, v469, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v471, false);
+  ttnn::deallocate(v469, false);
+  ::ttnn::Tensor v473 = ttnn::to_layout(
+      v472, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v472, false);
+  ::ttnn::Tensor v474 = ttnn::from_device(v473);
+  ttnn::deallocate(v473, false);
+  ::ttnn::Tensor v475 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v474,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v474, false);
+  ::ttnn::Tensor v476 = ttnn::reshape(
+      v195, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v195, false);
+  ::ttnn::Tensor v477 = ttnn::reshape(
+      v468, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v468, false);
+  ::ttnn::Tensor v478 = ttnn::multiply(
+      v476, v477, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v477, false);
+  ttnn::deallocate(v476, false);
+  ::ttnn::Tensor v479 = ttnn::reshape(
+      v193, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v193, false);
+  ::ttnn::Tensor v480 = ttnn::subtract(
+      v479, v478, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v479, false);
+  ttnn::deallocate(v478, false);
+  ::ttnn::Tensor v481 = ttnn::to_layout(
+      v480, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v480, false);
+  ::ttnn::Tensor v482 = ttnn::from_device(v481);
+  ttnn::deallocate(v481, false);
+  ::ttnn::Tensor v483 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v482,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v482, false);
+  ::ttnn::Tensor v484 =
+      ttnn::add(v205, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v205, false);
+  ::ttnn::Tensor v485 = ttnn::sqrt(
+      v484, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v484, false);
+  ::ttnn::Tensor v486 = ttnn::divide(
+      v199, v485, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v485, false);
+  ttnn::deallocate(v199, false);
+  ::ttnn::Tensor v487 = ttnn::reshape(
+      v486, ::std::vector<int32_t>{160, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v488 = ttnn::to_device(
+      v66, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v489 = ttnn::to_layout(
+      v488, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v488, false);
+  ::ttnn::Tensor v490 = ttnn::multiply(
+      v489, v487, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v489, false);
+  ttnn::deallocate(v487, false);
+  ::ttnn::Tensor v491 = ttnn::to_layout(
+      v490, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v490, false);
+  ::ttnn::Tensor v492 = ttnn::from_device(v491);
+  ttnn::deallocate(v491, false);
+  ::ttnn::Tensor v493 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v492,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v492, false);
+  ::ttnn::Tensor v494 = ttnn::reshape(
+      v203, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v203, false);
+  ::ttnn::Tensor v495 = ttnn::reshape(
+      v486, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v486, false);
+  ::ttnn::Tensor v496 = ttnn::multiply(
+      v494, v495, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v495, false);
+  ttnn::deallocate(v494, false);
+  ::ttnn::Tensor v497 = ttnn::reshape(
+      v201, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v201, false);
+  ::ttnn::Tensor v498 = ttnn::subtract(
+      v497, v496, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v497, false);
+  ttnn::deallocate(v496, false);
+  ::ttnn::Tensor v499 = ttnn::to_layout(
+      v498, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v498, false);
+  ::ttnn::Tensor v500 = ttnn::from_device(v499);
+  ttnn::deallocate(v499, false);
+  ::ttnn::Tensor v501 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v500,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v500, false);
+  ::ttnn::Tensor v502 =
+      ttnn::add(v213, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v213, false);
+  ::ttnn::Tensor v503 = ttnn::sqrt(
+      v502, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v502, false);
+  ::ttnn::Tensor v504 = ttnn::divide(
+      v207, v503, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v503, false);
+  ttnn::deallocate(v207, false);
+  ::ttnn::Tensor v505 = ttnn::reshape(
+      v504, ::std::vector<int32_t>{160, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v506 = ttnn::to_device(
+      v61, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v507 = ttnn::to_layout(
+      v506, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v506, false);
+  ::ttnn::Tensor v508 = ttnn::multiply(
+      v507, v505, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v507, false);
+  ttnn::deallocate(v505, false);
+  ::ttnn::Tensor v509 = ttnn::to_layout(
+      v508, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v508, false);
+  ::ttnn::Tensor v510 = ttnn::from_device(v509);
+  ttnn::deallocate(v509, false);
+  ::ttnn::Tensor v511 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v510,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v510, false);
+  ::ttnn::Tensor v512 = ttnn::reshape(
+      v211, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v211, false);
+  ::ttnn::Tensor v513 = ttnn::reshape(
+      v504, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v504, false);
+  ::ttnn::Tensor v514 = ttnn::multiply(
+      v512, v513, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v513, false);
+  ttnn::deallocate(v512, false);
+  ::ttnn::Tensor v515 = ttnn::reshape(
+      v209, ::std::vector<int32_t>{1, 1, 1, 160},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v209, false);
+  ::ttnn::Tensor v516 = ttnn::subtract(
+      v515, v514, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v515, false);
+  ttnn::deallocate(v514, false);
+  ::ttnn::Tensor v517 = ttnn::to_layout(
+      v516, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v516, false);
+  ::ttnn::Tensor v518 = ttnn::from_device(v517);
+  ttnn::deallocate(v517, false);
+  ::ttnn::Tensor v519 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v518,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v518, false);
+  ::ttnn::Tensor v520 =
+      ttnn::add(v221, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v221, false);
+  ::ttnn::Tensor v521 = ttnn::sqrt(
+      v520, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v520, false);
+  ::ttnn::Tensor v522 = ttnn::divide(
+      v215, v521, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v521, false);
+  ttnn::deallocate(v215, false);
+  ::ttnn::Tensor v523 = ttnn::reshape(
+      v522, ::std::vector<int32_t>{512, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v524 = ttnn::to_device(
+      v56, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v525 = ttnn::to_layout(
+      v524, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v524, false);
+  ::ttnn::Tensor v526 = ttnn::multiply(
+      v525, v523, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v525, false);
+  ttnn::deallocate(v523, false);
+  ::ttnn::Tensor v527 = ttnn::to_layout(
+      v526, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v526, false);
+  ::ttnn::Tensor v528 = ttnn::from_device(v527);
+  ttnn::deallocate(v527, false);
+  ::ttnn::Tensor v529 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v528,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 736},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 736, 512, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 64,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v528, false);
+  ::ttnn::Tensor v530 = ttnn::reshape(
+      v219, ::std::vector<int32_t>{1, 1, 1, 512},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v219, false);
+  ::ttnn::Tensor v531 = ttnn::reshape(
+      v522, ::std::vector<int32_t>{1, 1, 1, 512},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v522, false);
+  ::ttnn::Tensor v532 = ttnn::multiply(
+      v530, v531, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v531, false);
+  ttnn::deallocate(v530, false);
+  ::ttnn::Tensor v533 = ttnn::reshape(
+      v217, ::std::vector<int32_t>{1, 1, 1, 512},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v217, false);
+  ::ttnn::Tensor v534 = ttnn::subtract(
+      v533, v532, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v533, false);
+  ttnn::deallocate(v532, false);
+  ::ttnn::Tensor v535 = ttnn::to_layout(
+      v534, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v534, false);
+  ::ttnn::Tensor v536 = ttnn::from_device(v535);
+  ttnn::deallocate(v535, false);
+  ::ttnn::Tensor v537 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v536,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 736},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 736, 512, 1, 28, 28,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 64,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v536, false);
+  ::ttnn::Tensor v538 =
+      ttnn::add(v229, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v229, false);
+  ::ttnn::Tensor v539 = ttnn::sqrt(
+      v538, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v538, false);
+  ::ttnn::Tensor v540 = ttnn::divide(
+      v223, v539, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v539, false);
+  ttnn::deallocate(v223, false);
+  ::ttnn::Tensor v541 = ttnn::reshape(
+      v540, ::std::vector<int32_t>{192, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v542 = ttnn::to_device(
+      v51, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v543 = ttnn::to_layout(
+      v542, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v542, false);
+  ::ttnn::Tensor v544 = ttnn::multiply(
+      v543, v541, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v543, false);
+  ttnn::deallocate(v541, false);
+  ::ttnn::Tensor v545 = ttnn::to_layout(
+      v544, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v544, false);
+  ::ttnn::Tensor v546 = ttnn::from_device(v545);
+  ttnn::deallocate(v545, false);
+  ::ttnn::Tensor v547 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v546,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt},
+      ::ttnn::Layout::ROW_MAJOR, "OIHW", 512, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .config_tensors_in_dram = true,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v546, false);
+  ::ttnn::Tensor v548 = ttnn::reshape(
+      v227, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v227, false);
+  ::ttnn::Tensor v549 = ttnn::reshape(
+      v540, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v540, false);
+  ::ttnn::Tensor v550 = ttnn::multiply(
+      v548, v549, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v549, false);
+  ttnn::deallocate(v548, false);
+  ::ttnn::Tensor v551 = ttnn::reshape(
+      v225, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v225, false);
+  ::ttnn::Tensor v552 = ttnn::subtract(
+      v551, v550, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v551, false);
+  ttnn::deallocate(v550, false);
+  ::ttnn::Tensor v553 = ttnn::to_layout(
+      v552, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v552, false);
+  ::ttnn::Tensor v554 = ttnn::from_device(v553);
+  ttnn::deallocate(v553, false);
+  ::ttnn::Tensor v555 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v554,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt},
+      ::ttnn::Layout::ROW_MAJOR, 512, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .config_tensors_in_dram = true,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v554, false);
+  ::ttnn::Tensor v556 =
+      ttnn::add(v237, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v237, false);
+  ::ttnn::Tensor v557 = ttnn::sqrt(
+      v556, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v556, false);
+  ::ttnn::Tensor v558 = ttnn::divide(
+      v231, v557, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v557, false);
+  ttnn::deallocate(v231, false);
+  ::ttnn::Tensor v559 = ttnn::reshape(
+      v558, ::std::vector<int32_t>{192, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v560 = ttnn::to_device(
+      v46, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v561 = ttnn::to_layout(
+      v560, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v560, false);
+  ::ttnn::Tensor v562 = ttnn::multiply(
+      v561, v559, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v561, false);
+  ttnn::deallocate(v559, false);
+  ::ttnn::Tensor v563 = ttnn::to_layout(
+      v562, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v562, false);
+  ::ttnn::Tensor v564 = ttnn::from_device(v563);
+  ttnn::deallocate(v563, false);
+  ::ttnn::Tensor v565 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v564,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v564, false);
+  ::ttnn::Tensor v566 = ttnn::reshape(
+      v235, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v235, false);
+  ::ttnn::Tensor v567 = ttnn::reshape(
+      v558, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v558, false);
+  ::ttnn::Tensor v568 = ttnn::multiply(
+      v566, v567, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v567, false);
+  ttnn::deallocate(v566, false);
+  ::ttnn::Tensor v569 = ttnn::reshape(
+      v233, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v233, false);
+  ::ttnn::Tensor v570 = ttnn::subtract(
+      v569, v568, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v569, false);
+  ttnn::deallocate(v568, false);
+  ::ttnn::Tensor v571 = ttnn::to_layout(
+      v570, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v570, false);
+  ::ttnn::Tensor v572 = ttnn::from_device(v571);
+  ttnn::deallocate(v571, false);
+  ::ttnn::Tensor v573 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v572,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v572, false);
+  ::ttnn::Tensor v574 =
+      ttnn::add(v245, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v245, false);
+  ::ttnn::Tensor v575 = ttnn::sqrt(
+      v574, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v574, false);
+  ::ttnn::Tensor v576 = ttnn::divide(
+      v239, v575, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v575, false);
+  ttnn::deallocate(v239, false);
+  ::ttnn::Tensor v577 = ttnn::reshape(
+      v576, ::std::vector<int32_t>{192, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v578 = ttnn::to_device(
+      v41, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v579 = ttnn::to_layout(
+      v578, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v578, false);
+  ::ttnn::Tensor v580 = ttnn::multiply(
+      v579, v577, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v579, false);
+  ttnn::deallocate(v577, false);
+  ::ttnn::Tensor v581 = ttnn::to_layout(
+      v580, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v580, false);
+  ::ttnn::Tensor v582 = ttnn::from_device(v581);
+  ttnn::deallocate(v581, false);
+  ::ttnn::Tensor v583 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v582,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v582, false);
+  ::ttnn::Tensor v584 = ttnn::reshape(
+      v243, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v243, false);
+  ::ttnn::Tensor v585 = ttnn::reshape(
+      v576, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v576, false);
+  ::ttnn::Tensor v586 = ttnn::multiply(
+      v584, v585, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v585, false);
+  ttnn::deallocate(v584, false);
+  ::ttnn::Tensor v587 = ttnn::reshape(
+      v241, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v241, false);
+  ::ttnn::Tensor v588 = ttnn::subtract(
+      v587, v586, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v587, false);
+  ttnn::deallocate(v586, false);
+  ::ttnn::Tensor v589 = ttnn::to_layout(
+      v588, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v588, false);
+  ::ttnn::Tensor v590 = ttnn::from_device(v589);
+  ttnn::deallocate(v589, false);
+  ::ttnn::Tensor v591 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v590,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v590, false);
+  ::ttnn::Tensor v592 =
+      ttnn::add(v253, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v253, false);
+  ::ttnn::Tensor v593 = ttnn::sqrt(
+      v592, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v592, false);
+  ::ttnn::Tensor v594 = ttnn::divide(
+      v247, v593, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v593, false);
+  ttnn::deallocate(v247, false);
+  ::ttnn::Tensor v595 = ttnn::reshape(
+      v594, ::std::vector<int32_t>{192, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v596 = ttnn::to_device(
+      v36, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v597 = ttnn::to_layout(
+      v596, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v596, false);
+  ::ttnn::Tensor v598 = ttnn::multiply(
+      v597, v595, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v597, false);
+  ttnn::deallocate(v595, false);
+  ::ttnn::Tensor v599 = ttnn::to_layout(
+      v598, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v598, false);
+  ::ttnn::Tensor v600 = ttnn::from_device(v599);
+  ttnn::deallocate(v599, false);
+  ::ttnn::Tensor v601 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v600,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v600, false);
+  ::ttnn::Tensor v602 = ttnn::reshape(
+      v251, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v251, false);
+  ::ttnn::Tensor v603 = ttnn::reshape(
+      v594, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v594, false);
+  ::ttnn::Tensor v604 = ttnn::multiply(
+      v602, v603, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v603, false);
+  ttnn::deallocate(v602, false);
+  ::ttnn::Tensor v605 = ttnn::reshape(
+      v249, ::std::vector<int32_t>{1, 1, 1, 192},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v249, false);
+  ::ttnn::Tensor v606 = ttnn::subtract(
+      v605, v604, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v605, false);
+  ttnn::deallocate(v604, false);
+  ::ttnn::Tensor v607 = ttnn::to_layout(
+      v606, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v606, false);
+  ::ttnn::Tensor v608 = ttnn::from_device(v607);
+  ttnn::deallocate(v607, false);
+  ::ttnn::Tensor v609 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v608,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v608, false);
+  ::ttnn::Tensor v610 =
+      ttnn::add(v261, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v261, false);
+  ::ttnn::Tensor v611 = ttnn::sqrt(
+      v610, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v610, false);
+  ::ttnn::Tensor v612 = ttnn::divide(
+      v255, v611, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v611, false);
+  ttnn::deallocate(v255, false);
+  ::ttnn::Tensor v613 = ttnn::reshape(
+      v612, ::std::vector<int32_t>{768, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v614 = ttnn::to_device(
+      v31, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v615 = ttnn::to_layout(
+      v614, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v614, false);
+  ::ttnn::Tensor v616 = ttnn::multiply(
+      v615, v613, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v615, false);
+  ttnn::deallocate(v613, false);
+  ::ttnn::Tensor v617 = ttnn::to_layout(
+      v616, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v616, false);
+  ::ttnn::Tensor v618 = ttnn::from_device(v617);
+  ttnn::deallocate(v617, false);
+  ::ttnn::Tensor v619 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v618,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 0}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 1},
+                                                  ::ttnn::CoreCoord{3, 1}}}},
+                            ::std::array<uint32_t, 2>{224, 96},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 1088, 768, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v618, false);
+  ::ttnn::Tensor v620 = ttnn::reshape(
+      v259, ::std::vector<int32_t>{1, 1, 1, 768},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v259, false);
+  ::ttnn::Tensor v621 = ttnn::reshape(
+      v612, ::std::vector<int32_t>{1, 1, 1, 768},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v612, false);
+  ::ttnn::Tensor v622 = ttnn::multiply(
+      v620, v621, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v621, false);
+  ttnn::deallocate(v620, false);
+  ::ttnn::Tensor v623 = ttnn::reshape(
+      v257, ::std::vector<int32_t>{1, 1, 1, 768},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v257, false);
+  ::ttnn::Tensor v624 = ttnn::subtract(
+      v623, v622, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v623, false);
+  ttnn::deallocate(v622, false);
+  ::ttnn::Tensor v625 = ttnn::to_layout(
+      v624, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v624, false);
+  ::ttnn::Tensor v626 = ttnn::from_device(v625);
+  ttnn::deallocate(v625, false);
+  ::ttnn::Tensor v627 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v626,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 0}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 1},
+                                                  ::ttnn::CoreCoord{3, 1}}}},
+                            ::std::array<uint32_t, 2>{224, 96},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 1088, 768, 1, 14, 14,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v626, false);
+  ::ttnn::Tensor v628 =
+      ttnn::add(v269, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v269, false);
+  ::ttnn::Tensor v629 = ttnn::sqrt(
+      v628, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v628, false);
+  ::ttnn::Tensor v630 = ttnn::divide(
+      v263, v629, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v629, false);
+  ttnn::deallocate(v263, false);
+  ::ttnn::Tensor v631 = ttnn::reshape(
+      v630, ::std::vector<int32_t>{224, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v632 = ttnn::to_device(
+      v26, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v633 = ttnn::to_layout(
+      v632, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v632, false);
+  ::ttnn::Tensor v634 = ttnn::multiply(
+      v633, v631, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v633, false);
+  ttnn::deallocate(v631, false);
+  ::ttnn::Tensor v635 = ttnn::to_layout(
+      v634, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v634, false);
+  ::ttnn::Tensor v636 = ttnn::from_device(v635);
+  ttnn::deallocate(v635, false);
+  ::ttnn::Tensor v637 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v636,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{49, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::ROW_MAJOR, "OIHW", 768, 224, 1, 7, 7,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v636, false);
+  ::ttnn::Tensor v638 = ttnn::reshape(
+      v267, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v267, false);
+  ::ttnn::Tensor v639 = ttnn::reshape(
+      v630, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v630, false);
+  ::ttnn::Tensor v640 = ttnn::multiply(
+      v638, v639, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v639, false);
+  ttnn::deallocate(v638, false);
+  ::ttnn::Tensor v641 = ttnn::reshape(
+      v265, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v265, false);
+  ::ttnn::Tensor v642 = ttnn::subtract(
+      v641, v640, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v641, false);
+  ttnn::deallocate(v640, false);
+  ::ttnn::Tensor v643 = ttnn::to_layout(
+      v642, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v642, false);
+  ::ttnn::Tensor v644 = ttnn::from_device(v643);
+  ttnn::deallocate(v643, false);
+  ::ttnn::Tensor v645 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v644,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{49, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::ROW_MAJOR, 768, 224, 1, 7, 7,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v644, false);
+  ::ttnn::Tensor v646 =
+      ttnn::add(v277, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v277, false);
+  ::ttnn::Tensor v647 = ttnn::sqrt(
+      v646, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v646, false);
+  ::ttnn::Tensor v648 = ttnn::divide(
+      v271, v647, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v647, false);
+  ttnn::deallocate(v271, false);
+  ::ttnn::Tensor v649 = ttnn::reshape(
+      v648, ::std::vector<int32_t>{224, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v650 = ttnn::to_device(
+      v21, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v651 = ttnn::to_layout(
+      v650, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v650, false);
+  ::ttnn::Tensor v652 = ttnn::multiply(
+      v651, v649, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v651, false);
+  ttnn::deallocate(v649, false);
+  ::ttnn::Tensor v653 = ttnn::to_layout(
+      v652, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v652, false);
+  ::ttnn::Tensor v654 = ttnn::from_device(v653);
+  ttnn::deallocate(v653, false);
+  ::ttnn::Tensor v655 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v654,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 224, 224, 1, 7, 7,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v654, false);
+  ::ttnn::Tensor v656 = ttnn::reshape(
+      v275, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v275, false);
+  ::ttnn::Tensor v657 = ttnn::reshape(
+      v648, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v648, false);
+  ::ttnn::Tensor v658 = ttnn::multiply(
+      v656, v657, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v657, false);
+  ttnn::deallocate(v656, false);
+  ::ttnn::Tensor v659 = ttnn::reshape(
+      v273, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v273, false);
+  ::ttnn::Tensor v660 = ttnn::subtract(
+      v659, v658, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v659, false);
+  ttnn::deallocate(v658, false);
+  ::ttnn::Tensor v661 = ttnn::to_layout(
+      v660, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v660, false);
+  ::ttnn::Tensor v662 = ttnn::from_device(v661);
+  ttnn::deallocate(v661, false);
+  ::ttnn::Tensor v663 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v662,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v117, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v662, false);
+  ::ttnn::Tensor v664 =
+      ttnn::add(v285, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v285, false);
+  ::ttnn::Tensor v665 = ttnn::sqrt(
+      v664, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v664, false);
+  ::ttnn::Tensor v666 = ttnn::divide(
+      v279, v665, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v665, false);
+  ttnn::deallocate(v279, false);
+  ::ttnn::Tensor v667 = ttnn::reshape(
+      v666, ::std::vector<int32_t>{224, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v668 = ttnn::to_device(
+      v16, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v669 = ttnn::to_layout(
+      v668, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v668, false);
+  ::ttnn::Tensor v670 = ttnn::multiply(
+      v669, v667, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v669, false);
+  ttnn::deallocate(v667, false);
+  ::ttnn::Tensor v671 = ttnn::to_layout(
+      v670, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v670, false);
+  ::ttnn::Tensor v672 = ttnn::from_device(v671);
+  ttnn::deallocate(v671, false);
+  ::ttnn::Tensor v673 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v672,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 224, 224, 1, 7, 7,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v672, false);
+  ::ttnn::Tensor v674 = ttnn::reshape(
+      v283, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v283, false);
+  ::ttnn::Tensor v675 = ttnn::reshape(
+      v666, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v666, false);
+  ::ttnn::Tensor v676 = ttnn::multiply(
+      v674, v675, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v675, false);
+  ttnn::deallocate(v674, false);
+  ::ttnn::Tensor v677 = ttnn::reshape(
+      v281, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v281, false);
+  ::ttnn::Tensor v678 = ttnn::subtract(
+      v677, v676, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v677, false);
+  ttnn::deallocate(v676, false);
+  ::ttnn::Tensor v679 = ttnn::to_layout(
+      v678, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v678, false);
+  ::ttnn::Tensor v680 = ttnn::from_device(v679);
+  ttnn::deallocate(v679, false);
+  ::ttnn::Tensor v681 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v680,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v117, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v680, false);
+  ::ttnn::Tensor v682 =
+      ttnn::add(v293, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v293, false);
+  ::ttnn::Tensor v683 = ttnn::sqrt(
+      v682, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v682, false);
+  ::ttnn::Tensor v684 = ttnn::divide(
+      v287, v683, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v683, false);
+  ttnn::deallocate(v287, false);
+  ::ttnn::Tensor v685 = ttnn::reshape(
+      v684, ::std::vector<int32_t>{224, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v686 = ttnn::to_device(
+      v11, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v687 = ttnn::to_layout(
+      v686, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v686, false);
+  ::ttnn::Tensor v688 = ttnn::multiply(
+      v687, v685, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v687, false);
+  ttnn::deallocate(v685, false);
+  ::ttnn::Tensor v689 = ttnn::to_layout(
+      v688, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v688, false);
+  ::ttnn::Tensor v690 = ttnn::from_device(v689);
+  ttnn::deallocate(v689, false);
+  ::ttnn::Tensor v691 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v690,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 224, 224, 1, 7, 7,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v690, false);
+  ::ttnn::Tensor v692 = ttnn::reshape(
+      v291, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v291, false);
+  ::ttnn::Tensor v693 = ttnn::reshape(
+      v684, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v684, false);
+  ::ttnn::Tensor v694 = ttnn::multiply(
+      v692, v693, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v693, false);
+  ttnn::deallocate(v692, false);
+  ::ttnn::Tensor v695 = ttnn::reshape(
+      v289, ::std::vector<int32_t>{1, 1, 1, 224},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v289, false);
+  ::ttnn::Tensor v696 = ttnn::subtract(
+      v695, v694, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v695, false);
+  ttnn::deallocate(v694, false);
+  ::ttnn::Tensor v697 = ttnn::to_layout(
+      v696, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v696, false);
+  ::ttnn::Tensor v698 = ttnn::from_device(v697);
+  ttnn::deallocate(v697, false);
+  ::ttnn::Tensor v699 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v698,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v117, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v698, false);
+  ::ttnn::Tensor v700 =
+      ttnn::add(v301, v303, ::ttnn::DataType::BFLOAT16,
+                ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                     ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v303, false);
+  ttnn::deallocate(v301, false);
+  ::ttnn::Tensor v701 = ttnn::sqrt(
+      v700, false,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v700, false);
+  ::ttnn::Tensor v702 = ttnn::divide(
+      v295, v701, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v701, false);
+  ttnn::deallocate(v295, false);
+  ::ttnn::Tensor v703 = ttnn::reshape(
+      v702, ::std::vector<int32_t>{1024, 1, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v704 = ttnn::to_device(
+      v6, v117,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v705 = ttnn::to_layout(
+      v704, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v704, false);
+  ::ttnn::Tensor v706 = ttnn::multiply(
+      v705, v703, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v705, false);
+  ttnn::deallocate(v703, false);
+  ::ttnn::Tensor v707 = ttnn::to_layout(
+      v706, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v706, false);
+  ::ttnn::Tensor v708 = ttnn::from_device(v707);
+  ttnn::deallocate(v707, false);
+  ::ttnn::Tensor v709 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v708,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 1}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 2},
+                                                  ::ttnn::CoreCoord{6, 2}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 1440, 1024, 1, 7, 7,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ttnn::deallocate(v708, false);
+  ::ttnn::Tensor v710 = ttnn::reshape(
+      v299, ::std::vector<int32_t>{1, 1, 1, 1024},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v299, false);
+  ::ttnn::Tensor v711 = ttnn::reshape(
+      v702, ::std::vector<int32_t>{1, 1, 1, 1024},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v702, false);
+  ::ttnn::Tensor v712 = ttnn::multiply(
+      v710, v711, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v711, false);
+  ttnn::deallocate(v710, false);
+  ::ttnn::Tensor v713 = ttnn::reshape(
+      v297, ::std::vector<int32_t>{1, 1, 1, 1024},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v297, false);
+  ::ttnn::Tensor v714 = ttnn::subtract(
+      v713, v712, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v713, false);
+  ttnn::deallocate(v712, false);
+  ::ttnn::Tensor v715 = ttnn::to_layout(
+      v714, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v714, false);
+  ::ttnn::Tensor v716 = ttnn::from_device(v715);
+  ttnn::deallocate(v715, false);
+  ::ttnn::Tensor v717 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v716,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 1}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 2},
+                                                  ::ttnn::CoreCoord{6, 2}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 1440, 1024, 1, 7, 7,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v117, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v716, false);
+  ::std::vector<::ttnn::Tensor> v718 = util_create_vec(
+      v313, v321, v331, v339, v349, v357, v367, v375, v385, v393, v403, v411,
+      v421, v429, v439, v447, v457, v465, v475, v483, v493, v501, v511, v519,
+      v529, v537, v547, v555, v565, v573, v583, v591, v601, v609, v619, v627,
+      v637, v645, v655, v663, v673, v681, v691, v699, v709, v717);
+  return v718;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_1(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::to_device(
+      v2, v3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v5 = ttnn::to_layout(
+      v4, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v4, false);
+  ::ttnn::Tensor v6 = ttnn::permute(
+      v5, ::ttsl::SmallVector<int64_t>{1, 0},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt},
+      0.000000f);
+  ttnn::deallocate(v5, false);
+  ::ttnn::Tensor v7 = ttnn::typecast(
+      v6, ::ttnn::DataType::FLOAT32,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v6, false);
+  ::std::vector<::ttnn::Tensor> v8 = util_create_vec(v7);
+  return v8;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_2(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 6}}}},
+                            ::std::array<uint32_t, 2>{224, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 64, 64, 1, 112, 112,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{2, 2},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 64, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_3(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 224, 224, 1, 7, 7,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 224, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_4(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 256, 256, 1, 1, 1,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_5(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 128, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_6(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 1024, 1024, 1, 1, 1,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_7(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 512, 512, 1, 1, 1,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_8(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::to_device(
+      v2, v3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v5 = ttnn::to_layout(
+      v4, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v4, false);
+  ::ttnn::Tensor v6 = ttnn::reshape(
+      v5, ::std::vector<int32_t>{1, 1, 1, 512},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v5, false);
+  ::ttnn::Tensor v7 = ttnn::to_layout(
+      v6, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v6, false);
+  ::ttnn::Tensor v8 = ttnn::from_device(v7);
+  ttnn::deallocate(v7, false);
+  ::ttnn::Tensor v9 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v8,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 512, 512, 1, 1, 1, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v3, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v8, false);
+  ::std::vector<::ttnn::Tensor> v10 = util_create_vec(v9);
+  return v10;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_9(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 160, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_10(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 224, 224, 1, 7, 7,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 224, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_11(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 128, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_12(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 192, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_13(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{256, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 64, 64, 1, 112, 112,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 64, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_14(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 128, 128, 1, 56, 56,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 128, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_15(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::to_device(
+      v2, v3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v5 = ttnn::to_layout(
+      v4, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v4, false);
+  ::ttnn::Tensor v6 = ttnn::reshape(
+      v5, ::std::vector<int32_t>{1, 1, 1, 1024},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v5, false);
+  ::ttnn::Tensor v7 = ttnn::to_layout(
+      v6, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v6, false);
+  ::ttnn::Tensor v8 = ttnn::from_device(v7);
+  ttnn::deallocate(v7, false);
+  ::ttnn::Tensor v9 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v8,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 1024, 1024, 1, 1, 1,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1}, 1,
+      v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v8, false);
+  ::std::vector<::ttnn::Tensor> v10 = util_create_vec(v9);
+  return v10;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_16(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 160, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_17(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::to_device(
+      v2, v3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v5 = ttnn::to_layout(
+      v4, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v4, false);
+  ::ttnn::Tensor v6 = ttnn::typecast(
+      v5, ::ttnn::DataType::FLOAT32,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v5, false);
+  ::std::vector<::ttnn::Tensor> v7 = util_create_vec(v6);
+  return v7;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_18(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 192, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 64,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_19(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 192, 192, 1, 14, 14,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 192, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_20(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 768, 768, 1, 1, 1,
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{0, 0, 0, 0}, ::std::array<uint32_t, 2>{1, 1},
+      true, 1, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_21(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::to_device(
+      v2, v3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v5 = ttnn::to_layout(
+      v4, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v4, false);
+  ::ttnn::Tensor v6 = ttnn::reshape(
+      v5, ::std::vector<int32_t>{1, 1, 1, 768},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v5, false);
+  ::ttnn::Tensor v7 = ttnn::to_layout(
+      v6, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v6, false);
+  ::ttnn::Tensor v8 = ttnn::from_device(v7);
+  ttnn::deallocate(v7, false);
+  ::ttnn::Tensor v9 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v8,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 768, 768, 1, 1, 1, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v3, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v8, false);
+  ::std::vector<::ttnn::Tensor> v10 = util_create_vec(v9);
+  return v10;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_22(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::to_device(
+      v2, v3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v5 = ttnn::to_layout(
+      v4, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v4, false);
+  ::ttnn::Tensor v6 = ttnn::reshape(
+      v5, ::std::vector<int32_t>{1, 1, 1, 256},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v5, false);
+  ::ttnn::Tensor v7 = ttnn::to_layout(
+      v6, ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v6, false);
+  ::ttnn::Tensor v8 = ttnn::from_device(v7);
+  ttnn::deallocate(v7, false);
+  ::ttnn::Tensor v9 = ttnn::operations::conv::conv2d::prepare_conv_bias(
+      v8,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, 256, 256, 1, 1, 1, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, v3, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt);
+  ttnn::deallocate(v8, false);
+  ::std::vector<::ttnn::Tensor> v10 = util_create_vec(v9);
+  return v10;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_23(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 224, 224, 1, 7, 7,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 224, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+::std::vector<::ttnn::Tensor>
+main_const_eval_24(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ttnn::distributed::MeshDevice *v3 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v4 = ttnn::operations::conv::conv2d::prepare_conv_weights(
+      v2,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Layout::TILE, "OIHW", 160, 160, 1, 28, 28,
+      ::std::array<uint32_t, 2>{3, 3}, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 4>{1, 1, 1, 1}, ::std::array<uint32_t, 2>{1, 1},
+      false, 160, v3, ::ttnn::DataType::BFLOAT16, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt, ::std::nullopt);
+  ::std::vector<::ttnn::Tensor> v5 = util_create_vec(v4);
+  return v5;
+}
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_0;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_1;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_2;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_3;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_4;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_5;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_6;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_7;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_8;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_9;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_10;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_11;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_12;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_13;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_14;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_15;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_16;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_17;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_18;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_19;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_20;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_21;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_22;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_23;
+static ::std::vector<::ttnn::Tensor> g_cached_result_main_const_eval_24;
+::std::vector<::ttnn::Tensor> _main(::std::vector<::ttnn::Tensor> v1) {
+  ::ttnn::Tensor v2 = v1[0];
+  ::ttnn::Tensor v3 = v1[1];
+  ::ttnn::Tensor v4 = v1[2];
+  ::ttnn::Tensor v5 = v1[3];
+  ::ttnn::Tensor v6 = v1[4];
+  ::ttnn::Tensor v7 = v1[5];
+  ::ttnn::Tensor v8 = v1[6];
+  ::ttnn::Tensor v9 = v1[7];
+  ::ttnn::Tensor v10 = v1[8];
+  ::ttnn::Tensor v11 = v1[9];
+  ::ttnn::Tensor v12 = v1[10];
+  ::ttnn::Tensor v13 = v1[11];
+  ::ttnn::Tensor v14 = v1[12];
+  ::ttnn::Tensor v15 = v1[13];
+  ::ttnn::Tensor v16 = v1[14];
+  ::ttnn::Tensor v17 = v1[15];
+  ::ttnn::Tensor v18 = v1[16];
+  ::ttnn::Tensor v19 = v1[17];
+  ::ttnn::Tensor v20 = v1[18];
+  ::ttnn::Tensor v21 = v1[19];
+  ::ttnn::Tensor v22 = v1[20];
+  ::ttnn::Tensor v23 = v1[21];
+  ::ttnn::Tensor v24 = v1[22];
+  ::ttnn::Tensor v25 = v1[23];
+  ::ttnn::Tensor v26 = v1[24];
+  ::ttnn::Tensor v27 = v1[25];
+  ::ttnn::Tensor v28 = v1[26];
+  ::ttnn::Tensor v29 = v1[27];
+  ::ttnn::Tensor v30 = v1[28];
+  ::ttnn::Tensor v31 = v1[29];
+  ::ttnn::Tensor v32 = v1[30];
+  ::ttnn::Tensor v33 = v1[31];
+  ::ttnn::Tensor v34 = v1[32];
+  ::ttnn::Tensor v35 = v1[33];
+  ::ttnn::Tensor v36 = v1[34];
+  ::ttnn::Tensor v37 = v1[35];
+  ::ttnn::Tensor v38 = v1[36];
+  ::ttnn::Tensor v39 = v1[37];
+  ::ttnn::Tensor v40 = v1[38];
+  ::ttnn::Tensor v41 = v1[39];
+  ::ttnn::Tensor v42 = v1[40];
+  ::ttnn::Tensor v43 = v1[41];
+  ::ttnn::Tensor v44 = v1[42];
+  ::ttnn::Tensor v45 = v1[43];
+  ::ttnn::Tensor v46 = v1[44];
+  ::ttnn::Tensor v47 = v1[45];
+  ::ttnn::Tensor v48 = v1[46];
+  ::ttnn::Tensor v49 = v1[47];
+  ::ttnn::Tensor v50 = v1[48];
+  ::ttnn::Tensor v51 = v1[49];
+  ::ttnn::Tensor v52 = v1[50];
+  ::ttnn::Tensor v53 = v1[51];
+  ::ttnn::Tensor v54 = v1[52];
+  ::ttnn::Tensor v55 = v1[53];
+  ::ttnn::Tensor v56 = v1[54];
+  ::ttnn::Tensor v57 = v1[55];
+  ::ttnn::Tensor v58 = v1[56];
+  ::ttnn::Tensor v59 = v1[57];
+  ::ttnn::Tensor v60 = v1[58];
+  ::ttnn::Tensor v61 = v1[59];
+  ::ttnn::Tensor v62 = v1[60];
+  ::ttnn::Tensor v63 = v1[61];
+  ::ttnn::Tensor v64 = v1[62];
+  ::ttnn::Tensor v65 = v1[63];
+  ::ttnn::Tensor v66 = v1[64];
+  ::ttnn::Tensor v67 = v1[65];
+  ::ttnn::Tensor v68 = v1[66];
+  ::ttnn::Tensor v69 = v1[67];
+  ::ttnn::Tensor v70 = v1[68];
+  ::ttnn::Tensor v71 = v1[69];
+  ::ttnn::Tensor v72 = v1[70];
+  ::ttnn::Tensor v73 = v1[71];
+  ::ttnn::Tensor v74 = v1[72];
+  ::ttnn::Tensor v75 = v1[73];
+  ::ttnn::Tensor v76 = v1[74];
+  ::ttnn::Tensor v77 = v1[75];
+  ::ttnn::Tensor v78 = v1[76];
+  ::ttnn::Tensor v79 = v1[77];
+  ::ttnn::Tensor v80 = v1[78];
+  ::ttnn::Tensor v81 = v1[79];
+  ::ttnn::Tensor v82 = v1[80];
+  ::ttnn::Tensor v83 = v1[81];
+  ::ttnn::Tensor v84 = v1[82];
+  ::ttnn::Tensor v85 = v1[83];
+  ::ttnn::Tensor v86 = v1[84];
+  ::ttnn::Tensor v87 = v1[85];
+  ::ttnn::Tensor v88 = v1[86];
+  ::ttnn::Tensor v89 = v1[87];
+  ::ttnn::Tensor v90 = v1[88];
+  ::ttnn::Tensor v91 = v1[89];
+  ::ttnn::Tensor v92 = v1[90];
+  ::ttnn::Tensor v93 = v1[91];
+  ::ttnn::Tensor v94 = v1[92];
+  ::ttnn::Tensor v95 = v1[93];
+  ::ttnn::Tensor v96 = v1[94];
+  ::ttnn::Tensor v97 = v1[95];
+  ::ttnn::Tensor v98 = v1[96];
+  ::ttnn::Tensor v99 = v1[97];
+  ::ttnn::Tensor v100 = v1[98];
+  ::ttnn::Tensor v101 = v1[99];
+  ::ttnn::Tensor v102 = v1[100];
+  ::ttnn::Tensor v103 = v1[101];
+  ::ttnn::Tensor v104 = v1[102];
+  ::ttnn::Tensor v105 = v1[103];
+  ::ttnn::Tensor v106 = v1[104];
+  ::ttnn::Tensor v107 = v1[105];
+  ::ttnn::Tensor v108 = v1[106];
+  ::ttnn::Tensor v109 = v1[107];
+  ::ttnn::Tensor v110 = v1[108];
+  ::ttnn::Tensor v111 = v1[109];
+  ::ttnn::Tensor v112 = v1[110];
+  ::ttnn::Tensor v113 = v1[111];
+  ::ttnn::Tensor v114 = v1[112];
+  ::ttnn::Tensor v115 = v1[113];
+  ::ttnn::Tensor v116 = v1[114];
+  ::ttnn::Tensor v117 = v1[115];
+  ::ttnn::Tensor v118 = v1[116];
+  ::ttnn::Tensor v119 = v1[117];
+  ::ttnn::Tensor v120 = v1[118];
+  ::ttnn::Tensor v121 = v1[119];
+  ::ttnn::Tensor v122 = v1[120];
+  ::ttnn::Tensor v123 = v1[121];
+  ::ttnn::Tensor v124 = v1[122];
+  ::ttnn::Tensor v125 = v1[123];
+  ::ttnn::Tensor v126 = v1[124];
+  ::ttnn::Tensor v127 = v1[125];
+  ::ttnn::Tensor v128 = v1[126];
+  ::ttnn::Tensor v129 = v1[127];
+  ::ttnn::Tensor v130 = v1[128];
+  ::ttnn::Tensor v131 = v1[129];
+  ::ttnn::Tensor v132 = v1[130];
+  ::ttnn::Tensor v133 = v1[131];
+  ::ttnn::Tensor v134 = v1[132];
+  ::ttnn::Tensor v135 = v1[133];
+  ::ttnn::Tensor v136 = v1[134];
+  ::ttnn::Tensor v137 = v1[135];
+  ::ttnn::Tensor v138 = v1[136];
+  ::ttnn::Tensor v139 = v1[137];
+  ::ttnn::Tensor v140 = v1[138];
+  ::ttnn::Tensor v141 = v1[139];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v142 = &main_const_eval_0;
+  ::std::vector<::ttnn::Tensor> v143 = util_create_vec(
+      v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v17, v18, v19, v20, v21,
+      v23, v24, v25, v26, v27, v29, v30, v31, v32, v33, v36, v37, v38, v39, v40,
+      v41, v42, v43, v44, v45, v47, v48, v49, v50, v51, v53, v54, v55, v56, v57,
+      v59, v60, v61, v62, v63, v66, v67, v68, v69, v70, v71, v72, v73, v74, v75,
+      v77, v78, v79, v80, v81, v83, v84, v85, v86, v87, v89, v90, v91, v92, v93,
+      v96, v97, v98, v99, v100, v101, v102, v103, v104, v105, v107, v108, v109,
+      v110, v111, v113, v114, v115, v116, v117, v119, v120, v121, v122, v123,
+      v124, v125, v126, v127, v128, v130, v131, v132, v133, v134, v136, v137,
+      v138, v139, v140);
+  ::std::vector<::ttnn::Tensor> *v144 = &g_cached_result_main_const_eval_0;
+  ttnn::constEvalFuncWrapper(v142, v143, v144);
+  ::std::vector<::ttnn::Tensor> v145 = g_cached_result_main_const_eval_0;
+  ::ttnn::Tensor v146 = v145[0];
+  ::ttnn::Tensor v147 = v145[1];
+  ::ttnn::Tensor v148 = v145[2];
+  ::ttnn::Tensor v149 = v145[3];
+  ::ttnn::Tensor v150 = v145[4];
+  ::ttnn::Tensor v151 = v145[5];
+  ::ttnn::Tensor v152 = v145[6];
+  ::ttnn::Tensor v153 = v145[7];
+  ::ttnn::Tensor v154 = v145[8];
+  ::ttnn::Tensor v155 = v145[9];
+  ::ttnn::Tensor v156 = v145[10];
+  ::ttnn::Tensor v157 = v145[11];
+  ::ttnn::Tensor v158 = v145[12];
+  ::ttnn::Tensor v159 = v145[13];
+  ::ttnn::Tensor v160 = v145[14];
+  ::ttnn::Tensor v161 = v145[15];
+  ::ttnn::Tensor v162 = v145[16];
+  ::ttnn::Tensor v163 = v145[17];
+  ::ttnn::Tensor v164 = v145[18];
+  ::ttnn::Tensor v165 = v145[19];
+  ::ttnn::Tensor v166 = v145[20];
+  ::ttnn::Tensor v167 = v145[21];
+  ::ttnn::Tensor v168 = v145[22];
+  ::ttnn::Tensor v169 = v145[23];
+  ::ttnn::Tensor v170 = v145[24];
+  ::ttnn::Tensor v171 = v145[25];
+  ::ttnn::Tensor v172 = v145[26];
+  ::ttnn::Tensor v173 = v145[27];
+  ::ttnn::Tensor v174 = v145[28];
+  ::ttnn::Tensor v175 = v145[29];
+  ::ttnn::Tensor v176 = v145[30];
+  ::ttnn::Tensor v177 = v145[31];
+  ::ttnn::Tensor v178 = v145[32];
+  ::ttnn::Tensor v179 = v145[33];
+  ::ttnn::Tensor v180 = v145[34];
+  ::ttnn::Tensor v181 = v145[35];
+  ::ttnn::Tensor v182 = v145[36];
+  ::ttnn::Tensor v183 = v145[37];
+  ::ttnn::Tensor v184 = v145[38];
+  ::ttnn::Tensor v185 = v145[39];
+  ::ttnn::Tensor v186 = v145[40];
+  ::ttnn::Tensor v187 = v145[41];
+  ::ttnn::Tensor v188 = v145[42];
+  ::ttnn::Tensor v189 = v145[43];
+  ::ttnn::Tensor v190 = v145[44];
+  ::ttnn::Tensor v191 = v145[45];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v192 = &main_const_eval_1;
+  ::std::vector<::ttnn::Tensor> v193 = util_create_vec(v3);
+  ::std::vector<::ttnn::Tensor> *v194 = &g_cached_result_main_const_eval_1;
+  ttnn::constEvalFuncWrapper(v192, v193, v194);
+  ::std::vector<::ttnn::Tensor> v195 = g_cached_result_main_const_eval_1;
+  ::ttnn::Tensor v196 = v195[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v197 = &main_const_eval_2;
+  ::std::vector<::ttnn::Tensor> v198 = util_create_vec(v129);
+  ::std::vector<::ttnn::Tensor> *v199 = &g_cached_result_main_const_eval_2;
+  ttnn::constEvalFuncWrapper(v197, v198, v199);
+  ::std::vector<::ttnn::Tensor> v200 = g_cached_result_main_const_eval_2;
+  ::ttnn::Tensor v201 = v200[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v202 = &main_const_eval_3;
+  ::std::vector<::ttnn::Tensor> v203 = util_create_vec(v22);
+  ::std::vector<::ttnn::Tensor> *v204 = &g_cached_result_main_const_eval_3;
+  ttnn::constEvalFuncWrapper(v202, v203, v204);
+  ::std::vector<::ttnn::Tensor> v205 = g_cached_result_main_const_eval_3;
+  ::ttnn::Tensor v206 = v205[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v207 = &main_const_eval_4;
+  ::std::vector<::ttnn::Tensor> v208 = util_create_vec(v95);
+  ::std::vector<::ttnn::Tensor> *v209 = &g_cached_result_main_const_eval_4;
+  ttnn::constEvalFuncWrapper(v207, v208, v209);
+  ::std::vector<::ttnn::Tensor> v210 = g_cached_result_main_const_eval_4;
+  ::ttnn::Tensor v211 = v210[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v212 = &main_const_eval_5;
+  ::std::vector<::ttnn::Tensor> v213 = util_create_vec(v112);
+  ::std::vector<::ttnn::Tensor> *v214 = &g_cached_result_main_const_eval_5;
+  ttnn::constEvalFuncWrapper(v212, v213, v214);
+  ::std::vector<::ttnn::Tensor> v215 = g_cached_result_main_const_eval_5;
+  ::ttnn::Tensor v216 = v215[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v217 = &main_const_eval_6;
+  ::std::vector<::ttnn::Tensor> v218 = util_create_vec(v5);
+  ::std::vector<::ttnn::Tensor> *v219 = &g_cached_result_main_const_eval_6;
+  ttnn::constEvalFuncWrapper(v217, v218, v219);
+  ::std::vector<::ttnn::Tensor> v220 = g_cached_result_main_const_eval_6;
+  ::ttnn::Tensor v221 = v220[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v222 = &main_const_eval_7;
+  ::std::vector<::ttnn::Tensor> v223 = util_create_vec(v65);
+  ::std::vector<::ttnn::Tensor> *v224 = &g_cached_result_main_const_eval_7;
+  ttnn::constEvalFuncWrapper(v222, v223, v224);
+  ::std::vector<::ttnn::Tensor> v225 = g_cached_result_main_const_eval_7;
+  ::ttnn::Tensor v226 = v225[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v227 = &main_const_eval_8;
+  ::std::vector<::ttnn::Tensor> v228 = util_create_vec(v64);
+  ::std::vector<::ttnn::Tensor> *v229 = &g_cached_result_main_const_eval_8;
+  ttnn::constEvalFuncWrapper(v227, v228, v229);
+  ::std::vector<::ttnn::Tensor> v230 = g_cached_result_main_const_eval_8;
+  ::ttnn::Tensor v231 = v230[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v232 = &main_const_eval_9;
+  ::std::vector<::ttnn::Tensor> v233 = util_create_vec(v88);
+  ::std::vector<::ttnn::Tensor> *v234 = &g_cached_result_main_const_eval_9;
+  ttnn::constEvalFuncWrapper(v232, v233, v234);
+  ::std::vector<::ttnn::Tensor> v235 = g_cached_result_main_const_eval_9;
+  ::ttnn::Tensor v236 = v235[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v237 = &main_const_eval_10;
+  ::std::vector<::ttnn::Tensor> v238 = util_create_vec(v28);
+  ::std::vector<::ttnn::Tensor> *v239 = &g_cached_result_main_const_eval_10;
+  ttnn::constEvalFuncWrapper(v237, v238, v239);
+  ::std::vector<::ttnn::Tensor> v240 = g_cached_result_main_const_eval_10;
+  ::ttnn::Tensor v241 = v240[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v242 = &main_const_eval_11;
+  ::std::vector<::ttnn::Tensor> v243 = util_create_vec(v106);
+  ::std::vector<::ttnn::Tensor> *v244 = &g_cached_result_main_const_eval_11;
+  ttnn::constEvalFuncWrapper(v242, v243, v244);
+  ::std::vector<::ttnn::Tensor> v245 = g_cached_result_main_const_eval_11;
+  ::ttnn::Tensor v246 = v245[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v247 = &main_const_eval_12;
+  ::std::vector<::ttnn::Tensor> v248 = util_create_vec(v46);
+  ::std::vector<::ttnn::Tensor> *v249 = &g_cached_result_main_const_eval_12;
+  ttnn::constEvalFuncWrapper(v247, v248, v249);
+  ::std::vector<::ttnn::Tensor> v250 = g_cached_result_main_const_eval_12;
+  ::ttnn::Tensor v251 = v250[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v252 = &main_const_eval_13;
+  ::std::vector<::ttnn::Tensor> v253 = util_create_vec(v135);
+  ::std::vector<::ttnn::Tensor> *v254 = &g_cached_result_main_const_eval_13;
+  ttnn::constEvalFuncWrapper(v252, v253, v254);
+  ::std::vector<::ttnn::Tensor> v255 = g_cached_result_main_const_eval_13;
+  ::ttnn::Tensor v256 = v255[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v257 = &main_const_eval_14;
+  ::std::vector<::ttnn::Tensor> v258 = util_create_vec(v118);
+  ::std::vector<::ttnn::Tensor> *v259 = &g_cached_result_main_const_eval_14;
+  ttnn::constEvalFuncWrapper(v257, v258, v259);
+  ::std::vector<::ttnn::Tensor> v260 = g_cached_result_main_const_eval_14;
+  ::ttnn::Tensor v261 = v260[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v262 = &main_const_eval_15;
+  ::std::vector<::ttnn::Tensor> v263 = util_create_vec(v4);
+  ::std::vector<::ttnn::Tensor> *v264 = &g_cached_result_main_const_eval_15;
+  ttnn::constEvalFuncWrapper(v262, v263, v264);
+  ::std::vector<::ttnn::Tensor> v265 = g_cached_result_main_const_eval_15;
+  ::ttnn::Tensor v266 = v265[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v267 = &main_const_eval_16;
+  ::std::vector<::ttnn::Tensor> v268 = util_create_vec(v82);
+  ::std::vector<::ttnn::Tensor> *v269 = &g_cached_result_main_const_eval_16;
+  ttnn::constEvalFuncWrapper(v267, v268, v269);
+  ::std::vector<::ttnn::Tensor> v270 = g_cached_result_main_const_eval_16;
+  ::ttnn::Tensor v271 = v270[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v272 = &main_const_eval_17;
+  ::std::vector<::ttnn::Tensor> v273 = util_create_vec(v2);
+  ::std::vector<::ttnn::Tensor> *v274 = &g_cached_result_main_const_eval_17;
+  ttnn::constEvalFuncWrapper(v272, v273, v274);
+  ::std::vector<::ttnn::Tensor> v275 = g_cached_result_main_const_eval_17;
+  ::ttnn::Tensor v276 = v275[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v277 = &main_const_eval_18;
+  ::std::vector<::ttnn::Tensor> v278 = util_create_vec(v58);
+  ::std::vector<::ttnn::Tensor> *v279 = &g_cached_result_main_const_eval_18;
+  ttnn::constEvalFuncWrapper(v277, v278, v279);
+  ::std::vector<::ttnn::Tensor> v280 = g_cached_result_main_const_eval_18;
+  ::ttnn::Tensor v281 = v280[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v282 = &main_const_eval_19;
+  ::std::vector<::ttnn::Tensor> v283 = util_create_vec(v52);
+  ::std::vector<::ttnn::Tensor> *v284 = &g_cached_result_main_const_eval_19;
+  ttnn::constEvalFuncWrapper(v282, v283, v284);
+  ::std::vector<::ttnn::Tensor> v285 = g_cached_result_main_const_eval_19;
+  ::ttnn::Tensor v286 = v285[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v287 = &main_const_eval_20;
+  ::std::vector<::ttnn::Tensor> v288 = util_create_vec(v35);
+  ::std::vector<::ttnn::Tensor> *v289 = &g_cached_result_main_const_eval_20;
+  ttnn::constEvalFuncWrapper(v287, v288, v289);
+  ::std::vector<::ttnn::Tensor> v290 = g_cached_result_main_const_eval_20;
+  ::ttnn::Tensor v291 = v290[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v292 = &main_const_eval_21;
+  ::std::vector<::ttnn::Tensor> v293 = util_create_vec(v34);
+  ::std::vector<::ttnn::Tensor> *v294 = &g_cached_result_main_const_eval_21;
+  ttnn::constEvalFuncWrapper(v292, v293, v294);
+  ::std::vector<::ttnn::Tensor> v295 = g_cached_result_main_const_eval_21;
+  ::ttnn::Tensor v296 = v295[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v297 = &main_const_eval_22;
+  ::std::vector<::ttnn::Tensor> v298 = util_create_vec(v94);
+  ::std::vector<::ttnn::Tensor> *v299 = &g_cached_result_main_const_eval_22;
+  ttnn::constEvalFuncWrapper(v297, v298, v299);
+  ::std::vector<::ttnn::Tensor> v300 = g_cached_result_main_const_eval_22;
+  ::ttnn::Tensor v301 = v300[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v302 = &main_const_eval_23;
+  ::std::vector<::ttnn::Tensor> v303 = util_create_vec(v16);
+  ::std::vector<::ttnn::Tensor> *v304 = &g_cached_result_main_const_eval_23;
+  ttnn::constEvalFuncWrapper(v302, v303, v304);
+  ::std::vector<::ttnn::Tensor> v305 = g_cached_result_main_const_eval_23;
+  ::ttnn::Tensor v306 = v305[0];
+  ::std::function<::std::vector<::ttnn::Tensor>(::std::vector<::ttnn::Tensor>)>
+      v307 = &main_const_eval_24;
+  ::std::vector<::ttnn::Tensor> v308 = util_create_vec(v76);
+  ::std::vector<::ttnn::Tensor> *v309 = &g_cached_result_main_const_eval_24;
+  ttnn::constEvalFuncWrapper(v307, v308, v309);
+  ::std::vector<::ttnn::Tensor> v310 = g_cached_result_main_const_eval_24;
+  ::ttnn::Tensor v311 = v310[0];
+  ttnn::distributed::MeshDevice *v312 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v313 = ttnn::to_layout(
+      v141, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v141, false);
+  ::ttnn::Tensor v314 = ttnn::permute(
+      v313, ::ttsl::SmallVector<int64_t>{0, 2, 3, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::L1, ::std::nullopt},
+      0.000000f);
+  ttnn::deallocate(v313, false);
+  ::ttnn::Tensor v315 = ttnn::reshape(
+      v314, ::std::vector<int32_t>{1, 1, 50176, 3},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::L1, ::std::nullopt});
+  ttnn::deallocate(v314, false);
+  ::ttnn::Tensor v316 = ::std::get<0>(ttnn::conv2d(
+      v315, v146, v312, 3, 64, 1, 224, 224, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{2, 2}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v147,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 32,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{256, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v317 = ::std::get<0>(ttnn::conv2d(
+      v316, v256, v312, 64, 64, 1, 112, 112, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 64, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 6}}}},
+                            ::std::array<uint32_t, 2>{224, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v318 = ::std::get<0>(ttnn::conv2d(
+      v317, v148, v312, 64, 64, 1, 112, 112, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v149,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 6}}}},
+                            ::std::array<uint32_t, 2>{224, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v319 = ::std::get<0>(ttnn::conv2d(
+      v318, v201, v312, 64, 64, 1, 112, 112, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{2, 2}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 64, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v320 = ::std::get<0>(ttnn::conv2d(
+      v319, v150, v312, 64, 64, 1, 56, 56, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v151,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v321 = ::std::get<0>(ttnn::conv2d(
+      v320, v152, v312, 64, 128, 1, 56, 56, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v153,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v322 = ::std::get<0>(ttnn::conv2d(
+      v321, v261, v312, 128, 128, 1, 56, 56, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 128, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v323 = ::std::get<0>(ttnn::conv2d(
+      v322, v154, v312, 128, 128, 1, 56, 56, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v155,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v324 = ::std::get<0>(ttnn::conv2d(
+      v323, v216, v312, 128, 128, 1, 56, 56, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 128, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v325 = ::std::get<0>(ttnn::conv2d(
+      v324, v156, v312, 128, 128, 1, 56, 56, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v157,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v326 = ::std::get<0>(ttnn::conv2d(
+      v325, v246, v312, 128, 128, 1, 56, 56, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 128, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v327 = ::std::get<0>(ttnn::conv2d(
+      v326, v158, v312, 128, 128, 1, 56, 56, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v159,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 128},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::std::vector<::ttnn::Tensor> v328 = util_create_vec(v320, v323, v325, v327);
+  ::ttnn::Tensor v329 = ttnn::concat(
+      v328, 3,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 448},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v327, false);
+  ttnn::deallocate(v325, false);
+  ttnn::deallocate(v323, false);
+  ttnn::deallocate(v320, false);
+  ::ttnn::Tensor v330 = ::std::get<0>(ttnn::conv2d(
+      v329, v160, v312, 448, 256, 1, 56, 56, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v161,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 256},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v331 =
+      ttnn::mean(v330, ::ttsl::SmallVector<int32_t>{2}, true,
+                 ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                      ::ttnn::BufferType::L1, ::std::nullopt},
+                 ::std::nullopt);
+  ::ttnn::Tensor v332 = ttnn::to_memory_config(
+      v331,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v331, false);
+  ::ttnn::Tensor v333 = ::std::get<0>(ttnn::conv2d(
+      v332, v211, v312, 256, 256, 1, 1, 1, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v301,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 0}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v334 = ttnn::typecast(
+      v333, ::ttnn::DataType::FLOAT32,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 0}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v333, false);
+  ::ttnn::Tensor v335 = ttnn::hardsigmoid(
+      v334,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 0}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v334, false);
+  ::ttnn::Tensor v336 = ttnn::typecast(
+      v335, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 0}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v335, false);
+  ::ttnn::Tensor v337 = ttnn::multiply(
+      v330, v336, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{64, 256},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v336, false);
+  ttnn::deallocate(v330, false);
+  ::std::vector<::ttnn::Tensor> v338 = ttnn::max_pool2d(
+      v337, 1, 56, 56, 256, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{2, 2}, ::std::array<uint32_t, 4>{0, 1, 0, 1},
+      ::std::array<uint32_t, 2>{1, 1}, false,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 5}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 6},
+                                                  ::ttnn::CoreCoord{0, 6}}}},
+                            ::std::array<uint32_t, 2>{16, 256},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::std::nullopt, ::std::nullopt, false, false, false,
+      ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR, true);
+  ::ttnn::Tensor v339 = v338[0];
+  ttnn::deallocate(v337, false);
+  ::ttnn::Tensor v340 = ::std::get<0>(ttnn::conv2d(
+      v339, v162, v312, 256, 160, 1, 28, 28, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v163,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v341 = ::std::get<0>(ttnn::conv2d(
+      v340, v236, v312, 160, 160, 1, 28, 28, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 160, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v342 = ::std::get<0>(ttnn::conv2d(
+      v341, v164, v312, 160, 160, 1, 28, 28, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v165,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v343 = ::std::get<0>(ttnn::conv2d(
+      v342, v271, v312, 160, 160, 1, 28, 28, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 160, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v344 = ::std::get<0>(ttnn::conv2d(
+      v343, v166, v312, 160, 160, 1, 28, 28, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v167,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v345 = ::std::get<0>(ttnn::conv2d(
+      v344, v311, v312, 160, 160, 1, 28, 28, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 160, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v346 = ::std::get<0>(ttnn::conv2d(
+      v345, v168, v312, 160, 160, 1, 28, 28, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v169,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 160},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v347 = ttnn::to_memory_config(
+      v339, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v339, false);
+  ::ttnn::Tensor v348 = ttnn::to_memory_config(
+      v342, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v342, false);
+  ::ttnn::Tensor v349 = ttnn::to_memory_config(
+      v344, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v344, false);
+  ::ttnn::Tensor v350 = ttnn::to_memory_config(
+      v346, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v346, false);
+  ::std::vector<::ttnn::Tensor> v351 = util_create_vec(v347, v348, v349, v350);
+  ::ttnn::Tensor v352 = ttnn::concat(
+      v351, 3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v350, false);
+  ttnn::deallocate(v349, false);
+  ttnn::deallocate(v348, false);
+  ttnn::deallocate(v347, false);
+  ::ttnn::Tensor v353 = ttnn::to_layout(
+      v352, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v352, false);
+  ::ttnn::Tensor v354 = ttnn::to_memory_config(
+      v353,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 736},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v353, false);
+  ::ttnn::Tensor v355 = ::std::get<0>(ttnn::conv2d(
+      v354, v170, v312, 736, 512, 1, 28, 28, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v171,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 64,
+          .shard_layout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 512},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v356 =
+      ttnn::mean(v355, ::ttsl::SmallVector<int32_t>{2}, true,
+                 ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                      ::ttnn::BufferType::L1, ::std::nullopt},
+                 ::std::nullopt);
+  ::ttnn::Tensor v357 = ttnn::to_memory_config(
+      v356,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v356, false);
+  ::ttnn::Tensor v358 = ::std::get<0>(ttnn::conv2d(
+      v357, v226, v312, 512, 512, 1, 1, 1, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v231,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 1}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v359 = ttnn::typecast(
+      v358, ::ttnn::DataType::FLOAT32,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 1}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v358, false);
+  ::ttnn::Tensor v360 = ttnn::hardsigmoid(
+      v359,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 1}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v359, false);
+  ::ttnn::Tensor v361 = ttnn::typecast(
+      v360, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 1}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v360, false);
+  ::ttnn::Tensor v362 = ttnn::multiply(
+      v355, v361, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 512},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v361, false);
+  ttnn::deallocate(v355, false);
+  ::std::vector<::ttnn::Tensor> v363 = ttnn::max_pool2d(
+      v362, 1, 28, 28, 512, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{2, 2}, ::std::array<uint32_t, 4>{0, 1, 0, 1},
+      ::std::array<uint32_t, 2>{1, 1}, false,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 3},
+                                                  ::ttnn::CoreCoord{0, 3}}}},
+                            ::std::array<uint32_t, 2>{8, 512},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::std::nullopt, ::std::nullopt, false, false, false,
+      ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR, true);
+  ::ttnn::Tensor v364 = v363[0];
+  ttnn::deallocate(v362, false);
+  ::ttnn::Tensor v365 = ttnn::to_memory_config(
+      v364, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::ttnn::Tensor v366 = ::std::get<0>(ttnn::conv2d(
+      v365, v172, v312, 512, 192, 1, 14, 14, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v173,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .config_tensors_in_dram = true,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ttnn::deallocate(v365, false);
+  ::ttnn::Tensor v367 = ttnn::to_memory_config(
+      v366,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v366, false);
+  ::ttnn::Tensor v368 = ::std::get<0>(ttnn::conv2d(
+      v367, v281, v312, 192, 192, 1, 14, 14, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 192, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 64,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v369 = ::std::get<0>(ttnn::conv2d(
+      v368, v174, v312, 192, 192, 1, 14, 14, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v175,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v370 = ::std::get<0>(ttnn::conv2d(
+      v369, v286, v312, 192, 192, 1, 14, 14, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 192, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v371 = ::std::get<0>(ttnn::conv2d(
+      v370, v176, v312, 192, 192, 1, 14, 14, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v177,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v372 = ::std::get<0>(ttnn::conv2d(
+      v371, v251, v312, 192, 192, 1, 14, 14, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 192, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v373 = ::std::get<0>(ttnn::conv2d(
+      v372, v178, v312, 192, 192, 1, 14, 14, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v179,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{5, 6}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v374 = ttnn::to_memory_config(
+      v364, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v364, false);
+  ::ttnn::Tensor v375 = ttnn::to_memory_config(
+      v369, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v369, false);
+  ::ttnn::Tensor v376 = ttnn::to_memory_config(
+      v371, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v371, false);
+  ::ttnn::Tensor v377 = ttnn::to_memory_config(
+      v373, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v373, false);
+  ::std::vector<::ttnn::Tensor> v378 = util_create_vec(v374, v375, v376, v377);
+  ::ttnn::Tensor v379 = ttnn::concat(
+      v378, 3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v377, false);
+  ttnn::deallocate(v376, false);
+  ttnn::deallocate(v375, false);
+  ttnn::deallocate(v374, false);
+  ::ttnn::Tensor v380 = ttnn::to_layout(
+      v379, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v379, false);
+  ::ttnn::Tensor v381 = ttnn::to_memory_config(
+      v380,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 0}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 1},
+                                                  ::ttnn::CoreCoord{3, 1}}}},
+                            ::std::array<uint32_t, 2>{224, 96},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v380, false);
+  ::ttnn::Tensor v382 = ::std::get<0>(ttnn::conv2d(
+      v381, v180, v312, 1088, 768, 1, 14, 14, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v181,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{224, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v383 =
+      ttnn::mean(v382, ::ttsl::SmallVector<int32_t>{2}, true,
+                 ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                      ::ttnn::BufferType::L1, ::std::nullopt},
+                 ::std::nullopt);
+  ::ttnn::Tensor v384 = ttnn::to_memory_config(
+      v383,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v383, false);
+  ::ttnn::Tensor v385 = ::std::get<0>(ttnn::conv2d(
+      v384, v291, v312, 768, 768, 1, 1, 1, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v296,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v386 = ttnn::typecast(
+      v385, ::ttnn::DataType::FLOAT32,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v385, false);
+  ::ttnn::Tensor v387 = ttnn::hardsigmoid(
+      v386,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v386, false);
+  ::ttnn::Tensor v388 = ttnn::typecast(
+      v387, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v387, false);
+  ::ttnn::Tensor v389 = ttnn::multiply(
+      v382, v388, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{224, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v388, false);
+  ttnn::deallocate(v382, false);
+  ::std::vector<::ttnn::Tensor> v390 = ttnn::max_pool2d(
+      v389, 1, 14, 14, 768, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{2, 2}, ::std::array<uint32_t, 4>{0, 1, 0, 1},
+      ::std::array<uint32_t, 2>{1, 1}, false,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 2}}}},
+                            ::std::array<uint32_t, 2>{49, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::std::nullopt, ::std::nullopt, false, false, false,
+      ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR, true);
+  ::ttnn::Tensor v391 = v390[0];
+  ttnn::deallocate(v389, false);
+  ::ttnn::Tensor v392 = ::std::get<0>(ttnn::conv2d(
+      v391, v182, v312, 768, 224, 1, 7, 7, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v183,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = false,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v393 = ::std::get<0>(ttnn::conv2d(
+      v392, v241, v312, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 224, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v394 = ::std::get<0>(ttnn::conv2d(
+      v393, v184, v312, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v185,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v395 = ::std::get<0>(ttnn::conv2d(
+      v394, v206, v312, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 224, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v396 = ::std::get<0>(ttnn::conv2d(
+      v395, v186, v312, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v187,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v397 = ::std::get<0>(ttnn::conv2d(
+      v396, v306, v312, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{3, 3},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{1, 1, 1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, 224, ::ttnn::DataType::BFLOAT16,
+      ::std::nullopt,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = false,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v398 = ::std::get<0>(ttnn::conv2d(
+      v397, v188, v312, 224, 224, 1, 7, 7, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v189,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{6, 0}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v399 = ttnn::to_memory_config(
+      v391, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v391, false);
+  ::ttnn::Tensor v400 = ttnn::to_memory_config(
+      v394, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v394, false);
+  ::ttnn::Tensor v401 = ttnn::to_memory_config(
+      v396, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v396, false);
+  ::ttnn::Tensor v402 = ttnn::to_memory_config(
+      v398, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v398, false);
+  ::std::vector<::ttnn::Tensor> v403 = util_create_vec(v399, v400, v401, v402);
+  ::ttnn::Tensor v404 = ttnn::concat(
+      v403, 3,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v402, false);
+  ttnn::deallocate(v401, false);
+  ttnn::deallocate(v400, false);
+  ttnn::deallocate(v399, false);
+  ::ttnn::Tensor v405 = ttnn::to_layout(
+      v404, ::ttnn::Layout::TILE, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v404, false);
+  ::ttnn::Tensor v406 = ttnn::to_memory_config(
+      v405,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 1}},
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 2},
+                                                  ::ttnn::CoreCoord{6, 2}}}},
+                            ::std::array<uint32_t, 2>{64, 64},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v405, false);
+  ::ttnn::Tensor v407 = ::std::get<0>(ttnn::conv2d(
+      v406, v190, v312, 1440, 1024, 1, 7, 7, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v191,
+      ::ttnn::Conv2dConfig{
+          .weights_dtype = ::ttnn::DataType::BFLOAT16,
+          .activation = ::ttnn::operations::unary::UnaryWithParam(
+              ::ttnn::operations::unary::UnaryOpType::RELU),
+          .deallocate_activation = true,
+          .config_tensors_in_dram = true,
+          .act_block_h_override = 0,
+          .shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+          .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{64, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v408 = ttnn::to_memory_config(
+      v407, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::L1, ::std::nullopt});
+  ::ttnn::Tensor v409 = ttnn::reshape(
+      v408, ::std::vector<int32_t>{1, 7, 7, 1024},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::L1, ::std::nullopt});
+  ttnn::deallocate(v408, false);
+  ::ttnn::Tensor v410 = ttnn::permute(
+      v409, ::ttsl::SmallVector<int64_t>{0, 3, 1, 2},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::L1, ::std::nullopt},
+      0.000000f);
+  ttnn::deallocate(v409, false);
+  ::ttnn::Tensor v411 =
+      ttnn::mean(v407, ::ttsl::SmallVector<int32_t>{2}, true,
+                 ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                      ::ttnn::BufferType::L1, ::std::nullopt},
+                 ::std::nullopt);
+  ttnn::deallocate(v407, false);
+  ::ttnn::Tensor v412 = ttnn::to_memory_config(
+      v411,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v411, false);
+  ::ttnn::Tensor v413 = ::std::get<0>(ttnn::conv2d(
+      v412, v221, v312, 1024, 1024, 1, 1, 1, ::std::array<uint32_t, 2>{1, 1},
+      ::std::array<uint32_t, 2>{1, 1}, ::std::array<uint32_t, 4>{0, 0, 0, 0},
+      ::std::array<uint32_t, 2>{1, 1}, 1, ::ttnn::DataType::BFLOAT16, v266,
+      ::ttnn::Conv2dConfig{.weights_dtype = ::ttnn::DataType::BFLOAT16,
+                           .deallocate_activation = true,
+                           .config_tensors_in_dram = true,
+                           .act_block_h_override = 0,
+                           .shard_layout =
+                               ::ttnn::TensorMemoryLayout::WIDTH_SHARDED,
+                           .enable_kernel_stride_folding = false},
+      ::std::nullopt,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::Conv2dSliceConfig{.slice_type =
+                                    ttnn::Conv2dSliceConfig::SliceType::L1_FULL,
+                                .num_slices = 0}));
+  ::ttnn::Tensor v414 = ttnn::typecast(
+      v413, ::ttnn::DataType::FLOAT32,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v413, false);
+  ::ttnn::Tensor v415 = ttnn::hardsigmoid(
+      v414,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v414, false);
+  ::ttnn::Tensor v416 = ttnn::typecast(
+      v415, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v415, false);
+  ::ttnn::Tensor v417 = ttnn::to_memory_config(
+      v416, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::L1, ::std::nullopt});
+  ttnn::deallocate(v416, false);
+  ::ttnn::Tensor v418 = ttnn::reshape(
+      v417, ::std::vector<int32_t>{1, 1024, 1, 1},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::L1, ::std::nullopt});
+  ttnn::deallocate(v417, false);
+  ::ttnn::Tensor v419 = ttnn::multiply(
+      v410, v418, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 7}}}},
+                            ::std::array<uint32_t, 2>{512, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v418, false);
+  ttnn::deallocate(v410, false);
+  ::ttnn::Tensor v420 = ttnn::typecast(
+      v419, ::ttnn::DataType::FLOAT32,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 7}}}},
+                            ::std::array<uint32_t, 2>{512, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v419, false);
+  ::ttnn::Tensor v421 = ttnn::to_memory_config(
+      v420,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::BLOCK_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{0, 7}}}},
+                            ::std::array<uint32_t, 2>{4096, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v420, false);
+  ::ttnn::Tensor v422 =
+      ttnn::mean(v421, ::ttsl::SmallVector<int32_t>{2, 3}, true,
+                 ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                      ::ttnn::BufferType::L1, ::std::nullopt},
+                 ::std::nullopt);
+  ttnn::deallocate(v421, false);
+  ::ttnn::Tensor v423 = ttnn::reshape(
+      v422, ::std::vector<int32_t>{1, 1024},
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::L1, ::std::nullopt});
+  ttnn::deallocate(v422, false);
+  ::ttnn::Tensor v424 = ttnn::linear(
+      v423, v196, v276, false, false,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}},
+      ::ttnn::DataType::FLOAT32, ::std::nullopt, ::std::nullopt,
+      ::std::nullopt);
+  ttnn::deallocate(v423, false);
+  ::ttnn::Tensor v425 = ttnn::typecast(
+      v424, ::ttnn::DataType::BFLOAT16,
+      ::ttnn::MemoryConfig{
+          ::ttnn::TensorMemoryLayout::WIDTH_SHARDED, ::ttnn::BufferType::L1,
+          ::ttnn::ShardSpec{::ttnn::CoreRangeSet{::std::set<::ttnn::CoreRange>{
+                                ::ttnn::CoreRange{::ttnn::CoreCoord{0, 0},
+                                                  ::ttnn::CoreCoord{7, 3}}}},
+                            ::std::array<uint32_t, 2>{32, 32},
+                            ::ttnn::types::ShardOrientation::ROW_MAJOR}});
+  ttnn::deallocate(v424, false);
+  ::ttnn::Tensor v426 = ttnn::to_memory_config(
+      v425, ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                                 ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ttnn::deallocate(v425, false);
+  ::std::vector<::ttnn::Tensor> v427 = util_create_vec(v426);
+  return v427;
+}
+::std::vector<::ttnn::Tensor> create_inputs_for__main() {
+  ttnn::distributed::MeshDevice *v1 = ttnn::DeviceGetter::getInstance();
+  ::ttnn::Tensor v2 = ttnn::ones(
+      ::ttnn::Shape({1000}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v3 = ttnn::ones(
+      ::ttnn::Shape({1000, 1024}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v4 = ttnn::ones(
+      ::ttnn::Shape({1024}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v5 = ttnn::ones(
+      ::ttnn::Shape({1024, 1024, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v6 = ttnn::ones(
+      ::ttnn::Shape({1024}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v7 = ttnn::ones(
+      ::ttnn::Shape({1024}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v8 = ttnn::ones(
+      ::ttnn::Shape({1024}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v9 = ttnn::ones(
+      ::ttnn::Shape({1024}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v10 = ttnn::ones(
+      ::ttnn::Shape({1024, 1440, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v11 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v12 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v13 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v14 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v15 = ttnn::ones(
+      ::ttnn::Shape({224, 224, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v16 = ttnn::ones(
+      ::ttnn::Shape({224, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v17 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v18 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v19 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v20 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v21 = ttnn::ones(
+      ::ttnn::Shape({224, 224, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v22 = ttnn::ones(
+      ::ttnn::Shape({224, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v23 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v24 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v25 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v26 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v27 = ttnn::ones(
+      ::ttnn::Shape({224, 224, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v28 = ttnn::ones(
+      ::ttnn::Shape({224, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v29 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v30 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v31 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v32 = ttnn::ones(
+      ::ttnn::Shape({224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v33 = ttnn::ones(
+      ::ttnn::Shape({224, 768, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v34 = ttnn::ones(
+      ::ttnn::Shape({768}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v35 = ttnn::ones(
+      ::ttnn::Shape({768, 768, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v36 = ttnn::ones(
+      ::ttnn::Shape({768}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v37 = ttnn::ones(
+      ::ttnn::Shape({768}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v38 = ttnn::ones(
+      ::ttnn::Shape({768}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v39 = ttnn::ones(
+      ::ttnn::Shape({768}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v40 = ttnn::ones(
+      ::ttnn::Shape({768, 1088, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v41 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v42 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v43 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v44 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v45 = ttnn::ones(
+      ::ttnn::Shape({192, 192, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v46 = ttnn::ones(
+      ::ttnn::Shape({192, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v47 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v48 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v49 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v50 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v51 = ttnn::ones(
+      ::ttnn::Shape({192, 192, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v52 = ttnn::ones(
+      ::ttnn::Shape({192, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v53 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v54 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v55 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v56 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v57 = ttnn::ones(
+      ::ttnn::Shape({192, 192, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v58 = ttnn::ones(
+      ::ttnn::Shape({192, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v59 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v60 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v61 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v62 = ttnn::ones(
+      ::ttnn::Shape({192}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v63 = ttnn::ones(
+      ::ttnn::Shape({192, 512, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v64 = ttnn::ones(
+      ::ttnn::Shape({512}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v65 = ttnn::ones(
+      ::ttnn::Shape({512, 512, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v66 = ttnn::ones(
+      ::ttnn::Shape({512}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v67 = ttnn::ones(
+      ::ttnn::Shape({512}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v68 = ttnn::ones(
+      ::ttnn::Shape({512}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v69 = ttnn::ones(
+      ::ttnn::Shape({512}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v70 = ttnn::ones(
+      ::ttnn::Shape({512, 736, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v71 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v72 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v73 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v74 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v75 = ttnn::ones(
+      ::ttnn::Shape({160, 160, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v76 = ttnn::ones(
+      ::ttnn::Shape({160, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v77 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v78 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v79 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v80 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v81 = ttnn::ones(
+      ::ttnn::Shape({160, 160, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v82 = ttnn::ones(
+      ::ttnn::Shape({160, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v83 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v84 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v85 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v86 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v87 = ttnn::ones(
+      ::ttnn::Shape({160, 160, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v88 = ttnn::ones(
+      ::ttnn::Shape({160, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v89 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v90 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v91 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v92 = ttnn::ones(
+      ::ttnn::Shape({160}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v93 = ttnn::ones(
+      ::ttnn::Shape({160, 256, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v94 = ttnn::ones(
+      ::ttnn::Shape({256}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v95 = ttnn::ones(
+      ::ttnn::Shape({256, 256, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v96 = ttnn::ones(
+      ::ttnn::Shape({256}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v97 = ttnn::ones(
+      ::ttnn::Shape({256}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v98 = ttnn::ones(
+      ::ttnn::Shape({256}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v99 = ttnn::ones(
+      ::ttnn::Shape({256}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v100 = ttnn::ones(
+      ::ttnn::Shape({256, 448, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v101 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v102 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v103 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v104 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v105 = ttnn::ones(
+      ::ttnn::Shape({128, 128, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v106 = ttnn::ones(
+      ::ttnn::Shape({128, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v107 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v108 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v109 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v110 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v111 = ttnn::ones(
+      ::ttnn::Shape({128, 128, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v112 = ttnn::ones(
+      ::ttnn::Shape({128, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v113 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v114 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v115 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v116 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v117 = ttnn::ones(
+      ::ttnn::Shape({128, 128, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v118 = ttnn::ones(
+      ::ttnn::Shape({128, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v119 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v120 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v121 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v122 = ttnn::ones(
+      ::ttnn::Shape({128}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v123 = ttnn::ones(
+      ::ttnn::Shape({128, 64, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v124 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v125 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v126 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v127 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v128 = ttnn::ones(
+      ::ttnn::Shape({64, 64, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v129 = ttnn::ones(
+      ::ttnn::Shape({64, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v130 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v131 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v132 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v133 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v134 = ttnn::ones(
+      ::ttnn::Shape({64, 64, 1, 1}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v135 = ttnn::ones(
+      ::ttnn::Shape({64, 1, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v136 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v137 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v138 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v139 = ttnn::ones(
+      ::ttnn::Shape({64}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::ttnn::Tensor v140 = ttnn::ones(
+      ::ttnn::Shape({64, 3, 3, 3}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, ::std::nullopt,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::SYSTEM_MEMORY, ::std::nullopt});
+  ::std::optional<::std::reference_wrapper<::ttnn::distributed::MeshDevice>>
+      v141 = *v1;
+  ::ttnn::Tensor v142 = ttnn::ones(
+      ::ttnn::Shape({1, 3, 224, 224}), ::ttnn::DataType::BFLOAT16,
+      ::ttnn::Layout::ROW_MAJOR, v141,
+      ::ttnn::MemoryConfig{::ttnn::TensorMemoryLayout::INTERLEAVED,
+                           ::ttnn::BufferType::DRAM, ::std::nullopt});
+  ::std::vector<::ttnn::Tensor> v143 = util_create_vec(
+      v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17,
+      v18, v19, v20, v21, v22, v23, v24, v25, v26, v27, v28, v29, v30, v31, v32,
+      v33, v34, v35, v36, v37, v38, v39, v40, v41, v42, v43, v44, v45, v46, v47,
+      v48, v49, v50, v51, v52, v53, v54, v55, v56, v57, v58, v59, v60, v61, v62,
+      v63, v64, v65, v66, v67, v68, v69, v70, v71, v72, v73, v74, v75, v76, v77,
+      v78, v79, v80, v81, v82, v83, v84, v85, v86, v87, v88, v89, v90, v91, v92,
+      v93, v94, v95, v96, v97, v98, v99, v100, v101, v102, v103, v104, v105,
+      v106, v107, v108, v109, v110, v111, v112, v113, v114, v115, v116, v117,
+      v118, v119, v120, v121, v122, v123, v124, v125, v126, v127, v128, v129,
+      v130, v131, v132, v133, v134, v135, v136, v137, v138, v139, v140, v142);
+  return v143;
+}
+int32_t main() {
+  ::std::vector<::ttnn::Tensor> v1 = create_inputs_for__main();
+  ::std::vector<::ttnn::Tensor> v2 = _main(v1);
+  int32_t v3 = 0;
+  return v3;
+}

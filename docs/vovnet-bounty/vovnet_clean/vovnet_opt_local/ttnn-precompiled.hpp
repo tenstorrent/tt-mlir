@@ -1,0 +1,216 @@
+// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#ifndef TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
+#define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
+
+#include "tt-metalium/bfloat16.hpp"
+#include "ttnn/common/queue_id.hpp"
+#include "ttnn/core.hpp"
+#include "ttnn/device.hpp"
+#include "ttnn/global_semaphore.hpp"
+#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
+#include "ttnn/operations/ccl/ccl_host_types.hpp"
+#include "ttnn/operations/conv/conv2d/conv2d.hpp"
+#include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
+#include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
+#include "ttnn/operations/copy/typecast/typecast.hpp"
+#include "ttnn/operations/core/core.hpp"
+#include "ttnn/operations/creation/creation.hpp"
+#include "ttnn/operations/data_movement/concat/concat.hpp"
+#include "ttnn/operations/data_movement/pad/pad.hpp"
+#include "ttnn/operations/data_movement/permute/permute.hpp"
+#include "ttnn/operations/data_movement/repeat/repeat.hpp"
+#include "ttnn/operations/data_movement/repeat_interleave/repeat_interleave.hpp"
+#include "ttnn/operations/data_movement/slice/slice.hpp"
+#include "ttnn/operations/data_movement/sort/sort.hpp"
+#include "ttnn/operations/data_movement/transpose/transpose.hpp"
+#include "ttnn/operations/eltwise/binary/binary.hpp"
+#include "ttnn/operations/eltwise/binary/binary_composite.hpp"
+#include "ttnn/operations/eltwise/quantization/quantization.hpp"
+#include "ttnn/operations/eltwise/unary/unary_composite.hpp"
+#include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/embedding_backward/embedding_backward.hpp"
+#include "ttnn/operations/experimental/ccl/rms_allgather/rms_allgather.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
+#include "ttnn/operations/kv_cache/kv_cache.hpp"
+#include "ttnn/operations/matmul/matmul.hpp"
+#include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
+#include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
+#include "ttnn/operations/normalization/rmsnorm/rmsnorm.hpp"
+#include "ttnn/operations/normalization/softmax/softmax.hpp"
+#include "ttnn/operations/pool/generic/generic_pools.hpp"
+#include "ttnn/operations/pool/upsample/upsample.hpp"
+#include "ttnn/operations/rand/rand.hpp"
+#include "ttnn/operations/reduction/argmax/argmax.hpp"
+#include "ttnn/operations/reduction/generic/generic_reductions.hpp"
+#include "ttnn/operations/reduction/prod/prod.hpp"
+#include "ttnn/operations/trace.hpp"
+#include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "ttnn/operations/transformer/sdpa/sdpa.hpp"
+#include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"
+#include "ttnn/operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
+#include "ttnn/tensor/serialization.hpp"
+#include "ttnn/tensor/tensor.hpp"
+#include "ttnn/tensor/types.hpp"
+#include "ttnn/types.hpp"
+#include "workarounds.hpp"
+
+#include <cassert>
+#include <cstddef>
+#include <iostream>
+#include <limits>
+#include <vector>
+
+template <typename... T>
+std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
+  return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
+}
+
+namespace ttnn {
+
+// DeviceGetter class
+//
+// Singleton implementation for Device
+//
+class DeviceGetter {
+public:
+  static constexpr std::size_t l1SmallSize = 1 << 15; // 32kB
+  static constexpr std::size_t traceRegionSize = 0;
+
+  static ttnn::MeshDevice *getInstance() {
+    // If we have an external device, use it.
+    if (externalDevice) {
+      assert(!hasOwnedDevice);
+      return externalDevice;
+    }
+
+    static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
+    hasOwnedDevice = true;
+    return ownedInstance.get();
+  }
+
+  // Set an external device (we don't own it)
+  static void setInstance(ttnn::MeshDevice *newInstance) {
+    // We don't want to mix and match owned/external devices.
+    assert(!hasOwnedDevice);
+
+    // Store the external device pointer.
+    externalDevice = newInstance;
+  }
+
+private:
+  DeviceGetter() = default;
+
+  DeviceGetter(const DeviceGetter &) = delete;
+  DeviceGetter &operator=(const DeviceGetter &) = delete;
+
+  // External device (not owned by us).
+  static ttnn::MeshDevice *externalDevice;
+  // Flag to track if we've set local ownedInstance or not.
+  static bool hasOwnedDevice;
+};
+
+inline ttnn::MeshDevice *DeviceGetter::externalDevice = nullptr;
+inline bool DeviceGetter::hasOwnedDevice = false;
+
+// Function to be exported from the dylib that can be called to set the
+// device--extern to avoid mangling.
+extern "C" {
+void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
+}
+
+// Registry for all const-eval cache vectors.
+// Using a function-local static (Meyers singleton) ensures this is initialized
+// after DeviceGetter::getInstance() (which initializes the device), and thus
+// destroyed before the device during program exit. This prevents a
+// use-after-free crash when the global g_cached_result_* vectors (initialized
+// before main) try to destroy device-side tensors after the device and its
+// GraphTracker have already been closed.
+class ConstEvalCacheRegistry {
+public:
+  static ConstEvalCacheRegistry &instance() {
+    static ConstEvalCacheRegistry reg;
+    return reg;
+  }
+
+  void registerCache(std::vector<ttnn::Tensor> *cache) {
+    caches_.push_back(cache);
+  }
+
+  ~ConstEvalCacheRegistry() {
+    for (auto *cache : caches_) {
+      cache->clear();
+    }
+  }
+
+private:
+  std::vector<std::vector<ttnn::Tensor> *> caches_;
+};
+
+// Wrapper to abstract const-eval logic out of runtime funcs to keep them
+// cleaner.  Invokes constEvalFunc iff outputs is empty.
+void constEvalFuncWrapper(
+    std::function<std::vector<ttnn::Tensor>(std::vector<ttnn::Tensor>)>
+        constEvalFunc,
+    const std::vector<ttnn::Tensor> &inputs,
+    std::vector<ttnn::Tensor> *outputs) {
+  if (outputs->empty()) {
+    *outputs = constEvalFunc(inputs);
+    ConstEvalCacheRegistry::instance().registerCache(outputs);
+  }
+}
+
+uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
+  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
+  assert(tensor.dtype() == ttnn::DataType::UINT32 && "expected uint32 tensor");
+
+  const ::ttnn::Tensor tensorOnHost = ::ttnn::from_device(tensor);
+  const ::tt::tt_metal::HostBuffer buffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
+  const auto &buf = buffer.view_as<uint32_t>();
+  return *buf.begin();
+}
+
+::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
+                          ttnn::DataType dtype, ttnn::MeshDevice *device,
+                          ttnn::MemoryConfig memoryConfig) {
+  ::ttnn::Tensor loadedTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+
+  assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
+
+  if (loadedTensor.dtype() != dtype) {
+    loadedTensor = ::ttnn::to_dtype(loadedTensor, dtype);
+  }
+
+  if (loadedTensor.layout() != layout) {
+    loadedTensor = ::ttnn::to_layout(loadedTensor, layout);
+  }
+
+  if (device != nullptr) {
+    loadedTensor = ::ttnn::to_device(loadedTensor, device, memoryConfig);
+  }
+
+  return loadedTensor;
+}
+
+// Helper for distributed RMS norm EmitC support.
+// TODO(amilovanovic): Remove this once the following issue is fixed in
+// tt-metal: https://github.com/tenstorrent/tt-metal/issues/38212
+::ttnn::GlobalSemaphore createGlobalSemaphore(const ::ttnn::Tensor &input) {
+  auto shardSpec = input.shard_spec();
+  assert(shardSpec.has_value() &&
+         "Input tensor must have shard spec for createGlobalSemaphore");
+  return ::ttnn::global_semaphore::create_global_semaphore(input.device(),
+                                                           shardSpec->grid, 0);
+}
+
+} // namespace ttnn
+
+#endif // TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
