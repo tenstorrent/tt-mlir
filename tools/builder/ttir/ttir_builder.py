@@ -17256,7 +17256,12 @@ class TTIRBuilder(Builder):
             shape = tuple(int(dim) for dim in result_type.shape)
             dtype = mlir_type_to_torch_dtype(result_type.element_type)
             golden = GoldenMapTensor(
-                {0: torch.zeros(shape, dtype=dtype)},
+                {
+                    i: torch.zeros(shape, dtype=dtype).clone()
+                    for i in range(
+                        self._mesh_shape[0] * self._mesh_shape[1]
+                    )
+                },
                 mesh_shape=self._mesh_shape,
             )
             self._set_golden_tensor(new_result, golden)
