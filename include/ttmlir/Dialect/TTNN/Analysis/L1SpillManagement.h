@@ -27,9 +27,27 @@ namespace mlir::tt::ttnn {
 /// sum of per-result tensor sizes, and simulates top-down allocation to detect
 /// fragmentation (CB clash with low-address tensors).
 struct SumL1MemoryTracker {
+  /// Backend validator hook. When null, calls go to
+  /// op_constraint_validation::validateOperation(). When set (test-only),
+  /// forwards to the supplied callback. Used by every backend-validator
+  /// call in the pass (validate() and the two direct probes).
+  using BackendValidatorFn =
+      std::function<op_constraint_validation::ValidationResult(
+          Operation *, llvm::ArrayRef<TTNNLayoutAttr>, const OpConfig &,
+          uint64_t /*additionalL1*/)>;
+  BackendValidatorFn backendValidator;
+
   op_constraint_validation::ValidationResult
   validate(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
            const OpConfig &config) const;
+
+  /// Bypass input-overlap accounting and call the backend (or hook) with an
+  /// explicit additionalL1Usage. Used by consumer-reshard probes and DRAM
+  /// CB re-queries inside L1SpillManagement — those call sites already know
+  /// the L1 pressure they want to express.
+  op_constraint_validation::ValidationResult validateBackendDirect(
+      Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+      const OpConfig &config, uint64_t additionalL1Usage) const;
 
   /// Initialize address simulation with the L1 budget. Must be called before
   /// addTensor/removeTensor.
@@ -173,6 +191,11 @@ public:
   /// Access the observer (always non-null; NullObject when tracing disabled).
   L1SpillObserver *getObserver() { return observer_.get(); }
 
+  /// Access the memory tracker. Intended for test-only use: install a
+  /// backendValidator before calling run().
+  MemoryTracker &getMemoryTracker() { return memoryTracker; }
+  const MemoryTracker &getMemoryTracker() const { return memoryTracker; }
+
 private:
   func::FuncOp func;
   ttcore::GridAttr deviceGrid;
@@ -274,10 +297,30 @@ private:
   /// For ToMemoryConfigOp, also updates the memory_config attribute.
   void demoteToDram(Operation *op);
 
-  /// Insert ToMemoryConfigOp to spill a single result value to DRAM
-  /// interleaved. When insertBefore is provided, the spill op is placed
-  /// right before that op (e.g., a CCL op) instead of after the defining op.
-  void spillToDram(Value result, Operation *insertBefore = nullptr);
+  /// Insert a ToMemoryConfigOp right after `result`'s defining op to spill
+  /// `result` to DRAM. ALL uses of `result` (past and future) get rewired
+  /// to read from the spill. Snapshot/replay-safe: pair with
+  /// `markEvictedAndRebuild` to keep the address simulator consistent.
+  void spillToDram(Value result);
+
+  /// Insert a ToMemoryConfigOp just BEFORE `triggerOp` to spill `result` to
+  /// DRAM. Only uses at/after `triggerOp` get rewired; earlier uses keep
+  /// reading from L1.
+  ///
+  /// INVARIANT: callers MUST follow with a full tracker reset (e.g.
+  /// `memoryTracker.init(l1BudgetPerCore)`) because the past-of-trigger
+  /// uses still occupy L1 in the IR. The default `markEvictedAndRebuild`
+  /// snapshot/replay path is NOT compatible with this overload — it would
+  /// mark `result`'s alloc as skipped at the producer's event index, which
+  /// disagrees with the IR (`result` is still allocated between defOp and
+  /// triggerOp).
+  ///
+  /// Currently the only caller is `evictAllFromL1`.
+  void spillToDramBeforeTrigger(Value result, Operation *triggerOp);
+
+  /// Shared implementation of the two spill overloads. Not part of the
+  /// public API.
+  void spillToDramImpl(Value result, Operation *insertBefore);
 
   /// Bundled schedule data built once at the start of run().
   struct ScheduleData {
