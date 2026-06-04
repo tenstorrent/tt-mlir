@@ -8,8 +8,10 @@ if [ "$(pwd)" != "$script_dir" ]; then
   exit 1
 fi
 
-# Reuse v3's installed metalium runtime.
-export TT_METAL_RUNTIME_ROOT="$script_dir/../vovnet_standalone_v3/ttnn-install/libexec/tt-metalium"
+# Point at a metalium runtime. Override via env (recommended when cloning):
+#   export TT_METAL_RUNTIME_ROOT=/path/to/your/tt-metal/.../tt-metalium
+# Falls back to a local sibling install if the env var is unset.
+export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$script_dir/../vovnet_standalone_v3/ttnn-install/libexec/tt-metalium}"
 
 echo "==================== BUILDING TTNN STANDALONE ==================="
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
