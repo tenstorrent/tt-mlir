@@ -83,4 +83,14 @@ mlir::Value build_max_pool2d(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRe
                              llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
                              llvm::ArrayRef<int64_t> dilation, bool ceil_mode);
 
+// Emit TTIR for a 2D convolution (non-transposed). Input and output use NCHW
+// layout (batch_dim=0, channel_dim=1, height_dim=2, width_dim=3). Weight is
+// in OIHW layout matching PyTorch's ATen convention. `bias` may be null (no
+// bias); when present it must be 1D (C_out,) and is reshaped to (1,C_out,1,1)
+// inside the emitter. `stride`, `padding`, and `dilation` carry [H, W] values;
+// `padding` is applied symmetrically (same on all four sides per axis).
+mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                         llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
+                         llvm::ArrayRef<int64_t> dilation, int64_t groups);
+
 } // namespace tt::kurbla::torch_backend

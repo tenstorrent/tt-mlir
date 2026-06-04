@@ -335,6 +335,23 @@ def test_compile_mnist(batch: int, feat: int, hidden: int, classes: int) -> None
 
 
 @pytest.mark.parametrize(
+    "n,c_in,h,w,c_out,ksize,stride,padding,bias",
+    [
+        (1, 32, 32, 32, 64, 3, 1, 1, False),
+        (1, 32, 32, 32, 64, 3, 2, 1, False),
+        (1, 32, 32, 32, 64, 1, 1, 0, True),
+    ],
+    ids=["3x3_s1_nobias", "3x3_s2_nobias", "1x1_bias"],
+)
+def test_compile_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: int, stride: int, padding: int, bias: bool) -> None:
+    """aten::convolution in a compiled graph — exercises Conv2dOp with NCHW dim
+    attrs and optional bias reshape."""
+    model = nn.Conv2d(c_in, c_out, ksize, stride=stride, padding=padding, bias=bias).to(torch.bfloat16)
+    x = torch.randn((n, c_in, h, w), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
     "n,c,h,w,k,stride,padding",
     [
         (1, 32, 64, 64, 3, 2, 1),

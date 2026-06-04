@@ -1,33 +1,108 @@
+#include "torch/ops/builders.hpp"
+
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include <ATen/ATen.h>
+#include <ATen/ExpandUtils.h>
+#include <ATen/InferSize.h>
+#include <llvm/ADT/APFloat.h>
+#include <llvm/ADT/APInt.h>
+#include <llvm/ADT/SmallVector.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/Support/LLVM.h>
 #include <torch/library.h>
+#include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
 
+#include "cast.hpp"
+#include "torch/backend.hpp"
 #include "torch/tensor.hpp"
+#include "torch/ttir_module_builder.hpp"
 
 namespace tt::kurbla::torch_backend {
 
 namespace {
 
-// Torch doesn't seem to support automatic fallback to the cpu kernel for convs - it always
-// calls `conv_overrideable` which we need to implement & register.
-// We implement it by falling back to the cpu aten conv - for now.
-at::Tensor convolution_overrideable(const at::Tensor &input, const at::Tensor &weight,
-                                    const std::optional<at::Tensor> &bias, at::IntArrayRef stride,
-                                    at::IntArrayRef padding, at::IntArrayRef dilation, bool transposed,
-                                    at::IntArrayRef output_padding, int64_t groups) {
-    TORCH_CHECK(is_tt(input), "tt-kurbla aten::convolution_overrideable: input must be on the tt backend");
-    auto cpu_bias = bias.has_value() && bias->defined() ? std::make_optional(bias->cpu()) : std::nullopt;
-    auto cpu_result = at::convolution(input.cpu(), weight.cpu(), cpu_bias, stride, padding, dilation, transposed,
-                                      output_padding, groups);
-    return cpu_result.to(input.device());
+at::Tensor tt_convolution(const at::Tensor &input_in, const at::Tensor &weight_in,
+                          const std::optional<at::Tensor> &bias_in, at::IntArrayRef stride, at::IntArrayRef padding,
+                          at::IntArrayRef dilation, bool transposed, at::IntArrayRef /*output_padding*/,
+                          int64_t groups) {
+    TORCH_CHECK(is_tt(input_in), "tt-kurbla aten::convolution: input must be on tt backend");
+    TORCH_CHECK(!transposed, "tt-kurbla aten::convolution: transposed convolution not supported");
+
+    if (bias_in.has_value() && bias_in->defined()) {
+        const auto [input, weight, bias] = align_on_tt(input_in, weight_in, *bias_in);
+        auto mb = ModuleBuilder::init({spec_for(input), spec_for(weight), spec_for(bias)});
+        auto [promoted, inp_v, w_v, b_v] = promote_inputs(mb, input, weight, bias);
+        auto result = build_conv2d(mb, inp_v, w_v, b_v, stride, padding, dilation, groups);
+        auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+        std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+        auto module_op = std::move(mb).finalize({result});
+        auto outputs = compile_and_run(std::move(module_op), {input, weight, bias});
+        return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+    }
+
+    const auto [input, weight] = align_on_tt(input_in, weight_in);
+    auto mb = ModuleBuilder::init({spec_for(input), spec_for(weight)});
+    auto [promoted, inp_v, w_v] = promote_inputs(mb, input, weight);
+    auto result = build_conv2d(mb, inp_v, w_v, mlir::Value{}, stride, padding, dilation, groups);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {input, weight});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
 }
 
 } // namespace
 
+mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, mlir::Value bias,
+                         llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
+                         llvm::ArrayRef<int64_t> dilation, int64_t groups) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto weight_type = mlir::cast<mlir::RankedTensorType>(weight.getType());
+    auto shape = input_type.getShape();   // NCHW: [N, C_in, H, W]
+    auto wshape = weight_type.getShape(); // OIHW: [C_out, C_in/groups, kH, kW]
+
+    // NOLINTBEGIN
+    int64_t kH = wshape[2], kW = wshape[3];
+    int64_t pH = padding[0], pW = padding[1];
+    int64_t dH = dilation[0], dW = dilation[1];
+    int64_t sH = stride[0], sW = stride[1];
+    int64_t H_out = (shape[2] + 2 * pH - dH * (kH - 1) - 1) / sH + 1;
+    int64_t W_out = (shape[3] + 2 * pW - dW * (kW - 1) - 1) / sW + 1;
+    // NOLINTEND
+
+    auto elem_type = input_type.getElementType();
+
+    // Conv2dOp uses NHWC layout by default. Permute NCHW→NHWC, run conv, permute back.
+    auto nhwc_input = build_permute(mb, input, {0, 2, 3, 1});
+
+    // Reshape 1D bias (C_out,) → (1, 1, 1, C_out) for NHWC channel_dim=3.
+    mlir::Value bias_4d;
+    if (bias) {
+        bias_4d = build_reshape(mb, bias, {1, 1, 1, wshape[0]});
+    }
+
+    auto stride_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(sH), as<int32_t>(sW)});
+    // Symmetric padding: [top, left, bottom, right] = [pH, pW, pH, pW].
+    auto padding_attr =
+        mb.attrs().getDenseI32ArrayAttr({as<int32_t>(pH), as<int32_t>(pW), as<int32_t>(pH), as<int32_t>(pW)});
+    auto dilation_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(dH), as<int32_t>(dW)});
+
+    // NHWC output shape: [N, H_out, W_out, C_out].
+    auto nhwc_result_type = mlir::RankedTensorType::get({shape[0], H_out, W_out, wshape[0]}, elem_type);
+    auto nhwc_result = mb.create<mlir::tt::ttir::Conv2dOp>(nhwc_result_type, nhwc_input, weight, bias_4d, stride_attr,
+                                                           padding_attr, dilation_attr, as<uint32_t>(groups), nullptr)
+                           .getResult();
+
+    // Permute NHWC→NCHW: [N, H_out, W_out, C_out] → [N, C_out, H_out, W_out].
+    return build_permute(mb, nhwc_result, {0, 3, 1, 2});
+}
+
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
-    m.impl("convolution_overrideable", TORCH_FN(convolution_overrideable));
+    m.impl("convolution_overrideable", TORCH_FN(tt_convolution));
 }
 
 } // namespace tt::kurbla::torch_backend
