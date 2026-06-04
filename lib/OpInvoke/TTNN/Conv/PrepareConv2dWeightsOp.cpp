@@ -90,9 +90,10 @@ auto createPrepareConv2dWeightsTuple(
       params.computeConfig, params.sliceConfig);
 }
 
-PrepareConv2dWeightsOpResult callPrepareConv2dWeights(
-    CallType callType, const ::tt::target::ttnn::PrepareConv2dWeightsOpT &opT,
-    TensorArg weightTensor, ::ttnn::MeshDevice *device) {
+PrepareConv2dWeightsOpResult
+callPrepareConv2dWeights(CallType callType,
+                         const ::tt::target::ttnn::PrepareConv2dWeightsOpT &opT,
+                         TensorArg weightTensor, ::ttnn::MeshDevice *device) {
 
   PrepareConv2dWeightsResolvedParams params =
       resolvePrepareConv2dWeightsParams(opT);

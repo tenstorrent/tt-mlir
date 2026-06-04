@@ -92,8 +92,7 @@ BatchNormOpResult callBatchNormInference(
     TensorArg input, std::optional<TensorArg> runningMean,
     std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, ::ttnn::MeshDevice *device) {
-  BatchNormResolvedParams params =
-      resolveBatchNormInferenceParams(opT);
+  BatchNormResolvedParams params = resolveBatchNormInferenceParams(opT);
 
   auto makeTuple = [&](auto tag) {
     return createBatchNormInferenceTuple(tag, opT, input, runningMean,
@@ -108,8 +107,7 @@ BatchNormOpResult callBatchNormTraining(
     TensorArg input, std::optional<TensorArg> runningMean,
     std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, ::ttnn::MeshDevice *device) {
-  BatchNormResolvedParams params =
-      resolveBatchNormTrainingParams(opT);
+  BatchNormResolvedParams params = resolveBatchNormTrainingParams(opT);
 
   auto makeTuple = [&](auto tag) {
     return createBatchNormTrainingTuple(tag, opT, input, runningMean,

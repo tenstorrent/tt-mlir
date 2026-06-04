@@ -30,8 +30,8 @@ struct RotaryEmbeddingResolvedParams {
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
 };
 
-RotaryEmbeddingResolvedParams resolveRotaryEmbeddingParams(
-    const ::tt::target::ttnn::RotaryEmbeddingOpT &opT);
+RotaryEmbeddingResolvedParams
+resolveRotaryEmbeddingParams(const ::tt::target::ttnn::RotaryEmbeddingOpT &opT);
 
 RotaryEmbeddingOpResult
 callRotaryEmbedding(CallType callType,

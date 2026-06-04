@@ -32,10 +32,10 @@ resolveGroupNormParams(const ::tt::target::ttnn::GroupNormOpT &opT,
                        CallType callType);
 
 GroupNormOpResult
-callGroupNorm(CallType callType,
-              const ::tt::target::ttnn::GroupNormOpT &opT, TensorArg input,
-              std::optional<TensorArg> inputMask, std::optional<TensorArg> weight,
-              std::optional<TensorArg> bias, ::ttnn::MeshDevice *device);
+callGroupNorm(CallType callType, const ::tt::target::ttnn::GroupNormOpT &opT,
+              TensorArg input, std::optional<TensorArg> inputMask,
+              std::optional<TensorArg> weight, std::optional<TensorArg> bias,
+              ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke
 

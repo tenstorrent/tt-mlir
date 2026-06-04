@@ -4828,8 +4828,7 @@ INSTANTIATE_TEST_SUITE_P(GroupNormOpTPathParityTest, GroupNormOpTPathParityTest,
 
 namespace mlir::tt::ttnn {
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormPostAllGatherOp>
-createOp(::mlir::tt::FlatbufferObjectCache &cache,
-         LayerNormPostAllGatherOp op);
+createOp(::mlir::tt::FlatbufferObjectCache &cache, LayerNormPostAllGatherOp op);
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::op_model {
@@ -4908,7 +4907,8 @@ mlir::tt::ttnn::LayerNormPostAllGatherOp buildTestLayerNormPostAllGatherOp(
 using LayerNormPostAllGatherOpTPathParityTest =
     ::testing::TestWithParam<mlir::tt::ttnn::LayerNormPostAllGatherOp>;
 
-TEST_P(LayerNormPostAllGatherOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+TEST_P(LayerNormPostAllGatherOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
   mlir::tt::ttnn::LayerNormPostAllGatherOp lnOp = GetParam();
 
   // Path A: OpModel-style construction.
@@ -4962,9 +4962,8 @@ const std::initializer_list<mlir::tt::ttnn::LayerNormPostAllGatherOp>
             /*programConfig=*/nonDefaultLayerNormProgramConfigAttr),
 };
 
-INSTANTIATE_TEST_SUITE_P(
-    LayerNormPostAllGatherOpTPathParityTest,
-    LayerNormPostAllGatherOpTPathParityTest,
-    ::testing::ValuesIn(layerNormPostAllGatherOpList));
+INSTANTIATE_TEST_SUITE_P(LayerNormPostAllGatherOpTPathParityTest,
+                         LayerNormPostAllGatherOpTPathParityTest,
+                         ::testing::ValuesIn(layerNormPostAllGatherOpList));
 
 #endif // TTMLIR_ENABLE_OPMODEL

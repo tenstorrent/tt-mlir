@@ -85,9 +85,9 @@ auto createPrepareConv2dBiasTuple(
       *std::get<const ::ttnn::Tensor *>(biasTensor), params.inputMemoryConfig,
       params.inputLayout, opT.in_channels, opT.out_channels, opT.batch_size,
       opT.input_height, opT.input_width, params.kernelSize, params.stride,
-      params.padding, params.dilation, opT.groups, device,
-      params.inputDtype, params.outputDtype, params.conv2dConfig,
-      params.computeConfig, params.sliceConfig);
+      params.padding, params.dilation, opT.groups, device, params.inputDtype,
+      params.outputDtype, params.conv2dConfig, params.computeConfig,
+      params.sliceConfig);
 }
 
 PrepareConv2dBiasOpResult
@@ -101,8 +101,8 @@ callPrepareConv2dBias(CallType callType,
     return createPrepareConv2dBiasTuple(tag, opT, biasTensor, device, params);
   };
 
-  tryCallingOp(::ttnn::operations::conv::conv2d::prepare_conv_bias, true,
-               false, "PrepareConv2dBiasOp");
+  tryCallingOp(::ttnn::operations::conv::conv2d::prepare_conv_bias, true, false,
+               "PrepareConv2dBiasOp");
 }
 
 } // namespace ttnn_op_invoke

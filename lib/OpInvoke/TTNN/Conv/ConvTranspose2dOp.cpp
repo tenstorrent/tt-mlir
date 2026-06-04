@@ -76,15 +76,14 @@ template <typename Tag>
 auto createConvTranspose2dTuple(
     Tag tag, const ::tt::target::ttnn::ConvTranspose2dOpT &convTranspose2dOpT,
     TensorArg input, TensorArg weight, std::optional<TensorArg> bias,
-    ::ttnn::MeshDevice *device,
-    const ConvTranspose2dResolvedParams &params) {
+    ::ttnn::MeshDevice *device, const ConvTranspose2dResolvedParams &params) {
   return std::make_tuple(
-      resolveTensorArg(input, tag), resolveTensorArg(weight, tag),
-      device, convTranspose2dOpT.in_channels,
-      convTranspose2dOpT.out_channels, convTranspose2dOpT.batch_size,
-      convTranspose2dOpT.input_height, convTranspose2dOpT.input_width,
-      params.kernelSize, params.stride, params.padding, params.outputPadding,
-      params.dilation, convTranspose2dOpT.groups, params.outputDtype,
+      resolveTensorArg(input, tag), resolveTensorArg(weight, tag), device,
+      convTranspose2dOpT.in_channels, convTranspose2dOpT.out_channels,
+      convTranspose2dOpT.batch_size, convTranspose2dOpT.input_height,
+      convTranspose2dOpT.input_width, params.kernelSize, params.stride,
+      params.padding, params.outputPadding, params.dilation,
+      convTranspose2dOpT.groups, params.outputDtype,
       bias ? std::make_optional(resolveTensorArg(*bias, tag)) : std::nullopt,
       params.conv2dConfig, params.computeConfig, params.outputMemoryConfig,
       params.sliceConfig, /*mirror_kernel=*/true, /*return_output_dim*/ false,

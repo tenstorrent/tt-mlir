@@ -15,8 +15,8 @@
 
 namespace ttnn_op_invoke {
 
-RotaryEmbeddingResolvedParams
-resolveRotaryEmbeddingParams(const ::tt::target::ttnn::RotaryEmbeddingOpT &opT) {
+RotaryEmbeddingResolvedParams resolveRotaryEmbeddingParams(
+    const ::tt::target::ttnn::RotaryEmbeddingOpT &opT) {
   RotaryEmbeddingResolvedParams params;
 
   if (opT.token_index.has_value()) {

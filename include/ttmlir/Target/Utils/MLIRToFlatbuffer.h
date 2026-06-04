@@ -990,7 +990,8 @@ inline ::flatbuffers::Offset<
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::LayerNormShardedMultiCoreProgramConfigAttr configAttr) {
   auto t = toNative(configAttr);
-  return ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig::Pack(*cache.fbb, &t);
+  return ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig::Pack(
+      *cache.fbb, &t);
 }
 
 inline ::tt::target::ttnn::Conv2dConfigT
