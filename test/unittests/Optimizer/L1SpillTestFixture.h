@@ -234,8 +234,7 @@ public:
   mlir::Operation *addBinary(mlir::Value lhs, mlir::Value rhs,
                              mlir::RankedTensorType outType,
                              uint64_t l1UsageBytes) {
-    auto op = builder.create<AddOp>(builder.getUnknownLoc(), outType, lhs, rhs,
-                                    /*broadcast=*/nullptr);
+    auto op = builder.create<AddOp>(builder.getUnknownLoc(), outType, lhs, rhs);
     setL1Usage(op.getOperation(), l1UsageBytes);
     return op.getOperation();
   }

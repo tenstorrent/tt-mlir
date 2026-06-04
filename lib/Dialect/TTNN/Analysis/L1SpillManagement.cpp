@@ -861,7 +861,7 @@ void L1SpillManagement<MemoryTracker>::evictValue(
 
         // Aligned per-core L1 size from validating the inserted reshard;
         // fall back to the layout estimate if validation can't model it.
-        auto reshardValidation = op_constraint_validation::validateOperation(
+        auto reshardValidation = memoryTracker.validateBackendDirect(
             reshardOp, utils::extractInputLayouts(reshardOp),
             extractOpConfigFromIR(reshardOp), /*additionalL1Usage=*/0);
         uint64_t reshardSizePerCore =
