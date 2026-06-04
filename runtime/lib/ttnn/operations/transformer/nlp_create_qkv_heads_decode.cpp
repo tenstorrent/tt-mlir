@@ -4,9 +4,7 @@
 
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/transformer/nlpCreateQKVHeadsDecodeOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NLPCreateQKVHeadsDecodeOp.h"
 #include <tuple>
 #include <variant>
 
@@ -34,7 +32,7 @@ void run(const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp *op,
           batchOffset.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*batchOffset)
               : std::nullopt,
-          targetDevice);
+          &targetDevice);
 
   using QKVTuple = std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
   LOG_ASSERT(

@@ -4,9 +4,7 @@
 
 #include "operations/conv/prepare_conv2d_weights.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/conv/prepareConv2dWeightsOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Conv/PrepareConv2dWeightsOp.h"
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::conv {
@@ -24,7 +22,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
 
   ttnn_op_invoke::PrepareConv2dWeightsOpResult result =
       ttnn_op_invoke::callPrepareConv2dWeights(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &weightTensor, targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE, opT, &weightTensor, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callPrepareConv2dWeights execution");

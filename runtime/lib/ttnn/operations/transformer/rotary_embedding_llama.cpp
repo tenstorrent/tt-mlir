@@ -4,9 +4,7 @@
 
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/transformer/rotaryEmbeddingLlamaOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingLlamaOp.h"
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -31,7 +29,7 @@ runRotaryEmbeddingLlama(const ::tt::target::ttnn::RotaryEmbeddingLlamaOp *op,
   ttnn_op_invoke::RotaryEmbeddingLlamaOpResult result =
       ttnn_op_invoke::callRotaryEmbeddingLlama(
           ttnn_op_invoke::CallType::EXECUTE, opT, &input, &cosCache, &sinCache,
-          &transMat, targetDevice);
+          &transMat, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callRotaryEmbeddingLlama execution");

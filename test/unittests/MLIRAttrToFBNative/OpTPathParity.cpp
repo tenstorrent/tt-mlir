@@ -523,8 +523,7 @@ mlir::tt::ttnn::Conv3dOp buildTestConv3dOp(
   return e.builder.create<mlir::tt::ttnn::Conv3dOp>(
       loc, outputType, input, weight, bias, device, inChannels, outChannels,
       batchSize, inputDepth, inputHeight, inputWidth, kernelSize, stride,
-      padding, paddingMode, groups, outputDtype, conv3dConfig,
-      computeKernelConfig);
+      padding, paddingMode, groups, conv3dConfig, computeKernelConfig);
 }
 
 } // namespace
@@ -745,8 +744,8 @@ mlir::tt::ttnn::ConvTranspose2dOp buildTestConvTranspose2dOp(
   return e.builder.create<mlir::tt::ttnn::ConvTranspose2dOp>(
       loc, outputType, input, weight, bias, device, inChannels, outChannels,
       batchSize, inputHeight, inputWidth, kernelSize, stride, padding,
-      outputPadding, dilation, groups, outputDtype, conv2dConfig,
-      computeKernelConfig, conv2dSliceConfig);
+      outputPadding, dilation, groups, conv2dConfig, computeKernelConfig,
+      conv2dSliceConfig);
 }
 
 } // namespace
@@ -4389,9 +4388,8 @@ buildNLPConcatHeadsDecodeOpTFromMLIR(uint32_t numHeads,
 
 namespace {
 
-void resetUnusedFields(
-    ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opTOpModel,
-    ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opTFB) {
+void resetUnusedFields(::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opTOpModel,
+                       ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opTFB) {
   auto helper = [](::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opT) {
     opT.in.reset();
     resetOutputTensorRefT(opT.out);

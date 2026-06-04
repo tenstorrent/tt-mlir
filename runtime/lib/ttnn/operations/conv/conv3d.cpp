@@ -5,7 +5,7 @@
 #include "operations/conv/conv3d.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/conv/conv3dOp.h"
+#include "ttmlir/OpInvoke/TTNN/Conv/Conv3dOp.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include <variant>
 
@@ -31,7 +31,7 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
       ttnn_op_invoke::CallType::EXECUTE, conv3dOpT, &input, &weight,
       bias.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*bias)
                        : std::nullopt,
-      targetDevice);
+      &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callConv3d execution");

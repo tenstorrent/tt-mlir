@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/OpInvoke/TTNN/Transformer/NlpCreateQKVHeadsDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NLPCreateQKVHeadsDecodeOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
@@ -69,5 +69,4 @@ NLPCreateQKVHeadsDecodeOpResult callNLPCreateQKVHeadsDecode(
 
   callOp(::ttnn::experimental::nlp_create_qkv_heads_decode);
 }
-
 } // namespace ttnn_op_invoke

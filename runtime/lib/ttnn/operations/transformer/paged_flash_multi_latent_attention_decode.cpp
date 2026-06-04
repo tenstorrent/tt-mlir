@@ -4,9 +4,7 @@
 
 #include "operations/transformer/paged_flash_multi_latent_attention_decode.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/transformer/pagedFlashMultiLatentAttentionDecodeOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/PagedFlashMultiLatentAttentionDecodeOp.h"
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -63,7 +61,7 @@ static void runPagedFlashMultiLatentAttentionDecodeOp(
           attentionSink.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionSink)
               : std::nullopt,
-          targetDevice);
+          &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from "

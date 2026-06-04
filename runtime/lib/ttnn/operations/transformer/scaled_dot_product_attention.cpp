@@ -4,9 +4,7 @@
 
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/transformer/scaledDotProductAttentionOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionOp.h"
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -45,7 +43,7 @@ static void runScaledDotProductAttentionOp(
           attentionSink.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionSink)
               : std::nullopt,
-          targetDevice);
+          &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callScaledDotProductAttention execution");

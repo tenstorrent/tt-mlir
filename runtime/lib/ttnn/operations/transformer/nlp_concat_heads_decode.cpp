@@ -4,9 +4,7 @@
 
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/transformer/nlpConcatHeadsDecodeOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsDecodeOp.h"
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -23,7 +21,7 @@ void run(const ::tt::target::ttnn::NLPConcatHeadsDecodeOp *op,
 
   ttnn_op_invoke::NLPConcatHeadsDecodeOpResult result =
       ttnn_op_invoke::callNLPConcatHeadsDecode(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &in, targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE, opT, &in, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callNLPConcatHeadsDecode execution");

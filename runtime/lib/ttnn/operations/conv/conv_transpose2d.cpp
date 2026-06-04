@@ -4,9 +4,7 @@
 
 #include "operations/conv/conv_transpose2d.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/conv/convTranspose2dOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Conv/ConvTranspose2dOp.h"
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::conv {
@@ -35,7 +33,7 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
           &weight,
           bias.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*bias)
                            : std::nullopt,
-          targetDevice);
+          &targetDevice);
 
   LOG_ASSERT(
       std::holds_alternative<::ttnn::ConvTranspose2dResultWithOptions>(result),

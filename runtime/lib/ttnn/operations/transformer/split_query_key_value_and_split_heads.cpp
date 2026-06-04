@@ -4,9 +4,7 @@
 
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/transformer/splitQueryKeyValueAndSplitHeadsOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/SplitQueryKeyValueAndSplitHeadsOp.h"
 #include <tuple>
 #include <variant>
 
@@ -32,7 +30,7 @@ static void runSplitQueryKeyValueAndSplitHeadsOp(
           kvInput.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*kvInput)
               : std::nullopt,
-          targetDevice);
+          &targetDevice);
 
   using QKVTuple = std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
   LOG_ASSERT(std::holds_alternative<QKVTuple>(result),

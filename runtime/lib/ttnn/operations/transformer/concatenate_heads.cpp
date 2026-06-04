@@ -4,9 +4,7 @@
 
 #include "operations/transformer/concatenate_heads.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "ttmlir/OpInvoke/TTNN/transformer/concatenateHeadsOp.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -22,7 +20,7 @@ runConcatenateHeadsOp(const ::tt::target::ttnn::ConcatenateHeadsOp *op,
 
   ttnn_op_invoke::ConcatenateHeadsOpResult result =
       ttnn_op_invoke::callConcatenateHeads(ttnn_op_invoke::CallType::EXECUTE,
-                                           opT, &input, targetDevice);
+                                           opT, &input, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callConcatenateHeads execution");

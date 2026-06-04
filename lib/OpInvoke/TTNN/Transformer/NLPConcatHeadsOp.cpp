@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/OpInvoke/TTNN/Transformer/NlpConcatHeadsOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
