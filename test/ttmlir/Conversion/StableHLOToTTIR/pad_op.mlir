@@ -75,14 +75,83 @@ module {
   }
 }
 
+// Interior padding only: dilate dims 1 and 2 by inserting 1 padding value
+// between consecutive elements. Lowered via reshape/full/concat/reshape/slice
+// (one dilation pass per padded dimension), no edge ttir.pad expected.
 module {
   func.func @main(%arg0: tensor<1x4x4x8xf32>) -> tensor<1x7x7x8xf32> {
+    // CHECK: ttir.reshape
+    // CHECK-SAME: -> tensor<1x4x1x4x8xf32>
     // CHECK: ttir.full
     // CHECK-SAME: value = 0.000000e+00 : f32
-    // CHECK: ttir.scatter
-    // CHECK-SAME: (tensor<392xf32>, tensor<128xi64>, tensor<128xf32>) -> tensor<392xf32>
+    // CHECK-SAME: -> tensor<1x4x1x4x8xf32>
+    // CHECK: ttir.concat
+    // CHECK-SAME: -> tensor<1x4x2x4x8xf32>
+    // CHECK: ttir.reshape
+    // CHECK-SAME: -> tensor<1x8x4x8xf32>
+    // CHECK: ttir.slice_static
+    // CHECK-SAME: -> tensor<1x7x4x8xf32>
+    // CHECK: ttir.reshape
+    // CHECK-SAME: -> tensor<1x7x4x1x8xf32>
+    // CHECK: ttir.full
+    // CHECK-SAME: -> tensor<1x7x4x1x8xf32>
+    // CHECK: ttir.concat
+    // CHECK-SAME: -> tensor<1x7x4x2x8xf32>
+    // CHECK: ttir.reshape
+    // CHECK-SAME: -> tensor<1x7x8x8xf32>
+    // CHECK: ttir.slice_static
+    // CHECK-SAME: -> tensor<1x7x7x8xf32>
+    // CHECK-NOT: ttir.pad
     %cst = arith.constant dense<0.000000e+00> : tensor<f32>
     %0 = stablehlo.pad %arg0, %cst, low = [0, 0, 0, 0], high = [0, 0, 0, 0], interior = [0, 1, 1, 0] : (tensor<1x4x4x8xf32>, tensor<f32>) -> tensor<1x7x7x8xf32>
     return %0 : tensor<1x7x7x8xf32>
+  }
+}
+
+// Interior padding combined with edge padding on the same dimension: interior
+// dilation runs first, then a single ttir.pad applies the low/high edges.
+module {
+  func.func @main(%arg0: tensor<1x4xf32>) -> tensor<2x9xf32> {
+    // CHECK: ttir.reshape
+    // CHECK-SAME: -> tensor<1x4x1xf32>
+    // CHECK: ttir.full
+    // CHECK-SAME: -> tensor<1x4x1xf32>
+    // CHECK: ttir.concat
+    // CHECK-SAME: -> tensor<1x4x2xf32>
+    // CHECK: ttir.reshape
+    // CHECK-SAME: -> tensor<1x8xf32>
+    // CHECK: ttir.slice_static
+    // CHECK-SAME: -> tensor<1x7xf32>
+    // CHECK: ttir.pad
+    // CHECK-SAME: padding = array<i32: 1, 0, 1, 1>
+    // CHECK-SAME: value = 0.000000e+00 : f32
+    // CHECK-SAME: -> tensor<2x9xf32>
+    %cst = arith.constant dense<0.000000e+00> : tensor<f32>
+    %0 = stablehlo.pad %arg0, %cst, low = [1, 1], high = [0, 1], interior = [0, 1] : (tensor<1x4xf32>, tensor<f32>) -> tensor<2x9xf32>
+    return %0 : tensor<2x9xf32>
+  }
+}
+
+// Interior padding on an integer tensor: the fill value is emitted as an f32
+// attribute on ttir.full (converted to the tensor element type downstream).
+module {
+  func.func @main(%arg0: tensor<1x3x3x4xi32>) -> tensor<1x5x7x4xi32> {
+    // CHECK: ttir.full
+    // CHECK-SAME: value = 0.000000e+00 : f32
+    // CHECK-SAME: -> tensor<1x3x1x3x4xi32>
+    // CHECK: ttir.concat
+    // CHECK-SAME: -> tensor<1x3x2x3x4xi32>
+    // CHECK: ttir.slice_static
+    // CHECK-SAME: -> tensor<1x5x3x4xi32>
+    // CHECK: ttir.full
+    // CHECK-SAME: -> tensor<1x5x3x2x4xi32>
+    // CHECK: ttir.concat
+    // CHECK-SAME: -> tensor<1x5x3x3x4xi32>
+    // CHECK: ttir.slice_static
+    // CHECK-SAME: -> tensor<1x5x7x4xi32>
+    // CHECK-NOT: ttir.pad
+    %cst = arith.constant dense<0> : tensor<i32>
+    %0 = stablehlo.pad %arg0, %cst, low = [0, 0, 0, 0], high = [0, 0, 0, 0], interior = [0, 1, 2, 0] : (tensor<1x3x3x4xi32>, tensor<i32>) -> tensor<1x5x7x4xi32>
+    return %0 : tensor<1x5x7x4xi32>
   }
 }

@@ -7388,7 +7388,6 @@ public:
         getConstantValueDefiningOp(adaptor.getPaddingValue());
 
     mlir::ElementsAttr paddingValueAttr = valueDef.getValueAttr();
-    SmallVector<int64_t> steps;
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
@@ -7401,111 +7400,91 @@ public:
 
     int64_t sum = 0;
     for (int64_t eachVal : srcOp.getInteriorPadding()) {
-      steps.push_back(eachVal + 1);
       sum += eachVal;
     }
     if (sum != 0) {
-      auto fullOp = rewriter.create<ttir::FullOp>(
-          srcOp.getLoc(), outputType, rewriter.getF32FloatAttr(value));
-      llvm::SmallVector<int64_t> upperbounds;
-      llvm::copy(outputType.getShape(), std::back_inserter(upperbounds));
-      int64_t index = 0;
-      for (int64_t pad : srcOp.getEdgePaddingHigh()) {
-        upperbounds[index] -= pad;
-        index++;
-      }
-
-      llvm::SmallVector<int64_t> counters;
-      llvm::SmallVector<int64_t> lowerbounds;
-      for (int64_t counter : srcOp.getEdgePaddingLow()) {
-        counters.push_back(counter);
-        lowerbounds.push_back(counter);
-      }
-      llvm::SmallVector<int64_t> flatIndices;
-      flatIndices.append(counters.begin(), counters.end());
-      int64_t numIndices = 1;
-
-      size_t current_index = 0;
-      while (current_index < counters.size() &&
-             counters[counters.size() - 1] <
-                 upperbounds[upperbounds.size() - 1]) {
-        counters[current_index] += steps[current_index];
-        bool reset = false;
-        while (current_index < counters.size() &&
-               counters[current_index] >= upperbounds[current_index]) {
-          counters[current_index] = lowerbounds[current_index];
-          current_index++;
-          if (current_index < counters.size()) {
-            counters[current_index] += steps[current_index];
-          }
-          reset = true;
-        }
-        if (current_index >= counters.size()) {
-          break;
-        }
-        if (reset) {
-          current_index = 0;
-        }
-        flatIndices.append(counters.begin(), counters.end());
-        numIndices++;
-      }
-      auto inputType =
+      // Interior padding: for each dim, insert `interior` padding values
+      // between consecutive elements by reshaping to expose the dim as a concat
+      // axis, concatenating a fill tensor along it, and slicing off the
+      // trailing gap.
+      auto operandType =
           mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+      Type elemType = operandType.getElementType();
+      Attribute encoding = operandType.getEncoding();
+      Value result = adaptor.getOperand();
 
-      int64_t rank = counters.size();
-
-      // Calculate strides for converting multi-dimensional indices to 1D.
-      ArrayRef<int64_t> outputShape = outputType.getShape();
-      llvm::SmallVector<int64_t> strides(rank);
-      for (int64_t i = 0; i < rank; ++i) {
-        int64_t stride = 1;
-        for (int64_t j = i + 1; j < rank; ++j) {
-          stride *= outputShape[j];
+      for (int64_t d = 0; d < operandType.getRank(); ++d) {
+        int64_t interior = srcOp.getInteriorPadding()[d];
+        if (interior == 0) {
+          continue;
         }
-        strides[i] = stride;
+        auto curType = mlir::cast<RankedTensorType>(result.getType());
+        ArrayRef<int64_t> curShape = curType.getShape();
+        int64_t n = curShape[d];
+
+        // 1) Split dim d with a trailing unit axis: [..., n, ...] -> [..., n,
+        // 1, ...].
+        SmallVector<int64_t> expShape(curShape.begin(), curShape.end());
+        expShape.insert(expShape.begin() + d + 1, 1);
+        Value expanded = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
+                                                      result, expShape);
+
+        // 2) Padding-value gap tensor: [..., n, interior, ...].
+        SmallVector<int64_t> fillShape(expShape);
+        fillShape[d + 1] = interior;
+        Value fill = rewriter.create<ttir::FullOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(fillShape, elemType, encoding),
+            rewriter.getF32FloatAttr(value));
+
+        // 3) Concat element + its gap: [..., n, 1 + interior, ...].
+        SmallVector<int64_t> concatShape(expShape);
+        concatShape[d + 1] = 1 + interior;
+        Value concat = rewriter.create<ttir::ConcatOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(concatShape, elemType, encoding),
+            ValueRange{expanded, fill}, d + 1);
+
+        // 4) Collapse: [..., n * (1 + interior), ...].
+        SmallVector<int64_t> mergedShape(curShape.begin(), curShape.end());
+        mergedShape[d] = n * (1 + interior);
+        Value merged = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
+                                                    concat, mergedShape);
+
+        // 5) Drop the trailing gap after the last element: dilated size is n +
+        // (n - 1) * interior.
+        int64_t dilated = n + (n - 1) * interior;
+        SmallVector<int32_t> begins(mergedShape.size(), 0);
+        SmallVector<int32_t> ends(mergedShape.begin(), mergedShape.end());
+        SmallVector<int32_t> steps(mergedShape.size(), 1);
+        ends[d] = static_cast<int32_t>(dilated);
+        SmallVector<int64_t> dilatedShape(mergedShape);
+        dilatedShape[d] = dilated;
+        result = rewriter.create<ttir::SliceStaticOp>(
+            srcOp.getLoc(),
+            RankedTensorType::get(dilatedShape, elemType, encoding), merged,
+            rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+            rewriter.getI32ArrayAttr(steps));
       }
 
-      // Convert multi-dimensional indices to 1D flat indices.
-      llvm::SmallVector<int64_t> flatIndices1D;
-      flatIndices1D.reserve(numIndices);
-      for (int64_t i = 0; i < numIndices; ++i) {
-        int64_t flatIdx = 0;
-        for (int64_t d = 0; d < rank; ++d) {
-          flatIdx += flatIndices[i * rank + d] * strides[d];
-        }
-        flatIndices1D.push_back(flatIdx);
+      // Edge padding: apply edge padding values to the result tensor, if any.
+      bool hasEdge = false;
+      SmallVector<int32_t> padDim;
+      for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); ++i) {
+        int32_t lo = adaptor.getEdgePaddingLow()[i];
+        int32_t hi = adaptor.getEdgePaddingHigh()[i];
+        padDim.push_back(lo);
+        padDim.push_back(hi);
+        hasEdge |= (lo != 0 || hi != 0);
+      }
+      if (hasEdge) {
+        result = rewriter.create<mlir::tt::ttir::PadOp>(
+            srcOp.getLoc(), outputType, result,
+            rewriter.getDenseI32ArrayAttr(padDim),
+            rewriter.getF32FloatAttr(value));
       }
 
-      auto flatIndicesType = RankedTensorType::get(
-          {numIndices}, rewriter.getI64Type(), inputType.getEncoding());
-      auto flatIndicesAttr =
-          DenseIntElementsAttr::get(flatIndicesType, flatIndices1D);
-      Value flatIndicesTensor = rewriter.create<ttir::ConstantOp>(
-          srcOp.getLoc(), flatIndicesType, flatIndicesAttr);
-
-      // Flatten input and update tensors to 1D.
-      Value flattenedInput = ttir::utils::flattenTensor(
-          rewriter, srcOp.getLoc(), fullOp.getResult(), "_input_flatten");
-      Value flattenedUpdate = ttir::utils::flattenTensor(
-          rewriter, srcOp.getLoc(), adaptor.getOperand(), "_update_flatten");
-
-      RankedTensorType flattenedInputType =
-          mlir::cast<RankedTensorType>(flattenedInput.getType());
-
-      auto dimAttr = rewriter.getI32IntegerAttr(0);
-      auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(
-          rewriter.getContext(), ttcore::ReduceType::Invalid);
-
-      Value scatterResult = rewriter.create<ttir::ScatterOp>(
-          srcOp.getLoc(), flattenedInputType, flattenedInput, flatIndicesTensor,
-          flattenedUpdate, dimAttr, reduceTypeAttr);
-
-      // Reshape result back to original output shape.
-      rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
-          srcOp, outputType, scatterResult,
-          rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
-              outputShape.begin(), outputShape.end())));
-
+      rewriter.replaceOp(srcOp, result);
       return success();
     }
 
