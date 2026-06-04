@@ -18,6 +18,12 @@ namespace {
 // have this type of inner dimension.
 constexpr int64_t kLargeInnerDimThreshold = 50000;
 
+static bool hasSetComputeConfigFields(DeviceComputeKernelConfigAttr config) {
+  return config.getMathFidelity().has_value() || config.getMathApproxMode() ||
+         config.getFp32DestAccEn() || config.getPackerL1Acc() ||
+         config.getDstFullSyncEn();
+}
+
 template <typename OpTy>
 void maybeApplyLargeInnerDimBf16MatmulConfig(
     OpTy op, DeviceComputeKernelConfigAttr &config) {
@@ -29,11 +35,13 @@ void maybeApplyLargeInnerDimBf16MatmulConfig(
   }
 
   auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
-  if (ttcore::elementTypeToDataType(outputType.getElementType()) ==
+  if (ttcore::elementTypeToDataType(outputType.getElementType()) !=
       ttcore::DataType::BFloat16) {
-    config = config.withFp32DestAccEn(true);
-    config = config.withPackerL1Acc(true);
+    return;
   }
+
+  config = config.withFp32DestAccEn(true);
+  config = config.withPackerL1Acc(true);
 }
 
 } // namespace
@@ -69,9 +77,10 @@ public:
         return;
       }
 
-      // Get existing compute config attribute (may be nullptr)
-      DeviceComputeKernelConfigAttr config =
+      // Get existing compute config attribute (may be nullptr).
+      DeviceComputeKernelConfigAttr originalConfig =
           computeConfigOp.getComputeConfigAttr();
+      DeviceComputeKernelConfigAttr config = originalConfig;
 
       // Log operation info and config before setting overrides
       TTMLIR_DEBUG(ttmlir::LogComponent::General,
@@ -124,8 +133,10 @@ public:
       TTMLIR_DEBUG(ttmlir::LogComponent::General,
                    "  Config after override: {0}\n", config);
 
-      // Set the updated config back to the operation
-      computeConfigOp.setComputeConfigAttr(config);
+      // Avoid materializing an empty compute_config when nothing changed.
+      if (config != originalConfig && hasSetComputeConfigFields(config)) {
+        computeConfigOp.setComputeConfigAttr(config);
+      }
     });
   }
 };
