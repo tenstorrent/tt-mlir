@@ -29,13 +29,15 @@ class OpModelTripwireTest : public OpModelFixture {};
 // PCC=0 for upper users
 // (https://github.com/tenstorrent/tt-metal/issues/44923).
 //
-// tt-metal PR #45016 adds the matching TT_FATAL
-// (`grid.num_cores() == padded_shape()[1]`).  Until that uplift, metal
-// still accepts PCC-degrading grids: this test feeds {4, 1} for
-// numUsers = 8 and asserts OpModel accepts it today.  When the uplift
-// lands, EXPECT_TRUE flips to fail -- signal to delete this file + target
-// and drop the operand-1 rule in PagedUpdateCacheRuleBook (metal will
-// enforce it from its side).
+// tt-metal PR #45016 added the matching TT_FATAL
+// (`grid.num_cores() == padded_shape()[1]`), which has now been uplifted.
+// metal rejects PCC-degrading grids, so OpModel surfaces them as a failed
+// constraint query: this test feeds {4, 1} for numUsers = 8 and asserts the
+// query fails.
+//
+// TODO(#44923): with metal enforcing this from its side, the operand-1 rule
+// in PagedUpdateCacheRuleBook is now redundant and can be dropped, along with
+// this file + target; deferred to a follow-up cleanup.
 TEST_F(OpModelTripwireTest, PagedUpdateCacheOpWrongGrid) {
   const llvm::SmallVector<int64_t> cacheShape = {8, 4, 32, 256};
   const llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
@@ -43,8 +45,7 @@ TEST_F(OpModelTripwireTest, PagedUpdateCacheOpWrongGrid) {
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
 
   // numUsers = inputShape[1] = 8; the only valid HS grid in tt-mlir IR is
-  // {8, 1}.  We use {4, 1} (num_cores = 4) so the new TT_FATAL rejects it
-  // once #45016 is uplifted.
+  // {8, 1}.  We use {4, 1} (num_cores = 4) so metal's TT_FATAL rejects it.
   const llvm::SmallVector<int64_t> wrongVirtualGrid = {4, 1};
 
   const TTNNLayoutAttr cacheLayout = CreateTiledLayout(
@@ -63,7 +64,7 @@ TEST_F(OpModelTripwireTest, PagedUpdateCacheOpWrongGrid) {
   if (!ok) {
     llvm::consumeError(constraintsExp.takeError());
   }
-  EXPECT_TRUE(ok);
+  EXPECT_FALSE(ok);
 }
 
 } // namespace mlir::tt::ttnn::op_model

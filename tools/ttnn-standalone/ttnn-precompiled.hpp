@@ -115,7 +115,16 @@ public:
       return externalDevice;
     }
 
-    static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
+    // NOTE: `ownedInstance` is intentionally `thread_local` (not a plain
+    // function-local static) to avoid a use-after-free crash during process
+    // exit. thread_local variables are destroyed when the thread exits,
+    // which happens before static destruction begins. This guarantees that
+    // GraphTracker (a function-local static in libtt_metal.so, initialized
+    // lazily during the first op) is still alive when the MeshDevice's
+    // program cache is destroyed. With a plain static, GraphTracker could
+    // be destroyed first (reverse init order), causing ProgramImpl's
+    // destructor to crash in deallocate_circular_buffers().
+    static thread_local std::shared_ptr<ttnn::MeshDevice> ownedInstance =
         ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
@@ -152,16 +161,16 @@ void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
 }
 
 // Registry for all const-eval cache vectors.
-// Using a function-local static (Meyers singleton) ensures this is initialized
-// after DeviceGetter::getInstance() (which initializes the device), and thus
-// destroyed before the device during program exit. This prevents a
-// use-after-free crash when the global g_cached_result_* vectors (initialized
-// before main) try to destroy device-side tensors after the device and its
-// GraphTracker have already been closed.
+// Using a thread_local function-local static (Meyers singleton) ensures this
+// is destroyed before the thread_local device during thread exit. thread_local
+// variables are destroyed in reverse initialization order within the same
+// thread, so since the device is initialized before the registry, the registry
+// is destroyed first — clearing all cached tensors while the device and
+// GraphTracker are still alive.
 class ConstEvalCacheRegistry {
 public:
   static ConstEvalCacheRegistry &instance() {
-    static ConstEvalCacheRegistry reg;
+    static thread_local ConstEvalCacheRegistry reg;
     return reg;
   }
 
