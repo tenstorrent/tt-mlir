@@ -167,6 +167,10 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
 static ::tt::runtime::Tensor
 toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
                    bool untilize, bool blocking) {
+  LOG_ASSERT(!tensorWrapper.isReclaimed(),
+             "Cannot copy tensor to host: its device buffer was reclaimed "
+             "after its const-eval result was cached (weight streaming); the "
+             "source data is no longer resident on device.");
   const ::ttnn::Tensor &inputTensor = tensorWrapper.getTensor();
   bool shouldRetain = tensorWrapper.shouldRetain();
 
