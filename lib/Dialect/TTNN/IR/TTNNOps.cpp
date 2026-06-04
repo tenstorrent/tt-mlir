@@ -4187,19 +4187,29 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Page table tensor must be an integer type");
   }
 
+  // Batched fill (Tier 2): input is [num_users, num_heads, seq, head_dim] and
+  // the batch index tensor is [num_users] (one page-table row per user). A
+  // single-user fill (num_users == 1) is the backwards-compatible case.
+  int64_t numUsers = inputShape[0];
   if (getBatchIdxTensor()) {
     auto batchIdxTensorType = getBatchIdxTensor().getType();
     if (batchIdxTensorType.getShape().size() != 1) {
       return emitOpError("Batch index tensor must be a 1D tensor");
     }
-    if (batchIdxTensorType.getShape()[0] != 1) {
+    if (batchIdxTensorType.getShape()[0] != numUsers) {
       return emitOpError(
-          "Batch index tensor must have dim 0 be equal to 1, got " +
-          std::to_string(batchIdxTensorType.getShape()[0]));
+          "Batch index tensor must have dim 0 equal to the number of users "
+          "(input dim 0), got " +
+          std::to_string(batchIdxTensorType.getShape()[0]) + " vs " +
+          std::to_string(numUsers));
     }
     if (!batchIdxTensorType.getElementType().isInteger()) {
       return emitOpError("Batch index tensor must be an integer type");
     }
+  }
+  if (pageTableShape[0] < numUsers) {
+    return emitOpError(
+        "Page table must have at least num_users rows (input dim 0).");
   }
 
   int64_t numCacheHeads = cacheShape[1];
