@@ -17079,6 +17079,7 @@ class TTIRBuilder(Builder):
         tilize_out_type: Optional[torch.dtype] = None,
         tilize_out_rm_shape: Optional[Shape] = None,
         tilize_out_rm_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult, OpResult, OpResult, OpResult]:
         assert token_counts_shape is not None, "token_counts_shape required"
@@ -17125,7 +17126,10 @@ class TTIRBuilder(Builder):
             else None
         )
 
-        loc = self._get_location()
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.unknown(self._ctx) if loc == "" else Location.name(loc)
 
         op = ttir.MoeGptOp(
             token_counts_result,
