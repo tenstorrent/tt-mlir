@@ -1583,14 +1583,15 @@ def moe_gpt_golden(
     raw_w0: torch.Tensor,
     raw_w1: torch.Tensor,
     raw_w2: torch.Tensor,
-    hidden_size: int,
-    cluster_axis: int = 0,
-    num_worker_cores: int = 72,
-    token_counts_shape: Tuple = None,
-    activation_records_shape: Tuple = None,
-    token_indices_shape: Tuple = None,
+    hidden_size_attr,
+    cluster_axis_attr,
+    num_worker_cores_attr,
+    token_counts_type_mlir: Type,
+    activation_records_type_mlir: Type,
+    token_indices_type_mlir: Type,
+    tilize_out_type_mlir: Type,
+    tilize_out_rm_type_mlir: Type,
     tilize_out_shape: Tuple = None,
-    tilize_out_rm_shape: Tuple = None,
 ) -> Tuple:
     """Cross-shard golden for moe_gpt.
 
@@ -1603,6 +1604,11 @@ def moe_gpt_golden(
     (before interleave/shard/pad). These must be provided by the test since the
     op inputs are the prepared tensors which are hard to unpack.
     """
+    # Unpack MLIR attributes
+    hidden_size = unpack_mlir_attr(hidden_size_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    num_worker_cores = unpack_mlir_attr(num_worker_cores_attr)
+
     L1_ALIGN = 16  # l1_alignment on Wormhole
 
     mesh_shape = input_tensor.mesh_shape
@@ -8467,6 +8473,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AllToAllDispatchOp: ttir_all_to_all_dispatch_golden,
     ttir.AllToAllDispatchMetadataOp: ttir_all_to_all_dispatch_metadata_golden,
     ttir.AllToAllCombineOp: ttir_all_to_all_combine_golden,
+    ttir.MoeGptOp: moe_gpt_golden,
     ttir.MoeExpertTokenRemapOp: ttir_moe_expert_token_remap_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,

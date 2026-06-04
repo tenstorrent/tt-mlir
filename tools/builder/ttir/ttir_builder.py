@@ -215,42 +215,6 @@ class TTIRBuilder(Builder):
             cluster_axis=cluster_axis,
         )
 
-    def _build_moe_gpt_golden(
-        self,
-        input_tensor: "GoldenMapTensor",
-        expert_indices: "GoldenMapTensor",
-        expert_scores: "GoldenMapTensor",
-        expert_mapping: "GoldenMapTensor",
-        hidden_size: int,
-        cluster_axis: int,
-        num_worker_cores: int,
-        token_counts_shape,
-        activation_records_shape,
-        token_indices_shape,
-        tilize_out_shape,
-        tilize_out_rm_shape,
-    ):
-        from golden.mapping import moe_gpt_golden
-
-        raw_w0, raw_w1, raw_w2 = self._moe_gpt_raw_weights
-        return moe_gpt_golden(
-            input_tensor,
-            expert_indices,
-            expert_scores,
-            expert_mapping,
-            raw_w0,
-            raw_w1,
-            raw_w2,
-            hidden_size=hidden_size,
-            cluster_axis=cluster_axis,
-            num_worker_cores=num_worker_cores,
-            token_counts_shape=token_counts_shape,
-            activation_records_shape=activation_records_shape,
-            token_indices_shape=token_indices_shape,
-            tilize_out_shape=tilize_out_shape,
-            tilize_out_rm_shape=tilize_out_rm_shape,
-        )
-
     def _build_all_to_all_combine_golden(
         self,
         input_tensor: GoldenMapTensor,
@@ -17128,25 +17092,26 @@ class TTIRBuilder(Builder):
         assert tilize_out_rm_shape is not None, "tilize_out_rm_shape required"
         assert tilize_out_rm_type is not None, "tilize_out_rm_type required"
 
+        mlir_tc_type = self._get_type_from_torch_dtype(token_counts_type)
+        mlir_act_type = self._get_type_from_torch_dtype(activation_records_type)
+        mlir_ti_type = self._get_type_from_torch_dtype(token_indices_type)
+        mlir_tile_type = self._get_type_from_torch_dtype(tilize_out_type)
+        mlir_tile_rm_type = self._get_type_from_torch_dtype(tilize_out_rm_type)
+
         token_counts_result = self._create_ranked_tensor_type(
-            token_counts_shape,
-            self._get_type_from_torch_dtype(token_counts_type),
+            token_counts_shape, mlir_tc_type
         )
         activation_records_result = self._create_ranked_tensor_type(
-            activation_records_shape,
-            self._get_type_from_torch_dtype(activation_records_type),
+            activation_records_shape, mlir_act_type
         )
         token_indices_result = self._create_ranked_tensor_type(
-            token_indices_shape,
-            self._get_type_from_torch_dtype(token_indices_type),
+            token_indices_shape, mlir_ti_type
         )
         tilize_out_result = self._create_ranked_tensor_type(
-            tilize_out_shape,
-            self._get_type_from_torch_dtype(tilize_out_type),
+            tilize_out_shape, mlir_tile_type
         )
         tilize_out_rm_result = self._create_ranked_tensor_type(
-            tilize_out_rm_shape,
-            self._get_type_from_torch_dtype(tilize_out_rm_type),
+            tilize_out_rm_shape, mlir_tile_rm_type
         )
 
         ohs_attr = IntegerAttr.get(
@@ -17190,25 +17155,39 @@ class TTIRBuilder(Builder):
         in1 = self._get_golden_tensor(expert_indices)
         in2 = self._get_golden_tensor(expert_scores)
         in3 = self._get_golden_tensor(expert_mapping)
+        nwc_attr = IntegerAttr.get(
+            IntegerType.get_unsigned(32), tilize_out_shape[0]
+        )
+        ca_golden_attr = (
+            ca_attr
+            if ca_attr is not None
+            else IntegerAttr.get(IntegerType.get_unsigned(32), 0)
+        )
+        raw_w0, raw_w1, raw_w2 = self._moe_gpt_raw_weights
+        op_golden_function = get_golden_function(ttir.MoeGptOp)
         (
             golden_tc,
             golden_act,
             golden_et,
             golden_tile,
             golden_tile_rm,
-        ) = self._build_moe_gpt_golden(
+        ) = op_golden_function(
             in0,
             in1,
             in2,
             in3,
-            hidden_size=hidden_size,
-            cluster_axis=cluster_axis if cluster_axis is not None else 0,
-            num_worker_cores=tilize_out_shape[0],
-            token_counts_shape=token_counts_shape,
-            activation_records_shape=activation_records_shape,
-            token_indices_shape=token_indices_shape,
+            raw_w0,
+            raw_w1,
+            raw_w2,
+            hs_attr,
+            ca_golden_attr,
+            nwc_attr,
+            mlir_tc_type,
+            mlir_act_type,
+            mlir_ti_type,
+            mlir_tile_type,
+            mlir_tile_rm_type,
             tilize_out_shape=tilize_out_shape,
-            tilize_out_rm_shape=tilize_out_rm_shape,
         )
         self._set_golden_tensor(op.token_counts, golden_tc)
         self._set_golden_tensor(op.activation_records, golden_act)
