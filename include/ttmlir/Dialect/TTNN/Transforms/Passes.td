@@ -564,12 +564,18 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
     the ComputeKernelConfigOpInterface. It only sets parameter values that are not already
     defined, preserving any existing configuration decisions made by earlier compiler passes.
 
+    Precision requiremnets:
+    For `ttnn.matmul` and `ttnn.linear` with inner dimension > kLargeInnerDimThreshold and 
+    bf16 output, sets `fp32_dest_acc_en = true` and `packer_l1_acc = true`.
+
     Behaviour:
     - If an operation has no compute_config attribute, a new compute config is created with override values
     - If an operation has a compute_config but a specific parameter (e.g., math_fidelity) is
       unset (std::nullopt), the override value is applied for that parameter only
     - If a parameter is already set in the compute_config, it is not overridden, preserving
       the existing compiler decision
+    - If an operation is a `ttnn.matmul` or `ttnn.linear` apply compute_config fix for bf16 outputs where
+      inner dimension of the operaiton was larger than kLargeInnerDimThreshold
 
     This allows setting default values for ComputeKernelConfig parameters while respecting
     any explicit configuration choices made by prior passes.

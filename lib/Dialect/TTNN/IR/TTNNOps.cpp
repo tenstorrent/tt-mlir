@@ -2268,6 +2268,54 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// Matmul / Linear shape helpers
+//===----------------------------------------------------------------------===//
+
+MatmulAdjustedShapes
+getMatmulAdjustedInputShapes(::mlir::RankedTensorType inputA,
+                             ::mlir::RankedTensorType inputB,
+                             bool transposeA, bool transposeB) {
+  llvm::SmallVector<int64_t> inputAShape(inputA.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputB.getShape());
+
+  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
+  // the purpose of the matrix multiplication. After the matrix multiplication,
+  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
+  // transposed.
+  if (inputA.getRank() == 1) {
+    inputAShape.insert(inputAShape.begin(), 1);
+  } else if (transposeA) {
+    std::swap(inputAShape[inputAShape.size() - 1],
+              inputAShape[inputAShape.size() - 2]);
+  }
+
+  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
+  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
+  // check if the RHS needs to be transposed.
+  if (inputB.getRank() == 1) {
+    inputBShape.push_back(1);
+  } else if (transposeB) {
+    std::swap(inputBShape[inputBShape.size() - 1],
+              inputBShape[inputBShape.size() - 2]);
+  }
+
+  return MatmulAdjustedShapes{std::move(inputAShape), std::move(inputBShape)};
+}
+
+std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
+                                         ::mlir::RankedTensorType inputB,
+                                         bool transposeA, bool transposeB) {
+  if (inputA.getRank() < 1 || inputB.getRank() < 1) {
+    return std::nullopt;
+  }
+
+  MatmulAdjustedShapes adjustedShapes =
+      getMatmulAdjustedInputShapes(inputA, inputB, transposeA, transposeB);
+  // Inner (K) dimension after vector/transpose adjustment, matching verify().
+  return adjustedShapes.inputA.back();
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 
@@ -2280,8 +2328,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
-  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
-  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
 
   // Verify that the input A is at least 1D tensor.
   if (inputAType.getRank() < 1) {
@@ -2293,26 +2339,11 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
-  // the purpose of the matrix multiplication. After the matrix multiplication,
-  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
-  // transposed.
-  if (inputAType.getRank() == 1) {
-    inputAShape.insert(inputAShape.begin(), 1);
-  } else if (getTransposeA()) {
-    std::swap(inputAShape[inputAShape.size() - 1],
-              inputAShape[inputAShape.size() - 2]);
-  }
-
-  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
-  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
-  // check if the RHS needs to be transposed.
-  if (inputBType.getRank() == 1) {
-    inputBShape.push_back(1);
-  } else if (getTransposeB()) {
-    std::swap(inputBShape[inputBShape.size() - 1],
-              inputBShape[inputBShape.size() - 2]);
-  }
+  MatmulAdjustedShapes adjustedShapes =
+      getMatmulAdjustedInputShapes(inputAType, inputBType, getTransposeA(),
+                                   getTransposeB());
+  llvm::SmallVector<int64_t> inputAShape = std::move(adjustedShapes.inputA);
+  llvm::SmallVector<int64_t> inputBShape = std::move(adjustedShapes.inputB);
 
   // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
@@ -2438,8 +2469,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
-  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
-  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
 
   // Verify that the input A is at least 1D tensor.
   if (inputAType.getRank() < 1) {
@@ -2451,26 +2480,11 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
-  // the purpose of the matrix multiplication. After the matrix multiplication,
-  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
-  // transposed.
-  if (inputAType.getRank() == 1) {
-    inputAShape.insert(inputAShape.begin(), 1);
-  } else if (getTransposeA()) {
-    std::swap(inputAShape[inputAShape.size() - 1],
-              inputAShape[inputAShape.size() - 2]);
-  }
-
-  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
-  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
-  // check if the RHS needs to be transposed.
-  if (inputBType.getRank() == 1) {
-    inputBShape.push_back(1);
-  } else if (getTransposeB()) {
-    std::swap(inputBShape[inputBShape.size() - 1],
-              inputBShape[inputBShape.size() - 2]);
-  }
+  MatmulAdjustedShapes adjustedShapes =
+      getMatmulAdjustedInputShapes(inputAType, inputBType, getTransposeA(),
+                                   getTransposeB());
+  llvm::SmallVector<int64_t> inputAShape = std::move(adjustedShapes.inputA);
+  llvm::SmallVector<int64_t> inputBShape = std::move(adjustedShapes.inputB);
 
   // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
