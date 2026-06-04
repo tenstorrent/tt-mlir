@@ -585,4 +585,19 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfigT &config) {
   return sdpaConfig;
 }
 
+::ttnn::prim::LayerNormProgramConfig
+createLayerNormShardedMultiCoreProgramConfig(
+    const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT &config) {
+  ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig layerNormConfig;
+  
+  layerNormConfig.compute_with_storage_grid_size =
+      toTTNNCoreCoord(*config.compute_with_storage_grid_size);
+  layerNormConfig.subblock_w = config.subblock_w;
+  layerNormConfig.block_h = config.block_h;
+  layerNormConfig.block_w = config.block_w;
+  layerNormConfig.inplace = config.inplace;
+  
+  return layerNormConfig;
+}
+
 } // namespace ttnn_op_invoke::operations::utils

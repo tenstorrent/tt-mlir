@@ -4142,7 +4142,8 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
           ? op_model::OpModel<BatchNormTrainingOp>::getOpConstraints(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, momentum, deviceConfig, outputLayout)
+                biasShape, biasLayout, epsilon, momentum, deviceConfig,
+                outputLayout)
           : op_model::OpModel<BatchNormInferenceOp>::getOpConstraints(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
@@ -4166,7 +4167,8 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
           ? op_model::OpModel<BatchNormTrainingOp>::getOpRuntime(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, momentum, deviceConfig, outputLayout)
+                biasShape, biasLayout, epsilon, momentum, deviceConfig,
+                outputLayout)
           : op_model::OpModel<BatchNormInferenceOp>::getOpRuntime(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
@@ -4831,10 +4833,25 @@ TEST_P(OpModelLayerNormPostAllGatherParam, LayerNormPostAllGatherParam) {
     biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
   }
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
+  LayerNormShardedMultiCoreProgramConfigAttr programConfig =
+      LayerNormShardedMultiCoreProgramConfigAttr::get(
+          &context, CoreCoordAttr::get(&context, 8, 8),
+          /*subblock_w=*/1u, /*block_h=*/1u, /*block_w=*/4u,
+          /*inplace=*/false);
+
   auto constraintsExp =
       op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
           inputShape, inputLayout, statsShape, statsLayout, weightShape,
-          weightLayout, biasShape, biasLayout, epsilon, outputLayout);
+          weightLayout, biasShape, biasLayout, epsilon, deviceConfig,
+          programConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4850,7 +4867,8 @@ TEST_P(OpModelLayerNormPostAllGatherParam, LayerNormPostAllGatherParam) {
 
   auto runtimeExp = op_model::OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
       inputShape, inputLayout, statsShape, statsLayout, weightShape,
-      weightLayout, biasShape, biasLayout, epsilon, outputLayout);
+      weightLayout, biasShape, biasLayout, epsilon, deviceConfig, programConfig,
+      outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {

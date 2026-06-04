@@ -1685,16 +1685,20 @@ struct OpModel<LayerNormPostAllGatherOp> {
       std::optional<TTNNLayoutAttr> weightLayout,
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
       std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
       TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               llvm::ArrayRef<int64_t> statsShape, TTNNLayoutAttr statsLayout,
-               std::optional<llvm::ArrayRef<int64_t>> weightShape,
-               std::optional<TTNNLayoutAttr> weightLayout,
-               std::optional<llvm::ArrayRef<int64_t>> biasShape,
-               std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-               TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> statsShape, TTNNLayoutAttr statsLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

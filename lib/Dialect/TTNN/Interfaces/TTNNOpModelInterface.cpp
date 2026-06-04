@@ -3986,6 +3986,10 @@ struct LayerNormPostAllGatherOptionalArgs {
   std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
   std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
   std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      std::nullopt;
+  std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig =
+      std::nullopt;
 };
 
 static LayerNormPostAllGatherOptionalArgs
@@ -4006,6 +4010,12 @@ unpackLayerNormPostAllGatherOptionalArgs(
       ret.biasLayout = inputs[idx++];
     }
   }
+  if (op.getComputeConfig()) {
+    ret.computeKernelConfig = op.getComputeConfig();
+  }
+  if (op.getProgramConfig()) {
+    ret.programConfig = op.getProgramConfig();
+  }
   return ret;
 }
 
@@ -4023,7 +4033,8 @@ LayerNormPostAllGatherOp::getOpConstraints(
       op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints, *this,
       inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, getEpsilon(), optionalArgs.computeKernelConfig,
+      optionalArgs.programConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
@@ -4038,7 +4049,8 @@ llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
       op_model::OpModel<LayerNormPostAllGatherOp>::getOpRuntime, *this,
       inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, getEpsilon(), optionalArgs.computeKernelConfig,
+      optionalArgs.programConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

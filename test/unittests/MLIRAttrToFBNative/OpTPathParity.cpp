@@ -4822,4 +4822,149 @@ const std::initializer_list<mlir::tt::ttnn::GroupNormOp> groupNormOpList = {
 INSTANTIATE_TEST_SUITE_P(GroupNormOpTPathParityTest, GroupNormOpTPathParityTest,
                          ::testing::ValuesIn(groupNormOpList));
 
+//===----------------------------------------------------------------------===//
+// LayerNormPostAllGatherOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPostAllGatherOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         LayerNormPostAllGatherOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::LayerNormPostAllGatherOpT
+buildLayerNormPostAllGatherOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+const mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr
+    nonDefaultLayerNormProgramConfigAttr =
+        mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
+            getContext(),
+            mlir::tt::ttnn::CoreCoordAttr::get(getContext(), 8, 8),
+            /*subblock_w=*/1u, /*block_h=*/4u, /*block_w=*/4u,
+            /*inplace=*/false);
+
+void resetUnusedFields(
+    ::tt::target::ttnn::LayerNormPostAllGatherOpT &opTOpModel,
+    ::tt::target::ttnn::LayerNormPostAllGatherOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::LayerNormPostAllGatherOpT &opT) {
+    opT.input.reset();
+    opT.stats.reset();
+    opT.weight.reset();
+    opT.bias.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memory_config.reset();
+    opT.dtype.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::LayerNormPostAllGatherOp buildTestLayerNormPostAllGatherOp(
+    bool withWeight = false, bool withBias = false,
+    mlir::FloatAttr epsilon = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {},
+    mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr programConfig =
+        {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value input = makeOnes();
+  mlir::Value stats = makeOnes();
+  mlir::Value weight = withWeight ? makeOnes() : mlir::Value();
+  mlir::Value bias = withBias ? makeOnes() : mlir::Value();
+
+  llvm::APFloat epsilonVal(1e-12f);
+  if (epsilon) {
+    epsilonVal = epsilon.getValue();
+  }
+
+  return e.builder.create<mlir::tt::ttnn::LayerNormPostAllGatherOp>(
+      loc, tensorType, input, stats, weight, bias, epsilonVal, computeConfig,
+      programConfig);
+}
+
+} // namespace
+
+using LayerNormPostAllGatherOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::LayerNormPostAllGatherOp>;
+
+TEST_P(LayerNormPostAllGatherOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::LayerNormPostAllGatherOp lnOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildLayerNormPostAllGatherOpTFromMLIR(
+          lnOp.getEpsilon(), lnOp.getComputeConfig(), lnOp.getProgramConfig(),
+          resolveOutputLayout(lnOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, lnOp.getInput(), lnOp.getStats());
+  if (lnOp.getWeight()) {
+    prepopulateOperandTensorRefs(cache, lnOp.getWeight());
+  }
+  if (lnOp.getBias()) {
+    prepopulateOperandTensorRefs(cache, lnOp.getBias());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, lnOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::LayerNormPostAllGatherOp>
+    layerNormPostAllGatherOpList = {
+        buildTestLayerNormPostAllGatherOp(),
+        buildTestLayerNormPostAllGatherOp(/*withWeight=*/true),
+        buildTestLayerNormPostAllGatherOp(/*withWeight=*/false,
+                                          /*withBias=*/true),
+        buildTestLayerNormPostAllGatherOp(
+            /*withWeight=*/false, /*withBias=*/false,
+            /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-6f)),
+        buildTestLayerNormPostAllGatherOp(
+            /*withWeight=*/false, /*withBias=*/false, /*epsilon=*/{},
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestLayerNormPostAllGatherOp(
+            /*withWeight=*/false, /*withBias=*/false, /*epsilon=*/{},
+            /*computeConfig=*/{},
+            /*programConfig=*/nonDefaultLayerNormProgramConfigAttr),
+        buildTestLayerNormPostAllGatherOp(
+            /*withWeight=*/true, /*withBias=*/true,
+            /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-6f),
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr,
+            /*programConfig=*/nonDefaultLayerNormProgramConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    LayerNormPostAllGatherOpTPathParityTest,
+    LayerNormPostAllGatherOpTPathParityTest,
+    ::testing::ValuesIn(layerNormPostAllGatherOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

@@ -27,6 +27,7 @@
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/BatchNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/GroupNormOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPostAllGatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsOp.h"
@@ -7591,6 +7592,31 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
 // LayerNormPostAllGatherOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::LayerNormPostAllGatherOpT
+buildLayerNormPostAllGatherOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT opT;
+  opT.epsilon = epsilon.convertToFloat();
+  opT.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  opT.program_config =
+      (programConfig.has_value() && *programConfig)
+          ? std::make_unique<
+                ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT>(
+                toNative(*programConfig))
+          : nullptr;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -7599,6 +7625,8 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7617,14 +7645,21 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT opT =
+      buildLayerNormPostAllGatherOpTFromMLIR(epsilon, std::nullopt,
+                                             std::nullopt, outputLayout);
+
   auto query = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::layer_norm_post_all_gather, device,
-                                inputSpec, statsSpec, epsilon.convertToFloat(),
-                                weightSpec, biasSpec,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                /*compute_kernel_config=*/std::nullopt,
-                                /*program_config=*/std::nullopt,
-                                /*dtype=*/std::nullopt);
+    ttnn_op_invoke::LayerNormPostAllGatherOpResult result =
+        ttnn_op_invoke::callLayerNormPostAllGather(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+            statsSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected LayerNormPostAllGatherOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), query);
@@ -7640,6 +7675,8 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7658,14 +7695,21 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT opT =
+      buildLayerNormPostAllGatherOpTFromMLIR(epsilon, std::nullopt,
+                                             std::nullopt, outputLayout);
+
   auto query = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::layer_norm_post_all_gather, device,
-                            inputSpec, statsSpec, epsilon.convertToFloat(),
-                            weightSpec, biasSpec,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            /*compute_kernel_config=*/std::nullopt,
-                            /*program_config=*/std::nullopt,
-                            /*dtype=*/std::nullopt);
+    ttnn_op_invoke::LayerNormPostAllGatherOpResult result =
+        ttnn_op_invoke::callLayerNormPostAllGather(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec,
+            statsSpec, weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected LayerNormPostAllGatherOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
