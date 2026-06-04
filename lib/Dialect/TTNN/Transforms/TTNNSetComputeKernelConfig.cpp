@@ -16,9 +16,9 @@ constexpr int64_t kLargeInnerDimThreshold = 50000;
 template <typename OpTy>
 void maybeApplyLargeInnerDimBf16MatmulConfig(
     OpTy op, DeviceComputeKernelConfigAttr &config) {
-  std::optional<int64_t> innerDim = getMatmulInnerDim(
-      op.getA().getType(), op.getB().getType(), op.getTransposeA(),
-      op.getTransposeB());
+  std::optional<int64_t> innerDim =
+      getMatmulInnerDim(op.getA().getType(), op.getB().getType(),
+                        op.getTransposeA(), op.getTransposeB());
   if (!innerDim || *innerDim <= kLargeInnerDimThreshold) {
     return;
   }

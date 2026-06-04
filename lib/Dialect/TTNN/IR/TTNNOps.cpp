@@ -2313,8 +2313,8 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 MatmulAdjustedShapes
 getMatmulAdjustedInputShapes(::mlir::RankedTensorType inputA,
-                             ::mlir::RankedTensorType inputB,
-                             bool transposeA, bool transposeB) {
+                             ::mlir::RankedTensorType inputB, bool transposeA,
+                             bool transposeB) {
   llvm::SmallVector<int64_t> inputAShape(inputA.getShape());
   llvm::SmallVector<int64_t> inputBShape(inputB.getShape());
 
@@ -2379,9 +2379,8 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  MatmulAdjustedShapes adjustedShapes =
-      getMatmulAdjustedInputShapes(inputAType, inputBType, getTransposeA(),
-                                   getTransposeB());
+  MatmulAdjustedShapes adjustedShapes = getMatmulAdjustedInputShapes(
+      inputAType, inputBType, getTransposeA(), getTransposeB());
   llvm::SmallVector<int64_t> inputAShape = std::move(adjustedShapes.inputA);
   llvm::SmallVector<int64_t> inputBShape = std::move(adjustedShapes.inputB);
 
@@ -2520,9 +2519,8 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  MatmulAdjustedShapes adjustedShapes =
-      getMatmulAdjustedInputShapes(inputAType, inputBType, getTransposeA(),
-                                   getTransposeB());
+  MatmulAdjustedShapes adjustedShapes = getMatmulAdjustedInputShapes(
+      inputAType, inputBType, getTransposeA(), getTransposeB());
   llvm::SmallVector<int64_t> inputAShape = std::move(adjustedShapes.inputA);
   llvm::SmallVector<int64_t> inputBShape = std::move(adjustedShapes.inputB);
 
