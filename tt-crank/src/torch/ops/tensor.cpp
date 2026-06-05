@@ -22,9 +22,13 @@
 #include <tt/runtime/runtime.h>
 #include <tt/runtime/types.h>
 
+#include <mlir/IR/BuiltinTypes.h>
+
 #include "cast.hpp"
 #include "torch/backend.hpp"
+#include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
+#include "torch/ttir_module_builder.hpp"
 
 namespace tt::kurbla::torch_backend {
 
@@ -229,6 +233,23 @@ at::Scalar local_scalar_dense(const at::Tensor &self) {
     }
 }
 
+at::Tensor tt_embedding(const at::Tensor &weight_in, const at::Tensor &indices_in, int64_t /*padding_idx*/,
+                        bool /*scale_grad_by_freq*/, bool /*sparse*/) {
+    TORCH_CHECK(is_tt(weight_in) || is_tt(indices_in),
+                "tt-kurbla aten::embedding: at least one of weight/indices must be on tt backend");
+    auto device = is_tt(weight_in) ? weight_in.device() : indices_in.device();
+    const auto weight = to_tt(weight_in, device);
+    const auto indices = to_tt(indices_in, device);
+    // ModuleBuilder sees (weight, indices); TTIR EmbeddingOp expects (indices, weight).
+    auto mb = ModuleBuilder::init({spec_for(weight), spec_for(indices)});
+    auto result = build_embedding(mb, /*indices=*/mb.args()[1], /*weight=*/mb.args()[0]);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {weight, indices});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, weight.scalar_type());
+}
+
 } // namespace
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
@@ -245,6 +266,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
            [](const at::Tensor &self, at::IntArrayRef size, at::IntArrayRef /*stride*/) { return view(self, size); });
     m.impl("as_strided", TORCH_FN(as_strided));
     m.impl("_local_scalar_dense", TORCH_FN(local_scalar_dense));
+    m.impl("embedding", TORCH_FN(tt_embedding));
 }
 
 } // namespace tt::kurbla::torch_backend

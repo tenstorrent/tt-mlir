@@ -1,8 +1,11 @@
 #pragma once
 
+#include <array>
 #include <optional>
 #include <tuple>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include <ATen/core/Tensor.h>
 #include <c10/util/Exception.h>
@@ -59,32 +62,56 @@ at::Tensor to_tt(const at::Tensor &t, at::Device device);
 // device (multi-device op called without explicit placement — bug or future
 // feature). CPU operands are ignored; callers typically pair this with
 // `to_tt` to upload them.
-template <typename... Tensors> at::Device tt_device_of(const Tensors &...tensors) {
-    static_assert((std::is_same_v<std::remove_cvref_t<Tensors>, at::Tensor> && ...),
-                  "tt_device_of: all arguments must be at::Tensor");
+//
+// Range overload: accepts any iterable of at::Tensor (IListRef, vector, ArrayRef, …).
+template <typename Range>
+    requires(!std::is_same_v<std::remove_cvref_t<Range>, at::Tensor>)
+at::Device tt_device_of(const Range &tensors) {
     std::optional<at::Device> device;
-    auto check = [&](const at::Tensor &t) {
+    for (const at::Tensor &t : tensors) {
         if (!is_tt(t)) {
-            return;
+            continue;
         }
         if (!device.has_value()) {
             device = t.device();
-            return;
+            continue;
         }
         TORCH_CHECK(*device == t.device(), "tt-kurbla tt_device_of: tt operands must share a device, got ", *device,
                     " and ", t.device());
-    };
-    (check(tensors), ...);
+    }
     TORCH_CHECK(device.has_value(), "tt-kurbla tt_device_of: no tt-backed operand to take device from");
     return *device;
 }
+//
+// Variadic overload: delegates to the range overload via initializer_list.
+template <typename... Tensors> at::Device tt_device_of(const Tensors &...tensors) {
+    static_assert((std::is_same_v<std::remove_cvref_t<Tensors>, at::Tensor> && ...),
+                  "tt_device_of: all arguments must be at::Tensor");
+    return tt_device_of(std::initializer_list<at::Tensor>{tensors...});
+}
 
 // Pick the shared tt device from the operands, upload any CPU stragglers,
-// and return the migrated tensors as a tuple — `auto [a, b] = align_on_tt(a, b)`.
+// and return the migrated tensors.
+//
+// Range overload: accepts any iterable of at::Tensor; returns std::vector.
+template <typename Range>
+    requires(!std::is_same_v<std::remove_cvref_t<Range>, at::Tensor>)
+std::vector<at::Tensor> align_on_tt(const Range &tensors) {
+    const auto device = tt_device_of(tensors);
+    std::vector<at::Tensor> result;
+    for (const at::Tensor &t : tensors) {
+        result.push_back(to_tt(t, device));
+    }
+    return result;
+}
+//
+// Variadic overload: `auto [a, b] = align_on_tt(a, b)` — finds the device via
+// initializer_list (delegates to the range overload of tt_device_of) and
+// returns a tuple (supports structured bindings).
 template <typename... Tensors> auto align_on_tt(const Tensors &...tensors) {
     static_assert((std::is_same_v<std::remove_cvref_t<Tensors>, at::Tensor> && ...),
                   "align_on_tt: all arguments must be at::Tensor");
-    const auto device = tt_device_of(tensors...);
+    const auto device = tt_device_of(std::initializer_list<at::Tensor>{tensors...});
     return std::make_tuple(to_tt(tensors, device)...);
 }
 

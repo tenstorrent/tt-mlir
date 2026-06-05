@@ -32,13 +32,6 @@ from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_
 _MODES = [ExecutionMode.EAGER, ExecutionMode.COMPILE]
 
 
-def _skip_if_sim(device_type: DeviceType) -> None:
-    """ttsim's TTNN-emitted f32/i32 kernels trip UB; the native promotion
-    paths in this file can't run there."""
-    if device_type is DeviceType.SIM:
-        pytest.skip("dtype-promotion tests need the f32/i32 emitter, unreliable under ttsim")
-
-
 # Tensor-tensor dtype combinations. Covers same-dtype, supported-but-mixed
 # (bf16+f32), wide-narrow same-physical (f32+f64), and integer combos.
 DTYPE_PAIRS: list[tuple[torch.dtype, torch.dtype]] = [
@@ -81,17 +74,16 @@ def _tolerance(a_dtype: torch.dtype, b_dtype: torch.dtype) -> dict[str, float]:
     return {}
 
 
+@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.value)
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize("a_dtype,b_dtype", DTYPE_PAIRS)
 def test_binary_op_dtype(
-    device_type: DeviceType,
     mode: ExecutionMode,
     op_name: str,
     a_dtype: torch.dtype,
     b_dtype: torch.dtype,
 ) -> None:
-    _skip_if_sim(device_type)
     op, xfail_set = BINARY_OPS[op_name]
     if (a_dtype, b_dtype) in xfail_set:
         pytest.xfail(f"{op_name}({a_dtype}, {b_dtype}) not yet supported on tt")
@@ -103,6 +95,7 @@ def test_binary_op_dtype(
 
 # Tensor + Python scalar: result dtype follows the tensor (PyTorch's
 # wrapped-scalar rule), not the scalar's natural Python type.
+@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.value)
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize(
@@ -116,13 +109,11 @@ def test_binary_op_dtype(
     ],
 )
 def test_binary_op_scalar(
-    device_type: DeviceType,
     mode: ExecutionMode,
     op_name: str,
     a_dtype: torch.dtype,
     scalar,
 ) -> None:
-    _skip_if_sim(device_type)
     op, _ = BINARY_OPS[op_name]
     a = _make_tensor(a_dtype)
     assert_close_cpu_vs_tt(lambda x: op(x, scalar), a, mode=mode, **_tolerance(a_dtype, a_dtype))
@@ -131,10 +122,10 @@ def test_binary_op_scalar(
 # Cross-device: one tt operand, one CPU operand. Eager only - torch.compile
 # rejects mixed-device inputs at FakeTensor trace time, so the compile path
 # never sees this case.
+@pytest.mark.usefixtures("skip_if_sim")
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
 @pytest.mark.parametrize("a_dtype,b_dtype", [(torch.float32, torch.float32), (torch.float32, torch.float64)])
-def test_binary_op_mixed_device(device_type: DeviceType, op_name: str, a_dtype: torch.dtype, b_dtype: torch.dtype) -> None:
-    _skip_if_sim(device_type)
+def test_binary_op_mixed_device(op_name: str, a_dtype: torch.dtype, b_dtype: torch.dtype) -> None:
     op, _ = BINARY_OPS[op_name]
     a = _make_tensor(a_dtype)
     b = _make_tensor(b_dtype)

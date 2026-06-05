@@ -22,14 +22,6 @@ from _models import MNISTLinear
 _TILE_SHAPES: list[tuple[int, ...]] = [(32, 32), (64, 128), (32, 64, 32)]
 
 
-def _skip_if_sim(device_type: DeviceType) -> None:
-    """ttsim's TTNN-emitted f32/i32 kernels trip UB; tests that exercise a
-    non-bf16 lowering can't run there. Same helper shape as
-    `op_tests/test_dtype_promotion._skip_if_sim`."""
-    if device_type is DeviceType.SIM:
-        pytest.skip("compile-path dtype promotion needs the f32 emitter, unreliable under ttsim")
-
-
 def _assert_compile_matches_eager(
     model: nn.Module,
     *cpu_inputs: torch.Tensor,
@@ -370,20 +362,20 @@ def test_compile_max_pool2d(n: int, c: int, h: int, w: int, k: int, stride: int,
     _assert_compile_matches_eager(_MaxPool(), x)
 
 
-def test_compile_batch_norm(device_type: DeviceType) -> None:
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_batch_norm() -> None:
     """nn.BatchNorm2d in eval mode compiled end-to-end — exercises
     aten._native_batch_norm_legit_no_training + operator.getitem in one FX graph."""
-    _skip_if_sim(device_type)
     model = nn.BatchNorm2d(32).eval().to(torch.bfloat16)
     x = torch.randn((32, 32, 32, 32), dtype=torch.bfloat16)
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
 
 
-def test_compile_add_dtype_promotion(device_type: DeviceType) -> None:
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_add_dtype_promotion() -> None:
     """bf16 + f32 must promote to f32 - same `at::promote_types` semantics
     the eager kernel applies. Validates that the compile path's MLIR-level
     promotion matches the torch-level promotion."""
-    _skip_if_sim(device_type)
     class _Add(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             return a + b

@@ -93,4 +93,72 @@ mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mlir::Value weigh
                          llvm::ArrayRef<int64_t> stride, llvm::ArrayRef<int64_t> padding,
                          llvm::ArrayRef<int64_t> dilation, int64_t groups);
 
+// Emit TTIR for element-wise cosine.
+mlir::Value build_cos(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for element-wise sine.
+mlir::Value build_sin(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for element-wise negation.
+mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for element-wise SiLU activation.
+mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for element-wise `lhs / rhs`. Inputs must share element type.
+mlir::Value build_div(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise `lhs ^ rhs`. Inputs must share element type.
+mlir::Value build_pow(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for softmax along `dim` (normalized to non-negative). Uses numeric
+// stability mode for PCC-accurate bf16/f32 computations.
+mlir::Value build_softmax(ModuleBuilder &mb, mlir::Value input, int64_t dim);
+
+// Emit TTIR for argmax reduction along `dim`. When `dim` has no value, reduces
+// over all dimensions. `keepdim` retains the reduced dimension as size 1.
+// Returns an i32-element result (PyTorch callers widen to i64 if needed).
+mlir::Value build_argmax(ModuleBuilder &mb, mlir::Value input, std::optional<int64_t> dim, bool keepdim);
+
+// Emit TTIR for tensor unsqueeze: inserts a size-1 dimension at position `dim`.
+// `dim` must be non-negative and already normalized against the output rank.
+mlir::Value build_unsqueeze(ModuleBuilder &mb, mlir::Value input, int64_t dim);
+
+// Emit TTIR for tensor squeeze: removes the size-1 dimension at position `dim`.
+// `dim` must be non-negative, already normalized, and the dimension must be size 1.
+mlir::Value build_squeeze(ModuleBuilder &mb, mlir::Value input, int64_t dim);
+
+// Emit TTIR for N-D transpose: swaps dimensions `dim0` and `dim1`. Both dims
+// must be non-negative and already normalized against the input rank.
+mlir::Value build_transpose(ModuleBuilder &mb, mlir::Value input, int64_t dim0, int64_t dim1);
+
+// Emit TTIR for broadcasting `input` to `target_shape`. Each dimension where
+// input size == 1 is replicated to match `target_shape`. Prepends implicit
+// size-1 dimensions via reshape if `target_shape.size() > input rank`.
+mlir::Value build_broadcast(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> target_shape);
+
+// Emit TTIR for tensor concatenation along `dim`. All values in `inputs` must
+// share element type; other dimensions must agree. `dim` is normalized inside.
+mlir::Value build_cat(ModuleBuilder &mb, llvm::ArrayRef<mlir::Value> inputs, int64_t dim);
+
+// Emit TTIR for static tensor slice. `begins`, `ends`, and `step` must have
+// length == input rank; values are in terms of the pre-slice shape. Negative
+// indices and None must be resolved by the caller before calling.
+mlir::Value build_slice(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> begins,
+                        llvm::ArrayRef<int64_t> ends, llvm::ArrayRef<int64_t> step);
+
+// Emit TTIR arange creation op. Returns a 1D tensor of shape
+// [ceil((end - start) / step)] with element type `dtype`. No tensor inputs —
+// callers must pass an empty inputs list to ModuleBuilder::init.
+mlir::Value build_arange(ModuleBuilder &mb, int64_t start, int64_t end, int64_t step, mlir::Type dtype);
+
+// Emit TTIR for embedding lookup: `indices` (integer tensor) selects rows from
+// `weight` (float tensor). Do NOT call promote_inputs before this builder —
+// the dtype mismatch (int indices, float weight) is intentional.
+mlir::Value build_embedding(ModuleBuilder &mb, mlir::Value indices, mlir::Value weight);
+
+// Emit TTIR for N-D matrix multiplication. Handles batched matmul for rank >= 3
+// inputs. Inputs must share element type — callers must promote first.
+mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
 } // namespace tt::kurbla::torch_backend
