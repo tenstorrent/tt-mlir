@@ -1,7 +1,10 @@
 import pytest
 import torch
+import torch.nn.functional as F
 
 from tt_kurbla.torch.testing import assert_close_cpu_vs_tt
+
+_REDUCTIONS = ["none", "mean", "sum"]
 
 
 # Tile-aligned (multiples of 32) bf16 shapes only for now:
@@ -68,6 +71,50 @@ def test_mean_single_dim(keepdim: bool) -> None:
 def test_mean_multi_dim(keepdim: bool) -> None:
     a = torch.randn((32, 64, 32), dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(lambda x: torch.mean(x, dim=[1, 2], keepdim=keepdim), a, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("keepdim", [True, False])
+@pytest.mark.parametrize("dim", [1, -1, [1, 2], [-1, -2]], ids=["dim1", "dim_neg1", "dim12", "dim_neg12"])
+def test_sum(dim: int | list[int], keepdim: bool) -> None:
+    a = torch.randn((32, 64, 32), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: torch.sum(x, dim=dim, keepdim=keepdim), a, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("reduction", _REDUCTIONS)
+def test_mse_loss(reduction: str) -> None:
+    a = torch.randn((64, 128), dtype=torch.bfloat16)
+    b = torch.randn((64, 128), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x, y: F.mse_loss(x, y, reduction=reduction), a, b, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("reduction", _REDUCTIONS)
+def test_mse_loss_backward(reduction: str) -> None:
+    shape = (64, 128)
+    self_t = torch.randn(shape, dtype=torch.bfloat16)
+    target = torch.randn(shape, dtype=torch.bfloat16)
+    # grad_output mirrors the loss shape: elementwise for 'none', scalar otherwise.
+    grad_output = (
+        torch.randn(shape, dtype=torch.bfloat16) if reduction == "none" else torch.randn((), dtype=torch.bfloat16)
+    )
+
+    def mse_loss_grad(s: torch.Tensor, t: torch.Tensor, go: torch.Tensor) -> torch.Tensor:
+        s = s.detach().requires_grad_(True)
+        F.mse_loss(s, t, reduction=reduction).backward(go)
+        return s.grad
+
+    assert_close_cpu_vs_tt(mse_loss_grad, self_t, target, grad_output, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("threshold", [0.0, 0.5, -0.25], ids=["thr0", "thr0.5", "thr_neg0.25"])
+def test_threshold_backward(threshold: float) -> None:
+    shape = (64, 128)
+    grad_output = torch.randn(shape, dtype=torch.bfloat16)
+    self_t = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(
+        lambda go, s: torch.ops.aten.threshold_backward(go, s, threshold),
+        grad_output,
+        self_t,
+    )
 
 
 @pytest.mark.parametrize(

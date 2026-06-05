@@ -1,9 +1,4 @@
 // Aten kernel registrations for tensor-lifecycle ops on the tt backend.
-//
-// We deliberately do NOT register kernels for `empty.memory_format`, `resize_`,
-// `set_.source_Storage{,_storage_offset}`, or `_reshape_alias`: PyTorch
-// seems to decompose these ops into some other, or we couldn't hit the case where
-// it calls these. So, for now NOT IMPLEMENTED.
 
 #include <cstddef>
 #include <cstdint>
@@ -55,6 +50,18 @@ std::vector<std::byte> read_to_host(const at::Tensor &self, const char *who) {
     std::vector<std::byte> buffer(nbytes);
     ::tt::runtime::memcpy(buffer.data(), host_shards[0], to_runtime_dtype(self.scalar_type()));
     return buffer;
+}
+
+// aten::empty.memory_format — returns a fresh zero-initialized tt tensor; only
+// contiguous layout is supported.
+at::Tensor empty_memory_format(at::IntArrayRef size, std::optional<at::ScalarType> dtype,
+                               std::optional<at::Layout> /*layout*/, std::optional<at::Device> device,
+                               std::optional<bool> /*pin_memory*/, std::optional<at::MemoryFormat> memory_format) {
+    TORCH_CHECK(!device.has_value() || device->type() == c10::DeviceType::PrivateUse1,
+                "tt-kurbla empty.memory_format: device must be tt or unspecified");
+    TORCH_CHECK(!memory_format.has_value() || memory_format.value() == c10::MemoryFormat::Contiguous,
+                "tt-kurbla empty.memory_format: only contiguous memory_format is supported");
+    return make_tt_tensor_from_host(/*data=*/nullptr, size, dtype.value_or(c10::ScalarType::Float));
 }
 
 at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::optional<at::ScalarType> dtype,
@@ -111,14 +118,42 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
     TORCH_CHECK(false, "tt-kurbla _copy_from: unsupported device pair ", self.device(), " → ", dst.device());
 }
 
-// In-place resize used internally by copy_from_and_resize (not registered as
-// an aten kernel — `aten::resize_` is routed through PyTorch's storage
-// allocator path and never reaches us). Same-numel reshape just rebinds
-// sizes; any other case allocates a fresh runtime tensor and swaps it into
-// the existing TensorStorage. Storage-byte accounting is updated via
-// `unsafe_set_nbytes` so PyTorch's own size checks line up with the new
-// runtime allocation — we manage the underlying buffer through tt-runtime,
-// not through torch's StorageImpl::resize_storage_bytes path.
+// aten::fill_.Scalar - fill every element of `self` in place with `value`.
+// Builds the filled buffer on CPU and uploads it through the existing
+// cpu→tt copy path.
+at::Tensor &fill_scalar(at::Tensor &self, const at::Scalar &value) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::fill_.Scalar: tensor must be on tt backend");
+    auto cpu_full = at::full(self.sizes(), value, at::TensorOptions().dtype(self.scalar_type()));
+    copy_from(cpu_full, self, /*non_blocking=*/false);
+    return self;
+}
+
+// Resizes the tensor in-place to a new size - the new size can have different
+// number of elements than the original tensor.
+//
+// TODO: investigate these tensor creation ops in more detail.
+//  One of the scenarios in which `resize_` is called is during training where before
+//  `mse_loss.out`, torch calls `empty.memory_format` + `resize_`. The loss function
+//  then puts the result into the resized tensor.
+//
+//  Over a [64, 128] input this is the sequence of events:
+//   1. empty.memory_format allocates the out tensor at the INPUT numel (8192) -
+//      mse_loss's structured meta derives from TensorIteratorBase and reuses the
+//      element-wise binary-op iterator to size the output to the broadcast shape;
+//   2. resize_ then shrinks that out tensor down to the scalar result ([] / numel
+//      1) because mean/sum reduce to a 0-dim scalar;
+//   3. the .out kernel finally overwrites the scalar via write_result_into.
+//
+//  In resize_ & memory_format we always allocate an owned host tensor, which is
+//  excessive in this case.
+//
+//  Also, when the element count changes resize_ allocates a fresh tensor and does
+//  not copy data from the one being resized (the same-numel case only rebinds the
+//  sizes metadata).
+//
+//  One solution could be to have `memory_format` produce an uninitialized, not allocated,
+//  tensor. And then we materialize it first time we need to access its content. Then `resize_`
+//  could know that it is dealing with an uninitialized tensor and can just modify its metadata.
 const at::Tensor &resize_(const at::Tensor &self, at::IntArrayRef size, std::optional<at::MemoryFormat> memory_format) {
     TORCH_CHECK(is_tt(self), "tt-kurbla resize_: self must be tt (device: ", self.device(), ")");
     TORCH_CHECK(!memory_format.has_value() || memory_format.value() == c10::MemoryFormat::Contiguous,
@@ -254,6 +289,9 @@ at::Tensor tt_embedding(const at::Tensor &weight_in, const at::Tensor &indices_i
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("empty_strided", TORCH_FN(empty_strided));
+    m.impl("empty.memory_format", TORCH_FN(empty_memory_format));
+    m.impl("resize_", TORCH_FN(resize_));
+    m.impl("fill_.Scalar", TORCH_FN(fill_scalar));
     m.impl("_copy_from", TORCH_FN(copy_from));
     m.impl("_copy_from_and_resize", TORCH_FN(copy_from_and_resize));
     m.impl("set_.source_Tensor", TORCH_FN(set_source_Tensor));

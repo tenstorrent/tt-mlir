@@ -1,15 +1,16 @@
 """End-to-end SGD training of the small MNIST linear classifier on tt.
 
-Backward ops without a native kernel fall back to CPU, so eager mode run
-does not yet assert no-fallback. Compile mode is xfail until the backward
-graph lowers. Checked against the same loop run on CPU.
+Eager mode runs under strict_no_fallback: the whole loop must run on device with no CPU fallback.
+Compile mode is xfail until the backward graph lowers. Checked against the same loop run on CPU.
 """
+
+import contextlib
 
 import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_kurbla.torch.testing import ExecutionMode, get_supported_dtypes
+from tt_kurbla.torch.testing import ExecutionMode, get_supported_dtypes, strict_no_fallback
 
 from _models import MNISTLinear
 
@@ -60,7 +61,11 @@ def test_mnist_linear_training(mode: ExecutionMode, dtype: torch.dtype, tt_devic
     if mode is ExecutionMode.COMPILE:
         tt_model = torch.compile(tt_model, backend="tt", dynamic=False)
 
-    tt_losses = _train(tt_model, inputs.to(tt_device), targets.to(tt_device))
+    # Eager must run entirely on device; compile lowers the graph to its own
+    # module, so the eager fallback guard doesn't apply there.
+    guard = strict_no_fallback() if mode is ExecutionMode.EAGER else contextlib.nullcontext()
+    with guard:
+        tt_losses = _train(tt_model, inputs.to(tt_device), targets.to(tt_device))
     cpu_losses = _train(cpu_model, inputs, targets)
 
     assert tt_losses[-1] < tt_losses[0] * 0.5, (
