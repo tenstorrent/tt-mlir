@@ -584,7 +584,7 @@ class D2MBuilder(Builder):
         result_types: Optional[Sequence[Type]] = None,
         unit_attrs: Optional[List[str]] = None,
         loc: Optional[Union[str, Location]] = None,
-    ) -> Union[Value, OpResultList]:
+    ) -> OpResultList:
         """
         Create a d2m.spatial op with one region per grid_ranges entry.
 
@@ -605,7 +605,7 @@ class D2MBuilder(Builder):
             loc: Optional location string.
 
         Returns:
-            The sole OpResult if there is one result, otherwise op.results.
+            op.results (one OpResult per result type).
         """
         num_regions = len(region_builders)
         assert num_regions == len(
@@ -645,9 +645,6 @@ class D2MBuilder(Builder):
                 with InsertionPoint(block):
                     build_region()
 
-            nres = len(spatial_op.results)
-            if nres == 1:
-                return spatial_op.result
             return spatial_op.results
 
     def remote_load(
