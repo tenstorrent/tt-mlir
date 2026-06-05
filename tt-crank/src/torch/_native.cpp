@@ -99,6 +99,27 @@ public:
         return tk::build_mean(*mb_, input, dims, keepdim);
     }
 
+    mlir::Value sum(mlir::Value input, std::vector<std::int64_t> dims, bool keepdim) {
+        assert_builder();
+        return tk::build_sum(*mb_, input, dims, keepdim);
+    }
+
+    mlir::Value threshold_backward(mlir::Value grad_output, mlir::Value self, double threshold) {
+        assert_builder();
+        return tk::build_threshold_backward(*mb_, grad_output, self, threshold);
+    }
+
+    mlir::Value mse_loss(mlir::Value self, mlir::Value target, std::int64_t reduction) {
+        assert_builder();
+        return tk::build_mse_loss(*mb_, self, target, reduction);
+    }
+
+    mlir::Value mse_loss_backward(mlir::Value grad_output, mlir::Value self, mlir::Value target,
+                                  std::int64_t reduction) {
+        assert_builder();
+        return tk::build_mse_loss_backward(*mb_, grad_output, self, target, reduction);
+    }
+
     mlir::Value batch_norm_inference(mlir::Value operand, mlir::Value scale, mlir::Value offset, mlir::Value mean,
                                      mlir::Value variance, float eps) {
         assert_builder();
@@ -261,6 +282,11 @@ NB_MODULE(_native, m) {
         .def("rsqrt", &PyModuleBuilder::rsqrt, "input"_a)
         .def("reshape", &PyModuleBuilder::reshape, "input"_a, "new_shape"_a)
         .def("mean", &PyModuleBuilder::mean, "input"_a, "dims"_a, "keepdim"_a = false)
+        .def("sum", &PyModuleBuilder::sum, "input"_a, "dims"_a, "keepdim"_a = false)
+        .def("threshold_backward", &PyModuleBuilder::threshold_backward, "grad_output"_a, "self"_a, "threshold"_a)
+        .def("mse_loss", &PyModuleBuilder::mse_loss, "self"_a, "target"_a, "reduction"_a)
+        .def("mse_loss_backward", &PyModuleBuilder::mse_loss_backward, "grad_output"_a, "self"_a, "target"_a,
+             "reduction"_a)
         .def("batch_norm_inference", &PyModuleBuilder::batch_norm_inference, "operand"_a, "scale"_a, "offset"_a,
              "mean"_a, "variance"_a, "eps"_a)
         .def("conv2d", &PyModuleBuilder::conv2d, "input"_a, "weight"_a, "bias"_a, "stride"_a, "padding"_a, "dilation"_a,

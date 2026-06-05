@@ -1,7 +1,8 @@
 """End-to-end SGD training of the small MNIST linear classifier on tt.
 
 Eager mode runs under strict_no_fallback: the whole loop must run on device with no CPU fallback.
-Compile mode is xfail until the backward graph lowers. Checked against the same loop run on CPU.
+Compile mode wraps the model with torch.compile(backend="tt") so its forward and
+backward lower to TTIR. Checked against the same loop run on CPU.
 """
 
 import contextlib
@@ -38,17 +39,7 @@ def _train(model: torch.nn.Module, x: torch.Tensor, y: torch.Tensor) -> list[flo
 
 
 @pytest.mark.parametrize("dtype", get_supported_dtypes(), ids=str)
-@pytest.mark.parametrize(
-    "mode",
-    [
-        ExecutionMode.EAGER,
-        pytest.param(
-            ExecutionMode.COMPILE,
-            marks=pytest.mark.xfail(reason="compile backend does not yet lower the backward graph"),
-        ),
-    ],
-    ids=lambda m: m.value,
-)
+@pytest.mark.parametrize("mode", [ExecutionMode.EAGER, ExecutionMode.COMPILE], ids=lambda m: m.value)
 def test_mnist_linear_training(mode: ExecutionMode, dtype: torch.dtype, tt_device: torch.device) -> None:
     inputs = torch.randn(_BATCH, _FEAT, dtype=dtype)
     targets = torch.randn(_BATCH, _CLASSES, dtype=dtype)
@@ -67,6 +58,50 @@ def test_mnist_linear_training(mode: ExecutionMode, dtype: torch.dtype, tt_devic
     with guard:
         tt_losses = _train(tt_model, inputs.to(tt_device), targets.to(tt_device))
     cpu_losses = _train(cpu_model, inputs, targets)
+
+    assert tt_losses[-1] < tt_losses[0] * 0.5, (
+        f"on-device training did not reduce loss: {tt_losses[0]:.4f} -> {tt_losses[-1]:.4f}"
+    )
+    for step_idx, (tt_loss, cpu_loss) in enumerate(zip(tt_losses, cpu_losses)):
+        assert tt_loss == pytest.approx(cpu_loss, abs=0.1), (
+            f"step {step_idx}: tt loss {tt_loss:.4f} diverged from cpu {cpu_loss:.4f}"
+        )
+
+
+def _train_step(step, params, x: torch.Tensor, y: torch.Tensor) -> list[float]:
+    opt = torch.optim.SGD(params, lr=_LR)
+    losses: list[float] = []
+    for _ in range(_NUM_STEPS):
+        opt.zero_grad()
+        loss = step(x, y)
+        losses.append(float(loss.detach().cpu()))
+        loss.backward()
+        opt.step()
+    return losses
+
+
+@pytest.mark.parametrize("dtype", get_supported_dtypes(), ids=str)
+def test_mnist_linear_fwd_loss_compiled(dtype: torch.dtype, tt_device: torch.device) -> None:
+    # Compile model forward + loss as a single function: mse_loss lowers into the
+    # compiled forward, mse_loss_backward into the compiled backward. Optimizer
+    # stays eager. Checked against the same loop run eagerly on CPU.
+    inputs = torch.randn(_BATCH, _FEAT, dtype=dtype)
+    targets = torch.randn(_BATCH, _CLASSES, dtype=dtype)
+
+    cpu_model = MNISTLinear(_FEAT, _HIDDEN, _CLASSES).to(dtype)
+    tt_model = MNISTLinear(_FEAT, _HIDDEN, _CLASSES).to(dtype).to(tt_device)
+    tt_model.load_state_dict(cpu_model.state_dict())
+
+    def cpu_step(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return F.mse_loss(cpu_model(x), y)
+
+    def tt_step(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return F.mse_loss(tt_model(x), y)
+
+    tt_step = torch.compile(tt_step, backend="tt", dynamic=False)
+
+    tt_losses = _train_step(tt_step, tt_model.parameters(), inputs.to(tt_device), targets.to(tt_device))
+    cpu_losses = _train_step(cpu_step, cpu_model.parameters(), inputs, targets)
 
     assert tt_losses[-1] < tt_losses[0] * 0.5, (
         f"on-device training did not reduce loss: {tt_losses[0]:.4f} -> {tt_losses[-1]:.4f}"

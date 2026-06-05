@@ -114,6 +114,34 @@ def _(mb, x, dim, keepdim=False, *, dtype=None):
     return mb.mean(x, list(dim), keepdim)
 
 
+@_lowering(_aten.sum.dim_IntList)
+def _(mb, x, dim, keepdim=False, *, dtype=None):
+    return mb.sum(x, list(dim), keepdim)
+
+
+@_lowering(_aten.detach.default)
+def _(mb, x):
+    # Autograd bookkeeping only — no data movement. The aot joint graph emits
+    # detach around saved-for-backward tensors; lower it to the identity.
+    return x
+
+
+@_lowering(_aten.threshold_backward.default)
+def _(mb, grad_output, self, threshold):
+    # relu's backward in the autograd graph: grad_output * (self > threshold).
+    return mb.threshold_backward(grad_output, self, float(threshold))
+
+
+@_lowering(_aten.mse_loss.default)
+def _(mb, self, target, reduction=1):
+    return mb.mse_loss(self, target, int(reduction))
+
+
+@_lowering(_aten.mse_loss_backward.default)
+def _(mb, grad_output, self, target, reduction):
+    return mb.mse_loss_backward(grad_output, self, target, int(reduction))
+
+
 @_lowering(_aten.mm.default)
 def _(mb, a, b):
     return mb.mm(a, b)
@@ -262,22 +290,32 @@ def _fw_compiler(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor]) -
     if not isinstance(result, (tuple, list)):
         result = (result,)
 
+    # `None` outputs are real graph outputs: aot_autograd's backward graph emits
+    # one gradient slot per forward input and fills `None` where that input
+    # doesn't require grad (e.g. the data/target tensors — the tensor-valued
+    # grads are the model parameters). The compiled program only carries the
+    # tensor-valued outputs; `none_mask` records where to splice the `None`s back
+    # in so the runner returns one value per slot, as autograd expects.
     outputs: list = []
     output_dtypes: list = []
+    none_mask: list[bool] = []
     for v, fx_node in zip(result, fx_outputs):
         if v is None:
-            raise NotImplementedError("tt-kurbla compile: None output not supported")
+            none_mask.append(True)
+            continue
         if isinstance(v, tuple):
             raise NotImplementedError(
                 "tt-kurbla compile: tuple-valued graph output not supported (use getitem first)"
             )
+        none_mask.append(False)
         outputs.append(v)
         output_dtypes.append(_to_runtime_dtype(fx_node.meta["val"].dtype))
 
     program = mb.compile(outputs)
 
-    def runner(*inputs: torch.Tensor) -> list[torch.Tensor]:
-        return _native.run_program(program, list(inputs), output_dtypes)
+    def runner(*inputs: torch.Tensor) -> list:
+        produced = iter(_native.run_program(program, list(inputs), output_dtypes))
+        return [None if is_none else next(produced) for is_none in none_mask]
 
     return runner
 
