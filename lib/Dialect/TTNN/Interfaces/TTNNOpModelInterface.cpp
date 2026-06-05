@@ -3801,6 +3801,10 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 struct RMSNormPreAllGatherOptionalArgs {
   std::optional<llvm::ArrayRef<int64_t>> residualInputShape = std::nullopt;
   std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      std::nullopt;
+  std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig =
+      std::nullopt;
 };
 
 static RMSNormPreAllGatherOptionalArgs
@@ -3814,6 +3818,13 @@ unpackRMSNormPreAllGatherOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
     if (idx < inputs.size()) {
       ret.residualInputLayout = inputs[idx++];
     }
+  }
+
+  if (op.getComputeConfig()) {
+    ret.computeKernelConfig = op.getComputeConfig();
+  }
+  if (op.getProgramConfig()) {
+    ret.programConfig = op.getProgramConfig();
   }
 
   return ret;
@@ -3831,7 +3842,8 @@ llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints, *this,
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      getUse_2dCoreGrid(), opConfig.outputLayout);
+      getUse_2dCoreGrid(), optionalArgs.computeKernelConfig,
+      optionalArgs.programConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3846,7 +3858,8 @@ RMSNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpRuntime, *this, inputShape,
       inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      getUse_2dCoreGrid(), opConfig.outputLayout);
+      getUse_2dCoreGrid(), optionalArgs.computeKernelConfig,
+      optionalArgs.programConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

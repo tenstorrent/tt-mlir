@@ -33,7 +33,8 @@ auto createLayerNormTuple(Tag tag, const ::tt::target::ttnn::LayerNormOpT &opT,
                           const LayerNormResolvedParams &params) {
   return std::make_tuple(
       resolveTensorArg(input, tag), opT.epsilon,
-      weight ? std::make_optional(resolveTensorArg(*weight, tag)) : std::nullopt,
+      weight ? std::make_optional(resolveTensorArg(*weight, tag))
+             : std::nullopt,
       bias ? std::make_optional(resolveTensorArg(*bias, tag)) : std::nullopt,
       /*residual_input_tensor=*/std::nullopt, params.outputMemoryConfig,
       /*program_config=*/std::nullopt,

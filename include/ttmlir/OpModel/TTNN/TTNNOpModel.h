@@ -1614,14 +1614,18 @@ struct OpModel<RMSNormPreAllGatherOp> {
       std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
       std::optional<TTNNLayoutAttr> residualInputLayout,
       std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
       TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
-               std::optional<TTNNLayoutAttr> residualInputLayout,
-               std::optional<ttcore::DataType> dtype,
-               std::optional<bool> use2DCoreGrid, TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout,
+      std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

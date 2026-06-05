@@ -4445,11 +4445,25 @@ TEST_P(OpModelRMSNormPreAllGatherParam, RMSNormPreAllGatherParam) {
         CreateTiledLayout(shape, bufferType, layout, virtualGrid);
   }
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
+  LayerNormShardedMultiCoreProgramConfigAttr programConfig =
+      LayerNormShardedMultiCoreProgramConfigAttr::get(
+          &context, CoreCoordAttr::get(&context, 8, 8),
+          /*subblock_w=*/1u, /*block_h=*/1u, /*block_w=*/4u,
+          /*inplace=*/false);
+
   // Test Constraints
   auto constraintsExp =
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
           inputShape, inputLayout, residualInputShape, residualInputLayout,
-          dtype, use_2d_core_grid, outputLayout);
+          dtype, use_2d_core_grid, deviceConfig, programConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4466,7 +4480,7 @@ TEST_P(OpModelRMSNormPreAllGatherParam, RMSNormPreAllGatherParam) {
   // Test Op Runtime
   auto runtimeExp = op_model::OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
       inputShape, inputLayout, residualInputShape, residualInputLayout, dtype,
-      use_2d_core_grid, outputLayout);
+      use_2d_core_grid, deviceConfig, programConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
