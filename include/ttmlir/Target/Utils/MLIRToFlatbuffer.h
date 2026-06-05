@@ -1430,8 +1430,7 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return fbMathFidelity;
 }
 
-inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttcore::Topology topology) {
+inline ::tt::target::Topology toNative(ttcore::Topology topology) {
   ::tt::target::Topology fbTopology;
   switch (topology) {
   case ttcore::Topology::Ring:
@@ -1450,6 +1449,11 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
     llvm_unreachable("Disabled topology cannot be serialized to flatbuffer");
   }
   return fbTopology;
+}
+
+inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &,
+                                           ttcore::Topology topology) {
+  return toNative(topology);
 }
 
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,

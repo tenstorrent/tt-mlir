@@ -15,6 +15,7 @@ add_library(TTNNOpInvokeLib STATIC
   Eltwise/Unary/EltwiseUnaryOp.cpp
   Matmul/MatmulOp.cpp
   Normalization/BatchNormOp.cpp
+  Normalization/DistributedRMSNormOp.cpp
   Normalization/GroupNormOp.cpp
   Normalization/LayerNormPostAllGatherOp.cpp
   Normalization/LayerNormOp.cpp

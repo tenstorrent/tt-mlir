@@ -7761,6 +7761,8 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+      SingletonDeviceContext::getInstance();
+
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
