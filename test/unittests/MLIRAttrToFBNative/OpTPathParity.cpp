@@ -5087,4 +5087,114 @@ INSTANTIATE_TEST_SUITE_P(LayerNormPreAllGatherOpTPathParityTest,
                          LayerNormPreAllGatherOpTPathParityTest,
                          ::testing::ValuesIn(layerNormPreAllGatherOpList));
 
+//===----------------------------------------------------------------------===//
+// LayerNormOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, LayerNormOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::LayerNormOpT
+buildLayerNormOpTFromMLIR(llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::LayerNormOpT &opTOpModel,
+                       ::tt::target::ttnn::LayerNormOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::LayerNormOpT &opT) {
+    opT.input.reset();
+    opT.weight.reset();
+    opT.bias.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memory_config.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::LayerNormOp buildTestLayerNormOp(bool withWeight = false,
+                                                  bool withBias = false,
+                                                  mlir::FloatAttr epsilon = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value input = makeOnes();
+  mlir::Value weight = withWeight ? makeOnes() : mlir::Value();
+  mlir::Value bias = withBias ? makeOnes() : mlir::Value();
+
+  llvm::APFloat epsilonVal(1e-12f);
+  if (epsilon) {
+    epsilonVal = epsilon.getValue();
+  }
+
+  return e.builder.create<mlir::tt::ttnn::LayerNormOp>(loc, tensorType, input,
+                                                        weight, bias, epsilonVal);
+}
+
+} // namespace
+
+using LayerNormOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::LayerNormOp>;
+
+TEST_P(LayerNormOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::LayerNormOp lnOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::LayerNormOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildLayerNormOpTFromMLIR(lnOp.getEpsilon(),
+                                                          resolveOutputLayout(lnOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, lnOp.getInput());
+  if (lnOp.getWeight()) {
+    prepopulateOperandTensorRefs(cache, lnOp.getWeight());
+  }
+  if (lnOp.getBias()) {
+    prepopulateOperandTensorRefs(cache, lnOp.getBias());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, lnOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::LayerNormOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::LayerNormOp> layerNormOpList = {
+    buildTestLayerNormOp(),
+    buildTestLayerNormOp(/*withWeight=*/true),
+    buildTestLayerNormOp(/*withWeight=*/false, /*withBias=*/true),
+    buildTestLayerNormOp(/*withWeight=*/false, /*withBias=*/false,
+                         /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(
+                             1e-6f)),
+    buildTestLayerNormOp(/*withWeight=*/true, /*withBias=*/true,
+                         /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(
+                             1e-6f)),
+};
+
+INSTANTIATE_TEST_SUITE_P(LayerNormOpTPathParityTest, LayerNormOpTPathParityTest,
+                         ::testing::ValuesIn(layerNormOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

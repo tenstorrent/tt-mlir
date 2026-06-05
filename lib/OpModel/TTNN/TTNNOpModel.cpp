@@ -27,6 +27,7 @@
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/BatchNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/GroupNormOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPostAllGatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPreAllGatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
@@ -7423,6 +7424,16 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::LayerNormOpT
+buildLayerNormOpTFromMLIR(llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::LayerNormOpT opT;
+  opT.epsilon = epsilon.convertToFloat();
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> weightShape,
@@ -7443,15 +7454,19 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  ::tt::target::ttnn::LayerNormOpT opT =
+      buildLayerNormOpTFromMLIR(epsilon, outputLayout);
 
   auto layerNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
-        weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt, /*recip_tensor=*/std::nullopt);
+    ttnn_op_invoke::LayerNormOpResult result = ttnn_op_invoke::callLayerNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+        weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected LayerNormOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), layerNormQuery);
@@ -7480,16 +7495,17 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  ::tt::target::ttnn::LayerNormOpT opT =
+      buildLayerNormOpTFromMLIR(epsilon, outputLayout);
 
-  // Create query closure
   auto layerNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
-        weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt, /*recip_tensor=*/std::nullopt);
+    ttnn_op_invoke::LayerNormOpResult result = ttnn_op_invoke::callLayerNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec, weightSpec,
+        biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+           "Expected LayerNormOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(layerNormQuery);
