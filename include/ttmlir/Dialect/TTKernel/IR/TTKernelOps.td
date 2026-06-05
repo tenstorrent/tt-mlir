@@ -4725,7 +4725,7 @@ def TTKernel_GetDataFormatOp: TTKernel_Op<"get_dataformat"> {
 def TTKernel_Bfloat16GreaterOp : TTKernel_Op<"bfloat16_greater", [Pure]> {
     let summary = "Compare two bfloat16 values using integer arithmetic.";
     let description = [{
-      Returns true if bf16_a > bf16_b.  Operates on the raw int16 bit
+      Returns true if bf16_a > bf16_b.  Operates on raw bits in int16 format
       representation.  Maps to bfloat16_greater() in device code.
     }];
 
@@ -4740,8 +4740,7 @@ def TTKernel_Bfloat16GreaterOp : TTKernel_Op<"bfloat16_greater", [Pure]> {
 def TTKernel_Float32GreaterOp : TTKernel_Op<"float32_greater", [Pure]> {
     let summary = "Compare two float32 values using integer arithmetic.";
     let description = [{
-      Returns true if f32_a > f32_b.  Operates on the raw int32 bit
-      representation.  Maps to float32_greater() in device code.
+      Returns true if f32_a > f32_b.  Operates on raw bits in int32 format.  Maps to float32_greater() in device code.
     }];
 
     let arguments = (ins I32:$f32_a, I32:$f32_b);
