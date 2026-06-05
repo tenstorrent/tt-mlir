@@ -73,6 +73,11 @@ public:
         resolveAndSetWeightDtype(linearOp.getB(), op);
       } else if (auto sparseMatmulOp = mlir::dyn_cast<SparseMatmulOp>(op)) {
         resolveAndSetWeightDtype(sparseMatmulOp.getB(), op);
+      } else if (auto ttLangOp = mlir::dyn_cast<TtLangOp>(op)) {
+        // Streaming selective-experts matmul: in1 (operand 1) = expert weights.
+        if (ttLangOp.getInputs().size() > 1) {
+          resolveAndSetWeightDtype(ttLangOp.getInputs()[1], op);
+        }
       }
     });
   }

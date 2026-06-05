@@ -38,6 +38,9 @@ static constexpr llvm::StringLiteral allToAllCombineTargetName =
 static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
     "tt.moe_expert_token_remap";
 
+static constexpr llvm::StringLiteral ttLangExpertsMatmulTargetName =
+    "tt.tt_lang_op";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -1090,6 +1093,61 @@ getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for the tt_lang_op streaming selective-experts matmul (tt-xla
+// Path A). Only one kernel uses tt.tt_lang_op today, so the rule is specific to
+// its operand layout:
+//   operand 0 in0   [R, 1, K]   K = contraction dim
+//   operand 1 in1   [E, K, N]   E experts (stacked), K contraction, N output
+//   operand 2 index [1, R]      replicated
+//   operand 3 out   [R, 1, N]   tied to result (destination buffer)
+//   result          [R, 1, N]
+// gate_up is column-parallel (N sharded -> output N sharded, no reduction);
+// down is row-parallel (K sharded -> partial sums, all-reduce on the result).
+// One rule covers both: K is kReduction, N is kPassThrough, and Shardy picks the
+// sharded factor from the actual param sharding. Experts (E) stay replicated.
+static mlir::sdy::OpShardingRuleAttr
+getTtLangExpertsMatmulShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 4 || op.getNumResults() != 1) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+  auto in0 = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto in1 = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto out = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!in0 || !in1 || !out || in0.getRank() != 3 || in1.getRank() != 3 ||
+      out.getRank() != 3) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+  // in0 has in0Rows rows: T (gate_up, reused across the token's k experts) or R
+  // (down). out/index/result have R = T*k rows. These differ, so they are
+  // independent (replicated) factors -- neither is on the TP "model" axis.
+  const int64_t in0Rows = in0.getShape()[0];
+  const int64_t rDim = out.getShape()[0];
+  const int64_t eDim = in1.getShape()[0];
+  const int64_t kDim = in1.getShape()[1];
+  const int64_t nDim = in1.getShape()[2];
+  constexpr int64_t kNull = mlir::sdy::kNullDim;
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+  // in0 row dim (T or R): in0 dim0 only.
+  builder.addFactor({0, kNull, kNull, kNull}, {kNull}, in0Rows,
+                    mlir::sdy::FactorType::kPassThrough);
+  // output row dim R: index dim1, out dim0 -> result dim0.
+  builder.addFactor({kNull, kNull, 1, 0}, {0}, rDim,
+                    mlir::sdy::FactorType::kPassThrough);
+  // K (contraction): in0 dim2, in1 dim1 -> contracted. Reduction so a sharded K
+  // (down/row-parallel) triggers an all-reduce on the result.
+  builder.addFactor({2, 1, kNull, kNull}, {kNull}, kDim,
+                    mlir::sdy::FactorType::kReduction);
+  // N (output cols): in1 dim2, out dim2 -> result dim2. Column-parallel gate_up.
+  builder.addFactor({kNull, 2, kNull, 2}, {2}, nDim,
+                    mlir::sdy::FactorType::kPassThrough);
+  // E (experts): in1 dim0 -> not in result. All experts replicated on every
+  // device (streaming selects the global top-k), so block any E sharding.
+  builder.addFactor({kNull, 0, kNull, kNull}, {kNull}, eDim,
+                    mlir::sdy::FactorType::kNeedReplication, /*isBlocked=*/true);
+  return builder.build();
+}
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -1135,6 +1193,7 @@ private:
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
+          {ttLangExpertsMatmulTargetName, getTtLangExpertsMatmulShardingRule},
       };
 };
 

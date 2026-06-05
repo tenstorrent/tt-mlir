@@ -3899,6 +3899,230 @@ static ::mlir::LogicalResult buildKernelArgsFromJson(
   return ::mlir::success();
 }
 
+// Raw (non-DSL) kernel artifact -> GenericOp. For hand-written C++ kernels (b1 DRAM
+// streaming-experts matmul) that need named CT args + per-core RT args (bank_id/vc + the
+// in1 DRAM buffer address) + an explicit DRAM-bank-worker core set -- none expressible
+// via the tt-lang DSL path. Schema: python_package/tt_torch/stream_experts_kernel.py
+// ::build_stream_experts_artifact. Reuses the same flatbuffer builders as
+// createProgramDescriptor (the native ttnn.generic path).
+static ::flatbuffers::Offset<::tt::target::ttnn::ProgramDescriptor>
+createProgramDescriptorFromRawArtifact(FlatbufferObjectCache &cache, TtLangOp op,
+                                       const llvm::json::Object *root,
+                                       llvm::ArrayRef<uint32_t> declToIoIndex) {
+  auto fail = [&](const llvm::Twine &m)
+      -> ::flatbuffers::Offset<::tt::target::ttnn::ProgramDescriptor> {
+    op.emitError("raw_generic kernel_artifact: ") << m;
+    return 0;
+  };
+
+  // core_list -> CoreRangeSet (one 1x1 range per worker core).
+  const llvm::json::Array *coreList = root->getArray("core_list");
+  if (!coreList || coreList->empty()) {
+    return fail("missing/empty `core_list`.");
+  }
+  std::vector<::tt::target::ttnn::CoreRange> coreRangeVec;
+  std::vector<::tt::target::ttnn::CoreCoord> coreCoords;
+  for (const llvm::json::Value &c : *coreList) {
+    const llvm::json::Array *xy = c.getAsArray();
+    if (!xy || xy->size() != 2) {
+      return fail("`core_list` entries must be [x, y].");
+    }
+    auto x = (*xy)[0].getAsInteger();
+    auto y = (*xy)[1].getAsInteger();
+    if (!x || !y) {
+      return fail("`core_list` coords must be integers.");
+    }
+    ::tt::target::ttnn::CoreCoord coord(static_cast<uint32_t>(*x),
+                                        static_cast<uint32_t>(*y));
+    coreCoords.push_back(coord);
+    coreRangeVec.emplace_back(coord, coord);
+  }
+  auto coreRanges =
+      ::tt::target::ttnn::CreateCoreRangeSetDirect(*cache.fbb, &coreRangeVec);
+
+  // [["name", value], ...] -> vector<KernelArg> of KernelArgNamedArgument.
+  auto buildNamedArgs =
+      [&](const llvm::json::Array *arr,
+          std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> &out)
+      -> bool {
+    if (!arr) {
+      return true;
+    }
+    for (const llvm::json::Value &a : *arr) {
+      const llvm::json::Array *nv = a.getAsArray();
+      if (!nv || nv->size() != 2) {
+        return false;
+      }
+      auto name = (*nv)[0].getAsString();
+      auto val = (*nv)[1].getAsInteger();
+      if (!name || !val) {
+        return false;
+      }
+      auto named = ::tt::target::ttnn::CreateKernelArgNamedArgumentDirect(
+                       *cache.fbb, name->str().c_str(),
+                       static_cast<uint32_t>(*val))
+                       .Union();
+      out.push_back(::tt::target::ttnn::CreateKernelArg(
+          *cache.fbb,
+          ::tt::target::ttnn::KernelArgType::KernelArgNamedArgument, named));
+    }
+    return true;
+  };
+
+  std::optional<llvm::StringRef> src = root->getString("kernel_source");
+  if (!src) {
+    return fail("missing `kernel_source`.");
+  }
+  const llvm::json::Array *kernelArr = root->getArray("kernels");
+  if (!kernelArr || kernelArr->empty()) {
+    return fail("missing/empty `kernels`.");
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelDescriptor>>
+      kernels;
+  for (const llvm::json::Value &kv : *kernelArr) {
+    const llvm::json::Object *kobj = kv.getAsObject();
+    if (!kobj) {
+      return fail("`kernels` entry is not an object.");
+    }
+    auto thr = kobj->getString("thread_type");
+    if (!thr) {
+      return fail("kernel missing `thread_type`.");
+    }
+
+    ::tt::target::ttnn::KernelConfig configType =
+        ::tt::target::ttnn::KernelConfig::NONE;
+    ::flatbuffers::Offset<void> config = 0;
+    if (*thr == "trisc") {
+      const llvm::json::Object *cc = kobj->getObject("compute_config");
+      llvm::StringRef mfName =
+          (cc && cc->getString("math_fidelity")) ? *cc->getString("math_fidelity")
+                                                  : llvm::StringRef("LoFi");
+      bool fp32 = cc && cc->getBoolean("fp32_dest_acc_en").value_or(false);
+      bool approx = cc && cc->getBoolean("math_approx_mode").value_or(false);
+      std::vector<::tt::target::UnpackToDestMode> umodes;
+      configType = ::tt::target::ttnn::KernelConfig::ComputeKernelConfig;
+      config = ::tt::target::ttnn::CreateComputeKernelConfigDirect(
+                   *cache.fbb,
+                   parseMathFidelity(mfName).value_or(
+                       ::tt::target::MathFidelity::LoFi),
+                   fp32, /*dst_full_sync_en=*/false, &umodes,
+                   /*bfp8_pack_precise=*/false, approx)
+                   .Union();
+    } else if (*thr == "ncrisc") {
+      configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;
+      config = ::tt::target::ttnn::CreateReaderKernelConfig(*cache.fbb).Union();
+    } else if (*thr == "brisc") {
+      configType = ::tt::target::ttnn::KernelConfig::WriterKernelConfig;
+      config = ::tt::target::ttnn::CreateWriterKernelConfig(*cache.fbb).Union();
+    } else {
+      return fail("unknown thread_type (expected ncrisc/brisc/trisc).");
+    }
+
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> ctArgs;
+    if (!buildNamedArgs(kobj->getArray("ct_args"), ctArgs)) {
+      return fail("bad `ct_args`.");
+    }
+    auto ctArgsOff =
+        ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb, &ctArgs);
+
+    // Per-core RT args (ncrisc: bank_id/vc named scalars + the in1 buffer address).
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>>
+        rtArgs;
+    const llvm::json::Array *pcArr = kobj->getArray("per_core_rt_args");
+    std::optional<int64_t> in1AddrOperand = kobj->getInteger("in1_addr_operand");
+    if (pcArr) {
+      if (pcArr->size() != coreCoords.size()) {
+        return fail("per_core_rt_args size != core_list size.");
+      }
+      for (size_t i = 0; i < pcArr->size(); ++i) {
+        std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> a;
+        if (!buildNamedArgs((*pcArr)[i].getAsArray(), a)) {
+          return fail("bad per_core_rt_args entry.");
+        }
+        if (in1AddrOperand &&
+            static_cast<size_t>(*in1AddrOperand) < declToIoIndex.size()) {
+          auto ba = ::tt::target::ttnn::CreateKernelArgBufferAddressOfTensor(
+                        *cache.fbb,
+                        declToIoIndex[static_cast<size_t>(*in1AddrOperand)])
+                        .Union();
+          a.push_back(::tt::target::ttnn::CreateKernelArg(
+              *cache.fbb,
+              ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor,
+              ba));
+        }
+        ::tt::target::ttnn::CoreCoord cc = coreCoords[i];
+        rtArgs.push_back(::tt::target::ttnn::CreateCoreRuntimeArgs(
+            *cache.fbb, &cc,
+            ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb, &a)));
+      }
+    }
+    // Common RT args: buffer base addresses of the listed operands (in order),
+    // resolved by the runtime to the live io_tensors[i] buffer. Same across all
+    // cores, so the kernel reads them at fixed get_arg_val indices.
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> commonRt;
+    if (const llvm::json::Array *caArr = kobj->getArray("common_addr_operands")) {
+      for (const llvm::json::Value &av : *caArr) {
+        auto opIdx = av.getAsInteger();
+        if (!opIdx || static_cast<size_t>(*opIdx) >= declToIoIndex.size()) {
+          return fail("bad common_addr_operands index.");
+        }
+        auto ba = ::tt::target::ttnn::CreateKernelArgBufferAddressOfTensor(
+                      *cache.fbb, declToIoIndex[static_cast<size_t>(*opIdx)])
+                      .Union();
+        commonRt.push_back(::tt::target::ttnn::CreateKernelArg(
+            *cache.fbb,
+            ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor,
+            ba));
+      }
+    }
+    auto commonRtOff =
+        ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb, &commonRt);
+
+    kernels.push_back(::tt::target::ttnn::CreateKernelDescriptorDirect(
+        *cache.fbb, src->str().c_str(),
+        ::tt::target::ttnn::SourceType::SOURCE_CODE, configType, config,
+        coreRanges, ctArgsOff, &rtArgs, commonRtOff));
+  }
+
+  // CBs: operand-backed (in0/index/out) or working (in1 stream buffer).
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBDescriptor>> cbs;
+  if (const llvm::json::Array *cbArr = root->getArray("cb_descriptors")) {
+    for (const llvm::json::Value &cv : *cbArr) {
+      const llvm::json::Object *cbo = cv.getAsObject();
+      auto cbIdx = cbo ? cbo->getInteger("cb") : std::nullopt;
+      if (!cbIdx) {
+        return fail("cb_descriptors entry missing `cb`.");
+      }
+      std::optional<::tt::target::DataType> dt;
+      parseDataTypeName(cbo->getString("data_format").value_or("BFloat16"), dt);
+      uint32_t pageSize =
+          static_cast<uint32_t>(cbo->getInteger("page_size").value_or(2048));
+      std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBFormat>>
+          fmts;
+      fmts.push_back(::tt::target::ttnn::CreateKernelCBFormat(
+          *cache.fbb, static_cast<uint32_t>(*cbIdx),
+          dt.value_or(::tt::target::DataType::BFloat16), pageSize));
+      ::flatbuffers::Offset<::tt::target::ttnn::KernelGlobalCBIndexOfTensor>
+          buffer = 0;
+      if (auto opIdx = cbo->getInteger("operand_index");
+          opIdx && static_cast<size_t>(*opIdx) < declToIoIndex.size()) {
+        buffer = ::tt::target::ttnn::CreateKernelGlobalCBIndexOfTensor(
+            *cache.fbb, declToIoIndex[static_cast<size_t>(*opIdx)]);
+      }
+      uint32_t totalSize = static_cast<uint32_t>(
+          cbo->getInteger("total_size").value_or(pageSize));
+      cbs.push_back(::tt::target::ttnn::CreateKernelCBDescriptorDirect(
+          *cache.fbb, totalSize, coreRanges, &fmts, buffer));
+    }
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::SemaphoreDescriptor>>
+      sems;
+  return ::tt::target::ttnn::CreateProgramDescriptorDirect(*cache.fbb, &kernels,
+                                                           &sems, &cbs);
+}
+
 // Build a flatbuffer ProgramDescriptor from a tt-lang kernel_artifact
 // (UTF-8 JSON produced by tt-xla's
 // python_package/tt_torch/tt_lang.py::_serialize_compiled_kernel).
@@ -3927,6 +4151,11 @@ createProgramDescriptorFromTtLangArtifact(
   if (!root) {
     op.emitError("kernel_artifact root is not a JSON object.");
     return 0;
+  }
+
+  // Raw (non-DSL) kernels use a different schema -> dedicated builder.
+  if (auto kind = root->getString("kind"); kind && *kind == "raw_generic") {
+    return createProgramDescriptorFromRawArtifact(cache, op, root, declToIoIndex);
   }
 
   // Schema version gate. The emitter inserts

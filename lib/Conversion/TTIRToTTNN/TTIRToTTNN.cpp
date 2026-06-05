@@ -807,13 +807,21 @@ public:
       resultTypes.push_back(converted);
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::TtLangOp>(
+    // Forward the per-op ttcore.weight_dtype discardable attr (set by
+    // TTIRPropagateWeightDtype) so TTNNWeightDtypeConversion can convert the
+    // expert-weight operand to bfp8/bfp4.
+    auto weightDtypeAttr =
+        op->getAttrOfType<mlir::StringAttr>("ttcore.weight_dtype");
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::TtLangOp>(
         op, resultTypes, adaptor.getInputs(),
         /*kernel_id=*/op.getKernelIdAttr(),
         /*version_tag=*/op.getVersionTagAttr(),
         /*arg_roles=*/op.getArgRolesAttr(),
         /*shard_spec=*/op.getShardSpecAttr(),
         /*kernel_artifact=*/mlir::DenseI8ArrayAttr{});
+    if (weightDtypeAttr) {
+      newOp->setAttr("ttcore.weight_dtype", weightDtypeAttr);
+    }
     return success();
   }
 };

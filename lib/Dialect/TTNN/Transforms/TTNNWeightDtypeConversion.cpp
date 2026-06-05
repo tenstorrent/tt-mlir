@@ -146,6 +146,88 @@ private:
   std::optional<ttcore::DataType> targetDtype;
 };
 
+// Weight-dtype conversion for the opaque ttnn.tt_lang_op (the streaming
+// selective-experts matmul). Unlike Matmul/Linear, tt_lang_op has no `getB()`
+// and the ttcore.weight_dtype annotation is never propagated onto it, so we
+// trace operand 1 (in1 = expert weights, per the stream kernel's arg_roles)
+// back to its originating func arg and read the arg's ttcore.weight_dtype
+// directly. If a block format is requested, insert from_device -> host typecast
+// -> to_device and rebind operand 1 so the weights stream as bfp8/bfp4.
+class TtLangWeightDtypeConversionPattern
+    : public mlir::OpRewritePattern<TtLangOp> {
+public:
+  TtLangWeightDtypeConversionPattern(mlir::MLIRContext *ctx,
+                                     std::optional<ttcore::DataType> targetDtype)
+      : mlir::OpRewritePattern<TtLangOp>(ctx), targetDtype(targetDtype) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(TtLangOp op, mlir::PatternRewriter &rewriter) const override {
+    if (op->getNumOperands() < 2) {
+      return mlir::failure();
+    }
+    mlir::Value weight = op->getOperand(1);
+
+    // The per-op ttcore.weight_dtype is set by TTIRPropagateWeightDtype (which
+    // traces in1 back to the func arg through TM/CCL/shard ops) and forwarded
+    // across the TTIR->TTNN conversion. Global dtype is the fallback.
+    std::optional<ttcore::DataType> effectiveDtype = targetDtype;
+    if (auto dtypeAttr =
+            op->getAttrOfType<mlir::StringAttr>("ttcore.weight_dtype")) {
+      auto perOp = ttcore::DataTypeStringToEnum(dtypeAttr.getValue());
+      if (perOp && isLegalWeightDtype(*perOp)) {
+        effectiveDtype = perOp;
+      }
+    }
+    if (!effectiveDtype) {
+      return mlir::failure();
+    }
+    ttcore::DataType dtype = *effectiveDtype;
+
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+    mlir::Type elType = weightType.getElementType();
+    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elType)) {
+      if (tileType.getDataType() == dtype) {
+        return mlir::failure();
+      }
+      if (tileType.getDataType() != ttcore::DataType::BFloat16 &&
+          tileType.getDataType() != ttcore::DataType::Float32) {
+        return mlir::failure();
+      }
+    } else if (!mlir::isa<mlir::BFloat16Type, mlir::Float32Type>(elType)) {
+      return mlir::failure();
+    }
+
+    auto newWeightType =
+        ttnn::utils::RankedTensorTypeFactory::create(weightType, dtype);
+    mlir::Value newWeight;
+    if (dtype == ttcore::DataType::BFP_BFloat4 ||
+        dtype == ttcore::DataType::BFP_BFloat8) {
+      auto hostInputType = ttnn::utils::RankedTensorTypeFactory::create(
+          weightType, ttnn::BufferType::SystemMemory);
+      auto fromDevOp =
+          rewriter.create<FromDeviceOp>(op.getLoc(), hostInputType, weight);
+      auto hostOutputType =
+          ttnn::utils::RankedTensorTypeFactory::create(hostInputType, dtype);
+      auto typecastOp = rewriter.create<TypecastOp>(op.getLoc(), hostOutputType,
+                                                    fromDevOp.getResult());
+      mlir::Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
+      auto toDevOp = rewriter.create<ToDeviceOp>(
+          op.getLoc(), newWeightType, typecastOp.getResult(), device);
+      newWeight = toDevOp.getResult();
+    } else {
+      auto typecastOp =
+          rewriter.create<TypecastOp>(op.getLoc(), newWeightType, weight);
+      newWeight = typecastOp.getResult();
+    }
+
+    rewriter.modifyOpInPlace(op, [&]() { op->setOperand(1, newWeight); });
+    return mlir::success();
+  }
+
+private:
+  std::optional<ttcore::DataType> targetDtype;
+};
+
 // Only block formats (bfp_bf8, bfp_bf4) are supported as global overrides
 // because models already arrive from frontends in bf16 — there is no need for a
 // global bf16 override. Per-tensor overrides (via ttcore.weight_dtype op
@@ -168,8 +250,8 @@ public:
     mlir::RewritePatternSet patterns(&getContext());
     patterns.add<WeightDtypeConversionPattern<MatmulOp>,
                  WeightDtypeConversionPattern<LinearOp>,
-                 WeightDtypeConversionPattern<SparseMatmulOp>>(&getContext(),
-                                                               globalDtype);
+                 WeightDtypeConversionPattern<SparseMatmulOp>,
+                 TtLangWeightDtypeConversionPattern>(&getContext(), globalDtype);
 
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
