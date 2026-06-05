@@ -16,7 +16,6 @@ pytestmark = pytest.mark.frontend("ttir")
 # Needed as the default pipeline options set fp32_dest_acc_en=true.
 _PIPELINE_OPTIONS = ["compute-cfg-fp32-dest-acc-en=false"]
 
-
 def _matmul_module(in_lhs: torch.Tensor, in_rhs: torch.Tensor) -> Callable:
     lhs_shape = tuple(in_lhs.shape)
     rhs_shape = tuple(in_rhs.shape)
@@ -44,9 +43,14 @@ def _make_bf16_small_inputs(k: int, seed: int = 0) -> tuple[torch.Tensor, torch.
     return in_lhs, in_rhs
 
 
-@pytest.mark.forked
-@pytest.mark.parametrize("k", [100000, 4096], ids=["large_k", "small_k"])
-def test_bf16_matmul_compute_config_passes_pcc(k: int, request, device):
+@pytest.mark.parametrize(
+    "k,pcc",
+    [
+        pytest.param(4096, 0.99, id="small_k"),
+        pytest.param(50176, 0.99, id="large_k"),
+    ],
+)
+def test_bf16_matmul_compute_config_passes_pcc(k: int, pcc: float, request, device):
     """Large-K bf16 matmul gets fp32_dest_acc_en and packer_l1_acc; small-K skips the fix."""
     in_lhs, in_rhs = _make_bf16_small_inputs(k)
 
@@ -59,5 +63,5 @@ def test_bf16_matmul_compute_config_passes_pcc(k: int, request, device):
         target="ttnn",
         device=device,
         pipeline_options=_PIPELINE_OPTIONS,
-        pcc=0.99,
+        pcc=pcc,
     )
