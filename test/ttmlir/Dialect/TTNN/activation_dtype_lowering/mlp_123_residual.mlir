@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-activation-dtype-lowering=enable=true %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-ccl-activation-dtype-lowering %s | FileCheck %s
 
 // MLP FF1/FF2/FF3 + residual add: FF1 (up) and FF3 (gate) matmuls ->
 // [view / CCL]* -> silu / multiply. The multiply feeds FF2 (down), and

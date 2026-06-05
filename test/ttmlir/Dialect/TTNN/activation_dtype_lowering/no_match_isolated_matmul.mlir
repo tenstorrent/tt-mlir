@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-activation-dtype-lowering=enable=true %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-ccl-activation-dtype-lowering %s | FileCheck %s
 
 // A matmul whose result does not flow into any CCL op must be left untouched.
 // The strict matchers should under-trigger by design.

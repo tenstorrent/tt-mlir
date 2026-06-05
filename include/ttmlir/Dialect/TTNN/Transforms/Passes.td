@@ -482,7 +482,7 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   ];
 }
 
-def TTNNActivationDtypeLowering: Pass<"ttnn-activation-dtype-lowering", "::mlir::ModuleOp"> {
+def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "::mlir::ModuleOp"> {
   let summary = "Lower activation precision to bfp_bf8 around CCL ops.";
   let description = [{
     This pass is part of the Mixed Precision effort in compiler.
@@ -512,12 +512,6 @@ def TTNNActivationDtypeLowering: Pass<"ttnn-activation-dtype-lowering", "::mlir:
     to add new patterns as we get more multichip models running and fuse patterns
     to more general ones as we get more cases.
   }];
-
-  list<Option> options = [
-    Option<"enable", "enable", "bool",
-           /*default=*/"false",
-           "Enable activation dtype lowering.">,
-  ];
 }
 
 def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {

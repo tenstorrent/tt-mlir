@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-activation-dtype-lowering=enable=true %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-ccl-activation-dtype-lowering %s | FileCheck %s
 
 // Projection + residual add: O-projection matmul ->
 // [view / reduce_scatter / all_gather]* -> residual add. The matmul's

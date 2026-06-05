@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-activation-dtype-lowering=enable=true %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-ccl-activation-dtype-lowering %s | FileCheck %s
 
 // Negative tests for the MLP up/gate matcher's strictness. The matcher only
 // fires when the gate multiply feeds *exactly one* consumer and that consumer
