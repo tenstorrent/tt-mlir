@@ -30,7 +30,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
         Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
         Decomposition/GroupNormDecompositionRewritePattern.cpp
-        Decomposition/RotaryEmbeddingDecompositionRewritePattern.cpp
         Decomposition/SDPADecodeDecompositionPattern.cpp
         Decomposition/SDPADecompositionPattern.cpp
         Decomposition/TopKDecompositionRewritePattern.cpp

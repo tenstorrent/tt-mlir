@@ -501,6 +501,8 @@ def compile_and_execute_shlo(
         dump_memory=dump_memory,
     )
 
+    return os.path.join(artifact_dir, f"{target}_compiled.mlir")
+
 
 def compile_and_execute_ttnn(
     fn: Callable,
