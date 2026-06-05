@@ -624,19 +624,25 @@ def matmul(lhs, rhs):
 
 
 def _int_attr_from_ast(node, compiler=None):
-    if isinstance(node, ast.Constant) and isinstance(node.value, int):
+    if (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, int)
+        and not isinstance(node.value, bool)
+    ):
         value = node.value
     elif (
         isinstance(node, ast.UnaryOp)
         and isinstance(node.op, ast.USub)
         and isinstance(node.operand, ast.Constant)
         and isinstance(node.operand.value, int)
+        and not isinstance(node.operand.value, bool)
     ):
         value = -node.operand.value
     elif (
         compiler is not None
         and isinstance(node, ast.Name)
         and isinstance(compiler.captures.get(node.id), int)
+        and not isinstance(compiler.captures.get(node.id), bool)
     ):
         value = compiler.captures[node.id]
     else:
@@ -1184,8 +1190,6 @@ def _typecast_block(input, dtype):
 
 
 def _dim_to_reduce_dim_attr(dim):
-    if isinstance(dim, Attribute) and not isinstance(dim, IntegerAttr):
-        return dim
     dim = _dim_to_int(dim)
 
     if dim in (0, -2):
@@ -1219,10 +1223,13 @@ def _normalize_reduce_axis(dim, rank):
 
 
 def _float_scalar_type_for_tile(tile_type):
-    ctx = tile_type.context
-    tile_type = ttcore.ir.TileType.maybe_downcast(tile_type)
+    original_tile_type = tile_type
+    ctx = original_tile_type.context
+    tile_type = ttcore.ir.TileType.maybe_downcast(original_tile_type)
     if tile_type is None:
-        raise TypeError(f"expected a ttcore.tile element type, got {tile_type}")
+        raise TypeError(
+            f"expected a ttcore.tile element type, got {original_tile_type}"
+        )
     data_type = tile_type.data_type_as_int
     if data_type == int(ttcore.DataType.Float32):
         return F32Type.get(ctx)

@@ -401,6 +401,15 @@ def test_reduction_layout_rejects_cross_tile_collapse():
         d2m.reduction_layout(layout, 1)
 
 
+def test_reduction_layout_allows_multiple_blocks_on_one_core():
+    layout = _make_layout(shape=(64, 64), block_shape=(1, 1), grid_shape=(1, 1))
+    output_layout = d2m.reduction_layout(layout, 1)
+
+    assert output_layout.logical_shape == [64, 1]
+    assert output_layout.block_shape == [1, 1]
+    assert output_layout.grid_shape == [1, 1]
+
+
 def test_reduce_sum_cols_cross_tile_output_layout():
     input_layout = _make_layout(shape=(64, 64), grid_shape=(2, 2))
     output_layout = d2m.reduction_layout(input_layout, 1, allow_cross_tile=True)
@@ -461,7 +470,7 @@ def test_reduce_max_rows_cross_tile_output_layout():
     assert diff < 0.05, f"cross-tile reduce_max(dim=0): max diff {diff}"
 
 
-@pytest.mark.parametrize("bad_dim", [2, -3])
+@pytest.mark.parametrize("bad_dim", [2, -3, True, False])
 def test_reduce_invalid_dim_rejected(bad_dim):
     @d2m.kernel
     def k_bad_dim(in_t, out_t):
@@ -474,4 +483,7 @@ def test_reduce_invalid_dim_rejected(bad_dim):
         k_bad_dim(d2m.to_layout(tensor, layout), d2m.empty(layout), grid=(1, 1))
 
     msg = str(exc_info.value)
-    assert "reduce dim must be 0/1 or -2/-1" in msg
+    if isinstance(bad_dim, bool):
+        assert "expected integer literal" in msg
+    else:
+        assert "reduce dim must be 0/1 or -2/-1" in msg

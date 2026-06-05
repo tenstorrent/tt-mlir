@@ -44,7 +44,6 @@ from .errors import D2mJitError
 from .tensor_layout import Layout
 from .utils import _cleanup_source_code
 
-
 # Reverse of ttcore.DataType for picking output torch dtypes.
 _TTCORE_TO_TORCH = None  # lazy-init since torch may be missing
 
@@ -597,11 +596,11 @@ def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Lay
         raise ValueError(
             f"reduce dim must be in range [-{rank}, {rank - 1}], got {dim}"
         )
-    if layout.blocked_grid_shape[dim] > 1 and not allow_cross_tile:
+    if layout.grid_shape[dim] > 1 and not allow_cross_tile:
         raise ValueError(
             "collapsed reductions only support a reduced logical dimension "
             "that fits on one core; got "
-            f"{layout.blocked_grid_shape[dim]} cores along dimension {dim}. "
+            f"{layout.grid_shape[dim]} cores along dimension {dim}. "
             "Pass allow_cross_tile=True when the kernel explicitly accumulates "
             "across all cores in the reduced dimension."
         )
