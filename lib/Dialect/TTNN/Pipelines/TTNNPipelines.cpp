@@ -185,13 +185,52 @@ void createTTNNPipelineLoweringPasses(OpPassManager &pm,
   pm.addPass(createTTNNLayout());
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
-  // Resolve composite ops into typed ops (with OpModel) or inline their
-  // decompositions.
-  pm.addPass(createTTNNResolveComposites());
   // Add pass to remove unused values.
   if (removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
+}
+
+// Resolve composite ops into typed ops or inline their decompositions.
+//
+// The pipeline option `compositeResolution` controls the mode directly when
+// set to ForcePromote. Otherwise, when the optimizer is enabled (and OpModel
+// is available), we upgrade the mode to Validate so typed ops are validated
+// before promotion. The default (Inline) always inlines decompositions.
+void createTTNNResolveCompositesPass(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+  CompositeResolution resolution = options.compositeResolution;
+
+  if (resolution == CompositeResolution::ForcePromote) {
+    TTNNResolveCompositesOptions resolveOptions;
+    resolveOptions.compositeResolution = CompositeResolution::ForcePromote;
+    pm.addPass(createTTNNResolveComposites(resolveOptions));
+    return;
+  }
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  if (options.optimizerPassEnabled) {
+    DevicePassesWrapperOptions wrapperOptions;
+    wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+
+    pm.addPass(createDevicePassesWrapper(
+        [](OpPassManager &innerPm) {
+          TTNNResolveCompositesOptions resolveOptions;
+          resolveOptions.compositeResolution = CompositeResolution::Validate;
+          innerPm.addPass(createTTNNResolveComposites(resolveOptions));
+        },
+        wrapperOptions));
+  } else {
+    pm.addPass(createTTNNResolveComposites());
+  }
+#else
+  pm.addPass(createTTNNResolveComposites());
+#endif
+
+  // Canonicalize after inlining decomposition bodies to fold patterns like
+  // slice(concat(x, x)) → x that arise from the inlined composite bodies.
+  pm.addPass(mlir::createCanonicalizerPass());
 }
 
 // Create TTNN fusing pass.
@@ -331,6 +370,7 @@ void createTTIRToTTNNCommonPipeline(
 
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
+    createTTNNResolveCompositesPass(devicePm, options);
     createTTNNFusingPass(devicePm, options);
 
     // Create TTNN decomposition pass, optionally with op-model validation.

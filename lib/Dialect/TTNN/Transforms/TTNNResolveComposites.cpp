@@ -84,6 +84,31 @@ static void registerBuiltinComposites() {
             builder.getI32IntegerAttr(kAttr.getInt()),
             builder.getI32IntegerAttr(numExpertsAttr.getInt()));
       }};
+
+  registry["rotary_embedding"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<RotaryEmbeddingOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2],
+            /*token_index=*/mlir::IntegerAttr(),
+            /*compute_config=*/nullptr);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        return builder.create<RotaryEmbeddingOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2],
+            /*token_index=*/mlir::IntegerAttr(),
+            /*compute_config=*/nullptr);
+      }};
 }
 
 // Inline the decomposition function body at the composite ops location,
@@ -126,13 +151,18 @@ static LogicalResult inlineDecomposition(ttcore::CompositeOp compositeOp,
   return success();
 }
 
-// Validate and create the typed op. Uses IsolatedIRValidationWrapper to
-// check if the typed op is valid (passes workarounds + OpModel constraints)
-// in an isolated module before creating it in the real IR.
-// Returns nullptr if the composite name is not in the registry or validation
-// fails — the caller should fall back to inlining the decomposition.
+// Try to create the typed op for a registered composite.
+//
+// Returns nullptr when the composite should be inlined instead — either because
+// the resolution mode is Inline, the composite is not in the registry, or
+// validation failed (in Validate mode).
 static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
-                                   OpBuilder &builder) {
+                                   OpBuilder &builder,
+                                   CompositeResolution resolution) {
+  if (resolution == CompositeResolution::Inline) {
+    return nullptr;
+  }
+
   auto &registry = getCompositeRegistry();
   auto it = registry.find(compositeOp.getCompositeName());
   if (it == registry.end()) {
@@ -140,9 +170,12 @@ static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
   }
 
   auto &entry = it->second;
-  auto validationResult = entry.validate(compositeOp, builder);
-  if (!validationResult.isSuccess()) {
-    return nullptr;
+
+  if (resolution == CompositeResolution::Validate) {
+    auto validationResult = entry.validate(compositeOp, builder);
+    if (!validationResult.isSuccess()) {
+      return nullptr;
+    }
   }
 
   return entry.build(compositeOp, builder);
@@ -171,7 +204,8 @@ public:
       auto decompFunc = dyn_cast<func::FuncOp>(symbolOp);
 
       OpBuilder builder(compositeOp);
-      Operation *typedOp = tryCreateTypedOp(compositeOp, builder);
+      Operation *typedOp =
+          tryCreateTypedOp(compositeOp, builder, compositeResolution);
 
       if (typedOp) {
         for (auto [result, typedResult] :

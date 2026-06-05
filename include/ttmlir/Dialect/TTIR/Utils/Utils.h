@@ -9,6 +9,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
@@ -460,6 +461,19 @@ inline mlir::Attribute splatToFillValue(mlir::OpBuilder &builder,
     return builder.getF32FloatAttr(fillValue.convertToDouble());
   }
   return nullptr;
+}
+
+// Attribute name used to mark composite decomposition functions.
+// Functions with this attribute contain decomposed op bodies and should not
+// be targeted by fusing patterns (to avoid infinite recursion).
+inline constexpr llvm::StringLiteral kCompositeDecompositionAttr =
+    "tt.composite_decomposition";
+
+// Check if the op is inside a composite decomposition function.
+// We must not fuse inside decomposition bodies to avoid infinite recursion.
+inline bool isInsideCompositeDecomposition(mlir::Operation *op) {
+  auto parentFunc = op->getParentOfType<mlir::func::FuncOp>();
+  return parentFunc && parentFunc->hasAttr(kCompositeDecompositionAttr);
 }
 
 } // namespace mlir::tt::ttir::utils

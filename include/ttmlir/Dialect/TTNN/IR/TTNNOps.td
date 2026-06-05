@@ -1412,6 +1412,8 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {

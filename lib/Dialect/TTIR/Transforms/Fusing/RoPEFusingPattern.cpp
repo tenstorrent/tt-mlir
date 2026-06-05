@@ -4,9 +4,15 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/RoPEFusingPattern.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
+
+#include <atomic>
 
 namespace mlir::tt::ttir::fusing {
 
@@ -206,7 +212,7 @@ identifyXAndEmbedding(MultiplyOp mulOp, Value expectedXSource) {
   return std::nullopt;
 }
 
-// Get a 4D cos/sin input value suitable for the RotaryEmbeddingOp.
+// Get a 4D cos/sin input value suitable for the composite op.
 // Walks back past broadcast but keeps typecast/reshape to ensure 4D.
 Value get4DEmbeddingInput(Value embValue) {
   Value candidate = skipBroadcastOnly(embValue);
@@ -218,6 +224,209 @@ Value get4DEmbeddingInput(Value embValue) {
   return embValue;
 }
 
+// Generate a unique name for the RoPE decomposition function.
+std::string getUniqueDecompName() {
+  static std::atomic<uint64_t> counter{0};
+  return "rotary_embedding_decomp_" + std::to_string(counter.fetch_add(1));
+}
+
+// Build a helper to create ArrayAttr of I32 for slice begins/ends/steps.
+ArrayAttr makeSliceI32ArrayAttr(OpBuilder &builder, ArrayRef<int64_t> values) {
+  SmallVector<Attribute> attrs;
+  attrs.reserve(values.size());
+  for (int64_t v : values) {
+    attrs.push_back(builder.getI32IntegerAttr(static_cast<int32_t>(v)));
+  }
+  return builder.getArrayAttr(attrs);
+}
+
+// Create a private func.func implementing the RoPE decomposition.
+//
+// Mirrors the TTNN RotaryEmbeddingDecompositionRewritePattern:
+//
+// When isSelfConcatCosSin is true (cos/sin are full-dim concat(half, half)):
+//   Complex rotation form (fewer ops, no full-D multiplies):
+//     result = concat(x_lo*cosH - x_hi*sinH, x_hi*cosH + x_lo*sinH)
+//   where cosH/sinH are obtained by slicing cos/sin to [:D/2].
+//   MultiplyOp implicit broadcasting handles shape mismatches.
+//
+// When isSelfConcatCosSin is false (cos/sin are full-dim):
+//   Rotate_half form:
+//     result = x * cos + rotate_half(x) * sin
+//     where rotate_half(x) = concat(neg(x[D/2:]), x[:D/2])
+func::FuncOp buildRoPEDecompositionFunc(OpBuilder &builder, Location loc,
+                                        RankedTensorType inputType,
+                                        RankedTensorType cosType,
+                                        RankedTensorType sinType,
+                                        RankedTensorType resultType,
+                                        bool isSelfConcatCosSin) {
+  auto funcName = getUniqueDecompName();
+  auto funcType =
+      builder.getFunctionType({inputType, cosType, sinType}, {resultType});
+
+  auto funcOp = func::FuncOp::create(loc, funcName, funcType);
+  funcOp.setVisibility(SymbolTable::Visibility::Private);
+  funcOp->setAttr(utils::kCompositeDecompositionAttr,
+                  UnitAttr::get(builder.getContext()));
+
+  Block *block = funcOp.addEntryBlock();
+  OpBuilder fb(builder.getContext());
+  fb.setInsertionPointToStart(block);
+
+  Value input = block->getArgument(0);
+  Value cos = block->getArgument(1);
+  Value sin = block->getArgument(2);
+
+  auto inputShape = inputType.getShape();
+  int64_t rank = inputType.getRank();
+  int64_t lastDim = rank - 1;
+  int64_t headDim = inputShape[lastDim];
+  int64_t halfDim = headDim / 2;
+
+  // Build slice shapes: same as input but with last dim = halfDim.
+  SmallVector<int64_t> halfShape(inputShape);
+  halfShape[lastDim] = halfDim;
+  auto halfType = RankedTensorType::get(halfShape, inputType.getElementType());
+
+  // Build slice attributes.
+  SmallVector<int64_t> loBegins(rank, 0);
+  SmallVector<int64_t> loEnds(inputShape);
+  loEnds[lastDim] = halfDim;
+  SmallVector<int64_t> steps(rank, 1);
+
+  SmallVector<int64_t> hiBegins(rank, 0);
+  hiBegins[lastDim] = halfDim;
+  SmallVector<int64_t> hiEnds(inputShape);
+
+  // x_lo = x[:D/2], x_hi = x[D/2:]
+  auto xLo = fb.create<SliceStaticOp>(
+      loc, halfType, input, makeSliceI32ArrayAttr(fb, loBegins),
+      makeSliceI32ArrayAttr(fb, loEnds), makeSliceI32ArrayAttr(fb, steps));
+  auto xHi = fb.create<SliceStaticOp>(
+      loc, halfType, input, makeSliceI32ArrayAttr(fb, hiBegins),
+      makeSliceI32ArrayAttr(fb, hiEnds), makeSliceI32ArrayAttr(fb, steps));
+
+  if (isSelfConcatCosSin) {
+    // Complex rotation form: cos/sin are full-dim concat(half, half).
+    // Slice to get the half-D values, then use half-D ops only.
+    // MultiplyOp implicit broadcasting handles any remaining shape mismatches.
+    SmallVector<int64_t> cosShape(cosType.getShape());
+    SmallVector<int64_t> cosHalfShape(cosShape);
+    cosHalfShape[lastDim] = cosShape[lastDim] / 2;
+    auto cosHalfType =
+        RankedTensorType::get(cosHalfShape, cosType.getElementType());
+
+    SmallVector<int64_t> cosLoBegins(rank, 0);
+    SmallVector<int64_t> cosLoEnds(cosShape);
+    cosLoEnds[lastDim] = cosShape[lastDim] / 2;
+    SmallVector<int64_t> cosSteps(rank, 1);
+
+    auto cosHalf = fb.create<SliceStaticOp>(
+        loc, cosHalfType, cos, makeSliceI32ArrayAttr(fb, cosLoBegins),
+        makeSliceI32ArrayAttr(fb, cosLoEnds),
+        makeSliceI32ArrayAttr(fb, cosSteps));
+
+    SmallVector<int64_t> sinShape(sinType.getShape());
+    SmallVector<int64_t> sinHalfShape(sinShape);
+    sinHalfShape[lastDim] = sinShape[lastDim] / 2;
+    auto sinHalfType =
+        RankedTensorType::get(sinHalfShape, sinType.getElementType());
+
+    auto sinHalf = fb.create<SliceStaticOp>(
+        loc, sinHalfType, sin, makeSliceI32ArrayAttr(fb, cosLoBegins),
+        makeSliceI32ArrayAttr(fb, cosLoEnds),
+        makeSliceI32ArrayAttr(fb, cosSteps));
+
+    // first = x_lo*cos - x_hi*sin
+    // MultiplyOp supports implicit broadcasting, no explicit broadcast needed.
+    auto loCos = fb.create<MultiplyOp>(loc, halfType, xLo, cosHalf);
+    auto hiSin = fb.create<MultiplyOp>(loc, halfType, xHi, sinHalf);
+    auto first = fb.create<SubtractOp>(loc, halfType, loCos, hiSin);
+
+    // second = x_hi*cos + x_lo*sin
+    auto hiCos = fb.create<MultiplyOp>(loc, halfType, xHi, cosHalf);
+    auto loSin = fb.create<MultiplyOp>(loc, halfType, xLo, sinHalf);
+    auto second = fb.create<AddOp>(loc, halfType, hiCos, loSin);
+
+    // result = concat(first, second)
+    auto result =
+        fb.create<ConcatOp>(loc, resultType, ValueRange{first, second},
+                            fb.getSI32IntegerAttr(lastDim));
+    fb.create<func::ReturnOp>(loc, ValueRange{result.getResult()});
+  } else {
+    // Rotate_half form.
+    auto negHi = fb.create<NegOp>(loc, halfType, xHi);
+    auto rotated = fb.create<ConcatOp>(loc, inputType, ValueRange{negHi, xLo},
+                                       fb.getSI32IntegerAttr(lastDim));
+
+    // MultiplyOp supports implicit broadcasting, no explicit broadcast needed.
+    auto xCos = fb.create<MultiplyOp>(loc, resultType, input, cos);
+    auto rotSin = fb.create<MultiplyOp>(loc, resultType, rotated, sin);
+    auto result = fb.create<AddOp>(loc, resultType, xCos, rotSin);
+    fb.create<func::ReturnOp>(loc, ValueRange{result.getResult()});
+  }
+
+  return funcOp;
+}
+
+// If `value` is concat(x, x, dim=last) — the half-D → full-D cos/sin
+// self-duplication pattern — return the half-D input. Otherwise return nullopt.
+// Mirrors TTNN's matchSelfConcatLastDim.
+std::optional<Value> matchSelfConcatLastDim(Value value) {
+  auto concatOp = dyn_cast_or_null<ConcatOp>(value.getDefiningOp());
+  if (!concatOp || concatOp.getNumOperands() != 2 ||
+      concatOp.getOperand(0) != concatOp.getOperand(1)) {
+    return std::nullopt;
+  }
+  auto resultType = mlir::cast<RankedTensorType>(concatOp.getType());
+  int64_t lastDim = resultType.getRank() - 1;
+  if (concatOp.getDim() != lastDim) {
+    return std::nullopt;
+  }
+  return concatOp.getOperand(0);
+}
+
+// Replace the anchor op with a ttcore.composite "rotary_embedding" that
+// references a decomposition function.
+// Detects self-concat cos/sin at the IR level (same as TTNN decomposition's
+// matchSelfConcatLastDim) to choose the optimal decomposition form.
+//
+// The composite's cos/sin inputs are kept at full-dim (concat(half, half))
+// so that ttnn::RotaryEmbeddingOp promotion (force-promote path) can still
+// match the expected shapes. The decomposition body uses the half-dim
+// operands directly via implicit broadcasting.
+void replaceWithRoPEComposite(Operation *anchorOp,
+                              mlir::PatternRewriter &rewriter, Value xSource,
+                              Value cosInput, Value sinInput,
+                              RankedTensorType resultType) {
+  auto inputType = mlir::cast<RankedTensorType>(xSource.getType());
+  auto cosType = mlir::cast<RankedTensorType>(cosInput.getType());
+  auto sinType = mlir::cast<RankedTensorType>(sinInput.getType());
+
+  // Detect self-concat cos/sin pattern regardless of which fusing pattern
+  // matched (rotate_half or complex rotation can both produce self-concat).
+  bool isSelfConcatCosSin = matchSelfConcatLastDim(cosInput).has_value() &&
+                            matchSelfConcatLastDim(sinInput).has_value();
+
+  // Find the parent module to insert the decomposition function.
+  auto moduleOp = anchorOp->getParentOfType<ModuleOp>();
+
+  // Build the decomposition function and insert it into the module.
+  OpBuilder moduleBuilder(moduleOp.getContext());
+  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
+  auto decompFunc = buildRoPEDecompositionFunc(
+      moduleBuilder, anchorOp->getLoc(), inputType, cosType, sinType,
+      resultType, isSelfConcatCosSin);
+  moduleBuilder.insert(decompFunc);
+
+  // Create the ttcore.composite op.
+  rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+      anchorOp, TypeRange{resultType}, ValueRange{xSource, cosInput, sinInput},
+      rewriter.getStringAttr("rotary_embedding"),
+      FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
+      /*composite_attributes=*/nullptr);
+}
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -226,6 +435,11 @@ Value get4DEmbeddingInput(Value embValue) {
 
 mlir::LogicalResult RoPERotateHalfFusingPattern::matchAndRewrite(
     AddOp srcOp, mlir::PatternRewriter &rewriter) const {
+
+  // Don't fuse inside decomposition function bodies (infinite recursion).
+  if (utils::isInsideCompositeDecomposition(srcOp)) {
+    return failure();
+  }
 
   // Both operands of the add must be multiplies.
   auto mul0 = dyn_cast_or_null<MultiplyOp>(srcOp.getOperand(0).getDefiningOp());
@@ -299,8 +513,8 @@ mlir::LogicalResult RoPERotateHalfFusingPattern::matchAndRewrite(
   Value sinInput = get4DEmbeddingInput(sinEmb);
 
   auto resultType = mlir::cast<RankedTensorType>(srcOp.getType());
-  rewriter.replaceOpWithNewOp<RotaryEmbeddingOp>(srcOp, resultType, xSource,
-                                                 cosInput, sinInput);
+  replaceWithRoPEComposite(srcOp, rewriter, xSource, cosInput, sinInput,
+                           resultType);
   return success();
 }
 
@@ -310,6 +524,11 @@ mlir::LogicalResult RoPERotateHalfFusingPattern::matchAndRewrite(
 
 mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
     ConcatOp srcOp, mlir::PatternRewriter &rewriter) const {
+
+  // Don't fuse inside decomposition function bodies (infinite recursion).
+  if (utils::isInsideCompositeDecomposition(srcOp)) {
+    return failure();
+  }
 
   // Must concat on last dimension with exactly 2 operands.
   auto resultType = mlir::cast<RankedTensorType>(srcOp.getType());
@@ -418,8 +637,10 @@ mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
     return failure();
   }
 
-  // cos/sin are half-dim. Double them to full-dim by concatenating with
-  // themselves.
+  // cos/sin are half-dim. Create concat(half, half) as the composite's
+  // cos/sin inputs so that ttnn::RotaryEmbeddingOp promotion can match
+  // the expected full-dim shapes. The decomposition body will detect the
+  // self-concat and use the half-dim operand directly.
   Value cosHalf = get4DEmbeddingInput(subEmb0);
   Value sinHalf = get4DEmbeddingInput(subEmb1);
 
@@ -445,8 +666,8 @@ mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
       srcOp.getLoc(), sinFullType, ValueRange{sinHalf, sinHalf},
       rewriter.getSI32IntegerAttr(lastDim));
 
-  rewriter.replaceOpWithNewOp<RotaryEmbeddingOp>(srcOp, resultType, xSource,
-                                                 cosFull, sinFull);
+  replaceWithRoPEComposite(srcOp, rewriter, xSource, cosFull, sinFull,
+                           resultType);
   return success();
 }
 

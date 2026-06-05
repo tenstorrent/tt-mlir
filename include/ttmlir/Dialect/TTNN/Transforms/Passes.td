@@ -665,16 +665,41 @@ def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> 
   let summary = "Resolve composite ops into typed ops or inline decompositions.";
   let description = [{
     This pass resolves `ttcore.composite` ops by attempting to replace each one
-    with a dedicated typed TTNN op (e.g. `ttnn.topk_router_gpt`). If the typed
-    op fails verification or OpModel validation, the decomposition function body
-    is inlined as a fallback.
+    with a dedicated typed TTNN op (e.g. `ttnn.rotary_embedding`).
 
-    Typed op promotion requires OpModel validation. If OpModel is not available
-    all composites are unconditionally decomposed into their primitive equivalents.
+    Resolution mode is controlled by the `composite-resolution` option:
+
+    - `inline` (default): All composites are unconditionally inlined (decomposed
+      into primitives). This is the safe default — downstream TTNN fusing
+      patterns can still create typed ops from the inlined primitives.
+
+    - `validate`: The typed op is validated via OpModel before promotion. If
+      validation fails, the decomposition function body is inlined as a
+      fallback. Requires TTMLIR_ENABLE_OPMODEL.
+
+    - `force-promote`: Unconditionally promote registered composites to typed
+      ops without validation. Intended for testing only.
 
     After resolution, decomposition functions that are no longer referenced are
     erased from the module.
   }];
+
+  let options = [
+    Option<"compositeResolution",
+            "composite-resolution",
+            "CompositeResolution",
+            /*default=*/"CompositeResolution::Inline",
+            "How to resolve composites.",
+            [{::llvm::cl::values(
+              clEnumValN(CompositeResolution::Inline, "inline",
+                "Always inline decomposition (default)."),
+              clEnumValN(CompositeResolution::Validate, "validate",
+                "Promote if OpModel validates, else inline "
+                "(requires TTMLIR_ENABLE_OPMODEL)."),
+              clEnumValN(CompositeResolution::ForcePromote, "force-promote",
+                "Unconditionally promote (testing only).")
+            )}]>,
+  ];
 }
 
 def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
