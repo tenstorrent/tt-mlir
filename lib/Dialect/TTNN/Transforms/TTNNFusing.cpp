@@ -255,13 +255,58 @@ public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const override {
+<<<<<<< HEAD
     Value input = matchConcatHeadsInput(reshapeOp);
     if (!input) {
+=======
+    // `reshapeOp` is the head-collapse reshape ([B, H, 1, D] -> [B, H*D]). Walk
+    // back through any dtype typecasts and an optional NaN-safe row-zeroing
+    // `where` to the head reorder. The reorder is [S, B, H, D] -> [B, H, S, D],
+    // expressed either as ttnn.permute([1, 2, 0, 3]) or — for decode (S == 1) —
+    // the shape-only ttnn.reshape it canonicalizes to (a [1,2,0,3] permute that
+    // only relocates the unit seq dim is rewritten to a reshape, see
+    // PermuteOp::getCanonicalizationPatterns).
+    Value beforeCollapse =
+        ttmlir::utils::lookThrough<TypecastOp>(reshapeOp.getInput());
+
+    // Optional NaN-safe scrub: where(cond, replacement, data). The attention
+    // output flows through getThird(); record the op so it can be re-applied
+    // after the concat.
+    WhereOp scrub = beforeCollapse.getDefiningOp<WhereOp>();
+    Value reorderResult =
+        scrub ? ttmlir::utils::lookThrough<TypecastOp>(scrub.getThird())
+              : beforeCollapse;
+
+    // Match the reorder and recover its [S, B, H, D] input.
+    Value input;
+    if (auto permuteOp = reorderResult.getDefiningOp<PermuteOp>()) {
+      if (!llvm::equal(permuteOp.getPermutation(),
+                       ArrayRef<int64_t>(kConcatHeadsDecodePermutation))) {
+        return failure();
+      }
+      input = permuteOp.getInput();
+    } else if (auto reorderReshape = reorderResult.getDefiningOp<ReshapeOp>()) {
+      auto inTy =
+          mlir::dyn_cast<RankedTensorType>(reorderReshape.getInput().getType());
+      auto outTy = mlir::dyn_cast<RankedTensorType>(reorderReshape.getType());
+      if (!inTy || !outTy || inTy.getRank() != 4 || outTy.getRank() != 4) {
+        return failure();
+      }
+      // Equivalent to permute([1, 2, 0, 3]) with S == 1: in [S,B,H,D] maps to
+      // out [B,H,S,D].
+      ArrayRef<int64_t> in = inTy.getShape();
+      ArrayRef<int64_t> out = outTy.getShape();
+      if (in[0] != 1 || out[0] != in[1] || out[1] != in[2] || out[2] != in[0] ||
+          out[3] != in[3]) {
+        return failure();
+      }
+      input = reorderReshape.getInput();
+    } else {
+>>>>>>> 0a58caef50 ([TTNN] Make nlp_concat_heads_decode fusing robust to the decode reorder form)
       return failure();
     }
 
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
-
     auto inputShape = inputType.getShape();
     int64_t seqLen = inputShape[0];
     int64_t batchSize = inputShape[1];
@@ -283,16 +328,74 @@ public:
       return failure();
     }
 
+    // Ops created below are rolled back if op-model validation declines the
+    // fused op (the greedy rewriter does not auto-revert on failure()).
+    SmallVector<Operation *> createdOps;
+    Value opInput = input;
+
+    // Re-apply the NaN-safe scrub on the op's [S, B, H, D] input. The scrub ran
+    // on the reordered [B, H, 1, D] tensor with a [B, H, 1, 1] condition
+    // (broadcast over head_dim) and a splat replacement, so it zeroes whole
+    // (B, H) heads — which commutes with both the reorder and the head concat.
+    // The condition is reshaped to [S, B, H, 1] to match the pre-reorder
+    // layout.
+    if (scrub) {
+      Value cond = scrub.getFirst();
+      Value replacement = scrub.getSecond();
+      auto condType = mlir::dyn_cast<RankedTensorType>(cond.getType());
+      auto replType = mlir::dyn_cast<RankedTensorType>(replacement.getType());
+      if (!condType || !replType || condType.getRank() != 4) {
+        return failure();
+      }
+      // Soundness guard: condition per-(B, H) and broadcast over the seq and
+      // head_dim axes, replacement a splat. Otherwise the commute is invalid.
+      ArrayRef<int64_t> condShape = condType.getShape();
+      if (condShape[0] != batchSize || condShape[1] != numHeads ||
+          condShape[2] != 1 || condShape[3] != 1 ||
+          !llvm::all_of(replType.getShape(),
+                        [](int64_t d) { return d == 1; })) {
+        return failure();
+      }
+      auto reCondType = utils::RankedTensorTypeFactory::create(
+          condType, SmallVector<int64_t>{seqLen, batchSize, numHeads, 1});
+      auto reCondOp = rewriter.create<ReshapeOp>(
+          scrub.getLoc(), reCondType, cond,
+          rewriter.getI32ArrayAttr({static_cast<int32_t>(seqLen),
+                                    static_cast<int32_t>(batchSize),
+                                    static_cast<int32_t>(numHeads), 1}));
+      createdOps.push_back(reCondOp);
+      auto scrubbed = rewriter.create<WhereOp>(
+          scrub.getLoc(), inputType, reCondOp.getResult(), replacement, input);
+      createdOps.push_back(scrubbed);
+      opInput = scrubbed.getResult();
+    }
+
+    // nlp_concat_heads_decode runs in the collapse's element type; insert a
+    // typecast if the (possibly higher-precision) scrub/input dtype differs.
+    auto collapseType = reshapeOp.getType();
+    if (inputType.getElementType() != collapseType.getElementType()) {
+      ttcore::DataType collapseDataType =
+          mlir::cast<TTNNLayoutAttr>(collapseType.getEncoding()).getDataType();
+      auto castType = utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(opInput.getType()), collapseDataType);
+      auto castOp =
+          rewriter.create<TypecastOp>(reshapeOp.getLoc(), castType, opInput);
+      createdOps.push_back(castOp);
+      opInput = castOp.getResult();
+    }
+
     SmallVector<int64_t> concatHeadsOutputShape = {seqLen, 1, batchSize,
                                                    numHeads * headDim};
     auto concatHeadsResultType = utils::RankedTensorTypeFactory::create(
-        inputType, concatHeadsOutputShape);
+        mlir::cast<RankedTensorType>(opInput.getType()),
+        concatHeadsOutputShape);
 
     op_model::ScopedSingletonDeviceGuard deviceGuard(reshapeOp);
 
     auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
-        reshapeOp.getLoc(), concatHeadsResultType, input,
+        reshapeOp.getLoc(), concatHeadsResultType, opInput,
         rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)));
+    createdOps.push_back(nlpConcatHeadsDecodeOp);
 
     // Validate the fused op. The op requires height-sharded L1 input, so
     // try the workaround-sharded version since the workaround pass hasn't
@@ -320,7 +423,9 @@ public:
       rewriter.eraseOp(*workaround);
 
       if (!validationResult.isSuccess()) {
-        rewriter.eraseOp(nlpConcatHeadsDecodeOp);
+        for (Operation *op : llvm::reverse(createdOps)) {
+          rewriter.eraseOp(op);
+        }
         return failure();
       }
     }
@@ -328,8 +433,8 @@ public:
     rewriter.setInsertionPointAfter(nlpConcatHeadsDecodeOp);
 
     auto newReshapeOp = rewriter.create<ReshapeOp>(
-        reshapeOp.getLoc(), reshapeOp.getType(),
-        nlpConcatHeadsDecodeOp.getResult(), reshapeOp.getShapeAttr());
+        reshapeOp.getLoc(), collapseType, nlpConcatHeadsDecodeOp.getResult(),
+        reshapeOp.getShapeAttr());
 
     rewriter.replaceOp(reshapeOp, newReshapeOp.getResult());
     return mlir::success();
