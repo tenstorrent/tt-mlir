@@ -1442,6 +1442,12 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->mapping(), op->reduced()};
     break;
   }
+  case ::tt::target::ttnn::OpType::MoeGptOp: {
+    auto *op = opContext.type_as_MoeGptOp();
+    tensorRefs = {op->token_counts(), op->activation_records(),
+                  op->token_indices(), op->tilize_out(), op->tilize_out_rm()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::TopKOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_TopKOp()->outputs());
@@ -1461,7 +1467,6 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::DeallocateOp:
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
-  case ::tt::target::ttnn::OpType::MoeGptOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp:
   case ::tt::target::ttnn::OpType::BreakpointOp:
   case ::tt::target::ttnn::OpType::PrintOp:
