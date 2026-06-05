@@ -5,10 +5,12 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
 #include <ATen/ATen.h>
+#include <ATen/detail/PrivateUse1HooksInterface.h>
 #include <c10/core/Allocator.h>
 #include <c10/core/Device.h>
 #include <c10/core/Stream.h>
@@ -73,6 +75,26 @@ struct DeviceGuard final : public ::c10::impl::DeviceGuardImplInterface {
 };
 
 C10_REGISTER_GUARD_IMPL(PrivateUse1, DeviceGuard);
+
+// Minimal PrivateUse1HooksInterface for the tt backend.
+// Torch will try to call `hasPrimaryContext()` when any backward() call is
+// encountered and fail if it doesn't exist.
+//
+// So far, we have seen that only `hasPrimaryContext()` is required; but we will also
+// override the `deviceCount()` since the default impl returns 0 - we want to fail loudly,
+// so that we know when this is called.
+//
+// More info: https://docs.pytorch.org/docs/main/accelerator/hooks.html
+struct TTHooks final : public at::PrivateUse1HooksInterface {
+    bool hasPrimaryContext(c10::DeviceIndex) const override { return true; }
+    c10::DeviceIndex deviceCount() const override { TORCH_CHECK(false, "deviceCount() hook not implemented!"); }
+};
+
+// Register the tt PrivateUse1 hooks once, at load time.
+static bool register_hooks_flag [[maybe_unused]] = []() {
+    at::RegisterPrivateUse1HooksInterface(new TTHooks());
+    return true;
+}();
 
 } // namespace
 

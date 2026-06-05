@@ -2,7 +2,7 @@
 
 #include <cstdlib>
 #include <memory>
-#include <thread>
+#include <mutex>
 #include <utility>
 
 #include "assert.hpp"
@@ -30,18 +30,26 @@ namespace tt::kurbla {
 
 namespace {
 
-// Cheap insurance against concurrent MLIRContext use. The context (and the
-// pass-pipeline registry it relies on) is not thread-safe — see compile.hpp's
-// note. Until a real mutex is added around compile, the first caller's thread
-// becomes the only allowed thread; any other thread entering compile throws
-// loudly rather than silently corrupting MLIR's interning tables. Remove this
-// the moment compile is properly serialized.
-void assert_single_threaded_mlir_access() {
-    static const std::thread::id allowed_thread = std::this_thread::get_id();
-    TT_FATAL(std::this_thread::get_id() == allowed_thread,
-             "tt-kurbla compile: MLIRContext accessed from a different thread than the first caller. "
-             "The context is not yet thread-safe; serialize calls or add a mutex around compile.");
-}
+// Serializes compile across threads and rejects same-thread re-entry. The
+// process-wide MLIRContext is not thread-safe. The mutex is non-recursive, so
+// re-entry would deadlock; the per-thread `active_` flag is checked before
+// locking to report it instead.
+class MLIRCompileGuard {
+public:
+    MLIRCompileGuard() {
+        TT_FATAL(!m_active, "compile must not be re-entered on the same thread");
+        m_lock = std::unique_lock<std::mutex>(m_mutex);
+        m_active = true;
+    }
+    ~MLIRCompileGuard() { m_active = false; }
+    MLIRCompileGuard(const MLIRCompileGuard &) = delete;
+    MLIRCompileGuard &operator=(const MLIRCompileGuard &) = delete;
+
+private:
+    inline static std::mutex m_mutex;
+    inline static thread_local bool m_active = false;
+    std::unique_lock<std::mutex> m_lock;
+};
 
 // Process-wide MLIR state. Constructed once on first compile() call.
 // registerAllPasses() writes into LLVM's global registry, so we keep this
@@ -60,7 +68,6 @@ struct EngineState {
 };
 
 EngineState &engine_state() {
-    assert_single_threaded_mlir_access();
     static EngineState state;
     return state;
 }
@@ -122,10 +129,7 @@ CompilerCache cache; // NOLINT
 // place; on success it contains TTNN ops.
 CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileOptions &options,
                                           const std::string &diag_buffer) {
-    // Catches the ModuleOp-overload path of compile_ttir_to_ttnn_flatbuffer:
-    // engine_state() isn't called there (the module brings its own context),
-    // so the thread check would otherwise be skipped on that path.
-    assert_single_threaded_mlir_access();
+    MLIRCompileGuard guard;
 
     // Hash before any IR mutations so the key reflects the original TTIR.
     std::string key = hash_module(module_op);
