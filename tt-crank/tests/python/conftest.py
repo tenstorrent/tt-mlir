@@ -44,7 +44,6 @@ def fixed_seed() -> None:
 def tt_device() -> torch.device:
     return torch.device("tt:0")
 
-
 @pytest.fixture(scope="session")
 def device_type() -> DeviceType:
     """``DeviceType.SIM`` when the runtime is routed through ttsim,
@@ -53,6 +52,13 @@ def device_type() -> DeviceType:
     fixture and inspect it.
     """
     return DeviceType.SIM if os.environ.get("TT_KURBLA_USE_SIMULATOR") == "1" else DeviceType.REAL
+
+@pytest.fixture()
+def skip_if_sim(device_type: DeviceType) -> None:
+    """ttsim's TTNN-emitted f32/i32 kernels trip UB; tests that exercise a
+    non-bf16 lowering can't run there."""
+    if device_type is DeviceType.SIM:
+        pytest.skip("Tests needs the f32 emitter, unreliable under ttsim")
 
 
 @pytest.fixture(autouse=True)
