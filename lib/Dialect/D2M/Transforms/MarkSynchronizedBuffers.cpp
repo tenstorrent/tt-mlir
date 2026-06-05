@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/DenseMap.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MMARKSYNCHRONIZEDBUFFERS
@@ -46,6 +47,17 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
+    llvm::DenseMap<Operation *, bool> containsAccumulatingComputeCache;
+
+    auto cachedContainsAccumulatingCompute = [&](Operation *op) {
+      auto it = containsAccumulatingComputeCache.find(op);
+      if (it != containsAccumulatingComputeCache.end()) {
+        return it->second;
+      }
+      bool result = containsAccumulatingCompute(op);
+      containsAccumulatingComputeCache[op] = result;
+      return result;
+    };
 
     moduleOp->walk([&](d2m::GenericOp genericOp) {
       auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
@@ -54,7 +66,7 @@ public:
                 mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
           int32_t bufferCount = numStreamBuffers;
           for (Operation *producer : usageInfo.producers) {
-            if (containsAccumulatingCompute(producer)) {
+            if (cachedContainsAccumulatingCompute(producer)) {
               bufferCount = 1;
               break;
             }
