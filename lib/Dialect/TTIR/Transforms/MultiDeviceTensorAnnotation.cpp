@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -135,7 +136,7 @@ public:
           [&](mlir::Operation *op) {
             // This pass only annotates TTIR ops. Skip ops from other dialects
             // (e.g. D2M) defensively.
-            if (op->getDialect()->getNamespace() != "ttir") {
+            if (!isa<TTIRDialect>(op->getDialect())) {
               return mlir::WalkResult::advance();
             }
             if (mlir::isa<mlir::func::ReturnOp>(op)) {
