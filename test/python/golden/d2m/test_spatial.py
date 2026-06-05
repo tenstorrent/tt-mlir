@@ -418,9 +418,7 @@ def _build_all_gather_region(
             iterator_types=[],
             fabric_connection_config=fabric_connection_config,
         )
-        def ag_1x8(input, output):
-            _load_sem = load_sem
-            _store_sem = store_sem
+        def ag_1x8(input, output, load_sem, store_sem):
             mesh_row = d2m.mesh_position(dim=0)
             c1 = arith.constant(IndexType.get(ctx), 1)
             c0 = arith.constant(IndexType.get(ctx), 0)
@@ -429,7 +427,7 @@ def _build_all_gather_region(
             core0 = d2m.core_index(0)
             core1 = d2m.core_index(1)
             d2m.device_synchronize(
-                _load_sem, [mesh_row, c0], [c1, c8], 7, [core0, core1]
+                load_sem, [mesh_row, c0], [c1, c8], 7, [core0, core1]
             )
             core0_1 = d2m.core_index(0)
             loaded = builder.remote_load(input, [core0_1, c0])
@@ -444,9 +442,9 @@ def _build_all_gather_region(
                 device_mcast_shape=[c1, c8],
                 semaphore_indices=[core0_1, c0],
                 local_buffer=loaded,
-                semaphore=_store_sem,
+                semaphore=store_sem,
             )
-            d2m.semaphore_wait(_store_sem, c_wait)
+            d2m.semaphore_wait(store_sem, c_wait)
             d2m.yield_([stored])
 
         d2m.spatial_yield(
