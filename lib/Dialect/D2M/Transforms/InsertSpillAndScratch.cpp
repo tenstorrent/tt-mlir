@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
@@ -25,8 +26,6 @@ namespace mlir::tt::d2m {
 #include <algorithm>
 
 namespace {
-
-constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
 
 /// Information about one scratch_space_loop "region of compute".
 /// Records enough structural information to:
@@ -190,7 +189,7 @@ collectScratchSpaceLoops(GenericOp genericOp) {
 /// Inputs/outputs of the generic already have externally visible storage and
 /// should never be replaced by scratch slots.
 static bool isIntermediateAlloc(memref::AllocOp allocOp, GenericOp genericOp) {
-  if (allocOp->hasAttr(kReductionScalerAttr)) {
+  if (utils::isReductionScalerBuffer(allocOp.getOperation())) {
     return false;
   }
 

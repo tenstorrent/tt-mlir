@@ -587,8 +587,8 @@ def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Lay
     """Return the output layout for a collapsed per-tile reduction.
 
     The DSL's collapsed float reductions can reduce across all tiles contained
-    in one per-core block. Reductions spanning multiple blocks in the reduced
-    dimension still require explicit cross-block accumulation.
+    on one core. Reductions spanning multiple cores in the reduced dimension
+    still require explicit cross-core accumulation.
     """
     rank = len(layout.logical_shape)
     if dim < 0:
@@ -600,10 +600,10 @@ def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Lay
     if layout.blocked_grid_shape[dim] > 1 and not allow_cross_tile:
         raise ValueError(
             "collapsed reductions only support a reduced logical dimension "
-            "that fits in one per-core block; got "
-            f"{layout.blocked_grid_shape[dim]} blocks along dimension {dim}. "
+            "that fits on one core; got "
+            f"{layout.blocked_grid_shape[dim]} cores along dimension {dim}. "
             "Pass allow_cross_tile=True when the kernel explicitly accumulates "
-            "across all blocks in the reduced dimension."
+            "across all cores in the reduced dimension."
         )
 
     shape = list(layout.logical_shape)

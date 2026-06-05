@@ -1229,7 +1229,7 @@ def _float_scalar_type_for_tile(tile_type):
     if data_type == int(ttcore.DataType.BFloat16):
         return BF16Type.get(ctx)
     raise TypeError(
-        "float reductions require f32 or bf16 tile element types; " f"got {tile_type}"
+        f"float reductions require f32 or bf16 tile element types; got {tile_type}"
     )
 
 

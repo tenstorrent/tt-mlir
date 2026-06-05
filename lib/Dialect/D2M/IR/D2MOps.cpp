@@ -39,8 +39,6 @@
 
 namespace mlir::tt::d2m {
 
-constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
-
 // Extract grid/shard extents from a shaped type without requiring an SSA value.
 static std::pair<SmallVector<int64_t>, SmallVector<int64_t>>
 getGridAndShardFromShapedType(ShapedType shapedType) {
@@ -221,8 +219,9 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   if (auto fwd = getVirtualGridForwardMappingAttr()) {
     allocOp->setAttr(d2m::utils::kVirtualGridForwardMappingAttr, fwd);
   }
-  if (auto reductionScaler = getOperation()->getAttr(kReductionScalerAttr)) {
-    allocOp->setAttr(kReductionScalerAttr, reductionScaler);
+  if (auto reductionScaler =
+          getOperation()->getAttr(utils::kReductionScalerAttr)) {
+    allocOp->setAttr(utils::kReductionScalerAttr, reductionScaler);
   }
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,

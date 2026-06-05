@@ -397,7 +397,7 @@ def test_reduce_mean_cols_collapsed_multi_tile_single_core():
 
 def test_reduction_layout_rejects_cross_tile_collapse():
     layout = _make_layout(shape=(64, 64), grid_shape=(2, 2))
-    with pytest.raises(ValueError, match="fits in one per-core block"):
+    with pytest.raises(ValueError, match="fits on one core"):
         d2m.reduction_layout(layout, 1)
 
 

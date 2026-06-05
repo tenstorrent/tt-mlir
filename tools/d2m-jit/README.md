@@ -134,7 +134,7 @@ on single tile scalars, so elementwise ops in the DSL are wrapped in
 Matmul follows the same pattern but with parallel/parallel/reduction iterators
 over (M, N, K) and `d2m.tile_matmul` in the body (`_matmul_block`).
 Float reductions use `d2m.tile_reduce_*` with an automatically generated
-unit-scaler tensor input (`_reduce_block`).
+device-local scaler generic (`_reduce_block`).
 
 ### Views
 

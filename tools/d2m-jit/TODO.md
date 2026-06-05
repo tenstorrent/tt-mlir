@@ -85,14 +85,6 @@ These ops live in `D2MGenericRegionOps.td` but are not yet exposed in
 so we add ops when we have something to test against rather than
 speculatively.
 
-### 🟡 Bespoke-signature ops (need design)
-
-| op | why it's interesting | what's blocking |
-| --- | --- | --- |
-| `tile_clamp_scalar(x, min, max)` | clamp with attribute (not operand) bounds | needs `FloatAttr` / `IntegerAttr` threading through `_eltwise_block`, plus a wrapper that picks the attr type from the tile's underlying dtype |
-| `tile_typecast(x)` | in-kernel dtype conversion (host-side already covered by `tilize(dtype=...)`) | needs an `_eltwise_block` variant that takes a target element type different from the input |
-| `tile_transpose(x)` | per-tile (32×32) element transpose -- distinct from logical `permute` / `view` | naming question — collides with `permute` / `view` semantics if called `transpose` |
-
 ### 🟡 Reduction follow-ups
 
 - Integer reductions via `tile_sfpu_reduce_sum` / `tile_sfpu_reduce_max`.
@@ -149,19 +141,38 @@ debugging kernel bodies; would need a thin wrapper that emits
 
 ## Documentation / DX
 
-### 🟢 More lit-side IR-shape FileCheck tests
+### 🟢 Lit-side IR-shape FileCheck tests
 
-`test/d2m-jit/lit/` now has no-device coverage for captures, error formatting,
-broadcast lowering, and reduction IR shape. More FileCheck tests would still be
-useful for views, layout conversion, multi-output kernels, and representative
-elementwise chains so the emitted IR contract is locked down without going to
-silicon.
+`test/d2m-jit/lit/` now has coverage for captures, error paths,
+pattern rewrites, and broadcast lowering. Worth expanding that into
+lit + FileCheck tests that dump pre-pipeline IR (the builder already
+supports `print_ir_before_pipeline`) and check the shape of more DSL
+primitives — this locks down the IR contract without going to silicon.
+
+Sketch:
+
+```python
+# RUN: %python %s | FileCheck %s
+# REQUIRES: d2m-jit
+import d2m_jit as d2m
+import torch
+d2m.config.print_ir_before_pipeline = True
+t = torch.zeros(64, 64)
+L = d2m.Layout(shape=(64,64), dtype=d2m.float32, block_shape=[1,1], grid_shape=[2,2])
+try:
+    d2m.to_layout(t, L).to_host()
+except Exception:
+    pass  # don't actually run on device
+# CHECK: d2m.to_layout
+# CHECK: d2m.view_layout
+# CHECK: return
+```
 
 ### 🟢 More worked examples
 
-The README's "At a glance" has eltwise add and the reductions section now has
-collapsed-output snippets. Multi-output and views-into-kernel examples would
-still help newcomers.
+The README's "At a glance" has eltwise add. Multi-output, reductions,
+and views-into-kernel examples would help newcomers. Defer until the
+reduction / multi-output paths exist.
 
 ### 🟢 `_eltwise_block` as a public helper
 
@@ -174,5 +185,15 @@ and document it.
 
 ## Internal cleanup
 
-No active cleanup-only items. Keep this section for small hygiene tasks that
-do not fit the pipeline/API sections above.
+### 🟢 `_BUILDER._instance` lifecycle
+
+The builder is a class-level singleton. Test files reset it manually
+(`_b._Builder.reset()`) in a few places to avoid contamination across
+test functions. The `conftest.py::_set_seed` fixture could also reset
+the builder per-test for hygiene.
+
+### 🟢 Stale `_fill_block_value` reference
+
+The `_matmul_block` TODO mentions a host-scope fill prototype that no
+longer exists in the code. Update the comment when the gap above is
+resolved, or rephrase to be implementation-agnostic.

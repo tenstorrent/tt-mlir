@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -18,8 +19,6 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-
-constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
 
 static bool containsAccumulatingCompute(Operation *op) {
   if (isa<d2m::TileMatmulOp, d2m::TileMatmulBlockOp, d2m::TileReduceSumOp,
@@ -66,7 +65,8 @@ public:
       for (auto &[cb, usageInfo] : cbUsageInfo) {
         if (auto allocOp =
                 mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
-          bool forceHoistedCB = allocOp->hasAttr(kReductionScalerAttr);
+          bool forceHoistedCB =
+              utils::isReductionScalerBuffer(allocOp.getOperation());
           int32_t bufferCount = numStreamBuffers;
           if (forceHoistedCB) {
             bufferCount = 1;

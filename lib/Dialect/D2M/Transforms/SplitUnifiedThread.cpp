@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -23,8 +24,6 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-
-constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,7 +52,7 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
         if (definingOp && definingOp->getAttr("d2m.scratch_buffer")) {
           return nullptr;
         }
-        if (definingOp && definingOp->hasAttr(kReductionScalerAttr)) {
+        if (utils::isReductionScalerBuffer(definingOp)) {
           return nullptr;
         }
         return value;
