@@ -16,6 +16,7 @@ pytestmark = pytest.mark.frontend("ttir")
 # Needed as the default pipeline options set fp32_dest_acc_en=true.
 _PIPELINE_OPTIONS = ["compute-cfg-fp32-dest-acc-en=false"]
 
+
 def _matmul_module(in_lhs: torch.Tensor, in_rhs: torch.Tensor) -> Callable:
     lhs_shape = tuple(in_lhs.shape)
     rhs_shape = tuple(in_rhs.shape)
