@@ -30,6 +30,7 @@
 #include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPostAllGatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPreAllGatherOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormPreAllGatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsDecodeOp.h"
@@ -7251,6 +7252,24 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
 // RMSNormOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RMSNormOpT
+buildRMSNormOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RMSNormOpT opT;
+  opT.epsilon = epsilon.convertToFloat();
+  opT.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> weightShape,
@@ -7272,20 +7291,19 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  // This information is not available in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  ::tt::target::ttnn::RMSNormOpT opT =
+      buildRMSNormOpTFromMLIR(epsilon, computeKernelConfig, outputLayout);
 
-  std::optional<::ttnn::DeviceComputeKernelConfig>
-      computeKernelConfigConverted =
-          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
-
-  // Create query closure
   auto rmsNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
-        weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt, computeKernelConfigConverted);
+    ttnn_op_invoke::RMSNormOpResult result = ttnn_op_invoke::callRMSNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec,
+        weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected RMSNormOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), rmsNormQuery);
@@ -7315,20 +7333,17 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  // This information is not available in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  ::tt::target::ttnn::RMSNormOpT opT =
+      buildRMSNormOpTFromMLIR(epsilon, computeKernelConfig, outputLayout);
 
-  std::optional<::ttnn::DeviceComputeKernelConfig>
-      computeKernelConfigConverted =
-          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
-
-  // Create query closure
   auto rmsNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
-        weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt, computeKernelConfigConverted);
+    ttnn_op_invoke::RMSNormOpResult result = ttnn_op_invoke::callRMSNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec, weightSpec,
+        biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+           "Expected RMSNormOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(rmsNormQuery);

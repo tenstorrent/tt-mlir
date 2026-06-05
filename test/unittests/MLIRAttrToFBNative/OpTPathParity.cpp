@@ -5319,4 +5319,122 @@ INSTANTIATE_TEST_SUITE_P(RMSNormPreAllGatherOpTPathParityTest,
                          RMSNormPreAllGatherOpTPathParityTest,
                          ::testing::ValuesIn(rmsNormPreAllGatherOpList));
 
+//===----------------------------------------------------------------------===//
+// RMSNormOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, RMSNormOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RMSNormOpT buildRMSNormOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RMSNormOpT &opTOpModel,
+                       ::tt::target::ttnn::RMSNormOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::RMSNormOpT &opT) {
+    opT.input.reset();
+    opT.weight.reset();
+    opT.bias.reset();
+    resetOutputTensorRefT(opT.out);
+    opT.memory_config.reset();
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::RMSNormOp buildTestRMSNormOp(
+    bool withWeight = false, bool withBias = false,
+    mlir::FloatAttr epsilon = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value input = makeOnes();
+  mlir::Value weight = withWeight ? makeOnes() : mlir::Value();
+  mlir::Value bias = withBias ? makeOnes() : mlir::Value();
+
+  llvm::APFloat epsilonVal(1e-12f);
+  if (epsilon) {
+    epsilonVal = epsilon.getValue();
+  }
+
+  return e.builder.create<mlir::tt::ttnn::RMSNormOp>(
+      loc, tensorType, input, weight, bias, epsilonVal, computeConfig);
+}
+
+} // namespace
+
+using RMSNormOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RMSNormOp>;
+
+TEST_P(RMSNormOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RMSNormOp rmsOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RMSNormOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildRMSNormOpTFromMLIR(
+          rmsOp.getEpsilon(), rmsOp.getComputeConfig(),
+          resolveOutputLayout(rmsOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, rmsOp.getInput());
+  if (rmsOp.getWeight()) {
+    prepopulateOperandTensorRefs(cache, rmsOp.getWeight());
+  }
+  if (rmsOp.getBias()) {
+    prepopulateOperandTensorRefs(cache, rmsOp.getBias());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, rmsOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RMSNormOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RMSNormOp> rmsNormOpList = {
+    buildTestRMSNormOp(),
+    buildTestRMSNormOp(/*withWeight=*/true),
+    buildTestRMSNormOp(/*withWeight=*/false, /*withBias=*/true),
+    buildTestRMSNormOp(
+        /*withWeight=*/false, /*withBias=*/false,
+        /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-6f)),
+    buildTestRMSNormOp(
+        /*withWeight=*/false, /*withBias=*/false, /*epsilon=*/{},
+        /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+    buildTestRMSNormOp(
+        /*withWeight=*/true, /*withBias=*/true,
+        /*epsilon=*/mlir::Builder(getContext()).getF32FloatAttr(1e-6f),
+        /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RMSNormOpTPathParityTest, RMSNormOpTPathParityTest,
+                         ::testing::ValuesIn(rmsNormOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
