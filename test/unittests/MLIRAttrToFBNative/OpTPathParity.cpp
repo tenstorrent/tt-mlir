@@ -5437,4 +5437,103 @@ const std::initializer_list<mlir::tt::ttnn::RMSNormOp> rmsNormOpList = {
 INSTANTIATE_TEST_SUITE_P(RMSNormOpTPathParityTest, RMSNormOpTPathParityTest,
                          ::testing::ValuesIn(rmsNormOpList));
 
+//===----------------------------------------------------------------------===//
+// SoftmaxOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
+createSoftmaxOp(::mlir::tt::FlatbufferObjectCache &cache, SoftmaxOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::SoftmaxOpT buildSoftmaxOpTFromMLIR(
+    int32_t dimension, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::SoftmaxOpT &opTOpModel,
+                       ::tt::target::ttnn::SoftmaxOpT &opTFB) {
+  auto helper = [](::tt::target::ttnn::SoftmaxOpT &opT) {
+    opT.in.reset();
+    resetOutputTensorRefT(opT.out);
+  };
+
+  helper(opTOpModel);
+  helper(opTFB);
+}
+
+mlir::tt::ttnn::SoftmaxOp buildTestSoftmaxOp(
+    int32_t dimension = -1, bool numericStable = false,
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::SoftmaxOp>(
+      loc, tensorType, input, dimension, numericStable, computeConfig);
+}
+
+} // namespace
+
+using SoftmaxOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::SoftmaxOp>;
+
+TEST_P(SoftmaxOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::SoftmaxOp smOp = GetParam();
+
+  std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr> computeConfig =
+      smOp.getComputeConfigAttr()
+          ? std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>(
+                smOp.getComputeConfigAttr())
+          : std::nullopt;
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::SoftmaxOpT opTOpModel =
+      mlir::tt::ttnn::op_model::buildSoftmaxOpTFromMLIR(
+          smOp.getDimension(), smOp.getNumericStable(), computeConfig,
+          resolveOutputLayout(smOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, smOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createSoftmaxOp(cache, smOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::SoftmaxOpT opTFB;
+  r->UnPackTo(&opTFB);
+
+  resetUnusedFields(opTOpModel, opTFB);
+
+  EXPECT_EQ(opTOpModel, opTFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::SoftmaxOp> softmaxOpList = {
+    buildTestSoftmaxOp(),
+    buildTestSoftmaxOp(/*dimension=*/-2),
+    buildTestSoftmaxOp(/*dimension=*/-1, /*numericStable=*/true),
+    buildTestSoftmaxOp(
+        /*dimension=*/-1, /*numericStable=*/false,
+        /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+    buildTestSoftmaxOp(
+        /*dimension=*/-2, /*numericStable=*/true,
+        /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(SoftmaxOpTPathParityTest, SoftmaxOpTPathParityTest,
+                         ::testing::ValuesIn(softmaxOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

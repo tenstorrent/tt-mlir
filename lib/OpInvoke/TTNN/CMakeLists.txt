@@ -21,6 +21,7 @@ add_library(TTNNOpInvokeLib STATIC
   Normalization/LayerNormPreAllGatherOp.cpp
   Normalization/RMSNormOp.cpp
   Normalization/RMSNormPreAllGatherOp.cpp
+  Normalization/SoftmaxOp.cpp
   Transformer/ConcatenateHeadsOp.cpp
   Transformer/NLPConcatHeadsDecodeOp.cpp
   Transformer/NLPConcatHeadsOp.cpp

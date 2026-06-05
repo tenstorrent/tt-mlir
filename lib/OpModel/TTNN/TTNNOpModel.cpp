@@ -32,6 +32,7 @@
 #include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPreAllGatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormPreAllGatherOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/SoftmaxOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsOp.h"
@@ -2184,9 +2185,30 @@ template struct NamedFullOpModel<OnesOp>;
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::SoftmaxOpT buildSoftmaxOpTFromMLIR(
+    int32_t dimension, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::SoftmaxOpT opT;
+  opT.dimension = dimension;
+  opT.numeric_stable = numericStable;
+  opT.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  opT.out = detail::getOutputTensorRefT(outputLayout);
+  return opT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
+    const int dimArg, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2195,12 +2217,18 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::SoftmaxOpT opT = buildSoftmaxOpTFromMLIR(
+      dimArg, numericStable, computeKernelConfig, outputLayout);
+
   auto softmaxOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::softmax, device, inputSpec, dimArg,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                std::nullopt, // compute_kernel_config,
-                                numericStable);
+    ttnn_op_invoke::SoftmaxOpResult result = ttnn_op_invoke::callSoftmax(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opT, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected SoftmaxOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), softmaxOpQuery);
@@ -2211,7 +2239,9 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
 
 llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
+    const int dimArg, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2220,12 +2250,17 @@ llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::SoftmaxOpT opT = buildSoftmaxOpTFromMLIR(
+      dimArg, numericStable, computeKernelConfig, outputLayout);
+
   auto softmaxOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::softmax, device, inputSpec, dimArg,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            std::nullopt, // compute_kernel_config,
-                            numericStable);
+    ttnn_op_invoke::SoftmaxOpResult result = ttnn_op_invoke::callSoftmax(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected SoftmaxOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(softmaxOpQuery);
@@ -7253,8 +7288,7 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-::tt::target::ttnn::RMSNormOpT
-buildRMSNormOpTFromMLIR(
+::tt::target::ttnn::RMSNormOpT buildRMSNormOpTFromMLIR(
     llvm::APFloat epsilon,
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
     TTNNLayoutAttr outputLayout) {
@@ -7341,8 +7375,9 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
         ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opT, inputSpec, weightSpec,
         biasSpec, device);
 
-    assert(std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
-           "Expected RMSNormOp runtime query to return RuntimeQueryResponse");
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RMSNormOp runtime query to return RuntimeQueryResponse");
     return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 

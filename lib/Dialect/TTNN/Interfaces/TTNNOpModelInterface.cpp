@@ -1511,7 +1511,8 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<SoftmaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDimension(), getNumericStable(), opConfig.outputLayout);
+      inputs[0], getDimension(), getNumericStable(), getComputeConfig(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1523,7 +1524,8 @@ SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<SoftmaxOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDimension(), getNumericStable(), opConfig.outputLayout);
+      getDimension(), getNumericStable(), getComputeConfig(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

@@ -509,16 +509,17 @@ struct OpModel<RequantizeOp> {
 
 template <>
 struct OpModel<SoftmaxOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, const int dimArg,
-                   bool numericStable, TTNNLayoutAttr outputLayout);
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      const int dimArg, bool numericStable,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             const int dimArg,
-                                             bool numericStable,
-                                             TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               const int dimArg, bool numericStable,
+               std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

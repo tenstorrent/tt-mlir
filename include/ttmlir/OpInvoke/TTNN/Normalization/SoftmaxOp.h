@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_OP_INVOKE_RMS_NORM_OP_H
-#define TTNN_OP_INVOKE_RMS_NORM_OP_H
+#ifndef TTNN_OP_INVOKE_SOFTMAX_OP_H
+#define TTNN_OP_INVOKE_SOFTMAX_OP_H
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
@@ -12,31 +12,29 @@
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
-#include "ttnn/operations/normalization/rmsnorm/rmsnorm.hpp"
+#include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/types.hpp"
 
 #include <optional>
 
 namespace ttnn_op_invoke {
 
-using RMSNormOpResult =
+using SoftmaxOpResult =
     std::variant<::ttnn::graph::ConstraintQueryResponse,
                  ::ttnn::graph::RuntimeQueryResponse, ::ttnn::Tensor>;
 
-struct RMSNormResolvedParams {
+struct SoftmaxResolvedParams {
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
 };
 
-RMSNormResolvedParams
-resolveRMSNormParams(const ::tt::target::ttnn::RMSNormOpT &opT);
+SoftmaxResolvedParams
+resolveSoftmaxParams(const ::tt::target::ttnn::SoftmaxOpT &opT);
 
-RMSNormOpResult callRMSNorm(CallType callType,
-                            const ::tt::target::ttnn::RMSNormOpT &opT,
-                            TensorArg input, std::optional<TensorArg> weight,
-                            std::optional<TensorArg> bias,
-                            ::ttnn::MeshDevice *device);
+SoftmaxOpResult callSoftmax(CallType callType,
+                             const ::tt::target::ttnn::SoftmaxOpT &opT,
+                             TensorArg input, ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke
 
-#endif // TTNN_OP_INVOKE_RMS_NORM_OP_H
+#endif // TTNN_OP_INVOKE_SOFTMAX_OP_H
