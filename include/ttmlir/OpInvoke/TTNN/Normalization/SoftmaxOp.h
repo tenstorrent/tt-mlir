@@ -32,8 +32,8 @@ SoftmaxResolvedParams
 resolveSoftmaxParams(const ::tt::target::ttnn::SoftmaxOpT &opT);
 
 SoftmaxOpResult callSoftmax(CallType callType,
-                             const ::tt::target::ttnn::SoftmaxOpT &opT,
-                             TensorArg input, ::ttnn::MeshDevice *device);
+                            const ::tt::target::ttnn::SoftmaxOpT &opT,
+                            TensorArg input, ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke
 
