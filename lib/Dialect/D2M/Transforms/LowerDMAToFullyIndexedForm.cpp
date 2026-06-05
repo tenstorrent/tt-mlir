@@ -189,6 +189,20 @@ static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
 }
 
 namespace {
+class AffineApplyCreatedListener : public RewriterBase::Listener {
+public:
+  bool wasAffineApplyCreated() const { return affineApplyCreated; }
+
+  void notifyOperationInserted(Operation *op, OpBuilder::InsertPoint) override {
+    if (isa<affine::AffineApplyOp>(op)) {
+      affineApplyCreated = true;
+    }
+  }
+
+private:
+  bool affineApplyCreated = false;
+};
+
 class D2MLowerDMAReadToFullyIndexed : public OpRewritePattern<DMAReadOp> {
 public:
   D2MLowerDMAReadToFullyIndexed(MLIRContext *context,
@@ -495,7 +509,12 @@ public:
                                                     debugCoalescingInference);
     dmaPatterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
                                                      debugCoalescingInference);
-    walkAndApplyPatterns(getOperation(), std::move(dmaPatterns));
+    AffineApplyCreatedListener listener;
+    walkAndApplyPatterns(getOperation(), std::move(dmaPatterns), &listener);
+
+    if (!listener.wasAffineApplyCreated()) {
+      return;
+    }
 
     RewritePatternSet affineToStdPatterns(&getContext());
     populateAffineToStdConversionPatterns(affineToStdPatterns);
