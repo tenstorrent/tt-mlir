@@ -145,10 +145,42 @@ struct AggregatedMetrics {
 // Forward declarations for free helpers used by PerfTargets methods below.
 // Their definitions live right after PerfTargets.
 uint64_t getNumMatmulTiles(RankedTensorType lhs, RankedTensorType output);
-inline bool isValidWeightForTargetCalculation(mlir::Value v);
+inline bool isValidWeightForTargetCalculation(mlir::Value v,
+                                              bool allowVolumeChange = false);
 bool constEvalDoesNotChangeTensorVolume(ttcore::LoadCachedOp loadCachedOp);
 
+// Per-op handler return value. Each op-type-specific builder
+// (matmulTargets / sdpaPrefillTargets / conv2dTargets / etc.) packages
+// everything the shared kernel needs to validate, byte-account, and derate
+// a single op:
+//   - weights: tensor values that should be DRAM-resident (validated via
+//     isValidWeightForTargetCalculation); their scalar/byte sums feed the
+//     dram_us term.
+//   - tileMuls: 32x32x32 tile-multiply count for this op's compute term.
+//   - allowVolumeChange: relax the load_cached volume-preservation check.
+//     Set true for conv weights (they pass through prepare_conv*_weights,
+//     which tile-pads the kernel and legitimately grows the tensor).
+//   - utilization: per-family wall-clock derate applied to this op's
+//     max(dram, compute) contribution. Matmul family ≈ 0.7, conv family
+//     ≈ 0.4 (conv kernels lose more to halo/im2col/dispatch).
+struct OpTargets {
+  SmallVector<Value, 2> weights;
+  uint64_t tileMuls = 0;
+  bool allowVolumeChange = false;
+  double utilization = 0.0;
+};
+
 struct PerfTargets {
+  // Per-family utilization derates applied to each op's
+  // max(dram_us, compute_us) contribution. Matmul kernels routinely sustain
+  // 83-90% of peak DRAM on n150; 0.7 is the conservative end. Conv kernels
+  // pay halo/im2col/sharded-data-movement on top of the GEMM tile-muls plus
+  // significant per-op dispatch; empirically they attain ~40% of the
+  // weight-only roofline (close-bracket of ResNet/VovNet/EfficientNet
+  // reconciliations).
+  static constexpr double kMatmulFamilyUtilization = 0.7;
+  static constexpr double kConvFamilyUtilization = 0.4;
+
   ttcore::Arch arch = ttcore::Arch::WormholeB0;
   unsigned numChips = 0;
   uint64_t dramBandwidthBytesPerSec = 0;
@@ -185,9 +217,15 @@ struct PerfTargets {
 
   // rooflineMs is the pure theoretical ceiling — sum of per-op
   // max(dram_us, compute_us) at peak hardware, in milliseconds.
-  // topPerfEstimateMs = rooflineMs / kUtilizationFactor is the
-  // realistic single-step wall-clock estimate.
+  // topPerfEstimateMs is the realistic single-step estimate: sum of per-op
+  // (max(dram_us, compute_us) / utilization), where utilization is set
+  // per-family in each op handler.
+  // The per-family rooflines below sum to rooflineMs and expose how much
+  // of the ceiling comes from each family. Useful for diagnosing whether
+  // a model's wall-clock is matmul- or conv-dominated.
   double rooflineMs = 0.0;
+  double rooflineMsMatmulFamily = 0.0;
+  double rooflineMsConvFamily = 0.0;
   double topPerfEstimateMs = 0.0;
 
   double getUsToReadWeightsFromDRAM(uint64_t weightBytes) {
@@ -247,26 +285,29 @@ struct PerfTargets {
   // logic lives in one place.
   void accountOp(func::FuncOp funcOp) {
     funcOp->walk([&](Operation *op) {
-      SmallVector<Value, 2> weights;
-      uint64_t tileMuls = 0;
+      OpTargets ot;
 
       bool matched =
           llvm::TypeSwitch<Operation *, bool>(op)
               .Case<MatmulOp, LinearOp>([&](auto m) {
-                weights = {m.getB()};
-                tileMuls = matmulTileMuls(m.getA(), m.getResult());
+                ot = matmulTargets(m.getA(), m.getB(), m.getResult());
                 return true;
               })
               .Case<ScaledDotProductAttentionDecodeOp,
                     PagedScaledDotProductAttentionDecodeOp>([&](auto m) {
-                weights = {m.getKey(), m.getValue()};
-                // SDPA decode: M=1 → compute negligible; DRAM-only.
-                tileMuls = 0;
+                ot = sdpaDecodeTargets(m.getKey(), m.getValue());
                 return true;
               })
               .Case<ScaledDotProductAttentionOp>([&](auto m) {
-                weights = {m.getKey(), m.getValue()};
-                tileMuls = sdpaPrefillTileMuls(m.getQuery(), m.getKey());
+                ot = sdpaPrefillTargets(m.getQuery(), m.getKey(), m.getValue());
+                return true;
+              })
+              .Case<Conv2dOp>([&](Conv2dOp m) {
+                ot = conv2dTargets(m);
+                return true;
+              })
+              .Case<ConvTranspose2dOp>([&](ConvTranspose2dOp m) {
+                ot = convTranspose2dTargets(m);
                 return true;
               })
               .Default([](Operation *) { return false; });
@@ -275,8 +316,8 @@ struct PerfTargets {
         return;
       }
 
-      for (Value w : weights) {
-        if (!isValidWeightForTargetCalculation(w)) {
+      for (Value w : ot.weights) {
+        if (!isValidWeightForTargetCalculation(w, ot.allowVolumeChange)) {
           skippedOps++;
           llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
                        << " — input is not DRAM-resident (producer: "
@@ -291,7 +332,7 @@ struct PerfTargets {
       // 2. Sum weight scalars + BFP8 bytes across all weights.
       uint64_t weightScalars = 0;
       uint64_t weightBytes = 0;
-      for (Value w : weights) {
+      for (Value w : ot.weights) {
         auto t = mlir::cast<RankedTensorType>(w.getType());
         weightScalars += static_cast<uint64_t>(t.getNumElements());
         weightBytes += bytesAtBfp8(t);
@@ -301,16 +342,23 @@ struct PerfTargets {
 
       // 3+4. DRAM us and compute us.
       double dramUs = getUsToReadWeightsFromDRAM(weightBytes);
-      uint64_t computeCycles = getNumCycles(tileMuls, defaultMathFidelity);
+      uint64_t computeCycles = getNumCycles(ot.tileMuls, defaultMathFidelity);
       double computeUs =
           (numTensixCores == 0 || aiclkHz == 0)
               ? 0.0
               : static_cast<double>(computeCycles) * 1.0e6 /
                     static_cast<double>(numTensixCores * aiclkHz);
 
-      // 5. Take max, accumulate, classify.
+      // 5. Take max, accumulate (with per-family derate), classify.
       double opUs = std::max(dramUs, computeUs);
-      rooflineMs += opUs / 1000.0;
+      double opMs = opUs / 1000.0;
+      rooflineMs += opMs;
+      if (ot.utilization == kConvFamilyUtilization) {
+        rooflineMsConvFamily += opMs;
+      } else {
+        rooflineMsMatmulFamily += opMs;
+      }
+      topPerfEstimateMs += opMs / ot.utilization;
       bool dramBound = dramUs >= computeUs;
       if (dramBound) {
         dramBoundOps++;
@@ -338,53 +386,241 @@ struct PerfTargets {
                    "  dram_us       = {8}\n"
                    "  compute_us    = {9}\n"
                    "  op_us         = {10} ({11}-bound)\n"
-                   "  running: roofline_ms={12} dram_bound_ops={13} "
-                   "compute_bound_ops={14} skipped_ops={15}",
+                   "  utilization   = {12}\n"
+                   "  running: roofline_ms={13} top_perf_estimate_ms={14} "
+                   "dram_bound_ops={15} compute_bound_ops={16} "
+                   "skipped_ops={17}",
                    op->getName().getStringRef(),
                    typeRangeToString(op->getOperandTypes()),
                    typeRangeToString(op->getResultTypes()),
-                   valueTypesToString(weights), weightScalars, weightBytes,
-                   tileMuls, computeCycles, dramUs, computeUs, opUs,
-                   (dramBound ? "DRAM" : "compute"), rooflineMs, dramBoundOps,
-                   computeBoundOps, skippedOps);
+                   valueTypesToString(ot.weights), weightScalars, weightBytes,
+                   ot.tileMuls, computeCycles, dramUs, computeUs, opUs,
+                   (dramBound ? "DRAM" : "compute"), ot.utilization, rooflineMs,
+                   topPerfEstimateMs, dramBoundOps, computeBoundOps,
+                   skippedOps);
     });
   }
 
 private:
-  // === Per-op-type extractors ===
+  // === Per-op-type target builders ===
+  //
+  // Each builder returns an OpTargets with weights, tile-muls,
+  // allowVolumeChange, and the per-family utilization derate. The
+  // accountOp dispatch just plugs the result into the shared kernel.
 
-  // Tile-mul count for matmul/linear (M·K·N tiles, batched).
-  uint64_t matmulTileMuls(Value lhs, Value result) {
-    return getNumMatmulTiles(mlir::cast<RankedTensorType>(lhs.getType()),
-                             mlir::cast<RankedTensorType>(result.getType()));
+  // Matmul / Linear / matmul-equivalent ops (1x1 conv with stride=1
+  // padding=0 dilation=1 groups=1). M, K, N are pulled from the IR-visible
+  // operand shapes; getNumMatmulTiles handles the up32 tile rounding and
+  // batch product.
+  OpTargets matmulTargets(Value lhs, Value weight, Value result) {
+    OpTargets ot;
+    ot.weights = {weight};
+    ot.tileMuls =
+        getNumMatmulTiles(mlir::cast<RankedTensorType>(lhs.getType()),
+                          mlir::cast<RankedTensorType>(result.getType()));
+    ot.utilization = kMatmulFamilyUtilization;
+    return ot;
   }
 
-  // Tile-mul count for SDPA prefill: 2·B·Hq·up32(Sq)·up32(D)·up32(Sk).
-  // Returns 0 (compute-free) for unexpected ranks — caller falls back to
-  // DRAM-only via the shared max(dramUs, computeUs).
-  uint64_t sdpaPrefillTileMuls(Value query, Value key) {
+  // SDPA decode: M=1 → compute negligible; only the KV-cache DRAM read
+  // counts. weights = {K, V}, tileMuls = 0.
+  OpTargets sdpaDecodeTargets(Value key, Value value) {
+    OpTargets ot;
+    ot.weights = {key, value};
+    ot.tileMuls = 0;
+    ot.utilization = kMatmulFamilyUtilization;
+    return ot;
+  }
+
+  // SDPA prefill: 2·B·Hq·up32(Sq)·up32(D)·up32(Sk) tile-muls.
+  // Returns 0 tileMuls (compute-free fallback to DRAM-only via
+  // max(dramUs, computeUs)) when ranks are unexpected.
+  OpTargets sdpaPrefillTargets(Value query, Value key, Value value) {
+    OpTargets ot;
+    ot.weights = {key, value};
+    ot.utilization = kMatmulFamilyUtilization;
     auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
     auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
     if (!qType || !kType || qType.getShape().size() != 4 ||
         kType.getShape().size() != 4) {
-      return 0;
+      return ot;
     }
     ArrayRef<int64_t> q = qType.getShape();
     ArrayRef<int64_t> k = kType.getShape();
     auto up32 = [](uint64_t x) { return (x + 31) / 32; };
-    return 2ULL * static_cast<uint64_t>(q[0]) * static_cast<uint64_t>(q[1]) *
-           up32(static_cast<uint64_t>(q[2])) *
-           up32(static_cast<uint64_t>(q[3])) *
-           up32(static_cast<uint64_t>(k[2]));
+    ot.tileMuls =
+        2ULL * static_cast<uint64_t>(q[0]) * static_cast<uint64_t>(q[1]) *
+        up32(static_cast<uint64_t>(q[2])) * up32(static_cast<uint64_t>(q[3])) *
+        up32(static_cast<uint64_t>(k[2]));
+    return ot;
+  }
+
+  // A conv2d with 1x1 kernel, stride=1, dilation=1, groups=1, and zero
+  // padding is mathematically a pointwise matmul: each output pixel is a
+  // linear combination of input channels with no halo, no im2col, and no
+  // spatial-axis gather. On TT hardware those dispatch to the matmul
+  // kernel and attain matmul-class utilization (~0.7), not conv-class.
+  static bool isConv2dPointwise(Conv2dOp conv) {
+    auto kernel = conv.getKernelSize();
+    auto stride = conv.getStride();
+    auto dilation = conv.getDilation();
+    auto padding = conv.getPadding();
+    if (kernel.size() != 2 || stride.size() != 2 || dilation.size() != 2) {
+      return false;
+    }
+    if (kernel[0] != 1 || kernel[1] != 1) {
+      return false;
+    }
+    if (stride[0] != 1 || stride[1] != 1) {
+      return false;
+    }
+    if (dilation[0] != 1 || dilation[1] != 1) {
+      return false;
+    }
+    if (conv.getGroups() != 1) {
+      return false;
+    }
+    for (int32_t p : padding) {
+      if (p != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // 2D convolution lowered to GEMM. Per-group GEMM:
+  //   M = N · H_out · W_out      (output spatial rows after im2col)
+  //   K = (C/G) · K_H · K_W      (reduction = ifm window)
+  //   N_gemm = O/G               (per-group output channels)
+  // Tile muls = G · up32(M) · up32(K) · up32(N_gemm).
+  //
+  // 1x1 pointwise convs are routed through matmulTargets so they take the
+  // matmul utilization (0.7). The tilized prepared weight is materialised
+  // in DRAM so allowVolumeChange stays true regardless of which path.
+  // Returns tileMuls=0 (DRAM-only fallback) on degenerate output.
+  OpTargets conv2dTargets(Conv2dOp conv) {
+    if (isConv2dPointwise(conv)) {
+      OpTargets ot =
+          matmulTargets(conv.getInput(), conv.getWeight(), conv.getResult());
+      ot.allowVolumeChange = true;
+      return ot;
+    }
+    OpTargets ot;
+    ot.weights = {conv.getWeight()};
+    ot.allowVolumeChange = true;
+    ot.utilization = kConvFamilyUtilization;
+
+    int64_t N = conv.getBatchSize();
+    int64_t H_in = conv.getInputHeight();
+    int64_t W_in = conv.getInputWidth();
+    int64_t G = conv.getGroups();
+    int64_t C = conv.getInChannels();
+    int64_t O = conv.getOutChannels();
+    auto kernel = conv.getKernelSize();
+    auto stride = conv.getStride();
+    auto padding = conv.getPadding();
+    auto dilation = conv.getDilation();
+    if (kernel.size() != 2 || stride.size() != 2 || dilation.size() != 2 ||
+        (padding.size() != 2 && padding.size() != 4) || G <= 0) {
+      return ot;
+    }
+    int64_t kH = kernel[0], kW = kernel[1];
+    int64_t sH = stride[0], sW = stride[1];
+    int64_t dH = dilation[0], dW = dilation[1];
+    int64_t pT, pB, pL, pR;
+    if (padding.size() == 2) {
+      pT = pB = padding[0];
+      pL = pR = padding[1];
+    } else {
+      pT = padding[0];
+      pB = padding[1];
+      pL = padding[2];
+      pR = padding[3];
+    }
+    int64_t hOut = (H_in + pT + pB - dH * (kH - 1) - 1) / sH + 1;
+    int64_t wOut = (W_in + pL + pR - dW * (kW - 1) - 1) / sW + 1;
+    if (hOut <= 0 || wOut <= 0) {
+      return ot;
+    }
+    auto up32 = [](uint64_t x) { return (x + 31) / 32; };
+    uint64_t M = static_cast<uint64_t>(N) * static_cast<uint64_t>(hOut) *
+                 static_cast<uint64_t>(wOut);
+    uint64_t K = static_cast<uint64_t>(C / G) * static_cast<uint64_t>(kH) *
+                 static_cast<uint64_t>(kW);
+    uint64_t Ng = static_cast<uint64_t>(O / G);
+    ot.tileMuls = static_cast<uint64_t>(G) * up32(M) * up32(K) * up32(Ng);
+    return ot;
+  }
+
+  // 2D transposed convolution. Same GEMM structure as conv2d but with the
+  // transposed-conv output formula:
+  //   H_out = (H_in - 1) · sH - pT - pB + dH · (K_H - 1) + out_pad_H + 1
+  // No pointwise-equivalent fast-path: a 1x1 transposed conv is rare and
+  // still pays the same halo/scatter cost on real silicon.
+  OpTargets convTranspose2dTargets(ConvTranspose2dOp conv) {
+    OpTargets ot;
+    ot.weights = {conv.getWeight()};
+    ot.allowVolumeChange = true;
+    ot.utilization = kConvFamilyUtilization;
+
+    int64_t N = conv.getBatchSize();
+    int64_t H_in = conv.getInputHeight();
+    int64_t W_in = conv.getInputWidth();
+    int64_t G = conv.getGroups();
+    int64_t C = conv.getInChannels();
+    int64_t O = conv.getOutChannels();
+    auto kernel = conv.getKernelSize();
+    auto stride = conv.getStride();
+    auto padding = conv.getPadding();
+    auto outputPadding = conv.getOutputPadding();
+    auto dilation = conv.getDilation();
+    if (kernel.size() != 2 || stride.size() != 2 || dilation.size() != 2 ||
+        outputPadding.size() != 2 ||
+        (padding.size() != 2 && padding.size() != 4) || G <= 0) {
+      return ot;
+    }
+    int64_t kH = kernel[0], kW = kernel[1];
+    int64_t sH = stride[0], sW = stride[1];
+    int64_t dH = dilation[0], dW = dilation[1];
+    int64_t opH = outputPadding[0], opW = outputPadding[1];
+    int64_t pT, pB, pL, pR;
+    if (padding.size() == 2) {
+      pT = pB = padding[0];
+      pL = pR = padding[1];
+    } else {
+      pT = padding[0];
+      pB = padding[1];
+      pL = padding[2];
+      pR = padding[3];
+    }
+    int64_t hOut = (H_in - 1) * sH - pT - pB + dH * (kH - 1) + opH + 1;
+    int64_t wOut = (W_in - 1) * sW - pL - pR + dW * (kW - 1) + opW + 1;
+    if (hOut <= 0 || wOut <= 0) {
+      return ot;
+    }
+    auto up32 = [](uint64_t x) { return (x + 31) / 32; };
+    uint64_t M = static_cast<uint64_t>(N) * static_cast<uint64_t>(hOut) *
+                 static_cast<uint64_t>(wOut);
+    uint64_t K = static_cast<uint64_t>(C / G) * static_cast<uint64_t>(kH) *
+                 static_cast<uint64_t>(kW);
+    uint64_t Ng = static_cast<uint64_t>(O / G);
+    ot.tileMuls = static_cast<uint64_t>(G) * up32(M) * up32(K) * up32(Ng);
+    return ot;
   }
 };
 
 // Tensor needs to be in DRAM.
 // A direct arg marked as a weight (Parameter/Constant/kv_cache) is valid.
-// A tensor produced by a load_cached op is valid, but only when the tensor
-// volume is not changed in the const eval func. This is so that we prevent
-// counting a tensor that has been broadcasted.
-inline bool isValidWeightForTargetCalculation(mlir::Value v) {
+// A tensor produced by a load_cached op is valid, but by default only when
+// the tensor volume is preserved through the const-eval func. This is so
+// that we prevent counting a tensor that has been broadcasted.
+//
+// `allowVolumeChange` relaxes the load_cached volume check. Used for conv
+// weights, whose `prepare_conv*_weights` const-eval legitimately grows the
+// tensor through tile padding — the tilized tensor is the actual DRAM
+// allocation streamed by the kernel.
+inline bool isValidWeightForTargetCalculation(mlir::Value v,
+                                              bool allowVolumeChange) {
   auto vType = mlir::dyn_cast<RankedTensorType>(v.getType());
   if (!vType) {
     return false;
@@ -422,7 +658,7 @@ inline bool isValidWeightForTargetCalculation(mlir::Value v) {
     return false;
   }
 
-  if (!constEvalDoesNotChangeTensorVolume(loadCachedOp)) {
+  if (!allowVolumeChange && !constEvalDoesNotChangeTensorVolume(loadCachedOp)) {
     return false;
   }
 
@@ -648,6 +884,10 @@ private:
     pt["skipped_ops"] = static_cast<int64_t>(t.skippedOps);
 
     pt["roofline_ms"] = t.rooflineMs;
+    pt["roofline_ms_matmul_family"] = t.rooflineMsMatmulFamily;
+    pt["roofline_ms_conv_family"] = t.rooflineMsConvFamily;
+    pt["matmul_family_utilization"] = PerfTargets::kMatmulFamilyUtilization;
+    pt["conv_family_utilization"] = PerfTargets::kConvFamilyUtilization;
     pt["top_perf_estimate_ms"] = t.topPerfEstimateMs;
 
     jsonOutput["perf_targets"] = std::move(pt);
@@ -848,18 +1088,12 @@ public:
 
     aggregatedMetrics.calculatePercentages();
 
-    // Derate the per-matmul roofline by a fixed utilization factor. The peak
-    // DRAM math assumes 288 GB/s on WH B0 but tt-metal's
-    // tech_reports/Saturating_DRAM_bandwidth.md measures real matmul reads at
-    // ~83-90% of peak; 0.7 is the conservative end of that range and lines up
-    // with published Llama 3 8B decode tok/sec on n150. Apply once at the
-    // end so the per-op classification still uses the peak numbers.
-    // rooflineMs stays as the pure theoretical ceiling — sum of per-op
-    // max(dram_us, compute_us) at peak hardware. topPerfEstimateMs is
-    // the realistic estimate derated by kUtilizationFactor, where peak
-    // is rarely achievable.
-    constexpr double kUtilizationFactor = 0.7;
-    perfTargets.topPerfEstimateMs = perfTargets.rooflineMs / kUtilizationFactor;
+    // topPerfEstimateMs / rooflineMs / per-family rooflines are populated
+    // by accountOp's shared kernel as each op is processed; nothing to do
+    // here. The per-family utilization derate is applied per-op via
+    // OpTargets::utilization (matmul family ≈ 0.7, conv family ≈ 0.4) —
+    // see PerfTargets::kMatmulFamilyUtilization /
+    // PerfTargets::kConvFamilyUtilization for sources / calibration.
 
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);
